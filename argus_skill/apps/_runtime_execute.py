@@ -37,11 +37,12 @@ log = logging.getLogger(__name__)
 def _engineer_guidance(
     state_root: Path | None,
     workdir: Path,
+    manager: object | None = None,
 ) -> list[str]:
-    """Combine persistent Manager policy with one-shot live inbox messages."""
+    """Project the typed operator context after persisting fresh inbox input."""
     if state_root is None:
         return []
-    from ..manager.directive import active_manager_directive_message
+    from ..core.operator_context import build_operator_context_block
     from ..skills.stage_machine import current_stage
     from ._inbox import drain_inbox_messages
 
@@ -51,13 +52,13 @@ def _engineer_guidance(
     )
     from ..manager.directive import record_operator_messages
 
-    record_operator_messages(state_root, transient)
-    messages: list[str] = []
-    active_directive = active_manager_directive_message(state_root)
-    if active_directive:
-        messages.append(active_directive)
-    messages.extend(transient)
-    return list(dict.fromkeys(messages))
+    record_operator_messages(state_root, transient, manager=manager)
+    block, _revision = build_operator_context_block(
+        "engineer",
+        state_root,
+        live_turn="\n".join(transient),
+    )
+    return [block] if block else []
 
 
 class SkillLoopExecuteMixin:
@@ -711,7 +712,7 @@ class SkillLoopExecuteMixin:
 
         def _inbox_guidance_provider() -> list[str]:
             try:
-                return _engineer_guidance(inbox_life_dir, workdir)
+                return _engineer_guidance(inbox_life_dir, workdir, self.manager)
             except Exception:  # noqa: BLE001 — never break a mission
                 return []
 

@@ -1276,8 +1276,13 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         sys.stderr.write("argus-skill: --ask requires a non-empty question\n")
         return 2
     bundle = _resolve_project_bundle(args)
+    from ...core.operator_context import (
+        build_operator_context_block,
+        import_deterministic_credential,
+    )
     from ...core.models import RunnerOptions
     from ...core.run_gateway import run_exec as gateway_run_exec
+    from ...manager.config_intent import _front_door_classify
     from ...manager.front_door import _ensure_manager_runner
     from ...manager.stage_decider import extract_answer
     from ...roles.prompts.manager import build_quick_reply_prompt
@@ -1287,6 +1292,13 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     chat_state = _chat_state_for(sid)
     chat_state["session_id"] = sid
     chat_state["global_root"] = str(bundle.global_root)
+    question, credential = import_deterministic_credential(
+        bundle.project.root,
+        question,
+        global_root=bundle.global_root,
+    )
+    chat_state["_frontdoor_credential_imported"] = credential is not None
+    _front_door_classify(bundle, question, chat_state)
     runner = _ensure_manager_runner(chat_state, bundle)
     if runner is None:
         reason = str(chat_state.get("manager_runner_error") or "").strip()
@@ -1296,9 +1308,15 @@ def _cmd_ask(args: argparse.Namespace) -> int:
             + " — nothing was queued\n"
         )
         return 1
+    operator_context, _revision = build_operator_context_block(
+        "manager", bundle.project.root, consume_once=False
+    )
+    prompt = build_quick_reply_prompt(objective=question)
+    if operator_context:
+        prompt = operator_context + "\n\n" + prompt
     result = gateway_run_exec(
         runner,
-        prompt=build_quick_reply_prompt(objective=question),
+        prompt=prompt,
         options=RunnerOptions(skip_git_repo_check=True),
         run_label="manager-ask",
     )

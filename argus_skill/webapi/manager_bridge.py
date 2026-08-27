@@ -117,9 +117,17 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
                 "`/ask` cannot answer inline. Send the message without `/ask` "
                 "to queue it as work instead."
             )
+        from ..core.operator_context import build_operator_context_block
+
+        operator_context, _revision = build_operator_context_block(
+            "manager", life_dir, consume_once=False
+        )
+        prompt = build_quick_reply_prompt(objective=question)
+        if operator_context:
+            prompt = operator_context + "\n\n" + prompt
         result = gateway_run_exec(
             chat_state.get("manager_session") or runner,
-            prompt=build_quick_reply_prompt(objective=question),
+            prompt=prompt,
             options=RunnerOptions(skip_git_repo_check=True),
             run_label="manager-ask",
         )
@@ -206,6 +214,7 @@ def manager_message(
         fingerprint=sid, global_root=Path(global_root) if global_root else None
     )
     life_dir = mem.project_root
+    credential_record = None
 
     def _after_reply(reply: str) -> None:
         runner = _chat_state_for(sid).get("manager_runner")
@@ -235,14 +244,38 @@ def manager_message(
             "reply": "project no longer exists; the message was not processed",
         }
 
+    from ..core.operator_context import import_deterministic_credential
+
+    safe_body, credential_record = import_deterministic_credential(
+        life_dir,
+        body,
+        global_root=mem.global_root,
+    )
+    if safe_body != body:
+        body = safe_body
+        operator_text, _separator, _attachments = safe_body.partition("\n\nAttachments:\n")
+
     from ..manager.ask_intent import strip_ask_prefix
 
-    # `/ask` states outright that this is a question. Skip classification —
-    # the guess is what we are removing — queue nothing, and involve no role
-    # beyond the Manager. This is what lets the automatic classifier stay
-    # biased toward "task": anyone who wants a plain answer can say so.
+    # `/ask` fixes the route, but still uses the shared intake classification
+    # before the separate Manager answer turn.
     _question = strip_ask_prefix(operator_text)
     if _question is not None:
+        with _lock_for(sid):
+            from ..manager.config_intent import _front_door_classify
+
+            chat_state = _chat_state_for(sid)
+            chat_state["session_id"] = sid
+            chat_state["global_root"] = str(mem.global_root)
+            chat_state["_frontdoor_credential_imported"] = (
+                credential_record is not None
+            )
+            _front_door_classify(
+                mem,
+                body,
+                chat_state,
+                active_mission=mission_is_running(mem),
+            )
         try:
             append_turn(life_dir, "operator", body)
         except Exception:  # noqa: BLE001
@@ -365,6 +398,7 @@ def manager_message(
                     chat_state.get("startup_handoffs", 0)
                 ) + 1
 
+        chat_state["_frontdoor_credential_imported"] = credential_record is not None
         classify = _classify_operator_turn(
             mem,
             body,
@@ -720,13 +754,23 @@ def manager_rewrite(
         state = _chat_state_for(sid)
         runner = _ensure_manager_runner(state, mem)
         model, effort = _rewrite_model_and_effort()
+        from ..core.operator_context import build_operator_context_block
+
+        operator_context, operator_context_revision = build_operator_context_block(
+            "manager", mem.project_root, consume_once=False
+        )
+        project_context = _rewrite_project_context(mem, sid)
+        if operator_context:
+            project_context = "\n\n".join(
+                part for part in (operator_context, project_context) if part
+            )
         rewrite = rewrite_prompt(
             runner,
             body,
             model=model,
             reasoning_effort=effort,
             run_label="manager-rewrite",
-            project_context=_rewrite_project_context(mem, sid),
+            project_context=project_context,
         )
     return {
         "original": rewrite.original or body,
@@ -734,4 +778,5 @@ def manager_rewrite(
         "changes": list(rewrite.changes),
         "questions": list(rewrite.questions),
         "error": rewrite.error,
+        "operator_context_revision": operator_context_revision,
     }

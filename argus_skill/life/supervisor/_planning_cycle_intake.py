@@ -154,7 +154,7 @@ class PlanningCycleIntakeMixin:
         immediately; returns ``None`` to continue the cycle.
         """
         revision_request = state.revision_request
-        from ...manager.directive import active_manager_directive_message
+        from ...core.operator_context import build_operator_context_block
 
         transient_messages = (
             self._take_operator_guidance_carryover() + self._drain_user_inbox()
@@ -164,12 +164,17 @@ class PlanningCycleIntakeMixin:
         # Draining appends fresh messages to the durable ledger. Re-render after
         # the drain so this same planning turn sees the complete standing block
         # as well as the legacy one-shot operator note below.
-        active_directive = active_manager_directive_message(self.memory.root)
+        operator_context, _revision = build_operator_context_block(
+            "planner",
+            self.memory.root,
+            live_turn="\n".join(transient_messages),
+            consume_once=False,
+        )
+        state.operator_context_revision = _revision
         state.fresh_operator_messages = list(dict.fromkeys(transient_messages))
         state.operator_messages = list(
             dict.fromkeys(
-                ([active_directive] if active_directive else [])
-                + state.fresh_operator_messages
+                ([operator_context] if operator_context else [])
             )
         )
         if transient_messages:

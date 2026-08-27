@@ -456,6 +456,21 @@ def set_operator_config(
     if env_name not in allowed:
         raise ValueError(f"config key is not cockpit-editable: {raw}")
     val = normalize_cockpit_knob_value(env_name, value)
+    if project_state_dir is not None:
+        from ..core.operator_context import IntakeDecision, persist_intake_decision
+
+        persist_intake_decision(
+            project_state_dir,
+            f"{env_name}={val}",
+            IntakeDecision(
+                kind="preference",
+                scope="project",
+                applies_to_roles="all",
+                preference_kind="workflow",
+                preference_value=f"{env_name}={val}",
+            ),
+            source="web.config",
+        )
     # Budget caps are ordinary config.json knobs now (budget.json retired) — they
     # fall through to the generic knob_store write path below like any other knob.
     if not write_persisted_knob(env_name, val):
@@ -495,6 +510,21 @@ def set_budget_config(
             env_name,
             str(values[alias]),
         )
+    from ..core.operator_context import IntakeDecision, persist_intake_decision
+
+    rendered = ", ".join(f"{key}={normalized[key]}" for key in sorted(normalized))
+    persist_intake_decision(
+        project_state_dir,
+        rendered,
+        IntakeDecision(
+            kind="preference",
+            scope="project",
+            applies_to_roles=("manager", "planner"),
+            preference_kind="workflow",
+            preference_value=rendered,
+        ),
+        source="web.config.budget",
+    )
     # Budget caps are ordinary config.json knobs now (budget.json retired) — write
     # the whole normalized batch (caps + quota knobs) to the knob_store.
     for key, value in normalized.items():

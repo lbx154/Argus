@@ -1623,6 +1623,7 @@ class Backlog:
         decision_id: str = "",
         decision_note: str = "",
         manager_reply: str = "",
+        operator_context_persisted: bool = False,
     ) -> tuple[BacklogItem | None, BacklogItem | None]:
         """Atomically consume one pending question and enqueue its continuation.
 
@@ -1630,6 +1631,26 @@ class Backlog:
         lock and resolved card provide idempotency without a separate revision
         or campaign-generation gate.
         """
+        from ..core.operator_context import import_deterministic_credential
+
+        answer, _credential = import_deterministic_credential(
+            self.path.parent,
+            answer,
+            global_root=(
+                self.path.parent.parent.parent
+                if self.path.parent.parent.name == "projects"
+                else None
+            ),
+        )
+        if not operator_context_persisted:
+            from ..core.operator_context import persist_once_answer
+
+            persist_once_answer(
+                self.path.parent,
+                answer,
+                source="operator.continuation_answer",
+                mission_id=item_id,
+            )
         with self._locked():
             items = self._load()
             blocked = next((item for item in items if item.id == item_id), None)

@@ -121,12 +121,6 @@ class PlanningCycleVerdictMixin:
         journal_tail = self._render_journal_for_planner()
 
         runtime_note = self._planner_runtime_with_idle_note()
-        operator_note = (
-            "LIVE OPERATOR GUIDANCE (supersedes stale blocker state):\n"
-            + "\n".join(f"- {message}" for message in state.operator_messages)
-            if state.operator_messages
-            else ""
-        )
         revision_note = (
             _render_revision_request(revision_request, state.revision_active_items)
             if revision_request is not None
@@ -178,7 +172,6 @@ class PlanningCycleVerdictMixin:
                                 state.manager_intent,
                                 self.config.continuous_objective,
                             ),
-                            operator_note,
                             self._planner_authorization_prompt_block(),
                             stuck_families_note,
                             runtime_note,
@@ -188,6 +181,12 @@ class PlanningCycleVerdictMixin:
                     ),
                     config=self._planner_config(),
                 )
+                self._emit({
+                    "type": EventType.ROLE_SESSION_TURN,
+                    "role": "planner",
+                    "cycle": self._planning_cycles,
+                    "operator_context_revision": state.operator_context_revision,
+                })
                 self._apply_research_plan_update(
                     getattr(state.verdict, "raw_text", "") or ""
                 )

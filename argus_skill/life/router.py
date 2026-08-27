@@ -58,6 +58,12 @@ def classify_route(
 
 #: The front-door decision fields, in the order the Manager contract lists them.
 _FRONT_DOOR_FIELDS = (
+    "intake_type",
+    "intake_scope",
+    "intake_roles",
+    "preference_kind",
+    "preference_value",
+    "revoke_revision",
     "config",
     "control",
     "authorization",
@@ -315,6 +321,7 @@ def classify_front_door(
     steering_sink: Callable[[str], None] | None = None,
     operator_question_policy_sink: Callable[[OperatorQuestionPolicy], None] | None = None,
     authorization_sink: Callable[[tuple[str, ...]], None] | None = None,
+    intake_sink: Callable[[dict[str, Any]], None] | None = None,
     failure_sink: Callable[[str], None] | None = None,
     active_mission: bool = False,
 ) -> "tuple[ConfigDecision, ControlIntent | None, str]":
@@ -513,6 +520,57 @@ def classify_front_door(
         try:
             name_sink(name)
         except Exception:  # noqa: BLE001 - cosmetic metadata never owns routing
+            pass
+    intake_type = fields["intake_type"].strip().lower()
+    if intake_type not in {
+        "ephemeral",
+        "objective_amendment",
+        "standing_directive",
+        "preference",
+        "credential_grant",
+        "revocation",
+    }:
+        if intent is not None:
+            intake_type = "preference"
+        elif control == "steer" or route == "complex":
+            intake_type = "objective_amendment"
+        else:
+            intake_type = "ephemeral"
+    intake_scope = fields["intake_scope"].strip().lower()
+    if intake_scope not in {"mission", "project", "global"}:
+        intake_scope = "mission" if intake_type == "objective_amendment" else "project"
+    raw_roles = fields["intake_roles"].strip().lower()
+    if raw_roles == "all" or not raw_roles:
+        intake_roles: str | tuple[str, ...] = "all"
+    else:
+        intake_roles = tuple(
+            dict.fromkeys(
+                role.strip()
+                for role in raw_roles.split(",")
+                if role.strip() in {"manager", "planner", "engineer", "reviewer", "teammate"}
+            )
+        ) or "all"
+    preference_kind = fields["preference_kind"].strip().lower()
+    if preference_kind not in {"autonomy", "interaction", "workflow"}:
+        preference_kind = "workflow"
+    try:
+        revocation_target = int(fields["revoke_revision"])
+    except (TypeError, ValueError):
+        revocation_target = 0
+    if callable(intake_sink):
+        try:
+            intake_sink({
+                "kind": intake_type,
+                "scope": intake_scope,
+                "applies_to_roles": intake_roles,
+                "preference_kind": preference_kind,
+                "preference_value": (
+                    "" if fields["preference_value"].upper() == "NONE"
+                    else fields["preference_value"]
+                ),
+                "target_revision": revocation_target,
+            })
+        except Exception:  # noqa: BLE001 - intake metadata never owns routing
             pass
     return intent, control, route
 

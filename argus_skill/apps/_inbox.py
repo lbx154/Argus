@@ -164,6 +164,19 @@ def queue_inbox_message(
     source: str,
     stage: str = "",
 ) -> None:
+    root = Path(life_dir)
+    from ..core.operator_context import import_deterministic_credential
+
+    global_root = (
+        root.parent.parent
+        if root.parent.name == "projects"
+        else None
+    )
+    text, _credential = import_deterministic_credential(
+        root,
+        text,
+        global_root=global_root,
+    )
     inbox = inbox_path(life_dir, stage)
     inbox.parent.mkdir(parents=True, exist_ok=True)
     record = {"ts": time.time(), "text": text}

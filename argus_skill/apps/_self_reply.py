@@ -769,6 +769,16 @@ class SelfReplyMixin:
                 else None
             )
 
+        from ..core.operator_context import build_operator_context_block
+
+        operator_context, operator_context_revision = build_operator_context_block(
+            "manager",
+            getattr(self, "_manager_session_root", None),
+            consume_once=False,
+        )
+        if operator_context:
+            prompt = operator_context + "\n\n" + prompt
+
         def _self_inactivity(snapshot: Any) -> str | None:
             try:
                 idle = int(getattr(snapshot, "idle_seconds", 0) or 0)
@@ -941,6 +951,7 @@ class SelfReplyMixin:
                 success
             ),
             "attempt_count": len(attempt_results),
+            "operator_context_revision": operator_context_revision,
         })
 
         status = "done" if success else "error"

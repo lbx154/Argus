@@ -154,6 +154,30 @@ class CommandRouter:
         """Inbox provenance tag, e.g. ``telegram.nudge`` / ``feishu.nudge``."""
         return f"{self.channel}.{kind}"
 
+    def _intake_operator_text(self, text: str) -> tuple[str, Any, str | None, str]:
+        """Redact credentials, then run the shared Manager intake classifier."""
+        from ...core.operator_context import import_deterministic_credential
+        from ...manager.config_intent import _front_door_classify
+        from ..memory import MemoryBundle
+
+        safe_text, credential = import_deterministic_credential(
+            self.life_dir,
+            text,
+            global_root=self.life_dir.parent.parent,
+        )
+        mem = MemoryBundle.for_cwd(
+            fingerprint=self.life_dir.name,
+            global_root=self.life_dir.parent.parent,
+        )
+        self._state["_frontdoor_credential_imported"] = credential is not None
+        intent, control, route = _front_door_classify(
+            mem,
+            safe_text,
+            self._state,
+            active_mission=bool(select_current_running_item(mem.backlog.active())),
+        )
+        return safe_text, intent, control, route
+
     # -- routing -----------------------------------------------------------
 
     def dispatch(self, text: str) -> None:
@@ -230,7 +254,9 @@ class CommandRouter:
             pass
         return ""
 
-    def _queue_task(self, arg: str) -> QueuedTask | None:
+    def _queue_task(self, arg: str, *, intake_done: bool = False) -> QueuedTask | None:
+        if not intake_done:
+            arg, _intent, _control, _route = self._intake_operator_text(arg)
         cfg = self._state.setdefault("config", dict(DEFAULT_LIFE_CONFIG))
         iterate, cycles, body = parse_add_flags(
             arg,
@@ -303,6 +329,7 @@ class CommandRouter:
         """Route natural chat text to the most timely useful action."""
         from ...apps._inbox import queue_inbox_message
         from ...daemon.life_worker import read_daemon_status
+        from ...manager.config_intent import _apply_config_intent
         from ...manager.front_door import manager_triage
         from ..memory import LifeMemory, MemoryBundle
 
@@ -310,7 +337,13 @@ class CommandRouter:
         current_task = select_current_running_item(mem.backlog.active())
         daemon_status = read_daemon_status(self.life_dir)
         if daemon_status.alive and current_task is not None:
-            text = text.strip()
+            from ...core.operator_context import import_deterministic_credential
+
+            text, _credential = import_deterministic_credential(
+                self.life_dir,
+                text.strip(),
+                global_root=self.life_dir.parent.parent,
+            )
             queue_inbox_message(self.life_dir, text, source=self._source("free_text"))
             title = _esc(str(getattr(current_task, "title", ""))[:80])
             self._reply(
@@ -321,16 +354,41 @@ class CommandRouter:
             )
             return
 
+        text, intent, _control, route = self._intake_operator_text(text.strip())
+        if intent is not None:
+            confirmations: list[str] = []
+            manager_mem = MemoryBundle.for_cwd(
+                fingerprint=self.life_dir.name,
+                global_root=self.life_dir.parent.parent,
+            )
+            if _apply_config_intent(
+                manager_mem,
+                intent,
+                self._state,
+                on_confirm=confirmations.append,
+            ):
+                self._reply("\n".join(confirmations))
+                return
+
         manager_mem = MemoryBundle.for_cwd(
             fingerprint=self.life_dir.name,
             global_root=self.life_dir.parent.parent,
         )
-        reply = manager_triage(manager_mem, text, self._state)
+        from ...manager.front_door import _accepts_parameter
+
+        triage_kwargs: dict[str, Any] = {}
+        if _accepts_parameter(manager_triage, "route"):
+            triage_kwargs["route"] = route
+        if _accepts_parameter(manager_triage, "self_mode"):
+            triage_kwargs["self_mode"] = str(
+                self._state.get("_frontdoor_self_mode", "inspect")
+            )
+        reply = manager_triage(manager_mem, text, self._state, **triage_kwargs)
         if reply is not None:
             self._reply(_esc(reply))
             return
 
-        queued = self._queue_task(text)
+        queued = self._queue_task(text, intake_done=True)
         if queued is None:
             self._reply("我没收到有效内容；可以直接发任务描述，或用 /help 查看命令。")
             return
@@ -466,7 +524,9 @@ class CommandRouter:
         self._state["continuous_state"] = read_continuous_state(self.life_dir)
         self._state["continuous_objective"] = self._state["continuous_state"].objective
         tokens = shlex.split(arg) if arg.strip() else []
-        self._reply(f"<pre>{_esc(render_backend_cmd(tokens, self._state))}</pre>")
+        self._reply(
+            f"<pre>{_esc(render_backend_cmd(tokens, self._state, life_dir=self.life_dir))}</pre>"
+        )
 
     def _cmd_reset(self, _arg: str) -> None:
         self._reply(f"<pre>{_esc(render_reset_cmd(self._state))}</pre>")
@@ -640,7 +700,13 @@ class CommandRouter:
             return
         from ...apps._inbox import queue_inbox_message
 
-        text = arg.strip()
+        from ...core.operator_context import import_deterministic_credential
+
+        text, _credential = import_deterministic_credential(
+            self.life_dir,
+            arg.strip(),
+            global_root=self.life_dir.parent.parent,
+        )
         queue_inbox_message(self.life_dir, text, source=self._source("nudge"))
         self._reply(
             f"💬 指令已注入 ({len(text)} 字)\n"
@@ -656,6 +722,7 @@ class CommandRouter:
             return
         from ...webapi.manager_bridge import _answer_inline
 
+        question, _intent, _control, _route = self._intake_operator_text(question)
         self._reply(_esc(_answer_inline(self.life_dir.name, self.life_dir, question)))
 
     def _cmd_help(self, _arg: str) -> None:

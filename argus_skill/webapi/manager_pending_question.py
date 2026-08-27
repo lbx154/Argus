@@ -288,6 +288,7 @@ def _apply_operator_answer(
     decision_option: str = "custom",
     decision_id: str = "",
     decision_note: str = "",
+    operator_context_persisted: bool = False,
 ) -> dict[str, Any]:
     """Persist an explicit operator answer and enqueue its continuation."""
     from ..apps._inbox import queue_inbox_message
@@ -303,6 +304,7 @@ def _apply_operator_answer(
         decision_id=decision_id,
         decision_note=decision_note,
         manager_reply=manager_reply,
+        operator_context_persisted=operator_context_persisted,
     )
     if blocked is None:
         return {"error": "unknown backlog item", "answered_item_id": item.id}
@@ -368,9 +370,27 @@ def _resolve_pending_question_with_manager(
     decision_id: str = "",
     decision_note: str = "",
 ) -> dict[str, Any]:
+    from ..core.operator_context import (
+        import_deterministic_credential,
+        persist_once_answer,
+    )
     from ..manager.front_door import manager_triage
     from ..roles.prompts.manager import build_pending_question_prompt
 
+    root = Path(mem.project_root)
+    answer, _credential = import_deterministic_credential(
+        root,
+        answer,
+        global_root=(
+            root.parent.parent if root.parent.name == "projects" else None
+        ),
+    )
+    persist_once_answer(
+        mem.project_root,
+        answer,
+        source="operator.pending_answer",
+        mission_id=str(item.id),
+    )
     prompt = build_pending_question_prompt(item, answer)
     try:
         manager_reply = manager_triage(
@@ -465,6 +485,7 @@ def _resolve_pending_question_with_manager(
         decision_option=decision_option,
         decision_id=decision_id,
         decision_note=decision_note,
+        operator_context_persisted=True,
     )
 
 
@@ -509,6 +530,13 @@ def manager_answer_pending_question(
             if decision_id
             else f"web-{time.time_ns()}"
         )
+        from ..core.operator_context import import_deterministic_credential
+
+        text, _credential = import_deterministic_credential(
+            mem.project_root,
+            text,
+            global_root=mem.global_root,
+        )
         append_turn(
             mem.project_root,
             "operator",
@@ -521,6 +549,14 @@ def manager_answer_pending_question(
             text.strip(),
             message_id=f"{turn_id}-operator",
         )
+        from ..core.operator_context import persist_once_answer
+
+        persist_once_answer(
+            mem.project_root,
+            text.strip(),
+            source="operator.explicit_answer",
+            mission_id=str(item.id),
+        )
         result = _apply_operator_answer(
             mem,
             item,
@@ -530,6 +566,7 @@ def manager_answer_pending_question(
             decision_option=decision_option,
             decision_id=decision_id,
             decision_note=decision_note,
+            operator_context_persisted=True,
         )
         reply = str(
             result.get("reply")

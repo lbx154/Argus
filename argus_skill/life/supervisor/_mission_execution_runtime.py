@@ -40,11 +40,20 @@ class MissionExecutionRuntimeMixin:
         except TypeError:
             # Compatibility with narrow host-provided memory views.
             prelude = self.memory.render_prelude()
-        from ...manager.directive import render_active_steering
+        from ...core.operator_context import build_operator_context_block
 
-        steering = render_active_steering(self.memory.root)
-        if steering:
-            prelude = steering + "\n\n---\n\n" + prelude if prelude else steering
+        operator_context, _revision = build_operator_context_block(
+            "engineer",
+            self.memory.root,
+            mission_id=item.id,
+            consume_once=False,
+        )
+        if operator_context:
+            prelude = (
+                operator_context + "\n\n---\n\n" + prelude
+                if prelude
+                else operator_context
+            )
         from ..research_plan import render_research_plan_for_mission
 
         research_plan = render_research_plan_for_mission(self.memory.root)

@@ -861,9 +861,11 @@ class PlanningCycleMixin(
             return {"vertical": persisted}
 
         mgr = self._bound_manager()
-        from ...manager.directive import active_manager_directive_message
+        from ...core.operator_context import build_operator_context_block
 
-        directive = active_manager_directive_message(artifact_root)
+        directive, _operator_context_revision = build_operator_context_block(
+            "manager", artifact_root, consume_once=False
+        )
         selection_objective = "\n\n".join(
             part
             for part in (

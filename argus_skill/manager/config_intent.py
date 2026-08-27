@@ -91,6 +91,9 @@ def _front_door_classify(
     operator_question_policies: list[str] = []
     authorization_decisions: list[tuple[str, ...]] = []
     classifier_failures: list[str] = []
+    intake_decisions: list[dict[str, Any]] = []
+    intake_commit_started = False
+    credential_imported = bool(chat_state.pop("_frontdoor_credential_imported", False))
     chat_state.pop("_frontdoor_lifetime", None)
     chat_state.pop("_frontdoor_self_mode", None)
     chat_state.pop("_frontdoor_fast_reply", None)
@@ -99,6 +102,7 @@ def _front_door_classify(
     chat_state.pop("_frontdoor_steering_directive", None)
     chat_state.pop("_frontdoor_operator_question_policy", None)
     chat_state.pop("_frontdoor_authorization", None)
+    chat_state.pop("_frontdoor_intake", None)
     try:
         runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
         mgr = getattr(runner, "manager", None) if runner is not None else None
@@ -132,6 +136,8 @@ def _front_door_classify(
             kwargs["operator_question_policy_sink"] = operator_question_policies.append
         if accepts(mgr.classify_front_door, "authorization_sink"):
             kwargs["authorization_sink"] = authorization_decisions.append
+        if accepts(mgr.classify_front_door, "intake_sink"):
+            kwargs["intake_sink"] = intake_decisions.append
         if accepts(mgr.classify_front_door, "active_mission"):
             kwargs["active_mission"] = bool(active_mission)
         if accepts(mgr.classify_front_door, "failure_sink"):
@@ -234,12 +240,57 @@ def _front_door_classify(
             ]
             if actions:
                 chat_state["_frontdoor_authorization"] = actions
+        if intake_decisions:
+            intake_payload = dict(intake_decisions[-1])
+            context_root = getattr(mem, "project_root", getattr(mem, "root", None))
+            intake_mission_id = str(root_task_id or "")
+            if active_mission:
+                backlog = getattr(mem, "backlog", None)
+                active_items = backlog.active() if backlog is not None else []
+                running = [
+                    item for item in active_items
+                    if getattr(item, "status", "") == "running"
+                ]
+                if running:
+                    intake_mission_id = str(max(
+                        running,
+                        key=lambda item: float(getattr(item, "started_ts", 0) or 0),
+                    ).id)
+            if context_root is not None and not credential_imported:
+                from ..core.operator_context import (
+                    IntakeDecision,
+                    persist_intake_decision,
+                )
+
+                intake_commit_started = True
+                persist_intake_decision(
+                    context_root,
+                    text,
+                    IntakeDecision(**intake_payload),
+                    source="manager.front_door",
+                    mission_id=intake_mission_id,
+                )
+                intake_commit_started = False
+            if context_root is not None:
+                from ..core.operator_context import OperatorContextStore
+                from .front_door import _emit_manager_event
+
+                _emit_manager_event(mem, {
+                    "type": "role.session.turn",
+                    "role": "manager",
+                    "operation": "front_door",
+                    "operator_context_revision": OperatorContextStore(
+                        context_root
+                    ).revision,
+                })
         return (
             intent,
             control if control in {"abort", "pause", "no_dispatch", "steer"} else None,
             normalized_route,
         )
     except Exception:  # noqa: BLE001 — a classify hiccup must never break the turn
+        if intake_commit_started:
+            raise
         chat_state["_frontdoor_failure"] = "classifier failed"
         return None, None, "complex"
     finally:
