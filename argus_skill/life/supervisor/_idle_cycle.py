@@ -111,10 +111,16 @@ class IdleCycleMixin:
             try:
                 from ...manager.directive import record_operator_messages
 
+                # Persistence must not depend on routing: a message that cannot
+                # be classified right now is still recorded as plain steering.
+                try:
+                    manager = self._bound_manager()
+                except Exception:  # noqa: BLE001
+                    manager = None
                 record_operator_messages(
                     self.memory.root,
                     out,
-                    manager=self._bound_manager(),
+                    manager=manager,
                 )
             except Exception:  # noqa: BLE001 - inbox delivery remains fail-soft
                 log.exception("could not persist operator steering ledger")
