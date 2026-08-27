@@ -20,13 +20,15 @@ class _FakeResult:
         msg: str,
         exit_code: int = 0,
         role_decisions: list[dict] | None = None,
+        fatal_error: str | None = None,
     ) -> None:
         self.exit_code = exit_code
         self.last_agent_message = msg
         self.role_decisions = list(role_decisions or [])
+        self.fatal_error = fatal_error
 
 
-def _exec(answer: str, exit_code: int = 0):
+def _exec(answer: str, exit_code: int = 0, fatal_error: str | None = None):
     def run_exec(prompt: str):
         assert all(
             field in prompt
@@ -36,7 +38,7 @@ def _exec(answer: str, exit_code: int = 0):
                 "LIFETIME:", "GREETING:", "NAME:",
             )
         )
-        return _FakeResult(answer, exit_code)
+        return _FakeResult(answer, exit_code, fatal_error=fatal_error)
 
     return run_exec
 
@@ -602,14 +604,18 @@ def test_exec_error_is_safe_default() -> None:
 
 
 def test_nonzero_exit_is_safe_default() -> None:
+    failures: list[str] = []
     intent, control, route = classify_front_door(
         "y",
         run_exec=_exec(
             "CONFIG: SET backend ALL codex\nCONTROL: NONE\nROUTE: SELF",
             exit_code=1,
+            fatal_error="Forced restart after hard idle timeout (120s)",
         ),
+        failure_sink=failures.append,
     )
     assert (intent, control, route) == (None, None, "complex")
+    assert failures == ["Forced restart after hard idle timeout (120s)"]
 
 
 def test_oversized_fast_reply_emits_delivery_diagnostic() -> None:

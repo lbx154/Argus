@@ -343,7 +343,10 @@ def classify_front_door(
         return None, None, "complex"
     if int(getattr(result, "exit_code", 0) or 0) != 0:
         if callable(failure_sink):
-            failure_sink("classifier backend failed")
+            failure_sink(
+                str(getattr(result, "fatal_error", "") or "").strip()
+                or "classifier backend failed"
+            )
         return None, None, "complex"
     fields = _front_door_fields(result)
     intent = _parse_config_decision(fields["config"])

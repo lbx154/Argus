@@ -80,6 +80,7 @@ class _FrontDoorMixin:
                         reasoning_effort=_effort,
                         skip_git_repo_check=True,
                         disable_tools=True,
+                        watchdog_hard_idle_seconds=120,
                         extra_args=(
                             [
                                 "--system-prompt",

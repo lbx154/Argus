@@ -447,6 +447,7 @@ def test_execute_self_path_one_turn_no_reviewer(tmp_path: Path) -> None:
     assert out.chat_mode is False  # it's a task, not chat
     assert len(backend.calls) == 1
     assert backend.calls[0]["run_label"] == "simple-1"
+    assert backend.classify_calls[0]["options"].watchdog_hard_idle_seconds == 120
     assert backend.calls[0]["options"].watchdog_hard_idle_seconds == 120
     assert backend.calls[0]["options"].watchdog_soft_idle_seconds == 5
     assert callable(backend.calls[0]["options"].inactivity_callback)
