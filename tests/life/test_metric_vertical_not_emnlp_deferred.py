@@ -100,6 +100,7 @@ def test_non_paper_planner_task_normalizes_final_submission_scope(
         "planner",
         "scope:bounded",
         "bounded_dag_node",
+        "review:required",
         "stage:research",
     ]
 
@@ -113,6 +114,7 @@ def test_paper_planner_task_preserves_final_submission_scope(
     assert sup._planner_task_tags(task) == [
         "planner",
         "scope:final_submission",
+        "review:required",
         "stage:research",
     ]
 
