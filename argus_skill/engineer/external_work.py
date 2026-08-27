@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from ..core import process_stop
 from ..core.daemon_lock import is_pid_running
+from ..core.process_identity import process_identity_is_running
 
 EXTERNAL_WORK_REGISTRY = ".argus_external_work"
 EXTERNAL_WORK_PROTOCOL_VERSION = 1
@@ -88,6 +89,33 @@ def _pid_alive(pid: object) -> bool:
     except (TypeError, ValueError):
         return False
     return is_pid_running(value)
+
+
+def _recorded_process_alive(record: dict[str, Any], pid_field: str) -> bool:
+    identity_fields = {
+        "pid": ("process_identity", "command_process_identity"),
+        "worker_pid": ("worker_process_identity",),
+    }
+    identity = next(
+        (
+            record.get(field)
+            for field in identity_fields.get(pid_field, ())
+            if isinstance(record.get(field), dict)
+        ),
+        None,
+    )
+    if (
+        identity is None
+        and pid_field == "pid"
+        and record.get("pid") == record.get("worker_pid")
+        and isinstance(record.get("worker_process_identity"), dict)
+    ):
+        identity = record["worker_process_identity"]
+    try:
+        pid = int(record.get(pid_field) or 0)
+    except (TypeError, ValueError):
+        return False
+    return process_identity_is_running(pid, identity, pid_is_running=_pid_alive)
 
 
 def _registry_files(workdir: Path | str, directory: str) -> list[Path]:
@@ -299,7 +327,17 @@ def _subagent_status(
         return None
     state_value = str(record.get("state") or "").strip().lower()
     monitor_interval = max(
-        1.0, _coerce_float(record.get("monitor_interval"), 120.0)
+        1.0,
+        _coerce_float(
+            record.get("current_monitor_interval"),
+            _coerce_float(record.get("monitor_interval"), 120.0),
+        ),
+    )
+    next_check_at = _coerce_float(record.get("next_check_at"), 0.0)
+    poll_after_seconds = (
+        max(1.0, next_check_at - now)
+        if next_check_at > 0
+        else monitor_interval
     )
     stale_after = max(monitor_interval, _CADENCE_CAP_SECONDS) * 2.0
     heartbeat_at = _coerce_float(record.get("heartbeat_at"), 0.0)
@@ -314,15 +352,18 @@ def _subagent_status(
     concern = " ".join(str(
         record.get("last_supervisor_concern") or record.get("concern") or ""
     ).split())
-    worker_alive = _pid_alive(record.get("worker_pid", record.get("pid")))
-    child_alive = _pid_alive(record.get("pid"))
+    worker_pid_field = "worker_pid" if record.get("worker_pid") else "pid"
+    worker_alive = _recorded_process_alive(record, worker_pid_field)
+    child_alive = _recorded_process_alive(record, "pid")
     exit_status_path = str(record.get("exit_status_path") or "").strip()
     exit_status_exists = bool(
         exit_status_path and Path(exit_status_path).is_file()
     )
     if state_value not in _SUBAGENT_INFLIGHT_STATES:
         state = ExternalWorkState.TERMINAL
-        reason = f"subagent state={state_value or 'unknown'}"
+        reason = str(record.get("timeout_message") or "").strip() or (
+            f"subagent state={state_value or 'unknown'}"
+        )
     elif mode == "direct" and exit_status_exists:
         state = ExternalWorkState.TERMINAL
         reason = "direct subagent exit receipt is present"
@@ -370,7 +411,7 @@ def _subagent_status(
         source="subagent",
         heartbeat_at=heartbeat_at,
         stale_after_seconds=stale_after,
-        poll_after_seconds=monitor_interval,
+        poll_after_seconds=poll_after_seconds,
         outcome=str(record.get("outcome") or decision).strip()[:200],
         reason=reason,
         evidence_paths=_safe_relative_paths(record.get("evidence_paths")),

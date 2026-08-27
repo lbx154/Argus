@@ -1394,6 +1394,107 @@ def test_cmd_submit_normalizes_relative_cwd_and_run_dir(
     assert record["run_dir"] == str(project / "experiments" / "run-1")
 
 
+@requires_fork
+def test_experiment_submit_records_and_warns_about_default_timeout(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(_sub._cli.os, "fork", lambda: 4242)
+
+    rc = _sub.cmd_submit(_submit_args(
+        task_id="default-timeout",
+        run_dir="experiments/run-1",
+        timeout=None,
+    ))
+    output = json.loads(capsys.readouterr().out)
+    record = _sub._read_task("default-timeout")
+
+    assert rc == 0
+    assert record is not None
+    assert record["timeout_seconds"] == 7200
+    assert record["timeout_defaulted"] is True
+    assert output["timeout_seconds"] == 7200
+    assert output["timeout_defaulted"] is True
+    assert "2h" in output["timeout_notice"]
+    assert "--timeout" in output["timeout_notice"]
+    assert record["worker_process_identity"]["pid"] == 4242
+
+
+def test_default_timeout_kill_is_named_in_record_and_engineer_alert(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    from argus_skill.tools.subagent import _direct_run, _reporting
+
+    monkeypatch.chdir(tmp_path)
+    _write_task("timed", {
+        "state": "starting",
+        "task_id": "timed",
+        "run_id": "timed-run-1",
+        "timeout_seconds": 7200,
+        "timeout_defaulted": True,
+    })
+
+    class _Proc:
+        pid = os.getpid()
+        returncode = None
+
+        def wait(self, timeout=None):
+            raise subprocess.TimeoutExpired("command", timeout)
+
+    proc = _Proc()
+    writes: list[dict] = []
+    alerts: list[str] = []
+    real_write = _sub._registry._write_task
+
+    def record_write(task_id, data):
+        writes.append(dict(data))
+        real_write(task_id, data)
+
+    monkeypatch.setattr(
+        _direct_run,
+        "experiment_launch_preflight",
+        lambda **_kwargs: (False, ""),
+    )
+    monkeypatch.setattr(
+        _direct_run,
+        "release_experiment_launch_claim",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(_direct_run, "_launch_durable_command", lambda **_kwargs: proc)
+    monkeypatch.setattr(_direct_run, "_terminate_proc", lambda _proc: None)
+    monkeypatch.setattr(_direct_run, "_write_task", record_write)
+    monkeypatch.setattr(
+        _direct_run,
+        "_alert_engineer",
+        lambda task_id, event, data: alerts.append(
+            _reporting._build_report(task_id, event, data)
+        ),
+    )
+
+    _direct_run._run_direct(
+        "timed",
+        "python train.py",
+        "long experiment",
+        timeout=7200,
+        cwd=str(tmp_path),
+        run_dir=str(tmp_path / "run"),
+    )
+
+    record = _sub._read_task("timed")
+    running = next(row for row in writes if row.get("state") == "running")
+    assert running["timeout_seconds"] == 7200
+    assert running["timeout_defaulted"] is True
+    assert "start_time_ticks" in running["process_identity"]
+    assert record is not None and record["state"] == "timeout"
+    assert record["timeout_defaulted"] is True
+    assert "default 2h limit" in record["timeout_message"]
+    assert "--timeout <seconds>" in record["timeout_message"]
+    assert alerts and "default 2h limit" in alerts[0]
+
+
 def test_launch_durable_command_uses_native_powershell_on_windows(
     monkeypatch,
     tmp_path,

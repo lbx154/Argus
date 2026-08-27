@@ -48,6 +48,7 @@ from ._registry import (
     _exit_status_path,
     _launch_durable_command,
     _persist_experiment_record,
+    _process_identity,
     _read_task,
     _task_log_dir,
     _write_task,
@@ -560,10 +561,17 @@ def _run_supervised(
     _reset_discussion(task_id)
 
     start_time = time.time()
+    submitted_task = _read_task(task_id) or {}
     run_id = str(
-        (_read_task(task_id) or {}).get("run_id")
+        submitted_task.get("run_id")
         or f"{task_id}-{time.time_ns()}"
     )
+    timeout_defaulted = bool(submitted_task.get("timeout_defaulted", False))
+    timeout_fields = {
+        "timeout_seconds": timeout,
+        "timeout_defaulted": timeout_defaulted,
+    }
+    worker_identity = _process_identity(os.getpid())
     claim_owner = f"{run_id}:{os.getpid()}:{time.time_ns()}"
     supervisor_thread_id: str | None = None
     supervisor_usage_totals = _ZERO_USAGE_TUPLE
@@ -595,12 +603,14 @@ def _run_supervised(
                 "error": deterministic_concern,
                 "preflight": True,
                 "worker_pid": os.getpid(),
+                "worker_process_identity": worker_identity,
                 "started_at": start_time,
                 "completed_at": time.time(),
                 "elapsed_seconds": 0.0,
                 "mode": "supervised",
                 "run_dir": resolved_run_dir,
                 "supervisor_log": str(supervisor_log),
+                **timeout_fields,
             }
             _apply_supervisor_usage_fields(
                 td,
@@ -628,9 +638,11 @@ def _run_supervised(
                 "state": "preflight", "task_id": task_id, "run_id": run_id,
                 "description": description, "command": command,
                 "worker_pid": os.getpid(), "pid": os.getpid(),
+                "worker_process_identity": worker_identity,
                 "started_at": start_time, "mode": "supervised",
                 "run_dir": resolved_run_dir,
                 "supervisor_log": str(supervisor_log),
+                **timeout_fields,
             }, model=model, totals=supervisor_usage_totals)
             _write_task(task_id, preflight_task)
             # (A) Deterministic provenance interlock FIRST (cheap, no LLM): a
@@ -697,6 +709,7 @@ def _run_supervised(
                     "description": description, "command": command,
                     "mode": "supervised", "preflight": True,
                     "worker_pid": os.getpid(),
+                    "worker_process_identity": worker_identity,
                     "supervisor_checks": 0,
                     "stop_reason": "supervisor config preflight reject",
                     "concern": pf_concern,
@@ -712,6 +725,7 @@ def _run_supervised(
                     "discussion_path": str(_discussion_path(task_id)),
                     "supervisor_log": str(supervisor_log),
                     **guard_status_fields,
+                    **timeout_fields,
                 }
                 _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
                 _write_task(task_id, td)
@@ -739,12 +753,25 @@ def _run_supervised(
                 stderr=err,
                 cwd=cwd,
             )
+            command_identity = _process_identity(proc.pid)
+            current_interval = min(
+                max(monitor_interval, 1),
+                SUPERVISOR_INTERVAL_CAP,
+            )
+            next_check_at = min(
+                time.time() + current_interval,
+                start_time + timeout,
+            )
             running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id, "run_id": run_id,
                 "description": description, "command": command,
                 "pid": proc.pid, "worker_pid": os.getpid(),
+                "process_identity": command_identity,
+                "worker_process_identity": worker_identity,
                 "started_at": time.time(), "mode": "supervised",
                 "monitor_interval": monitor_interval,
+                "current_monitor_interval": current_interval,
+                "next_check_at": next_check_at,
                 "run_dir": resolved_run_dir,
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
                 "supervisor_log": str(supervisor_log),
@@ -752,6 +779,7 @@ def _run_supervised(
                     _exit_status_path(task_id, run_id).resolve()
                 ),
                 **guard_status_fields,
+                **timeout_fields,
             }, model=model, totals=supervisor_usage_totals)
             _write_task(task_id, running_task)
 
@@ -764,7 +792,6 @@ def _run_supervised(
             # Health-adaptive backoff: start at the configured interval (capped),
             # then double while healthy (save supervisor tokens), snap back to the
             # base interval the moment health degrades.
-            current_interval = min(max(monitor_interval, 1), SUPERVISOR_INTERVAL_CAP)
             while True:
                 # Never wait past the hard timeout, even with a long interval.
                 remaining = timeout - (time.time() - start_time)
@@ -782,7 +809,19 @@ def _run_supervised(
                         "state": "timeout", "task_id": task_id, "run_id": run_id,
                         "description": description, "command": command,
                         "pid": proc.pid, "worker_pid": os.getpid(),
-                        "timeout_seconds": timeout,
+                        "process_identity": command_identity,
+                        "worker_process_identity": worker_identity,
+                        **timeout_fields,
+                        "timeout_message": (
+                            f"Hard timeout reached after {timeout} seconds"
+                            + (
+                                "; this was the default 2h limit because no "
+                                "--timeout was supplied. Resubmit with "
+                                "--timeout <seconds> for a longer run."
+                                if timeout_defaulted
+                                else "; this was the configured --timeout limit."
+                            )
+                        ),
                         "elapsed_seconds": round(elapsed, 1),
                         "completed_at": time.time(), "mode": "supervised",
                         "run_dir": resolved_run_dir,
@@ -870,6 +909,17 @@ def _run_supervised(
                 current_interval = _next_monitor_interval(
                     health, current_interval, monitor_interval,
                 )
+                task = _read_task(task_id) or {}
+                if (
+                    str(task.get("run_id") or "") == run_id
+                    and task.get("state") == "running"
+                ):
+                    task["current_monitor_interval"] = current_interval
+                    task["next_check_at"] = min(
+                        time.time() + current_interval,
+                        start_time + timeout,
+                    )
+                    _write_task(task_id, task)
 
             # Process exited naturally.
             elapsed = round(time.time() - start_time, 1)
@@ -881,6 +931,8 @@ def _run_supervised(
                 "command": command, "exit_code": proc.returncode,
                 "elapsed_seconds": elapsed, "completed_at": time.time(),
                 "pid": proc.pid, "worker_pid": os.getpid(), "mode": "supervised",
+                "process_identity": command_identity,
+                "worker_process_identity": worker_identity,
                 "supervisor_checks": check_number,
                 "concern": concern,
                 "last_supervisor_health": health,
@@ -890,6 +942,7 @@ def _run_supervised(
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
                 "supervisor_log": str(supervisor_log),
                 **guard_status_fields,
+                **timeout_fields,
             }
             _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
             _write_task(task_id, td)
@@ -905,8 +958,10 @@ def _run_supervised(
             "elapsed_seconds": round(time.time() - start_time, 1),
             "completed_at": time.time(), "mode": "supervised",
             "worker_pid": os.getpid(),
+            "worker_process_identity": worker_identity,
             "run_dir": resolved_run_dir,
             **guard_status_fields,
+            **timeout_fields,
         }
         _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
         _write_task(task_id, td)

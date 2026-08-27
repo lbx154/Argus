@@ -265,6 +265,58 @@ def test_direct_subagent_stays_waitable_when_launcher_dies_but_child_lives(
     assert status.waitable is True
 
 
+def test_subagent_live_pid_with_mismatched_identity_is_stalled(tmp_path: Path) -> None:
+    from argus_skill.core.process_identity import capture_process_identity
+
+    registry = tmp_path / ".argus_subagents"
+    registry.mkdir()
+    identity = capture_process_identity(os.getpid())
+    assert "start_time_ticks" in identity
+    identity["start_time_ticks"] = f"{identity['start_time_ticks']}-reused"
+    (registry / "direct-job.json").write_text(
+        json.dumps({
+            "task_id": "direct-job",
+            "mode": "direct",
+            "state": "running",
+            "pid": os.getpid(),
+            "process_identity": identity,
+        }),
+        encoding="utf-8",
+    )
+
+    status = inspect_external_work(tmp_path, "direct-job")
+
+    assert status is not None
+    assert status.state is ExternalWorkState.STALLED
+
+
+def test_subagent_poll_uses_published_next_check_at(tmp_path: Path) -> None:
+    registry = tmp_path / ".argus_subagents"
+    registry.mkdir()
+    now = 10_000.0
+    (registry / "supervised-job.json").write_text(
+        json.dumps({
+            "task_id": "supervised-job",
+            "mode": "supervised",
+            "state": "running",
+            "worker_pid": os.getpid(),
+            "last_supervisor_health": "healthy",
+            "last_supervisor_decision": "continue",
+            "heartbeat_at": now,
+            "monitor_interval": 120,
+            "current_monitor_interval": 480,
+            "next_check_at": now + 475,
+        }),
+        encoding="utf-8",
+    )
+
+    status = inspect_external_work(tmp_path, "supervised-job", now=now)
+
+    assert status is not None
+    assert status.state is ExternalWorkState.RUNNING_HEALTHY
+    assert status.poll_after_seconds == 475
+
+
 def test_direct_subagent_exit_receipt_is_terminal(tmp_path: Path) -> None:
     registry = tmp_path / ".argus_subagents"
     registry.mkdir()
