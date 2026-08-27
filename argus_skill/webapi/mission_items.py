@@ -72,13 +72,23 @@ def _enqueue_task_unlocked(
 
     mem = LifeMemory.open(life_dir)
 
-    def _persist(execution_task: str, _division: Any):
+    def _persist(execution_task: str, division: Any):
+        # The Manager handoff has already classified and committed this task.
+        # Persist that fact on the backlog item so the daemon's backlog guard
+        # does not classify the same claimed item a second time.  The duplicate
+        # Manager turn can race with an operator nudge or daemon restart,
+        # leaving the item ``running`` while the supervisor reports
+        # ``backlog_empty`` indefinitely.
+        from ..life.supervisor.backlog_guard import decision_evidence
+
+        manager_decision = decision_evidence(division) or {"routed": True}
         return add_backlog_item(
             mem,
             execution_task,
             item_id=item_id,
             iterate=iterate,
             iteration_max_cycles=cycles,
+            manager_decision=manager_decision,
         )
 
     should_name = not bool(
