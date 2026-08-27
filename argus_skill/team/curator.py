@@ -322,12 +322,18 @@ class Curator:
         devnull = open(os.devnull, "rb")
         # OWN session (own pgroup) — the Curator owns it via the retained handle,
         # NOT via a shared process group (which would be the daemon's).
+        child_environment = dict(os.environ)
+        if self.conversation_root is not None:
+            child_environment["ARGUS_OPERATOR_CONTEXT_DIR"] = str(
+                self.conversation_root
+            )
         return subprocess.Popen(
             argv,
             cwd=str(cwd),
             stdin=devnull,
             stdout=log,
             stderr=log,
+            env=child_environment,
             start_new_session=os.name != "nt",
             creationflags=(
                 getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)

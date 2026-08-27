@@ -189,6 +189,9 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
     return (
         "Classify this message; do not choose a vertical or plan work.\n"
         f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
+        "INTAKE_TYPE: EPHEMERAL=chat/status; OBJECTIVE_AMENDMENT=finite/task-local; "
+        "otherwise STANDING_DIRECTIVE|PREFERENCE|CREDENTIAL_GRANT|REVOCATION. "
+        "Fill fields below.\n\n"
         "CONFIG: SET only an explicit standing Argus setting: backend|model|effort "
         "for manager,planner,engineer,reviewer or ALL; global "
         "global_daily_cap,max_daemons,codex_daily_requests,"
@@ -224,9 +227,14 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "LIFETIME: TEAM uses BOUNDED for a finite outcome, BOUNDED_INCREMENT only for "
         "an explicitly limited stage, and STANDING only for open-ended work. Default "
         "BOUNDED (default BOUNDED). SELF uses NONE.\n\n"
-        "GREETING: GREETING only for a pure greeting. NAME: a short title in the "
-        "message language.\n\n"
+        "GREETING: GREETING only for a pure greeting. NAME: short title.\n\n"
         + decision_footer_instruction(
+            "INTAKE_TYPE: EPHEMERAL\n"
+            "INTAKE_SCOPE: PROJECT\n"
+            "INTAKE_ROLES: ALL\n"
+            "PREFERENCE_KIND: NONE\n"
+            "PREFERENCE_VALUE: NONE\n"
+            "REVOKE_REVISION: NONE\n"
             "CONFIG: NONE\n"
             "CONTROL: NONE\n"
             "AUTHORIZATION: NONE\n"
@@ -240,7 +248,6 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
             "NAME: short title"
         )
         + "\n"
-        "SET syntax: SET <knob> <comma-separated roles|ALL|-> <verbatim value>.\n\n"
         f"Message:\n{cleaned}\n\n"
         "Decide and record the event now.\n"
     )

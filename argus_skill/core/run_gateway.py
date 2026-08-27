@@ -58,6 +58,11 @@ class RunExecGateway:
                 0,
                 int(round((result.completed_at - result.started_at) * 1000)),
             )
+        from .operator_context import operator_context_revision_from_text
+
+        result.operator_context_revision = operator_context_revision_from_text(
+            request.prompt
+        )
         return result
 
 

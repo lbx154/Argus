@@ -205,7 +205,7 @@ def build_bounded_dag_prompt(
         if require_independent_review
         else ""
     )
-    return (
+    prompt = (
         "Plan the Manager handoff as a small executable DAG. Do not do the work."
         + verification
         + shell_block
@@ -253,6 +253,15 @@ def build_bounded_dag_prompt(
         + "\n\n"
         "Manager execution handoff:\n" + objective.strip()
     )
+    if policy_root is not None:
+        from ...core.operator_context import build_operator_context_block
+
+        operator_context, _revision = build_operator_context_block(
+            "planner", policy_root
+        )
+        if operator_context:
+            prompt = operator_context + "\n\n" + prompt
+    return prompt
 
 
 def build_bounded_dag_repair_prompt(
@@ -519,7 +528,15 @@ def build_continuous_prompt(
     # Compile from structured state only: vertical/stage, target contract,
     # open-ended mode and available semantic libraries. Do not keyword-route
     # task prose to decide which policy fragments the Planner receives.
+    from ...core.operator_context import build_operator_context_block
+
+    operator_context = ""
+    if state_root is not None:
+        operator_context, _revision = build_operator_context_block(
+            "planner", state_root
+        )
     return _join_prompt_blocks(
+        operator_context,
         ground_truth_mandate(
             "planner",
             workflow_mode=resolve_evidence_mode(_proot),
@@ -594,7 +611,15 @@ def build_continuous_resume_prompt(
             skill_block = str(getattr(libraries, "block", "") or "")
         except Exception:  # noqa: BLE001 - a resume delta must remain available
             skill_block = ""
+    from ...core.operator_context import build_operator_context_block
+
+    operator_context = ""
+    if state_root is not None:
+        operator_context, _revision = build_operator_context_block(
+            "planner", state_root
+        )
     return _join_prompt_blocks(
+        operator_context,
         "## Continued Planner cycle\n"
         "You are resuming your own bounded Planner session. The original role "
         "contract remains binding; do not replay old exploration or re-author "

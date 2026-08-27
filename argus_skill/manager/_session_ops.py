@@ -325,6 +325,16 @@ class _ManagerSession:
         compatibility shim. The fallback runs AFTER the lock is released, never
         nested under it.
         """
+        from ..core.operator_context import build_operator_context_block
+
+        try:
+            operator_context, _operator_context_revision = build_operator_context_block(
+                "manager", self.project_root, consume_once=False
+            )
+        except OSError:
+            operator_context = ""
+        if operator_context:
+            prompt = operator_context + "\n\n" + prompt
         if self.skill_paths:
             options = replace(options, skill_paths=list(self.skill_paths))
 

@@ -37,6 +37,7 @@ class _FrontDoorMixin:
         operator_question_policy_sink: Any = None,
         authorization_sink: Any = None,
         failure_sink: Any = None,
+        intake_sink: Any = None,
         active_mission: bool = False,
     ) -> Any:
         """One fresh call classifying all cheap front-door decisions.
@@ -55,6 +56,11 @@ class _FrontDoorMixin:
             from ..core.models import RunnerOptions
 
             _backend = self.runner
+            from ..core.operator_context import build_operator_context_block
+
+            operator_context, _operator_context_revision = build_operator_context_block(
+                "manager", self.manager_session_root, consume_once=False
+            )
             _effort = resolve_knob(
                 "ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT",
                 "low",
@@ -64,7 +70,11 @@ class _FrontDoorMixin:
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
                 return gateway_run_exec(
                     _backend,
-                    prompt=prompt,
+                    prompt=(
+                        operator_context + "\n\n" + prompt
+                        if operator_context
+                        else prompt
+                    ),
                     options=RunnerOptions(
                         model=resolve_manager_classify_model(
                             backend=getattr(_backend, "backend", None),
@@ -99,6 +109,7 @@ class _FrontDoorMixin:
                 operator_question_policy_sink=operator_question_policy_sink,
                 authorization_sink=authorization_sink,
                 failure_sink=failure_sink,
+                intake_sink=intake_sink,
                 active_mission=active_mission,
             )
 

@@ -42,6 +42,23 @@ class PromptContextMixin:
                 render_mission_contract(context_packet_path)
                 or task
             )
+        guidance: list[str] = []
+        if self.extra_guidance_provider is not None:
+            try:
+                guidance = [
+                    str(item).strip()
+                    for item in self.extra_guidance_provider()
+                    if str(item).strip()
+                ]
+            except Exception:  # noqa: BLE001 — steering must fail soft
+                log.exception("live Manager guidance provider failed")
+        if guidance:
+            self._emit({
+                "type": EventType.LIFE_INBOX_DRAINED,
+                "count": len(guidance),
+                "messages": guidance,
+                "source": "engineer_round",
+            })
         prompt = self._build_engineer_prompt(
             task=task,
             skill_text=state.skill_text,
@@ -54,28 +71,9 @@ class PromptContextMixin:
             project_skill_dir=_resolve_project_skill_dir(self.skill_store),
             compact_team=compact_team,
             work_kind=mission.work_kind,
+            operator_context="\n\n".join(guidance),
         )
-        guidance: list[str] = []
-        if self.extra_guidance_provider is not None:
-            try:
-                guidance = [
-                    str(item).strip()
-                    for item in self.extra_guidance_provider()
-                    if str(item).strip()
-                ]
-            except Exception:  # noqa: BLE001 — steering must fail soft
-                log.exception("live Manager guidance provider failed")
-        if not guidance:
-            return prompt
-        self._emit({
-            "type": EventType.LIFE_INBOX_DRAINED,
-            "count": len(guidance),
-            "messages": guidance,
-            "source": "engineer_round",
-        })
-        from ..roles.prompts.engineer import append_live_guidance
-
-        return append_live_guidance(prompt, guidance)
+        return prompt
 
     @staticmethod
     def _build_engineer_prompt(
@@ -91,6 +89,7 @@ class PromptContextMixin:
         project_skill_dir: str | None = None,
         compact_team: bool = False,
         work_kind: str = "",
+        operator_context: str = "",
     ) -> str:
         from ..roles.prompts.engineer import build_mission_prompt
 
@@ -106,4 +105,5 @@ class PromptContextMixin:
             project_skill_dir=project_skill_dir,
             compact_team=compact_team,
             work_kind=work_kind,
+            operator_context=operator_context,
         )

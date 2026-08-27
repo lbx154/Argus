@@ -109,6 +109,9 @@ class RoundExecutionMixin:
         on_event: Callable[[dict], None] | None,
         state: RoundLoopState,
     ) -> EngineerTurnOutcome:
+        from ..core.operator_context import operator_context_revision_from_text
+
+        operator_context_revision = operator_context_revision_from_text(engineer_prompt)
         round_started_at = time.time()
         engineer_result, _round_compactions = self._run_engineer(
             prompt=engineer_prompt,
@@ -168,6 +171,7 @@ class RoundExecutionMixin:
                 "capsule_path": str(engineer_session.path or ""),
                 "metadata_persisted": session_metadata_persisted,
                 "persistence_warning": engineer_session.persistence_error,
+                "operator_context_revision": operator_context_revision,
             })
         if supervised_config.context_packet_path:
             try:
@@ -240,6 +244,7 @@ class RoundExecutionMixin:
                 "reasoning_output_tokens": int(engineer_result.reasoning_output_tokens or 0),
                 "premium_requests": float(engineer_result.premium_requests or 0.0),
                 "usage_scope": "delta",
+                "operator_context_revision": operator_context_revision,
             })
 
         return EngineerTurnOutcome(

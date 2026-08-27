@@ -68,7 +68,7 @@ def _previous_review_summary(state: RoundLoopState) -> str:
 def _active_manager_directive_for_reviewer(
     supervised_config: "SupervisedConfig",
 ) -> list[str]:
-    """Load the same persistent operator override used by Planner/Engineer."""
+    """Load the Reviewer-trimmed projection from the one operator store."""
     candidates: list[Path] = []
     if supervised_config.engineer_log_path:
         candidates.append(Path(supervised_config.engineer_log_path).expanduser().parent)
@@ -76,7 +76,7 @@ def _active_manager_directive_for_reviewer(
         packet = Path(supervised_config.context_packet_path).expanduser()
         if len(packet.parents) >= 3:
             candidates.append(packet.parents[2])
-    from ..manager.directive import active_manager_directive_message
+    from ..core.operator_context import build_operator_context_block
 
     seen: set[Path] = set()
     for candidate in candidates:
@@ -87,7 +87,7 @@ def _active_manager_directive_for_reviewer(
         if root in seen:
             continue
         seen.add(root)
-        message = active_manager_directive_message(root)
+        message, _revision = build_operator_context_block("reviewer", root)
         if message:
             return [message]
     return []
@@ -116,6 +116,14 @@ class RoundReviewerMixin:
         on_event: Callable[[dict], None] | None,
     ) -> ReviewDecision:
         """Call the Reviewer once; direct project-wiki edits are durable output."""
+        operator_messages = _active_manager_directive_for_reviewer(
+            supervised_config
+        )
+        from ..core.operator_context import operator_context_revision_from_text
+
+        operator_context_revision = operator_context_revision_from_text(
+            "\n".join(operator_messages)
+        )
         reviewer_background_context = ""
         if supervised_config.background_subagent_advisory:
             try:
@@ -168,9 +176,7 @@ class RoundReviewerMixin:
             review = self.reviewer.evaluate(
                 objective=objective,
                 original_objective=original_objective or objective,
-                operator_messages=_active_manager_directive_for_reviewer(
-                    supervised_config
-                ),
+                operator_messages=operator_messages,
                 round_index=round_index,
                 round_max=supervised_config.max_rounds,
                 session_id=supervised_config.session_id,
@@ -247,6 +253,7 @@ class RoundReviewerMixin:
                 "capsule_path": str(reviewer_session.path or ""),
                 "metadata_persisted": session_metadata_persisted,
                 "persistence_warning": reviewer_session.persistence_error,
+                "operator_context_revision": operator_context_revision,
             })
         signal = review.session_signal if isinstance(review.session_signal, dict) else {}
         signal_kind = str(signal.get("kind") or "").strip()

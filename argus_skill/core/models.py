@@ -164,6 +164,7 @@ class RunnerResult:
     orphan_process_group_id: int = 0
     orphan_process_group_cleanup_succeeded: bool = False
     role_decisions: list[dict[str, Any]] = field(default_factory=list)
+    operator_context_revision: int = 0
 
     @property
     def last_agent_message(self) -> str:

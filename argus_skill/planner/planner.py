@@ -340,6 +340,9 @@ class Planner:
                 "capsule_path": str(session.path or ""),
                 "metadata_persisted": session_metadata_persisted,
                 "persistence_warning": session.persistence_error,
+                "operator_context_revision": int(
+                    getattr(result, "operator_context_revision", 0) or 0
+                ),
             })
         if failed:
             if PLANNER_SUPERSEDED_ERROR in details:

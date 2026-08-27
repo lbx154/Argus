@@ -164,6 +164,7 @@ def build_mission_prompt(
     project_skill_dir: Path | str | None = None,
     compact_team: bool = False,
     work_kind: str = "",
+    operator_context: str = "",
 ) -> str:
     """Build the complete per-round Engineer mission prompt."""
     shell_contract = native_shell_contract()
@@ -173,7 +174,8 @@ def build_mission_prompt(
         project_skill_dir=project_skill_dir,
     )
     if compact_team and include_static:
-        sections = [EFFECTIVE_TASK_CONTRACT]
+        sections = [operator_context.strip(), EFFECTIVE_TASK_CONTRACT]
+        sections = [section for section in sections if section]
         if shell_summary:
             sections.append(shell_summary)
         if role_banner.strip():
@@ -208,7 +210,9 @@ def build_mission_prompt(
         )
         return "\n\n".join(sections)
 
-    sections: list[str] = [EFFECTIVE_TASK_CONTRACT]
+    sections: list[str] = [
+        section for section in (operator_context.strip(), EFFECTIVE_TASK_CONTRACT) if section
+    ]
     if shell_summary:
         sections.append(shell_summary)
     delta_sections: list[str] = []
