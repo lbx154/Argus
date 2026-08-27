@@ -26,12 +26,8 @@ VERIFICATION_STAGE_PROFILES = {"optimize": "develop"}
 # Kernel work should start from the repository and measured behavior, not from
 # framework-authored document bundles.
 STAGE_PRIMARY_DELIVERABLES: dict[str, tuple[str, ...]] = {}
-STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {"optimize": []}
 CHECKLIST_STAGE_ORDER: tuple[str, ...] = tuple(STAGE_ORDER)
 CHECKLIST_OPTIONAL_STAGES: tuple[str, ...] = tuple(STAGE_ORDER)
-
-_ENGINEER_SKILL = "engineer/kernel-environment-first-engineering.md"
-_REVIEWER_SKILL = "reviewer/kernel-engineering-review.md"
 
 CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
     "optimize": (
@@ -49,32 +45,6 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ),
     ),
 }
-
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    "optimize": (
-        _REVIEWER_SKILL,
-        "Judge the actual implementation and decisive evidence. Require correctness "
-        "before performance claims, comparable warm measurements on the target "
-        "hardware, and explicit regressions or fallback behavior. Do not require "
-        "scope, frontier, environment-audit, baseline-protocol, outcome-taxonomy, "
-        "validation-matrix, or results-report files when the source diff and command "
-        "outputs already establish the result.",
-        [],
-    ),
-}
-
-
-def search_altitude_context(project_root) -> str:  # noqa: ARG001
-    return ""
-
-
-def planner_task_issues(stage: str, project_root, task) -> tuple[str, ...]:  # noqa: ARG001
-    return ()
-
-
-def stage_completion_issues(stage: str, project_root) -> tuple[str, ...]:  # noqa: ARG001
-    return ()
-
 
 def prepare_mission(  # noqa: ARG001 - baseline isolation is per stage, not per item
     *,
@@ -200,16 +170,11 @@ __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_OPTIONAL_STAGES",
     "CHECKLIST_STAGE_ORDER",
-    "REVIEWER_CHECKLISTS",
-    "STAGE_CHECKS",
     "STAGE_ALIASES",
     "STAGE_ORDER",
     "STAGE_PRIMARY_DELIVERABLES",
     "WORKFLOW_MODE",
     "completion_gate",
-    "planner_task_issues",
     "prepare_mission",
     "role_banner",
-    "search_altitude_context",
-    "stage_completion_issues",
 ]

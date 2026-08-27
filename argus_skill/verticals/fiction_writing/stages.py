@@ -59,6 +59,9 @@ Design invariants (harness-enforced; all narrative judgment is the agent's):
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ["intake", "plan", "draft", "state_update", "review", "revise"]
@@ -68,187 +71,43 @@ STAGE_ORDER = ["intake", "plan", "draft", "state_update", "review", "revise"]
 #: final-certification and metric prompt-framing regimes.
 completion_gate = "none"
 
-# Generic across verticals; a private copy (mirrors learning/speedrun).
-_PIPELINE_CHECK = ("Pipeline state present", "test -f .argus/PIPELINE_STATE.json")
+def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
+    if stage in {"review", "revise"}:
+        from .novelty import check_novelty
+        from .style import validate_voice_card
+        from .style_lint import check_style
+        from .temporal import check_temporal_consistency
 
-# Lenient artifact-existence checks. The reviewer is the real gate; these only
-# confirm the stage produced *something* to review.
-STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
-    "intake": [
-        _PIPELINE_CHECK,
-        ("Task envelope recorded", "test -s fiction/task_envelope.json"),
-        ("Task envelope valid and fiction-consumable",
-         "{python} -m argus_skill.verticals.fiction_writing.intake_check "
-         "validate fiction/task_envelope.json"),
-        ("Creative brief produced",
-         "test -s fiction/creative_brief.json"),
-        ("Style profile produced",
-         "test -s fiction/style_profile.json"),
-        ("Voice card (style profile) is well-formed",
-         "{python} -m argus_skill.verticals.fiction_writing.intake_check "
-         "validate-style fiction/style_profile.json"),
-        ("Source registry is well-formed",
-         "{python} -m argus_skill.verticals.fiction_writing.source_check "
-         "validate-registry"),
-    ],
-    "plan": [
-        _PIPELINE_CHECK,
-        ("Story plan and chapter goal produced",
-         "test -s fiction/story_plan.json && test -s fiction/chapter_goal.json"),
-    ],
-    "draft": [
-        _PIPELINE_CHECK,
-        ("Chapter draft written", "test -s fiction/draft.md"),
-    ],
-    "state_update": [
-        _PIPELINE_CHECK,
-        ("Structured state patch produced",
-         "test -s fiction/state_patch.json"),
-        ("Story state present after patch apply",
-         "test -s fiction/story_state.json"),
-    ],
-    "review": [
-        _PIPELINE_CHECK,
-        ("Structured review produced", "test -s fiction/review.json"),
-        ("Review conforms to the literary review contract",
-         "{python} -m argus_skill.verticals.fiction_writing.review_check "
-         "validate fiction/review.json"),
-        ("Style lint (word-list cues are advisory; explicit forbidden terms block)",
-         "{python} -m argus_skill.verticals.fiction_writing.style_check "
-         "style-lint fiction/draft.md fiction/style_profile.json "
-         "fiction/creative_brief.json"),
-        ("Temporal/age consistency (deterministic arithmetic over story_state)",
-         "{python} -m argus_skill.verticals.fiction_writing.style_check "
-         "temporal-check fiction/story_state.json"),
-        ("Anti-copy novelty gate (blocks on a long verbatim run lifted from the "
-         "source; only runs when a continuation supplied fiction/reference_text.md)",
-         "test ! -f fiction/reference_text.md || "
-         "{python} -m argus_skill.verticals.fiction_writing.style_check "
-         "novelty-check fiction/draft.md fiction/reference_text.md "
-         "fiction/style_profile.json fiction/creative_brief.json"),
-        ("Source-usage ledger produced (explicit, empty uses[] if none consulted)",
-         "test -s fiction/source_usage.json"),
-        ("Every recorded source use is rights-defensible",
-         "{python} -m argus_skill.verticals.fiction_writing.source_check "
-         "check-usage fiction/source_usage.json"),
-    ],
-    "revise": [
-        _PIPELINE_CHECK,
-        ("Final prose and updated state produced",
-         "test -s fiction/final.md && test -s fiction/updated_story_state.json"),
-        ("Revision plan derived from the review",
-         "test -s fiction/revision_plan.json"),
-        ("Revision plan covers every blocking finding with its must_not_break",
-         "{python} -m argus_skill.verticals.fiction_writing.review_check "
-         "check-plan fiction/review.json fiction/revision_plan.json"),
-        ("Artifact manifest records the produced chain",
-         "test -s fiction/artifact_manifest.json"),
-        ("Artifact manifest conforms to the shared lineage contract",
-         "{python} -m argus_skill.verticals.fiction_writing.manifest_check "
-         "validate fiction/artifact_manifest.json"),
-        ("Every artifact the manifest records is present on disk",
-         "{python} -m argus_skill.verticals.fiction_writing.manifest_check "
-         "check-content fiction/artifact_manifest.json"),
-        ("Final prose traces back to its draft and review (provenance closed)",
-         "{python} -m argus_skill.verticals.fiction_writing.manifest_check "
-         "check-lineage fiction/artifact_manifest.json"),
-    ],
-}
+        fiction = project_root / "fiction"
+        prose_name = "draft.md" if stage == "review" else "final.md"
+        state_name = "story_state.json" if stage == "review" else "updated_story_state.json"
+        try:
+            prose = (fiction / prose_name).read_text(encoding="utf-8")
+            if stage == "revise" and not prose.strip():
+                raise ValueError("final.md is empty")
+            card = json.loads((fiction / "style_profile.json").read_text(encoding="utf-8"))
+            brief = json.loads((fiction / "creative_brief.json").read_text(encoding="utf-8"))
+            state = json.loads((fiction / state_name).read_text(encoding="utf-8"))
+            if not isinstance(card, dict) or not isinstance(brief, dict):
+                raise ValueError("style_profile and creative_brief must be objects")
+            validate_voice_card(card)
+            language = (card.get("meta") or {}).get("language") or brief.get("language") or "zh"
+            findings = check_style(prose, card, language)
+            findings += check_temporal_consistency(state)
+            reference = fiction / "reference_text.md"
+            if reference.is_file():
+                findings += check_novelty(
+                    prose, reference.read_text(encoding="utf-8"), card, language
+                )
+        except (OSError, ValueError) as exc:
+            return (f"fiction {stage} inputs invalid: {exc}",)
+        return tuple(
+            f"[{finding['type']}] {finding['detail']}"
+            for finding in findings
+            if finding.get("blocking")
+        )
 
-# (skill_to_load, review_instructions, files_to_read). Resolves to this
-# vertical's own skills/reviewer/ copy.
-_REVIEW_SKILL = "reviewer/continuity-style-and-plot-review.md"
-
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    "intake": (
-        _REVIEW_SKILL,
-        "Verify the brief captures language, form, mode (from_scratch vs "
-        "continuation), genre/market style, length, viewpoint and tense, and that "
-        "the style profile is ABSTRACT features (rhythm/distance/dialogue "
-        "ratio/imagery/exposition/ending), never 'imitate author X'. Confirm the "
-        "creative_brief was derived from fiction/task_envelope.json (form/mode/"
-        "language agree), not invented. For a "
-        "continuation, confirm an existing story_state was loaded, not invented.",
-        ["fiction/task_envelope.json", "fiction/creative_brief.json",
-         "fiction/style_profile.json"],
-    ),
-    "plan": (
-        _REVIEW_SKILL,
-        "Gate the plan before drafting: does the chapter goal advance the arc? "
-        "For a continuation, is the plan consistent with the established "
-        "characters/world/timeline in story_state (no contradictions, no "
-        "resurrected dead characters, no forgotten open threads)?",
-        ["fiction/story_plan.json", "fiction/chapter_goal.json",
-         "fiction/story_state.json"],
-    ),
-    "draft": (
-        _REVIEW_SKILL,
-        "First-pass read of the draft against brief + style profile. Flag "
-        "viewpoint/tense drift, language drift (e.g. an en original continued in "
-        "zh), and gross style mismatch. Craft notes are non-blocking here.",
-        ["fiction/draft.md", "fiction/creative_brief.json",
-         "fiction/style_profile.json"],
-    ),
-    "state_update": (
-        _REVIEW_SKILL,
-        "Verify the state_patch faithfully reflects what the draft changed and "
-        "nothing more: every new character/item/location/thread/foreshadowing "
-        "the chapter introduced is captured; id references are valid; the patch "
-        "does not silently drop prior state. Confirm it applied cleanly to "
-        "story_state (revision bumped, applied_patches records the patch_id).",
-        ["fiction/state_patch.json", "fiction/story_state.json",
-         "fiction/draft.md"],
-    ),
-    "review": (
-        _REVIEW_SKILL,
-        "Produce the typed, severity-tagged, evidence-located findings. "
-        "CONTINUITY (EVERY item here is blocking:true, severity critical/major — including impossible "
-        "knowledge and language drift; do not downgrade): dead/absent character "
-        "returns unexplained; character knows what they cannot; item teleports; "
-        "same character in two places at one time; timeline break; world-rule "
-        "violation; motive-incoherent action; foreshadowing dropped or leaked "
-        "before payoff; viewpoint/tense drift; language drift. CRAFT "
-        "(NON-BLOCKING heuristic + observable proxies): style consistency, "
-        "character-voice distinctness, scene concreteness, show-don't-tell, "
-        "over-summarization, mechanical/telegraphed twist, pacing/pressure, "
-        "ending closes the core question, obvious AI-tells (slogan endings, "
-        "abstract-word piling, homogeneous imagery). Do NOT fake a numeric "
-        "quality score. Apply the genre PROFILE recorded in "
-        "fiction/creative_brief.json: judge pacing / chapter hooks / exposition "
-        "tolerance / character complexity / ending by the profile's emphases — a "
-        "web_fiction chapter needs hooks + fast pacing; a literary_fiction one "
-        "needs character complexity + restraint. Check the draft against "
-        "fiction/style_profile.json (the voice card): any forbidden_lexicon term "
-        "present is a BLOCKING 'voice' finding (an author-declared hard contract, "
-        "mirrored by the deterministic style lint); register / appellation / "
-        "avoided_terms mismatches are non-blocking 'voice' notes. Emit a BLOCKING "
-        "'temporal_consistency' finding for any age/year contradiction the "
-        "deterministic temporal check reports (age vs current_year − birth_year, "
-        "birth in the future, timeline order vs year). For a continuation given "
-        "fiction/reference_text.md, emit a BLOCKING 'verbatim_copy' finding for any "
-        "long sentence-level span lifted verbatim from the source (mirrored by the "
-        "deterministic novelty gate — capture the author's VOICE via abstract "
-        "features, never by copying their sentences).",
-        ["fiction/creative_brief.json", "fiction/draft.md",
-         "fiction/story_state.json", "fiction/style_profile.json"],
-    ),
-    "revise": (
-        _REVIEW_SKILL,
-        "Verify the revision addressed every BLOCKING continuity finding with a "
-        "concrete fix (cite the changed span), that no NEW contradiction was "
-        "introduced, and that updated_story_state.json is consistent with "
-        "final.md. Confirm fiction/revision_plan.json was derived from "
-        "review.json via the literary review contract and that every blocking "
-        "finding's must_not_break invariant is preserved. Confirm "
-        "fiction/artifact_manifest.json records the produced chain — final "
-        "traces back to its draft and review, and supersedes the draft it "
-        "replaced. Craft findings may remain as accepted trade-offs with a "
-        "rationale.",
-        ["fiction/final.md", "fiction/updated_story_state.json",
-         "fiction/review.json", "fiction/revision_plan.json",
-         "fiction/artifact_manifest.json"],
-    ),
-}
+    return ()
 
 CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
 

@@ -9,7 +9,7 @@ Reuses the framework Reviewer role — the editor does NOT add a new agent. The
 split is honest: a machine EDIT-DISCIPLINE layer (mechanically decidable) and a
 live-reviewer craft layer that judges whether the edit is actually good.
 
-## 一 · 编辑纪律（机检层 · BLOCKING · 由 `checks.py edit-check` 强制）
+## 一 · 编辑纪律（机检层 · BLOCKING · 由阶段完成钩子调用 `edit_ops.check_edit` 强制）
 
 Machine checks cover only explicit facts:
 

@@ -25,44 +25,6 @@ WORKFLOW_MODE = "direct"
 completion_gate = "none"
 REQUIRE_INDEPENDENT_REVIEW = True
 
-_PIPELINE_CHECK = (
-    "Pipeline state present",
-    "test -f .argus/PIPELINE_STATE.json",
-)
-
-STAGE_CHECKS = {
-    "execute": [
-        _PIPELINE_CHECK,
-        (
-            "Benchmark interface manifest ready",
-            "{python} -m argus_skill.verticals.digital_circuit.evidence "
-            "benchmark-interface --project-root .",
-        ),
-        (
-            "Non-empty generated candidate present",
-            "{python} -m argus_skill.verticals.path_evidence --project-root . "
-            "--glob 'rtl/*.v' --glob 'rtl/*.sv' "
-            "--glob 'dut.py' "
-            "--glob 'reference/*.py' --glob 'reference/*.cc' "
-            "--glob 'reference/*.cpp'",
-        ),
-        (
-            "Pre-score interface/elaboration gate passed",
-            "{python} -m argus_skill.verticals.digital_circuit.evidence "
-            "preflight --project-root .",
-        ),
-        (
-            "Benchmark delivery summary present",
-            "test -s delivery/BENCHMARK_RESULT.md || test -s DELIVERY.md",
-        ),
-        (
-            "Repair artifacts are fresh for the current generation",
-            "{python} -m argus_skill.verticals.digital_circuit.benchmark.stages "
-            "--project-root . --check-repair-freshness",
-        ),
-    ]
-}
-
 REPAIR_FRESHNESS_EVIDENCE = Path("evidence") / "repair_freshness.json"
 
 
@@ -139,6 +101,37 @@ def validate_external_scoring_handoff(
     return evaluate_repair_freshness(root, expectation, evidence)
 
 
+def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
+    """Validate the fixed-harness artifact handoff before execution completes."""
+    if (stage or "").strip().lower() != "execute":
+        return ()
+
+    from ..evidence import (
+        EvidenceError,
+        validate_benchmark_interface,
+        validate_preflight,
+    )
+
+    root = Path(project_root)
+    issues: list[str] = []
+    try:
+        validate_benchmark_interface(root)
+    except EvidenceError as exc:
+        issues.append(str(exc))
+    try:
+        validate_preflight(root)
+    except EvidenceError as exc:
+        issues.append(str(exc))
+
+    summaries = (root / "delivery" / "BENCHMARK_RESULT.md", root / "DELIVERY.md")
+    if not any(path.is_file() and path.stat().st_size > 0 for path in summaries):
+        issues.append(
+            "benchmark delivery requires a non-empty delivery/BENCHMARK_RESULT.md or DELIVERY.md"
+        )
+    issues.extend(validate_external_scoring_handoff(root).issues)
+    return tuple(issues)
+
+
 def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
@@ -179,26 +172,6 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
     print("repair freshness gate failed: " + ", ".join(result.issues))
     return 1
-
-REVIEWER_CHECKLISTS = {
-    "execute": (
-        "reviewer/digital-circuit-benchmark-review.md",
-        "Review one bounded fixed-harness iteration only. Confirm public-context "
-        "closure, exact interface manifest fidelity, non-empty RTL, prompt-derived "
-        "local semantic tests, a passing pre-score elaboration report, hidden/golden "
-        "non-exposure, infrastructure-versus-RTL classification, and an immutable "
-        "attempt handoff. Do not create additional "
-        "specification, synthesis, or delivery missions; this execute node is the "
-        "entire pre-score workflow.",
-        [
-            "design/BENCHMARK_INTERFACE.json",
-            "rtl/",
-            "verification/",
-            "evidence/preflight.json",
-            "delivery/BENCHMARK_RESULT.md",
-        ],
-    )
-}
 
 CHECKLIST_ITEMS = {
     "execute": (
@@ -288,14 +261,13 @@ def role_banner(role: str) -> str:
 __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
-    "REVIEWER_CHECKLISTS",
-    "STAGE_CHECKS",
     "STAGE_ORDER",
     "WORKFLOW_MODE",
     "REQUIRE_INDEPENDENT_REVIEW",
     "completion_gate",
     "prepare_repair_expectation",
     "role_banner",
+    "stage_completion_issues",
     "validate_external_scoring_handoff",
 ]
 

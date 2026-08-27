@@ -11,7 +11,8 @@ quality. It checks only the DECLARED hard constraints in a ``form_spec``:
 
 Everything about imagery, lineation, tone, and cliché beyond the list is a
 live-reviewer judgement and lives in the review rubric, not here. Returns
-structured findings so the runtime gate and the review contract can consume them.
+structured findings so the stage-completion hook and review contract can consume
+them.
 """
 
 from __future__ import annotations

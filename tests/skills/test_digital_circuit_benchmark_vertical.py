@@ -11,6 +11,7 @@ from argus_skill.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS
 from argus_skill.verticals._base import load_vertical, vertical_role_banner
 from argus_skill.verticals.digital_circuit.benchmark.stages import (
     prepare_repair_expectation,
+    stage_completion_issues,
     validate_external_scoring_handoff,
 )
 from argus_skill.verticals.digital_circuit.evidence import validate_preflight
@@ -24,12 +25,6 @@ def test_benchmark_subvertical_is_registered_and_direct() -> None:
     assert mod.CHECKLIST_STAGE_ORDER == ("execute",)
     assert mod.WORKFLOW_MODE == "direct"
     assert mod.REQUIRE_INDEPENDENT_REVIEW is True
-    assert tuple(mod.STAGE_CHECKS) == ("execute",)
-    assert tuple(mod.REVIEWER_CHECKLISTS) == ("execute",)
-    candidate_check = dict(mod.STAGE_CHECKS["execute"])[
-        "Non-empty generated candidate present"
-    ]
-    assert "--glob 'dut.py'" in candidate_check
     assert Manager._kind_for("digital_circuit_benchmark") == "custom"
     assert mod.__name__ == "argus_skill.verticals.digital_circuit.benchmark.stages"
 
@@ -118,6 +113,19 @@ def test_reference_model_artifact_can_pass_public_preflight(tmp_path) -> None:
     artifact = tmp_path / "reference" / "candidate.py"
     artifact.parent.mkdir()
     artifact.write_text("class TopModule: pass\n", encoding="utf-8")
+    interface = tmp_path / "design" / "BENCHMARK_INTERFACE.json"
+    interface.parent.mkdir()
+    interface.write_text(
+        json.dumps(
+            {
+                "status": "ready",
+                "top_module": "TopModule",
+                "output_path": "reference/candidate.py",
+                "ports": [{"name": "value", "direction": "input"}],
+            }
+        ),
+        encoding="utf-8",
+    )
     evidence = tmp_path / "evidence"
     evidence.mkdir()
     (evidence / "preflight.json").write_text(
@@ -132,5 +140,15 @@ def test_reference_model_artifact_can_pass_public_preflight(tmp_path) -> None:
         ),
         encoding="utf-8",
     )
+    (tmp_path / "DELIVERY.md").write_text("benchmark result\n", encoding="utf-8")
 
     assert validate_preflight(tmp_path) == evidence / "preflight.json"
+    assert stage_completion_issues("execute", tmp_path) == ()
+
+
+def test_benchmark_completion_reports_missing_handoff(tmp_path) -> None:
+    issues = stage_completion_issues("execute", tmp_path)
+
+    assert any("BENCHMARK_INTERFACE.json" in issue for issue in issues)
+    assert any("preflight.json" in issue for issue in issues)
+    assert any("BENCHMARK_RESULT.md" in issue for issue in issues)

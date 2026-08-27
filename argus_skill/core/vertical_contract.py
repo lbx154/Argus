@@ -183,21 +183,12 @@ class VerticalContract:
     # vertical that cannot pick a completion bar on its own. See
     # ``adopt_operator_objective``.
     operator_objective_adopter: Callable[[Path, str], object] | None = None
-    stage_checks: dict[str, tuple[tuple[str, str], ...]] | None = None
     stage_primary_deliverables: dict[str, tuple[str, ...]] | None = None
     # Stages whose Engineer round runs with live web search enabled. ``None``
     # means "this vertical declares nothing", which is NOT the same as an
     # explicitly declared empty set ("never search"): the former keeps the
     # framework default, the latter overrides it off.
     engineer_live_search_stages: frozenset[str] | None = None
-
-    @property
-    def assurance_level(self) -> str:
-        if self.stage_checks or self.stage_completion_validator is not None:
-            return "hybrid"
-        if self.checklist_optional_stages == frozenset(self.stage_order):
-            return "runtime-authored"
-        return "reviewer"
 
     def banner(self, role: str) -> str:
         if self.role_guidance is None:
@@ -583,38 +574,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         raise VerticalContractError(
             f"vertical {name!r} has a non-callable operator objective adopter"
         )
-    raw_stage_checks = getattr(provider, "STAGE_CHECKS", {}) or {}
-    if not isinstance(raw_stage_checks, dict):
-        raise VerticalContractError(f"vertical {name!r} stage checks are not a mapping")
-    unknown_stage_checks = sorted(set(raw_stage_checks) - set(stage_order))
-    if unknown_stage_checks:
-        raise VerticalContractError(
-            f"vertical {name!r} has checks for unknown stages: "
-            f"{', '.join(unknown_stage_checks)}"
-        )
-    stage_checks: dict[str, tuple[tuple[str, str], ...]] = {}
-    for stage, checks in raw_stage_checks.items():
-        if not isinstance(checks, (list, tuple)):
-            raise VerticalContractError(
-                f"vertical {name!r} checks for {stage!r} are not a sequence"
-            )
-        normalized_checks: list[tuple[str, str]] = []
-        for check in checks:
-            if not isinstance(check, (list, tuple)) or len(check) != 2:
-                raise VerticalContractError(
-                    f"vertical {name!r} check for {stage!r} is not a label-command pair"
-                )
-            label, command = check
-            if not isinstance(label, str) or not label.strip():
-                raise VerticalContractError(
-                    f"vertical {name!r} check for {stage!r} has an empty label"
-                )
-            if not isinstance(command, str) or not command.strip():
-                raise VerticalContractError(
-                    f"vertical {name!r} check for {stage!r} has an empty command"
-                )
-            normalized_checks.append((label.strip(), command.strip()))
-        stage_checks[stage] = tuple(normalized_checks)
     raw_primary_deliverables = (
         getattr(provider, "STAGE_PRIMARY_DELIVERABLES", {}) or {}
     )
@@ -736,7 +695,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         review_purchase_policy=review_purchase_policy,
         iteration_assessor=iteration_assessor,
         operator_objective_adopter=operator_objective_adopter,
-        stage_checks=stage_checks,
         stage_primary_deliverables=stage_primary_deliverables,
         engineer_live_search_stages=engineer_live_search_stages,
     )

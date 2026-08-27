@@ -2,8 +2,7 @@
 
 Points the shared contract at fiction's own ``references/source_registry/
 sources.yaml`` (the rights catalog for the corpora and public-domain texts this
-vertical may consult) and exposes a single validated-load entry point the runtime
-provenance gate and tests share.
+vertical may consult) and exposes a validated-load entry point.
 """
 from __future__ import annotations
 
@@ -25,7 +24,7 @@ def load_fiction_registry() -> dict[str, Any]:
     Raises
     :class:`argus_skill.verticals.literary.shared.source_registry.RegistryError`
     if the
-    committed registry is malformed — so a broken registry fails the intake gate.
+    committed registry is malformed.
     """
     return load_validated_registry(FICTION_SOURCE_REGISTRY_PATH)
 

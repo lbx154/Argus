@@ -4,8 +4,8 @@ fetch, store, or fabricate anything (see ``references/corpus_ingestion_architect
 for the full design). Like the calibration harness, it is honest about being
 blocked without authorized sources rather than inventing cards.
 
-The pipeline rides existing argus infrastructure — the source registry / rights
-gate (:mod:`.sources`, :mod:`.source_check`) for authorization, and the
+The pipeline rides existing argus infrastructure — the source registry
+(:mod:`.sources`) for authorization, and the
 ``learning`` vertical for distillation — and emits :data:`CRAFT_CARD_SCHEMA`
 objects: ABSTRACT technique cards that carry evidence LOCATORS, never liftable
 prose (the same anti-copy principle the voice cards / novelty gate enforce).
@@ -56,8 +56,8 @@ def plan_ingestion(authorized_sources: list[dict[str, Any]] | None) -> dict[str,
     marker. Honest: with no authorized source it refuses to proceed — it neither
     fetches nor invents craft cards.
 
-    ``authorized_sources`` are entries already cleared by the rights gate
-    (:mod:`.source_check`); each should carry a ``kind`` matching an
+    ``authorized_sources`` are entries already cleared against the source
+    registry; each should carry a ``kind`` matching an
     :data:`INGESTION_LAYERS` layer. Returns ``{"blocked": True, "reason": ...}``
     or ``{"blocked": False, "steps": [...]}``.
     """

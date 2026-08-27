@@ -8,145 +8,14 @@ reproducible tool output.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ("specification", "rtl", "verification", "synthesis", "delivery")
 CHECKLIST_STAGE_ORDER = STAGE_ORDER
 WORKFLOW_MODE = "staged"
 completion_gate = "none"
-
-_PIPELINE_CHECK = (
-    "Pipeline state present",
-    "test -f .argus/PIPELINE_STATE.json",
-)
-
-STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
-    "specification": [
-        _PIPELINE_CHECK,
-        (
-            "Digital design specification present",
-            "test -s design/SPEC.md || test -s SPEC.md || test -s docs/SPEC.md",
-        ),
-    ],
-    "rtl": [
-        _PIPELINE_CHECK,
-        (
-            "Verilog or SystemVerilog RTL present",
-            "{python} -m argus_skill.verticals.path_evidence --project-root . "
-            "--glob 'rtl/**/*.v' --glob 'rtl/**/*.sv' "
-            "--glob 'src/**/*.v' --glob 'src/**/*.sv'",
-        ),
-    ],
-    "verification": [
-        _PIPELINE_CHECK,
-        (
-            "Verification source present",
-            "{python} -m argus_skill.verticals.path_evidence --project-root . "
-            "--glob 'tb/**/*.v' --glob 'tb/**/*.sv' --glob 'tb/**/*.py' --glob 'tb/**/*.sby' "
-            "--glob 'testbench/**/*.v' --glob 'testbench/**/*.sv' "
-            "--glob 'testbench/**/*.py' --glob 'testbench/**/*.sby' "
-            "--glob 'verification/**/*.v' --glob 'verification/**/*.sv' "
-            "--glob 'verification/**/*.py' --glob 'verification/**/*.sby' "
-            "--glob 'formal/**/*.v' --glob 'formal/**/*.sv' "
-            "--glob 'formal/**/*.py' --glob 'formal/**/*.sby'",
-        ),
-        (
-            "Verification results present",
-            "{python} -m argus_skill.verticals.digital_circuit.evidence "
-            "verification --project-root .",
-        ),
-    ],
-    "synthesis": [
-        _PIPELINE_CHECK,
-        (
-            "Synthesis evidence or justified non-applicability present",
-            "test -s synthesis/REPORT.md || test -s synthesis/NOT_APPLICABLE.md "
-            "|| {python} -m argus_skill.verticals.path_evidence --project-root . "
-            "--iglob 'reports/**/*synth*.log' --iglob 'reports/**/*timing*.rpt' "
-            "--iglob 'reports/**/*utilization*.rpt' --iglob 'synthesis/**/*synth*.log' "
-            "--iglob 'synthesis/**/*timing*.rpt' --iglob 'synthesis/**/*utilization*.rpt'",
-        ),
-    ],
-    "delivery": [
-        _PIPELINE_CHECK,
-        (
-            "Delivery summary present",
-            "test -s RESULTS.md || test -s DELIVERY.md",
-        ),
-        (
-            "Reproduction entry point present",
-            "test -f Makefile || test -f justfile || test -f run.sh "
-            "|| test -f scripts/run.sh || test -f scripts/verify.sh",
-        ),
-    ],
-}
-
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    "specification": (
-        "engineer/digital-circuit-rtl-verification.md",
-        "Review the hardware contract before RTL work. Require explicit cycle-level "
-        "behavior, ports and widths, signedness, clock/reset semantics, protocol "
-        "timing, parameter constraints, illegal-input behavior, latency/throughput "
-        "expectations, and a checkable acceptance matrix. Reject ambiguous prose that "
-        "would let multiple incompatible circuits all appear correct.",
-        ["design/SPEC.md", "SPEC.md", "docs/SPEC.md"],
-    ),
-    "rtl": (
-        "engineer/digital-circuit-rtl-verification.md",
-        "Review the RTL against the frozen specification. Check synthesizability, "
-        "combinational completeness, sequential assignment discipline, reset values, "
-        "width/signedness conversions, parameter bounds, clock-domain assumptions, "
-        "and protocol timing. Reject simulation-only constructs in synthesizable RTL, "
-        "unintended latches, multiple drivers, unsafe CDC, and changes that weaken the "
-        "specification or testbench to make the design pass.",
-        ["rtl/", "src/", "design/SPEC.md"],
-    ),
-    "verification": (
-        "reviewer/digital-circuit-signoff-review.md",
-        "Independently rerun the declared verification flow. Require directed reset "
-        "and boundary tests, randomized or exhaustive cases appropriate to the state "
-        "space, protocol assertions, X/Z detection, and waveform/log evidence for "
-        "failures. Formal proof may replace simulation only for properties actually "
-        "covered. A compile-only result or a self-checking testbench with no observed "
-        "PASS/FAIL evidence is not completion.",
-        ["verification/RESULTS.md", "tb/", "testbench/", "formal/", "reports/"],
-    ),
-    "synthesis": (
-        "reviewer/digital-circuit-signoff-review.md",
-        "Review synthesis and implementation evidence for synthesizable designs: "
-        "tool/version, target device or library, clock and I/O constraints, warnings, "
-        "latches/black boxes, timing, and area/resource utilization. For a verification-"
-        "only or fixed functional-benchmark mission, accept synthesis/NOT_APPLICABLE.md "
-        "only when it names the exact reason synthesis/PPA is outside the frozen scorer "
-        "contract and the RTL claim is not overstated. Missing host-PATH tools alone are "
-        "not a blocker until declared project-local and local container toolchains have "
-        "also been inspected.",
-        ["synthesis/REPORT.md", "synthesis/NOT_APPLICABLE.md", "reports/"],
-    ),
-    "delivery": (
-        "reviewer/digital-circuit-signoff-review.md",
-        "Perform final hardware sign-off from a clean reproduction command. Confirm "
-        "the delivered RTL matches the reviewed source, all required tests pass, "
-        "synthesis/formal claims trace to raw tool output, generated artifacts are not "
-        "mistaken for source, known limitations are explicit, and no passing claim "
-        "depends on stale caches or an edited reference/testbench. For an external "
-        "benchmark claim, require frozen selection/scorer provenance, a non-empty patch, "
-        "immutable first-attempt evidence, separately appended repair attempts, and "
-        "explicit golden/hidden-harness non-exposure. Require every prompt-referenced "
-        "pre-existing public file to be present before generation; missing referenced "
-        "context is a benchmark packaging defect, not an interface to infer from oracle "
-        "failures.",
-        [
-            "RESULTS.md",
-            "DELIVERY.md",
-            "Makefile",
-            "scripts/",
-            "selection.json",
-            "controller.json",
-            "results.jsonl",
-        ],
-    ),
-}
 
 CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
     "specification": (
@@ -326,6 +195,81 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
 }
 
 
+def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
+    """Return deterministic structural blockers for the current hardware stage."""
+    stage_name = (stage or "").strip().lower()
+    root = Path(project_root)
+
+    if stage_name == "specification":
+        specifications = (
+            root / "design" / "SPEC.md",
+            root / "SPEC.md",
+            root / "docs" / "SPEC.md",
+        )
+        if not any(path.is_file() and path.stat().st_size > 0 for path in specifications):
+            return ("specification requires a non-empty design/SPEC.md, SPEC.md, or docs/SPEC.md",)
+        return ()
+
+    if stage_name == "rtl":
+        from ..path_evidence import PathEvidenceError, validate_any_file
+
+        try:
+            validate_any_file(
+                root,
+                ["rtl/**/*.v", "rtl/**/*.sv", "src/**/*.v", "src/**/*.sv"],
+            )
+        except PathEvidenceError as exc:
+            return (str(exc),)
+        return ()
+
+    if stage_name == "verification":
+        from .evidence import EvidenceError, validate_verification_results
+
+        try:
+            validate_verification_results(root)
+        except EvidenceError as exc:
+            return (str(exc),)
+        return ()
+
+    if stage_name == "synthesis":
+        from ..path_evidence import PathEvidenceError, validate_any_file
+
+        try:
+            validate_any_file(
+                root,
+                ["synthesis/REPORT.md", "synthesis/NOT_APPLICABLE.md"],
+                case_insensitive_patterns=[
+                    "reports/**/*synth*.log",
+                    "reports/**/*timing*.rpt",
+                    "reports/**/*utilization*.rpt",
+                    "synthesis/**/*synth*.log",
+                    "synthesis/**/*timing*.rpt",
+                    "synthesis/**/*utilization*.rpt",
+                ],
+            )
+        except PathEvidenceError as exc:
+            return (str(exc),)
+        return ()
+
+    if stage_name == "delivery":
+        issues: list[str] = []
+        summaries = (root / "RESULTS.md", root / "DELIVERY.md")
+        if not any(path.is_file() and path.stat().st_size > 0 for path in summaries):
+            issues.append("delivery requires a non-empty RESULTS.md or DELIVERY.md")
+        entry_points = (
+            root / "Makefile",
+            root / "justfile",
+            root / "run.sh",
+            root / "scripts" / "run.sh",
+            root / "scripts" / "verify.sh",
+        )
+        if not any(path.is_file() for path in entry_points):
+            issues.append("delivery requires a reproduction entry point")
+        return tuple(issues)
+
+    return ()
+
+
 def role_banner(role: str) -> str:
     """Frame roles around executable digital-hardware evidence."""
     common = (
@@ -389,10 +333,9 @@ def role_banner(role: str) -> str:
 __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
-    "REVIEWER_CHECKLISTS",
-    "STAGE_CHECKS",
     "STAGE_ORDER",
     "WORKFLOW_MODE",
     "completion_gate",
     "role_banner",
+    "stage_completion_issues",
 ]

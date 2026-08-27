@@ -20,107 +20,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..optimization_base import PIPELINE_CHECK, speedrun_base_contract
+from ..optimization_base import speedrun_base_contract
 
 _BASE = speedrun_base_contract()
 STAGE_ORDER = list(_BASE.stage_order)
 CHECKLIST_STAGE_ORDER = _BASE.stage_order
 CHECKLIST_ITEMS = _BASE.checklist_items
-_PIPELINE_CHECK = PIPELINE_CHECK
-
-# Metric-agnostic, flat-workspace-tolerant structural checks (no BPB hardcoding:
-# the metric here is seconds-to-target-loss, not bits-per-byte).
-STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
-    "setup": [
-        _PIPELINE_CHECK,
-        ("Frozen protocol validates",
-         "{python} -m argus_skill.verticals.nanogpt_speedrun.capstone "
-         "check --project-root . --stage setup"),
-        ("Mission file present",
-         "test -f MISSION.md || test -f TASK.md"),
-        ("Target training script present",
-         "{python} -m argus_skill.verticals.path_evidence --project-root . "
-         "--glob 'baseline/*.py' --glob 'train*.py' --glob '*nanogpt*.py'"),
-        ("Setup notes present",
-         "{python} -m argus_skill.verticals.path_evidence --project-root . "
-         "--glob 'mission/SETUP.md' --glob 'SETUP.md' --glob '*SETUP*.md'"),
-        ("GROUND_TRUTH.md exists with content",
-         "test -s research/GROUND_TRUTH.md"),
-    ],
-    "optimize": [
-        _PIPELINE_CHECK,
-        ("Frozen protocol remains unchanged",
-         "{python} -m argus_skill.verticals.nanogpt_speedrun.capstone "
-         "check --project-root . --stage optimize"),
-        ("At least one attempt scaffolded",
-         "{python} -m argus_skill.verticals.path_evidence --project-root . "
-         "--glob 'attempts/*/*.py' --glob 'experiments/*/*.py'"),
-    ],
-    "measure": [
-        _PIPELINE_CHECK,
-        ("At least one timed-to-target run recorded",
-         "{python} -m argus_skill.verticals.metric_evidence nanogpt --project-root ."),
-        ("Timed result satisfies frozen capstone",
-         "{python} -m argus_skill.verticals.nanogpt_speedrun.capstone "
-         "check --project-root . --stage measure"),
-    ],
-    "report": [
-        _PIPELINE_CHECK,
-        ("RESULTS present",
-         "test -f RESULTS.md || test -s research/GROUND_TRUTH.md"),
-        ("Final capstone validates",
-         "{python} -m argus_skill.verticals.nanogpt_speedrun.capstone "
-         "check --project-root . --stage report"),
-    ],
-}
-
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    "setup": (
-        "engineer/speedrun-setup.md",
-        "Evaluate the setup (this stage is a GATE) for a TIME-to-target speedrun:\n"
-        "1. Target training script identified and present (modded-nanogpt lineage).\n"
-        "2. Harness / data (FineWeb) + the FIXED target val loss 3.28 pinned.\n"
-        "3. Hardware budget pinned: 8×H100 node, the timing protocol named.\n"
-        "4. research/GROUND_TRUTH.md names the MEASURED binding constraint on\n"
-        "   SPEED (e.g. comm/overlap, kernel/throughput, step efficiency, data\n"
-        "   loading) WITH numbers from a real baseline run — re-verify it.\n"
-        "Pass: target loss + 8×H100 budget + a measured speed bottleneck are\n"
-        "      recorded and the agent can start producing faster attempts.",
-        ["MISSION.md", "mission/SETUP.md", "research/GROUND_TRUTH.md"],
-    ),
-    "optimize": (
-        "engineer/speedrun-setup.md",
-        "Evaluate the latest attempt — FAST loop, keep it LEAN:\n"
-        "1. Self-contained training script under attempts/<name>/ that reaches the\n"
-        "   target val loss 3.28 on 8×H100.\n"
-        "2. The change has a stated, testable hypothesis for WHY it is FASTER to\n"
-        "   the target (not random mutation, not a correctness regression).\n"
-        "3. CHANGES.md is present and SHORT (the diff + a one-line hypothesis).\n"
-        "EFFICIENCY: TRUST a clean timed run + its seconds-to-target; do NOT\n"
-        "re-run/re-verify/re-document a recorded time — advance to the next idea.\n"
-        "The metric is WALL-CLOCK SECONDS to reach val_loss<=3.28 (lower = better),\n"
-        "NOT bits-per-byte. The only hard rigor: the run genuinely reaches 3.28 on\n"
-        "8×H100 under the real protocol, and the time is never fabricated.\n"
-        "Pass: the attempt reaches the target and its time is from a clean real run.",
-        ["attempts/", "MISSION.md"],
-    ),
-    "measure": (
-        "engineer/speedrun-measure.md",
-        "Evaluate the measurement: N seeded runs each reaching val_loss<=3.28 on\n"
-        "8×H100, with real (not fabricated) wall-clock seconds per run, recorded as\n"
-        "(label, seed, seconds_to_target) rows. Pass: rows suffice to compare mean\n"
-        "time-to-target against the reference records.",
-        ["attempts/", "MISSION.md"],
-    ),
-    "report": (
-        "engineer/speedrun-report.md",
-        "Evaluate the report: RESULTS.md with one row per attempt sorted by mean\n"
-        "seconds-to-target, honestly stating which reference times (Recursive 77.3s,\n"
-        "record #83) were beaten. No spin. Pass: the headline time is verifiable\n"
-        "from the table + the per-run records.",
-        ["RESULTS.md", "attempts/"],
-    ),
-}
 
 completion_gate = "metric"
 MISSION_KIND = "optimize"
@@ -144,7 +49,7 @@ def role_banner(_role: str) -> str:
 
 
 __all__ = [
-    "STAGE_ORDER", "STAGE_CHECKS", "REVIEWER_CHECKLISTS",
+    "STAGE_ORDER",
     "CHECKLIST_STAGE_ORDER", "CHECKLIST_ITEMS",
     "completion_gate", "role_banner", "stage_completion_issues",
 ]

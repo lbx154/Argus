@@ -51,7 +51,7 @@
 「不能 AI 味」和「不能抄」是一体两面的安全走廊：压 AI 味最偷懒的做法就是去贴真人原文，那就滑向抄袭。续写红楼想要曹雪芹的味道，绝不能靠搬他的句子。
 
 - **风格 = 抽象特征 + 显式词表，绝不「模仿某作者原文」**。voice card 捕捉 register/句式/称谓/人物腔调，不是复制原句。
-- **续写/改编须提供 `fiction/reference_text.md`**（原文/canon 文本）。review 阶段的 `novelty-check`（`style_check.py`）对草稿与它做**逐字重合**检测：
+- **续写/改编须提供 `fiction/reference_text.md`**（原文/canon 文本）。review 阶段完成钩子调用 `novelty.check_novelty` 对草稿与它做**逐字重合**检测：
   - 长逐字跨度（默认 ≥24 字，可由 `style_profile.novelty_budget.max_verbatim_run` 收紧）= **阻塞** `verbatim_copy`（跨度这么长的逐字重合是确定性事实，有牙）；
   - 中等跨度 / 整体重合率 = 非阻塞 note（除非声明 `max_overlap_ratio` 并超标）；
   - 阈值 model-seed，设得偏保守，好让正当的成语/典故/短引用只作提示不阻塞；语义级/改写级抄袭机器判不可靠，只留 reviewer 指引，不装假牙。

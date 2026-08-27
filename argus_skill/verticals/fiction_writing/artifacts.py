@@ -1,13 +1,10 @@
 """fiction_writing artifact lineage: bind the shared artifact-manifest contract
 to fiction's own artifact VOCABULARY and canonical production chain.
 
-The fiction end of the Artifact-Manifest closed loop. A fiction mission produces
-a fixed chain of artifacts across its six stages; :func:`build_fiction_manifest`
-is the reference PRODUCER of that chain (with correct parents, producer_stage,
-content paths, and supersede/version bookkeeping), exactly as the runtime
-engineer must record it in ``fiction/artifact_manifest.json``. The shared
-contract then validates whatever is on disk, and :mod:`.manifest_check` gates the
-revise stage on it.
+A fiction mission produces a fixed chain of artifacts across its six stages;
+:func:`build_fiction_manifest` is the reference producer of that chain (with
+correct parents, producer_stage, content paths, and supersede/version
+bookkeeping). The shared contract can validate a recorded manifest.
 
 The canonical chain and its lineage:
 
@@ -44,11 +41,10 @@ FICTION_ARTIFACT_KINDS: frozenset[str] = frozenset({
 def build_fiction_manifest(task_id: str) -> dict[str, Any]:
     """Return the canonical, validated fiction artifact manifest for ``task_id``.
 
-    This is the deterministic reference chain the runtime engineer mirrors into
+    This is the deterministic reference chain an engineer can record in
     ``fiction/artifact_manifest.json``; it is normalized + validated against
     :data:`FICTION_ARTIFACT_KINDS` before it is returned, so a drift in the chain
-    (a broken parent, a supersede left incoherent) fails here, in tests, not only
-    at run time.
+    (a broken parent, a supersede left incoherent) fails during construction.
     """
     artifacts: list[dict[str, Any]] = [
         {"artifact_id": "brief", "kind": "creative_brief", "version": 1,

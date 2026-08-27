@@ -144,25 +144,3 @@ def test_kernel_reference_guidance_does_not_gate_exploration() -> None:
     assert "high-risk exploration" in idgl
     assert "One clean run is enough for exploratory screening" in idgl
     assert "do not require multiple seeds" in measurement
-
-
-def test_kernel_optimize_stage_has_no_framework_file_gate() -> None:
-    mod = load_vertical("kernel_engineering")
-    commands = "\n".join(command for _label, command in mod.STAGE_CHECKS["optimize"])
-    assert commands == ""
-
-
-def test_reviewer_checklist_skill_paths_exist() -> None:
-    mod = load_vertical("kernel_engineering")
-    skill_root = (
-        Path(__file__).resolve().parents[2]
-        / "argus_skill"
-        / "verticals"
-        / "kernel_engineering"
-        / "skills"
-    )
-    missing = []
-    for stage, (skill_path, _instructions, _artifacts) in mod.REVIEWER_CHECKLISTS.items():
-        if not (skill_root / skill_path).is_file():
-            missing.append(f"{stage}: {skill_path}")
-    assert missing == []

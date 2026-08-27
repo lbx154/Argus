@@ -9,7 +9,7 @@ The classical_poetry reviewer checklist. It reuses the framework Reviewer role
 (no new agent) and separates what is **machine-decidable** from what is
 **live-reviewer judgement** — never faking the latter as the former.
 
-## 一 · 格律（机检层 · BLOCKING · 由 `checks.py prosody` 强制）
+## 一 · 格律（机检层 · BLOCKING · 由阶段完成钩子调用 `prosody.analyze` 强制）
 
 These are decided reproducibly by the prosody engine against the 平水韵 table;
 they are recorded as `blocking` findings and the poem cannot pass with any of them

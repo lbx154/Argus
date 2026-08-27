@@ -57,8 +57,7 @@ def test_downgrade_walks_b_to_d(tmp_path: Path, monkeypatch) -> None:
     assert downgrade.evaluate_and_maybe_downgrade(root, now_iso="t") is None
 
 
-def test_stage_checks_do_not_include_terminal_negative_gate() -> None:
-    assert not hasattr(stages, "STAGE_CHECKS")
+def test_reviewer_banner_does_not_include_terminal_negative_gate() -> None:
     banner = stages.role_banner("reviewer")
     assert "binary_rejection_terminal" not in banner
     assert "SUCCESS TERMINAL" not in banner

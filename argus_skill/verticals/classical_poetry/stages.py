@@ -4,9 +4,8 @@ The SECOND real literary vertical. Its deliverable is a 近体诗 (or 古体/词
 (1) passes the machine prosody check (押韵/平仄/粘对/孤平/三平尾 — reproducible),
 (2) has a real conception/立意 (human/live judgement), and (3) reads un-AI (守禁忌).
 
-It CONSUMES the same four shared contracts fiction does — Task Envelope, Review,
-Artifact Manifest, Provenance — via ``checks.py``; its craft state (prosody/诗体/
-韵) is vertical-PRIVATE (``prosody.py``) and never lifted into the shared layer.
+Its craft state (prosody/诗体/韵) is vertical-PRIVATE (``prosody.py``) and never
+lifted into the shared layer.
 
 Stages (``completion_gate="none"`` — reviewer verdict ends the mission):
 
@@ -14,13 +13,15 @@ Stages (``completion_gate="none"`` — reviewer verdict ends the mission):
 2. **form_plan**: choose 体裁/韵部/起承转合 -> ``poetry/form_plan.json``.
 3. **compose**: write the poem -> ``poetry/draft_poem.txt``.
 4. **prosody_check**: run the machine validator -> ``poetry/prosody_report.json``;
-   the STAGE_CHECK FAILS on any 出韵/失替/三平尾/孤平.
+   stage completion fails on any 出韵/失替/三平尾/孤平.
 5. **review**: reviewer emits ``poetry/review.json`` (prosody blocking + craft
    non-blocking) per the shared review contract.
 6. **revise**: apply fixes -> ``poetry/final_poem.txt`` + ``poetry/revision_plan.json``
    + ``poetry/artifact_manifest.json``.
 """
 from __future__ import annotations
+
+from pathlib import Path
 
 from ...skills.stage_machine import ChecklistItem
 
@@ -29,103 +30,23 @@ CHECKLIST_OPTIONAL_STAGES = ("intake", "form_plan", "compose", "revise")
 
 completion_gate = "none"
 
-_PIPELINE_CHECK = ("Pipeline state present", "test -f .argus/PIPELINE_STATE.json")
-_CHECKS = "{python} -m argus_skill.verticals.classical_poetry.checks"
+def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
+    if stage in {"prosody_check", "revise"}:
+        from .prosody import analyze
 
-STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
-    "intake": [
-        _PIPELINE_CHECK,
-        ("Task envelope recorded", "test -s poetry/task_envelope.json"),
-        ("Task envelope valid and poetry-consumable",
-         f"{_CHECKS} intake-validate poetry/task_envelope.json"),
-        ("Poem brief produced", "test -s poetry/poem_brief.json"),
-        ("Source registry is well-formed", f"{_CHECKS} source-registry"),
-    ],
-    "form_plan": [
-        _PIPELINE_CHECK,
-        ("Form/rhyme plan produced", "test -s poetry/form_plan.json"),
-    ],
-    "compose": [
-        _PIPELINE_CHECK,
-        ("Draft poem written", "test -s poetry/draft_poem.txt"),
-    ],
-    "prosody_check": [
-        _PIPELINE_CHECK,
-        ("Prosody report produced", "test -s poetry/prosody_report.json"),
-        ("Poem passes the machine prosody check (押韵/平仄/孤平/三平尾)",
-         f"{_CHECKS} prosody poetry/draft_poem.txt"),
-    ],
-    "review": [
-        _PIPELINE_CHECK,
-        ("Structured review produced", "test -s poetry/review.json"),
-        ("Review conforms to the literary review contract",
-         f"{_CHECKS} review-validate poetry/review.json"),
-        ("Source-usage ledger produced (explicit, empty uses[] if none consulted)",
-         "test -s poetry/source_usage.json"),
-        ("Every recorded source use is rights-defensible",
-         f"{_CHECKS} check-usage poetry/source_usage.json"),
-    ],
-    "revise": [
-        _PIPELINE_CHECK,
-        ("Final poem and revision plan produced",
-         "test -s poetry/final_poem.txt && test -s poetry/revision_plan.json"),
-        ("Revision plan covers every blocking finding",
-         f"{_CHECKS} check-plan poetry/review.json poetry/revision_plan.json"),
-        ("Artifact manifest records the chain", "test -s poetry/artifact_manifest.json"),
-        ("Artifact manifest conforms to the shared lineage contract",
-         f"{_CHECKS} manifest-validate poetry/artifact_manifest.json"),
-        ("Every artifact the manifest records is present",
-         f"{_CHECKS} manifest-content poetry/artifact_manifest.json"),
-    ],
-}
-
-_REVIEW_SKILL = "reviewer/prosody-and-conception-review.md"
-
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    "intake": (
-        _REVIEW_SKILL,
-        "Confirm the poem brief was derived from poetry/task_envelope.json: the "
-        "form is a classical-poetry form, the language is zh, and a 平声 韵部 target "
-        "was chosen (not left to chance mid-poem).",
-        ["poetry/task_envelope.json", "poetry/poem_brief.json"],
-    ),
-    "form_plan": (
-        _REVIEW_SKILL,
-        "Gate the plan before composing: 体裁(绝句/律诗·五/七言) fixed, a single 平声 "
-        "韵部 chosen, and a 起承转合 with the 转 placed (颈联 or 绝句第三句).",
-        ["poetry/form_plan.json", "poetry/poem_brief.json"],
-    ),
-    "compose": (
-        _REVIEW_SKILL,
-        "First read of the draft against the brief: right 体裁/句数/字数, on the "
-        "chosen 韵部. Craft notes are non-blocking here.",
-        ["poetry/draft_poem.txt", "poetry/poem_brief.json"],
-    ),
-    "prosody_check": (
-        _REVIEW_SKILL,
-        "Confirm the MACHINE prosody report: no 出韵/失替/三平尾/孤平 stands. This is "
-        "the reproducible gate — do not re-judge metricality by ear, read the report.",
-        ["poetry/prosody_report.json", "poetry/draft_poem.txt"],
-    ),
-    "review": (
-        _REVIEW_SKILL,
-        "Emit typed findings. PROSODY (rhyme/meter/hard_fault/parallelism) are "
-        "BLOCKING and mirror the machine report. CRAFT (conception/imagery/diction/"
-        "allusion/tone/anti_ai) are NON-BLOCKING live-reviewer judgements — is there "
-        "a 立意 turn? a 诗眼? does the ending avoid slogan-style uplift? Never fake a "
-        "numeric craft score.",
-        ["poetry/draft_poem.txt", "poetry/prosody_report.json"],
-    ),
-    "revise": (
-        _REVIEW_SKILL,
-        "Verify every BLOCKING prosody finding is fixed (the final poem re-passes "
-        "the machine check) with no NEW 出律 introduced, that revision_plan.json was "
-        "derived from review.json, and that artifact_manifest.json records the chain "
-        "(final supersedes the draft, traces back to draft + review).",
-        ["poetry/final_poem.txt", "poetry/review.json", "poetry/revision_plan.json",
-         "poetry/artifact_manifest.json"],
-    ),
-}
+        name = "draft_poem.txt" if stage == "prosody_check" else "final_poem.txt"
+        try:
+            result = analyze(
+                (project_root / "poetry" / name).read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as exc:
+            return (f"classical poetry {name} invalid: {exc}",)
+        return tuple(
+            finding["detail"]
+            for finding in result["findings"]
+            if finding["severity"] == "blocking"
+        )
+    return ()
 
 CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
 

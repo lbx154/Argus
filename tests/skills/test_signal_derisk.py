@@ -233,10 +233,9 @@ def test_cli_validate_degenerate(tmp_path, capsys):
 # --- the stage keeps quality judgment with the Reviewer ---------------------
 
 
-def test_research_stage_checks_do_not_dispatch_task_specific_derisk():
+def test_research_checklist_does_not_dispatch_task_specific_derisk():
     from argus_skill.verticals.research import stages
 
-    assert not hasattr(stages, "STAGE_CHECKS")
     rendered = " ".join(item.statement for item in stages.STAGE_CHECKLISTS["research"])
     assert "mechanical routing decision" in rendered
     assert "theorem_derisk" not in rendered

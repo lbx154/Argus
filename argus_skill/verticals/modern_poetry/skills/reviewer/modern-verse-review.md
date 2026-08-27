@@ -9,7 +9,7 @@ Reuses the framework Reviewer role. Free verse has NO metrical machine layer, so
 this checklist is honest about the split: a THIN machine layer (declared hard
 constraints) and a LIVE-reviewer craft layer that is never mechanized.
 
-## 一 · 硬约束（机检层 · BLOCKING · 由 `checks.py form-check` 强制）
+## 一 · 硬约束（机检层 · BLOCKING · 由阶段完成钩子调用 `form.check_form` 强制）
 
 Decided mechanically against the declared `form_spec` only — these catch declared
 violations, not poetic quality:

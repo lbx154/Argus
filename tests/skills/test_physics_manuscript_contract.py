@@ -22,7 +22,6 @@ def test_stage_order_and_stage_writer_hook_are_retained() -> None:
     physics = load_vertical("physics")
     assert physics.STAGE_ORDER == ("scope", "model", "execute", "review", "manuscript")
     assert callable(physics.stage_completion_issues)
-    assert not hasattr(physics, "STAGE_CHECKS")
 
 
 def test_only_compiled_paper_outcome_is_deterministic(tmp_path: Path) -> None:

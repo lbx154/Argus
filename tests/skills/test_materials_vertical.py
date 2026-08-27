@@ -64,8 +64,6 @@ def test_materials_is_registered_and_loadable() -> None:
         "report",
     )
     assert vertical_checklist_stage_order(mod) == mod.STAGE_ORDER
-    assert tuple(mod.STAGE_CHECKS) == mod.STAGE_ORDER
-    assert tuple(mod.REVIEWER_CHECKLISTS) == mod.STAGE_ORDER
 
 
 def test_materials_uses_proportional_independently_reviewed_workflow() -> None:

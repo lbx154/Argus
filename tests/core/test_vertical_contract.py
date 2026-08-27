@@ -33,7 +33,6 @@ def test_minimal_non_research_vertical_implements_only_documented_contract() -> 
     assert contract.ground_before_handoff is False
     assert contract.banner("engineer") == ""
     assert contract.evidence_schema is None
-    assert contract.assurance_level == "reviewer"
     assert contract.review_purchase(
         project_root=Path("."),
         task=object(),
@@ -71,7 +70,6 @@ def test_provider_completion_validator_is_typed_and_normalized(tmp_path: Path) -
     assert contract.completion_issues("verify", tmp_path) == (
         f"verify:{tmp_path.name}",
     )
-    assert contract.assurance_level == "hybrid"
 
 
 def test_vertical_validator_can_defer_checks_by_verification_profile(
@@ -148,7 +146,7 @@ def test_empty_required_checklist_fails_but_runtime_authored_is_explicit() -> No
             completion_gate="none",
         ),
     )
-    assert contract.assurance_level == "runtime-authored"
+    assert contract.checklist_optional_stages == frozenset({"work"})
 
 
 def test_primary_stage_deliverables_are_exposed_by_contract() -> None:
@@ -171,26 +169,6 @@ def test_primary_stage_deliverables_are_exposed_by_contract() -> None:
         "research/setup.md",
     )
     assert contract.primary_deliverables("work") == ()
-
-
-def test_stage_checks_are_validated_and_mark_contract_hybrid() -> None:
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("work",),
-        CHECKLIST_ITEMS={"work": (_item("work.output"),)},
-        STAGE_CHECKS={"work": [("Artifact exists", "test -s RESULT.md")]},
-        completion_gate="none",
-    )
-
-    contract = vertical_contract("checked", provider)
-
-    assert contract.assurance_level == "hybrid"
-    assert contract.stage_checks == {
-        "work": (("Artifact exists", "test -s RESULT.md"),)
-    }
-
-    provider.STAGE_CHECKS = {"ghost": [("No", "false")]}
-    with pytest.raises(VerticalContractError, match="unknown stages"):
-        vertical_contract("checked", provider)
 
 
 def test_incomplete_vertical_fails_visibly() -> None:

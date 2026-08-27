@@ -8,6 +8,8 @@ missions without pretending those delivery levels are interchangeable.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = (
@@ -28,164 +30,6 @@ CHECKLIST_STAGE_ORDER = STAGE_ORDER
 WORKFLOW_MODE = "proportional"
 completion_gate = "metric"
 REQUIRE_INDEPENDENT_REVIEW = True
-
-_PIPELINE_CHECK = ("Pipeline state present", "test -f .argus/PIPELINE_STATE.json")
-_EVIDENCE = "${ARGUS_SKILL_PYTHON:-python} -m argus_skill.verticals.chip_design.evidence"
-_AUDIT = "${ARGUS_SKILL_PYTHON:-python} -m argus_skill.verticals.chip_design.environment_audit"
-
-STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
-    "definition": [
-        _PIPELINE_CHECK,
-        ("Chip scope validates", f"{_EVIDENCE} scope --project-root ."),
-        ("Workload contract present", "test -s design/WORKLOAD.md"),
-        ("Functional specification present", "test -s design/SPEC.md"),
-    ],
-    "architecture": [
-        _PIPELINE_CHECK,
-        ("Architecture document present", "test -s design/ARCHITECTURE.md"),
-        ("Memory and bandwidth model validates", f"{_EVIDENCE} architecture --project-root ."),
-        ("Baseline comparison plan present", "test -s design/BASELINE_PLAN.md"),
-    ],
-    "environment": [
-        _PIPELINE_CHECK,
-        (
-            "Environment audit validates",
-            f"{_AUDIT} check --project-root . "
-            "--target-python ${{ARGUS_SKILL_PROJECT_PYTHON:-.venv/bin/python}}",
-        ),
-        ("Specialized tool shortlist present", "test -s research/TOOLCHAIN_CANDIDATES.md"),
-        ("IP and infrastructure reuse plan present", "test -s research/IP_REUSE_PLAN.md"),
-        ("Target technology or FPGA manifest present", "test -s design/TARGET.json"),
-    ],
-    "rtl": [
-        _PIPELINE_CHECK,
-        (
-            "Synthesizable RTL present",
-            "{python} -m argus_skill.verticals.path_evidence --project-root . "
-            "--glob 'rtl/**/*.v' --glob 'rtl/**/*.sv' --glob 'src/**/*.v' --glob 'src/**/*.sv'",
-        ),
-        ("RTL manifest validates", f"{_EVIDENCE} rtl --project-root ."),
-    ],
-    "verification": [
-        _PIPELINE_CHECK,
-        ("Verification plan present", "test -s verification/PLAN.md"),
-        ("Verification evidence validates", f"{_EVIDENCE} verification --project-root ."),
-    ],
-    "ppa": [
-        _PIPELINE_CHECK,
-        ("PPA protocol present", "test -s ppa/PROTOCOL.md"),
-        ("Synthesis or physical-design evidence validates", f"{_EVIDENCE} ppa --project-root ."),
-    ],
-    "prototype": [
-        _PIPELINE_CHECK,
-        ("Prototype evidence or scoped non-applicability validates", f"{_EVIDENCE} prototype --project-root ."),
-    ],
-    "benchmark": [
-        _PIPELINE_CHECK,
-        ("Benchmark protocol present", "test -s benchmark/PROTOCOL.md"),
-        ("Benchmark comparison validates", f"{_EVIDENCE} benchmark --project-root ."),
-    ],
-    "signoff": [
-        _PIPELINE_CHECK,
-        ("Sign-off evidence validates", f"{_EVIDENCE} signoff --project-root ."),
-        ("Final results present", "test -s RESULTS.md"),
-        (
-            "Reproduction entry point present",
-            "test -f Makefile || test -f justfile || test -f scripts/reproduce.sh "
-            "|| test -f scripts/verify.sh",
-        ),
-    ],
-}
-
-_ENGINEER_SKILL = "engineer/chip-design-environment-first.md"
-_REVIEWER_SKILL = "reviewer/chip-design-signoff-review.md"
-
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    "definition": (
-        _ENGINEER_SKILL,
-        "Freeze the product and workload contract before architecture work. Require a delivery level "
-        "(RTL IP, FPGA, GDS, or tapeout readiness), supported models/operators, numerical formats, "
-        "host/memory interfaces, power/performance/area targets, correctness oracle, commercial and "
-        "open baselines, non-goals, and a scenario-level acceptance matrix. Reject marketing TOPS as "
-        "the sole metric or an open-PDK proof presented as a production-node competitor.",
-        ["design/CHIP_SCOPE.json", "design/WORKLOAD.md", "design/SPEC.md"],
-    ),
-    "architecture": (
-        _ENGINEER_SKILL,
-        "Review the microarchitecture against workload arithmetic intensity and memory traffic. Require "
-        "roofline/Amdahl reasoning, compute/dataflow choice, SRAM banking and capacity, DMA/NoC behavior, "
-        "host and external-memory assumptions, numerical accumulation, scheduling, clock/reset domains, "
-        "backpressure, error handling, and a fair baseline plan. Reject architecture diagrams without "
-        "cycle/data-movement consequences.",
-        ["design/ARCHITECTURE.md", "design/MEMORY_MODEL.json", "design/BASELINE_PLAN.md"],
-    ),
-    "environment": (
-        _ENGINEER_SKILL,
-        "Treat the EDA environment as a hard gate. Independently inspect simulator, formal, synthesis, "
-        "FPGA, physical-design, PDK, sign-off, compiler/runtime, license, container, and version evidence "
-        "required by the declared delivery level. Prefer project-native and maintained open/vendor tools. "
-        "A missing tool or PDK is an environment blocker, not proof that the architecture failed.",
-        [
-            "research/ENVIRONMENT_AUDIT.json",
-            "research/ENVIRONMENT_AUDIT.md",
-            "research/TOOLCHAIN_CANDIDATES.md",
-            "research/IP_REUSE_PLAN.md",
-            "design/TARGET.json",
-        ],
-    ),
-    "rtl": (
-        _ENGINEER_SKILL,
-        "Audit synthesizable RTL against the architecture and frozen interfaces. Require reset/CDC/clock "
-        "discipline, widths and signedness, parameter bounds, memory inference/macros, protocol timing, "
-        "pipeline latency, deterministic arbitration, and explicit generated-source provenance. Reject "
-        "simulation-only constructs, silent black boxes, copied IP without license/provenance, or RTL "
-        "whose interface differs from the manifest.",
-        ["design/RTL_MANIFEST.json", "rtl/", "src/", "design/ARCHITECTURE.md"],
-    ),
-    "verification": (
-        _REVIEWER_SKILL,
-        "Independently rerun verification. Require a separate executable reference/oracle, unit and "
-        "integration tests, reset/boundary/backpressure/error cases, randomized seeds, assertions, X/Z "
-        "checks, formal properties where tractable, coverage goals, numerical error analysis, and retained "
-        "logs/waves for failures. Compile success or testing the RTL against a duplicated algorithm is not "
-        "verification.",
-        ["verification/PLAN.md", "verification/RESULTS.json", "verification/raw/", "formal/", "tb/"],
-    ),
-    "ppa": (
-        _REVIEWER_SKILL,
-        "Review fresh synthesis and implementation evidence under declared constraints. Require tool and "
-        "library/PDK versions, clocks and I/O, memory macro accounting, area/resources, slack/Fmax, power "
-        "method and activity assumptions, warnings/black boxes, congestion, and—when GDS is claimed—DRC, "
-        "LVS, antenna and STA status. Compare baselines only in the same FPGA or technology flow.",
-        ["ppa/PROTOCOL.md", "ppa/RESULTS.json", "ppa/raw/", "constraints/", "physical/"],
-    ),
-    "prototype": (
-        _REVIEWER_SKILL,
-        "Review the declared prototype level. FPGA claims need bitstream/tool/board identity, resource and "
-        "clock reports, host/runtime integration, on-board correctness, power method, and reproducible "
-        "logs. GDS/tapeout missions need layout/sign-off artifacts and explicit hard-IP/package/IO limits. "
-        "Structured N/A is acceptable only when the frozen delivery level does not require a prototype.",
-        ["prototype/RESULTS.json", "prototype/raw/", "fpga/", "physical/"],
-    ),
-    "benchmark": (
-        _REVIEWER_SKILL,
-        "Audit benchmark fairness and end-to-end relevance. Require identical workloads, quantization and "
-        "quality floor, memory bandwidth, host responsibilities, warmup, repetitions, power measurement, "
-        "and resource/area budgets. Report kernel and full-system metrics separately, including latency, "
-        "throughput, energy, utilization, TTFT/TPOT/tokens-per-second where applicable, uncertainty, and "
-        "all regressions. Commercial products may be market context, not same-node PPA baselines.",
-        ["benchmark/PROTOCOL.md", "benchmark/RESULTS.json", "benchmark/raw/", "design/BASELINE_PLAN.md"],
-    ),
-    "signoff": (
-        _REVIEWER_SKILL,
-        "Perform final clean-room sign-off. Verify source and generated-artifact content, license/IP "
-        "provenance, verification/PPA/prototype/benchmark bindings, reproducible commands, known "
-        "limitations, unsupported levels, security/safety findings, intervention history, and claim scope. "
-        "For tapeout readiness, require independent DRC/LVS/STA closure and foundry/package checklist "
-        "evidence; for lower delivery levels, prohibit wording that implies fabricated silicon.",
-        ["signoff/SIGNOFF.json", "signoff/ARTIFACT_MANIFEST.json", "RESULTS.md", "scripts/"],
-    ),
-}
 
 CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
     "definition": (
@@ -429,6 +273,49 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ),
     ),
 }
+
+
+def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
+    """Return deterministic blockers from the vertical's existing validators."""
+    stage_name = (stage or "").strip().lower()
+    root = Path(project_root)
+
+    if stage_name == "environment":
+        from .environment_audit import check
+
+        _ok, errors = check(root)
+        target = root / "design" / "TARGET.json"
+        if not target.is_file() or target.stat().st_size == 0:
+            errors.append("environment requires a non-empty design/TARGET.json")
+        return tuple(errors)
+
+    validator_name = {
+        "definition": "scope",
+        "architecture": "architecture",
+        "rtl": "rtl",
+        "verification": "verification",
+        "ppa": "ppa",
+        "prototype": "prototype",
+        "benchmark": "benchmark",
+        "signoff": "signoff",
+    }.get(stage_name)
+    if validator_name is None:
+        return ()
+
+    from .evidence import VALIDATORS, EvidenceError
+
+    issues: list[str] = []
+    try:
+        VALIDATORS[validator_name](root)
+    except EvidenceError as exc:
+        issues.append(str(exc))
+
+    if stage_name == "definition":
+        for relative in ("design/WORKLOAD.md", "design/SPEC.md"):
+            path = root / relative
+            if not path.is_file() or path.stat().st_size == 0:
+                issues.append(f"definition requires a non-empty {relative}")
+    return tuple(issues)
 
 
 def role_banner(role: str) -> str:

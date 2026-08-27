@@ -70,7 +70,7 @@ from reproducing their prose.
 
 - **Style = abstract features + an explicit lexicon, never "imitate author X"**.
 - A continuation/adaptation must supply `fiction/reference_text.md` (the source
-  text). At review, `novelty-check` (`style_check.py`) measures verbatim overlap:
+  text). At review completion, `novelty.check_novelty` measures verbatim overlap:
   - a long verbatim run (default ≥12 words; tighten via
     `style_profile.novelty_budget.max_verbatim_run`) is a **BLOCKING**
     `verbatim_copy` finding — a run this long in both texts is a deterministic fact;

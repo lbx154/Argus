@@ -422,22 +422,36 @@ def test_kernelbench_research_checklist_is_not_paper_literature_gate(tmp_path: P
     assert "at least 10 recent high-quality papers" not in text
 
 
-def test_kernelbench_reviewer_skill_paths_exist() -> None:
-    # The checklist hands these paths to the reviewer as workspace-relative
-    # `argus_builtin_skills/<role>/<name>.md` references, so the contract that
-    # matters is what the kernelbench context actually seeds — cross-vertical
-    # builtins plus the vertical's own skills plus whatever it inherits — not
-    # any single source directory.
-    from argus_skill.skills.builtins import iter_context_skill_texts
-    from argus_skill.verticals.kernelbench.stages import REVIEWER_CHECKLISTS
+def test_kernelbench_stage_completion_requires_scored_kernel_and_report(
+    tmp_path: Path,
+) -> None:
+    from argus_skill.verticals.kernelbench.stages import stage_completion_issues
 
-    seeded = {name for name, _text in iter_context_skill_texts("kernelbench", None)}
-    missing = [
-        f"{stage}: {skill_path}"
-        for stage, (skill_path, _instructions, _files) in REVIEWER_CHECKLISTS.items()
-        if skill_path not in seeded
-    ]
-    assert missing == []
+    assert "correct=true" in " ".join(stage_completion_issues("measure", tmp_path))
+
+    result = tmp_path / "attempts" / "a1" / "result.csv"
+    result.parent.mkdir(parents=True)
+    result.write_text("correct,sol_pct\ntrue,72.5\n", encoding="utf-8")
+    assert stage_completion_issues("measure", tmp_path) == ()
+
+    assert stage_completion_issues("report", tmp_path)
+    (tmp_path / "RESULTS.md").write_text("# Results\n", encoding="utf-8")
+    assert stage_completion_issues("report", tmp_path) == ()
+
+
+def test_speedrun_stage_completion_requires_scored_run_and_report(tmp_path: Path) -> None:
+    from argus_skill.verticals.speedrun.stages import stage_completion_issues
+
+    assert "results.csv" in " ".join(stage_completion_issues("measure", tmp_path))
+
+    result = tmp_path / "attempts" / "a1" / "results.csv"
+    result.parent.mkdir(parents=True)
+    result.write_text("score\n0.5\n", encoding="utf-8")
+    assert stage_completion_issues("measure", tmp_path) == ()
+
+    assert stage_completion_issues("report", tmp_path)
+    (tmp_path / "RESULTS.md").write_text("# Results\n", encoding="utf-8")
+    assert stage_completion_issues("report", tmp_path) == ()
 
 
 # --- format_full_pipeline_checklist is vertical-aware ----------------------

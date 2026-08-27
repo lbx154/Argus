@@ -8,8 +8,7 @@ identity before claiming hardware access.
 This is its OWN vertical, DISTINCT from the nanoGPT *speedrun* (minimize wall
 TIME to a target loss) and KernelBench/SOL (maximize a Speed-of-Light score)
 verticals. It reuses the generic 4-stage setup→optimize→measure→report
-structure and the flat-workspace STAGE_CHECKS / reviewer checklists (which are
-already BPB-shaped); only the role banner pins the nanochat objective.
+structure and stage checklist; the role banner pins the nanochat objective.
 """
 from __future__ import annotations
 
@@ -27,8 +26,6 @@ from ..optimization_base import speedrun_base_contract
 _BASE = speedrun_base_contract()
 STAGE_ORDER = list(_BASE.stage_order)
 CHECKLIST_STAGE_ORDER = _BASE.stage_order
-STAGE_CHECKS = _BASE.stage_checks
-REVIEWER_CHECKLISTS = _BASE.reviewer_checklists
 CHECKLIST_ITEMS = _BASE.checklist_items
 
 #: Mechanical metric gate (not a paper); the supervisor stops when the metric
@@ -589,8 +586,6 @@ def _training_dynamics_block(project_root: object, attempts: list) -> str:
 
 
 __all__ = [
-    "REVIEWER_CHECKLISTS",
-    "STAGE_CHECKS",
     "STAGE_ORDER",
     "CHECKLIST_STAGE_ORDER",
     "CHECKLIST_ITEMS",
