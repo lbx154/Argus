@@ -2,8 +2,8 @@
 
 The FIFTH literary consumer — an EDITING service over existing text, reusing the
 framework Reviewer + revise capability. It consumes the same four shared contracts
-as the genre verticals. Its machine layer is EDIT DISCIPLINE (genuinely
-deterministic); whether the edit is GOOD is live-reviewer.
+as the genre verticals. Its machine layer checks non-empty output and explicit
+must-keep constraints; edit quality and semantic scope are live Reviewer judgments.
 
 Stages (``completion_gate="none"``):
 1. **intake**: record ``editor/task_envelope.json`` + ``editor/source.txt`` +
@@ -51,7 +51,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
     "edit": [
         _PIPELINE_CHECK,
         ("Edited text produced", "test -s editor/edited.txt"),
-        ("Edit respects its mode discipline + must-keep list",
+        ("Edited text is non-empty and preserves explicit must-keep segments",
          f"{_CHECKS} edit-check editor/source.txt editor/edited.txt "
          "editor/edit_brief.json"),
     ],
@@ -88,10 +88,9 @@ REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
                       "the must_not_break invariants into the edit instructions.",
                       ["editor/review.json", "editor/revision_plan.json"]),
     "edit": (_REVIEW_SKILL,
-             "Verify EDIT DISCIPLINE: a critique did not rewrite; a proofread did "
-             "not become a rewrite; an expand added material; every must-keep "
-             "segment survives. Then judge (live, non-blocking) whether the edit "
-             "reads better and — critically — whether any FACT was invented.",
+             "Read the source, mode, goal, and semantic changes. Judge whether the "
+             "edit exceeded its mandate, whether it reads better, and whether any "
+             "fact was invented. Confirm every explicit must-keep segment survives.",
              ["editor/source.txt", "editor/edited.txt", "editor/edit_brief.json"]),
     "verify": (_REVIEW_SKILL,
                "Confirm change_summary.json explains the edits, artifact_manifest "
@@ -107,10 +106,9 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
     "edit": (
         ChecklistItem(
             id="mode-discipline-held",
-            statement="The edit respected its mode: critique did not rewrite, "
-            "proofread stayed close to the source, expand added material; every "
-            "must-keep segment survives verbatim.",
-            evidence_hint="editor edit-check passes (no blocking findings)",
+            statement="The Reviewer judged the semantic change against the stated "
+            "mode and goal; every explicit must-keep segment survives verbatim.",
+            evidence_hint="review judgment + editor edit-check",
         ),
     ),
     "verify": (
@@ -129,8 +127,9 @@ def role_banner(role: str) -> str:
         "MISSION TYPE: LITERARY EDITING. The deliverable is an EDITED version of an "
         "existing text that respects its editing mode (rewrite/expand/polish/"
         "proofread/critique) and a must-keep list. Reuse the Reviewer + revise "
-        "capability — do NOT invent a new agent. Whether the edit is GOOD is a live "
-        "judgement; edit DISCIPLINE is the machine gate.\n"
+        "capability — do NOT invent a new agent. Whether the edit is good or stayed "
+        "within its semantic mandate is a live judgment; only non-empty output and "
+        "explicit must-keep constraints are machine checked.\n"
     )
     if role == "planner":
         return common + ("Drive intake -> diagnose -> revision_plan -> edit -> "
@@ -147,10 +146,10 @@ def role_banner(role: str) -> str:
             "(empty uses[] if none) and editor/artifact_manifest.json.")
     if role == "reviewer":
         return common + (
-            "You gate the edit. Edit-discipline findings (mode_discipline/over_edit/"
-            "no_expansion/must_not_break/empty) are BLOCKING and mirror the machine "
-            "edit-check. edit_quality/fact_fidelity/coherence/over_reach are "
-            "NON-BLOCKING live judgements — flag any invented fact. Follow the "
+            "You gate the edit. Only empty output and dropped explicit must-keep "
+            "segments mirror the machine check. Judge from the brief and semantic "
+            "change whether the edit exceeded its mandate; character similarity and "
+            "length are not verdicts. Flag any invented fact. Follow the "
             "'Literary Editing Review' skill. Emit editor/review.json per the shared "
             "literary review contract.")
     return common

@@ -2,7 +2,7 @@
 
     intake-validate  editor/task_envelope.json      -> Task Envelope (loop 1)
     edit-check       editor/source.txt editor/edited.txt editor/edit_brief.json
-                     -> EDIT DISCIPLINE (the machine gate)
+                     -> non-empty + explicit must-keep checks
     review-validate  editor/review.json             -> Review contract (loop 2)
     check-plan       editor/review.json editor/revision_plan.json
     manifest-validate editor/artifact_manifest.json -> Artifact manifest (loop 3)
@@ -10,10 +10,8 @@
     source-registry                                  -> Source registry (loop 4)
     check-usage      editor/source_usage.json        -> Provenance ledger (loop 4)
 
-edit-check is the crown: it enforces that the edit respected its MODE (a critique
-does not rewrite, a proofread does not become a rewrite, an expand adds material)
-and that every must-keep segment survived verbatim. Whether the edit reads better
-is live-reviewer, not gated here.
+edit-check enforces only non-empty output and explicit must-keep segments. Whether
+the edit respected its semantic mandate is a live Reviewer judgment.
 """
 
 from __future__ import annotations
@@ -76,7 +74,7 @@ def _cmd_edit_check(a) -> int:
         for f in findings:
             print(f"  FAIL [{f['type']}] {f['detail']}", file=sys.stderr)
         return 1
-    print(f"OK: edit respects its {brief['mode']!r} discipline and must-keep list")
+    print("OK: edited text is non-empty and preserves explicit must-keep segments")
     return 0
 
 

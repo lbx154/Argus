@@ -50,7 +50,7 @@ def build_editor_manifest(task_id: str) -> dict[str, Any]:
         {"artifact_id": "edited", "kind": "edited_text", "version": 2,
          "producer_stage": "edit", "content_path": "editor/edited.txt",
          "parent_artifact_ids": ["source", "revplan"], "supersedes": "source",
-         "change_reason": "applied the edit within its mode discipline",
+         "change_reason": "applied the reviewed edit mandate",
          "status": "final"},
         {"artifact_id": "summary", "kind": "change_summary", "version": 1,
          "producer_stage": "verify", "content_path": "editor/change_summary.json",

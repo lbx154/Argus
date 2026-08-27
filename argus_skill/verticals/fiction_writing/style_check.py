@@ -9,10 +9,8 @@ STAGE_CHECKS), so — unlike the reviewer's heuristic craft notes — their verd
 CANNOT be faked by the writing agent (the subprocess recomputes from the files on
 disk). Deliberately thin, in the honest spirit of ``modern_poetry``'s form-check:
 
-* ``style-lint`` fails ONLY on an author-declared HARD contract — a
-  ``forbidden_lexicon`` term present, or a declared ``ai_tell_budget`` exceeded.
-  Anti-AI cliché hits are printed as non-blocking notes (model-seed, BCC-pending)
-  and NEVER fail the stage, preserving "craft is never a deterministic gate".
+* ``style-lint`` fails only on an explicit ``forbidden_lexicon`` constraint.
+  Anti-AI word-list hits are advisory Reviewer cues and never fail the stage.
 * ``temporal-check`` fails on a deterministic age/year contradiction over
   ``story_state`` (see :mod:`.temporal`).
 * ``novelty-check`` fails on a long VERBATIM run copied from the source text (the

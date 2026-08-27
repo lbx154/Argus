@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "argus://fiction_writing/style_profile.schema.json",
   "title": "style_profile",
-  "description": "The fine-grained VOICE CARD (the SillyTavern-style '预设') for a fiction mission. Every field is OPTIONAL — a thin card validates, a rich one becomes machine-checkable at review time. Captured at intake, injected into drafting, enforced at review. The SHAPE is language- and genre-agnostic: a zh 红楼梦 continuation and an en thriller differ only in DATA (register, appellations, forbidden_lexicon, sentence targets), never in schema or pipeline. Style is ABSTRACT FEATURES + an EXPLICIT lexicon, never 'imitate author X'. forbidden_lexicon and ai_tell_budget are the only author-declared HARD contracts; everything else is guidance the reviewer weighs.",
+  "description": "A voice card containing explicit operator choices and Engineer proposals grounded in the whole brief. Every field is optional. Style is abstract features plus explicit lexicon, never automatic genre routing or author imitation. Only forbidden_lexicon is a hard word-level contract; other features guide contextual review.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -86,13 +86,6 @@
       "properties": {
         "quote_style": {"type": "string", "enum": ["cjk_corner", "straight", "curly"]},
         "tag_discipline": {"type": "string", "enum": ["action_beats", "plain_said", "any"]}
-      }
-    },
-    "ai_tell_budget": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "max_hits_per_1000_chars": {"type": ["number", "null"], "minimum": 0}
       }
     },
     "novelty_budget": {

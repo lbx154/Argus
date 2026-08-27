@@ -113,8 +113,7 @@ STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
         ("Review conforms to the literary review contract",
          "{python} -m argus_skill.verticals.fiction_writing.review_check "
          "validate fiction/review.json"),
-        ("Style lint (anti-AI cliché + forbidden lexicon; blocks ONLY on a "
-         "declared forbidden term or an exceeded ai_tell_budget)",
+        ("Style lint (word-list cues are advisory; explicit forbidden terms block)",
          "{python} -m argus_skill.verticals.fiction_writing.style_check "
          "style-lint fiction/draft.md fiction/style_profile.json "
          "fiction/creative_brief.json"),

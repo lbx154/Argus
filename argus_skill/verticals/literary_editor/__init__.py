@@ -7,9 +7,7 @@ polish / proofread / critique — each of which the envelope already requires to
 a source reference. It consumes the same shared contracts (Task Envelope / Review /
 Artifact / Provenance).
 
-Its machine layer is EDIT DISCIPLINE, which is genuinely deterministic: segments the
-operator marked must-not-break must survive verbatim; a critique must not silently
-rewrite; a proofread must not become a rewrite; an expand must actually add. Whether
-the edit is GOOD is live-reviewer.
+Its machine layer checks only non-empty output and explicit must-not-break segments.
+Whether the edit is good or exceeded its semantic mandate is live Reviewer judgment.
 """
 from __future__ import annotations
