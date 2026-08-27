@@ -55,6 +55,11 @@ def main() -> int:
         run(
             sys.executable,
             "-m",
+            "argus_skill.release_tools.generate_resource_status",
+        )
+        run(
+            sys.executable,
+            "-m",
             "argus_skill.release_tools.generate_manifest",
             "--prepare-build",
         )

@@ -17,7 +17,7 @@ export function usePanelState(api: ApiClient, project: string): PanelStateContro
     setPanel({ kind, page: 0, ...opts, loading: needsFetch });
     if (!needsFetch) return;
     const fetchers: Record<string, () => Promise<unknown>> = {
-      status: () => api.getStatus(),
+      status: () => Promise.all([api.getStatus(), api.getResources()]),
       doctor: () => api.getDoctor(),
       journal: () => api.getJournal(20),
       config: () => api.getConfig(),

@@ -26,7 +26,7 @@ import { CostGauge } from '../src/components/CostGauge.js';
 import { MissionCockpit } from '../src/components/MissionCockpit.js';
 import { PendingDecisionPrompt } from '../src/components/PendingDecisionPrompt.js';
 import { emptyMissionView } from '../../core/src/missionView.js';
-import type { EventMsg, Snapshot } from '../src/api.js';
+import type { EventMsg, ResourceStatus, Snapshot, StatusView } from '../src/api.js';
 import { SLASH_COMMANDS } from '../src/input/slash.js';
 
 const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
@@ -314,6 +314,64 @@ test('operations panel owns cost, quota, pid, backend, and model details', async
   assert.match(output, /\.autors\/demo\/wiki/);
   assert.match(output, /skill 4 · wiki 2 · 1\.5 KB saved/);
   assert.ok(output.split('\n').every((line) => stringWidth(line) <= 60));
+});
+
+test('status panel renders degraded and contended resource status', async () => {
+  const status: StatusView = {
+    identity: '',
+    backlog_pending: [],
+    pending_questions: [],
+    journal: [],
+    continuous: { enabled: false, objective: '' },
+    inbox_pending: 0,
+    daemon: {
+      alive: true,
+      pid: 42,
+      uptime_seconds: 60,
+      backend: 'codex',
+      global_daily_cap_usd: null,
+    },
+    roles: [],
+    active_role: null,
+  };
+  const resources: ResourceStatus = {
+    schema_version: 1,
+    enforcement: 'advisory',
+    accelerators: [
+      { kind: 'cuda', status: 'degraded', device_count: 1, detail: 'could not parse one telemetry row' },
+      { kind: 'rocm', status: 'absent', device_count: 0, detail: 'rocm-smi is not installed' },
+    ],
+    holders: [{
+      project: 'training',
+      task_id: 'train-1',
+      intent: 'train the reranker',
+      ttl_seconds: 90,
+      device_count: 1,
+      yield_requests: [{
+        reason: 'checkpoint for an urgent evaluation',
+        response: { decision: 'decline', reason: 'unsafe checkpoint boundary' },
+      }],
+    }],
+    queue: [{
+      position: 1,
+      project: 'evaluation',
+      task_id: 'eval-2',
+      intent: 'run the held-out evaluation',
+      ttl_seconds: 45,
+    }],
+  };
+
+  const output = await renderPanel({ kind: 'status', data: [status, resources] }, 70, { viewportRows: 40 });
+
+  assert.match(output, /resources\s+advisory mode/);
+  assert.match(output, /CUDA\s+degraded · 1 devices/);
+  assert.match(output, /could not parse one telemetry row/);
+  assert.match(output, /training · train-1 · 1 devices · 1m 30s left/);
+  assert.match(output, /train the reranker/);
+  assert.match(output, /yield request · checkpoint for an urgent evaluation/);
+  assert.match(output, /decline · unsafe checkpoint boundary/);
+  assert.match(output, /#1 · evaluation · eval-2 · 45s left/);
+  assert.ok(output.split('\n').every((line) => stringWidth(line) <= 70));
 });
 
 test('daemon replacement picker shows running work and state-preservation promise', async () => {

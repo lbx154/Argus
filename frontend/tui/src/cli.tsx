@@ -32,6 +32,7 @@ import { createImeCursorOutput, ImeCursorProvider } from './imeCursor.js';
 import { InteractiveExitLifecycle } from './exitLifecycle.js';
 import { selectApiPort } from './portSelection.js';
 import { installParentExitGuard } from './parentExitGuard.js';
+import { parseRenderEventsArgs, runRenderEvents } from './renderEvents.js';
 
 /** A small spinner shown if the animation finishes before the API is reachable. */
 function Connecting({ note }: { note: string }) {
@@ -278,8 +279,17 @@ function Boot({
 }
 
 async function main() {
+  const argv = process.argv.slice(2);
+  if (argv[0] === 'render-events') {
+    await runRenderEvents(
+      process.stdin,
+      process.stdout,
+      parseRenderEventsArgs(argv.slice(1)),
+    );
+    return;
+  }
   installParentExitGuard();
-  let args = parseArgs(process.argv.slice(2));
+  let args = parseArgs(argv);
   if (args.help) {
     process.stdout.write(HELP);
     return;

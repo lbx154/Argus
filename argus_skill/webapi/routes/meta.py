@@ -13,12 +13,79 @@ module-level functions ``create_app`` re-exports/defines).
 from __future__ import annotations
 
 import shlex
+import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, Header, HTTPException, Response
 
 from .context import ServerContext
 from .models import BudgetSetIn, ConfigSetIn, IdentitySetIn, SkillsIn
+
+_RESOURCE_PROSE_LIMIT = 300
+
+
+def _trim_resource_prose(value: str) -> str:
+    text = " ".join(value.split())
+    if len(text) <= _RESOURCE_PROSE_LIMIT:
+        return text
+    return text[: _RESOURCE_PROSE_LIMIT - 1].rstrip() + "…"
+
+
+def _remaining_ttl(record: dict[str, Any], now: float) -> float:
+    return max(0.0, float(record["expires_at"]) - now)
+
+
+def _resource_status_payload(snapshot: dict[str, Any], *, now: float) -> dict[str, Any]:
+    from ...tools.resource_ledger.status_schema_generated import validate_resource_status
+
+    probe = snapshot["probe"]
+    holders = []
+    for record in snapshot["grants"]:
+        owner = record["owner"]
+        yield_requests = []
+        for request in record["yield_requests"]:
+            response = request["response"]
+            yield_requests.append({
+                "reason": _trim_resource_prose(request["reason"]),
+                "response": None if response is None else {
+                    "decision": response["decision"],
+                    "reason": _trim_resource_prose(response["reason"]),
+                },
+            })
+        holders.append({
+            "project": Path(owner["project_root"]).name,
+            "task_id": owner["task_id"],
+            "intent": record["demand"]["intent"],
+            "ttl_seconds": _remaining_ttl(record, now),
+            "device_count": len(record["grant"]["devices"]),
+            "yield_requests": yield_requests,
+        })
+    queue = []
+    for position, record in enumerate(snapshot["queue"], start=1):
+        owner = record["owner"]
+        queue.append({
+            "position": position,
+            "project": Path(owner["project_root"]).name,
+            "task_id": owner["task_id"],
+            "intent": record["demand"]["intent"],
+            "ttl_seconds": _remaining_ttl(record, now),
+        })
+    return validate_resource_status({
+        "schema_version": 1,
+        "enforcement": probe["enforcement"],
+        "accelerators": [
+            {
+                "kind": accelerator["kind"],
+                "status": accelerator["status"],
+                "device_count": len(accelerator["devices"]),
+                "detail": accelerator["detail"],
+            }
+            for accelerator in probe["accelerators"]
+        ],
+        "holders": holders,
+        "queue": queue,
+    })
 
 
 def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
@@ -122,6 +189,13 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
             include_backend=True,
         )
         return report.to_jsonable()
+
+    @app.get("/api/system/resources", dependencies=[Depends(ctx.require_auth)])
+    def _system_resources() -> dict[str, Any]:
+        from ...tools.resource_ledger.ledger import ResourceLedger
+
+        snapshot = ResourceLedger().status()
+        return _resource_status_payload(snapshot, now=time.time())
 
     @app.post("/api/projects/{sid}/config/set", dependencies=[Depends(ctx.require_auth)])
     def _config_set(sid: str, body: ConfigSetIn) -> dict[str, Any]:

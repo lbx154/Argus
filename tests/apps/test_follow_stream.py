@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from argparse import Namespace
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -196,3 +198,80 @@ def test_follow_progress_hides_structured_handoff_fields() -> None:
     assert rendered.endswith("💭 Artifact complete.")
     assert "NEXT_OWNER" not in rendered
     assert "OPERATOR_QUESTION" not in rendered
+
+
+def test_follow_renderer_uses_one_process_then_falls_back_after_its_exit(
+    monkeypatch,
+    capsys,
+) -> None:
+    process = SimpleNamespace(
+        stdin=StringIO(),
+        stdout=StringIO("🚀 [Engineer] Shared renderer\n"),
+        stderr=StringIO("render boom\nstack detail\n"),
+        poll=lambda: 17,
+        terminate=lambda: None,
+        wait=lambda: 17,
+    )
+    spawns: list[tuple[list[str], dict]] = []
+
+    def _spawn(command, **kwargs):
+        spawns.append((command, kwargs))
+        return process
+
+    monkeypatch.setattr(_follow, "_bundle_path", lambda: Path("/bundle/argus.mjs"))
+    monkeypatch.setattr(_follow.shutil, "which", lambda _name: "/usr/bin/node")
+    monkeypatch.setattr(_follow.subprocess, "Popen", _spawn)
+    renderer = _follow._FollowEventRenderer()
+
+    first = renderer.render(
+        {"type": "life.mission.started", "item_id": "task-1"},
+        "engineer",
+        mission_context={"item_id": "task-1", "title": "Shared renderer", "objective": ""},
+    )
+    second = renderer.render({"type": "life.manager.intent.started"}, "manager")
+    third = renderer.render({"type": "life.manager.intent.started"}, "manager")
+
+    assert first == "🚀 [Engineer] Shared renderer"
+    assert second == third == "🧭 [Manager] 判断任务归属…"
+    assert len(spawns) == 1
+    command, kwargs = spawns[0]
+    assert command[-6:] == [
+        "--locale", "zh-CN", "--unknown-event-policy", "greppable",
+        "--density", "compact",
+    ]
+    assert kwargs["stdin"] is subprocess.PIPE
+    sent = [json.loads(line) for line in process.stdin.getvalue().splitlines()]
+    assert sent[0]["title"] == "Shared renderer"
+    assert sent[1]["type"] == "life.manager.intent.started"
+    notice = capsys.readouterr().err
+    assert notice.count("using Python fallback for this follow session") == 1
+    assert "renderer exited with status 17: render boom stack detail" in notice
+
+
+def test_follow_renderer_notices_when_bundle_is_unavailable(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(_follow, "_bundle_path", lambda: None)
+
+    renderer = _follow._FollowEventRenderer()
+    rendered = renderer.render({"type": "life.manager.intent.started"}, "manager")
+
+    assert rendered == "🧭 [Manager] 判断任务归属…"
+    assert capsys.readouterr().err == (
+        "argus-skill: semantic event renderer unavailable (TUI bundle not found); "
+        "using Python fallback for this follow session\n"
+    )
+
+
+def test_follow_renderer_close_does_not_mask_a_late_broken_pipe() -> None:
+    def _broken_close() -> None:
+        raise BrokenPipeError("renderer exited")
+
+    process = SimpleNamespace(
+        stdin=SimpleNamespace(close=_broken_close),
+        wait=lambda: 17,
+    )
+    renderer = _follow._FollowEventRenderer.__new__(_follow._FollowEventRenderer)
+    renderer._process = process
+
+    renderer.close()
+
+    assert renderer._process is None
