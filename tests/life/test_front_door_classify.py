@@ -612,6 +612,68 @@ def test_nonzero_exit_is_safe_default() -> None:
     assert (intent, control, route) == (None, None, "complex")
 
 
+def test_oversized_fast_reply_emits_delivery_diagnostic() -> None:
+    replies: list[str] = []
+    diagnostics: list[str] = []
+    oversized = "x" * 1601
+
+    intent, control, route = classify_front_door(
+        "answer briefly",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
+            f"SELF_MODE: REPLY\nREPLY: {oversized}"
+        ),
+        reply_sink=replies.append,
+        failure_sink=diagnostics.append,
+    )
+
+    assert (intent, control, route) == (None, None, "simple")
+    assert replies == []
+    assert diagnostics == [
+        "reply exceeded 1600 chars; not delivered (length=1601)"
+    ]
+
+
+def test_oversized_steer_directive_emits_delivery_diagnostic() -> None:
+    directives: list[str] = []
+    diagnostics: list[str] = []
+    oversized = "x" * 1601
+
+    intent, control, route = classify_front_door(
+        "change the active mission",
+        run_exec=_exec_sequence(
+            "CONFIG: NONE\nCONTROL: STEER\nROUTE: SELF\n"
+            f"STEER_DIRECTIVE: {oversized}",
+            "STEER",
+        ),
+        steering_sink=directives.append,
+        failure_sink=diagnostics.append,
+        active_mission=True,
+    )
+
+    assert (intent, control, route) == (None, "steer", "simple")
+    assert directives == []
+    assert diagnostics == [
+        "steer_directive exceeded 1600 chars; not delivered (length=1601)"
+    ]
+
+
+def test_invalid_route_token_preserves_parsed_control() -> None:
+    diagnostics: list[str] = []
+
+    intent, control, route = classify_front_door(
+        "stop the active task",
+        run_exec=_exec("CONFIG: NONE\nCONTROL: ABORT\nROUTE: BANANA"),
+        failure_sink=diagnostics.append,
+        active_mission=True,
+    )
+
+    assert (intent, control, route) == (None, "abort", "simple")
+    assert diagnostics and diagnostics[0].startswith(
+        "route token invalid; control preserved"
+    )
+
+
 def test_prefixes_are_case_insensitive() -> None:
     intent, control, route = classify_front_door(
         "x",

@@ -100,6 +100,24 @@ describe('renderEvent', () => {
     );
   });
 
+  it('leads Manager routing failures with structured facts and keeps raw error', () => {
+    const event = {
+      type: 'life.manager.intent.failed',
+      phase: 'backend',
+      cause: '401 Missing bearer',
+      attempts: 2,
+      error: 'VerticalDecisionError: routing failed [backend]: 401 Missing bearer',
+    } as EventMsg;
+
+    expect(renderEvent(event)?.text).toBe(
+      'routing failed · backend 401 Missing bearer (attempt 2) · raw: '
+      + 'VerticalDecisionError: routing failed [backend]: 401 Missing bearer',
+    );
+    expect(renderEvent(event, 'zh-CN')?.text).toContain(
+      '分流失败 · 后端 401 Missing bearer (第2次尝试)',
+    );
+  });
+
   it('renders operator and Manager conversation turns in Activity', () => {
     const operator = renderEvent({ type: 'ui.operator', text: '继续实验' } as EventMsg);
     const manager = renderEvent({ type: 'ui.argus', text: '已开始运行' } as EventMsg);

@@ -3,8 +3,26 @@ import json
 from argus_skill.apps.cli._follow import (
     _follow_layer_from_event,
     _format_follow_command,
+    _format_follow_event,
     _read_recent_project_events,
 )
+
+
+def test_follow_routing_failure_leads_with_structured_facts() -> None:
+    rendered = _format_follow_event(
+        {
+            "type": "life.manager.intent.failed",
+            "phase": "backend",
+            "cause": "401 Missing bearer",
+            "attempts": 2,
+            "error": "VerticalDecisionError: raw failure",
+        },
+        "manager",
+    )
+
+    assert rendered is not None
+    assert "分流失败 · 后端 401 Missing bearer (第2次尝试)" in rendered
+    assert "原始错误: VerticalDecisionError: raw failure" in rendered
 
 
 def test_follow_layer_detects_all_four_roles() -> None:

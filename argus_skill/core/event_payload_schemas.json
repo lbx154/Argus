@@ -544,6 +544,23 @@
         "reason": {"type": "string"}
       }
     },
+    "life.manager.intent.failed": {
+      "version": 1,
+      "required": ["intent_id", "objective", "error", "phase", "cause", "attempts"],
+      "properties": {
+        "intent_id": {"type": "string", "minLength": 1},
+        "item_id": {"type": ["string", "null"]},
+        "objective": {"type": "string"},
+        "error": {"type": "string", "minLength": 1},
+        "phase": {"type": "string", "enum": ["backend", "parse", "contract", "timeout"]},
+        "cause": {"type": "string", "minLength": 1},
+        "contract_field": {"type": "string"},
+        "attempts": {"type": "integer", "minimum": 1},
+        "model_reply_snippet": {"type": "string", "maxLength": 300},
+        "backend_error": {"type": "string"},
+        "answer_preserved": {"type": "boolean"}
+      }
+    },
     "life.manager.plan_challenge.decided": {
       "version": 1,
       "required": ["item_id", "manager_action", "challenge", "adjudicated_at"],

@@ -382,6 +382,22 @@ export interface LifeManagerIntentCompletedEvent extends EventMsg {
   "reason"?: string;
 }
 
+export interface LifeManagerIntentFailedEvent extends EventMsg {
+  type: "life.manager.intent.failed";
+  payload_schema_version?: 1;
+  "intent_id": string;
+  "item_id"?: string | null;
+  "objective": string;
+  "error": string;
+  "phase": "backend" | "parse" | "contract" | "timeout";
+  "cause": string;
+  "contract_field"?: string;
+  "attempts": number;
+  "model_reply_snippet"?: string;
+  "backend_error"?: string;
+  "answer_preserved"?: boolean;
+}
+
 export interface LifeManagerPlanChallengeDecidedEvent extends EventMsg {
   type: "life.manager.plan_challenge.decided";
   payload_schema_version?: 1;
@@ -799,6 +815,7 @@ export interface EventPayloadByType {
   "life.planner.task_added": LifePlannerTaskAddedEvent;
   "life.planner.task_skipped": LifePlannerTaskSkippedEvent;
   "life.manager.intent.completed": LifeManagerIntentCompletedEvent;
+  "life.manager.intent.failed": LifeManagerIntentFailedEvent;
   "life.manager.plan_challenge.decided": LifeManagerPlanChallengeDecidedEvent;
   "life.inbox.drained": LifeInboxDrainedEvent;
   "life.operator_question.pending": LifeOperatorQuestionPendingEvent;

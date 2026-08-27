@@ -109,6 +109,23 @@ test('agent speech and task handoffs remain fully readable', () => {
   assert.doesNotMatch(task?.text ?? '', /…$/);
 });
 
+test('Manager routing failures lead with structured facts and retain raw error', () => {
+  const rendered = renderEvent({
+    type: 'life.manager.intent.failed',
+    phase: 'contract',
+    cause: 'research_target_level got "phd", expected exploratory|publishable|doctoral',
+    attempts: 2,
+    error: 'ManagerClassificationContractError: raw contract failure',
+  } as EventMsg);
+
+  assert.match(
+    rendered?.text ?? '',
+    /^分流失败 · 契约： research_target_level got "phd", expected exploratory\|publishable\|doctoral \(第2次尝试\)/,
+  );
+  assert.match(rendered?.text ?? '', /原始错误: ManagerClassificationContractError/);
+  assert.equal(rendered?.expand, true);
+});
+
 test('agent speech hides internal handoff fields', () => {
   const speech = renderEvent({
     type: 'engineer.progress',

@@ -729,7 +729,20 @@ class PreparedManagerHandoff:
         _emit_manager_event(self.mem, event)
 
     def failed(self, exc: Exception) -> None:
-        _emit_manager_event(self.mem, {
+        raw_cause = str(getattr(exc, "cause", "") or str(exc)).strip()
+        phase = str(getattr(exc, "phase", "") or "").strip()
+        contract_field = str(
+            getattr(exc, "contract_field", "") or ""
+        ).strip()
+        if not phase:
+            if isinstance(exc, TimeoutError):
+                phase = "timeout"
+            elif "execution_task" in raw_cause:
+                phase = "contract"
+                contract_field = contract_field or "execution_task"
+            else:
+                phase = "backend"
+        event = {
             "type": "life.manager.intent.failed",
             "agent_layer": "manager",
             "intent_id": self.intent_id,
@@ -737,8 +750,19 @@ class PreparedManagerHandoff:
             "source": "user",
             "objective": self.body,
             "error": f"{type(exc).__name__}: {exc}",
+            "phase": phase,
+            "cause": raw_cause,
+            "contract_field": contract_field,
+            "attempts": max(1, int(getattr(exc, "attempts", 1) or 1)),
+            "model_reply_snippet": str(
+                getattr(exc, "model_reply_snippet", "") or ""
+            )[:300],
+            "backend_error": str(
+                getattr(exc, "backend_error", "") or ""
+            ).strip(),
             "text": "manager intent interpretation failed",
-        })
+        }
+        _emit_manager_event(self.mem, event)
 
     def superseded(self) -> None:
         _emit_manager_event(self.mem, {

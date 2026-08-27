@@ -41,6 +41,26 @@ function trunc(s: string, n: number): string {
 const firstLine = (s: unknown) => String(s ?? '').split('\n')[0]?.trim() ?? '';
 const S = (ev: EventMsg, k: string) => String((ev as Record<string, unknown>)[k] ?? '');
 
+function managerFailureText(ev: EventMsg, locale: Locale): string {
+  const l = (en: string, zh: string) => locale === 'zh-CN' ? zh : en;
+  const phase = S(ev, 'phase');
+  const cause = S(ev, 'cause') || S(ev, 'backend_error');
+  const raw = S(ev, 'error');
+  if (!phase || !cause) return `${l('routing failed', '分流失败')} ${trunc(raw, 140)}`;
+  const phaseLabel: Record<string, string> = {
+    backend: l('backend', '后端'),
+    parse: l('parse', '解析'),
+    contract: l('contract:', '契约：'),
+    timeout: l('timeout', '超时'),
+  };
+  const attempts = Number((ev as Record<string, unknown>).attempts || 0);
+  const attempt = attempts > 1
+    ? l(` (attempt ${attempts})`, ` (第${attempts}次尝试)`)
+    : '';
+  const summary = `${l('routing failed', '分流失败')} · ${phaseLabel[phase] || phase} ${cause}${attempt}`;
+  return raw ? `${summary} · ${l('raw', '原始错误')}: ${raw}` : summary;
+}
+
 /** Accept both lifecycle event schemas (`round_index` and legacy `round`). */
 const roundNo = (ev: EventMsg): string | number => {
   const row = ev as Record<string, unknown>;
@@ -143,7 +163,7 @@ export function renderEvent(ev: EventMsg, locale: Locale = 'en'): Rendered | nul
     return { role: 'manager', label: 'Manager', glyph: '🧭', text: `→ ${routing || S(ev, 'kind') || l('resolved', '已确定')}`, tone: 'info' };
   }
   if (t === 'life.manager.intent.failed')
-    return { role: 'manager', label: 'Manager', glyph: '⚠', text: `${l('routing failed', '分流失败')} ${trunc(S(ev, 'error'), 140)}`, tone: 'err' };
+    return { role: 'manager', label: 'Manager', glyph: '⚠', text: managerFailureText(ev, locale), tone: 'err' };
   if (t === 'life.manager.stage_decision') {
     const target = S(ev, 'target_stage') || S(ev, 'stage') || S(ev, 'current_stage');
     return { role: 'manager', label: 'Manager', glyph: '🧭', text: `${S(ev, 'action')}${target ? ` → ${target}` : ''} ${trunc(S(ev, 'reason'), 120)}`, tone: 'info' };

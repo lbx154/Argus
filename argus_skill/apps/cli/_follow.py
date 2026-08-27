@@ -566,8 +566,29 @@ def _format_follow_event_body(
         return f"🧭 [{_follow_layer_label('manager')}] " + " · ".join(bits)
 
     if etype == "life.manager.intent.failed":
+        phase = str(event.get("phase") or "").strip()
+        cause = _clean_follow_text(
+            str(event.get("cause") or event.get("backend_error") or ""),
+            limit=None,
+        )
         err = _clean_follow_text(str(event.get("error") or ""), limit=None)
-        return f"⚠️ [{_follow_layer_label('manager')}] 分流失败" + (f" · {err}" if err else "")
+        if not phase or not cause:
+            return f"⚠️ [{_follow_layer_label('manager')}] 分流失败" + (
+                f" · {err}" if err else ""
+            )
+        phase_label = {
+            "backend": "后端",
+            "parse": "解析",
+            "contract": "契约：",
+            "timeout": "超时",
+        }.get(phase, phase)
+        attempts = int(event.get("attempts") or 0)
+        attempt = f" (第{attempts}次尝试)" if attempts > 1 else ""
+        rendered = (
+            f"⚠️ [{_follow_layer_label('manager')}] 分流失败 · "
+            f"{phase_label} {cause}{attempt}"
+        )
+        return rendered + (f" · 原始错误: {err}" if err else "")
 
     if etype == "life.manager.stage_decision":
         action = str(event.get("action") or "hold")
