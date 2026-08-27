@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "schema_version": 1,
+  "schema_version": 2,
   "events": {
     "agent.io.start": {
       "version": 1,
@@ -979,6 +979,100 @@
         "backend": {"type": "string", "minLength": 1},
         "source": {"type": "string", "minLength": 1}
       }
-    }
+    },
+    "codex.util.completed": {
+      "version": 1,
+      "properties": {
+        "agent_layer": {"type": "string"}, "run_label": {"type": "string"},
+        "model": {"type": "string"}, "session_id": {"type": "string"},
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "cached_input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "reasoning_output_tokens": {"type": "integer", "minimum": 0},
+        "premium_requests": {"type": "number", "minimum": 0},
+        "usage_scope": {"type": "string"}
+      }
+    },
+    "loop.start": {
+      "version": 1,
+      "properties": {"text": {"type": "string"}, "objective": {"type": "string"}, "max_rounds": {"type": "integer", "minimum": 1}, "plan_mode": {"type": "string"}}
+    },
+    "loop.done": {
+      "version": 1,
+      "properties": {"text": {"type": "string"}, "success": {"type": "boolean"}, "stop_reason": {"type": "string"}}
+    },
+    "round.checkpoint.recorded": {
+      "version": 1,
+      "properties": {"round": {"type": "integer", "minimum": 1}, "run_id": {"type": "string"}, "ref": {"type": "string"}}
+    },
+    "round.checkpoint.failed": {
+      "version": 1,
+      "properties": {"round": {"type": "integer", "minimum": 1}, "run_id": {"type": "string"}, "error": {"type": "string"}}
+    },
+    "round.escalated": {
+      "version": 1,
+      "properties": {"round_index": {"type": "integer", "minimum": 1}, "soft_round_limit": {"type": "integer", "minimum": 1}, "hard_escalate_rounds": {"type": "integer", "minimum": 1}, "forward_progress": {"type": "boolean"}, "continuation_reason": {"type": "string"}, "text": {"type": "string"}}
+    },
+    "round.stall": {
+      "version": 1,
+      "properties": {"round_index": {"type": "integer", "minimum": 1}, "round_max": {"type": "integer", "minimum": 1}, "semantic_stall_streak": {"type": "integer", "minimum": 0}, "stall_threshold": {"type": "integer", "minimum": 1}, "decision_idle_seconds": {"type": "number", "minimum": 0}, "forward_progress": {"type": "boolean"}, "text": {"type": "string"}}
+    },
+    "round.reviewer_backend_failure": {
+      "version": 1,
+      "properties": {"round_index": {"type": "integer", "minimum": 1}, "round_max": {"type": "integer", "minimum": 1}, "streak": {"type": "integer", "minimum": 1}, "threshold": {"type": "integer", "minimum": 1}, "text": {"type": "string"}, "operator_alert": {"type": "boolean"}}
+    },
+    "engineer.skill_maintenance.completed": {"version": 1, "properties": {}},
+    "life.status": {"version": 1, "properties": {"text": {"type": "string"}}},
+    "life.phase.started": {
+      "version": 1,
+      "properties": {"agent_layer": {"type": "string"}, "item_id": {"type": "string"}, "round_index": {"type": "integer", "minimum": 1}, "phase": {"type": "string"}, "label": {"type": "string"}}
+    },
+    "life.mission.failed": {
+      "version": 1,
+      "properties": {"item_id": {"type": "string"}, "title": {"type": "string"}, "reason": {"type": "string"}, "error": {"type": "string"}, "outcome_class": {"type": "string", "const": "failed"}}
+    },
+    "life.mission.skipped": {"version": 1, "properties": {"item_id": {"type": "string"}, "title": {"type": "string"}, "reason": {"type": "string"}}},
+    "life.mission.orphaned": {"version": 1, "properties": {"item_id": {"type": "string"}, "title": {"type": "string"}, "started_ts": {"type": ["number", "null"]}, "error": {"type": "string"}}},
+    "life.mission.requeued": {"version": 1, "properties": {"item_id": {"type": "string"}, "title": {"type": "string"}, "started_ts": {"type": ["number", "null"]}, "error": {"type": "string"}}},
+    "life.manager.intent.started": {
+      "version": 1,
+      "properties": {"agent_layer": {"type": "string"}, "intent_id": {"type": "string"}, "item_id": {"type": "string"}, "objective": {"type": "string"}, "source": {"type": "string"}, "text": {"type": "string"}}
+    },
+    "life.manager.stage_decision": {
+      "version": 1,
+      "properties": {"action": {"type": "string"}, "current_stage": {"type": "string"}, "target_stage": {"type": "string"}, "reason": {"type": "string"}, "item_id": {"type": "string"}, "source": {"type": "string"}, "trigger": {"type": "string"}, "resolves_wait": {"type": "boolean"}}
+    },
+    "life.vertical.resolved": {"version": 1, "properties": {"agent_layer": {"type": "string"}, "vertical": {"type": "string"}, "profile_hint": {"type": "string"}}},
+    "life.planner.normalized": {"version": 1, "properties": {"cycle": {"type": "integer", "minimum": 1}, "diagnostic": {"type": "string"}}},
+    "life.planner.waiting": {
+      "version": 1,
+      "properties": {
+        "cycle": {"type": "integer", "minimum": 1}, "reason": {"type": "string"},
+        "consecutive_idle_cycles": {"type": "integer", "minimum": 0}, "suggested_sleep_s": {"type": "number", "minimum": 0},
+        "model_call_skipped": {"type": "boolean"}, "wait_mode": {"type": "string"}, "waiting_contract_persisted": {"type": "boolean"},
+        "waiting_contract": {"type": ["object", "null"], "properties": {"wait_id": {"type": "string"}, "recheck_condition": {"type": "string"}, "wait_mode": {"type": "string"}, "wake_on": {"type": "array", "items": {"type": "string"}}, "observed_revision": {"type": ["string", "null"]}}}
+      }
+    },
+    "life.planner.waiting_woken": {"version": 1, "properties": {"blocker_fingerprint": {"type": "string"}, "recheck_token": {"type": "string"}, "wake_reason": {"type": "string"}, "observed_revision": {"type": ["string", "null"]}, "current_revision": {"type": ["string", "null"]}}},
+    "life.planner.terminal_idle": {"version": 1, "properties": {"cycle": {"type": "integer", "minimum": 1}, "reason": {"type": "string"}, "consecutive_idle_cycles": {"type": "integer", "minimum": 0}, "suggested_sleep_s": {"type": "number", "minimum": 0}}},
+    "life.planner.verification_probe": {"version": 1, "properties": {"cycle": {"type": "integer", "minimum": 1}, "idle_cycles": {"type": "integer", "minimum": 0}, "reason": {"type": "string"}, "waiting_contract": {"type": ["object", "null"]}}},
+    "life.planner.stall_escalation": {"version": 1, "properties": {"objective": {"type": "string"}, "consecutive_no_progress_missions": {"type": "integer", "minimum": 1}, "reason": {"type": "string"}, "text": {"type": "string"}}},
+    "life.plan.revision.proposed": {"version": 1, "properties": {"expected_plan_id": {"type": "string"}, "expected_plan_version": {"type": "integer", "minimum": 1}, "trigger_item_id": {"type": "string"}, "active_item_ids": {"type": "array", "items": {"type": "string"}}, "reason": {"type": "string"}}},
+    "life.plan.revision.rejected": {"version": 1, "properties": {"expected_plan_id": {"type": "string"}, "expected_plan_version": {"type": "integer", "minimum": 1}, "item_id": {"type": "string"}, "trigger_status": {"type": "string"}, "attempts": {"type": "integer", "minimum": 1}, "terminal": {"type": "boolean"}, "reason": {"type": "string"}}},
+    "life.plan.revision.committed": {"version": 1, "properties": {"old_plan_id": {"type": "string"}, "old_plan_version": {"type": "integer", "minimum": 1}, "new_plan_id": {"type": "string"}, "new_plan_version": {"type": "integer", "minimum": 1}, "added_item_ids": {"type": "array", "items": {"type": "string"}}, "superseded_item_ids": {"type": "array", "items": {"type": "string"}}, "manager_action": {"type": "string"}, "challenge": {"type": "string"}, "alternative": {"type": "string"}, "revision_latency_seconds": {"type": "number", "minimum": 0}}},
+    "life.plan.node.superseded": {"version": 1, "properties": {"item_id": {"type": "string"}, "plan_id": {"type": "string"}, "plan_version": {"type": "integer", "minimum": 1}, "superseded_by_plan_id": {"type": "string"}, "reason": {"type": "string"}, "source": {"type": "string"}}},
+    "life.budget.pause": {"version": 1, "properties": {"agent_layer": {"type": "string"}, "item_id": {"type": "string"}, "title": {"type": "string"}, "reason": {"type": "string"}, "text": {"type": "string"}}},
+    "life.lifecycle.block": {"version": 1, "properties": {"agent_layer": {"type": "string"}, "item_id": {"type": "string"}, "title": {"type": "string"}, "lifecycle_state": {"type": "string"}, "reason": {"type": "string"}, "text": {"type": "string"}}},
+    "life.lifecycle.transition": {"version": 1, "properties": {"agent_layer": {"type": "string"}, "from_state": {"type": "string"}, "to_state": {"type": "string"}, "reason": {"type": "string"}}},
+    "life.inbox.queued": {"version": 1, "properties": {"source": {"type": "string"}, "stage": {"type": "string"}, "text": {"type": "string"}}},
+    "life.daemon.idle_timeout": {"version": 1, "properties": {"agent_layer": {"type": "string"}, "idle_seconds": {"type": "number", "minimum": 0}, "text": {"type": "string"}}},
+    "daemon.parked": {"version": 1, "properties": {"previous_pid": {"type": "integer", "minimum": 1}, "replaced_by": {"type": ["string", "null"]}, "state_preserved": {"type": "boolean"}, "unfinished_tasks": {"type": "integer", "minimum": 0}}},
+    "idea.search.started": {"version": 1, "properties": {"text": {"type": "string"}}},
+    "idea.search.completed": {"version": 1, "properties": {"count": {"type": "integer", "minimum": 0}, "text": {"type": "string"}}},
+    "idea.search.skipped": {"version": 1, "properties": {"reason": {"type": "string"}, "text": {"type": "string"}}},
+    "venue.research.started": {"version": 1, "properties": {"text": {"type": "string"}}},
+    "venue.research.completed": {"version": 1, "properties": {"ok": {"type": "boolean"}, "text": {"type": "string"}}},
+    "skill.library.available": {"version": 1, "properties": {"role": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}, "own_paths": {"type": "array", "items": {"type": "string"}}, "reference_paths": {"type": "array", "items": {"type": "string"}}, "required_paths": {"type": "array", "items": {"type": "string"}}, "precedence": {"type": "array", "items": {"type": "string"}}, "discovery": {"type": "string"}, "text": {"type": "string"}}},
+    "operator_alert": {"version": 1, "properties": {"text": {"type": "string"}, "reason": {"type": "string"}, "operator_alert": {"type": "boolean", "const": true}}}
   }
 }

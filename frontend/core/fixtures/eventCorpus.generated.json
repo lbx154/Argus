@@ -1,0 +1,1659 @@
+{
+  "event_payload_schema_version": 2,
+  "fixtures": [
+    {
+      "event": {
+        "backend": "codex",
+        "call_id": "call-1",
+        "model": "gpt-5",
+        "payload_schema_version": 1,
+        "resume_thread_id": "resume thread id",
+        "run_label": "Engineer",
+        "ts": 1700000000,
+        "type": "agent.io.start",
+        "working_dir": "working dir"
+      },
+      "id": "agent.io.start"
+    },
+    {
+      "event": {
+        "call_id": "call-1",
+        "line": "line",
+        "payload_schema_version": 1,
+        "run_label": "Engineer",
+        "stream": "stdout",
+        "ts": 1700000001,
+        "type": "agent.io.stream"
+      },
+      "id": "agent.io.stream"
+    },
+    {
+      "event": {
+        "backend": "codex",
+        "cache_write_tokens": 1,
+        "cached_input_tokens": 1,
+        "call_id": "call-1",
+        "exit_code": 1,
+        "fatal_error": "fatal error",
+        "input_tokens": 1,
+        "model": "gpt-5",
+        "output_tokens": 1,
+        "payload_schema_version": 1,
+        "premium_requests": 1.25,
+        "premium_requests_present": true,
+        "reasoning_output_tokens": 1,
+        "run_label": "Engineer",
+        "thread_id": "thread id",
+        "total_nano_aiu": 1,
+        "ts": 1700000002,
+        "type": "agent.io.complete"
+      },
+      "id": "agent.io.complete"
+    },
+    {
+      "event": {
+        "backend": "codex",
+        "call_id": "call-1",
+        "error": "provider request failed",
+        "payload_schema_version": 1,
+        "run_label": "Engineer",
+        "ts": 1700000003,
+        "type": "agent.io.error"
+      },
+      "id": "agent.io.error"
+    },
+    {
+      "event": {
+        "call_id": "call-1",
+        "duration_ms": 1,
+        "mission_id": "mission id",
+        "model": "gpt-5",
+        "payload_schema_version": 2,
+        "pricing": {
+          "cost_usd": 0.0025,
+          "status": "priced"
+        },
+        "project_id": "project id",
+        "provider": "openai",
+        "run_label": "Engineer",
+        "schema_version": 2,
+        "status": "completed",
+        "thread_id": "thread id",
+        "ts": 1700000004,
+        "type": "usage.recorded",
+        "usage": {
+          "input_tokens": 120,
+          "output_tokens": 40
+        }
+      },
+      "id": "usage.recorded"
+    },
+    {
+      "event": {
+        "call_id": "call-1",
+        "daily_calls": 1,
+        "daily_cap": 1,
+        "payload_schema_version": 1,
+        "provider": "openai",
+        "run_label": "Engineer",
+        "ts": 1700000005,
+        "type": "provider.request.started"
+      },
+      "id": "provider.request.started"
+    },
+    {
+      "event": {
+        "call_id": "call-1",
+        "error": "provider request failed",
+        "payload_schema_version": 1,
+        "premium_requests": 1.25,
+        "provider": "openai",
+        "run_label": "Engineer",
+        "success": true,
+        "ts": 1700000006,
+        "type": "provider.request.completed"
+      },
+      "id": "provider.request.completed"
+    },
+    {
+      "event": {
+        "call_id": "call-1",
+        "payload_schema_version": 1,
+        "provider": "openai",
+        "reason": "the current operation needs attention",
+        "run_label": "Engineer",
+        "ts": 1700000007,
+        "type": "provider.request.denied"
+      },
+      "id": "provider.request.denied"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "cached_input_tokens": 1,
+        "input_tokens": 1,
+        "model": "gpt-5",
+        "output_tokens": 1,
+        "payload_schema_version": 1,
+        "premium_requests": 1.25,
+        "reasoning_output_tokens": 1,
+        "run_label": "Engineer",
+        "session_id": "session id",
+        "ts": 1700000008,
+        "type": "codex.util.completed",
+        "usage_scope": "mission"
+      },
+      "id": "codex.util.completed"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "cached_input_tokens": 1,
+        "distiller": {
+          "value": "recorded"
+        },
+        "distiller_model": "distiller model",
+        "input_tokens": 1,
+        "matcher": {
+          "value": "recorded"
+        },
+        "matcher_model": "matcher model",
+        "output_tokens": 1,
+        "payload_schema_version": 1,
+        "premium_requests": 1.25,
+        "reasoning_output_tokens": 1,
+        "ts": 1700000009,
+        "type": "skill.cost.completed",
+        "usage_scope": "delta"
+      },
+      "id": "skill.cost.completed"
+    },
+    {
+      "event": {
+        "amount_usd": 1.25,
+        "call_id": "call-1",
+        "model": "gpt-5",
+        "payload_schema_version": 1,
+        "provider": "openai",
+        "reservation_id": "reservation-1",
+        "run_label": "Engineer",
+        "ts": 1700000010,
+        "type": "budget.reservation.created"
+      },
+      "id": "budget.reservation.created"
+    },
+    {
+      "event": {
+        "call_id": "call-1",
+        "model": "gpt-5",
+        "payload_schema_version": 1,
+        "provider": "openai",
+        "reason": "the current operation needs attention",
+        "run_label": "Engineer",
+        "ts": 1700000011,
+        "type": "budget.reservation.denied"
+      },
+      "id": "budget.reservation.denied"
+    },
+    {
+      "event": {
+        "amount_usd": 1.25,
+        "call_id": "call-1",
+        "cost_usd": 1.25,
+        "overrun_usd": 1.25,
+        "payload_schema_version": 1,
+        "pricing_status": "priced",
+        "reservation_id": "reservation-1",
+        "ts": 1700000012,
+        "type": "budget.reservation.settled"
+      },
+      "id": "budget.reservation.settled"
+    },
+    {
+      "event": {
+        "amount_usd": 1.25,
+        "call_id": "call-1",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "reservation_id": "reservation-1",
+        "ts": 1700000013,
+        "type": "budget.reservation.released"
+      },
+      "id": "budget.reservation.released"
+    },
+    {
+      "event": {
+        "call_id": "call-1",
+        "model": "gpt-5",
+        "payload_schema_version": 1,
+        "provider": "openai",
+        "reason": "the current operation needs attention",
+        "run_label": "Engineer",
+        "ts": 1700000014,
+        "type": "budget.unpriced.blocked"
+      },
+      "id": "budget.unpriced.blocked"
+    },
+    {
+      "event": {
+        "max_rounds": 1,
+        "objective": "Implement the shared semantic event renderer",
+        "payload_schema_version": 1,
+        "plan_mode": "plan mode",
+        "text": "Renderer event detail",
+        "ts": 1700000015,
+        "type": "loop.start"
+      },
+      "id": "loop.start"
+    },
+    {
+      "event": {
+        "payload_schema_version": 1,
+        "stop_reason": "stop reason",
+        "success": true,
+        "text": "Renderer event detail",
+        "ts": 1700000016,
+        "type": "loop.done"
+      },
+      "id": "loop.done"
+    },
+    {
+      "event": {
+        "payload_schema_version": 1,
+        "round_index": 1,
+        "round_max": 1,
+        "session_id": "session id",
+        "ts": 1700000017,
+        "type": "round.start"
+      },
+      "id": "round.start"
+    },
+    {
+      "event": {
+        "cached_input_tokens": 1,
+        "exit_code": 1,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "payload_schema_version": 1,
+        "reasoning_output_tokens": 1,
+        "round_index": 1,
+        "stop_kind": "budget_exhausted",
+        "ts": 1700000018,
+        "type": "round.main.completed"
+      },
+      "id": "round.main.completed"
+    },
+    {
+      "event": {
+        "payload_schema_version": 1,
+        "round_index": 1,
+        "status": "completed",
+        "ts": 1700000019,
+        "type": "round.review.started"
+      },
+      "id": "round.review.started"
+    },
+    {
+      "event": {
+        "deferral_count": 1,
+        "deferral_limit": 1,
+        "next_step": "run the focused verification",
+        "payload_schema_version": 1,
+        "round_index": 1,
+        "round_max": 1,
+        "ts": 1700000020,
+        "type": "round.review.deferred"
+      },
+      "id": "round.review.deferred"
+    },
+    {
+      "event": {
+        "authority_impact": "authority impact",
+        "backend_unavailable": true,
+        "cached_input_tokens": 1,
+        "forward_progress": true,
+        "frontier_change": "frontier change",
+        "frontier_summary": "frontier summary",
+        "input_tokens": 1,
+        "next_action": "next action",
+        "operator_options": [
+          {
+            "description": "description",
+            "id": "id",
+            "label": "implementation",
+            "requires_note": true
+          }
+        ],
+        "operator_question": "operator question",
+        "output_tokens": 1,
+        "payload_schema_version": 1,
+        "plan_alternative": "plan alternative",
+        "plan_challenge": "plan challenge",
+        "plan_signal": "plan signal",
+        "premium_requests": 1.25,
+        "prompt_block_stats": {
+          "value": "recorded"
+        },
+        "reason": "focused checks passed",
+        "reasoning_output_tokens": 1,
+        "review_skipped": true,
+        "review_source": "review source",
+        "round_index": 1,
+        "session_signal": {
+          "value": "recorded"
+        },
+        "status": "done",
+        "stop_kind": "budget_exhausted",
+        "text": "Renderer event detail",
+        "ts": 1700000021,
+        "type": "round.review.completed",
+        "usage_scope": "delta"
+      },
+      "id": "round.review.completed"
+    },
+    {
+      "event": {
+        "payload_schema_version": 1,
+        "ref": "ref",
+        "round": 1,
+        "run_id": "run-1",
+        "ts": 1700000022,
+        "type": "round.checkpoint.recorded"
+      },
+      "id": "round.checkpoint.recorded"
+    },
+    {
+      "event": {
+        "error": "provider request failed",
+        "payload_schema_version": 1,
+        "round": 1,
+        "run_id": "run-1",
+        "ts": 1700000023,
+        "type": "round.checkpoint.failed"
+      },
+      "id": "round.checkpoint.failed"
+    },
+    {
+      "event": {
+        "operator_alert": true,
+        "payload_schema_version": 1,
+        "redacted_paths": [
+          "redacted path"
+        ],
+        "replacement_count": 1,
+        "round_index": 1,
+        "round_max": 1,
+        "scan_errors": [
+          "scan error"
+        ],
+        "scanned_files": 1,
+        "truncated": true,
+        "ts": 1700000024,
+        "type": "round.secret_redacted"
+      },
+      "id": "round.secret_redacted"
+    },
+    {
+      "event": {
+        "continuation_reason": "continuation reason",
+        "forward_progress": true,
+        "hard_escalate_rounds": 1,
+        "payload_schema_version": 1,
+        "round_index": 1,
+        "soft_round_limit": 1,
+        "text": "Renderer event detail",
+        "ts": 1700000025,
+        "type": "round.escalated"
+      },
+      "id": "round.escalated"
+    },
+    {
+      "event": {
+        "decision_idle_seconds": 1.25,
+        "forward_progress": true,
+        "payload_schema_version": 1,
+        "round_index": 1,
+        "round_max": 1,
+        "semantic_stall_streak": 1,
+        "stall_threshold": 1,
+        "text": "Renderer event detail",
+        "ts": 1700000026,
+        "type": "round.stall"
+      },
+      "id": "round.stall"
+    },
+    {
+      "event": {
+        "operator_alert": true,
+        "payload_schema_version": 1,
+        "round_index": 1,
+        "round_max": 1,
+        "streak": 1,
+        "text": "Renderer event detail",
+        "threshold": 1,
+        "ts": 1700000027,
+        "type": "round.reviewer_backend_failure"
+      },
+      "id": "round.reviewer_backend_failure"
+    },
+    {
+      "event": {
+        "action": "fresh",
+        "cached_input_tokens": 1,
+        "capsule_path": "capsule path",
+        "duration_ms": 1,
+        "input_tokens": 1,
+        "metadata_persisted": true,
+        "payload_schema_version": 1,
+        "persistence_warning": "persistence warning",
+        "planning_cycle": 1,
+        "policy": "fresh",
+        "prompt_chars": 1,
+        "prompt_estimated_tokens": 1,
+        "role": "planner",
+        "rotation_reason": "rotation reason",
+        "round_index": 1,
+        "session_id": "session id",
+        "signal_detail": "signal detail",
+        "signal_kind": "repeated_contradiction",
+        "ts": 1700000028,
+        "turns_on_session": 1,
+        "type": "role.session.turn"
+      },
+      "id": "role.session.turn"
+    },
+    {
+      "event": {
+        "actor": "actor",
+        "agent_layer": "engineer",
+        "branch_id": "branch id",
+        "experiment_id": "experiment id",
+        "kind": "agent_message",
+        "message_id": "message id",
+        "payload_schema_version": 1,
+        "replace": true,
+        "round_index": 1,
+        "text": "Implemented the renderer.",
+        "ts": 1700000029,
+        "type": "engineer.progress"
+      },
+      "id": "engineer.progress"
+    },
+    {
+      "event": {
+        "payload_schema_version": 1,
+        "ts": 1700000030,
+        "type": "engineer.skill_maintenance.completed"
+      },
+      "id": "engineer.skill_maintenance.completed"
+    },
+    {
+      "event": {
+        "payload_schema_version": 1,
+        "text": "Renderer event detail",
+        "ts": 1700000031,
+        "type": "life.status"
+      },
+      "id": "life.status"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "item_id": "task-1",
+        "label": "implementation",
+        "payload_schema_version": 1,
+        "phase": "backend",
+        "round_index": 1,
+        "ts": 1700000032,
+        "type": "life.phase.started"
+      },
+      "id": "life.phase.started"
+    },
+    {
+      "event": {
+        "attempt": 1,
+        "item_id": "task-1",
+        "missions_started": 1,
+        "objective": "Implement the shared semantic event renderer",
+        "payload_schema_version": 1,
+        "scope": "frontend/core",
+        "title": "Shared event renderer",
+        "ts": 1700000033,
+        "type": "life.mission.started",
+        "usage_attempt_id": "usage attempt id"
+      },
+      "id": "life.mission.started"
+    },
+    {
+      "event": {
+        "campaign_continues": true,
+        "cost_usd": 1.25,
+        "delivery": {
+          "delivered_at": 1.25,
+          "delivery_id": "delivery id",
+          "item_id": "task-1",
+          "kind": "agent_message",
+          "primary_target": {
+            "value": "recorded"
+          },
+          "review_status": "review status",
+          "schema_version": 1,
+          "status": "completed",
+          "summary": "Implemented and verified the requested change.",
+          "targets": [
+            {
+              "value": "recorded"
+            }
+          ],
+          "title": "Shared event renderer"
+        },
+        "delivery_candidates": [
+          "delivery candidate"
+        ],
+        "delivery_id": "delivery id",
+        "elapsed_seconds": 1.25,
+        "execution_workdir": "execution workdir",
+        "item_id": "task-1",
+        "known_cost_usd": 1.25,
+        "objective": "Implement the shared semantic event renderer",
+        "operator_question": "operator question",
+        "outcome": {
+          "execution_status": "execution status",
+          "interruption_kind": "interruption kind",
+          "resumable": true,
+          "review_status": "review status",
+          "stage_certification": "stage certification"
+        },
+        "outcome_class": "completed",
+        "overall_complete": true,
+        "payload_schema_version": 1,
+        "pricing_status": "priced",
+        "recoverable": true,
+        "repair_capability": {
+          "value": "recorded"
+        },
+        "research_result": {
+          "value": "recorded"
+        },
+        "rounds": 1,
+        "scope": "frontend/core",
+        "status": "done",
+        "stop_kind": "budget_exhausted",
+        "success": true,
+        "summary": "Implemented and verified the requested change.",
+        "title": "Shared event renderer",
+        "ts": 1700000034,
+        "type": "life.mission.completed"
+      },
+      "id": "life.mission.completed"
+    },
+    {
+      "event": {
+        "error": "provider request failed",
+        "item_id": "task-1",
+        "outcome_class": "failed",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "title": "Shared event renderer",
+        "ts": 1700000035,
+        "type": "life.mission.failed"
+      },
+      "id": "life.mission.failed"
+    },
+    {
+      "event": {
+        "item_id": "task-1",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "title": "Shared event renderer",
+        "ts": 1700000036,
+        "type": "life.mission.skipped"
+      },
+      "id": "life.mission.skipped"
+    },
+    {
+      "event": {
+        "error": "provider request failed",
+        "item_id": "task-1",
+        "payload_schema_version": 1,
+        "started_ts": 1.25,
+        "title": "Shared event renderer",
+        "ts": 1700000037,
+        "type": "life.mission.orphaned"
+      },
+      "id": "life.mission.orphaned"
+    },
+    {
+      "event": {
+        "error": "provider request failed",
+        "item_id": "task-1",
+        "payload_schema_version": 1,
+        "started_ts": 1.25,
+        "title": "Shared event renderer",
+        "ts": 1700000038,
+        "type": "life.mission.requeued"
+      },
+      "id": "life.mission.requeued"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "intent_id": "intent-1",
+        "item_id": "task-1",
+        "objective": "Implement the shared semantic event renderer",
+        "payload_schema_version": 1,
+        "source": "daemon",
+        "text": "Renderer event detail",
+        "ts": 1700000039,
+        "type": "life.manager.intent.started"
+      },
+      "id": "life.manager.intent.started"
+    },
+    {
+      "event": {
+        "continuous": true,
+        "intent_id": "intent-1",
+        "item_id": "task-1",
+        "kind": "agent_message",
+        "lifetime": "bounded",
+        "objective": "Implement the shared semantic event renderer",
+        "open_ended": false,
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "route": "team",
+        "stages": [
+          "implementation"
+        ],
+        "ts": 1700000040,
+        "type": "life.manager.intent.completed",
+        "vertical": "software",
+        "workflow_mode": "staged"
+      },
+      "id": "life.manager.intent.completed"
+    },
+    {
+      "event": {
+        "answer_preserved": true,
+        "attempts": 2,
+        "backend_error": "401 Missing bearer",
+        "cause": "401 Missing bearer",
+        "contract_field": "research_target_level",
+        "error": "VerticalDecisionError: routing failed",
+        "intent_id": "intent-1",
+        "item_id": "task-1",
+        "model_reply_snippet": "invalid routing response",
+        "objective": "Implement the shared semantic event renderer",
+        "payload_schema_version": 1,
+        "phase": "backend",
+        "ts": 1700000041,
+        "type": "life.manager.intent.failed"
+      },
+      "id": "life.manager.intent.failed"
+    },
+    {
+      "event": {
+        "action": "advance",
+        "current_stage": "current stage",
+        "item_id": "task-1",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "resolves_wait": true,
+        "source": "daemon",
+        "target_stage": "review",
+        "trigger": "trigger",
+        "ts": 1700000042,
+        "type": "life.manager.stage_decision"
+      },
+      "id": "life.manager.stage_decision"
+    },
+    {
+      "event": {
+        "adjudicated_at": 1.25,
+        "alternative": "alternative",
+        "authority_impact": "authority impact",
+        "challenge": "challenge",
+        "item_id": "task-1",
+        "manager_action": "keep",
+        "manager_reason": "manager reason",
+        "payload_schema_version": 1,
+        "raised_at": 1.25,
+        "revision_latency_seconds": 1.25,
+        "text": "Renderer event detail",
+        "ts": 1700000043,
+        "type": "life.manager.plan_challenge.decided"
+      },
+      "id": "life.manager.plan_challenge.decided"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "payload_schema_version": 1,
+        "profile_hint": "profile hint",
+        "ts": 1700000044,
+        "type": "life.vertical.resolved",
+        "vertical": "software"
+      },
+      "id": "life.vertical.resolved"
+    },
+    {
+      "event": {
+        "backend": "codex",
+        "payload_schema_version": 1,
+        "role": "engineer",
+        "source": "daemon",
+        "ts": 1700000045,
+        "type": "life.manager.backend_resolved"
+      },
+      "id": "life.manager.backend_resolved"
+    },
+    {
+      "event": {
+        "backend": "codex",
+        "payload_schema_version": 1,
+        "role": "engineer",
+        "source": "daemon",
+        "ts": 1700000046,
+        "type": "life.planner.backend_resolved"
+      },
+      "id": "life.planner.backend_resolved"
+    },
+    {
+      "event": {
+        "backend": "codex",
+        "payload_schema_version": 1,
+        "role": "engineer",
+        "source": "daemon",
+        "ts": 1700000047,
+        "type": "life.engineer.backend_resolved"
+      },
+      "id": "life.engineer.backend_resolved"
+    },
+    {
+      "event": {
+        "backend": "codex",
+        "payload_schema_version": 1,
+        "role": "engineer",
+        "source": "daemon",
+        "ts": 1700000048,
+        "type": "life.reviewer.backend_resolved"
+      },
+      "id": "life.reviewer.backend_resolved"
+    },
+    {
+      "event": {
+        "backend": "codex",
+        "payload_schema_version": 1,
+        "role": "engineer",
+        "source": "daemon",
+        "ts": 1700000049,
+        "type": "life.curator.backend_resolved"
+      },
+      "id": "life.curator.backend_resolved"
+    },
+    {
+      "event": {
+        "cycle": 1,
+        "manager_intent": {
+          "value": "recorded"
+        },
+        "payload_schema_version": 1,
+        "ts": 1700000050,
+        "type": "life.planner.start"
+      },
+      "id": "life.planner.start"
+    },
+    {
+      "event": {
+        "cycle": 1,
+        "diagnostic": "removed duplicate planner task",
+        "payload_schema_version": 1,
+        "ts": 1700000051,
+        "type": "life.planner.normalized"
+      },
+      "id": "life.planner.normalized"
+    },
+    {
+      "event": {
+        "branch_id": "branch id",
+        "deps": [
+          "dep"
+        ],
+        "impact_area": "impact area",
+        "impact_score": 1.25,
+        "item_id": "task-1",
+        "objective": "Implement the shared semantic event renderer",
+        "parent_branch_id": "parent branch id",
+        "payload_schema_version": 1,
+        "priority": 1,
+        "title": "Shared event renderer",
+        "ts": 1700000052,
+        "type": "life.planner.task_added"
+      },
+      "id": "life.planner.task_added"
+    },
+    {
+      "event": {
+        "item_id": "task-1",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "title": "Shared event renderer",
+        "ts": 1700000053,
+        "type": "life.planner.task_skipped"
+      },
+      "id": "life.planner.task_skipped"
+    },
+    {
+      "event": {
+        "completion_kind": "completion kind",
+        "correctness_status": "correctness status",
+        "delivery": {
+          "value": "recorded"
+        },
+        "delivery_id": "delivery id",
+        "mission_id": "mission id",
+        "novelty_status": "novelty status",
+        "payload_schema_version": 1,
+        "project_id": "project id",
+        "reason": "the current operation needs attention",
+        "recoverable": true,
+        "research_target_level": "research target level",
+        "significance_status": "significance status",
+        "status": "completed",
+        "stop_kind": "stop kind",
+        "success": true,
+        "summary": "Implemented and verified the requested change.",
+        "tasks_added": 1,
+        "ts": 1700000054,
+        "type": "life.planner.verdict"
+      },
+      "id": "life.planner.verdict"
+    },
+    {
+      "event": {
+        "consecutive_idle_cycles": 1,
+        "cycle": 1,
+        "model_call_skipped": true,
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "suggested_sleep_s": 1.25,
+        "ts": 1700000055,
+        "type": "life.planner.waiting",
+        "wait_mode": "wait mode",
+        "waiting_contract": {
+          "observed_revision": "observed revision",
+          "recheck_condition": "recheck condition",
+          "wait_id": "wait id",
+          "wait_mode": "wait mode",
+          "wake_on": [
+            "wake on"
+          ]
+        },
+        "waiting_contract_persisted": true
+      },
+      "id": "life.planner.waiting"
+    },
+    {
+      "event": {
+        "blocker_fingerprint": "blocker fingerprint",
+        "current_revision": "current revision",
+        "observed_revision": "observed revision",
+        "payload_schema_version": 1,
+        "recheck_token": "recheck token",
+        "ts": 1700000056,
+        "type": "life.planner.waiting_woken",
+        "wake_reason": "wake reason"
+      },
+      "id": "life.planner.waiting_woken"
+    },
+    {
+      "event": {
+        "consecutive_idle_cycles": 1,
+        "cycle": 1,
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "suggested_sleep_s": 1.25,
+        "ts": 1700000057,
+        "type": "life.planner.terminal_idle"
+      },
+      "id": "life.planner.terminal_idle"
+    },
+    {
+      "event": {
+        "cycle": 1,
+        "idle_cycles": 1,
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "ts": 1700000058,
+        "type": "life.planner.verification_probe",
+        "waiting_contract": {
+          "value": "recorded"
+        }
+      },
+      "id": "life.planner.verification_probe"
+    },
+    {
+      "event": {
+        "consecutive_no_progress_missions": 1,
+        "objective": "Implement the shared semantic event renderer",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "text": "Renderer event detail",
+        "ts": 1700000059,
+        "type": "life.planner.stall_escalation"
+      },
+      "id": "life.planner.stall_escalation"
+    },
+    {
+      "event": {
+        "error": "provider request failed",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "ts": 1700000060,
+        "type": "life.planner.error"
+      },
+      "id": "life.planner.error"
+    },
+    {
+      "event": {
+        "callsite": "callsite",
+        "exception_type": "exception type",
+        "fingerprint": "fingerprint",
+        "item_id": "task-1",
+        "newly_opened": true,
+        "normalized_error": "normalized error",
+        "occurrence_count": 1,
+        "operator_alert": true,
+        "payload_schema_version": 1,
+        "runtime_identity": {
+          "value": "recorded"
+        },
+        "ts": 1700000061,
+        "type": "life.runtime_failure.circuit_opened"
+      },
+      "id": "life.runtime_failure.circuit_opened"
+    },
+    {
+      "event": {
+        "callsite": "callsite",
+        "exception_type": "exception type",
+        "fingerprint": "fingerprint",
+        "item_id": "task-1",
+        "normalized_error": "normalized error",
+        "occurrence_count": 1,
+        "operator_alert": true,
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "runtime_identity": {
+          "value": "recorded"
+        },
+        "ts": 1700000062,
+        "type": "life.runtime_failure.circuit_blocked"
+      },
+      "id": "life.runtime_failure.circuit_blocked"
+    },
+    {
+      "event": {
+        "circuit_cleared": true,
+        "item_id": "task-1",
+        "payload_schema_version": 1,
+        "ts": 1700000063,
+        "type": "life.runtime_failure.canary_passed"
+      },
+      "id": "life.runtime_failure.canary_passed"
+    },
+    {
+      "event": {
+        "active_item_ids": [
+          "active item id"
+        ],
+        "expected_plan_id": "expected plan id",
+        "expected_plan_version": 1,
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "trigger_item_id": "trigger item id",
+        "ts": 1700000064,
+        "type": "life.plan.revision.proposed"
+      },
+      "id": "life.plan.revision.proposed"
+    },
+    {
+      "event": {
+        "attempts": 1,
+        "expected_plan_id": "expected plan id",
+        "expected_plan_version": 1,
+        "item_id": "task-1",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "terminal": true,
+        "trigger_status": "trigger status",
+        "ts": 1700000065,
+        "type": "life.plan.revision.rejected"
+      },
+      "id": "life.plan.revision.rejected"
+    },
+    {
+      "event": {
+        "added_item_ids": [
+          "added item id"
+        ],
+        "alternative": "alternative",
+        "challenge": "challenge",
+        "manager_action": "keep",
+        "new_plan_id": "new plan id",
+        "new_plan_version": 1,
+        "old_plan_id": "old plan id",
+        "old_plan_version": 1,
+        "payload_schema_version": 1,
+        "revision_latency_seconds": 1.25,
+        "superseded_item_ids": [
+          "superseded item id"
+        ],
+        "ts": 1700000066,
+        "type": "life.plan.revision.committed"
+      },
+      "id": "life.plan.revision.committed"
+    },
+    {
+      "event": {
+        "item_id": "task-1",
+        "payload_schema_version": 1,
+        "plan_id": "plan-1",
+        "plan_version": 1,
+        "reason": "the current operation needs attention",
+        "source": "daemon",
+        "superseded_by_plan_id": "superseded by plan id",
+        "ts": 1700000067,
+        "type": "life.plan.node.superseded"
+      },
+      "id": "life.plan.node.superseded"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "item_id": "task-1",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "text": "Renderer event detail",
+        "title": "Shared event renderer",
+        "ts": 1700000068,
+        "type": "life.budget.pause"
+      },
+      "id": "life.budget.pause"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "item_id": "task-1",
+        "lifecycle_state": "lifecycle state",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "text": "Renderer event detail",
+        "title": "Shared event renderer",
+        "ts": 1700000069,
+        "type": "life.lifecycle.block"
+      },
+      "id": "life.lifecycle.block"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "from_state": "active",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "to_state": "complete",
+        "ts": 1700000070,
+        "type": "life.lifecycle.transition"
+      },
+      "id": "life.lifecycle.transition"
+    },
+    {
+      "event": {
+        "payload_schema_version": 1,
+        "source": "daemon",
+        "stage": "implementation",
+        "text": "Renderer event detail",
+        "ts": 1700000071,
+        "type": "life.inbox.queued"
+      },
+      "id": "life.inbox.queued"
+    },
+    {
+      "event": {
+        "count": 1,
+        "messages": [
+          "message"
+        ],
+        "payload_schema_version": 1,
+        "ts": 1700000072,
+        "type": "life.inbox.drained"
+      },
+      "id": "life.inbox.drained"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "item_id": "task-1",
+        "payload_schema_version": 1,
+        "question": "question",
+        "title": "Shared event renderer",
+        "ts": 1700000073,
+        "type": "life.operator_question.pending"
+      },
+      "id": "life.operator_question.pending"
+    },
+    {
+      "event": {
+        "campaign_generation": 1,
+        "continuation_item_id": "continuation item id",
+        "decision_id": "decision id",
+        "decision_revision": 1,
+        "item_id": "task-1",
+        "manager_decision": "manager decision",
+        "payload_schema_version": 1,
+        "question": "question",
+        "stopped": true,
+        "ts": 1700000074,
+        "type": "life.operator_question.answered"
+      },
+      "id": "life.operator_question.answered"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "idle_seconds": 1.25,
+        "payload_schema_version": 1,
+        "text": "Renderer event detail",
+        "ts": 1700000075,
+        "type": "life.daemon.idle_timeout"
+      },
+      "id": "life.daemon.idle_timeout"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "evidence_refs": [
+          "evidence ref"
+        ],
+        "from_state": "active",
+        "payload_schema_version": 1,
+        "required_gate": "required gate",
+        "source": "daemon",
+        "ts": 1700000076,
+        "type": "project.completed",
+        "vertical": "software"
+      },
+      "id": "project.completed"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "required_gate": "required gate",
+        "source": "daemon",
+        "ts": 1700000077,
+        "type": "project.completion_refused",
+        "vertical": "software"
+      },
+      "id": "project.completion_refused"
+    },
+    {
+      "event": {
+        "payload_schema_version": 1,
+        "previous_pid": 1,
+        "replaced_by": "replaced by",
+        "state_preserved": true,
+        "ts": 1700000078,
+        "type": "daemon.parked",
+        "unfinished_tasks": 1
+      },
+      "id": "daemon.parked"
+    },
+    {
+      "event": {
+        "command_id": "command-1",
+        "expected_revision": 1,
+        "operation": "replace",
+        "payload_schema_version": 1,
+        "revision": 1,
+        "ts": 1700000079,
+        "type": "daemon.command.submitted"
+      },
+      "id": "daemon.command.submitted"
+    },
+    {
+      "event": {
+        "command_id": "command-1",
+        "error": "provider request failed",
+        "operation": "replace",
+        "payload_schema_version": 1,
+        "result": {
+          "value": "recorded"
+        },
+        "revision": 1,
+        "status": "applied",
+        "ts": 1700000080,
+        "type": "daemon.command.completed"
+      },
+      "id": "daemon.command.completed"
+    },
+    {
+      "event": {
+        "command_id": "command-1",
+        "error": "provider request failed",
+        "operation": "replace",
+        "payload_schema_version": 1,
+        "revision": 1,
+        "status": "rejected",
+        "ts": 1700000081,
+        "type": "daemon.command.rejected"
+      },
+      "id": "daemon.command.rejected"
+    },
+    {
+      "event": {
+        "payload_schema_version": 1,
+        "text": "Renderer event detail",
+        "ts": 1700000082,
+        "type": "idea.search.started"
+      },
+      "id": "idea.search.started"
+    },
+    {
+      "event": {
+        "count": 1,
+        "payload_schema_version": 1,
+        "text": "Renderer event detail",
+        "ts": 1700000083,
+        "type": "idea.search.completed"
+      },
+      "id": "idea.search.completed"
+    },
+    {
+      "event": {
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "text": "Renderer event detail",
+        "ts": 1700000084,
+        "type": "idea.search.skipped"
+      },
+      "id": "idea.search.skipped"
+    },
+    {
+      "event": {
+        "payload_schema_version": 1,
+        "text": "Renderer event detail",
+        "ts": 1700000085,
+        "type": "venue.research.started"
+      },
+      "id": "venue.research.started"
+    },
+    {
+      "event": {
+        "ok": true,
+        "payload_schema_version": 1,
+        "text": "Renderer event detail",
+        "ts": 1700000086,
+        "type": "venue.research.completed"
+      },
+      "id": "venue.research.completed"
+    },
+    {
+      "event": {
+        "achievement_id": "achievement id",
+        "evidence": [
+          "evidence"
+        ],
+        "goal": "goal",
+        "payload_schema_version": 1,
+        "reviewer_certified": true,
+        "summary": "Implemented and verified the requested change.",
+        "title": "Shared event renderer",
+        "ts": 1700000087,
+        "type": "research.achievement.certified"
+      },
+      "id": "research.achievement.certified"
+    },
+    {
+      "event": {
+        "discovery": "discovery",
+        "own_paths": [
+          "own path"
+        ],
+        "paths": [
+          "path"
+        ],
+        "payload_schema_version": 1,
+        "precedence": [
+          "precedence"
+        ],
+        "reference_paths": [
+          "reference path"
+        ],
+        "required_paths": [
+          "required path"
+        ],
+        "role": "engineer",
+        "text": "Renderer event detail",
+        "ts": 1700000088,
+        "type": "skill.library.available"
+      },
+      "id": "skill.library.available"
+    },
+    {
+      "event": {
+        "name": "name",
+        "path": "path",
+        "payload_schema_version": 1,
+        "scope": "frontend/core",
+        "skill_id": "skill id",
+        "text": "Renderer event detail",
+        "ts": 1700000089,
+        "type": "skill.created",
+        "version": 1
+      },
+      "id": "skill.created"
+    },
+    {
+      "event": {
+        "name": "name",
+        "path": "path",
+        "payload_schema_version": 1,
+        "scope": "frontend/core",
+        "skill_id": "skill id",
+        "text": "Renderer event detail",
+        "ts": 1700000090,
+        "type": "skill.updated",
+        "version": 1
+      },
+      "id": "skill.updated"
+    },
+    {
+      "event": {
+        "name": "name",
+        "path": "path",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "scope": "frontend/core",
+        "skill_id": "skill id",
+        "text": "Renderer event detail",
+        "ts": 1700000091,
+        "type": "skill.archived",
+        "version": 1
+      },
+      "id": "skill.archived"
+    },
+    {
+      "event": {
+        "name": "name",
+        "path": "path",
+        "payload_schema_version": 1,
+        "placement": "global",
+        "text": "Renderer event detail",
+        "ts": 1700000092,
+        "type": "skill.tidied",
+        "vertical": "software"
+      },
+      "id": "skill.tidied"
+    },
+    {
+      "event": {
+        "bytes_after": 1,
+        "bytes_before": 1,
+        "bytes_saved": 1,
+        "count": 1,
+        "keep_hot": 1,
+        "paths": [
+          "path"
+        ],
+        "payload_schema_version": 1,
+        "text": "Renderer event detail",
+        "truncated": true,
+        "ts": 1700000093,
+        "type": "skill.history.compressed"
+      },
+      "id": "skill.history.compressed"
+    },
+    {
+      "event": {
+        "archived": 1,
+        "compacted": 1,
+        "compaction_clusters": 1,
+        "created": 1,
+        "errors": 1,
+        "global_skill_count": 1,
+        "global_skill_dir": "global skill dir",
+        "history_bytes_saved": 1,
+        "history_compressed": 1,
+        "ops_proposed": 1,
+        "payload_schema_version": 1,
+        "project_skill_count": 1,
+        "project_skill_dir": "project skill dir",
+        "rejected": 1,
+        "text": "Renderer event detail",
+        "ts": 1700000094,
+        "type": "skill.evolution.completed",
+        "updated": 1
+      },
+      "id": "skill.evolution.completed"
+    },
+    {
+      "event": {
+        "auto": true,
+        "path": "path",
+        "payload_schema_version": 1,
+        "project": "project",
+        "text": "Renderer event detail",
+        "ts": 1700000095,
+        "type": "wiki.initialized"
+      },
+      "id": "wiki.initialized"
+    },
+    {
+      "event": {
+        "error": "provider request failed",
+        "operation": "replace",
+        "payload_schema_version": 1,
+        "text": "Renderer event detail",
+        "ts": 1700000096,
+        "type": "wiki.hook.warning"
+      },
+      "id": "wiki.hook.warning"
+    },
+    {
+      "event": {
+        "card_type": "card type",
+        "page_id": "page id",
+        "path": "path",
+        "payload_schema_version": 1,
+        "status": "completed",
+        "text": "Renderer event detail",
+        "title": "Shared event renderer",
+        "ts": 1700000097,
+        "type": "wiki.created"
+      },
+      "id": "wiki.created"
+    },
+    {
+      "event": {
+        "card_type": "card type",
+        "page_id": "page id",
+        "path": "path",
+        "payload_schema_version": 1,
+        "status": "completed",
+        "text": "Renderer event detail",
+        "title": "Shared event renderer",
+        "ts": 1700000098,
+        "type": "wiki.updated"
+      },
+      "id": "wiki.updated"
+    },
+    {
+      "event": {
+        "card_type": "card type",
+        "page_id": "page id",
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "text": "Renderer event detail",
+        "ts": 1700000099,
+        "type": "wiki.retired"
+      },
+      "id": "wiki.retired"
+    },
+    {
+      "event": {
+        "card_type": "card type",
+        "failed_references": 1,
+        "from_status": "from status",
+        "page_id": "page id",
+        "payload_schema_version": 1,
+        "references": 1,
+        "successful_references": 1,
+        "text": "Renderer event detail",
+        "to_status": "to status",
+        "ts": 1700000100,
+        "type": "wiki.promotion.promoted"
+      },
+      "id": "wiki.promotion.promoted"
+    },
+    {
+      "event": {
+        "card_type": "card type",
+        "failed_references": 1,
+        "from_status": "from status",
+        "page_id": "page id",
+        "payload_schema_version": 1,
+        "references": 1,
+        "successful_references": 1,
+        "text": "Renderer event detail",
+        "to_status": "to status",
+        "ts": 1700000101,
+        "type": "wiki.promotion.demoted"
+      },
+      "id": "wiki.promotion.demoted"
+    },
+    {
+      "event": {
+        "bytes_after": 1,
+        "bytes_before": 1,
+        "bytes_saved": 1,
+        "count": 1,
+        "keep_hot": 1,
+        "paths": [
+          "path"
+        ],
+        "payload_schema_version": 1,
+        "text": "Renderer event detail",
+        "truncated": true,
+        "ts": 1700000102,
+        "type": "wiki.retired.compressed"
+      },
+      "id": "wiki.retired.compressed"
+    },
+    {
+      "event": {
+        "compacted": 1,
+        "compaction_clusters": 1,
+        "created": 1,
+        "demoted": 1,
+        "errors": 1,
+        "ops_proposed": 1,
+        "paths": [
+          "path"
+        ],
+        "payload_schema_version": 1,
+        "promoted": 1,
+        "rejected": 1,
+        "retired": 1,
+        "retired_bytes_saved": 1,
+        "retired_compressed": 1,
+        "scratch_pages": 1,
+        "skipped": 1,
+        "sources": 1,
+        "text": "Renderer event detail",
+        "ts": 1700000103,
+        "type": "wiki.evolution.completed",
+        "updated": 1,
+        "wiki_count": 1
+      },
+      "id": "wiki.evolution.completed"
+    },
+    {
+      "event": {
+        "operator_alert": true,
+        "payload_schema_version": 1,
+        "reason": "the current operation needs attention",
+        "text": "Renderer event detail",
+        "ts": 1700000104,
+        "type": "operator_alert"
+      },
+      "id": "operator_alert"
+    },
+    {
+      "event": {
+        "agent_layer": "planner",
+        "kind": "reasoning",
+        "text": "Compare the new semantic output with both current surfaces.",
+        "type": "engineer.progress"
+      },
+      "id": "engineer.progress.reasoning"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "kind": "agent_message",
+        "text": "using token ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "type": "engineer.progress"
+      },
+      "id": "engineer.progress.secret-redaction"
+    },
+    {
+      "event": {
+        "agent_layer": "engineer",
+        "kind": "agent_message",
+        "text": "Artifact complete.\nNEXT_OWNER=reviewer\nOPERATOR_QUESTION=none",
+        "type": "engineer.progress"
+      },
+      "id": "engineer.progress.handoff-fields"
+    },
+    {
+      "event": {
+        "action_summary": "run tests",
+        "agent_layer": "engineer",
+        "kind": "command_execution",
+        "status": "failed",
+        "text": "npm test",
+        "type": "engineer.progress"
+      },
+      "id": "engineer.progress.failed-command"
+    },
+    {
+      "event": {
+        "objective": "Repeat certification review",
+        "reason": "the current manuscript already has a completed independent review",
+        "skip_category": "paper_review_purchase_deferred",
+        "title": "Purchase another paper review",
+        "type": "life.planner.task_skipped"
+      },
+      "id": "life.planner.task_skipped.review-purchase-deferred"
+    },
+    {
+      "event": {
+        "cycle": 2,
+        "reason": "subagent state waiting_resource is a healthy resource wait",
+        "type": "life.planner.waiting",
+        "waiting_contract": {
+          "observed_revision": "waiting_resource",
+          "recheck_condition": "state leaves waiting_resource",
+          "wait_id": "subagent-1",
+          "wait_mode": "event",
+          "wake_on": [
+            "subagent_state"
+          ]
+        }
+      },
+      "id": "life.planner.waiting.waiting-resource"
+    }
+  ],
+  "schema_version": 1
+}

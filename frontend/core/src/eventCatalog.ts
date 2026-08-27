@@ -51,6 +51,7 @@ export const EVENT_TYPES = {
   LIFE_REVIEWER_BACKEND_RESOLVED: 'life.reviewer.backend_resolved',
   LIFE_CURATOR_BACKEND_RESOLVED: 'life.curator.backend_resolved',
   LIFE_PLANNER_START: 'life.planner.start',
+  LIFE_PLANNER_NORMALIZED: 'life.planner.normalized',
   LIFE_PLANNER_TASK_ADDED: 'life.planner.task_added',
   LIFE_PLANNER_TASK_SKIPPED: 'life.planner.task_skipped',
   LIFE_PLANNER_VERDICT: 'life.planner.verdict',
