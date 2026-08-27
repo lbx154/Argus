@@ -251,7 +251,7 @@ def test_bounded_manager_direct_task_skips_planner_decomposition(
     assert pending[0].objective == objective
     assert "manager_direct" in pending[0].tags
     assert "stage_closing" in pending[0].tags
-    assert "review:required" not in pending[0].tags
+    assert "review:required" in pending[0].tags
     assert planner.calls == []
 
 

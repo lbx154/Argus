@@ -487,7 +487,10 @@ def test_continuous_dispatch_persists_operator_priority_item(memory):
     assert item.priority == -1
     assert "operator_priority" in item.tags
     assert "stage_transition:skip" in item.tags
-    assert item.manager_decision == {"routed": True}
+    assert item.manager_decision == {
+        "require_independent_review": True,
+        "routed": True,
+    }
     assert payload["enabled"] is True
     assert payload["objective"] == "managed: operator request"
     assert payload["open_ended"] is True

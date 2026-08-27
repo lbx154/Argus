@@ -367,7 +367,7 @@ class SkillLoopExecuteMixin:
         context_packet_path: str = "",
         max_rounds_override: int | None = None,
         workflow_mode_override: str = "",
-        require_independent_review: bool = False,
+        require_independent_review: bool = True,
         skip_stage_transition: bool = False,
         stage_closing: bool = False,
         holds_stage_authority: bool = True,
@@ -529,7 +529,7 @@ class SkillLoopExecuteMixin:
                 else _independent_review_required_for_project_root(_proot)
             )
         )
-        if not effective_require_independent_review and not maintenance_mission:
+        if not effective_require_independent_review:
             # Bug #42: 14 consecutive missions closed on the Engineer's own
             # say-so and the only trace of it was a reason string inside each
             # review record. Dropping the Reviewer is a policy decision; say so
@@ -538,9 +538,15 @@ class SkillLoopExecuteMixin:
             # source root whose math vertical predated the review requirement.
             from ..skills.stage_machine import framework_source_root
 
+            waiver_reason = (
+                "framework maintenance mission"
+                if maintenance_mission
+                else "explicit mission configuration with no stricter vertical policy"
+            )
             log.warning(
-                "independent review NOT required for this mission: "
+                "independent review waived: %s; "
                 "project_root=%s vertical=%s framework=%s",
+                waiver_reason,
                 _proot,
                 active_vertical or "<persisted>",
                 framework_source_root(),

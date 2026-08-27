@@ -126,7 +126,7 @@ class TaskSpec:
     deps: list[str] = field(default_factory=list)
     authorization_id: str = ""
     authorization_action: str = ""
-    require_independent_review: bool = False
+    require_independent_review: bool = True
     skip_stage_transition: bool = False
     # Host-authored recovery work after a Manager HOLD or approved revision.
     # This bypasses certification-churn suppression because the task includes
@@ -877,7 +877,7 @@ def parse_planner_payload(payload: Mapping[str, Any]) -> PlannerVerdict:
     def review_boolean(source: Mapping[str, Any], name: str) -> bool:
         # Mirrors the bounded-DAG validation contract: a structured boolean or
         # the literal strings "true"/"false"; anything else is a metadata error.
-        value = source.get(name, False)
+        value = source.get(name, True)
         if isinstance(value, bool):
             return value
         if str(value).strip().casefold() in {"true", "false"}:
@@ -1226,7 +1226,8 @@ def _planner_verdict_from_fields(
                     row.get("TASK_PARALLEL_SAFE", "")
                 ),
                 require_independent_review=_key_value_bool(
-                    row.get("TASK_REQUIRE_INDEPENDENT_REVIEW", "")
+                    row.get("TASK_REQUIRE_INDEPENDENT_REVIEW", ""),
+                    default=True,
                 ),
                 owns_paths=[
                     path.strip()

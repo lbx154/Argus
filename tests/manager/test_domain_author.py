@@ -128,7 +128,8 @@ def test_vertical_prompt_does_not_escalate_bounded_repo_fix_to_new_domain() -> N
 
     assert "capability VERTICAL" in prompt
     assert "WORKFLOW_MODE=direct" in prompt
-    assert "REQUIRE_INDEPENDENT_REVIEW=false" in prompt
+    assert "REQUIRE_INDEPENDENT_REVIEW=true" in prompt
+    assert "independent review on by default" in prompt
     assert "software" in prompt
 
 

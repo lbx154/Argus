@@ -443,7 +443,7 @@ class VerticalDecision:
     # Empty means "not explicitly selected"; venue discovery remains a separate
     # bounded research operation rather than a keyword guess in the harness.
     target_venue: str = ""
-    require_independent_review: bool = False
+    require_independent_review: bool = True
     # Requirements the operator actually stated, split by how they can be
     # checked. `precise_constraints` are mechanically checkable things the
     # operator chose (a number, a baseline, a budget) and are recorded verbatim;
@@ -478,7 +478,7 @@ class FastVerticalRoute:
     research_target_level: str = ""
     research_direction_mode: str = ""
     target_venue: str = ""
-    require_independent_review: bool = False
+    require_independent_review: bool = True
 
 
 def parse_fast_vertical_decision(
@@ -581,7 +581,7 @@ def parse_fast_vertical_decision(
         research_direction_mode=direction_mode,
         target_venue=target_venue,
         require_independent_review=(
-            obj.get("require_independent_review") is True
+            obj.get("require_independent_review", True) is not False
         ),
     )
 
@@ -762,7 +762,7 @@ def parse_vertical_decision(
                 research_direction_mode=direction_mode,
                 target_venue=target_venue,
                 require_independent_review=(
-                    obj.get("require_independent_review") is True
+                    obj.get("require_independent_review", True) is not False
                 ),
                 precise_constraints=stated,
                 exclusions=exclusions,
@@ -793,7 +793,7 @@ def parse_vertical_decision(
             live_view_decided=live_view_decided,
             execution_task=execution_task,
             require_independent_review=(
-                obj.get("require_independent_review") is True
+                obj.get("require_independent_review", True) is not False
             ),
             precise_constraints=stated,
             exclusions=exclusions,

@@ -224,6 +224,36 @@ def test_execute_config_loads_custom_vertical_from_session_state(
     assert "## Reviewer role" in prompt
 
 
+def test_explicit_review_waiver_emits_a_visible_reason(tmp_path, caplog) -> None:
+    from argus_skill.apps._runtime_helpers import _ExecuteState
+    from argus_skill.loop import SkillLoopConfig
+
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    runner = _make_runner(_FakeBackend())
+    runner._artifact_root = tmp_path / "life"
+    runner._role_memory_maintenance_enabled = True
+    runner._args.project_state_dir = str(runner._artifact_root)
+    runner._args.workdir = str(workdir)
+    runner._SkillLoopConfig = SkillLoopConfig
+
+    state = _ExecuteState()
+    with caplog.at_level("WARNING", logger="argus_skill.apps._runtime_execute"):
+        runner._build_execute_config(
+            state,
+            working_dir_override=str(workdir),
+            maintenance_mission=True,
+            vertical_override="",
+            require_independent_review=False,
+            max_rounds_override=1,
+            context_packet_path="",
+            mission_id="maintenance-waiver",
+            workflow_mode_override="direct",
+        )
+
+    assert "independent review waived: framework maintenance mission" in caplog.text
+
+
 # ---------- Manager SELF fast-path: runner unit tests ----------------------
 
 def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> None:

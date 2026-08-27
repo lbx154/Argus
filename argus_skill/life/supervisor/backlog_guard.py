@@ -59,7 +59,7 @@ def decision_evidence(decision: Any) -> dict[str, Any]:
         for name in fields
     }
     evidence = {name: value for name, value in evidence.items() if value}
-    if bool(getattr(decision, "require_independent_review", False)):
+    if bool(getattr(decision, "require_independent_review", True)):
         evidence["require_independent_review"] = True
     if evidence:
         evidence["routed"] = True

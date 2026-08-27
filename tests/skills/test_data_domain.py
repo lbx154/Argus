@@ -164,7 +164,7 @@ def test_candidate_becomes_reusable_after_first_verified_success(tmp_path):
 
     formal = dd.load_data_domain("hardware_audit", project)
     assert formal.status == "formal"
-    assert formal.REQUIRE_INDEPENDENT_REVIEW is False
+    assert formal.REQUIRE_INDEPENDENT_REVIEW is True
     assert dd.list_formal_data_domain_purposes(
         tmp_path / "another-project",
         learned_root=learned,
@@ -192,7 +192,7 @@ def test_candidate_becomes_reusable_after_first_verified_success(tmp_path):
     assert dd.load_data_domain(
         "hardware_audit",
         another,
-    ).REQUIRE_INDEPENDENT_REVIEW is False
+    ).REQUIRE_INDEPENDENT_REVIEW is True
 
 
 def test_role_specific_banners_with_default_and_legacy_fallback(tmp_path):
@@ -208,6 +208,7 @@ def test_role_specific_banners_with_default_and_legacy_fallback(tmp_path):
     )
     domain = dd.load_data_domain("role_aware", tmp_path)
     assert domain is not None
+    assert domain.REQUIRE_INDEPENDENT_REVIEW is True
     assert domain.role_banner("manager") == "manager contract"
     assert domain.role_banner(" ENGINEER ") == "engineer contract"
     assert domain.role_banner("reviewer") == "shared fallback"

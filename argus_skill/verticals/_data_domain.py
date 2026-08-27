@@ -139,7 +139,7 @@ class DataDomain:
         self.completion_gate = gate or DEFAULT_COMPLETION_GATE
         self._role_banner = str(payload.get("role_banner") or "")
         self.REQUIRE_INDEPENDENT_REVIEW = bool(
-            payload.get("require_independent_review", False)
+            payload.get("require_independent_review", True)
         )
         self.ROLE_BANNERS = _normalize_role_banners(payload.get("role_banners"))
 
@@ -406,7 +406,7 @@ def write_data_domain(
     created_by: str = "manager",
     status: str = "formal",
     purpose: str = "",
-    require_independent_review: bool = False,
+    require_independent_review: bool = True,
     overwrite: bool = False,
 ) -> Path:
     """Persist a new data domain (create-only by default) and update the INDEX.
@@ -542,7 +542,6 @@ def promote_data_domain(
     from datetime import datetime, timezone
 
     payload["status"] = "formal"
-    payload["require_independent_review"] = False
     payload["verified_at"] = datetime.now(timezone.utc).isoformat()
     payload["review_reason"] = str(review_reason or "").strip()[:1000]
     _atomic_write_json(_learned_domain_path(learned_root, name), payload)
