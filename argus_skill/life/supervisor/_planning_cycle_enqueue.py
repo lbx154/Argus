@@ -798,6 +798,33 @@ class PlanningCycleEnqueueMixin:
                 task_vertical=str(getattr(task, "vertical", "") or ""),
             )
             task_tags = self._planner_task_tags(task)
+            task_context_refs = list(getattr(task, "context_refs", []) or [])
+            if manager_decision.get("vertical") == "argus_maintenance":
+                task_tags.append("framework_maintenance")
+                if "review:waived" in task_tags:
+                    task_tags.remove("review:waived")
+                if "review:required" not in task_tags:
+                    task_tags.append("review:required")
+                evidence_reason = str(
+                    getattr(task, "evidence", "")
+                    or getattr(task, "hypothesis", "")
+                    or task.objective
+                ).strip()
+                memory_root = Path(
+                    getattr(getattr(self, "memory", None), "root", state_root)
+                )
+                task_context_refs.append({
+                    "ref": str(memory_root / "events.jsonl"),
+                    "kind": "runtime evidence",
+                    "why": evidence_reason,
+                })
+                operator_context = Path(state_root) / "operator_context.jsonl"
+                if operator_context.is_file():
+                    task_context_refs.append({
+                        "ref": str(operator_context),
+                        "kind": "operator steering",
+                        "why": evidence_reason,
+                    })
             from ...verticals._data_domain import list_formal_data_domain_purposes
 
             formal_domains = list_formal_data_domain_purposes(
@@ -833,7 +860,7 @@ class PlanningCycleEnqueueMixin:
                 plan_id=state.new_plan_id,
                 plan_version=state.new_plan_version,
                 node_key=str(getattr(task, "key", "") or item_id),
-                context_refs=list(getattr(task, "context_refs", []) or []),
+                context_refs=task_context_refs,
                 blocker_fingerprint=str(
                     getattr(task, "blocker_fingerprint", "") or ""
                 ),

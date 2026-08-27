@@ -114,6 +114,12 @@ def test_planner_delegates_to_engineer_and_continues_after_one_increment(
     assert [item.title for item in pending] == ["Deduplicate Manager reply rows"]
     assert pending[0].manager_decision["vertical"] == "argus_maintenance"
     assert pending[0].manager_decision["route_source"] == "planner"
+    assert "framework_maintenance" in pending[0].tags
+    assert pending[0].context_refs == [{
+        "ref": str(supervisor.memory.root / "events.jsonl"),
+        "kind": "runtime evidence",
+        "why": "Identity drift causes duplicate Manager reply rows.",
+    }]
 
     assert len(planner.calls) == 3
     assert all(call["options"].sandbox_mode == "read-only" for call in planner.calls)

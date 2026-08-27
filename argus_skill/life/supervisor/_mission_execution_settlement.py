@@ -10,7 +10,9 @@ plus the ``_run_one`` return dict.
 
 from __future__ import annotations
 
+import json
 import logging
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -724,12 +726,119 @@ class MissionExecutionSettlementMixin:
                 outcome.operator_question = ""
                 outcome.operator_options = []
 
+        maintenance_reviewed = bool(
+            "framework_maintenance" in state.item_tags
+            and success
+            and not iteration_requeued
+            and final_review_status.strip().lower() == "done"
+            and str(
+                getattr(outcome, "final_review_source", "") or ""
+            ).strip().lower() == "reviewer"
+        )
+        maintenance_input_digest = ""
+        if maintenance_reviewed:
+            try:
+                maintenance_input_digest = self._freeze_reviewed_maintenance_change(
+                    state
+                )
+            except (OSError, KeyError, ValueError, subprocess.CalledProcessError) as exc:
+                maintenance_reviewed = False
+                success = False
+                status = "error"
+                resumable = False
+                err = f"maintenance change could not be frozen: {exc}"
+                state.stop_reason = err
+                outcome_dimensions = mission_outcome_dimensions(
+                    status=status,
+                    success=False,
+                    review_status=final_review_status,
+                    stage_transition=stage_transition,
+                    stop_kind=state.stop_kind,
+                    resumable=False,
+                )
+
         # Update backlog row. A bounded research cycle that did not achieve its
         # persisted success target is resumable, not a success or terminal failure.
         if success and iteration_requeued:
             # ``requeue_for_iteration`` already performed the only backlog
             # transition allowed here: running -> pending on the same item.
             pass
+        elif maintenance_reviewed:
+            from ...core.operator_decision import build_operator_decision
+
+            status = "paused_operator"
+            resumable = True
+            operator_question = (
+                f"Reviewer accepted the isolated change for {item.title!r}. "
+                f"Run repository CI and {item.acceptance_check!r}, then adopt it?"
+            )
+            decision_card = build_operator_decision(
+                item_id=item.id,
+                title=f"Adopt reviewed change: {item.title}",
+                reason=str(
+                    getattr(outcome, "final_review_reason", "")
+                    or "Reviewer accepted the maintenance change."
+                ),
+                question=operator_question,
+                options=[
+                    {
+                        "id": "adopt",
+                        "label": "Adopt reviewed change",
+                        "description": (
+                            "Run the bounded deployment checks and publish the "
+                            "reviewed change."
+                        ),
+                    },
+                    {
+                        "id": "decline",
+                        "label": "Decline deployment",
+                        "description": (
+                            "Keep the current runtime and discard the reviewed change."
+                        ),
+                    },
+                ],
+                evidence=list(item.context_refs),
+                project_id=self.memory.root.name,
+            )
+            decision_card["decision_kind"] = "framework_deployment"
+            from ._mission_execution_runtime import _maintenance_sidecar_path
+
+            sidecar = _maintenance_sidecar_path(self.memory.root, item.id)
+            metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+            metadata["approval_binding"] = {
+                "input_digest": maintenance_input_digest,
+            }
+            sidecar.write_text(
+                json.dumps(metadata, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            outcome_dimensions = mission_outcome_dimensions(
+                status=status,
+                success=True,
+                review_status=final_review_status,
+                stage_transition=stage_transition,
+                stop_kind=state.stop_kind,
+                resumable=True,
+            )
+            self.memory.backlog.update(
+                item.id,
+                status=status,
+                finished_ts=time.time(),
+                last_error="",
+                outcome=outcome_dimensions,
+                pending_question=operator_question,
+                operator_decision=decision_card,
+            )
+            item.pending_question = operator_question
+            item.operator_decision = decision_card
+            notify_pending_question(self.memory.root, item)
+            self._emit({
+                "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
+                "item_id": item.id,
+                "title": item.title,
+                "question": operator_question,
+                "agent_layer": "manager",
+            })
         elif success:
             self.memory.backlog.mark_done(item.id, outcome=outcome_dimensions)
             if "runtime_failure_canary" in state.item_tags:
@@ -994,6 +1103,7 @@ class MissionExecutionSettlementMixin:
             remaining_work = True
         overall_complete = bool(
             success
+            and status != "paused_operator"
             and state.iteration is None
             and (
                 final_submission_certified

@@ -46,39 +46,38 @@ _BOUNDED_DAG_FOOTER = decision_footer_instruction(
 
 _PLANNER_CORE_CONTRACT = """
 ## Planner read-only delegation contract
-Read the current state, then choose the next useful milestone. Do not implement it;
-delegate implementation to Engineer. Do not edit project files; Engineer owns edits,
-commands, tests, and iteration.
+Read state, choose work, and delegate implementation to Engineer.
+Do not edit project files; Engineer owns edits, commands, tests, iteration.
 
-- Reuse Manager/completed decisions. Give Engineer a self-contained task with its
-  decision, inputs, check; split only for dependencies or independent work.
-- Add machinery only when evidence requires it; scale of evidence is not machinery.
+- Reuse Manager/completed decisions; give Engineer one task with its decision,
+  inputs, and check. Split only for dependencies/parallel work.
+- Cited `life.planner.error`/`life.manager.intent.failed`, review-churn receipts, or
+  corrective OperatorContext may yield `TASK_VERTICAL=argus_maintenance`. Require
+  a harness hypothesis, executable acceptance, non-goals, isolated Engineer→Reviewer,
+  no counters/detectors/audits/make-work, and Reviewer `done` plus operator approval
+  before deployment.
 - Follow the operator's requested actions and order. Existing artifacts or a usable
-  alternative do not replace the first unmet requested action. Do not invent cleanup,
-  docs, provenance, or rechecks.
+  alternative do not replace the first unmet requested action. Do not invent
+  cleanup/docs/rechecks.
   Optional hardening never keeps a finite objective alive after the requested result passes.
-- For an external algorithm, check primary-source grounding. Wiki/Skills are
+- Check primary-source grounding for external algorithms. Wiki/Skills are
   starting context, not a boundary; use fresh paper/source/issue/hardware investigation
-  only when decision-relevant. When related attempts repeatedly fail, revisit primary
-  papers and official implementations. Performance claims need code-path evidence and
+  when decision-relevant. When related attempts repeatedly fail, revisit primary papers
+  and official implementations. Performance claims need code-path evidence and
   timing/profiling or a controlled comparison.
 - Set `project_done=true` only when the operator goal is complete. Bounded-direct
   Reviewer `done` closes it; review again only if requested or the verdict finds a gap.
   Integrity and reproducibility are admission constraints, not a routing command.
   Never emit a bare launch verdict; say what happened and the next action or Host rejects it.
-- End with `PROJECT_DONE` and `REASON`; repeat one `TASK_*` block per task.
-  `ADVANCE_TO_STAGE` is optional (omit to hold); any value must be Host-valid.
-  Tasks require `TASK_TITLE`/`TASK_OBJECTIVE`;
-  `TASK_SCOPE` is optional (default `bounded`). Use `TASK_KEY`/`TASK_DEPS` only
-  for dependencies. Feedback work adds
-  `TASK_HYPOTHESIS`, `TASK_GOAL_CONTRIBUTION`,
-  `TASK_EXPECTED_REGRESSIONS`, `TASK_DECISION_RULE`; optional:
-  `TASK_ACCEPTANCE_CHECK`, `TASK_PARALLEL_SAFE`, `TASK_OWNS_PATHS`,
+- End with `PROJECT_DONE`/`REASON`; each task needs `TASK_TITLE`/`TASK_OBJECTIVE`.
+  `ADVANCE_TO_STAGE` is optional (omit to hold) and Host-valid; `TASK_SCOPE` is
+  optional (default `bounded`). Other fields: `TASK_KEY`/`TASK_DEPS`, `TASK_HYPOTHESIS`,
+  `TASK_GOAL_CONTRIBUTION`, `TASK_EXPECTED_REGRESSIONS`, `TASK_DECISION_RULE`,
+  `TASK_ACCEPTANCE_CHECK`, `TASK_PARALLEL_SAFE`, `TASK_OWNS_PATHS`, and
   `TASK_VERTICAL`.
-- External waits give `blocker_fingerprint`, `recheck_condition`, `recheck_token`;
-  set `operator_action_required` only for the operator. Describe `wake_on`
-  semantically; synonyms/combined sources are accepted. Include `watched_paths`
-  for artifact wakes. Host chooses an observable event or bounded poll.
+- External waits: `blocker_fingerprint`, `recheck_condition`, `recheck_token`, semantically
+  `wake_on` (synonyms/combined sources), and `watched_paths`; `operator_action_required`
+  is operator-only. Host chooses an event or bounded poll.
 - Use the operator's language.
 """ + _PLANNER_DECISION_FOOTER + """
 

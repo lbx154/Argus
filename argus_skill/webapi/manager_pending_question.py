@@ -203,6 +203,10 @@ def _resolved_decision_replay(
 ) -> dict[str, Any] | None:
     """Return an idempotent result for the exact choice already on disk."""
     card = item.operator_decision
+    if str(card.get("id") or "") != decision_id:
+        if decision_id in card.get("superseded_decision_ids", ()):
+            return _decision_stale("decision was replaced by a newer question")
+        return None
     if str(card.get("status") or "") != "resolved":
         return None
     same_request = (
@@ -212,6 +216,17 @@ def _resolved_decision_replay(
     )
     if not same_request:
         return _decision_stale("another choice was already applied")
+    if card.get("decision_kind") == "framework_deployment":
+        return {
+            "answered_item_id": item.id,
+            "decision_id": decision_id,
+            "resolved": True,
+            "application_status": "already_applied",
+            "resolution_id": str(card.get("resolution_id") or ""),
+            "resume_requested": False,
+            "reply": str(card.get("reply") or ""),
+            "deployment": dict(card.get("deployment") or {}),
+        }
     continuation_id = str(card.get("continuation_item_id") or "").strip()
     continuation = next(
         (row for row in mem.backlog.history() if row.id == continuation_id),
@@ -278,6 +293,197 @@ def _reconcile_campaign_after_decision(
     return False, ""
 
 
+def _apply_framework_deployment_decision(
+    mem: Any,
+    item: Any,
+    *,
+    option_id: str,
+    decision_id: str,
+    note: str,
+) -> dict[str, Any]:
+    """Resolve a reviewed maintenance card without creating another mission."""
+    from ..life.event_log import JsonlEventSink
+    from ..life.supervisor._mission_execution_runtime import (
+        dispose_maintenance_worktree,
+    )
+
+    card = dict(item.operator_decision)
+    revision = int(card.get("revision", 1) or 1)
+    card.update({
+        "status": "resolved",
+        "selected_option": option_id,
+        "note": note.strip(),
+        "resolved_from_revision": revision,
+        "revision": revision + 1,
+        "continuation_item_id": "",
+        "resume_requested": False,
+        "resolution_id": f"{card.get('id', decision_id)}:r{revision}",
+    })
+    if option_id == "decline":
+        reply = "The reviewed change was declined. The current runtime is unchanged."
+        deployment = {"verdict": "DECLINED"}
+        status = "aborted"
+        last_error = "operator declined the reviewed framework change"
+    else:
+        sidecar = (
+            Path(mem.project_root)
+            / "maintenance"
+            / "pending"
+            / f"{item.id}.json"
+        )
+        metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+        approval_binding = metadata["approval_binding"]
+        from ..maintenance.deploy_boundary import (
+            ReviewedChange,
+            approve_reviewed_change,
+            deploy_reviewed_change,
+        )
+
+        change = ReviewedChange(
+            repository=Path(metadata["repository"]),
+            public_base=str(metadata["public_base"]),
+            reviewed_candidate=str(metadata["reviewed_candidate"]),
+            reviewer_verdict=str(metadata["reviewer_verdict"]),
+            acceptance_command=tuple(metadata["acceptance_command"]),
+            evidence_refs=tuple(metadata["evidence_refs"]),
+            mission_id=str(metadata["mission_id"]),
+            receipt_dir=Path(metadata["receipt_dir"]),
+            origin_remote=str(metadata["origin_remote"]),
+            private_remote=str(metadata["private_remote"]),
+        )
+        approval = approve_reviewed_change(
+            change,
+            {**card, "input_digest": str(approval_binding["input_digest"])},
+        )
+        receipt = deploy_reviewed_change(change, approval)
+        deployment = {
+            "verdict": str(receipt["verdict"]),
+            "baseline_failure_count": len(receipt["baseline_failures"]),
+            "candidate_failure_count": len(receipt["candidate_failures"]),
+            "acceptance_passed": bool(receipt["acceptance_passed"]),
+            "release_matches_source": bool(receipt["release_matches_source"]),
+            "both_publication_routes_complete": bool(
+                receipt["both_publication_routes_complete"]
+            ),
+            "partial_publication": bool(receipt["partial_publication"]),
+            "daemon_roll_permitted": bool(receipt["daemon_roll_permitted"]),
+        }
+        if deployment["verdict"] == "ADOPT":
+            from ..daemon.handoff import request_deployment_handoff
+
+            request_deployment_handoff(
+                change.receipt_dir,
+                Path(receipt["runtime_source_root"]),
+            )
+            reply = (
+                "The reviewed change passed its checks and both publication "
+                "routes completed. The daemon will adopt it at a mission boundary."
+            )
+            status = "done"
+            last_error = ""
+        elif deployment["partial_publication"]:
+            reply = (
+                "Deployment stopped after partial publication. The daemon was not "
+                "changed; a fresh deployment run must finish the same reviewed change."
+            )
+            status = "paused_operator"
+            last_error = "reviewed framework change was only partially published"
+        else:
+            reply = (
+                "Deployment rejected the reviewed change. The current runtime and "
+                "public main remain unchanged."
+            )
+            status = "failed"
+            last_error = "reviewed framework deployment was rejected"
+
+    resolution_id = card["resolution_id"]
+    card["reply"] = reply
+    card["deployment"] = deployment
+    pending_question = ""
+    stored_card = card
+    if deployment.get("partial_publication"):
+        pending_question = (
+            "A publication route remains incomplete. Run a fresh bounded "
+            "deployment for the same reviewed change?"
+        )
+        stored_card = dict(card)
+        for key in (
+            "continuation_item_id",
+            "deployment",
+            "reply",
+            "resolved_from_revision",
+            "resolution_id",
+            "resume_requested",
+        ):
+            stored_card.pop(key, None)
+        stored_card.update({
+            "id": f"decision-{item.id}-deployment-{revision + 1}",
+            "status": "pending",
+            "revision": revision + 1,
+            "options": [
+                option
+                for option in card.get("options", ())
+                if option.get("id") == "adopt"
+            ],
+            "superseded_decision_ids": [
+                *card.get("superseded_decision_ids", ()),
+                str(card.get("id") or decision_id),
+            ],
+            "question": pending_question,
+            "reason": (
+                "The reviewed change reached only part of its publication route."
+            ),
+            "selected_option": "",
+            "note": "",
+        })
+    mem.backlog.update(
+        item.id,
+        status=status,
+        finished_ts=time.time(),
+        last_error=last_error,
+        pending_question=pending_question,
+        operator_decision=stored_card,
+    )
+    dispose_maintenance_worktree(
+        mem.project_root,
+        item.id,
+        keep_sidecar=bool(deployment.get("partial_publication")),
+    )
+    JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
+        "type": "life.operator_question.answered",
+        "item_id": item.id,
+        "continuation_item_id": "",
+        "question": str(item.pending_question or ""),
+        "manager_decision": option_id,
+        "decision_id": decision_id,
+        "decision_revision": revision,
+        "deployment": deployment,
+    })
+    if pending_question:
+        from ..life.supervisor.pending_notify import notify_pending_question
+
+        item.pending_question = pending_question
+        item.operator_decision = stored_card
+        notify_pending_question(mem.project_root, item)
+        JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
+            "type": "life.operator_question.pending",
+            "item_id": item.id,
+            "title": item.title,
+            "question": pending_question,
+            "agent_layer": "manager",
+        })
+    return {
+        "answered_item_id": item.id,
+        "decision_id": decision_id,
+        "resolved": True,
+        "application_status": "accepted",
+        "resolution_id": resolution_id,
+        "resume_requested": False,
+        "reply": reply,
+        "deployment": deployment,
+    }
+
+
 def _apply_operator_answer(
     mem: Any,
     item: Any,
@@ -291,6 +497,28 @@ def _apply_operator_answer(
     operator_context_persisted: bool = False,
 ) -> dict[str, Any]:
     """Persist an explicit operator answer and enqueue its continuation."""
+    if item.operator_decision.get("decision_kind") == "framework_deployment":
+        option_id = decision_option.strip().lower()
+        if option_id == "custom":
+            option_id = answer.strip().lower()
+        available_options = {
+            str(option.get("id") or "")
+            for option in item.operator_decision.get("options", ())
+            if isinstance(option, dict)
+        }
+        if option_id not in available_options:
+            return {
+                "error": "choose an available deployment option",
+                "answered_item_id": item.id,
+            }
+        return _apply_framework_deployment_decision(
+            mem,
+            item,
+            option_id=option_id,
+            decision_id=(decision_id or str(item.operator_decision.get("id") or "")),
+            note=decision_note,
+        )
+
     from ..apps._inbox import queue_inbox_message
     from ..core.event_catalog import EventType
     from ..life.event_log import JsonlEventSink
@@ -618,7 +846,11 @@ def manager_resolve_operator_decision(
             (
                 row
                 for row in mem.backlog.history()
-                if str(row.operator_decision.get("id") or "") == decision_id
+                if (
+                    str(row.operator_decision.get("id") or "") == decision_id
+                    or decision_id
+                    in row.operator_decision.get("superseded_decision_ids", ())
+                )
             ),
             None,
         )
@@ -653,6 +885,11 @@ def manager_resolve_operator_decision(
             conflict["decision_id"] = decision_id
             conflict["answered_item_id"] = item.id
             return conflict
+        if (
+            card.get("decision_kind") == "framework_deployment"
+            and option_id not in {"adopt", "decline"}
+        ):
+            return {"error": "choose Adopt reviewed change or Decline deployment"}
         if option_id == "stop":
             try:
                 operator_text = selected_decision_text(card, option_id, note)

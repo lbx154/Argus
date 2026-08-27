@@ -126,16 +126,10 @@ decomposition, Engineer local iteration, Reviewer independent judgement.
 
 ### 7. Make daemon self-maintenance an ordinary mission
 
-`ARGUS_SKILL_SELF_MAINTENANCE` defaults to `"1"`
-(`daemon/_life_worker_run.py:46`), enabling a 3,186-line worktree/canary/
-publication subsystem. Argus changes can be ordinary engineering missions under
-the normal Engineer/Reviewer loop.
-
-Run with it disabled first. **This is the largest deletion by line count and the
-smallest by behavioural improvement** — do it after step 5, not before.
-
-**Risk:** loses unattended framework self-updating. That is a real capability;
-decide deliberately.
+Argus changes are ordinary engineering missions under the normal
+Engineer/Reviewer loop. Autonomous discovery and repair remain; reviewed changes
+cross one operator-approved deployment boundary instead of a resident promotion
+daemon.
 
 ### 8. Only then purge defensive handlers and spin loops
 

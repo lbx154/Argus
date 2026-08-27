@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from argus_skill.core import runtime_identity as runtime_identity_module
+from argus_skill.maintenance import deploy_boundary
+from argus_skill.maintenance.deploy_boundary import (
+    ReviewedChange,
+    approve_reviewed_change,
+    deploy_reviewed_change,
+    deployment_input_digest,
+)
 from argus_skill.release import (
     MANIFEST_SCHEMA_VERSION,
     _source_files,
@@ -168,3 +177,236 @@ def test_release_preflight_is_permissive_unless_enabled(monkeypatch) -> None:
     )
 
     assert runtime_identity_module.release_match_preflight_error() == ""
+
+
+def _deployment_repo(root: Path) -> tuple[Path, Path, Path, str, str]:
+    public = root / "public.git"
+    private = root / "private.git"
+    repo = root / "author"
+    for bare in (public, private):
+        subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main", str(repo)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+    (repo / "argus_skill" / "release_tools").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    (repo / "argus_skill" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "argus_skill" / "feature.py").write_text("VALUE = 'old'\n", encoding="utf-8")
+    (repo / "argus_skill" / "release.py").write_text(
+        "def release_identity(root=None):\n"
+        "    return {'release_matches_source': True, 'release_id': 'test-release'}\n",
+        encoding="utf-8",
+    )
+    (repo / "argus_skill" / "release_tools" / "build_release.py").write_text(
+        "from pathlib import Path\n"
+        "Path('argus_skill/release-artifact.txt').write_text('built\\n')\n",
+        encoding="utf-8",
+    )
+    (repo / "tests" / "test_gate.py").write_text(
+        "def test_repository_gate():\n    assert True\n",
+        encoding="utf-8",
+    )
+    (repo / ".gitignore").write_text("__pycache__/\n.pytest_cache/\n", encoding="utf-8")
+    (repo / "pyproject.toml").write_text("[project]\nname='deploy-test'\nversion='1'\n")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "base"], check=True, capture_output=True)
+    base = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", str(public)], check=True)
+    subprocess.run(["git", "-C", str(repo), "remote", "add", "private", str(private)], check=True)
+    for remote in ("origin", "private"):
+        subprocess.run(["git", "-C", str(repo), "push", remote, "main"], check=True, capture_output=True)
+    (repo / "argus_skill" / "feature.py").write_text("VALUE = 'new'\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "commit", "-am", "reviewed fix"], check=True, capture_output=True)
+    candidate = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return repo, public, private, base, candidate
+
+
+def _reviewed_change(
+    repo: Path,
+    base: str,
+    candidate: str,
+    receipts: Path,
+) -> ReviewedChange:
+    return ReviewedChange(
+        repository=repo,
+        public_base=base,
+        reviewed_candidate=candidate,
+        reviewer_verdict="done",
+        acceptance_command=(
+            "python", "-c",
+            "from argus_skill.feature import VALUE; assert VALUE == 'new'",
+        ),
+        evidence_refs=("events.jsonl: observed framework failure",),
+        mission_id="maintenance-mission",
+        receipt_dir=receipts,
+    )
+
+
+def _approval(change: ReviewedChange):
+    return approve_reviewed_change(change, {
+        "id": "decision-maintenance-mission",
+        "input_digest": deployment_input_digest(change),
+        "item_id": change.mission_id,
+        "status": "resolved",
+        "selected_option": "adopt",
+    })
+
+
+def test_deployment_boundary_rejects_regression_mismatch_and_restart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, public, _private, base, candidate = _deployment_repo(tmp_path)
+    change = _reviewed_change(repo, base, candidate, tmp_path / "receipts")
+    loaded = tmp_path / "loaded-runtime"
+    loaded.write_text("still running old release\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="reviewed input"):
+        approve_reviewed_change(change, {
+            "id": "decision-maintenance-mission",
+            "item_id": change.mission_id,
+            "status": "resolved",
+            "selected_option": "adopt",
+        })
+
+    stale_approval = approve_reviewed_change(change, {
+        "id": "decision-maintenance-mission",
+        "input_digest": "stale-reviewed-input",
+        "item_id": change.mission_id,
+        "status": "resolved",
+        "selected_option": "adopt",
+    })
+    stale = deploy_reviewed_change(change, stale_approval)
+    assert stale["verdict"] == "REJECT"
+    assert stale["approval_matches_input"] is False
+    assert stale["failure_stage"] == "approval"
+    assert list((tmp_path / "receipts").glob("deployment-*.json"))
+
+    approval = _approval(change)
+    mismatch = deploy_reviewed_change(
+        replace(change, evidence_refs=("different evidence",)),
+        approval,
+    )
+    assert mismatch["verdict"] == "REJECT"
+    assert deploy_reviewed_change(change, approval)["verdict"] == "REJECT"
+
+    invalid = deploy_reviewed_change(
+        replace(change, public_base="missing"),
+        _approval(change),
+    )
+    assert invalid["baseline_failures"] == []
+    assert invalid["candidate_failures"] == []
+
+    restarted_approval = _approval(change)
+    process = deploy_boundary._PROCESS
+    monkeypatch.setattr(deploy_boundary, "_PROCESS", object())
+    restarted = deploy_reviewed_change(change, restarted_approval)
+    assert restarted["verdict"] == "REJECT"
+    monkeypatch.setattr(deploy_boundary, "_PROCESS", process)
+
+    (repo / "tests" / "test_regression.py").write_text(
+        "def test_new_regression():\n    assert False\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "bad candidate"], check=True, capture_output=True)
+    bad_candidate = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    bad = replace(change, reviewed_candidate=bad_candidate)
+    regression = deploy_reviewed_change(bad, _approval(bad))
+
+    assert regression["verdict"] == "REJECT"
+    assert regression["failure_subset"] is False
+    assert loaded.read_text() == "still running old release\n"
+    public_main = subprocess.run(
+        ["git", "--git-dir", str(public), "rev-parse", "main"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert public_main == base
+
+
+def test_deployment_boundary_publishes_both_routes_before_roll(
+    tmp_path: Path,
+) -> None:
+    repo, public, private, base, candidate = _deployment_repo(tmp_path)
+    change = _reviewed_change(repo, base, candidate, tmp_path / "receipts")
+    update_hook = private / "hooks" / "update"
+    update_hook.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"refs/heads/main\" ]; then\n"
+        "  exit 1\n"
+        "fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    update_hook.chmod(0o755)
+
+    partial = deploy_reviewed_change(change, _approval(change))
+
+    assert partial["verdict"] == "REJECT"
+    assert partial["partial_publication"] is True
+    assert partial["public_sync_published"] is True
+    assert partial["private_sync_published"] is True
+    assert partial["public_main_updated"] is True
+    assert partial["private_main_updated"] is False
+    assert partial["daemon_roll_permitted"] is False
+    assert partial["runtime_source_root"] == ""
+
+    update_hook.unlink()
+    # Date-scoped sync branches from the partial run are absent the next day.
+    for bare, branch in (
+        (public, partial["public_sync_branch"]),
+        (private, partial["private_sync_branch"]),
+    ):
+        subprocess.run(
+            ["git", "--git-dir", str(bare), "update-ref", "-d", f"refs/heads/{branch}"],
+            check=True,
+        )
+    receipt = deploy_reviewed_change(change, _approval(change))
+
+    assert receipt["verdict"] == "ADOPT"
+    assert receipt["release_matches_source"] is True
+    assert receipt["acceptance_reproduced"] is True
+    assert receipt["repository_parity_verified"] is True
+    assert receipt["input_digest"] and receipt["run_digest"]
+    assert receipt["decision_id"] == "decision-maintenance-mission"
+    assert receipt["public_main_updated"] is True
+    assert receipt["public_sync_published"] is True
+    assert receipt["private_sync_published"] is True
+    assert receipt["private_main_updated"] is True
+    assert receipt["both_publication_routes_complete"] is True
+    assert receipt["daemon_roll_permitted"] is True
+    assert Path(receipt["runtime_source_root"]).is_dir()
+    for bare, branch in (
+        (public, receipt["public_sync_branch"]),
+        (private, receipt["private_sync_branch"]),
+    ):
+        main = subprocess.run(
+            ["git", "--git-dir", str(bare), "rev-parse", "main"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        sync = subprocess.run(
+            ["git", "--git-dir", str(bare), "rev-parse", branch],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        assert main == sync
+    assert list((tmp_path / "receipts").glob("deployment-*.json"))

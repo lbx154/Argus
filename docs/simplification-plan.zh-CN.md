@@ -109,14 +109,8 @@ Reviewer 管独立判断。
 
 ### 7. 把 daemon 自维护降格为普通 mission
 
-`ARGUS_SKILL_SELF_MAINTENANCE` 默认为 `"1"`（`daemon/_life_worker_run.py:46`），启用了一个
-3,186 行的 worktree/canary/发布子系统。**对 Argus 自身的修改，完全可以是走正常
-Engineer/Reviewer 回路的普通工程 mission。**
-
-先在关闭它的情况下跑。**这是按行数最大、按行为改善最小的一刀**——放在第 5 步之后做，不要提
-前。
-
-**风险：** 会失去无人值守的框架自更新。那是一项真实能力，请刻意决定。
+对 Argus 自身的修改是走正常 Engineer/Reviewer 回路的普通工程 mission。自治发现与修复继续
+保留；审查通过的变更经一次 operator 批准的部署边界发布，不再由常驻 promotion daemon 推进。
 
 ### 8. 最后才清理防御性处理与空转循环
 

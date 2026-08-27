@@ -38,8 +38,6 @@ _PYTHON_ADMIN_FLAGS = frozenset(
         "--init-model-api",
         "--install-ppt-master",
         "--ppt-master-status",
-        "--approve-publication",
-        "--list-pending-publications",
         "--export-builtin-skills",
         "--evidence-chain-check",
         "--anti-mediocrity-check",

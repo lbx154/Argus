@@ -25,8 +25,8 @@ from ._life_worker_identity import (
     _daemon_objective_requires_stage_reset,
     _legacy_manager_handoff_identity,
     _read_manager_handoff_identity,
-    _refresh_file_backed_objective_for_resume,
     _rearm_operator_drain_for_resume,
+    _refresh_file_backed_objective_for_resume,
     _resume_matches_manager_handoff,
     _write_manager_handoff_identity,
 )
@@ -92,9 +92,6 @@ class LifeWorkerBootMixin:
         self._rf_resolve_continuous_boot_state(rf_state)
         self._rf_manager_divide_on_boot(rf_state)
         self._rf_build_supervisor(rf_state)
-        maintenance_result = self._rf_init_self_maintenance(rf_state)
-        if maintenance_result is not None:
-            return maintenance_result
         self._rf_start_services(rf_state)
         self._rf_main_loop(rf_state)
         return self._rf_shutdown(rf_state)
@@ -705,8 +702,9 @@ class LifeWorkerBootMixin:
             init_continuous=rf_state.init_continuous,
             init_objective=rf_state.init_objective,
             continuous_provider=rf_state.continuous_provider,
-            post_mission_hook=self._post_mission_hook,
+            post_mission_hook=self._deployment_handoff_after_mission,
         )
+        sup_cfg.planner_cycle_gate = self._deployment_handoff_gate
 
         # Lazy proxy: resolve ``LifeSupervisor`` through the facade module's
         # OWN namespace at call time (not this module's), so

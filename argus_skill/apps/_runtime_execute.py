@@ -639,9 +639,7 @@ class SkillLoopExecuteMixin:
         config_kwargs["open_ended"] = bool(getattr(args, "open_ended", False))
         config_kwargs["continuous_objective"] = str(getattr(args, "continuous_objective", "") or "")
         resolved_workflow_mode = (
-            "direct"
-            if maintenance_mission
-            else workflow_mode_override.strip().lower()
+            workflow_mode_override.strip().lower()
             or _workflow_mode_for_project_root(_proot)
             or (active_contract.workflow_mode if active_contract is not None else "")
         )

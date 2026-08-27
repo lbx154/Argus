@@ -60,7 +60,7 @@ def main() -> int:
             print(f"release artifact check failed: {failure}", file=sys.stderr)
         return 1
     manifest = json.loads(_read(MANIFEST))
-    print(f"release artifacts match {manifest['release_id']}")
+    print(f"release artifacts match package {manifest['package_version']}")
     return 0
 
 

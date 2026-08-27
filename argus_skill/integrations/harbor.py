@@ -287,7 +287,6 @@ class ArgusHarborAgent(_HarborCodex):  # type: ignore[misc,valid-type]
                 "ARGUS_SKILL_SPECIAL_PROMPTS_DIR": (
                     state_root / "special-prompts"
                 ).as_posix(),
-                "ARGUS_SKILL_SELF_MAINTENANCE": "0",
                 "ARGUS_SKILL_DAEMON_POLL_S": "0.1",
             }
         )

@@ -90,12 +90,10 @@ function number(value: unknown): number | null {
 }
 
 export function describeApiRuntime(meta: ApiMeta): string {
-  const revision = meta.runtime.revision || 'revision unknown';
-  const source = meta.runtime.source_root || 'source unknown';
   const mismatch = meta.runtime.source_root_matches_config === false
-    ? `; configured source is ${meta.runtime.configured_source_root}`
+    ? '; loaded code differs from the configured installation'
     : '';
-  return `${source} @ ${revision} · release ${meta.runtime.release_id} (pid ${meta.runtime.pid})${mismatch}`;
+  return `Argus backend is running (pid ${meta.runtime.pid})${mismatch}`;
 }
 
 export function inspectApiMeta(
@@ -153,14 +151,14 @@ export function inspectApiMeta(
   if (runtime.source_root_matches_config === false) {
     return {
       compatible: false,
-      reason: `backend loaded source ${String(runtime.source_root)} but ARGUS_SKILL_SOURCE_ROOT points to ${String(runtime.configured_source_root)}`,
+      reason: 'backend is running from a different installation than configured',
       meta,
     };
   }
   if (runtime.release_id !== expected.releaseId) {
     return {
       compatible: false,
-      reason: `backend release ${String(runtime.release_id)} does not match client release ${expected.releaseId}`,
+      reason: 'backend and client installations are out of sync; restart or reinstall Argus',
       meta,
     };
   }
@@ -168,16 +166,14 @@ export function inspectApiMeta(
     if (typeof runtime.runtime_source_digest !== 'string' || !runtime.runtime_source_digest) {
       return {
         compatible: false,
-        reason: 'backend process does not report the source digest required by this local checkout',
+        reason: 'backend cannot verify this local installation; restart it from the current checkout',
         meta,
       };
     }
     if (runtime.runtime_source_digest !== expected.sourceDigest) {
       return {
         compatible: false,
-        reason:
-          `backend process source ${String(runtime.runtime_source_digest).slice(0, 16)}` +
-          ` does not match local source ${expected.sourceDigest.slice(0, 16)}`,
+        reason: 'backend is running code from a different local installation; restart it',
         meta,
       };
     }
@@ -188,7 +184,7 @@ export function inspectApiMeta(
   // snapshot schema, and capabilities above remain the compatibility authority;
   // keep drift visible so operators still know to rebuild before release.
   const warning = runtime.release_matches_source === false
-    ? 'backend source differs from its prebuilt release artifacts; pull a complete published revision and reinstall'
+    ? 'backend code and installed artifacts differ; reinstall a complete published build'
     : undefined;
   return { compatible: true, reason: '', warning, meta };
 }

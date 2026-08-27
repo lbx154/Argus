@@ -334,7 +334,7 @@ function renderSummary(): void {
     ? `${RUNNER_LABELS[runnerKind]} · ${path}${model}`
     : `${RUNNER_LABELS[runnerKind]}（未配置）`;
   summaryUrl.textContent = `127.0.0.1:${port}`;
-  summaryRelease.textContent = `${releaseIdentity.releaseId || releaseIdentity.packageVersion} · ${releaseIdentity.distribution}${releaseIdentity.sourceDigest ? ` · ${releaseIdentity.sourceDigest.slice(0, 16)}` : ''}`;
+  summaryRelease.textContent = `${releaseIdentity.packageVersion} · ${releaseIdentity.distribution}`;
   summaryRuntime.textContent = runtimeIdentity.pid
     ? `${runtimeIdentity.state} · PID ${runtimeIdentity.pid}${runtimeIdentity.url ? ` · ${runtimeIdentity.url}` : ''}`
     : `${runtimeIdentity.state} · 后端将在保存后启动`;

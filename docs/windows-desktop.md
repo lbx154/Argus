@@ -30,9 +30,8 @@ or Vertical behavior. Those remain owned by the main Argus runtime. It also does
 not expand the Windows portability claims of the underlying runtime; see the
 main README for the currently supported Windows surface. The frozen
 `resources/argus-backend/_internal` tree is a release payload, not a Git source
-checkout: framework self-maintenance therefore reports `release_update` mode
-instead of claiming it can create a worktree. Repairs are built and reviewed in a
-separate source repository and delivered as a new Desktop release.
+checkout. Repairs are built and reviewed in a separate source repository and
+delivered through the reviewed deployment boundary as a new Desktop release.
 
 ## End-user installation
 
@@ -308,9 +307,9 @@ name the safe session command, for example
   is a warning and cannot overwrite the provider/reviewer outcome. An uncaught
   runtime exception also opens a durable circuit so rephrased retries do not run
   again under the same release identity.
-- **Self-maintenance says `release_update_required`**: this is expected for a
-  packaged Desktop backend. It must not run `git rev-parse` against `_internal`;
-  install a newly built release rather than editing frozen files in place.
+- **A packaged backend needs a framework update**: `_internal` is a release
+  payload, not a source checkout. Install a newly built release rather than
+  editing frozen files in place.
 
 ## Verification
 

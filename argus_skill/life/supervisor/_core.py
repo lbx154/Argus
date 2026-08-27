@@ -995,24 +995,6 @@ class LifeSupervisor(
                 else:
                     stopped_by = "planner_error"
                 break
-            maintenance_outcome = "framework_maintenance" in {
-                str(tag).strip().lower()
-                for tag in (outcome.get("tags") or [])
-            }
-            if maintenance_outcome:
-                post_mission_stop = self._post_mission_hook(outcome)
-                if post_mission_stop:
-                    self._emit({
-                        "type": "life.post_mission.stop",
-                        "reason": post_mission_stop,
-                        "item_id": outcome.get("item_id"),
-                        "status": outcome.get("status"),
-                    })
-                    self._emit_status(post_mission_stop)
-                    stopped_by = post_mission_stop
-                    break
-            if maintenance_outcome:
-                continue
             post_mission_stop = self._post_mission_hook(outcome)
             if post_mission_stop:
                 self._emit({
@@ -1209,8 +1191,44 @@ class LifeSupervisor(
         if lifecycle_block is not None:
             return lifecycle_block
 
-        result = self._run_one(item)
-        return result
+        mission_returned = False
+        try:
+            result = self._run_one(item)
+            mission_returned = True
+            return result
+        finally:
+            tags = {str(tag or "").strip().lower() for tag in item.tags}
+            if "framework_maintenance" in tags:
+                should_dispose = not mission_returned
+                if mission_returned:
+                    settled = next(
+                        (
+                            row
+                            for row in reversed(self.memory.backlog.history())
+                            if row.id == item.id
+                        ),
+                        item,
+                    )
+                    should_dispose = settled.status in {
+                        "done",
+                        "failed",
+                        "aborted",
+                        "skipped",
+                        "superseded",
+                    }
+                if should_dispose:
+                    from ._mission_execution_runtime import (
+                        dispose_maintenance_worktree,
+                    )
+
+                    try:
+                        dispose_maintenance_worktree(self.memory.root, item.id)
+                    except (OSError, KeyError, RuntimeError, ValueError):
+                        log.exception(
+                            "life supervisor: maintenance worktree cleanup failed"
+                        )
+                    else:
+                        self.memory.backlog.update(item.id, execution_workdir="")
 
     def _budget_global_root(self) -> Path:
         configured = getattr(self.memory, "global_root", None)

@@ -583,59 +583,9 @@ class SelfReplyMixin:
                     "Never say you are read-only or unable to direct the team.",
                 ])
                 mission = "\n".join(lines)
-            maintenance = self._self_maintenance_status_block(root)
-            return "\n\n".join(
-                block for block in (daemon_block, mission, maintenance) if block
-            )
+            return "\n\n".join(block for block in (daemon_block, mission) if block)
         except Exception:  # noqa: BLE001 - status context is optional
             return ""
-
-    @staticmethod
-    def _self_maintenance_status_block(root: Path) -> str:
-        from ..daemon.self_maintenance import read_self_maintenance_snapshot
-
-        snapshot = read_self_maintenance_snapshot(root)
-        if snapshot is None:
-            return ""
-        if snapshot.maintenance_available is True:
-            isolation = "available"
-        elif snapshot.maintenance_available is False:
-            isolation = "unavailable"
-        else:
-            isolation = "unknown"
-        phase = snapshot.phase or (
-            "ready" if snapshot.maintenance_available is True else "idle"
-        )
-        lines = [
-            "## Manager self-maintenance state",
-            f"- phase: {phase}",
-            f"- isolated repair capability: {isolation}",
-        ]
-        if snapshot.maintenance_mode:
-            lines.append(f"- maintenance mode: {snapshot.maintenance_mode}")
-        if snapshot.maintenance_error:
-            lines.append(f"- maintenance note: {snapshot.maintenance_error}")
-        if snapshot.last_audit_at > 0:
-            lines.append(
-                "- last audit: "
-                f"{max(0, int(time.time() - snapshot.last_audit_at))}s ago"
-            )
-        if snapshot.pr_url:
-            lines.append(f"- open maintenance PR: {snapshot.pr_url}")
-        if snapshot.awaiting_commit:
-            # A reviewed, canaried fix is already live locally and is waiting on
-            # the operator only to leave the machine. Say what to type, or the
-            # gate turns into a pile nobody notices.
-            lines.append(
-                "- **awaiting your approval to publish**: "
-                f"{snapshot.awaiting_commit[:12]} "
-                f"(`argus-skill --approve-publication {snapshot.awaiting_commit[:12]}`)"
-            )
-        if snapshot.publication_status:
-            lines.append(f"- upstream publication: {snapshot.publication_status}")
-        if snapshot.publication_error:
-            lines.append(f"- publication note: {snapshot.publication_error}")
-        return "\n".join(lines)
 
     def _recent_mission_history_block(
         self,

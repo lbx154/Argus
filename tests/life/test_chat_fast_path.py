@@ -655,37 +655,6 @@ def test_manager_self_progress_blocks_redacted_before_live_sink() -> None:
     assert "REDACTED" in payload
 
 
-def test_self_prompt_projects_live_manager_maintenance_state(
-    tmp_path: Path,
-) -> None:
-    backend = _FakeBackend(response_message="still supervising")
-    runner = _make_runner(backend)
-    runner._manager_session_root = tmp_path
-    state = tmp_path / "self-maintenance" / "state.json"
-    state.parent.mkdir(parents=True)
-    state.write_text(
-        (
-            '{"phase":"pr_open","maintenance_available":true,'
-            '"last_audit_at":1,"updated_at":2,'
-            '"pr_url":"https://github.com/lbx154/argus-skill/pull/42",'
-            '"publication_status":"opened"}'
-        ),
-        encoding="utf-8",
-    )
-
-    runner._simple_quick_reply(
-        objective="are you supervising Argus?",
-        sink=_RecordingSink(),
-    )
-
-    prompt = backend.calls[-1]["prompt"]
-    assert "Manager self-maintenance state" in prompt
-    assert "- phase: pr_open" in prompt
-    assert "- isolated repair capability: available" in prompt
-    assert "https://github.com/lbx154/argus-skill/pull/42" in prompt
-    assert "- upstream publication: opened" in prompt
-
-
 def test_self_prompt_includes_latest_queued_operator_objective(
     tmp_path: Path,
 ) -> None:

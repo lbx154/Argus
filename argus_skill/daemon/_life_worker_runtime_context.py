@@ -218,7 +218,6 @@ class _DaemonSink:
     def __init__(self, worker: LifeWorker, health_tracker: Any = None) -> None:
         self._worker = worker
         self.health_tracker = health_tracker
-        self.self_maintenance: Any = None
 
     def handle_event(self, event: dict[str, Any]) -> None:
         if self.health_tracker is not None:
@@ -226,11 +225,6 @@ class _DaemonSink:
                 self.health_tracker.observe(event)
             except Exception:  # noqa: BLE001 - health telemetry is non-critical
                 log.exception("daemon: health telemetry update failed")
-        if self.self_maintenance is not None:
-            try:
-                self.self_maintenance.observe(event)
-            except Exception:  # noqa: BLE001 - observation never blocks work
-                log.exception("daemon: self-maintenance observation failed")
         kind = event.get("type") or event.get("kind") or ""
         if kind in (
             "life.mission.done",

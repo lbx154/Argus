@@ -69,7 +69,6 @@ def _tcp_port(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     from ... import __version__
-    from ...release import release_manifest
     from ...skills.builtins import DEFAULT_PROJECT_BUILTIN_SKILLS_DIR
 
     parser = _ArgusArgumentParser(
@@ -83,11 +82,10 @@ def build_parser() -> argparse.ArgumentParser:
         # that mis-classifies ``--init`` and exits 2 on Python <= 3.12.
         allow_abbrev=False,
     )
-    release_id = str(release_manifest().get("release_id") or "unknown")
     parser.add_argument(
         "--version",
         action="version",
-        version=f"argus-skill {__version__} ({release_id})",
+        version=f"argus-skill {__version__}",
     )
     parser.add_argument(
         "--update",
@@ -427,22 +425,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--ppt-master-status",
         action="store_true",
         help="show the installed PPT Master path, revision, and dependency status",
-    )
-
-    maintenance_grp = parser.add_argument_group("self-maintenance")
-    maintenance_grp.add_argument(
-        "--approve-publication",
-        metavar="COMMIT",
-        default="",
-        help="approve pushing a reviewed self-maintenance fix upstream and "
-             "opening its PR. Nothing leaves this machine without it; the fix "
-             "is already reviewed, canaried and live locally. The approval is "
-             "bound to COMMIT and is single-use, so the next fix needs its own",
-    )
-    maintenance_grp.add_argument(
-        "--list-pending-publications",
-        action="store_true",
-        help="list reviewed self-maintenance fixes waiting for approval",
     )
 
     skills_grp = parser.add_argument_group("skill admin")

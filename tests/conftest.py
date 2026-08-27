@@ -7,8 +7,7 @@ that does not set it writes into the DEVELOPER'S REAL ``~/.argus-skill``.
 That is not a cosmetic leak. Observed on this checkout: running
 ``tests/apps/test_cli_parser.py`` created real sessions named after the test's
 own objective string, spawned real daemons against the real home, and those
-daemons ran the real Manager — including its self-maintenance loop, whose
-Engineer then EDITED THE SOURCE CHECKOUT while the suite was running. The
+daemons ran the real Manager and Engineer against the source checkout. The
 spawned daemon also killed the pytest process partway through the file, so the
 run ended with no summary and every later failure was invisible.
 
@@ -86,8 +85,7 @@ def _isolate_argus_state_roots(
     house_rules.chmod(0o644)
     monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(special))
 
-    # A test must never be able to hand a real daemon the developer's checkout
-    # as its self-maintenance source tree.
+    # A test must never mistake the developer's checkout for its loaded source.
     source = root / "source"
     source.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("ARGUS_SKILL_SOURCE_ROOT", str(source))

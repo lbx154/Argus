@@ -31,12 +31,11 @@ def test_public_help_distinguishes_human_and_automation_surfaces() -> None:
     assert "wiki" not in help_text
 
 
-def test_version_reports_release_identity(capsys) -> None:
+def test_version_reports_package_version(capsys) -> None:
     with pytest.raises(SystemExit, match="0"):
         build_parser().parse_args(["--version"])
     rendered = capsys.readouterr().out
-    assert "argus-skill 0.1.2" in rendered
-    assert "0.1.2+" in rendered
+    assert rendered == "argus-skill 0.1.2\n"
 
 
 def test_debug_help_still_exposes_internal_flags(monkeypatch: pytest.MonkeyPatch) -> None:

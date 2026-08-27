@@ -144,17 +144,10 @@ def run_update() -> int:
         return 2
 
     if result.changed:
-        print(
-            "Argus updated "
-            f"{result.before_revision[:12]} -> {result.after_revision[:12]} "
-            f"from {result.upstream}."
-        )
+        print(f"Argus updated from {result.upstream}.")
         print("Run `argus` to activate the updated cockpit and safe daemon handoff.")
     else:
-        print(
-            f"Argus is already up to date at {result.after_revision[:12]} "
-            f"({result.upstream})."
-        )
+        print(f"Argus is already up to date ({result.upstream}).")
     return 0
 
 
