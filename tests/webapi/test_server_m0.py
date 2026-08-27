@@ -965,6 +965,105 @@ def test_system_doctor_requires_auth_and_returns_typed_read_only_report(
     }
 
 
+def test_system_resources_requires_auth_and_redacts_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus_skill.tools.resource_ledger import ledger as resource_ledger
+
+    now = time.time()
+    long_reason = "please   release\n" + "x" * 400
+    snapshot = {
+        "probe": {
+            "enforcement": "advisory",
+            "accelerators": [{
+                "kind": "cuda",
+                "status": "degraded",
+                "devices": [{"identity": "GPU-abcdef0123456789"}],
+                "detail": "partial telemetry",
+            }],
+        },
+        "grants": [{
+            "id": "deadbeef",
+            "owner": {
+                "unix_user": "alice",
+                "project_root": "/home/alice/private/alpha",
+                "task_id": "train",
+            },
+            "demand": {"intent": "train model"},
+            "expires_at": now + 120,
+            "grant": {"devices": [{"identity": "GPU-abcdef0123456789"}]},
+            "yield_requests": [{
+                "reason": long_reason,
+                "requester": {"unix_user": "bob"},
+                "response": {
+                    "decision": "decline",
+                    "reason": "unsafe   checkpoint\nnow",
+                },
+            }],
+        }],
+        "queue": [{
+            "id": "cafe1234",
+            "owner": {
+                "unix_user": "bob",
+                "project_root": "/srv/users/bob/beta",
+                "task_id": "evaluate",
+            },
+            "demand": {"intent": "run evaluation"},
+            "expires_at": now + 60,
+        }],
+    }
+
+    class StubLedger:
+        def status(self) -> dict:
+            return snapshot
+
+    ledger = StubLedger()
+    monkeypatch.setattr(resource_ledger, "ResourceLedger", lambda: ledger)
+    app = server.create_app(global_root=tmp_path, auth_token="secret")
+    route = next(
+        route for route in app.routes
+        if getattr(route, "path", "") == "/api/system/resources"
+    )
+    auth = route.dependant.dependencies[0].call
+
+    with pytest.raises(fastapi.HTTPException) as rejected:
+        auth(None)
+    assert rejected.value.status_code == 401
+    assert auth("Bearer secret") is None
+
+    payload = route.endpoint()
+    assert payload["schema_version"] == 1
+    assert payload["enforcement"] == "advisory"
+    assert payload["accelerators"] == [{
+        "kind": "cuda",
+        "status": "degraded",
+        "device_count": 1,
+        "detail": "partial telemetry",
+    }]
+    assert payload["holders"][0]["project"] == "alpha"
+    assert payload["holders"][0]["device_count"] == 1
+    assert payload["holders"][0]["ttl_seconds"] == pytest.approx(120, abs=2)
+    request = payload["holders"][0]["yield_requests"][0]
+    assert len(request["reason"]) == 300
+    assert request["reason"].endswith("…")
+    assert request["response"] == {
+        "decision": "decline",
+        "reason": "unsafe checkpoint now",
+    }
+    assert payload["queue"] == [{
+        "position": 1,
+        "project": "beta",
+        "task_id": "evaluate",
+        "intent": "run evaluation",
+        "ttl_seconds": pytest.approx(60, abs=2),
+    }]
+    encoded = json.dumps(payload)
+    assert all(secret not in encoded for secret in (
+        "alice", "bob", "/home/", "/srv/", "deadbeef", "cafe1234", "abcdef0123456789",
+    ))
+
+
 def test_metrics_endpoints_expose_json_slo_and_prometheus(client: TestClient) -> None:
     payload = client.get("/api/metrics")
     assert payload.status_code == 200

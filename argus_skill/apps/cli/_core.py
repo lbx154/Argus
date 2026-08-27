@@ -35,7 +35,6 @@ from .._target_paths import resolve_life_root
 from ._follow import (
     _clean_follow_text,
     _follow_layer_from_event,
-    _format_follow_event,
     _format_follow_heartbeat,
     _read_backlog_rows,
     _resolve_follow_events_path,
@@ -1106,9 +1105,10 @@ def _cmd_follow(args: argparse.Namespace) -> int:
     current_mission: dict[str, str] = {"item_id": "", "title": "", "objective": ""}
     from ...cli.theme import Theme
     from ...core import log_view as lv
-    from ._follow import _FollowCoalescer
+    from ._follow import _FollowCoalescer, _FollowEventRenderer
     state = lv.LogState()
     theme = Theme.auto()
+    renderer = _FollowEventRenderer(theme=theme)
     last_event_at = time.monotonic()
     last_heartbeat_at = 0.0
     seen_order: deque[str] = deque(maxlen=512)
@@ -1157,11 +1157,10 @@ def _cmd_follow(args: argparse.Namespace) -> int:
                 "title": title,
                 "objective": objective,
             }
-        body = _format_follow_event(
+        body = renderer.render(
             ev,
             current_layer,
             mission_context=current_mission,
-            theme=theme,
         )
         if not body:
             return
@@ -1257,6 +1256,7 @@ def _cmd_follow(args: argparse.Namespace) -> int:
         print("\nargus-skill: stopped following", flush=True)
     finally:
         coalescer.flush()
+        renderer.close()
         if fh is not None:
             fh.close()
     return 0

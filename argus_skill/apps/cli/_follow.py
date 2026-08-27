@@ -5,6 +5,9 @@ import argparse
 import json
 import os
 import re
+import shutil
+import subprocess
+import sys
 import time
 from collections import deque
 from pathlib import Path
@@ -15,6 +18,7 @@ from ...core import paths as core_paths
 from ...core.role_reply import strip_named_lines
 from ...core.secret_guard import known_secret_values, redact_secrets_text
 from .._inbox import format_inbox_event
+from ..tui_launcher import _bundle_path
 from . import _core
 
 _FOLLOW_LAYER_LABELS = {
@@ -280,6 +284,128 @@ class _FollowCoalescer:
 
     def flush(self) -> None:
         self._commit()
+
+
+class _FollowEventRenderer:
+    """Render a follow session through one long-lived bundled TS process."""
+
+    def __init__(self, *, theme: Any = None) -> None:
+        self._theme = theme
+        self._process: subprocess.Popen[str] | None = None
+        bundle = _bundle_path()
+        node = shutil.which("node")
+        if bundle is None:
+            self._degrade("TUI bundle not found")
+            return
+        if node is None:
+            self._degrade("Node.js not found")
+            return
+        command = [
+            node,
+            str(bundle),
+            "render-events",
+            "--locale",
+            "zh-CN",
+            "--unknown-event-policy",
+            "greppable",
+            "--density",
+            "compact",
+        ]
+        if os.environ.get("ARGUS_SKILL_SHOW_REASONING", "0").lower() in (
+            "1", "true", "yes", "on",
+        ):
+            command.append("--show-reasoning")
+        try:
+            self._process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                bufsize=1,
+            )
+        except OSError as exc:
+            self._degrade(str(exc))
+
+    def _degrade(self, reason: str) -> None:
+        process, self._process = self._process, None
+        if process is not None and process.poll() is None:
+            process.terminate()
+            process.wait()
+        detail = " ".join(str(reason).split())
+        sys.stderr.write(
+            "argus-skill: semantic event renderer unavailable"
+            f" ({detail}); using Python fallback for this follow session\n"
+        )
+        sys.stderr.flush()
+
+    @staticmethod
+    def _failure_reason(process: subprocess.Popen[str]) -> str:
+        code = process.poll()
+        if code is None:
+            return "renderer closed its output stream"
+        stderr = process.stderr.read().strip() if process.stderr is not None else ""
+        reason = f"renderer exited with status {code}"
+        return f"{reason}: {stderr}" if stderr else reason
+
+    def render(
+        self,
+        event: dict,
+        current_layer: str,
+        *,
+        mission_context: dict[str, str] | None = None,
+        full: bool = False,
+    ) -> str | None:
+        process = self._process
+        if process is None:
+            return _format_follow_event(
+                event,
+                current_layer,
+                mission_context=mission_context,
+                theme=self._theme,
+                full=full,
+            )
+        assert process.stdin is not None and process.stdout is not None
+        render_event = event
+        if mission_context and event.get("type") in {
+            "life.mission.started", "life.mission.completed",
+        }:
+            render_event = {**mission_context, **event}
+        try:
+            process.stdin.write(json.dumps(render_event, ensure_ascii=False) + "\n")
+            process.stdin.flush()
+            rendered = process.stdout.readline()
+        except (BrokenPipeError, OSError, ValueError) as exc:
+            reason = self._failure_reason(process)
+            self._degrade(f"{reason}: {exc}" if process.poll() is None else reason)
+            return self.render(
+                event,
+                current_layer,
+                mission_context=mission_context,
+                full=full,
+            )
+        if rendered == "":
+            self._degrade(self._failure_reason(process))
+            return self.render(
+                event,
+                current_layer,
+                mission_context=mission_context,
+                full=full,
+            )
+        line = rendered.rstrip("\r\n")
+        return _colorize_role_tags(self._theme, line) if line else None
+
+    def close(self) -> None:
+        process, self._process = self._process, None
+        if process is None:
+            return
+        assert process.stdin is not None
+        try:
+            process.stdin.close()
+        except BrokenPipeError:
+            pass
+        process.wait()
 
 
 def _format_follow_agent_message(layer: str, text: str, *, full: bool = False) -> str:
