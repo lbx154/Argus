@@ -3,6 +3,12 @@ import { test } from 'node:test';
 
 import { renderEvent } from '../src/eventRender.js';
 import type { EventMsg } from '../src/api.js';
+import { EVENT_CORPUS } from '../../core/src/eventCorpus.generated.js';
+import {
+  renderEvent as renderSemanticEvent,
+  renderText,
+  type RenderModel,
+} from '../../core/src/eventRender/index.js';
 
 test('renderEvent reports truthful terminal mission outcomes for new and legacy events', () => {
   assert.deepEqual(
@@ -177,4 +183,54 @@ test('manager routing shows topology, vertical, workflow, and lifetime', () => {
   } as EventMsg);
 
   assert.equal(routed?.text, '→ TEAM · software · STAGED · STANDING · OPEN-ENDED');
+});
+
+function semanticProjection(value: ReturnType<typeof renderEvent> | RenderModel) {
+  if (value === null || 'visibility' in value && value.visibility === 'hidden') {
+    return { visibility: 'hidden', role: '', tone: '', text: '' };
+  }
+  if ('visibility' in value) {
+    return { visibility: value.visibility, role: value.role, tone: value.tone, text: renderText(value) };
+  }
+  return {
+    visibility: value.tone === 'err' || value.tone === 'warn' ? 'alert' : 'normal',
+    role: value.role,
+    tone: value.tone,
+    text: value.text,
+  };
+}
+
+test('semantic renderer shadows current TUI with full-density policy and triaged corrections', () => {
+  const context = { locale: 'en', showReasoning: true, unknownEventPolicy: 'hide', density: 'full' } as const;
+  const oldRendererBugs: Record<string, Partial<ReturnType<typeof semanticProjection>>> = {
+    // The old TUI hard-codes Chinese for only three event families instead of honoring one locale policy.
+    'life.manager.intent.started': { text: 'classifying request…' },
+    'life.manager.intent.failed': { text: 'routing failed · backend 401 Missing bearer (attempt 2) · raw: VerticalDecisionError: routing failed' },
+    'life.phase.started': { text: 'entering implementation' },
+    // The old TUI leaks secrets and lags Python follow's complete handoff-field stripping.
+    'engineer.progress.secret-redaction': { text: 'using token <REDACTED:github-token>' },
+    'engineer.progress.handoff-fields': { text: 'Artifact complete.' },
+    // These are semantic distinctions/events that the old whitelist currently loses.
+    'life.planner.task_skipped.review-purchase-deferred': { text: 'review purchase deferred Purchase another paper review' },
+    'life.planner.normalized': { text: 'normalized · removed duplicate planner task' },
+    // The old renderer leaves a trailing space when this schema has no objective field.
+    'life.planner.start': { text: 'planning' },
+    'life.planner.waiting': { role: 'planner', visibility: 'normal' },
+    'life.planner.waiting.waiting-resource': { text: 'waiting · subagent state waiting_resource is a healthy resource wait' },
+    'life.planner.waiting_woken': { role: 'planner', visibility: 'normal' },
+    'life.planner.terminal_idle': { role: 'planner', visibility: 'normal' },
+    'life.planner.verification_probe': { role: 'planner', visibility: 'normal' },
+  };
+
+  for (const fixture of EVENT_CORPUS.fixtures) {
+    const current = semanticProjection(renderEvent(fixture.event as EventMsg));
+    const semantic = semanticProjection(renderSemanticEvent(fixture.event, context));
+    const correction = oldRendererBugs[fixture.id];
+    if (correction) {
+      assert.partialDeepStrictEqual(semantic, correction, fixture.id);
+      assert.notDeepEqual(current, semantic, fixture.id);
+    } else {
+      assert.deepEqual(semantic, current, fixture.id);
+    }
+  }
 });

@@ -5,6 +5,7 @@ export * from './events.js';
 export * from './commands.js';
 export * from './eventCatalog.js';
 export * from './eventPayloads.generated.js';
+export * from './eventRender/index.js';
 export * from './projects.js';
 export * from './mission.js';
 export * from './missionView.js';
