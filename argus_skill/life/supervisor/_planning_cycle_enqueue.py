@@ -35,6 +35,7 @@ from ._helpers import (
     _planner_task_signature,
     _resolve_task_dep_ids,
     _sanitize_planner_task_text,
+    _unique_normalized_task_key_aliases,
 )
 from ._planning_cycle_helpers import _PlanCycleState, _revision_reason
 from ._planner_rendering import _forward_progress
@@ -908,11 +909,19 @@ class PlanningCycleEnqueueMixin:
         # node keys already persisted in the backlog. Unknown keys still reject
         # the whole batch; executing a child without its required parent is unsafe.
         known_key_map = {
-            str(item.node_key): item.id
+            str(item.id): str(item.id) for item in state.existing_items
+        }
+        historical_key_entries = [
+            (str(item.node_key), str(item.id))
             for item in state.existing_items
             if str(item.node_key or "").strip()
-        }
+        ]
+        known_key_map.update(historical_key_entries)
         known_key_map.update(state.key_map)
+        normalized_key_map = _unique_normalized_task_key_aliases(
+            historical_key_entries
+            + [(str(key), str(item_id)) for key, item_id in state.key_map.items()]
+        )
         unresolved: list[tuple[str, list[str]]] = []
         for task, item in state.pending_items:
             task_deps = list(getattr(task, "deps", []) or [])
@@ -920,8 +929,23 @@ class PlanningCycleEnqueueMixin:
                 resolved_ids, unresolved_keys = _resolve_task_dep_ids(
                     task_deps,
                     known_key_map,
+                    normalized_key_map,
                 )
                 item.deps = resolved_ids
+                normalized_deps = [
+                    dep
+                    for dep in task_deps
+                    if dep not in known_key_map
+                    and dep not in unresolved_keys
+                ]
+                if normalized_deps:
+                    log.info(
+                        "planner dependency keys normalized",
+                        extra={
+                            "task_title": item.title,
+                            "dependency_keys": normalized_deps,
+                        },
+                    )
                 if unresolved_keys:
                     unresolved.append((item.title, unresolved_keys))
         if unresolved:

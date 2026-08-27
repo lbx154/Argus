@@ -7,7 +7,10 @@ import pytest
 
 from argus_skill.life.memory import Backlog, BacklogItem
 from argus_skill.life.supervisor._constants import PLAN_RETRY
-from argus_skill.life.supervisor._helpers import _resolve_task_dep_ids
+from argus_skill.life.supervisor._helpers import (
+    _resolve_task_dep_ids,
+    _unique_normalized_task_key_aliases,
+)
 from argus_skill.life.supervisor._planning_cycle_enqueue import (
     PlanningCycleEnqueueMixin,
     _apply_planner_stage_request,
@@ -46,6 +49,37 @@ def test_resolve_dep_ids_dedupes_preserving_order() -> None:
     assert unresolved == []
 
 
+def test_resolve_dep_ids_accepts_unique_normalized_key_alias() -> None:
+    aliases = _unique_normalized_task_key_aliases([
+        ("Prepare_Data", "id-prepare"),
+    ])
+
+    resolved, unresolved = _resolve_task_dep_ids(
+        ["PREPARE-data"],
+        {"Prepare_Data": "id-prepare"},
+        aliases,
+    )
+
+    assert resolved == ["id-prepare"]
+    assert unresolved == []
+
+
+def test_resolve_dep_ids_leaves_ambiguous_normalized_alias_unresolved() -> None:
+    aliases = _unique_normalized_task_key_aliases([
+        ("prepare-data", "id-one"),
+        ("prepare_data", "id-two"),
+    ])
+
+    resolved, unresolved = _resolve_task_dep_ids(
+        ["PREPARE DATA"],
+        {"prepare-data": "id-one", "prepare_data": "id-two"},
+        aliases,
+    )
+
+    assert resolved == []
+    assert unresolved == ["PREPARE DATA"]
+
+
 def test_commit_resolves_dependency_from_prior_planning_cycle(tmp_path: Path) -> None:
     backlog = Backlog(tmp_path / "backlog.jsonl")
     implementation = backlog.add(
@@ -79,6 +113,51 @@ def test_commit_resolves_dependency_from_prior_planning_cycle(tmp_path: Path) ->
 
         def _enter_idle_backoff(self) -> float:
             raise AssertionError("known cross-cycle dependency must not back off")
+
+    state = _PlanCycleState(None)
+    state.existing_items = backlog.all()
+    state.manager_intent = {}
+    state.pending_items = [(task, review)]
+
+    assert Harness()._pc_commit_pending_items(state) is None
+    persisted = next(item for item in backlog.all() if item.id == review.id)
+    assert persisted.deps == [implementation.id]
+
+
+def test_commit_resolves_dependency_from_existing_backlog_item_id(
+    tmp_path: Path,
+) -> None:
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    implementation = backlog.add(
+        BacklogItem.new(
+            title="Implement the scheduler",
+            objective="Complete the implementation.",
+            node_key="eng-implement",
+        )
+    )
+    review = BacklogItem.new(
+        title="Review the scheduler",
+        objective="Review the completed implementation.",
+        node_key="review",
+    )
+    task = SimpleNamespace(
+        deps=[implementation.id],
+        impact_score=0,
+        impact_area="",
+    )
+
+    class Harness(PlanningCycleEnqueueMixin):
+        _planning_cycles = 2
+        memory = SimpleNamespace(backlog=backlog)
+
+        def _emit(self, _event: dict[str, object]) -> None:
+            return None
+
+        def _emit_status(self, _text: str) -> None:
+            return None
+
+        def _enter_idle_backoff(self) -> float:
+            raise AssertionError("existing item ids must resolve directly")
 
     state = _PlanCycleState(None)
     state.existing_items = backlog.all()
