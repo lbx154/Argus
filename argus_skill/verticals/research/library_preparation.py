@@ -34,7 +34,7 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         refresh_idea_portfolio,
     )
 
-    if context.stage == "research" and portfolio_required(context.workdir):
+    if context.stage == "research" and portfolio_required(context.state_root):
         context.required_skill_paths.extend((
             "engineer/idea-discovery.md",
             "engineer/idea-creator.md",

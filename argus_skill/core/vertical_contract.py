@@ -131,6 +131,7 @@ class VerticalLibraryContext:
     """Core-owned inputs for optional provider-owned Skill preparation."""
 
     workdir: Path
+    state_root: Path
     stage: str
     objective: str
     direction: str

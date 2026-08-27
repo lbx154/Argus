@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from argus_skill.core.vertical_contract import VerticalLibraryContext
+from argus_skill.skills.loop_skill_library import SkillLibraryMixin
+from argus_skill.skills.loop_state import MissionContext
 from argus_skill.team import pool, task_board
 from argus_skill.verticals.research.idea_portfolio import (
     QUORUM_COUNT,
@@ -14,6 +17,7 @@ from argus_skill.verticals.research.idea_portfolio import (
     idea_portfolio_completion_issues,
     idea_portfolio_selection,
     late_selection_reviews,
+    portfolio_required,
     refresh_idea_portfolio,
 )
 from argus_skill.verticals.research.library_preparation import prepare_skill_libraries
@@ -35,6 +39,124 @@ def _pipeline(root: Path, *, direction: str = "broad") -> None:
         }),
         encoding="utf-8",
     )
+
+
+def test_vertical_state_root_drives_ambition_assertions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workdir = tmp_path / "worktree"
+    state_root = tmp_path / "state" / "projects" / "session"
+    workdir.mkdir(parents=True)
+    _pipeline(state_root)
+    state_path = state_root / ".argus" / "PIPELINE_STATE.json"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    payload["current_stage"] = "run"
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    seen: list[VerticalLibraryContext] = []
+
+    class _Contract:
+        def prepare_libraries(self, context: VerticalLibraryContext) -> None:
+            seen.append(context)
+
+    monkeypatch.setattr(
+        "argus_skill.verticals._base.load_vertical_contract",
+        lambda *_args, **_kwargs: _Contract(),
+    )
+
+    harness = SkillLibraryMixin()
+    harness.config = SimpleNamespace(
+        vertical_state_root=state_root,
+        continuous_objective="",
+        workflow_mode="staged",
+        paper_mission=True,
+        engineer_model=None,
+    )
+    harness.engineer_runner = None
+    harness._emit = lambda _event: None
+    mission = MissionContext(
+        workdir=workdir,
+        run_id="run",
+        task="task",
+        skill_task="discover a thesis",
+        request_anchor="broad research direction",
+        active_vertical="research",
+        engineer_role_banner="",
+        seed_thread_id=None,
+        scope="bounded",
+    )
+
+    assert harness._prepare_vertical_libraries(mission) == ()
+    assert len(seen) == 1
+    assert seen[0].workdir == workdir
+    assert seen[0].state_root == state_root
+    assert seen[0].stage == "run"
+    assert portfolio_required(workdir) is False
+    assert portfolio_required(state_root) is True
+    assert stage_completion_issues(
+        "research",
+        workdir,
+        state_root=state_root,
+    ) == ("research idea portfolio state is missing or invalid",)
+
+
+def test_missing_state_root_is_visible_and_fails_closed(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    state_root = tmp_path / "missing-state"
+
+    with caplog.at_level("WARNING"):
+        issues = stage_completion_issues(
+            "research",
+            tmp_path / "evidence",
+            state_root=state_root,
+        )
+
+    assert "cannot be determined" in " ".join(issues)
+    assert "PIPELINE_STATE.json is missing" in caplog.text
+    assert str(state_root) in caplog.text
+
+
+def test_library_policy_reads_state_root_but_writes_workdir(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workdir = tmp_path / "worktree"
+    state_root = tmp_path / "state" / "projects" / "session"
+    workdir.mkdir(parents=True)
+    _pipeline(state_root)
+    monkeypatch.setenv("ARGUS_SKILL_VENUE_RESEARCH", "0")
+    monkeypatch.setenv("ARGUS_SKILL_IDEA_SEARCH", "0")
+    events: list[dict] = []
+    required: list[str] = []
+
+    prepare_skill_libraries(
+        VerticalLibraryContext(
+            workdir=workdir,
+            state_root=state_root,
+            stage="research",
+            objective="discover a thesis",
+            direction="agent reliability",
+            workflow_mode="staged",
+            paper_mission=True,
+            team_task_id=None,
+            runner=None,
+            model=None,
+            emit=events.append,
+            required_skill_paths=required,
+        )
+    )
+
+    assert required == [
+        "engineer/idea-discovery.md",
+        "engineer/idea-creator.md",
+        "agent-team-lead.md",
+    ]
+    assert events[0]["type"] == "idea.portfolio.formed"
+    assert Path(events[0]["team_root"]).is_relative_to(workdir)
+    assert not (state_root / ".argus" / "teams").exists()
 
 
 def _route_text(task: dict) -> str:
@@ -548,6 +670,7 @@ def test_research_library_hook_forms_quorum_pipeline(
     prepare_skill_libraries(
         VerticalLibraryContext(
             workdir=tmp_path,
+            state_root=tmp_path,
             stage="research",
             objective="discover a thesis",
             direction="agent reliability",
@@ -585,6 +708,7 @@ def test_research_library_requires_training_guide_after_selection(
     prepare_skill_libraries(
         VerticalLibraryContext(
             workdir=tmp_path,
+            state_root=tmp_path,
             stage="plan",
             objective="design current-model experiments",
             direction="locked",
@@ -614,6 +738,7 @@ def test_research_library_hook_never_recurses_inside_team_task(
     prepare_skill_libraries(
         VerticalLibraryContext(
             workdir=tmp_path,
+            state_root=tmp_path,
             stage="research",
             objective="investigate one assigned route",
             direction="route-01 mechanism",

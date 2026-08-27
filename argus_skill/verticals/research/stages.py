@@ -1011,9 +1011,21 @@ def stage_completion_issues(
         return tuple(issues)
     if normalized != "research":
         return ()
+    from ...core.pipeline_state import pipeline_state_exists
     from .idea_portfolio import idea_portfolio_completion_issues
 
-    return idea_portfolio_completion_issues(project_root)
+    resolved_state_root = state_root or project_root
+    if not pipeline_state_exists(resolved_state_root):
+        log.warning(
+            "research stage requirements cannot be determined: "
+            "PIPELINE_STATE.json is missing at resolved state root %s",
+            resolved_state_root,
+        )
+        return (
+            "research stage requirements cannot be determined because "
+            "PIPELINE_STATE.json is missing at the resolved state root",
+        )
+    return idea_portfolio_completion_issues(resolved_state_root)
 
 
 def iteration_assessment(
