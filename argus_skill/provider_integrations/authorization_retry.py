@@ -58,7 +58,10 @@ class AuthorizationRetryOwner:
         snapshot = self._credential_snapshot(backend, options)
 
         def request() -> Any:
-            return backend._runner.run_exec(
+            from ..core.run_gateway import run_exec as gateway_run_exec
+
+            return gateway_run_exec(
+                backend._runner,
                 prompt=prompt,
                 resume_thread_id=resume_thread_id,
                 options=options,
