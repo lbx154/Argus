@@ -33,6 +33,7 @@ _TASK_OWNED_BLOCKS = (
     "direct_memory",
     "wiki_curator",
     "research_target",
+    "surprise_judgment",
     "objective_context",
 )
 
@@ -42,7 +43,9 @@ _TASK_OWNED_BLOCKS = (
 # legal `plan_signal` values and the three fields a plan challenge carries.
 # `reconsider` is the only token that opens the Reviewer -> Manager -> Planner
 # channel and it had appeared in no prompt, so deleting that block closes the
-# channel rather than tightening the prose. Re-compress before raising this.
+# channel rather than tightening the prose. Research surprise judgment is
+# measured separately because it applies only to research-result reviews.
+# Re-compress before raising this.
 FIXED_PROSE_BUDGET = 5_000
 
 

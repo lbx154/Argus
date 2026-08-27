@@ -45,6 +45,45 @@ def is_paper_wide_review_task(task: Any, *, vertical: str) -> bool:
     return any(marker in text for marker in _PAPER_REVIEW_MARKERS)
 
 
+def _requested_review_mode(task: Any) -> str:
+    """Return an explicitly named review mode, not a mode inferred from purpose."""
+    text = _normalized_task_text(task)
+    if any(
+        marker in text
+        for marker in (
+            "model backed",
+            "model mode",
+            "model reviewer",
+            "model review",
+            "review mode model",
+        )
+    ):
+        return "model"
+    if any(marker in text for marker in ("vision mode", "review mode vision")):
+        return "vision"
+    if any(
+        marker in text
+        for marker in ("heuristic mode", "review mode heuristic")
+    ):
+        return "heuristic"
+    return ""
+
+
+def _artifact_satisfies_mode(payload: dict[str, Any], mode: str) -> bool:
+    if not mode:
+        return True
+    if mode == "model":
+        return bool(
+            isinstance(payload.get("model_review"), dict)
+            and payload["model_review"]
+        )
+    recorded = " ".join(
+        str(payload.get(field) or "")
+        for field in ("review_mode", "review_method", "decision_authority")
+    ).casefold()
+    return mode in recorded
+
+
 def _review_artifacts(project_root: Path) -> Iterable[tuple[Path, dict[str, Any]]]:
     for directory_name in ("paper", "analysis"):
         directory = project_root / directory_name
@@ -116,13 +155,16 @@ def paper_review_purchase_defer_reason(
     """Return why this one model-scale review purchase must be deferred."""
     if not is_paper_wide_review_task(task, vertical=vertical):
         return ""
+    requested_mode = _requested_review_mode(task)
     if semantic_duplicate is not None and str(
         getattr(semantic_duplicate, "status", "") or ""
     ) not in {"done", "failed", "aborted", "skipped", "superseded"}:
-        return (
-            "semantically equal paper-wide review is already active "
-            f"({getattr(semantic_duplicate, 'id', 'unknown')})"
-        )
+        duplicate_mode = _requested_review_mode(semantic_duplicate)
+        if not requested_mode or duplicate_mode == requested_mode:
+            return (
+                "semantically equal paper-wide review is already active "
+                f"({getattr(semantic_duplicate, 'id', 'unknown')})"
+            )
 
     root = Path(project_root).resolve()
     freeze = load_method_freeze(root)
@@ -130,6 +172,8 @@ def paper_review_purchase_defer_reason(
 
     for path, payload in _review_artifacts(root):
         status = manuscript_review_status(payload, root)
+        if not _artifact_satisfies_mode(payload, requested_mode):
+            continue
         relative = path.relative_to(root).as_posix()
         reviewed_at = _timestamp(status.get("reviewed_at"))
         if freeze is not None:
@@ -154,6 +198,12 @@ def paper_review_purchase_defer_reason(
                 f"manuscript is unfrozen; prior review is {status['message']} "
                 f"({relative}); staleness is a planning fact, not a review trigger"
             )
+
+    # A completed task row proves that work ran, not which review authority
+    # actually produced the artifact. An explicitly requested mode is settled
+    # only by the current review artifact above.
+    if requested_mode:
+        return ""
 
     for item in existing_items:
         if str(getattr(item, "status", "") or "") != "done":

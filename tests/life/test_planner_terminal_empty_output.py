@@ -575,6 +575,37 @@ class _StructuredPlannerRunner(_EmptyPlannerThenManagerRunner):
         )
 
 
+def test_active_planner_node_key_reuses_item_across_rewording(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        backend=_StructuredPlannerRunner(),
+    )
+    existing = supervisor.memory.backlog.add(BacklogItem.new(
+        title="Assess publication-scale evidence gaps",
+        objective="Inspect the current evidence boundary.",
+        node_key="typed-task",
+        tags=["planner"],
+    ))
+
+    supervisor._plan_next_work()
+
+    assert backend.planner_calls == 1
+    active = supervisor.memory.backlog.active()
+    assert [item.id for item in active] == [existing.id]
+    skipped = next(
+        event
+        for event in sink.events
+        if event.get("type") == EventType.LIFE_PLANNER_TASK_SKIPPED
+    )
+    assert skipped["matched_item_id"] == existing.id
+    assert skipped["reason"] == "duplicate pending/running task"
+
+
 def test_legacy_backlog_item_ignores_work_kind() -> None:
     item = BacklogItem.from_jsonable({
         "id": "legacy-item",
