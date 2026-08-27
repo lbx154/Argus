@@ -2186,7 +2186,7 @@ def _accepted_papers_block(project_root: object) -> str:
                 checkout = str(code.get("local_checkout") or "").strip()
                 revision = str(code.get("revision") or "").strip()
                 if checkout and (root / checkout).is_dir():
-                    pin = f" @ {revision[:12]}" if revision else ""
+                    pin = " (pinned revision recorded)" if revision else ""
                     entry.append(f"    official code: `{checkout}`{pin}")
             lines.extend(entry)
         if not lines:

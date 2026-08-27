@@ -95,13 +95,12 @@ def recorded_manuscript_snapshot(payload: Mapping[str, Any]) -> dict[str, str] |
 
 def stale_review_message(
     *,
-    reviewed_sha256: str,
     reviewed_at: str,
-    current_sha256: str,
 ) -> str:
-    reviewed = str(reviewed_sha256 or "missing")[:8]
-    current = str(current_sha256 or "missing")[:8]
-    return f"stale (reviewed {reviewed} at {reviewed_at}, manuscript now {current})"
+    return (
+        f"stale: reviewed an earlier manuscript version (at {reviewed_at}); "
+        "the manuscript has changed since"
+    )
 
 
 def manuscript_review_status(
@@ -115,7 +114,7 @@ def manuscript_review_status(
         return {
             "status": "unbound",
             "current_sha256": current,
-            "message": "unbound (review did not record the manuscript SHA-256)",
+            "message": "unbound (review did not record the manuscript version)",
         }
     if recorded["sha256"] != current:
         return {
@@ -124,9 +123,7 @@ def manuscript_review_status(
             "current_sha256": current,
             "reviewed_at": recorded["recorded_at"],
             "message": stale_review_message(
-                reviewed_sha256=recorded["sha256"],
                 reviewed_at=recorded["recorded_at"],
-                current_sha256=current,
             ),
         }
     return {

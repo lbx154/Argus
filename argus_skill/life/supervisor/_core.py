@@ -1364,7 +1364,7 @@ class LifeSupervisor(
                 else:
                     final_submission_certified = False
                     review_validity_message = (
-                        "unbound (certification did not record the manuscript SHA-256)"
+                        "unbound (certification did not record the manuscript version)"
                     )
             receipt = build_delivery_receipt(
                 item_id=f"project-{project_id}",
@@ -1658,7 +1658,7 @@ class LifeSupervisor(
                     freshness = {
                         "status": "unbound",
                         "message": (
-                            "unbound (certification did not record the manuscript SHA-256)"
+                            "unbound (certification did not record the manuscript version)"
                         ),
                     }
                 if freshness.get("status") != "current":

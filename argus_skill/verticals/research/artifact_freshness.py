@@ -78,11 +78,6 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _short(value: Any) -> str:
-    text = str(value or "<missing>")
-    return text if text == "<missing>" else text[:12]
-
-
 def _manuscript_pdfs(project_root: Path, payload: Any) -> list[Path]:
     found: list[Path] = []
     for key, value in _walk(payload):
@@ -186,9 +181,7 @@ def artifact_freshness_issues(project_root: Path) -> tuple[str, ...]:
                 if freshness["status"] != "current":
                     issues.append(
                         f"{artifact_name}: {freshness['message']} "
-                        f"[{MANUSCRIPT_PATH.as_posix()}; "
-                        f"reviewed_sha256={freshness.get('recorded_sha256', '<missing>')}; "
-                        f"current_sha256={freshness.get('current_sha256', '<missing>')}]"
+                        f"[{MANUSCRIPT_PATH.as_posix()}]"
                     )
             for snapshots in snapshot_lists:
                 for snapshot in snapshots:
@@ -205,7 +198,7 @@ def artifact_freshness_issues(project_root: Path) -> tuple[str, ...]:
                     if source is None or not source.is_file():
                         issues.append(
                             f"{artifact_name}: stale source snapshot {display}: "
-                            f"recorded sha256={_short(expected)}, actual sha256=<missing>"
+                            "the reviewed source is now missing"
                         )
                         continue
                     try:
@@ -215,8 +208,7 @@ def artifact_freshness_issues(project_root: Path) -> tuple[str, ...]:
                     if actual != expected:
                         issues.append(
                             f"{artifact_name}: stale source snapshot {display}: "
-                            f"recorded sha256={_short(expected)}, "
-                            f"actual sha256={_short(actual)}"
+                            "the source has changed since review"
                         )
 
             pdfs = _manuscript_pdfs(root, payload)

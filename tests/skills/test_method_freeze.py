@@ -41,6 +41,9 @@ def test_review_prompt_is_silent_without_freeze_and_renders_facts_when_present(
     tmp_path: Path,
 ) -> None:
     assert research_review_prompt_block(tmp_path) == ""
+    manuscript = tmp_path / "paper/main.tex"
+    manuscript.parent.mkdir(parents=True)
+    manuscript.write_text("frozen manuscript\n", encoding="utf-8")
     declare_method_freeze(
         tmp_path,
         method_identity="method-final",
@@ -48,6 +51,15 @@ def test_review_prompt_is_silent_without_freeze_and_renders_facts_when_present(
         confirmation_command="python confirm.py",
         data_split_identity="never-seen-confirmation-split",
     )
+    frozen_digest = json.loads(
+        (tmp_path / FREEZE_PATH).read_text()
+    )["manuscript_sha256_at_freeze"]
+    frozen_prompt = research_review_prompt_block(tmp_path)
+
+    assert "the manuscript has changed since the freeze" not in frozen_prompt
+    assert frozen_digest not in frozen_prompt
+
+    manuscript.write_text("changed manuscript\n", encoding="utf-8")
 
     prompt = research_review_prompt_block(tmp_path)
 
@@ -56,3 +68,6 @@ def test_review_prompt_is_silent_without_freeze_and_renders_facts_when_present(
     assert "Headline numbers may change only" in prompt
     assert "Further exploration variants belong to the next paper" in prompt
     assert "compare every headline number" in prompt
+    assert "against the then-current manuscript" in prompt
+    assert "the manuscript has changed since the freeze" in prompt
+    assert frozen_digest not in prompt

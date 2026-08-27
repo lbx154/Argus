@@ -85,7 +85,7 @@ def test_stage_closing_stale_manuscript_review_holds(tmp_path) -> None:
 
     assert decision.action == "hold"
     assert decision.source == "stale_manuscript_review_hold"
-    assert decision.reason.startswith("stale (reviewed ")
+    assert decision.reason.startswith("stale: reviewed an earlier manuscript version ")
     assert _state(state_root)["current_stage"] == "setup"
 
 

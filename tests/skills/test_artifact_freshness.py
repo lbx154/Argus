@@ -39,7 +39,7 @@ def test_matching_source_snapshot_passes(tmp_path: Path) -> None:
     assert artifact_freshness_issues(tmp_path) == ()
 
 
-def test_stale_source_snapshot_blocks_with_both_hashes(tmp_path: Path) -> None:
+def test_stale_source_snapshot_blocks_without_exposing_hashes(tmp_path: Path) -> None:
     manuscript = tmp_path / "paper/main.tex"
     manuscript.parent.mkdir(parents=True)
     manuscript.write_text("Certified manuscript.\n", encoding="utf-8")
@@ -52,8 +52,9 @@ def test_stale_source_snapshot_blocks_with_both_hashes(tmp_path: Path) -> None:
 
     assert any("analysis/final_submission_certification.json" in issue for issue in issues)
     assert any("paper/main.tex" in issue for issue in issues)
-    assert any(certified_hash[:12] in issue for issue in issues)
-    assert any(current_hash[:12] in issue for issue in issues)
+    assert all(certified_hash[:12] not in issue for issue in issues)
+    assert all(current_hash[:12] not in issue for issue in issues)
+    assert any("the manuscript has changed since" in issue for issue in issues)
     assert any(
         issue.startswith("[artifact_freshness]")
         for issue in stage_completion_issues("review", tmp_path)

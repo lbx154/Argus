@@ -1817,7 +1817,6 @@ class PlanningContextMixin:
         return (
             "AUTHORITATIVE MANAGER WAIT RESOLUTION (current objective):\n"
             f"- stage remains: {resolution.get('target_stage') or '(unchanged)'}\n"
-            f"- prior blocker: {resolution.get('blocker_fingerprint') or ''}\n"
             "- prior recheck condition: "
             f"{resolution.get('recheck_condition') or ''}\n"
             f"- Manager directive: {reason}\n"
@@ -1906,7 +1905,6 @@ class PlanningContextMixin:
             return ""
         return (
             "PERSISTED PLANNER WAITING CONTRACT (authored by your prior verdict):\n"
-            f"- blocker_fingerprint: {state['blocker_fingerprint']}\n"
             f"- recheck_token: {state['recheck_token']}\n"
             f"- recheck_condition: {state.get('recheck_condition') or ''}\n"
             f"- wait_mode: {state.get('wait_mode') or 'poll'}\n"
@@ -1917,7 +1915,7 @@ class PlanningContextMixin:
             f"{bool(state.get('operator_action_required'))}\n"
             f"- last_probe_at: {state.get('last_probe_at') or 0}\n"
             "If current evidence does not satisfy the declared recheck condition, "
-            "reuse the exact fingerprint and token with waiting=true and do not "
+            "reuse the same blocker semantics and token with waiting=true and do not "
             "queue an equivalent polling task. Change the token only when concrete "
             "current evidence changes; the harness does not infer that change."
         )
