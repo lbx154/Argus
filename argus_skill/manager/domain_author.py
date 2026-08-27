@@ -14,10 +14,11 @@ the research default.
 """
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
 
 from ..roles.prompts.manager import (
     build_research_target_prompt,
@@ -38,6 +39,33 @@ class VerticalDecisionError(RuntimeError):
     Manager must produce a real decision or the mission fails loudly.
     """
 
+    def __init__(
+        self,
+        cause: str,
+        *,
+        phase: Literal["backend", "parse", "contract", "timeout"] = "contract",
+        contract_field: str = "",
+        attempts: int = 1,
+        model_reply_snippet: str = "",
+        backend_error: str = "",
+        task: str = "",
+    ) -> None:
+        self.phase = phase
+        self.cause = str(cause or "unknown failure").strip()
+        self.contract_field = str(contract_field or "").strip()
+        self.attempts = max(1, int(attempts or 1))
+        self.model_reply_snippet = sanitize_model_reply_snippet(
+            model_reply_snippet
+        )
+        self.backend_error = str(backend_error or "").strip()
+        self.task_excerpt = _bounded_task_excerpt(task)
+        message = f"routing failed [{self.phase}]: {self.cause}"
+        if self.attempts > 1:
+            message += f" (attempts={self.attempts})"
+        if self.task_excerpt:
+            message += f"; task={self.task_excerpt!r}"
+        super().__init__(message)
+
 
 class ManagerClassificationContractError(VerticalDecisionError):
     """A model reply violated a Manager classification capability clause.
@@ -48,8 +76,8 @@ class ManagerClassificationContractError(VerticalDecisionError):
     structured-decision or repository-grounding capability.
     """
 
-    def __init__(self, message: str, *, clause: str) -> None:
-        super().__init__(message)
+    def __init__(self, cause: str, *, clause: str, **details: Any) -> None:
+        super().__init__(cause, **details)
         self.clause = clause
         self.model_id = ""
         self.consecutive_count = 0
@@ -57,6 +85,52 @@ class ManagerClassificationContractError(VerticalDecisionError):
     def attach_streak(self, *, model_id: str, consecutive_count: int) -> None:
         self.model_id = model_id
         self.consecutive_count = consecutive_count
+
+
+def _bounded_task_excerpt(task: object, *, limit: int = 80) -> str:
+    value = " ".join(str(task or "").split())
+    return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
+
+
+def sanitize_model_reply_snippet(reply: object, *, limit: int = 300) -> str:
+    """Return a secret-redacted, single-line and strictly bounded reply excerpt."""
+    from ..core.secret_guard import known_secret_values, redact_secrets_text
+
+    if isinstance(reply, Mapping):
+        try:
+            value = json.dumps(reply, ensure_ascii=False, sort_keys=True)
+        except (TypeError, ValueError):
+            value = str(reply)
+    else:
+        value = str(reply or "")
+    value = redact_secrets_text(
+        value,
+        known_values=known_secret_values(),
+    )
+    value = " ".join(value.split())
+    return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
+
+
+@dataclass(frozen=True)
+class ContractViolation:
+    """The first concrete field-level reason a routing reply was rejected."""
+
+    phase: Literal["parse", "contract"]
+    field: str
+    value: object
+    expected: str
+
+    @property
+    def cause(self) -> str:
+        if self.value is _MISSING:
+            seen = "was missing"
+        else:
+            rendered = sanitize_model_reply_snippet(self.value, limit=100)
+            seen = f"got {json.dumps(rendered, ensure_ascii=False)}"
+        return f"{self.field} {seen}, expected {self.expected}"
+
+
+_MISSING = object()
 
 
 @dataclass
@@ -392,6 +466,7 @@ def parse_domain_proposal(
 
 
 __all__ = [
+    "ContractViolation",
     "DomainProposal",
     "FastVerticalRoute",
     "VerticalDecision",
@@ -402,6 +477,9 @@ __all__ = [
     "parse_fast_vertical_decision",
     "parse_research_target_level",
     "parse_vertical_decision",
+    "research_target_contract_violation",
+    "sanitize_model_reply_snippet",
+    "vertical_decision_contract_violation",
 ]
 
 
@@ -627,6 +705,213 @@ def parse_research_target_level(
     level = str(obj.get("research_target_level") or "").strip().lower()
     allowed = {str(value or "").strip().lower() for value in supported_levels}
     return level if level in allowed else None
+
+
+def research_target_contract_violation(
+    raw_text: str | Mapping[str, Any],
+    *,
+    supported_levels: Sequence[str],
+) -> ContractViolation:
+    obj = _decision_fields(raw_text)
+    expected = "|".join(str(value) for value in supported_levels)
+    if not isinstance(obj, dict):
+        return ContractViolation("parse", "model_reply", raw_text, "named decision fields")
+    value = obj.get("research_target_level", _MISSING)
+    return ContractViolation("contract", "research_target_level", value, expected)
+
+
+def vertical_decision_contract_violation(
+    raw_text: str | Mapping[str, Any],
+    *,
+    known_verticals: Sequence[str] = (),
+    known_domains: Sequence[str] = (),
+    existing_data_domains: Sequence[str] = (),
+    research_target_verticals: Sequence[str] = (),
+    default_execution_task: str = "",
+    persisted_vertical: str = "",
+    persisted_workflow_mode: str = "",
+    persisted_domain: str = "",
+    persisted_research_target_level: str = "",
+    persisted_research_direction_mode: str = "",
+    allow_persisted_change: bool = False,
+) -> ContractViolation:
+    """Explain a failed :func:`parse_vertical_decision` without changing it.
+
+    The parser remains a fail-closed compatibility API.  Its caller invokes
+    this only after receiving ``None``, so diagnostics cannot admit output that
+    the established contract rejected.
+    """
+    obj = _decision_fields(raw_text)
+    if not isinstance(obj, dict):
+        return ContractViolation(
+            "parse",
+            "model_reply",
+            raw_text,
+            "named decision fields or a JSON object",
+        )
+    raw_execution_task = obj.get("execution_task", _MISSING)
+    if not (
+        isinstance(raw_execution_task, str) and raw_execution_task.strip()
+    ) and not str(default_execution_task or "").strip():
+        return ContractViolation(
+            "contract", "execution_task", raw_execution_task, "non-empty text"
+        )
+    choice = str(obj.get("choice") or "").strip().lower()
+    if choice not in {"existing", "new"}:
+        return ContractViolation(
+            "contract", "choice", obj.get("choice", _MISSING), "existing|new"
+        )
+    workflow_mode = str(obj.get("workflow_mode") or "").strip().lower()
+    if workflow_mode and workflow_mode not in {"direct", "staged"}:
+        return ContractViolation(
+            "contract",
+            "workflow_mode",
+            obj.get("workflow_mode"),
+            "direct|staged",
+        )
+    if choice == "new":
+        raw_stages = obj.get("stages", _MISSING)
+        if not isinstance(raw_stages, list):
+            return ContractViolation(
+                "contract", "stages", raw_stages, "a list of 2..10 unique stage names"
+            )
+        stages = tuple(
+            dict.fromkeys(
+                slug for value in raw_stages if (slug := _sluggify_name(value))
+            )
+        )
+        if not (_MIN_STAGES <= len(stages) <= _MAX_STAGES):
+            return ContractViolation(
+                "contract", "stages", raw_stages, "2..10 unique stage names"
+            )
+        name = obj.get("name") or obj.get("vertical", _MISSING)
+        if not _sluggify_name(name):
+            return ContractViolation(
+                "contract", "vertical", name, "a non-empty domain slug"
+            )
+        return ContractViolation(
+            "contract", "vertical", name, "a unique domain slug"
+        )
+
+    identity = _resolve_existing_identity(
+        obj,
+        persisted_vertical=persisted_vertical,
+        persisted_workflow_mode=persisted_workflow_mode,
+        allow_persisted_change=allow_persisted_change,
+    )
+    if identity is None:
+        resolved_name, legacy_direct = _canonical_existing_vertical(
+            obj.get("vertical") or obj.get("name")
+        )
+        persisted_name, _ = _canonical_existing_vertical(persisted_vertical)
+        mode_conflict = bool(
+            legacy_direct
+            or workflow_mode
+            or (resolved_name and resolved_name == persisted_name)
+        )
+        field = "workflow_mode" if mode_conflict else "vertical"
+        value = (
+            "direct"
+            if legacy_direct and not workflow_mode
+            else obj.get(field, _MISSING)
+        )
+        return ContractViolation(
+            "contract",
+            field,
+            value,
+            "the persisted route contract",
+        )
+    name, _mode, same_persisted_identity = identity
+    known = {str(value).strip().lower() for value in known_verticals}
+    known |= {str(value).strip().lower() for value in existing_data_domains}
+    if not name or name not in known:
+        return ContractViolation(
+            "contract",
+            "vertical",
+            obj.get("vertical", obj.get("name", _MISSING)),
+            "one of " + "|".join(sorted(known)),
+        )
+    domain = _resolve_existing_domain(
+        obj,
+        name=name,
+        same_persisted_identity=same_persisted_identity,
+        persisted_domain=persisted_domain,
+        allow_persisted_change=allow_persisted_change,
+    )
+    if domain is None:
+        return ContractViolation(
+            "contract",
+            "domain",
+            obj.get("domain", _MISSING),
+            "empty outside research or unchanged from the persisted contract",
+        )
+    allowed_domains = {str(value or "").strip().lower() for value in known_domains}
+    if name == "research" and domain and domain not in allowed_domains:
+        return ContractViolation(
+            "contract",
+            "domain",
+            obj.get("domain"),
+            "one of " + "|".join(sorted(allowed_domains)),
+        )
+    targeted = {
+        str(value or "").strip().lower() for value in research_target_verticals
+    }
+    target_level = _resolve_research_target(
+        obj,
+        name=name,
+        targeted=targeted,
+        same_persisted_identity=same_persisted_identity,
+        persisted_research_target_level=persisted_research_target_level,
+        allow_persisted_change=allow_persisted_change,
+    )
+    if target_level is None:
+        return ContractViolation(
+            "contract",
+            "research_target_level",
+            obj.get("research_target_level", _MISSING),
+            "exploratory|publishable|doctoral and the persisted route contract",
+        )
+    direction = _resolve_research_direction(
+        obj,
+        name=name,
+        target_level=target_level,
+        same_persisted_identity=same_persisted_identity,
+        persisted_research_direction_mode=persisted_research_direction_mode,
+    )
+    if direction is None:
+        return ContractViolation(
+            "contract",
+            "research_direction_mode",
+            obj.get("research_direction_mode", _MISSING),
+            "broad|locked and the persisted route contract",
+        )
+    raw_stages = obj.get("stages")
+    existing_names = {
+        str(value).strip().lower() for value in existing_data_domains
+    }
+    if name in existing_names and isinstance(raw_stages, list):
+        tokens = [
+            str(value or "").strip().casefold()
+            for value in raw_stages
+            if str(value or "").strip()
+        ]
+        normalized = tuple(
+            dict.fromkeys(
+                slug for value in raw_stages if (slug := _sluggify_name(value))
+            )
+        )
+        if tokens not in ([], ["none"]) and not (
+            _MIN_STAGES <= len(normalized) <= _MAX_STAGES
+        ):
+            return ContractViolation(
+                "contract", "stages", raw_stages, "2..10 unique stage names or NONE"
+            )
+    return ContractViolation(
+        "contract",
+        "route_contract",
+        sanitize_model_reply_snippet(raw_text),
+        "a valid existing/new Manager decision",
+    )
 
 
 def parse_vertical_decision(

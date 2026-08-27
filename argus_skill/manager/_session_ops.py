@@ -37,6 +37,55 @@ _PIPELINE_LOCK = ".manager_pipeline.lock"
 _PIPELINE_YIELD_FILE = ".manager_pipeline_yield.json"
 
 
+class ManagerMissionBoundaryTimeout(TimeoutError):
+    """The front door could not acquire the current mission boundary in time."""
+
+    def __init__(
+        self,
+        *,
+        root: Path,
+        waited_seconds: float,
+        waited_on: str = "",
+    ) -> None:
+        self.phase = "timeout"
+        self.attempts = 1
+        self.contract_field = ""
+        self.model_reply_snippet = ""
+        self.backend_error = ""
+        self.waited_seconds = max(0.0, float(waited_seconds))
+        self.waited_on = waited_on or (
+            f"current mission boundary/item ({root / _PIPELINE_LOCK})"
+        )
+        self.cause = (
+            f"waited {self.waited_seconds:g}s for {self.waited_on}"
+        )
+        super().__init__(f"routing failed [timeout]: {self.cause}")
+
+
+def _mission_boundary_wait_target(root: Path) -> str:
+    """Name the active item when the life directory makes it observable."""
+    try:
+        from ..life.memory import LifeMemory
+
+        running = [
+            item
+            for item in LifeMemory.open(root).backlog.active()
+            if str(getattr(item, "status", "")) == "running"
+        ]
+        if running:
+            item = max(
+                running,
+                key=lambda row: float(getattr(row, "started_ts", 0.0) or 0.0),
+            )
+            return (
+                f"current mission boundary/item {item.id} "
+                f"({root / _PIPELINE_LOCK})"
+            )
+    except Exception:  # noqa: BLE001 - timeout diagnostics remain best-effort
+        pass
+    return f"current mission boundary/item unknown ({root / _PIPELINE_LOCK})"
+
+
 def _session_lock_timeout_s() -> float:
     """Bounded wait for the shared Manager session lock (default 120s). Manager
     turns are short LLM calls (classify / stage / skill-review), so 120s easily
@@ -82,11 +131,16 @@ def manager_pipeline_lock(root: Path | str):
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
     with (path / _PIPELINE_LOCK).open("a+b") as handle:
+        timeout = _pipeline_lock_timeout_s()
         if not _acquire_session_lock(
             handle,
-            timeout=_pipeline_lock_timeout_s(),
+            timeout=timeout,
         ):
-            raise TimeoutError("timed out waiting for the current mission boundary")
+            raise ManagerMissionBoundaryTimeout(
+                root=path,
+                waited_seconds=timeout,
+                waited_on=_mission_boundary_wait_target(path),
+            )
         try:
             yield
         finally:

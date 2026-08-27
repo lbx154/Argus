@@ -124,11 +124,16 @@ def test_manager_locks_timeout_against_a_real_peer_process(
     monkeypatch.setenv(timeout_env, "0.2")
     with _held_by_child(root, kind):
         started = time.monotonic()
-        with pytest.raises(TimeoutError, match=error):
+        with pytest.raises(TimeoutError, match=error) as caught:
             with lock_factory(root):
                 pass
         elapsed = time.monotonic() - started
         assert 0.15 <= elapsed < 3.0
+        if kind == "pipeline":
+            assert caught.value.phase == "timeout"
+            assert caught.value.waited_seconds == 0.2
+            assert "mission boundary/item" in caught.value.waited_on
+            assert str(caught.value).startswith("routing failed [timeout]: waited 0.2s")
 
     # Releasing the peer makes the exact same lock immediately usable.
     with lock_factory(root):

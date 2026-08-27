@@ -190,8 +190,9 @@ def test_threshold_changes_message_publishes_alert_and_stays_fail_closed(
             )
         assert type(caught.value) is ManagerHandoffError
         assert str(caught.value).startswith(
-            "Manager handoff failed: Manager could not decide a vertical"
+            "Manager handoff failed: routing failed [parse]: model_reply"
         )
+        assert "(attempts=2)" in str(caught.value)
         assert "role-capability mismatch" not in str(caught.value)
         assert contract_failure_count(memory.project_root, model_id=MODEL_ID) == expected_count
 
