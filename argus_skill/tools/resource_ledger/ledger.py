@@ -24,6 +24,7 @@ from ...core.process_identity import (
 from .probe import ResourceProbe
 
 DEFAULT_ROOT = Path("/var/tmp/argus-resource-ledger")
+# Heartbeat renewal keeps live grants valid; this TTL only reaps crashed owners.
 DEFAULT_TTL_SECONDS = 120.0
 
 

@@ -49,11 +49,8 @@ class OpenCodeRecoveryMixin:
                 encoding="utf-8",
                 errors="replace",
                 capture_output=True,
-                timeout=30.0,
                 check=False,
             )
-        except subprocess.TimeoutExpired:
-            return [], "OpenCode session export timed out after an incomplete event stream."
         except OSError as exc:
             return [], f"OpenCode session export failed: {exc}"
         if exported.returncode != 0:

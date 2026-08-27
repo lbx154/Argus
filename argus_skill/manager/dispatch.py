@@ -217,7 +217,7 @@ def enqueue_mission(
     chat_state: dict[str, Any],
     *,
     iterate: bool = True,
-    max_cycles: int = 6,
+    max_cycles: int = 0,
     root_task_id: str | None = None,
     cancelled: Callable[[], bool] | None = None,
     prepared_handoff: front_door.PreparedManagerHandoff | None = None,

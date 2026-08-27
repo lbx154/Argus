@@ -760,12 +760,12 @@ class BacklogItem:
     # When ``iterate`` is True, a successful mission whose vertical reports a
     # trusted charter shortfall can be re-armed for another mission cycle. The
     # L2 Reviewer remains the verdict authority; there is no separate critic.
-    # Iteration stops at the persisted cycle ceiling.
+    # A positive persisted value stops iteration; zero is unlimited.
     # ``original_objective`` preserves the
     # operator's first-cycle instruction so subsequent cycles can be
     # framed as "polish what you already built".
     iterate: bool = True
-    iteration_max_cycles: int = 6
+    iteration_max_cycles: int = 0
     iteration_cycles_done: int = 0
     iteration_cost_usd: float = 0.0
     original_objective: str = ""
@@ -838,7 +838,7 @@ class BacklogItem:
         tags: list[str] | None = None,
         notes: str = "",
         iterate: bool = True,
-        iteration_max_cycles: int = 6,
+        iteration_max_cycles: int = 0,
         deps: list[str] | None = None,
         plan_id: str = "",
         plan_version: int = 0,
@@ -938,7 +938,7 @@ class BacklogItem:
                 else {}
             ),
             iterate=bool(row.get("iterate", False)),
-            iteration_max_cycles=int(row.get("iteration_max_cycles", 6)),
+            iteration_max_cycles=int(row.get("iteration_max_cycles", 0)),
             iteration_cycles_done=int(row.get("iteration_cycles_done", 0)),
             iteration_cost_usd=float(row.get("iteration_cost_usd", 0.0)),
             original_objective=str(row.get("original_objective", objective)),
@@ -1914,6 +1914,7 @@ class Backlog:
     ) -> list[BacklogItem]:
         """Recover items left ``running`` by a crashed process.
 
+        This count bounds repeated confirmed process deaths, not live work.
         Items with fewer than *max_retries* orphan recoveries are reset
         to ``pending`` so the next supervisor pass retries them. Items
         that have already been orphaned *max_retries* times are marked

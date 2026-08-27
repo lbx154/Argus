@@ -374,13 +374,9 @@ class MissionExecutionSettlementMixin:
     ) -> dict[str, Any] | None:
         """Intercept a trusted, vertical-declared shortfall before ``done``.
 
-        The hard iteration budget is the backlog item's persisted
-        ``iteration_max_cycles`` (six by default, matching the existing
-        planner/operator cycle knob). ``iteration_cycles_done`` is checked
-        against that ceiling and ``iteration_cost_usd`` accumulates the actual
-        cost of every cycle that bought another attempt. The host-global daily
-        dollar cap remains the monetary admission guard, so this layer does not
-        invent a second, conflicting price limit.
+        A positive persisted ``iteration_max_cycles`` is an explicit iteration
+        budget. Zero leaves the task open-ended; the host-global daily dollar
+        cap remains the monetary admission guard.
 
         Domain policy is deliberately absent here. The active vertical decides
         whether the charter fell short, writes the replacement objective, and
@@ -454,7 +450,7 @@ class MissionExecutionSettlementMixin:
                     "trusted: " + "; ".join(issues)
                 ),
             }
-        if cycles_done >= cycles_max:
+        if cycles_max > 0 and cycles_done >= cycles_max:
             return {
                 **base,
                 "status": "budget_exhausted",

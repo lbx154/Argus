@@ -96,56 +96,39 @@ def _held_by_child(root: Path, kind: str) -> Iterator[Path]:
 
 
 @pytest.mark.parametrize(
-    ("kind", "lock_factory", "timeout_env", "error"),
+    ("kind", "lock_factory"),
     [
-        (
-            "session",
-            manager_session_lock,
-            "ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S",
-            "current Manager turn",
-        ),
-        (
-            "pipeline",
-            manager_pipeline_lock,
-            "ARGUS_SKILL_MANAGER_PIPELINE_LOCK_TIMEOUT_S",
-            "current mission boundary",
-        ),
+        ("session", manager_session_lock),
+        ("pipeline", manager_pipeline_lock),
     ],
 )
-def test_manager_locks_timeout_against_a_real_peer_process(
+def test_manager_locks_wait_for_a_real_peer_process(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     kind: str,
     lock_factory,
-    timeout_env: str,
-    error: str,
 ) -> None:
     root = tmp_path / kind
-    monkeypatch.setenv(timeout_env, "0.2")
-    with _held_by_child(root, kind):
+    with _held_by_child(root, kind) as release:
+        releaser = threading.Thread(
+            target=lambda: (time.sleep(0.35), release.write_text("release", encoding="utf-8"))
+        )
+        releaser.start()
         started = time.monotonic()
-        with pytest.raises(TimeoutError, match=error) as caught:
-            with lock_factory(root):
-                pass
+        with lock_factory(root):
+            pass
         elapsed = time.monotonic() - started
-        assert 0.15 <= elapsed < 3.0
-        if kind == "pipeline":
-            assert caught.value.phase == "timeout"
-            assert caught.value.waited_seconds == 0.2
-            assert "mission boundary/item" in caught.value.waited_on
-            assert str(caught.value).startswith("routing failed [timeout]: waited 0.2s")
+        releaser.join(timeout=2)
+        assert elapsed >= 0.25
 
     # Releasing the peer makes the exact same lock immediately usable.
     with lock_factory(root):
         pass
 
 
-def test_manager_session_timeout_fails_open_outside_the_shared_session(
+def test_manager_session_waits_then_uses_the_shared_session(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    root = tmp_path / "session-fail-open"
-    monkeypatch.setenv("ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S", "0.2")
+    root = tmp_path / "session-wait"
     omitted = object()
 
     class _Runner:
@@ -164,15 +147,20 @@ def test_manager_session_timeout_fails_open_outside_the_shared_session(
             return SimpleNamespace(thread_id="fresh-thread")
 
     runner = _Runner()
-    with _held_by_child(root, "session"):
+    with _held_by_child(root, "session") as release:
+        releaser = threading.Thread(
+            target=lambda: (time.sleep(0.35), release.write_text("release", encoding="utf-8"))
+        )
+        releaser.start()
         result = _ManagerSession(runner, root).run_exec(
             prompt="route this request",
             options=None,
             run_label="manager-route",
         )
+        releaser.join(timeout=2)
 
     assert result.thread_id == "fresh-thread"
-    assert runner.resume_values == [omitted]
+    assert runner.resume_values == [None]
 
 
 def test_campaign_control_lock_blocks_until_real_peer_process_releases(

@@ -74,7 +74,10 @@ def _parser() -> argparse.ArgumentParser:
         default="",
         help="Playwright browser channel such as chrome; empty uses bundled Chromium",
     )
-    parser.add_argument("--timeout-ms", type=int, default=30_000)
+    parser.add_argument(
+        "--timeout-ms", type=int, default=0,
+        help="explicit Playwright timeout; default 0 waits indefinitely",
+    )
     return parser
 
 

@@ -33,6 +33,7 @@ _THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
 )
 _THREAD_LOCKS_GUARD = threading.Lock()
 _MAX_COMMAND_HISTORY = 1_000
+# Command-state lock contention is a diagnosable state-boundary failure.
 _COMMAND_LOCK_TIMEOUT_SECONDS = 30.0
 
 

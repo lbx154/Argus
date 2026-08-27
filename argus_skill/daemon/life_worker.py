@@ -330,7 +330,7 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
             project_root=Path(workdir),
             default_width=int(os.environ.get("ARGUS_TEAM_DEFAULT_WIDTH", "8")),
             tick_s=float(os.environ.get("ARGUS_TEAM_CURATOR_TICK_S", "5")),
-            teammate_timeout_s=float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400")),
+            teammate_timeout_s=float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "0")),
             hard_grace_s=float(os.environ.get("ARGUS_TEAMMATE_HARD_GRACE_S", "600")),
             distill_fn=self._curator_distill_fn(runner),
             distill_interval_s=float(

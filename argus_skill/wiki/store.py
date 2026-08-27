@@ -9,6 +9,7 @@ from typing import Iterator
 from ..core.file_lock import exclusive_file_lock
 from .schema import WikiPage, parse_page, serialize_page
 
+# Wiki writes are atomic; this only bounds lock handoff, not the write's work.
 _WIKI_LOCK_TIMEOUT_SECONDS = 30.0
 _WIKI_LOCK_POLL_SECONDS = 0.05
 

@@ -17,7 +17,6 @@ from argus_skill.core.models import RunnerResult
 from argus_skill.core.token_usage import sum_token_counts
 from argus_skill.tools import subagent as _sub
 from argus_skill.tools.subagent import (
-    SUPERVISOR_INTERVAL_CAP,
     _append_discussion,
     _build_report,
     _child_env,
@@ -159,17 +158,16 @@ def _skip_supervisor_summary(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_sub._reporting, "_supervisor_summarize_report", lambda *args, **kwargs: "")
 
 
-def test_backoff_doubles_while_healthy_up_to_cap() -> None:
+def test_backoff_keeps_doubling_while_healthy() -> None:
     base = 120
     i = _next_monitor_interval("healthy", base, base)
     assert i == 240
     i = _next_monitor_interval("healthy", i, base)
     assert i == 480
     i = _next_monitor_interval("healthy", i, base)
-    assert i == min(960, SUPERVISOR_INTERVAL_CAP)
-    # Never exceeds the cap.
-    i = _next_monitor_interval("healthy", SUPERVISOR_INTERVAL_CAP, base)
-    assert i == SUPERVISOR_INTERVAL_CAP
+    assert i == 960
+    i = _next_monitor_interval("healthy", i, base)
+    assert i == 1920
 
 
 def test_backoff_snaps_back_to_base_when_unhealthy() -> None:
@@ -178,18 +176,16 @@ def test_backoff_snaps_back_to_base_when_unhealthy() -> None:
         assert _next_monitor_interval(bad, 900, base) == base
 
 
-def test_unknown_health_holds_steady_within_bounds() -> None:
+def test_unknown_health_holds_steady_with_floor() -> None:
     base = 120
     assert _next_monitor_interval("unknown", 300, base) == 300
-    # Held value is still capped and floored.
-    assert _next_monitor_interval("unknown", 99999, base) == SUPERVISOR_INTERVAL_CAP
+    assert _next_monitor_interval("unknown", 99999, base) == 99999
     assert _next_monitor_interval("unknown", 10, base) == base
 
 
-def test_cap_is_never_below_base() -> None:
-    # A base larger than the default cap must still be respected as the floor.
+def test_base_is_respected_as_the_floor() -> None:
     big_base = 1200
-    assert _next_monitor_interval("healthy", big_base, big_base) == big_base
+    assert _next_monitor_interval("healthy", big_base, big_base) == 2400
     assert _next_monitor_interval("degrading", 5000, big_base) == big_base
 
 
@@ -493,7 +489,7 @@ def test_supervisor_report_uses_persisted_submit_cwd(monkeypatch, tmp_path) -> N
     _write_task("train-cwd", {**task, "cwd": str(project)})
     seen: dict[str, str] = {}
 
-    def fake_turn(prompt, model, cwd, thread_id, timeout, run_label, mission_id=None):
+    def fake_turn(prompt, model, cwd, thread_id, run_label, mission_id=None):
         seen["cwd"] = cwd
         return RunnerResult(exit_code=0, agent_messages=["terminal report"])
 
@@ -515,7 +511,7 @@ def test_late_report_does_not_overwrite_reused_task_id(monkeypatch, tmp_path) ->
     }
     _write_task("reused", dict(old_task))
 
-    def fake_turn(prompt, model, cwd, thread_id, timeout, run_label, mission_id=None):
+    def fake_turn(prompt, model, cwd, thread_id, run_label, mission_id=None):
         _write_task(
             "reused",
             {
@@ -884,13 +880,12 @@ def test_run_discussion_processes_preexisting_engineer_turn(monkeypatch, tmp_pat
 def test_run_codex_resumes_thread_through_backend(monkeypatch, tmp_path) -> None:
     calls: dict[str, object] = {}
 
-    def fake_turn(prompt, model, cwd, thread_id, timeout, run_label, mission_id=None):
+    def fake_turn(prompt, model, cwd, thread_id, run_label, mission_id=None):
         calls.update(
             prompt=prompt,
             model=model,
             cwd=cwd,
             thread_id=thread_id,
-            timeout=timeout,
             run_label=run_label,
         )
         return RunnerResult(
@@ -912,7 +907,7 @@ def test_run_codex_retries_fresh_when_resume_empty(monkeypatch, tmp_path) -> Non
     # A resume that yields no agent message (expired session) retries once fresh.
     seq: list[str | None] = []
 
-    def fake_turn(prompt, model, cwd, thread_id, timeout, run_label, mission_id=None):
+    def fake_turn(prompt, model, cwd, thread_id, run_label, mission_id=None):
         seq.append(thread_id)
         if thread_id:
             return RunnerResult(exit_code=1, thread_id=thread_id)
@@ -948,7 +943,6 @@ def test_backend_turn_uses_accounted_agent_backend(monkeypatch, tmp_path) -> Non
         "gpt-5.5",
         str(tmp_path),
         "OLD",
-        30,
         "subagent:train-1:health",
         "train-1-run-42",
     )
@@ -1052,7 +1046,9 @@ def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) 
     assert record["supervisor_reasoning_output_tokens"] == 6
 
 
-def test_open_discussion_blockers_only_counts_live_fresh(monkeypatch, tmp_path) -> None:
+def test_open_discussion_blockers_use_process_identity_not_heartbeat_age(
+    monkeypatch, tmp_path
+) -> None:
     monkeypatch.chdir(tmp_path)
     me = __import__("os").getpid()
     # Live + fresh -> blocks.
@@ -1061,11 +1057,11 @@ def test_open_discussion_blockers_only_counts_live_fresh(monkeypatch, tmp_path) 
     # Dead pid -> ignored.
     _write_task("dead", {"state": "discussing", "task_id": "dead",
                          "worker_pid": 999999, "last_heartbeat": time.time()})
-    # Stale heartbeat -> ignored.
+    # An old heartbeat during a long model turn does not override live identity.
     _write_task("stale", {"state": "discussing", "task_id": "stale",
                           "worker_pid": me, "last_heartbeat": time.time() - 99999})
     ids = {t["task_id"] for t in _sub._open_discussion_blockers()}
-    assert ids == {"live"}
+    assert ids == {"live", "stale"}
 
 
 def _submit_args(**kw) -> argparse.Namespace:
@@ -1395,7 +1391,7 @@ def test_cmd_submit_normalizes_relative_cwd_and_run_dir(
 
 
 @requires_fork
-def test_experiment_submit_records_and_warns_about_default_timeout(
+def test_experiment_submit_without_timeout_records_no_timeout(
     monkeypatch,
     tmp_path,
     capsys,
@@ -1413,28 +1409,28 @@ def test_experiment_submit_records_and_warns_about_default_timeout(
 
     assert rc == 0
     assert record is not None
-    assert record["timeout_seconds"] == 7200
-    assert record["timeout_defaulted"] is True
-    assert output["timeout_seconds"] == 7200
-    assert output["timeout_defaulted"] is True
-    assert "2h" in output["timeout_notice"]
-    assert "--timeout" in output["timeout_notice"]
+    assert record["timeout_seconds"] is None
+    assert record["timeout_defaulted"] is False
+    assert output["timeout_seconds"] is None
+    assert output["timeout_defaulted"] is False
+    assert "timeout_notice" not in output
     assert record["worker_process_identity"]["pid"] == 4242
 
 
-def test_default_timeout_kill_is_named_in_record_and_engineer_alert(
+def test_submit_without_timeout_survives_past_old_default(
     monkeypatch,
     tmp_path,
 ) -> None:
-    from argus_skill.tools.subagent import _direct_run, _reporting
+    from argus_skill.tools.subagent import _direct_run
 
     monkeypatch.chdir(tmp_path)
+    clock = [100.0]
     _write_task("timed", {
         "state": "starting",
         "task_id": "timed",
         "run_id": "timed-run-1",
-        "timeout_seconds": 7200,
-        "timeout_defaulted": True,
+        "timeout_seconds": None,
+        "timeout_defaulted": False,
     })
 
     class _Proc:
@@ -1442,7 +1438,9 @@ def test_default_timeout_kill_is_named_in_record_and_engineer_alert(
         returncode = None
 
         def wait(self, timeout=None):
-            raise subprocess.TimeoutExpired("command", timeout)
+            assert timeout is None
+            clock[0] += 7201
+            self.returncode = 0
 
     proc = _Proc()
     writes: list[dict] = []
@@ -1464,13 +1462,14 @@ def test_default_timeout_kill_is_named_in_record_and_engineer_alert(
         lambda **_kwargs: None,
     )
     monkeypatch.setattr(_direct_run, "_launch_durable_command", lambda **_kwargs: proc)
-    monkeypatch.setattr(_direct_run, "_terminate_proc", lambda _proc: None)
+    monkeypatch.setattr(_direct_run, "acquire_for_task", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_direct_run.time, "time", lambda: clock[0])
     monkeypatch.setattr(_direct_run, "_write_task", record_write)
     monkeypatch.setattr(
         _direct_run,
         "_alert_engineer",
         lambda task_id, event, data: alerts.append(
-            _reporting._build_report(task_id, event, data)
+            event
         ),
     )
 
@@ -1478,21 +1477,19 @@ def test_default_timeout_kill_is_named_in_record_and_engineer_alert(
         "timed",
         "python train.py",
         "long experiment",
-        timeout=7200,
+        timeout=None,
         cwd=str(tmp_path),
         run_dir=str(tmp_path / "run"),
     )
 
     record = _sub._read_task("timed")
     running = next(row for row in writes if row.get("state") == "running")
-    assert running["timeout_seconds"] == 7200
-    assert running["timeout_defaulted"] is True
+    assert running["timeout_seconds"] is None
+    assert running["timeout_defaulted"] is False
     assert "start_time_ticks" in running["process_identity"]
-    assert record is not None and record["state"] == "timeout"
-    assert record["timeout_defaulted"] is True
-    assert "default 2h limit" in record["timeout_message"]
-    assert "--timeout <seconds>" in record["timeout_message"]
-    assert alerts and "default 2h limit" in alerts[0]
+    assert record is not None and record["state"] == "done"
+    assert record["elapsed_seconds"] == 7201.0
+    assert alerts == ["COMPLETED"]
 
 
 def test_launch_durable_command_uses_native_powershell_on_windows(

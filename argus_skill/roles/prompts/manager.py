@@ -26,6 +26,7 @@ LIVE_VIEW = "live_view"
 PENDING_QUESTION = "pending_question"
 
 _MIN_DOMAIN_STAGES = 2
+# These bound one structured Manager response for parsing/UI, not execution time.
 _MAX_DOMAIN_STAGES = 10
 _MIN_PLAN_STEPS = 3
 _MAX_PLAN_STEPS = 8

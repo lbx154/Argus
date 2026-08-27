@@ -312,7 +312,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
             ),
             plan_mode="auto",
             plan_model=None,
-            max_rounds=500,
+            max_rounds=0,
             # The Manager uses the same persisted workdir as Planner, Engineer,
             # and Reviewer. Session state remains rooted at session_root.
             workdir=workspace_key,

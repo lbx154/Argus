@@ -488,7 +488,10 @@ class RoundExecutionMixin:
             if watchdog_failure and on_event:
                 exhausted = (
                     state.backend_failure_streak >= threshold
-                    or round_index >= supervised_config.max_rounds
+                    or (
+                        supervised_config.max_rounds > 0
+                        and round_index >= supervised_config.max_rounds
+                    )
                 )
                 checkpoint_path = supervised_config.checkpoint_path
                 try:
@@ -514,7 +517,10 @@ class RoundExecutionMixin:
                     "operator_alert": True,
                     "fatal_error": fatal_error,
                 })
-            if state.backend_failure_streak >= threshold or round_index >= supervised_config.max_rounds:
+            if state.backend_failure_streak >= threshold or (
+                supervised_config.max_rounds > 0
+                and round_index >= supervised_config.max_rounds
+            ):
                 return control_return((
                     "error",
                     state.rounds,

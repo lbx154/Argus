@@ -15,6 +15,7 @@ import pytest
 
 from argus_skill.engineer.external_work import ExternalWorkState, scan_external_work
 from argus_skill.tools.resource_ledger.ledger import ResourceLedger, owner_identity
+from argus_skill.tools.resource_ledger import cli as ledger_cli
 from argus_skill.tools.resource_ledger.probe import NvidiaAdapter, ResourceProbe
 from argus_skill.tools.subagent import _cli as subagent_cli
 from argus_skill.tools.subagent import _resource_admission
@@ -289,6 +290,52 @@ def test_run_wrapper_releases_on_normal_exit(tmp_path: Path) -> None:
     )
     assert result.returncode == 0
     assert list((root / "grants").glob("*.json")) == []
+
+
+def test_run_without_max_wait_keeps_waiting_until_granted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = [0.0]
+
+    class _Ledger:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def acquire(self, *_args, **_kwargs):
+            self.calls += 1
+            return {
+                "id": "request-1",
+                "state": "queued" if self.calls == 1 else "granted",
+                "poll_after_seconds": 1,
+            }
+
+        def admit(self, *_args, **_kwargs):
+            return {"grant": {"env": {}}}
+
+        def release(self, *_args, **_kwargs):
+            return True
+
+    class _Proc:
+        def wait(self, timeout=None):
+            return 0
+
+    ledger = _Ledger()
+    monkeypatch.setattr(ledger_cli, "ResourceLedger", lambda: ledger)
+    monkeypatch.setattr(ledger_cli.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        ledger_cli.time,
+        "sleep",
+        lambda _delay: clock.__setitem__(0, clock[0] + 4001),
+    )
+    monkeypatch.setattr(ledger_cli.subprocess, "Popen", lambda *args, **kwargs: _Proc())
+    args = ledger_cli.build_parser().parse_args(
+        ["run", "--accelerator", "none", "--", "/bin/true"]
+    )
+
+    assert args.max_wait is None
+    assert args.handler(args) == 0
+    assert clock[0] > 3600
+    assert ledger.calls == 2
 
 
 @pytest.mark.skipif(os.name == "nt", reason="kill -9 and procfs are POSIX-specific")

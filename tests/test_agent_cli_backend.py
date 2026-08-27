@@ -2185,4 +2185,4 @@ def test_build_agent_cli_backend_from_env_defaults(monkeypatch):
     assert backend._runner.default_extra_args == []
     assert backend._default_watchdog_soft_idle_seconds == 600
     assert backend._default_watchdog_stalled_idle_seconds == 1800
-    assert backend._default_watchdog_hard_idle_seconds == 2700
+    assert backend._default_watchdog_hard_idle_seconds == 0

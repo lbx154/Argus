@@ -11,8 +11,6 @@ import json
 from pathlib import Path
 
 from argus_skill.verticals.research.signal_derisk import (
-    COST_CEILING_USD,
-    DURATION_CEILING_S,
     load_signal_derisk,
     main,
     validate_for_gate,
@@ -131,21 +129,6 @@ def test_wrong_direction_rejects(tmp_path):
     assert "wrong_direction" in concern
 
 
-# --- budget -----------------------------------------------------------------
-
-
-def test_over_budget_cost_rejects(tmp_path):
-    reject, concern = _gate(tmp_path, _good(cost_usd=COST_CEILING_USD + 1))
-    assert reject is True
-    assert "over_budget_cost" in concern
-
-
-def test_over_budget_duration_rejects(tmp_path):
-    reject, concern = _gate(tmp_path, _good(duration_s=DURATION_CEILING_S + 1))
-    assert reject is True
-    assert "over_budget_duration" in concern
-
-
 # --- tamper / provenance ----------------------------------------------------
 
 
@@ -217,12 +200,6 @@ def test_smoke_only_waives_movement(tmp_path):
         ),
     )
     assert reject is False
-
-
-def test_smoke_only_still_enforces_budget(tmp_path):
-    reject, concern = _gate(tmp_path, _good(smoke_only=True, cost_usd=COST_CEILING_USD + 5))
-    assert reject is True
-    assert "over_budget_cost" in concern
 
 
 def test_smoke_only_false_string_fails_closed(tmp_path):

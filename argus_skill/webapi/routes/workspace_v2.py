@@ -554,20 +554,14 @@ def _git(root: Path, *args: str, max_bytes: int = 2 * 1024 * 1024) -> str:
     process: subprocess.Popen[bytes] | None = None
     selector = selectors.DefaultSelector()
     payload = bytearray()
-    truncated = timed_out = False
+    truncated = False
     try:
         process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=safe_env)
         assert process.stdout is not None
         os.set_blocking(process.stdout.fileno(), False)
         selector.register(process.stdout, selectors.EVENT_READ)
-        deadline = time.monotonic() + 8.0
         while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                timed_out = True
-                process.kill()
-                break
-            for key, _mask in selector.select(timeout=min(.1, remaining)):
+            for key, _mask in selector.select(timeout=.1):
                 try:
                     chunk = os.read(key.fileobj.fileno(), min(64 * 1024, max_bytes + 1 - len(payload)))
                 except BlockingIOError:
@@ -600,7 +594,7 @@ def _git(root: Path, *args: str, max_bytes: int = 2 * 1024 * 1024) -> str:
         return ""
     finally:
         selector.close()
-    if timed_out or (process.returncode not in {0, -9} and not truncated):
+    if process.returncode not in {0, -9} and not truncated:
         return ""
     text = bytes(payload[:max_bytes]).decode("utf-8", errors="replace")
     return text + ("\n… output truncated\n" if truncated else "")

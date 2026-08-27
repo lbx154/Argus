@@ -130,7 +130,7 @@ def _verified_fragments(payload: Any) -> list[str]:
 def _pdf_pages(tool: str, pdf: Path) -> int | None:
     try:
         result = subprocess.run(
-            [tool, str(pdf)], capture_output=True, text=True, timeout=30, check=False
+            [tool, str(pdf)], capture_output=True, text=True, check=False
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -146,7 +146,6 @@ def _pdf_text(tool: str, pdf: Path) -> str | None:
             [tool, str(pdf), "-"],
             capture_output=True,
             text=True,
-            timeout=30,
             check=False,
         )
     except (OSError, subprocess.SubprocessError):

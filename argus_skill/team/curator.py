@@ -231,7 +231,7 @@ class TrackedTeammate:
     """A teammate process the Curator owns by holding its ``Popen`` handle."""
 
     def __init__(self, proc: Any, *, member_id: str, task_id: str, root: Path,
-                 started_at: float, timeout_s: float, hard_grace_s: float) -> None:
+                 started_at: float, timeout_s: float | None, hard_grace_s: float) -> None:
         self.proc = proc
         self.member_id = member_id
         self.task_id = task_id
@@ -247,7 +247,9 @@ class TrackedTeammate:
     def alive(self) -> bool:
         return self.proc.poll() is None
 
-    def hard_deadline(self) -> float:
+    def hard_deadline(self) -> float | None:
+        if self.timeout_s is None:
+            return None
         return self.started_at + self.timeout_s + self.hard_grace_s
 
 
@@ -269,7 +271,7 @@ class Curator:
     """
 
     def __init__(self, *, project_root: Path, default_width: int = 8,
-                 tick_s: float = 5.0, teammate_timeout_s: float = 5400.0,
+                 tick_s: float = 5.0, teammate_timeout_s: float = 0.0,
                  hard_grace_s: float = 600.0,
                  max_total_in_flight: int | None = None,
                  now_fn: Callable[[], float] = time.time,
@@ -282,6 +284,7 @@ class Curator:
         self.default_width = int(default_width)
         self.tick_s = float(tick_s)
         self.teammate_timeout_s = float(teammate_timeout_s)
+        # Used only after an explicit timeout to bound the TERM-to-KILL gap.
         self.hard_grace_s = float(hard_grace_s)
         environment = getattr(os, "environ", {})
         configured_total = (
@@ -362,9 +365,13 @@ class Curator:
             proc, member_id=member_id, task_id=task_id, root=root,
             started_at=(self._now() if now is None else now),
             timeout_s=(
-                self.teammate_timeout_s
-                if timeout_s is None or timeout_s <= 0
-                else float(timeout_s)
+                float(timeout_s)
+                if timeout_s is not None and timeout_s > 0
+                else (
+                    self.teammate_timeout_s
+                    if self.teammate_timeout_s > 0
+                    else None
+                )
             ),
             hard_grace_s=self.hard_grace_s)
         roster.add_member(root, {
@@ -543,7 +550,8 @@ class Curator:
                     roster.set_member_status(tt.root, tt.member_id, "exited")
                 dropped.append(tt.member_id)
                 continue
-            if now >= tt.hard_deadline():
+            deadline = tt.hard_deadline()
+            if deadline is not None and now >= deadline:
                 if not self._terminate(tt):
                     log.error(
                         "curator: timed-out teammate %s remained alive after termination",

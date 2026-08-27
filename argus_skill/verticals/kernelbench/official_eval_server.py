@@ -53,7 +53,11 @@ BENCH = REPO / "data" / "benchmark"
 TRACE_DIR = REPO / "data" / "flashinfer-trace"
 PORT = int(os.environ.get("EVAL_PORT", "9100"))
 GPU = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
-EVAL_TIMEOUT = int(os.environ.get("EVAL_TIMEOUT", "900"))
+EVAL_TIMEOUT = (
+    int(os.environ["EVAL_TIMEOUT"])
+    if os.environ.get("EVAL_TIMEOUT", "").strip()
+    else None
+)
 
 
 def _geomean(xs: list[float]) -> float:

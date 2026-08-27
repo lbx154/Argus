@@ -128,7 +128,7 @@ def _transaction_lock_path(project_root: Path) -> Path:
 def figure_manifest_transaction(project_root: Path):
     lock = _transaction_lock_path(project_root)
     lock.parent.mkdir(parents=True, exist_ok=True)
-    with portalocker.Lock(lock, mode="a+", timeout=30):
+    with portalocker.Lock(lock, mode="a+"):
         yield
 
 

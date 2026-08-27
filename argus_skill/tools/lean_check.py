@@ -71,7 +71,7 @@ def audit_lean_tools(
 def run_lean_check(
     source: Path | str,
     *,
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float | None = None,
     lean_bin: str | None = None,
     lake_bin: str | None = None,
     use_lake: bool = False,
@@ -153,7 +153,11 @@ def run_lean_check(
             cwd=working_dir,
         )
         stdout, stderr = process.communicate(
-            timeout=max(0.01, float(timeout_seconds)),
+            timeout=(
+                max(0.01, float(timeout_seconds))
+                if timeout_seconds is not None
+                else None
+            ),
         )
     except subprocess.TimeoutExpired as exc:
         try:
@@ -225,7 +229,11 @@ def run_lean_check(
                 cwd=working_dir,
             )
             audit_stdout, audit_stderr = audit_process.communicate(
-                timeout=max(0.01, float(timeout_seconds)),
+                timeout=(
+                    max(0.01, float(timeout_seconds))
+                    if timeout_seconds is not None
+                    else None
+                ),
             )
             audit_exit_code = audit_process.returncode
         except subprocess.TimeoutExpired as exc:
@@ -683,7 +691,10 @@ def render_compile_log(result: dict[str, Any]) -> str:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compile and audit one Lean file.")
     parser.add_argument("source", type=Path)
-    parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument(
+        "--timeout", type=float, default=None,
+        help="explicit compile timeout; omitted waits for Lean to finish",
+    )
     parser.add_argument("--lean-bin")
     parser.add_argument("--lake-bin")
     parser.add_argument("--lake", action="store_true")

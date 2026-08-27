@@ -37,81 +37,16 @@ _PIPELINE_LOCK = ".manager_pipeline.lock"
 _PIPELINE_YIELD_FILE = ".manager_pipeline_yield.json"
 
 
-class ManagerMissionBoundaryTimeout(TimeoutError):
-    """The front door could not acquire the current mission boundary in time."""
+def _acquire_session_lock(fh: Any, *, timeout: float | None = None) -> bool:
+    """Acquire ``LOCK_EX``, optionally bounded for explicit diagnostic callers.
 
-    def __init__(
-        self,
-        *,
-        root: Path,
-        waited_seconds: float,
-        waited_on: str = "",
-    ) -> None:
-        self.phase = "timeout"
-        self.attempts = 1
-        self.contract_field = ""
-        self.model_reply_snippet = ""
-        self.backend_error = ""
-        self.waited_seconds = max(0.0, float(waited_seconds))
-        self.waited_on = waited_on or (
-            f"current mission boundary/item ({root / _PIPELINE_LOCK})"
-        )
-        self.cause = (
-            f"waited {self.waited_seconds:g}s for {self.waited_on}"
-        )
-        super().__init__(f"routing failed [timeout]: {self.cause}")
-
-
-def _mission_boundary_wait_target(root: Path) -> str:
-    """Name the active item when the life directory makes it observable."""
-    try:
-        from ..life.memory import LifeMemory
-
-        running = [
-            item
-            for item in LifeMemory.open(root).backlog.active()
-            if str(getattr(item, "status", "")) == "running"
-        ]
-        if running:
-            item = max(
-                running,
-                key=lambda row: float(getattr(row, "started_ts", 0.0) or 0.0),
-            )
-            return (
-                f"current mission boundary/item {item.id} "
-                f"({root / _PIPELINE_LOCK})"
-            )
-    except Exception:  # noqa: BLE001 - timeout diagnostics remain best-effort
-        pass
-    return f"current mission boundary/item unknown ({root / _PIPELINE_LOCK})"
-
-
-def _session_lock_timeout_s() -> float:
-    """Bounded wait for the shared Manager session lock (default 120s). Manager
-    turns are short LLM calls (classify / stage / skill-review), so 120s easily
-    covers a normal turn while capping starvation if a peer turn hangs."""
-    raw = os.environ.get("ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S", "")
-    try:
-        return max(0.0, float(raw)) if raw.strip() else 120.0
-    except ValueError:
-        return 120.0
-
-
-def _pipeline_lock_timeout_s() -> float:
-    raw = os.environ.get("ARGUS_SKILL_MANAGER_PIPELINE_LOCK_TIMEOUT_S", "")
-    try:
-        return max(0.0, float(raw)) if raw.strip() else 1800.0
-    except ValueError:
-        return 1800.0
-
-
-def _acquire_session_lock(fh: Any, *, timeout: float) -> bool:
-    """Acquire ``LOCK_EX`` non-blocking, retrying up to ``timeout`` seconds.
-
-    Returns True if acquired, False if the peer held it past the budget (a
-    long/hung turn) — so the caller can fail-open instead of blocking forever.
+    Production Manager locks wait until the OS releases the peer's lock.
     """
-    deadline = time.monotonic() + max(0.0, timeout)
+    deadline = (
+        time.monotonic() + max(0.0, timeout)
+        if timeout is not None
+        else None
+    )
     while True:
         try:
             portalocker.lock(
@@ -120,7 +55,7 @@ def _acquire_session_lock(fh: Any, *, timeout: float) -> bool:
             )
             return True
         except (OSError, portalocker.exceptions.LockException):
-            if time.monotonic() >= deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 return False
             time.sleep(0.2)
 
@@ -131,16 +66,7 @@ def manager_pipeline_lock(root: Path | str):
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
     with (path / _PIPELINE_LOCK).open("a+b") as handle:
-        timeout = _pipeline_lock_timeout_s()
-        if not _acquire_session_lock(
-            handle,
-            timeout=timeout,
-        ):
-            raise ManagerMissionBoundaryTimeout(
-                root=path,
-                waited_seconds=timeout,
-                waited_on=_mission_boundary_wait_target(path),
-            )
+        _acquire_session_lock(handle)
         try:
             yield
         finally:
@@ -193,7 +119,6 @@ def manager_pipeline_yield_requested(root: Path | str) -> bool:
         payload = json.loads(path.read_text(encoding="utf-8"))
         token = str(payload.get("token") or "")
         pid = int(payload.get("pid") or 0)
-        requested_at = float(payload.get("requested_at") or 0.0)
     except (OSError, TypeError, ValueError):
         return False
     if not token or pid <= 0:
@@ -202,9 +127,6 @@ def manager_pipeline_yield_requested(root: Path | str) -> bool:
     try:
         os.kill(pid, 0)
     except (ProcessLookupError, PermissionError):
-        _clear_pipeline_yield_if_token(path, token)
-        return False
-    if requested_at <= 0 or time.time() - requested_at > _pipeline_lock_timeout_s() + 60:
         _clear_pipeline_yield_if_token(path, token)
         return False
     return True
@@ -216,11 +138,7 @@ def manager_session_lock(root: Path | str):
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
     with (path / _SESSION_LOCK).open("a+b") as handle:
-        if not _acquire_session_lock(
-            handle,
-            timeout=_session_lock_timeout_s(),
-        ):
-            raise TimeoutError("timed out waiting for the current Manager turn")
+        _acquire_session_lock(handle)
         try:
             yield
         finally:
@@ -313,11 +231,8 @@ class _ManagerSession:
     ) -> Any:
         """Run one turn on the shared persistent session under an advisory lock.
 
-        The session lock is acquired NON-blocking with a bounded wait
-        (``ARGUS_SKILL_MANAGER_LOCK_TIMEOUT_S``, default 120s), so a long/hung turn
-        in the peer process (cockpit vs daemon share one lock per cwd) can't freeze
-        this one indefinitely — if it can't be acquired in time we fall open to a
-        plain no-session call.
+        The session lock serializes the cockpit and daemon's shared Manager
+        thread. It is released by the OS if its owner exits.
 
         Fail-open recovery: if anything in the session-mode path fails (lock setup,
         a corrupt resume tid, a runner that does not accept ``resume_thread_id``),
@@ -353,13 +268,7 @@ class _ManagerSession:
             return _no_session()
 
         try:
-            if not _acquire_session_lock(
-                fh, timeout=_session_lock_timeout_s()
-            ):
-                # Peer holds a long/hung turn past the budget → don't block forever;
-                # a no-session call uses a fresh thread, so it can't corrupt the
-                # shared session.
-                return _no_session()
+            _acquire_session_lock(fh)
             try:
                 tid = self._read_tid()
                 result = gateway_run_exec(

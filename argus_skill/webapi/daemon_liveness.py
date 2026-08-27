@@ -16,6 +16,7 @@ from typing import Any
 
 from ..daemon.health import HEALTH_FILENAME
 
+# Heartbeat age detects a dead namespace; it does not limit a live mission.
 DEFAULT_NAMESPACE_HEARTBEAT_MAX_AGE_SECONDS = 300.0
 _VISIBLE_PHASES = frozenset({"starting", "active", "waiting", "idle"})
 
