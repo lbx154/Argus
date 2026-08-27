@@ -181,6 +181,7 @@ class PlanningCycleEnqueueMixin:
 
         seen_signatures: dict[tuple[str, ...], BacklogItem] = {}
         active_base_signatures: dict[tuple[str, ...], BacklogItem] = {}
+        active_node_keys: dict[str, BacklogItem] = {}
         terminal_blocker_fingerprints: dict[str, BacklogItem] = {}
         revision_active_ids = {item.id for item in state.revision_active_items}
         for existing in state.existing_items:
@@ -225,11 +226,15 @@ class PlanningCycleEnqueueMixin:
             if existing.status != "done" and not terminal_blocker:
                 active_base_signatures[base_signature] = existing
                 seen_signatures[signature] = existing
+                node_key = str(existing.node_key or "").strip()
+                if node_key:
+                    active_node_keys[node_key] = existing
             elif signature not in seen_signatures:
                 seen_signatures[signature] = existing
 
         state.seen_signatures = seen_signatures
         state.active_base_signatures = active_base_signatures
+        state.active_node_keys = active_node_keys
         state.terminal_blocker_fingerprints = terminal_blocker_fingerprints
         state.recent_failures = self._recent_no_progress_failures()
         state.new_plan_id = f"plan-{BacklogItem.new_id()}"
@@ -642,9 +647,20 @@ class PlanningCycleEnqueueMixin:
                 terminal_duplicate = state.terminal_blocker_fingerprints.get(
                     task.blocker_fingerprint
                 )
-            duplicate_item = terminal_duplicate or state.active_base_signatures.get(
-                base_signature
-            ) or state.seen_signatures.get(signature)
+            planner_node_key = str(getattr(task, "key", "") or "").strip()
+            node_key_duplicate = (
+                state.active_node_keys.get(planner_node_key)
+                if planner_node_key
+                else None
+            )
+            duplicate_item = (
+                node_key_duplicate
+                or terminal_duplicate
+                or state.active_base_signatures.get(
+                    base_signature
+                )
+                or state.seen_signatures.get(signature)
+            )
             terminal_fingerprint_match = terminal_duplicate is not None
             if (
                 duplicate_item is not None
@@ -680,6 +696,7 @@ class PlanningCycleEnqueueMixin:
                 continue
             if (
                 duplicate_item is not None
+                and node_key_duplicate is None
                 and not terminal_fingerprint_match
                 and self._gate_reproposal_is_not_a_duplicate(task, duplicate_item)
             ):

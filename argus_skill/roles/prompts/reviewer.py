@@ -61,14 +61,12 @@ _INCREMENTAL_REREVIEW_BOUNDARY = (
 # locally correct round without anything ever questioning the plan itself.
 # Keep these values in step with ``argus_skill.reviewer._parsing``.
 _PLAN_SIGNAL_VOCABULARY = (
-    "`plan_signal` is `continue`, or `reconsider` when the evidence says the "
-    "plan itself — not this round's execution — is what now stands between the "
-    "operator and the objective; rounds that each repair a different symptom of "
-    "one design are evidence for that. Then add `plan_challenge` (the assumption "
-    "you are challenging), `plan_alternative` (the better route), and "
-    "`authority_impact`: `technical` for a working choice the team may replace, "
-    "`manager_contract` or `operator` for a commitment only they can relax. A "
-    "plan the team authored for itself is a working choice.\n"
+    "`plan_signal` is `continue`, or `reconsider` when new evidence lowers the "
+    "current plan's expected value. With it, add evidence-backed `plan_challenge` "
+    "and `authority_impact`: `technical` for working choices; `manager_contract` "
+    "or `operator` only for their commitments. A plan the team authored for itself "
+    "is a working choice. Add `plan_alternative` only when you actually have one; "
+    "without it Manager uses ordinary `revise`.\n"
 )
 
 
@@ -421,6 +419,15 @@ def render_reviewer_prompt(
                 )
                 + "\n"
             )
+    surprise_judgment_block = (
+        "What observed result or pattern most changed your belief — including a "
+        "positive surprise — and what is the cheapest observation that would "
+        "distinguish a new scientific explanation from an artifact? `none` is valid "
+        "and produces no work; if the answer could change the claim or route, use "
+        "ordinary `reconsider` to hand it to Planner.\n"
+        if _research_target_level is not None
+        else ""
+    )
     # Live search-altitude facts (NO verdict) so the reviewer can SEE the
     # floor history when judging forward_progress — i.e. distinguish "this
     # round advanced a declared structural line" from "Nth single-knob
@@ -619,6 +626,7 @@ def render_reviewer_prompt(
     # settlement, operator routing, research certification, or plan adjudication.
     static = (
         verification_instruction
+        + surprise_judgment_block
         + EFFECTIVE_TASK_CONTRACT
         + "\n\n"
         + (shell_contract + "\n\n" if shell_contract else "")
@@ -659,6 +667,10 @@ def render_reviewer_prompt(
             "FORWARD_PROGRESS=true\n"
             "PLAN_SIGNAL=continue"
         )
+        + "\nEqually ordinary:\n"
+        "PLAN_SIGNAL=reconsider\n"
+        "PLAN_CHALLENGE=challenged assumption\n"
+        "AUTHORITY_IMPACT=technical"
         + "\nFor a real operator-owned choice only, add "
         "`OPERATOR_QUESTION=...` and "
         "`OPERATOR_OPTIONS=a::Use A::What choosing A does; "
@@ -719,6 +731,7 @@ def render_reviewer_prompt(
             "direct_memory": direct_memory_edit_block,
             "wiki_curator": wiki_curator_skill_block,
             "research_target": verification_instruction,
+            "surprise_judgment": surprise_judgment_block,
             "manuscript_review_validity": review_validity_block,
             "method_freeze": freeze_facts_block,
             "objective_context": objective_context,

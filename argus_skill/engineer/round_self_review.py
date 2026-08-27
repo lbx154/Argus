@@ -92,6 +92,16 @@ class RoundSelfReviewMixin:
         milestone_done = _milestone_is_done(outcome)
         handoff = _round_handoff(outcome)
         if handoff.waits_for_operator:
+            from ..core.autonomy import assess_operator_intervention
+
+            intervention = assess_operator_intervention(
+                question=handoff.operator_question,
+                reason=outcome.engineer_message,
+            )
+            if not intervention.required:
+                # The Reviewer sees the Engineer's question in the ordinary
+                # round record and can return it to Planner as a technical fact.
+                return control_proceed()
             return self._settle_round(
                 review=ReviewDecision(
                     status="blocked",

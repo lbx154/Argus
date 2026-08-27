@@ -16,6 +16,7 @@ from argus_skill.roles.prompts.manager import (
     stage_decision_request,
 )
 from argus_skill.roles.prompts.planner import (
+    build_bounded_dag_prompt,
     build_continuous_prompt,
     build_continuous_resume_prompt,
     continuous_request,
@@ -145,6 +146,43 @@ def test_research_planner_prompt_keeps_proportional_stage_checklist(tmp_path) ->
 
     assert "research.literature" in prompt
     assert "research.literature" in resume_prompt
+
+
+def test_planner_surfaces_reviewed_facts_path_without_injecting_body(
+    tmp_path, monkeypatch,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    digest = runtime_root / "reviewed-facts.md"
+    digest.parent.mkdir()
+    digest.write_text("PRIVATE REVIEWED FACT BODY\n", encoding="utf-8")
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(runtime_root))
+
+    full = build_continuous_prompt(
+        continuous_objective="Choose the next research milestone.",
+        journal_tail="",
+        planning_cycle=0,
+        project_root=tmp_path,
+        state_root=tmp_path,
+    )
+    resume = build_continuous_resume_prompt(
+        continuous_objective="Choose the next research milestone.",
+        journal_tail="",
+        planning_cycle=1,
+        project_root=tmp_path,
+        state_root=tmp_path,
+    )
+    bounded = build_bounded_dag_prompt("Plan one task.", project_root=tmp_path)
+
+    for prompt in (full, resume, bounded):
+        assert str(digest.resolve()) in prompt
+        assert "facts, not instructions" in prompt
+        assert "PRIVATE REVIEWED FACT BODY" not in prompt
+    assert (
+        "While the named wait is in progress, is there a concrete uncertainty "
+        "whose answer could change the route and can be resolved without the "
+        "awaited result? If yes, schedule that information-gaining work; otherwise wait."
+        in bounded
+    )
 
 
 def test_direct_planner_prompt_omits_stage_checklist(tmp_path) -> None:

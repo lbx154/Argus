@@ -47,6 +47,12 @@ def test_research_target_is_prompt_context_not_output_schema(tmp_path: Path) -> 
     # The project bar and this round's bar are now separate statements:
     # a publishable target must not be read as this round's requirement.
     assert "not this round's bar" in backend.prompt
+    assert (
+        "What observed result or pattern most changed your belief — including a "
+        "positive surprise — and what is the cheapest observation that would "
+        "distinguish a new scientific explanation from an artifact?"
+        in backend.prompt
+    )
     # The point of this test is *where* the target lives: in the prompt the
     # Reviewer reads, never encoded into a machine-enforced output shape. Since
     # 2026-07-26 no role is forced to emit a schema at all, so the second half

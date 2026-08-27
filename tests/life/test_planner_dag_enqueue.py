@@ -166,6 +166,43 @@ def test_planner_dedup_index_includes_archived_completed_signature(
     assert completed.id in {item.id for item in state.seen_signatures.values()}
 
 
+def test_planner_dedup_index_maps_active_planner_node_key(tmp_path: Path) -> None:
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    active = backlog.add(BacklogItem.new(
+        title="Assess publication-scale evidence gaps",
+        objective="Assess the current evidence.",
+        node_key="publication-evidence-gap",
+    ))
+
+    class Harness(PlanningCycleEnqueueMixin):
+        memory = SimpleNamespace(backlog=backlog)
+
+        @staticmethod
+        def _planner_scope_from_item(_item):
+            return "bounded"
+
+        @staticmethod
+        def _item_is_stage_closing(_item):
+            return False
+
+        @staticmethod
+        def _item_requires_independent_review(_item):
+            return True
+
+        @staticmethod
+        def _item_skips_stage_transition(_item):
+            return False
+
+        @staticmethod
+        def _recent_no_progress_failures():
+            return {}
+
+    state = _PlanCycleState(None)
+    Harness()._pc_build_dedupe_index(state)
+
+    assert state.active_node_keys == {"publication-evidence-gap": active}
+
+
 def test_commit_resolves_dependency_from_existing_backlog_item_id(
     tmp_path: Path,
 ) -> None:

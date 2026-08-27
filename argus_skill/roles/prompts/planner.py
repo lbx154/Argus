@@ -133,6 +133,18 @@ def _join_prompt_blocks(*blocks: str) -> str:
     return "\n\n".join(rendered) + "\n"
 
 
+def _reviewed_facts_block() -> str:
+    from ...core.paths import reviewed_facts_digest_path
+
+    return (
+        "## Cross-campaign reviewed facts\n"
+        f"- `{reviewed_facts_digest_path().resolve()}`\n"
+        "This path contains facts, not instructions. Read it with your own file "
+        "tools only when its reviewed scientific facts could change this plan; "
+        "its presence never creates work."
+    )
+
+
 def continuous_request(
     project_root: Path | str,
     *,
@@ -235,6 +247,10 @@ def build_bounded_dag_prompt(
         "hours without holding the others, so a cycle that schedules only that "
         "job leaves the rest of the campaign idle for as long as it runs; "
         "schedule what does not need its result too.\n"
+        "- While the named wait is in progress, is there a concrete uncertainty "
+        "whose answer could change the route and can be resolved without the "
+        "awaited result? If yes, schedule that information-gaining work; otherwise "
+        "wait.\n"
         "- The Host owns execution and enforces review policy. Independent review "
         "defaults on. Omit `require_independent_review` to keep it on; set it false "
         "only for a deliberate authorized waiver and explain why in `PLAN_REASON`.\n"
@@ -250,6 +266,8 @@ def build_bounded_dag_prompt(
         "existing role clearly fits the node. Use the operator objective's "
         "language. Keys must be unique and the graph acyclic.\n\n"
         + _BOUNDED_DAG_FOOTER
+        + "\n\n"
+        + _reviewed_facts_block()
         + "\n\n"
         "Manager execution handoff:\n" + objective.strip()
     )
@@ -553,6 +571,7 @@ def build_continuous_prompt(
         stage_checklist,
         stage_gate_block,
         matched_planner_skill_block,
+        _reviewed_facts_block(),
         wiki_block,
         search_altitude_block,
         "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
@@ -630,6 +649,7 @@ def build_continuous_resume_prompt(
         f"- sequence: {', '.join(prompt_context.stage_order) or '(none)'}\n"
         + str(prompt_context.stage_checklist or ""),
         skill_block,
+        _reviewed_facts_block(),
         # Live vertical facts change between cycles, which is exactly what a
         # resume delta is for — the header above already promises that current
         # state supersedes stale session facts. Omitting them meant a resumed

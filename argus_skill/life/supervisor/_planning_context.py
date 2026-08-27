@@ -1917,7 +1917,11 @@ class PlanningContextMixin:
             "If current evidence does not satisfy the declared recheck condition, "
             "reuse the same blocker semantics and token with waiting=true and do not "
             "queue an equivalent polling task. Change the token only when concrete "
-            "current evidence changes; the harness does not infer that change."
+            "current evidence changes; the harness does not infer that change. "
+            "While the named wait is in progress, is there a concrete uncertainty "
+            "whose answer could change the route and can be resolved without the "
+            "awaited result? If yes, schedule that information-gaining work; otherwise "
+            "wait."
         )
 
     def _maybe_dispatch_verification_probe(self, verdict: Any) -> bool:

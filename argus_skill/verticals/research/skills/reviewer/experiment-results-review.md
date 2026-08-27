@@ -33,6 +33,8 @@ no, the honest status is “this idea has not yet been given a real chance”:
 unfinished work, not a negative result, paper section, or reason to abandon the
 route.
 
+Independently of whether the result is positive or negative, answer: What observed result or pattern most changed your belief — including a positive surprise — and what is the cheapest observation that would distinguish a new scientific explanation from an artifact? `none` is a valid answer and produces no work. If the answer could change the claim or route, use the ordinary `reconsider` channel to hand it to Planner; do not add a new output field.
+
 ## When the method did NOT beat the baseline
 
 A loss is a root-cause and research-value decision point.

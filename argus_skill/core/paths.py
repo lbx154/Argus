@@ -20,6 +20,7 @@ __all__ = [
     "config_path",
     "shared_skills_root",
     "shared_skills_archive_root",
+    "reviewed_facts_digest_path",
     "tools_root",
     "capabilities_root",
     "special_prompts_root",
@@ -84,6 +85,10 @@ def shared_skills_root(root: str | Path | None = None) -> Path:
 
 def shared_skills_archive_root(root: str | Path | None = None) -> Path:
     return shared_skills_root(root) / "_archive"
+
+
+def reviewed_facts_digest_path(root: str | Path | None = None) -> Path:
+    return _root(root) / "reviewed-facts.md"
 
 
 def tools_root(root: str | Path | None = None) -> Path:

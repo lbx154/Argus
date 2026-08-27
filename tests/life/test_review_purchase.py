@@ -11,10 +11,10 @@ from argus_skill.verticals.research.review_purchase import (
 )
 
 
-def _task() -> SimpleNamespace:
+def _task(*, objective: str = "Run the paper-wide publication assessment.") -> SimpleNamespace:
     return SimpleNamespace(
         title="publication-scale-assessment",
-        objective="Run the paper-wide publication assessment.",
+        objective=objective,
         acceptance_check="Assess the final paper.",
     )
 
@@ -87,3 +87,58 @@ def test_semantically_equal_pending_review_defers_purchase(tmp_path: Path) -> No
     assert reason == (
         "semantically equal paper-wide review is already active (pending-review)"
     )
+
+
+def test_current_static_review_does_not_defer_missing_model_review(
+    tmp_path: Path,
+) -> None:
+    manuscript = tmp_path / "paper/main.tex"
+    manuscript.parent.mkdir(parents=True)
+    manuscript.write_text("paper\n", encoding="utf-8")
+    (tmp_path / "paper/PAPER_INFRASTRUCTURE_REVIEW.json").write_text(
+        json.dumps({
+            "manuscript_snapshot": manuscript_snapshot(tmp_path),
+            "review_method": "deterministic_static_scan",
+            "model_review": None,
+        }),
+        encoding="utf-8",
+    )
+
+    completed_static = SimpleNamespace(
+        id="static-review",
+        status="done",
+        title="paper infrastructure review",
+        objective="Run deterministic static review.",
+        acceptance_check="Assess the final paper.",
+    )
+    reason = paper_review_purchase_defer_reason(
+        _task(objective="Regenerate the model-backed paper review."),
+        vertical="research",
+        project_root=tmp_path,
+        existing_items=[completed_static],
+    )
+
+    assert reason == ""
+
+
+def test_current_model_review_defers_identical_mode_repeat(tmp_path: Path) -> None:
+    manuscript = tmp_path / "paper/main.tex"
+    manuscript.parent.mkdir(parents=True)
+    manuscript.write_text("paper\n", encoding="utf-8")
+    (tmp_path / "paper/PAPER_INFRASTRUCTURE_REVIEW.json").write_text(
+        json.dumps({
+            "manuscript_snapshot": manuscript_snapshot(tmp_path),
+            "review_method": "model",
+            "model_review": {"verdict": "PASS"},
+        }),
+        encoding="utf-8",
+    )
+
+    reason = paper_review_purchase_defer_reason(
+        _task(objective="Regenerate the model-backed paper review."),
+        vertical="research",
+        project_root=tmp_path,
+        existing_items=[],
+    )
+
+    assert "unexpired current-SHA review" in reason
