@@ -12,6 +12,7 @@ _CAPTURE_STDOUT_LINES_ENV = "ARGUS_SKILL_RUNNER_CAPTURE_STDOUT_LINES"
 _CAPTURE_STDERR_LINES_ENV = "ARGUS_SKILL_RUNNER_CAPTURE_STDERR_LINES"
 _CAPTURE_JSON_EVENTS_ENV = "ARGUS_SKILL_RUNNER_CAPTURE_JSON_EVENTS"
 _STREAM_QUEUE_LINES_ENV = "ARGUS_SKILL_RUNNER_STREAM_QUEUE_LINES"
+# These deques bound RAM; complete provider output is persisted in agent I/O logs.
 _DEFAULT_CAPTURE_STDOUT_LINES = 512
 _DEFAULT_CAPTURE_STDERR_LINES = 256
 _DEFAULT_CAPTURE_JSON_EVENTS = 2048
@@ -20,15 +21,10 @@ _ENGINEER_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS"
 _DEFAULT_ENGINEER_TURN_MAX_SECONDS = 0
 _SCIENTIST_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS"
 _DEFAULT_SCIENTIST_TURN_MAX_SECONDS = 0
-# Manager calls sit on the control plane: one hung classify/route turn blocks
-# dispatch and the selected Web workspace.  Bound total elapsed time even when
-# provider reconnect notices keep the ordinary idle watchdog looking active.
-# Five minutes matches the existing Copilot ACP Manager timeout.
 _MANAGER_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS"
-_DEFAULT_MANAGER_TURN_MAX_SECONDS = 5 * 60
+_DEFAULT_MANAGER_TURN_MAX_SECONDS = 0
 # These labels sit inside the synchronous Manager request even though they use
-# older or role-specific names. Leaving them unbounded lets provider chatter
-# keep the Web request alive indefinitely.
+# older or role-specific names. An operator may still give them an explicit cap.
 _SYNCHRONOUS_MANAGER_TURN_LABELS = frozenset(
     {
         "chat-1",

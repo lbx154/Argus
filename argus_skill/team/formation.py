@@ -15,6 +15,7 @@ _LOCK_FILE = ".formation.lock"
 _ADMISSION_LOCK_FILE = ".formation-admission.lock"
 _TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
 _ALLOW_NESTED_ENV = "ARGUS_SKILL_ALLOW_NESTED_TEAM"
+# Formation caps bound admitted process/state fan-out, never live task duration.
 _MAX_ACTIVE_ENV = "ARGUS_TEAM_MAX_ACTIVE_CAMPAIGNS"
 _MAX_TASKS_ENV = "ARGUS_TEAM_MAX_TASKS_PER_FORMATION"
 _ACTIVE_TASK_STATES = frozenset({"pending", "claimed", "running"})

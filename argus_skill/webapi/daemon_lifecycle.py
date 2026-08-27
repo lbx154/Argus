@@ -105,7 +105,7 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         ),
         global_daily_cap_usd=budget.global_daily_cap_usd,
         planner_task_iteration_max_cycles=int(
-            os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "6")
+            os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "0")
         ),
     )
 

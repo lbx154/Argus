@@ -31,7 +31,6 @@ canonical Reviewer role configuration as the resident fleet:
 """
 from __future__ import annotations
 
-import math
 import os
 import shlex
 import time
@@ -91,7 +90,7 @@ def run_reviewer_prompt_via_runner(
     run_label: str,
     working_dir: str | None = None,
     env: Mapping[str, str] | None = None,
-    timeout: float,
+    timeout: float | None,
 ) -> tuple[str, str]:
     """Run the reviewer PROMPT through the fleet agent-CLI runner.
 
@@ -114,13 +113,6 @@ def run_reviewer_prompt_via_runner(
     )
     from ...core.models import RunnerOptions
     from ...core.run_gateway import run_exec as gateway_run_exec
-
-    try:
-        timeout_s = float(timeout)
-    except (TypeError, ValueError) as exc:
-        raise ReviewerRunnerError(f"invalid reviewer timeout {timeout!r}") from exc
-    if not math.isfinite(timeout_s) or timeout_s <= 0:
-        raise ReviewerRunnerError(f"reviewer timeout must be positive; got {timeout!r}")
 
     try:
         backend_name = normalize_runner_backend(
@@ -152,11 +144,11 @@ def run_reviewer_prompt_via_runner(
         raise ReviewerRunnerError(
             f"invalid reviewer runner configuration: {type(exc).__name__}: {exc}"
         ) from exc
-    deadline = time.monotonic() + timeout_s
+    deadline = time.monotonic() + timeout if timeout is not None else None
 
     def _timeout_reason() -> str | None:
-        if time.monotonic() >= deadline:
-            return f"reviewer timeout after {timeout_s:.1f}s"
+        if deadline is not None and time.monotonic() >= deadline:
+            return f"reviewer timeout after {timeout:.1f}s"
         return None
 
     try:
@@ -174,8 +166,12 @@ def run_reviewer_prompt_via_runner(
                 skip_git_repo_check=True,
                 full_auto=True,
                 working_dir=working_dir,
-                external_interrupt_reason_provider=_timeout_reason,
-                watchdog_hard_idle_seconds=max(1, math.ceil(timeout_s)),
+                external_interrupt_reason_provider=(
+                    _timeout_reason if timeout is not None else None
+                ),
+                watchdog_hard_idle_seconds=(
+                    max(1, int(timeout)) if timeout is not None else 0
+                ),
             ),
             run_label=run_label,
         )

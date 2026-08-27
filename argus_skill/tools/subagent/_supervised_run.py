@@ -41,7 +41,6 @@ from ._normalize import _clean_concern, _norm_decision
 from ._normalize import _norm_health as _normalize_health
 from ._registry import (
     _ZERO_USAGE_TUPLE,
-    SUPERVISOR_INTERVAL_CAP,
     SUPERVISOR_THREAD_MAX_CHECKS,
     _add_usage_totals,
     _apply_supervisor_usage_fields,
@@ -238,7 +237,6 @@ def _supervisor_check_with_usage(
             model,
             cwd,
             thread_id,
-            timeout=120,
             run_label=f"subagent:{task_id}:health",
             mission_id=str((_read_task(task_id) or {}).get("run_id") or "") or None,
         )
@@ -560,7 +558,7 @@ def _run_supervised(
     task_id: str,
     command: str,
     description: str,
-    timeout: int,
+    timeout: int | None,
     monitor_interval: int,
     model: str,
     cwd: str,
@@ -778,14 +776,14 @@ def _run_supervised(
                 env=command_env(resource_lease),
             )
             command_identity = _process_identity(proc.pid)
-            current_interval = min(
-                max(monitor_interval, 1),
-                SUPERVISOR_INTERVAL_CAP,
-            )
-            next_check_at = min(
-                time.time() + current_interval,
-                start_time + timeout,
-            )
+            current_interval = max(monitor_interval, 1)
+            if resource_lease is not None:
+                # Lease renewal is a crash-cleanup fact, so polling cannot outgrow it.
+                current_interval = min(
+                    current_interval,
+                    max(1.0, resource_lease.ttl_seconds / 3.0),
+                )
+            next_check_at = time.time() + current_interval
             running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id, "run_id": run_id,
                 "description": description, "command": command,
@@ -813,13 +811,15 @@ def _run_supervised(
             decision, health, concern = "continue", "unknown", ""
             consecutive_supervisor_failures = 0
             supervision_alerted = False
-            # Health-adaptive backoff: start at the configured interval (capped),
+            # Health-adaptive backoff: start at the configured interval,
             # then double while healthy (save supervisor tokens), snap back to the
             # base interval the moment health degrades.
             while True:
-                # Never wait past the hard timeout, even with a long interval.
-                remaining = timeout - (time.time() - start_time)
-                wait_for = min(current_interval, max(1, int(remaining)))
+                elapsed = time.time() - start_time
+                wait_for = current_interval
+                if timeout is not None:
+                    remaining = timeout - elapsed
+                    wait_for = min(current_interval, max(1, int(remaining)))
                 try:
                     proc.wait(timeout=wait_for)
                     break  # Process exited
@@ -829,7 +829,7 @@ def _run_supervised(
                     record_renewal_failure(task_id, resource_lease)
 
                 elapsed = time.time() - start_time
-                if elapsed > timeout:
+                if timeout is not None and elapsed > timeout:
                     _terminate_proc(proc)
                     td = {
                         "state": "timeout", "task_id": task_id, "run_id": run_id,
@@ -839,14 +839,8 @@ def _run_supervised(
                         "worker_process_identity": worker_identity,
                         **timeout_fields,
                         "timeout_message": (
-                            f"Hard timeout reached after {timeout} seconds"
-                            + (
-                                "; this was the default 2h limit because no "
-                                "--timeout was supplied. Resubmit with "
-                                "--timeout <seconds> for a longer run."
-                                if timeout_defaulted
-                                else "; this was the configured --timeout limit."
-                            )
+                            f"Hard timeout reached after {timeout} seconds; "
+                            "this was the configured --timeout limit."
                         ),
                         "elapsed_seconds": round(elapsed, 1),
                         "completed_at": time.time(), "mode": "supervised",
@@ -935,16 +929,18 @@ def _run_supervised(
                 current_interval = _next_monitor_interval(
                     health, current_interval, monitor_interval,
                 )
+                if resource_lease is not None:
+                    current_interval = min(
+                        current_interval,
+                        max(1.0, resource_lease.ttl_seconds / 3.0),
+                    )
                 task = _read_task(task_id) or {}
                 if (
                     str(task.get("run_id") or "") == run_id
                     and task.get("state") == "running"
                 ):
                     task["current_monitor_interval"] = current_interval
-                    task["next_check_at"] = min(
-                        time.time() + current_interval,
-                        start_time + timeout,
-                    )
+                    task["next_check_at"] = time.time() + current_interval
                     _write_task(task_id, task)
 
             # Process exited naturally.

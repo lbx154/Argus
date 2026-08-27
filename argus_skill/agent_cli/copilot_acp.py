@@ -35,8 +35,10 @@ from ._idle_watchdog import (
 )
 from .models import AgentRunResult, InactivitySnapshot
 
-_DEFAULT_TIMEOUT_S = 60.0
-_DEFAULT_MANAGER_TIMEOUT_S = 300.0
+# Prompt inactivity caps are opt-in; a live role turn may think indefinitely.
+_DEFAULT_TIMEOUT_S = 0.0
+_DEFAULT_MANAGER_TIMEOUT_S = 0.0
+# Bounds the mechanical gap between ACP cancellation and forced termination.
 _CANCEL_GRACE_S = 5.0
 _DEFAULT_SESSION_RECYCLE = 12
 _FRONT_DOOR_LABEL = "manager-frontdoor-classify"
@@ -64,7 +66,7 @@ def _prompt_timeout(run_label: str | None) -> float:
         env_name = "ARGUS_SKILL_COPILOT_ACP_MANAGER_TIMEOUT_S"
         default = _DEFAULT_MANAGER_TIMEOUT_S
     try:
-        return max(1.0, float(os.environ.get(env_name, "") or default))
+        return max(0.0, float(os.environ.get(env_name, "") or default))
     except ValueError:
         return default
 
@@ -177,6 +179,7 @@ class CopilotAcpClient:
         lean: bool = False,
         read_only: bool = False,
         add_dirs: tuple[str, ...] = (),
+        # Startup is a transport handshake, not a model-thinking turn.
         startup_timeout_s: float = 30.0,
     ) -> None:
         self._agent_bin = agent_bin
@@ -657,6 +660,7 @@ class CopilotAcpClient:
             self._front_door_uses = 0
 
     def _new_session(self, cwd: str) -> str:
+        # Session creation is a transport handshake, not a model-thinking turn.
         resp = self._request("session/new", {"cwd": cwd, "mcpServers": []}, timeout=25)
         if resp is None or "error" in resp:
             raise RuntimeError(f"session/new failed: {resp}")

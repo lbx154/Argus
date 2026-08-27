@@ -456,7 +456,6 @@ def isolated_workdir_command(
             check=False,
             capture_output=True,
             text=True,
-            timeout=2.0,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         common = ""

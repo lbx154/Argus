@@ -37,7 +37,7 @@ _DEFAULT_DAILY_PREMIUM_CAP = 10_000.0
 _DEFAULT_DAILY_CALL_CAP = 10_000
 _DEFAULT_HOURLY_CALL_CAP = 10_000
 _DEFAULT_MAX_CONCURRENCY = 10_000
-_DEFAULT_SLOT_WAIT_SECONDS = 30.0
+_DEFAULT_SLOT_WAIT_SECONDS = 0.0
 _DEFAULT_POLICY_COOLDOWN_SECONDS = 24 * 60 * 60
 _DEFAULT_RATE_COOLDOWN_SECONDS = 30 * 60
 
@@ -185,7 +185,7 @@ def _acquire_slot(root: Path) -> tuple[BinaryIO | None, str]:
     wait_s = _float_setting(
         "ARGUS_SKILL_COPILOT_SLOT_WAIT_S", _DEFAULT_SLOT_WAIT_SECONDS
     )
-    deadline = time.monotonic() + wait_s
+    deadline = time.monotonic() + wait_s if wait_s > 0 else None
     slot_dir = root / _SLOT_DIR
     slot_dir.mkdir(parents=True, exist_ok=True)
     while True:
@@ -203,7 +203,7 @@ def _acquire_slot(root: Path) -> tuple[BinaryIO | None, str]:
                 fh.close()
                 continue
             return fh, ""
-        if time.monotonic() >= deadline:
+        if deadline is not None and time.monotonic() >= deadline:
             return None, (
                 f"global Copilot concurrency cap {limit} reached "
                 f"for {wait_s:g}s"

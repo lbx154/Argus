@@ -82,7 +82,8 @@ class SkillLoopConfig:
             True,
         )
     )
-    max_rounds: int = 32
+    # Zero means no wall-clock-independent ceiling; semantic stall guards still apply.
+    max_rounds: int = 0
     no_progress_threshold: int = 2
     # Anti-livelock thresholds threaded into SupervisedConfig: at
     # ``soft_round_limit`` the reviewer is told to escalate an unresolvable

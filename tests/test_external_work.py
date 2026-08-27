@@ -60,7 +60,7 @@ def test_stale_healthy_record_downgrades_without_becoming_progress(tmp_path: Pat
     assert "stale" in status.reason
 
 
-def test_fresh_heartbeat_with_stale_declared_activity_needs_attention(
+def test_fresh_heartbeat_with_quiet_declared_activity_stays_waitable(
     tmp_path: Path,
 ) -> None:
     progress = tmp_path / "experiments" / "progress.jsonl"
@@ -79,10 +79,9 @@ def test_fresh_heartbeat_with_stale_declared_activity_needs_attention(
     status = inspect_external_work(tmp_path, "job-1", now=1000)
 
     assert status is not None
-    assert status.state is ExternalWorkState.NEEDS_ATTENTION
-    assert status.waitable is False
+    assert status.state is ExternalWorkState.RUNNING_HEALTHY
+    assert status.waitable is True
     assert status.activity_silence_seconds == 300
-    assert "declared activity has not changed for 5m" in status.reason
 
 
 def test_recent_declared_activity_keeps_fresh_heartbeat_waitable(
@@ -109,7 +108,7 @@ def test_recent_declared_activity_keeps_fresh_heartbeat_waitable(
     assert status.activity_silence_seconds == 20
 
 
-def test_external_wait_wakes_when_activity_stalls_despite_fresh_heartbeat(
+def test_external_wait_keeps_waiting_when_activity_is_quiet_with_fresh_heartbeat(
     tmp_path: Path,
 ) -> None:
     path = _write_external(
@@ -141,8 +140,8 @@ def test_external_wait_wakes_when_activity_stalls_despite_fresh_heartbeat(
         now=lambda: clock[0],
     )
 
-    assert reason == ExternalWorkState.NEEDS_ATTENTION.value
-    assert waited == 15
+    assert reason == "cadence_elapsed"
+    assert waited == 30
 
 
 def test_paths_are_project_relative_and_lookup_uses_declared_id(tmp_path: Path) -> None:
@@ -175,7 +174,7 @@ def test_legacy_subagents_map_to_generic_states(tmp_path: Path) -> None:
     for work_id, over in {
         "healthy": {},
         "attention": {"state": "discussing"},
-        "stalled": {"heartbeat_at": 1},
+        "stalled": {"worker_pid": 999999},
         "terminal": {"state": "done"},
     }.items():
         payload = {"task_id": work_id, **base, **over}
@@ -381,7 +380,7 @@ def test_advisory_and_sentinel_are_explicit_about_liveness_only(tmp_path: Path) 
     assert parse_external_wait_request("WAIT_FOR_EXTERNAL_WORK: job-1") is None
 
 
-def test_advisory_requires_diagnosis_for_stale_activity(tmp_path: Path) -> None:
+def test_advisory_keeps_quiet_live_activity_waitable(tmp_path: Path) -> None:
     progress = tmp_path / "experiments" / "progress.jsonl"
     progress.parent.mkdir()
     progress.write_text("", encoding="utf-8")
@@ -396,9 +395,8 @@ def test_advisory_requires_diagnosis_for_stale_activity(tmp_path: Path) -> None:
 
     advisory = render_external_work_advisory(tmp_path, now=1000)
 
-    assert "needs_attention" in advisory
-    assert "must not be waited on or foreground-polled" in advisory
-    assert "repair, cancel, or restart" in advisory
+    assert "running_healthy" in advisory
+    assert "needs_attention" not in advisory
 
 
 def test_a_job_that_declares_no_activity_paths_is_still_watched(tmp_path) -> None:

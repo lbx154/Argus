@@ -12,6 +12,7 @@ from typing import Any
 
 HEALTH_FILENAME = "daemon.health.json"
 HEALTH_SCHEMA_VERSION = 1
+# This classifies missing semantic progress for diagnostics; it never kills work.
 DEFAULT_STALL_SECONDS = 30 * 60.0
 _ACTIVITY_WRITE_INTERVAL_SECONDS = 5.0
 _WINDOWS_REPLACE_ATTEMPTS = 6

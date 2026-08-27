@@ -1,4 +1,4 @@
-"""The shared Manager session lock is bounded and its thread id persists.
+"""The shared Manager session lock waits honestly and its thread id persists.
 
 Recovery from a session-mode error is covered by
 ``tests/manager/test_manager_session.py``.

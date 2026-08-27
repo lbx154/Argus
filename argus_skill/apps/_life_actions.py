@@ -73,7 +73,7 @@ def add_backlog_item(
     item_id: str | None = None,
     priority: int = 100,
     iterate: bool = True,
-    iteration_max_cycles: int = 6,
+    iteration_max_cycles: int = 0,
     manager_decision: dict[str, Any] | None = None,
 ) -> BacklogItem:
     text = text.strip()
@@ -176,7 +176,7 @@ def render_run_command(
     parser.add_argument(
         "--max-missions",
         type=int,
-        default=int(cfg.get("cycles", 6)),
+        default=int(cfg.get("cycles", 0)),
     )
     parser.add_argument(
         "--global-daily-cap-usd",
@@ -229,7 +229,7 @@ def render_run_command(
 
 DEFAULT_LIFE_CONFIG: dict[str, Any] = {
     "iterate": True,
-    "cycles": 6,
+    "cycles": 0,
     "continuous": False,
     "manager_effort": "xhigh",
     "planner_effort": "xhigh",

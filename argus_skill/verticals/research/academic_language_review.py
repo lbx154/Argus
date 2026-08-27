@@ -41,7 +41,7 @@ PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
 ACADEMIC_LANGUAGE_REVIEW_JSON_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.json")
 ACADEMIC_LANGUAGE_REVIEW_MD_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.md")
 MIN_ACADEMIC_LANGUAGE_SCORE = 4.0
-DEFAULT_TIMEOUT_SECONDS = 500.0
+DEFAULT_TIMEOUT_SECONDS: float | None = None
 MAX_SOURCE_FILES = 120
 MIN_REVIEW_ABSTRACT_WORDS = 170
 INTRODUCTION_DEPTH_SIGNAL_WORDS = 900
@@ -251,7 +251,7 @@ def generate_academic_language_review(
     *,
     review_mode: str = "model",
     threshold: float = MIN_ACADEMIC_LANGUAGE_SCORE,
-    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    timeout: float | None = DEFAULT_TIMEOUT_SECONDS,
     iteration: int | None = None,
     write: bool = True,
     env: Mapping[str, str] | None = None,
@@ -742,7 +742,7 @@ def _run_model_review(
     deterministic: dict[str, Any],
     threshold: float,
     env: Mapping[str, str] | None,
-    timeout: float,
+    timeout: float | None,
     venue: VenueProfile,
 ) -> dict[str, Any]:
     prompt = _review_prompt(

@@ -60,6 +60,7 @@ class PlannerConfig:
     open_ended: bool = False
     external_interrupt_reason_provider: Any = None
     role_session_policy: str = field(default_factory=configured_role_session_policy)
+    # Rolling-session caps rotate context; they never stop the Planner's work.
     role_session_max_turns: int = 6
     role_session_max_input_tokens: int = 120_000
     role_session_path: Path | None = None

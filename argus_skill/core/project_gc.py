@@ -39,6 +39,7 @@ from .daemon_lock import is_pid_running, read_daemon_pid
 log = logging.getLogger(__name__)
 
 _DEFAULT_RETENTION_DAYS = 30
+# This grace protects new empty project state from GC; it never bounds work.
 _DEFAULT_EMPTY_GRACE_SECONDS = 3600.0
 _LOCK_FILES = ("daemon.pid",)
 # Files whose mtime signals real activity in a project (appends bump the

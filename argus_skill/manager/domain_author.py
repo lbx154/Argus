@@ -28,6 +28,7 @@ from .live_view import LiveViewDecision, parse_live_view
 
 _NAME_SANITIZE_RE = re.compile(r"[^a-z0-9_]+")
 _MIN_STAGES = 2
+# Generated stage count is a persisted schema bound, not a work deadline.
 _MAX_STAGES = 10
 
 

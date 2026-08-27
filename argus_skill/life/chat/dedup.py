@@ -19,6 +19,7 @@ import threading
 import time
 from pathlib import Path
 
+# Retention bounds the in-memory/disk dedup window, never message processing time.
 _RETENTION_SECONDS = 24 * 60 * 60
 
 

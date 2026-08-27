@@ -38,12 +38,6 @@ def _timeout_notice(task_data: dict[str, Any]) -> str:
     seconds = task_data.get("timeout_seconds")
     if seconds in (None, ""):
         return ""
-    if task_data.get("timeout_defaulted"):
-        return (
-            f"Hard timeout reached after {seconds} seconds (default 2h limit; "
-            "no --timeout was supplied). Resubmit with --timeout <seconds> "
-            "for a longer run."
-        )
     return f"Hard timeout reached after {seconds} seconds (configured --timeout limit)."
 
 # ---------------------------------------------------------------------------
@@ -179,7 +173,6 @@ def _supervisor_summarize_report(task_id: str, event: str, task_data: dict[str, 
         prompt,
         model,
         cwd,
-        timeout=90,
         run_label=f"subagent:{task_id}:report",
         mission_id=expected_run_id or None,
     )

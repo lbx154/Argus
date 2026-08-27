@@ -50,6 +50,7 @@ _CLAUSE_KINDS = frozenset({CLAUSE_PRECISE, CLAUSE_SEMANTIC})
 
 CONTRACT_FILENAME = "goal_contract.json"
 
+# Confirmation expiry bounds stale operator authority, not execution time.
 _CONFIRMATION_TTL_SECONDS = 7 * 24 * 60 * 60
 
 

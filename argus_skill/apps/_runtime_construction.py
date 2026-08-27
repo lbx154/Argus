@@ -205,7 +205,7 @@ class _RunnerConstructionMixin:
             ),
             default_watchdog_hard_idle_seconds=_env_int(
                 "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS",
-                45 * 60,
+                0,
             ),
             event_callback=_trampoline,
         )
@@ -281,7 +281,7 @@ class _RunnerConstructionMixin:
                 ),
                 default_watchdog_hard_idle_seconds=_env_int(
                     "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS",
-                    45 * 60,
+                    0,
                 ),
                 event_callback=_trampoline,
             )

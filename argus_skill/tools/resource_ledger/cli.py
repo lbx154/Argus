@@ -180,7 +180,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         if result["state"] == "unsatisfiable":
             _print_json({"state": "unsatisfiable", "queue": result})
             return 2
-        if args.max_wait and time.monotonic() - started >= args.max_wait:
+        if args.max_wait is not None and time.monotonic() - started >= args.max_wait:
             ledger.release(request_id)
             _print_json({"state": "max_wait_exceeded", "queue": result})
             return 2
@@ -250,7 +250,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run")
     _add_demand(run)
     run.add_argument("--ttl", type=float, default=DEFAULT_TTL_SECONDS)
-    run.add_argument("--max-wait", type=parse_duration, default=3600)
+    run.add_argument("--max-wait", type=parse_duration, default=None)
     run.add_argument("--project-root")
     run.add_argument("--task-id")
     run.add_argument("command", nargs=argparse.REMAINDER)

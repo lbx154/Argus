@@ -257,7 +257,7 @@ class RoundSettlementMixin:
         if (
             stall_threshold > 0
             and semantic_stall_streak >= stall_threshold
-            and round_index < max_rounds
+            and (max_rounds <= 0 or round_index < max_rounds)
         ):
             return (
                 "no_progress",
@@ -267,7 +267,7 @@ class RoundSettlementMixin:
         if (
             decision_timeout_seconds > 0
             and decision_idle_seconds >= decision_timeout_seconds
-            and round_index < max_rounds
+            and (max_rounds <= 0 or round_index < max_rounds)
         ):
             return (
                 "no_progress",
@@ -472,7 +472,10 @@ class RoundSettlementMixin:
                 )
             )
 
-        if continue_adaptor is not None and round_index < supervised_config.max_rounds:
+        if continue_adaptor is not None and (
+            supervised_config.max_rounds <= 0
+            or round_index < supervised_config.max_rounds
+        ):
             try:
                 adapted = str(continue_adaptor(state.rounds) or "").strip()
                 if adapted:

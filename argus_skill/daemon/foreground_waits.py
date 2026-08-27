@@ -163,6 +163,7 @@ class ForegroundWaitGuard:
         on_event: Callable[[dict[str, Any]], None] | None = None,
         root_pid: int | None = None,
         interval_seconds: float = 5.0,
+        # This recognizes an untracked foreground polling shell; external work continues.
         minimum_age_seconds: float = 15.0,
     ) -> None:
         self.project_workdir = Path(project_workdir)

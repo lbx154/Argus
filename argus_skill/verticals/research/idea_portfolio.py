@@ -28,9 +28,6 @@ TEAM_ROOT = Path(".argus") / "teams"
 _STATE_PATH = Path("research") / "IDEA_PORTFOLIO.json"
 _SELECTION_PATH = Path("research") / "IDEA_SELECTION.json"
 _REVIEW_VERDICTS = frozenset({"qualified", "rejected"})
-_ROUTE_TIMEOUT_S = 20 * 60
-_REVIEW_TIMEOUT_S = 10 * 60
-_SELECTION_TIMEOUT_S = 10 * 60
 _TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
 _NO_NESTED_TEAM = (
     "This task is already one worker in the parent idea portfolio. Do not create, "
@@ -53,7 +50,6 @@ def _route_task(
         "task_id": task_id,
         "title": f"Investigate ideation route {route_id}",
         "objective": (
-            f"Time-box this independent route to {_ROUTE_TIMEOUT_S // 60} minutes. "
             "Choose a mechanism family genuinely distinct from the candidates already "
             "visible and important to the Manager's broad paper direction. Explain "
             "which key uncertainty it covers and why another route would not answer it. "
@@ -78,7 +74,6 @@ def _route_task(
         "owns_paths": [output],
         "target": route_id,
         "priority": 10,
-        "timeout_s": _ROUTE_TIMEOUT_S,
     }
 
 
@@ -93,8 +88,7 @@ def _review_task(
         "task_id": f"{route_task['task_id']}-review",
         "title": f"Independently review candidate {route_id}",
         "objective": (
-            f"Time-box this review to {_REVIEW_TIMEOUT_S // 60} minutes. Act as a "
-            f"fresh research reviewer for `{route_output}`. Verify the nearest "
+            f"Act as a fresh research reviewer for `{route_output}`. Verify the nearest "
             "claim-critical prior art and attack the mechanism, attribution, and evidence "
             "plan. Judge whether the route could produce important, credible, nontrivial "
             "new knowledge; theory, measurements, datasets, methods, negative results, "
@@ -120,7 +114,6 @@ def _review_task(
         "deps": [str(route_task["task_id"])],
         "target": route_id,
         "priority": 5,
-        "timeout_s": _REVIEW_TIMEOUT_S,
     }
 
 
@@ -196,7 +189,6 @@ def _selection_tasks(
             "owns_paths": [str(_SELECTION_PATH)],
             "target": "evidence-selection",
             "priority": 0,
-            "timeout_s": _SELECTION_TIMEOUT_S,
         },
     ]
 

@@ -33,19 +33,11 @@ from ._text import _tail_file
 
 REGISTRY_DIR = Path(".argus_subagents")
 SUPERVISOR_MODEL = "gpt-5.5"
-SUPERVISOR_INTERVAL_CAP = 900
 
 # Reuse one persistent supervisor thread for at most this many checks,
 # then rotate to a fresh thread seeded with a short summary so a multi-hour
 # run never overflows the context window.
 SUPERVISOR_THREAD_MAX_CHECKS = 12
-
-# A parked supervisor refreshes ``last_heartbeat`` every poll. A discussion
-# whose heartbeat is older than this is treated as abandoned (worker hung/dead)
-# so it never wedges the relaunch gate forever. Sized to clear the worst-case
-# gap between heartbeats: one poll plus a resume-then-fresh backend retry
-# (~2×120s).
-DISCUSSION_STALE_AFTER_S = 600
 
 # Append-only, project-local ledger of every supervised experiment so a future
 # engineer mission can learn why past runs succeeded or failed.
@@ -507,15 +499,14 @@ def _lane_of(task_id: str | None) -> str | None:
 def _open_discussion_blockers(lane: str | None = None) -> list[dict[str, Any]]:
     """Tasks with a LIVE parked supervisor still waiting on the engineer.
 
-    Liveness uses worker_pid-alive AND a fresh heartbeat (not pid alone), so a
-    hung or dead supervisor, or PID reuse, never wedges new launches forever.
+    Liveness uses the recorded worker process identity, so a dead supervisor or
+    PID reuse never wedges new launches and long model turns remain legitimate.
 
     When ``lane`` is given, only tasks in that lane are considered, so an agent
     team's parked teammate blocks only its own lane. ``lane=None`` scans every
     task (legacy global behaviour, preserved for non-team submits).
     """
     blockers: list[dict[str, Any]] = []
-    now = time.time()
     for t in _list_tasks():
         if t.get("state") != "discussing":
             continue
@@ -525,13 +516,8 @@ def _open_discussion_blockers(lane: str | None = None) -> list[dict[str, Any]]:
         # process running the discussion loop), never the killed experiment pid —
         # falling back to that could false-block on PID reuse.
         wpid = t.get("worker_pid") or 0
-        hb = t.get("last_heartbeat")
-        # Require a numeric, fresh heartbeat. A record stuck in "discussing" with
-        # no heartbeat (a worker that died before its first poll) must NOT wedge
-        # the gate forever, so a missing heartbeat is treated as stale.
-        fresh = isinstance(hb, (int, float)) and (now - hb < DISCUSSION_STALE_AFTER_S)
         alive = bool(wpid and _recorded_process_alive(t, "worker_pid"))
-        if alive and fresh:
+        if alive:
             blockers.append(t)
     return blockers
 

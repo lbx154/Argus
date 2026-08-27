@@ -84,7 +84,6 @@ def _worktree_branch(workdir: Path) -> str:
             ["git", "-C", str(workdir), "symbolic-ref", "--short", "HEAD"],
             capture_output=True,
             text=True,
-            timeout=5,
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
