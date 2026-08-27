@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from ..core.file_lock import exclusive_file_lock
+from ..core.process_identity import read_process_metadata
 
 IDENTITY_FIELDS = (
     "gpu_uuid",
@@ -68,60 +69,6 @@ def _run_text(command: list[str]) -> str:
         stderr=subprocess.PIPE,
         timeout=30,
     ).stdout
-
-
-def _proc_stat(proc_root: Path, pid: int) -> tuple[int, str]:
-    text = (proc_root / str(pid) / "stat").read_text(encoding="utf-8")
-    suffix = text.rpartition(") ")[2].split()
-    if len(suffix) < 20:
-        raise RuntimeError(f"malformed {proc_root}/{pid}/stat")
-    return int(suffix[1]), suffix[19]
-
-
-def read_process_metadata(
-    pid: int,
-    *,
-    proc_root: Path = Path("/proc"),
-) -> dict[str, Any]:
-    """Read one race-aware Linux process identity.
-
-    ``metadata_available=False`` is not authorization. Callers may tolerate it
-    only when the process has disappeared and a recent exact GPU/PID owner record
-    proves this is a stale driver row.
-    """
-    process_root = proc_root / str(pid)
-    try:
-        ppid, start_time_ticks = _proc_stat(proc_root, pid)
-        executable = str((process_root / "exe").resolve(strict=True))
-        cwd = str((process_root / "cwd").resolve(strict=True))
-        cmdline_bytes = (process_root / "cmdline").read_bytes()
-    except OSError as exc:
-        return {
-            "metadata_available": False,
-            "process_present_after_metadata_read": process_root.exists(),
-            "metadata_error": f"{type(exc).__name__}: {exc}",
-            "ppid": None,
-            "start_time_ticks": None,
-            "executable": None,
-            "cwd": None,
-            "cmdline": None,
-            "cmdline_sha256": None,
-        }
-    return {
-        "metadata_available": True,
-        "process_present_after_metadata_read": True,
-        "metadata_error": "",
-        "ppid": ppid,
-        "start_time_ticks": start_time_ticks,
-        "executable": executable,
-        "cwd": cwd,
-        "cmdline": (
-            cmdline_bytes.replace(b"\0", b" ")
-            .decode("utf-8", errors="replace")
-            .strip()
-        ),
-        "cmdline_sha256": hashlib.sha256(cmdline_bytes).hexdigest(),
-    }
 
 
 def _path_is_within(value: object, root: Path) -> bool:

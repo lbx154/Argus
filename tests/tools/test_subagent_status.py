@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from argparse import Namespace
 
 from argus_skill.tools import subagent
@@ -100,3 +101,23 @@ def test_reconcile_prefers_current_exit_sidecar_over_live_pid(tmp_path, monkeypa
     assert reconciled["exit_code"] == 0
     assert reconciled["terminal_owner"] == "exit_sidecar_reconciler"
     assert reconciled["stdout_tail"] == "survived"
+
+
+def test_reconcile_rejects_reused_live_pid_identity(tmp_path, monkeypatch):
+    monkeypatch.setattr(subagent._registry, "REGISTRY_DIR", tmp_path)
+    identity = subagent._registry._process_identity(os.getpid())
+    assert "start_time_ticks" in identity
+    identity["start_time_ticks"] = f"{identity['start_time_ticks']}-reused"
+    task = {
+        "state": "running",
+        "task_id": "reused-pid",
+        "run_id": "run-1",
+        "pid": os.getpid(),
+        "process_identity": identity,
+    }
+    subagent._write_task("reused-pid", task)
+
+    reconciled = subagent._registry.reconcile_terminal_task("reused-pid", task)
+
+    assert reconciled["state"] == "crashed"
+    assert "no exit sidecar" in reconciled["error"]

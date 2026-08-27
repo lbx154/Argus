@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import portalocker
 
-from ._registry import REGISTRY_DIR, _is_pid_alive, _list_tasks
+from ._registry import REGISTRY_DIR, _list_tasks, _recorded_process_alive
 
 _STALE_RUNNING_SECONDS = 15 * 60.0
 _LOCAL_INPUT_FLAGS = frozenset({
@@ -212,7 +212,8 @@ def _live_run_owner(run_dir: Path, *, task_id: str) -> dict[str, Any] | None:
             pid = int(task.get("pid") or task.get("worker_pid") or 0)
         except (TypeError, ValueError):
             pid = 0
-        if pid > 0 and _is_pid_alive(pid):
+        pid_field = "pid" if task.get("pid") else "worker_pid"
+        if pid > 0 and _recorded_process_alive(task, pid_field):
             return task
     return None
 
