@@ -99,6 +99,10 @@ def test_post_task_appends_to_backlog(ctx) -> None:
     # went through the real Backlog store (flock CAS), not a raw write
     items = LifeMemory.open(life).backlog.all()
     assert len(items) == 1 and items[0].objective == "optimize the kernel"
+    assert items[0].manager_decision == {
+        "require_independent_review": True,
+        "routed": True,
+    }
 
 
 def test_post_task_preserves_active_continuous_campaign_governance(
@@ -217,7 +221,11 @@ def test_post_task_enqueues_only_manager_execution_handoff(ctx, monkeypatch) -> 
     assert captured["sid"] == sid
     assert captured["text"] == raw
     assert captured["root_task_id"] == item["id"]
-    assert LifeMemory.open(life).backlog.all()[0].objective == "write the MRAM paper"
+    persisted = LifeMemory.open(life).backlog.all()[0]
+    assert persisted.objective == "write the MRAM paper"
+    # Even a narrow/fake handoff that omits Division details has completed the
+    # Manager gate.  The daemon must not classify the claimed item again.
+    assert persisted.manager_decision == {"routed": True}
 
 
 def test_post_task_returns_503_instead_of_enqueuing_raw_on_handoff_failure(
