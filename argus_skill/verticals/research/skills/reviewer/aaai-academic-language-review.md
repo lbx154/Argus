@@ -31,9 +31,8 @@ Run the final narrative/prose gate for an AAAI-style paper. This skill adapts wo
    - Self-audit the full-scale experiment-evidence requirement (completed raw scored rows under `experiments/**` for every required method/baseline condition) for any final AAAI paper. Do not accept benchmark construction, `benchmarks/full/manifest.json`, or `status.json task_count` as execution evidence; final language must be grounded in raw completed scored `experiments/**` rows for every required method/baseline condition.
 
 2. Rebuild the paper story:
-   - Write one thesis sentence in the form: "X is better for Y in Z because W."
-   - State the contribution as: "We propose X. We show X improves Y by Z because W."
-   - If the current ablations do not isolate `W`, do not keep defending a mechanism claim. Reset the thesis to the measured comparison: "On benchmark/task slice Z, X reaches Y compared with baseline B under protocol P; which subcomponent causes the gain remains unresolved." Move the unresolved mechanism discussion to analysis or a discussion paragraph.
+   - State clearly what is studied, what is claimed, under which conditions, and how the evidence supports it, using whatever sentence form fits the contribution.
+   - If the evidence does not isolate a proposed mechanism, narrow the claim to what was measured and name the unresolved mechanism in analysis or discussion.
    - Make every main section answer What, Why, and So What.
    - Use an inner/outer loop: check each experiment claim locally, then synthesize what pattern it supports globally.
 

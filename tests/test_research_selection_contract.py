@@ -735,9 +735,9 @@ def test_reviewer_suspects_the_setup_before_the_idea() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     reviewer = " ".join(vertical_role_banner(load_vertical("research"), "reviewer").split())
-    assert "defect signal before a finding" in reviewer
-    assert "outlying result" in reviewer
-    assert "method, baseline, and evaluator" in reviewer
+    assert "first rule out credible setup, optimization, and measurement alternatives" in reviewer
+    assert "For an outlying or negative result" in reviewer
+    assert "discriminates method failure from implementation failure" in reviewer
 
 
 def test_manager_keeps_the_campaign_optimizing_instead_of_settling() -> None:
@@ -873,7 +873,7 @@ def test_the_campaign_is_trying_to_win() -> None:
     assert "burying a real win under qualifications is as much a misreport" in text
 
 
-def test_training_below_its_own_baseline_is_a_defect_report() -> None:
+def test_training_below_its_own_baseline_triggers_attribution_review() -> None:
     """run-03 finished a clean 500-row official-protocol comparison: BCPO 0.738,
     CSCR-style 0.742, no-pairing 0.736, GRPO-broadcast 0.738 -- all four below
     the untrained base at 0.756. Its recorded decision was that BCPO does not
@@ -888,8 +888,8 @@ def test_training_below_its_own_baseline_is_a_defect_report() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     reviewer = " ".join(vertical_role_banner(load_vertical("research"), "reviewer").split())
-    assert "below its own untrained checkpoint" in reviewer
-    assert "setup/optimization defect signal" in reviewer
+    assert "first rule out credible setup, optimization, and measurement" in reviewer
+    assert "well-characterized negative result, anomaly, or boundary condition" in reviewer
 
     skill = (
         Path(argus_skill.__file__).parent

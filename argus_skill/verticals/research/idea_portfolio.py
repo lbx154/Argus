@@ -1,10 +1,9 @@
-"""Durable quorum-based idea pipelines for broad paper research."""
+"""Durable evidence-based idea portfolios for broad paper research."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
 import threading
 import time
@@ -18,45 +17,25 @@ from ...core.research_contract import (
 )
 from ...team import formation, pool, registry, task_board
 
-TEAM_ID = "research-idea-pipeline-v5"
-TEAM_WIDTH = 12
-QUORUM_COUNT = math.ceil(TEAM_WIDTH * 0.8)
-SELECTION_POLICY = "frontier_ambition_v2"
+TEAM_ID = "research-idea-pipeline-v6"
+# An operating default, not a breadth quota or selection threshold. Callers may
+# size the portfolio differently when the problem structure warrants it.
+DEFAULT_PORTFOLIO_SIZE = 12
+SELECTION_POLICY = "evidence_judgment_v3"
 _REVIEW_SCHEMA_VERSION = 2
 _SELECTION_SCHEMA_VERSION = 2
-_CONTRIBUTION_MODES = frozenset(
-    {"high_novelty_method", "large_scale_empirical", "both"}
-)
 TEAM_ROOT = Path(".argus") / "teams"
 _STATE_PATH = Path("research") / "IDEA_PORTFOLIO.json"
 _SELECTION_PATH = Path("research") / "IDEA_SELECTION.json"
 _REVIEW_VERDICTS = frozenset({"qualified", "rejected"})
-_PROBE_DECISIONS = frozenset({"continue", "skipped"})
 _ROUTE_TIMEOUT_S = 20 * 60
 _REVIEW_TIMEOUT_S = 10 * 60
 _SELECTION_TIMEOUT_S = 10 * 60
-_PROBE_TIMEOUT_S = 10 * 60
 _TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
 _NO_NESTED_TEAM = (
     "This task is already one worker in the parent idea portfolio. Do not create, "
     "ensure, launch, or delegate another Team or idea portfolio."
 )
-_ROUTE_THEMES = (
-    ("mechanism", "method mechanisms and algorithmic interventions"),
-    ("systems", "systems architecture, runtime, and deployment failures"),
-    ("learning-theory", "probability and learning-theoretic limits"),
-    ("information-theory", "information-theoretic bounds and measurements"),
-    ("control", "control and dynamical-systems mechanisms"),
-    ("causal", "causal identification and intervention design"),
-    ("game-theory", "game-theoretic incentives and multi-agent effects"),
-    ("formal-methods", "formal methods, contracts, and verification limits"),
-    ("evaluation", "evaluation and benchmark blind spots"),
-    ("data", "data, measurement, and trace-grounded opportunities"),
-    ("negative", "impossibility, negative, and boundary results"),
-    ("incidents", "cross-domain incidents and unmet practitioner needs"),
-)
-
-
 def portfolio_required(project_root: Path) -> bool:
     target = resolve_research_target_level(project_root)
     direction = resolve_research_direction_mode(project_root)
@@ -67,7 +46,6 @@ def _route_task(
     team_id: str,
     artifact_root: str,
     route_id: str,
-    theme: str,
 ) -> dict[str, Any]:
     task_id = f"{team_id}-{route_id}"
     output = f"{artifact_root}/routes/{route_id}.md"
@@ -76,36 +54,25 @@ def _route_task(
         "title": f"Investigate ideation route {route_id}",
         "objective": (
             f"Time-box this independent route to {_ROUTE_TIMEOUT_S // 60} minutes. "
-            f"Investigate {theme} for the Manager's current broad paper direction. "
-            f"Create `{output}` immediately, then update it progressively with one "
-            "general, high-upside contribution in at least one of two modes: "
-            "(A) a genuinely new method, architecture, training objective, or algorithm "
-            "with a nontrivial technical delta; or (B) a publication-scale empirical "
-            "study across multiple model families, datasets/tasks, strongest current "
-            "baselines, and statistically defensible repeated trials. A small diagnostic, "
-            "benchmark audit, or negative result qualifies only with a field-changing "
-            "question and a publication-scale evidence plan. Do not prefer a route "
+            "Choose a mechanism family genuinely distinct from the candidates already "
+            "visible and important to the Manager's broad paper direction. Explain "
+            "which key uncertainty it covers and why another route would not answer it. "
+            f"Create `{output}` early and develop the strongest credible case for "
+            "important, nontrivial new knowledge in whatever form the question supports, "
+            "such as theory, measurement, a dataset, a method, a negative result, or a "
+            "boundary condition. Do not prefer a route "
             "because it needs no training, has the shortest evidence path, is cheapest, "
             "or fits one local GPU. Feasibility is a staged resource plan, not the "
             "scientific ranking objective. "
-            "Record a primary-source trail, closest work, non-obvious gap, strongest kill "
-            "argument, and one tiny advisory observation. Use headings `## Mechanism`, "
-            "`## Frontier search`, `## Primary sources`, `## Closest work`, "
-            "`## Kill argument`, and `## Faithful probe`; include primary URLs. Under "
-            "`## Frontier search`, record the search date, a date-sorted arXiv query "
-            "covering at least the latest 12 months, the current-year proceedings or "
-            "accepted-paper lists for the nearest major venues (ICLR/ICML/NeurIPS, "
-            "ACL/EMNLP/NAACL, AAAI/AAMAS, as relevant), and the newest close neighbors "
-            "found. Inspect foundational mathematics/physics/statistics/ML "
-            "when they bear on the claim. If no close recent work exists, preserve the "
-            "query and cutoff as evidence instead of silently falling back to classics. "
-            "Inspect official code/benchmarks and practitioner signals when useful. "
+            "Record the mechanism, primary-source trail, closest work, non-obvious gap, "
+            "strongest kill argument, resource needs, and any useful probe evidence. "
+            "Search the current frontier and relevant foundations deeply enough to make "
+            "the novelty claim credible; preserve primary URLs and search boundaries. "
             f"{_NO_NESTED_TEAM}"
         ),
         "acceptance_check": (
-            f"`{output}` exists and contains the mechanism, dated frontier search, "
-            "sources, closest work, contribution mode, publication-scale evidence plan, "
-            "kill argument, and short probe sketch."
+            f"`{output}` makes an evidence-grounded case for a distinct mechanism family "
+            "and exposes its strongest uncertainty or kill argument."
         ),
         "role": "idea-route",
         "owns_paths": [output],
@@ -128,35 +95,25 @@ def _review_task(
         "objective": (
             f"Time-box this review to {_REVIEW_TIMEOUT_S // 60} minutes. Act as a "
             f"fresh research reviewer for `{route_output}`. Verify the nearest "
-            "claim-critical prior art and independently repeat a date-sorted search over "
-            "the latest 12 months/current major-venue cycle. Reject stale frontier "
-            "coverage, a clear prior-art duplicate, trivial wrapper, incoherent "
-            "mechanism, or a proposal that is neither a high-novelty method nor a "
-            "publication-scale empirical contribution. A small diagnostic or benchmark "
-            "audit is not top-conference-shaped without a field-changing question and a "
-            "large, decisive evaluation plan. Decide primarily from frontier freshness, "
-            "technical novelty, mechanism, generality, and top-conference contribution. "
+            "claim-critical prior art and attack the mechanism, attribution, and evidence "
+            "plan. Judge whether the route could produce important, credible, nontrivial "
+            "new knowledge; theory, measurements, datasets, methods, negative results, "
+            "and boundary conditions are all eligible. Reject clear duplication, a "
+            "trivial wrapper, an incoherent mechanism, or evidence that cannot support "
+            "the claimed contribution. "
             "Do not award credit for no-training convenience, shortest evidence path, "
             "cheapness, or single-GPU fit; record resource gaps as requirements instead "
-            "of using them to select a scientifically weaker route. Missing engineering "
-            "detail or an untested premise alone is not a rejection reason. Create the "
-            "output early, then finish "
-            "exactly one JSON object at "
+            "of using them to select a scientifically weaker route. Create one compact "
+            "JSON review at "
             f"`{output}` with schema_version={_REVIEW_SCHEMA_VERSION}, route_id, "
-            "verdict (`qualified` or "
-            "`rejected`), summary, technical_depth, originality, "
-            "theoretical_grounding, field_significance, generality, "
-            "top_conference_case, local_feasibility, contribution_mode "
-            "(`high_novelty_method`, `large_scale_empirical`, or `both`), "
-            "frontier_freshness, novelty_delta, publication_scale_plan, "
-            "resource_requirements, fatal_concerns (array), and probe (object). "
-            f"{_NO_NESTED_TEAM} A qualified probe object contains "
-            "premise, evaluator_identity, comparison_identity, minimum_signal, and "
-            "stop_rules."
+            "verdict (`qualified` or `rejected`), a natural-language summary of the "
+            "contribution and evidence, and fatal_concerns (array). Include probe "
+            "evidence when it changes the judgment. "
+            f"{_NO_NESTED_TEAM}"
         ),
         "acceptance_check": (
             f"`{output}` is valid review JSON with a decisive qualified/rejected "
-            "verdict and a compact probe contract when qualified."
+            "verdict and an evidence-grounded contribution judgment."
         ),
         "role": "idea-review",
         "owns_paths": [output],
@@ -170,15 +127,17 @@ def _review_task(
 def portfolio_tasks(
     team_id: str = TEAM_ID,
     artifact_root: str = "research/ideation",
+    portfolio_size: int = DEFAULT_PORTFOLIO_SIZE,
 ) -> list[dict[str, Any]]:
+    if portfolio_size < 1:
+        raise ValueError("portfolio_size must be positive")
     routes = [
         _route_task(
             team_id,
             artifact_root,
-            f"route-{index:02d}-{slug}",
-            theme,
+            f"route-{index:02d}",
         )
-        for index, (slug, theme) in enumerate(_ROUTE_THEMES, 1)
+        for index in range(1, portfolio_size + 1)
     ]
     reviews = [_review_task(route, artifact_root) for route in routes]
     return [*routes, *reviews]
@@ -187,11 +146,11 @@ def portfolio_tasks(
 def _selection_tasks(
     team_id: str,
     artifact_root: str,
-    quorum_review_ids: tuple[str, ...],
+    available_review_ids: tuple[str, ...],
 ) -> list[dict[str, Any]]:
     specs = {task["task_id"]: task for task in portfolio_tasks(team_id, artifact_root)}
     candidates: list[dict[str, str]] = []
-    for review_id in quorum_review_ids:
+    for review_id in available_review_ids:
         review = specs[review_id]
         route_id = str(review_id.removesuffix("-review"))
         route = specs[route_id]
@@ -202,86 +161,42 @@ def _selection_tasks(
             "review_task_id": review_id,
             "review_artifact": str(review["owns_paths"][0]),
         })
-    selector_id = f"{team_id}-quorum-selector"
-    probe_id = f"{team_id}-advisory-probe"
-    probe_root = f"{artifact_root}/selected-probe"
+    selector_id = f"{team_id}-evidence-selector"
     return [
         {
             "task_id": selector_id,
-            "title": f"Select the strongest idea from the first {QUORUM_COUNT} reviews",
+            "title": "Adversarially select the strongest supported idea",
             "objective": (
-                f"Read exactly the {QUORUM_COUNT} route/review pairs listed below and "
-                "choose the strongest review-qualified idea by qualitative Agent "
-                "judgment. Rank frontier freshness, genuine method novelty or "
-                "publication-scale empirical contribution, technical depth, generality, "
-                "a compelling top-conference thesis, and balanced AI-frontier and "
-                "foundation grounding above local convenience. The "
-                "winner must be `high_novelty_method`, `large_scale_empirical`, or "
-                "`both`. Do not prefer no-training, shortest-evidence-path, cheapest, "
-                "smallest-model, or single-GPU ideas. Treat local feasibility only as a "
-                "requirement for a credible staged resource/compute plan; if the strongest "
-                "idea needs more compute, record that gap rather than substituting a "
-                "scientifically weaker diagnostic. Small diagnostics, benchmark audits, "
-                "and negative results are ineligible unless their planned empirical "
-                "coverage is publication-scale and the conclusion would change a "
-                "field-level belief. Require independently checked current-year/latest-"
-                "12-month arXiv and major-venue coverage, not merely a search performed "
-                "today over older known papers. "
-                "Do not inspect probe results and do not wait for the final "
-                f"{TEAM_WIDTH - QUORUM_COUNT} routes. Candidate manifest:\n"
+                "Read every route/review pair in the manifest, then inspect all other "
+                "relevant evidence that has arrived before you decide, including probes "
+                "and later routes. First judge whether the portfolio covers the key "
+                "uncertainties well enough to choose; if not, state what materially "
+                "different evidence is missing instead of filling the selection record. "
+                "When it is sufficient, choose the qualified route with the strongest "
+                "case for important, credible, nontrivial new knowledge in whatever form "
+                "fits the question. Let new evidence change the choice when it changes "
+                "the contribution's credibility. Do not rank local convenience as "
+                "scientific value; record resource gaps for the winning route. "
+                "Evidence available when this selector was formed:\n"
                 + json.dumps(candidates, ensure_ascii=True, indent=2)
                 + "\nWrite `research/IDEA_SELECTION.json` as one JSON object with "
                 f"schema_version={_SELECTION_SCHEMA_VERSION}, "
                 f"policy=`{SELECTION_POLICY}`, route_id, "
                 "route_task_id, review_task_id, route_artifact, review_artifact, "
-                "rationale, theory_strength, novelty, generality, top_conference_case, "
-                "contribution_mode, frontier_freshness, novelty_delta, "
-                "publication_scale_plan, resource_requirements, and unresolved_risks "
-                "(array). Select only a route whose review verdict is qualified. "
-                "This is a qualitative paper decision, not a metric rank. "
+                "rationale, evidence_considered, resource_requirements, and "
+                "unresolved_risks (array). Select only a route whose independent review "
+                "is qualified. This is a qualitative research decision, not a score. "
                 f"{_NO_NESTED_TEAM}"
             ),
             "acceptance_check": (
-                "`research/IDEA_SELECTION.json` selects one qualified quorum route "
-                "with current-frontier evidence and either a high-novelty method or a "
-                "publication-scale empirical contribution."
+                "`research/IDEA_SELECTION.json` records a fresh adversarial choice from "
+                "the sufficiently broad evidence available."
             ),
             "role": "idea-selector",
             "owns_paths": [str(_SELECTION_PATH)],
-            "target": "quorum-selection",
+            "target": "evidence-selection",
             "priority": 0,
             "timeout_s": _SELECTION_TIMEOUT_S,
-        },
-        {
-            "task_id": probe_id,
-            "title": "Record an advisory feasibility note for the selected idea",
-            "objective": (
-                "Read `research/IDEA_SELECTION.json` and the selected route/review. "
-                f"Own only `{probe_root}/`. Research does not decide whether a "
-                "large-scale empirical idea succeeds; plan/benchmark/run own that "
-                "question. If a representative observation below "
-                f"{_PROBE_TIMEOUT_S // 60} minutes can cheaply verify plumbing, data "
-                "shape, or evaluator availability without pretending to test the "
-                "publication hypothesis, run it. Otherwise skip it without consuming "
-                "model/API/GPU calls. Never run a full benchmark, training, broad sweep, "
-                "or publication-scale multi-seed study here. Preserve any raw evidence "
-                f"and write `{probe_root}/EVIDENCE.json` with decision=`continue` for "
-                "an executed feasibility observation or decision=`skipped` plus "
-                "idea_status=`untested` when deferring evidence downstream. A weak, null, "
-                "or absent research-stage observation cannot kill, block, or downgrade "
-                "the selected idea. "
-                f"{_NO_NESTED_TEAM}"
-            ),
-            "acceptance_check": (
-                f"`{probe_root}/EVIDENCE.json` honestly records one bounded feasibility "
-                "observation or an untested skip; neither decides scientific success."
-            ),
-            "role": "idea-probe",
-            "owns_paths": [probe_root],
-            "deps": [selector_id],
-            "target": "quorum-selection",
-            "priority": 0,
-            "timeout_s": _PROBE_TIMEOUT_S,
         },
     ]
 
@@ -375,8 +290,6 @@ def _task_output_path(project_root: Path, task: dict[str, Any]) -> Path | None:
     if len(owned) != 1:
         return None
     path = project_root / str(owned[0])
-    if str(task.get("role") or "") == "idea-probe":
-        path /= "EVIDENCE.json"
     return path
 
 
@@ -393,43 +306,15 @@ def _json_object(path: Path | None) -> dict[str, Any] | None:
 def _review_payload(project_root: Path, task: dict[str, Any]) -> dict[str, Any] | None:
     payload = _json_object(_task_output_path(project_root, task))
     target = str(task.get("target") or "")
-    required_scores = (
-        "technical_depth",
-        "originality",
-        "theoretical_grounding",
-        "field_significance",
-        "generality",
-        "top_conference_case",
-        "local_feasibility",
-        "frontier_freshness",
-        "novelty_delta",
-        "publication_scale_plan",
-        "resource_requirements",
-    )
     if (
         payload is None
         or payload.get("schema_version") != _REVIEW_SCHEMA_VERSION
         or str(payload.get("route_id") or "") != target
         or str(payload.get("verdict") or "") not in _REVIEW_VERDICTS
-        or str(payload.get("contribution_mode") or "") not in _CONTRIBUTION_MODES
         or not str(payload.get("summary") or "").strip()
-        or any(not str(payload.get(key) or "").strip() for key in required_scores)
         or not isinstance(payload.get("fatal_concerns"), list)
     ):
         return None
-    if payload["verdict"] == "qualified":
-        probe = payload.get("probe")
-        required = (
-            "premise",
-            "evaluator_identity",
-            "comparison_identity",
-            "minimum_signal",
-            "stop_rules",
-        )
-        if not isinstance(probe, dict) or any(
-            not str(probe.get(key) or "").strip() for key in required
-        ):
-            return None
     return payload
 
 
@@ -442,40 +327,16 @@ def _selection_payload(project_root: Path) -> dict[str, Any] | None:
         "route_artifact",
         "review_artifact",
         "rationale",
-        "theory_strength",
-        "novelty",
-        "generality",
-        "top_conference_case",
-        "frontier_freshness",
-        "novelty_delta",
-        "publication_scale_plan",
+        "evidence_considered",
         "resource_requirements",
     )
     if (
         payload is None
         or payload.get("schema_version") != _SELECTION_SCHEMA_VERSION
         or payload.get("policy") != SELECTION_POLICY
-        or str(payload.get("contribution_mode") or "") not in _CONTRIBUTION_MODES
         or any(not str(payload.get(key) or "").strip() for key in required)
         or not isinstance(payload.get("unresolved_risks"), list)
     ):
-        return None
-    return payload
-
-
-def _probe_payload(project_root: Path, task: dict[str, Any]) -> dict[str, Any] | None:
-    payload = _json_object(_task_output_path(project_root, task))
-    if (
-        payload is None
-        or not str(payload.get("idea_id") or "").strip()
-        or str(payload.get("decision") or "") not in _PROBE_DECISIONS
-    ):
-        return None
-    from .idea_evidence import validate_idea_evidence
-
-    if validate_idea_evidence(payload):
-        return None
-    if payload["decision"] == "skipped" and payload.get("idea_status") != "untested":
         return None
     return payload
 
@@ -488,16 +349,9 @@ def _route_output_present(project_root: Path, task: dict[str, Any]) -> bool:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return False
-    required = (
-        "## Mechanism",
-        "## Primary sources",
-        "## Closest work",
-        "## Kill argument",
-        "## Faithful probe",
-    )
     return (
         path.is_file()
-        and not any(heading not in text for heading in required)
+        and bool(text.strip())
         and ("https://" in text or "http://" in text)
     )
 
@@ -525,28 +379,18 @@ def _valid_review_tasks(
     return reviews
 
 
-def _quorum_review_ids(
+def _available_review_ids(
     project_root: Path,
     root: Path,
     actual: dict[str, dict[str, Any]],
 ) -> tuple[str, ...]:
     reviews = _valid_review_tasks(project_root, root, actual)
-    if len(reviews) < QUORUM_COUNT:
+    if not any(
+        (_review_payload(project_root, task) or {}).get("verdict") == "qualified"
+        for task in reviews
+    ):
         return ()
-    first = reviews[:QUORUM_COUNT]
-    if any((_review_payload(project_root, task) or {}).get("verdict") == "qualified"
-           for task in first):
-        return tuple(str(task["task_id"]) for task in first)
-    later = next(
-        (
-            task for task in reviews[QUORUM_COUNT:]
-            if (_review_payload(project_root, task) or {}).get("verdict") == "qualified"
-        ),
-        None,
-    )
-    if later is None:
-        return ()
-    return tuple(str(task["task_id"]) for task in [*first[:-1], later])
+    return tuple(str(task["task_id"]) for task in reviews)
 
 
 def _base_state(
@@ -566,7 +410,7 @@ def _base_state(
         str(current.get("direction_sha256") or "") == direction_digest
         and str(current.get("team_id") or "") == team_id
     ):
-        for key in ("quorum_review_task_ids", "selection_team_id"):
+        for key in ("selection_review_task_ids", "selection_team_id"):
             if key in current:
                 payload[key] = current[key]
     return payload
@@ -585,19 +429,19 @@ def _ensure_selection_team(
         for task in task_board.snapshot(root)
     }
     state = _state_payload(project_root)
-    raw_quorum = state.get("quorum_review_task_ids")
-    quorum = (
-        tuple(str(item) for item in raw_quorum)
-        if isinstance(raw_quorum, list) and len(raw_quorum) == QUORUM_COUNT
+    raw_reviews = state.get("selection_review_task_ids")
+    reviews = (
+        tuple(str(item) for item in raw_reviews)
+        if isinstance(raw_reviews, list) and raw_reviews
         else ()
     )
-    if not quorum:
-        quorum = _quorum_review_ids(project_root, root, actual)
-    if not quorum:
+    if not reviews:
+        reviews = _available_review_ids(project_root, root, actual)
+    if not reviews:
         return None
     selection_team_id = f"{team_id}-selection"
     selection_root = _selection_team_root(project_root, team_id)
-    tasks = _selection_tasks(team_id, artifact_root, quorum)
+    tasks = _selection_tasks(team_id, artifact_root, reviews)
     existing = task_board.snapshot(selection_root)
     receipt = formation.load_receipt(selection_root)
     canonical = (
@@ -611,8 +455,8 @@ def _ensure_selection_team(
             root=selection_root,
             team_id=selection_team_id,
             mission=(
-                f"Select one ICLR-grade idea after {QUORUM_COUNT}/{TEAM_WIDTH} "
-                "independent reviews, then record or skip one advisory feasibility note."
+                "Judge whether the available independent evidence is broad enough, then "
+                "adversarially select the strongest supported research contribution."
             ),
             lead="engineer",
             cwd=project_root,
@@ -630,7 +474,7 @@ def _ensure_selection_team(
         artifact_root=artifact_root,
         direction_digest=direction_digest,
     )
-    payload["quorum_review_task_ids"] = list(quorum)
+    payload["selection_review_task_ids"] = list(reviews)
     payload["selection_team_id"] = selection_team_id
     _write_state(project_root, payload)
     return selection_root
@@ -647,6 +491,7 @@ def ensure_idea_portfolio(project_root: Path, *, direction: str) -> Path:
     team_id, artifact_root, direction_digest = _portfolio_identity(direction)
     root = project_root / TEAM_ROOT / team_id
     tasks = portfolio_tasks(team_id, artifact_root)
+    route_count = sum(task.get("role") == "idea-route" for task in tasks)
     existing = task_board.snapshot(root)
     receipt = formation.load_receipt(root)
     canonical = (
@@ -660,20 +505,21 @@ def ensure_idea_portfolio(project_root: Path, *, direction: str) -> Path:
             root=root,
             team_id=team_id,
             mission=(
-                "Explore 12 broad research routes in parallel, independently review "
-                f"them, and trigger selection at {QUORUM_COUNT}/{TEAM_WIDTH} reviews "
+                "Explore genuinely distinct mechanism families in parallel, review each "
+                "independently, and let a fresh selector judge when the available "
+                "evidence is broad enough to choose "
                 f"for direction {direction_digest}."
             ),
             lead="engineer",
             cwd=project_root,
             tasks=tasks,
         )
-        pool.update(root, width=TEAM_WIDTH, state="running")
+        pool.update(root, width=route_count, state="running")
     elif (
         str(pool.read(root).get("state") or "") == "running"
-        and int(pool.read(root).get("width", 0) or 0) != TEAM_WIDTH
+        and int(pool.read(root).get("width", 0) or 0) != route_count
     ):
-        pool.update(root, width=TEAM_WIDTH, state="running")
+        pool.update(root, width=route_count, state="running")
     _write_state(
         project_root,
         _base_state(
@@ -703,34 +549,26 @@ def _selection_from_tasks(
     team_id: str,
     artifact_root: str,
     direction_digest: str,
-    quorum_review_ids: tuple[str, ...],
+    available_review_ids: tuple[str, ...],
 ) -> dict[str, Any] | None:
-    selection_specs = _selection_tasks(team_id, artifact_root, quorum_review_ids)
+    selection_specs = _selection_tasks(team_id, artifact_root, available_review_ids)
     if not task_board.material_specs_match(selection_root, selection_specs):
         return None
     selection_actual = {
         str(task.get("task_id") or ""): task
         for task in task_board.snapshot(selection_root)
     }
-    selector = selection_actual.get(f"{team_id}-quorum-selector", {})
-    probe = selection_actual.get(f"{team_id}-advisory-probe", {})
-    if selector.get("state") != "done" or probe.get("state") != "done":
+    selector = selection_actual.get(f"{team_id}-evidence-selector", {})
+    if selector.get("state") != "done":
         return None
-    if not _valid_shard(selection_root, selector) or not _valid_shard(selection_root, probe):
+    if not _valid_shard(selection_root, selector):
         return None
     selection = _selection_payload(project_root)
-    probe_payload = _probe_payload(project_root, probe)
-    if (
-        selection is None
-        or probe_payload is None
-        or probe_payload.get("decision") not in _PROBE_DECISIONS
-    ):
+    if selection is None:
         return None
     route_task_id = str(selection.get("route_task_id") or "")
     review_task_id = str(selection.get("review_task_id") or "")
-    if review_task_id not in quorum_review_ids or route_task_id != review_task_id.removesuffix(
-        "-review"
-    ):
+    if route_task_id != review_task_id.removesuffix("-review"):
         return None
     base_actual = {
         str(task.get("task_id") or ""): task
@@ -738,6 +576,10 @@ def _selection_from_tasks(
     }
     route = base_actual.get(route_task_id, {})
     review = base_actual.get(review_task_id, {})
+    valid_review_ids = {
+        str(task.get("task_id") or "")
+        for task in _valid_review_tasks(project_root, root, base_actual)
+    }
     review_payload = _review_payload(project_root, review)
     if (
         route.get("state") != "done"
@@ -747,20 +589,20 @@ def _selection_from_tasks(
         or not _route_output_present(project_root, route)
         or review_payload is None
         or review_payload.get("verdict") != "qualified"
+        or review_task_id not in valid_review_ids
         or str(selection.get("route_id") or "") != str(route.get("target") or "")
-        or str(probe_payload.get("idea_id") or "") != str(route.get("target") or "")
     ):
         return None
     owners = {
         str(task.get("owner") or "")
-        for task in (route, review, selector, probe)
+        for task in (route, review, selector)
     }
     finished_at = [
         float(task.get("finished_ts") or 0)
-        for task in (route, review, selector, probe)
+        for task in (route, review, selector)
     ]
-    if "" in owners or len(owners) != 4 or not (
-        0 < finished_at[0] <= finished_at[1] <= finished_at[2] <= finished_at[3]
+    if "" in owners or len(owners) != 3 or not (
+        0 < finished_at[0] <= finished_at[1] <= finished_at[2]
     ):
         return None
     return {
@@ -770,10 +612,6 @@ def _selection_from_tasks(
         "team_id": team_id,
         "selection_team_id": f"{team_id}-selection",
         "direction_sha256": direction_digest,
-        "probe_task_id": str(probe.get("task_id") or ""),
-        "probe_artifact": str(
-            (_task_output_path(project_root, probe) or Path()).relative_to(project_root)
-        ),
         "selected_at": float(selector.get("finished_ts") or 0),
     }
 
@@ -785,10 +623,10 @@ def idea_portfolio_selection(project_root: Path) -> dict[str, Any] | None:
         return None
     root, team_id, artifact_root, direction_digest = active
     state = _state_payload(project_root)
-    raw_quorum = state.get("quorum_review_task_ids")
-    if not isinstance(raw_quorum, list) or len(raw_quorum) != QUORUM_COUNT:
+    raw_reviews = state.get("selection_review_task_ids")
+    if not isinstance(raw_reviews, list) or not raw_reviews:
         return None
-    quorum = tuple(str(item) for item in raw_quorum)
+    reviews = tuple(str(item) for item in raw_reviews)
     selection_root = _selection_team_root(project_root, team_id)
     return _selection_from_tasks(
         project_root,
@@ -797,7 +635,7 @@ def idea_portfolio_selection(project_root: Path) -> dict[str, Any] | None:
         team_id,
         artifact_root,
         direction_digest,
-        quorum,
+        reviews,
     )
 
 
@@ -832,14 +670,14 @@ def _materialize_selection(
 def late_selection_reviews(
     project_root: Path,
 ) -> tuple[dict[str, str], ...]:
-    """Qualified reviews that settled after the original quorum selection."""
+    """Qualified reviews that settled after the original selection evidence."""
     project_root = Path(project_root).expanduser().resolve()
     active = _active_portfolio(project_root)
     state = _state_payload(project_root)
-    quorum = {
-        str(item) for item in state.get("quorum_review_task_ids") or ()
+    selection_reviews = {
+        str(item) for item in state.get("selection_review_task_ids") or ()
     }
-    if active is None or len(quorum) != QUORUM_COUNT:
+    if active is None or not selection_reviews:
         return ()
     root, team_id, artifact_root, _digest = active
     specs = {
@@ -854,14 +692,10 @@ def late_selection_reviews(
         sorted(
             task_id
             for task_id, spec in specs.items()
-            if spec.get("role") == "idea-review" and task_id not in quorum
+            if spec.get("role") == "idea-review" and task_id not in selection_reviews
         )
     )
-    if not late_ids or any(
-        str(actual.get(task_id, {}).get("state") or "")
-        not in {"done", "failed", "blocked"}
-        for task_id in late_ids
-    ):
+    if not late_ids:
         return ()
     rows: list[dict[str, str]] = []
     for review_id in late_ids:
@@ -892,7 +726,7 @@ def late_selection_reviews(
 
 
 def refresh_idea_portfolio(project_root: Path) -> None:
-    """Keep late routes claimable without delaying quorum-selected work."""
+    """Keep late routes claimable after an evidence-based selection."""
     project_root = Path(project_root).expanduser().resolve()
     active = _active_portfolio(project_root)
     if active is None or idea_portfolio_selection(project_root) is None:
@@ -904,14 +738,14 @@ def refresh_idea_portfolio(project_root: Path) -> None:
         for task in task_board.snapshot(root)
     }
     state = _state_payload(project_root)
-    quorum = {
-        str(item) for item in state.get("quorum_review_task_ids") or ()
+    selection_reviews = {
+        str(item) for item in state.get("selection_review_task_ids") or ()
     }
     late_ids = [
         str(task["task_id"])
         for task in specs
         if task.get("role") == "idea-review"
-        and str(task["task_id"]) not in quorum
+        and str(task["task_id"]) not in selection_reviews
     ]
     unsettled = any(
         str(actual.get(task_id, {}).get("state") or "")
@@ -928,7 +762,8 @@ def refresh_idea_portfolio(project_root: Path) -> None:
                 cwd=str(project_root),
                 now=time.time(),
             )
-        pool.update(root, width=TEAM_WIDTH, state="running")
+        route_count = sum(task.get("role") == "idea-route" for task in specs)
+        pool.update(root, width=route_count, state="running")
     elif str(pool.read(root).get("state") or "") != "dissolved":
         pool.update(root, state="draining")
 
@@ -945,8 +780,6 @@ def idea_portfolio_completion_issues(project_root: Path) -> tuple[str, ...]:
     if not task_board.material_specs_match(root, tasks):
         return ("research idea portfolio task board is missing or not canonical",)
     issues: list[str] = []
-    if int(pool.read(root).get("width", 0) or 0) != TEAM_WIDTH:
-        issues.append("research idea portfolio did not preserve width 12")
     selection_root = _ensure_selection_team(
         project_root,
         root=root,
@@ -956,8 +789,7 @@ def idea_portfolio_completion_issues(project_root: Path) -> tuple[str, ...]:
     )
     if selection_root is None:
         issues.append(
-            f"research idea pipeline has fewer than {QUORUM_COUNT} completed "
-            "independent reviews or no qualified candidate yet"
+            "research idea portfolio has no qualified independent review yet"
         )
         return tuple(issues)
     if int(pool.read(selection_root).get("width", 0) or 0) != 1:
@@ -967,17 +799,16 @@ def idea_portfolio_completion_issues(project_root: Path) -> tuple[str, ...]:
         _materialize_selection(project_root, root, selection_root, selection)
         return tuple(issues)
     issues.append(
-        "research quorum selection or its short advisory probe is still incomplete"
+        "research adversarial selection is still incomplete"
     )
     return tuple(issues)
 
 
 __all__ = [
-    "QUORUM_COUNT",
+    "DEFAULT_PORTFOLIO_SIZE",
     "SELECTION_POLICY",
     "TEAM_ID",
     "TEAM_ROOT",
-    "TEAM_WIDTH",
     "ensure_idea_portfolio",
     "idea_portfolio_completion_issues",
     "idea_portfolio_selection",

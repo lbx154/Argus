@@ -26,7 +26,7 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
             "engineer/training-infrastructure-guide.md"
         )
     from .idea_portfolio import (
-        QUORUM_COUNT,
+        DEFAULT_PORTFOLIO_SIZE,
         SELECTION_POLICY,
         ensure_idea_portfolio,
         idea_portfolio_selection,
@@ -55,16 +55,18 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
             context.emit({
                 "type": "idea.portfolio.formed",
                 "team_root": str(team_root),
-                "width": 12,
-                "route_count": 12,
-                "review_quorum": QUORUM_COUNT,
-                "task_count": 24,
+                "width": DEFAULT_PORTFOLIO_SIZE,
+                "route_count": DEFAULT_PORTFOLIO_SIZE,
+                "task_count": DEFAULT_PORTFOLIO_SIZE * 2,
                 "selection": selection or {},
                 "policy": SELECTION_POLICY,
                 "text": (
-                    f"streaming 12-route idea pipeline selected {selection['route_id']}"
+                    f"idea portfolio selected {selection['route_id']}"
                     if selection
-                    else "formed streaming 12-route idea review/probe pipeline"
+                    else (
+                        "formed a default-size portfolio; breadth and selection "
+                        "sufficiency remain Agent judgments"
+                    )
                 ),
             })
     if context.team_task_id:

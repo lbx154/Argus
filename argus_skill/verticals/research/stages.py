@@ -61,9 +61,9 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.idea_portfolio",
             statement=(
-                "A 12-route team explores concurrently; each result gets an independent "
-                "review, and a fresh selector acts at the 80% review quorum without "
-                "waiting for the final routes."
+                "A team explores genuinely distinct mechanism families sized to the "
+                "problem, and each result receives independent review. The familiar "
+                "twelve-route fanout is an operating example, not a breadth quota."
             ),
             evidence_hint=(
                 "research/IDEA_PORTFOLIO.json + research/ideation/portfolios/**/"
@@ -73,12 +73,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.adversarial_selection",
             statement=(
-                "After at least 80% of reviews (10/12 by default), a fresh Agent selects "
-                "a current-frontier contribution that is either a high-novelty method or "
-                "a publication-scale empirical study. No-training convenience, shortest "
-                "evidence path, cheapness, and single-GPU fit are not ranking advantages; "
-                "resource gaps become an explicit staged compute plan. Probe metrics "
-                "cannot veto the choice; final routes do not block planning."
+                "A fresh Agent judges when the evidence covers the important alternatives "
+                "well enough to select. It reads all relevant evidence that has arrived, "
+                "including probes and later routes, and chooses the strongest credible "
+                "case for important, nontrivial new knowledge in any form. New evidence "
+                "may change the choice; local convenience is not scientific value."
             ),
             evidence_hint=(
                 "research/IDEA_SELECTION.json + selected route/review/EVIDENCE.json"
@@ -97,8 +96,8 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "The selected thesis has a plausible nontrivial technical core, "
                 "originality, formal/causal structure, field-level potential, and an "
-                "evidence path sized to the contribution: a high-novelty method or a "
-                "publication-scale empirical study, not merely a small diagnostic. "
+                "evidence path suited to its contribution. Judge whether it offers "
+                "important, credible new knowledge rather than admitting it by category. "
                 "Research review is qualitative: no finished theorem, fixed implementation, "
                 "or reliable effect size is required. Reject clear duplicates, trivial "
                 "prompt/schema/wrapper/scale variants, incoherent mechanisms, or decorative "
@@ -119,8 +118,8 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "training-heavy or large-scale empirical work, explicitly skip the probe "
                 "as untested and advance to plan/benchmark/run. The Planner authors the "
                 "evidence contract. Preserve raw evidence honestly. A weak, failed, or "
-                "inconclusive probe cannot kill, block, downgrade, or re-rank a qualified "
-                "idea or become a mechanical routing decision. Infrastructure failures, "
+                "inconclusive probe is evidence whose relevance the Reviewer must judge, "
+                "not a mechanical routing decision. Infrastructure failures, "
                 "saturation, and missing predeclared power or headroom are limitations; "
                 "later stages own scientific outcomes and decisive benchmarks. "
                 "`argus_skill.verticals.research.signal_derisk validate` is available "
@@ -494,12 +493,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "universal requirement that every seed, benchmark, or strongest baseline "
                 "must succeed. Evaluators, conditions, and comparisons may evolve for a "
                 "documented methodological reason when earlier outcomes remain visible "
-                "and the final claim is scoped accordingly. Classify the result as genuine "
-                "method failure only after an independent Reviewer finds the "
-                "implementation competitive and no credible repair remains or the "
-                "approved resource budget is exhausted. Classify interim outcomes as "
-                "misconfigured, under-engineered, inconclusive, or still-repairable. Do "
-                "not stop because of a fixed retry count."
+                "and the final claim is scoped accordingly. An independent Reviewer "
+                "judges when the current evidence is discriminating enough to attribute "
+                "a shortfall to the method rather than implementation, setup, or "
+                "measurement. Pursue a repair when it can resolve that attribution, not "
+                "because every conceivable repair or the full budget must be exhausted."
             ),
             evidence_hint=(
                 "reference reproduction + implementation source + executed manifests "
@@ -1525,12 +1523,15 @@ _REVIEWER_RESEARCH_JUDGEMENT = (
     "sound work, but use `plan_signal=reconsider` when the route, scale, comparison, "
     "or visual argument cannot clear the venue. For experiment claims, inspect "
     "implementation and raw rows once, then reuse them until a dependency changes. "
-    "Separate method results from infrastructure or evaluator failure. An outlying "
-    "result, or training below its own untrained checkpoint, is a setup/optimization "
-    "defect signal before a finding. Weak or underpowered probes cannot by themselves "
-    "trigger replan; they choose the next informative work. Count misses only after "
-    "the method, baseline, and evaluator can resolve the effect. The Manager retires "
-    "routes; a loss is never the paper, and ceremony stays advisory.\n"
+    "Separate method results from infrastructure or evaluator failure. For an outlying "
+    "or negative result, first rule out credible setup, optimization, and measurement "
+    "alternatives. Once those are excluded, an independent Reviewer may judge that a "
+    "well-characterized negative result, anomaly, or boundary condition is itself an "
+    "important conclusion. Judge attribution from whether the current evidence "
+    "discriminates method failure from implementation failure. Weak or underpowered "
+    "probes cannot by themselves decide the conclusion; they choose the next "
+    "informative work. The Manager decides whether to retire a route. Ceremony "
+    "remains advisory.\n"
 )
 
 _PLANNER_RESEARCH_ORCHESTRATION = (
@@ -1962,7 +1963,7 @@ def _unasked_manuscript_block(project_root: object) -> str:
 
 
 def _late_selection_reviews_block(project_root: object) -> str:
-    """Put routes unseen by the original quorum selector before Reviewer."""
+    """Put routes unseen by the original selector before Reviewer."""
     try:
         from .idea_portfolio import late_selection_reviews
 
