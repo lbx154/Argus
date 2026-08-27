@@ -330,6 +330,14 @@ class PlanningCycleVerdictMixin:
             self._enter_idle_backoff()
             return PLAN_ERROR
 
+        for diagnostic in getattr(verdict, "diagnostics", ()):
+            log.warning("planner verdict normalized: %s", diagnostic)
+            self._emit({
+                "type": "life.planner.normalized",
+                "cycle": self._planning_cycles,
+                "diagnostic": str(diagnostic),
+            })
+
         if revision_request is None:
             verdict = self._normalize_live_subagent_wait(verdict)
         verdict = self._defer_project_done_for_operator_external_blocker(verdict)
