@@ -237,7 +237,7 @@ def _apply_manuscript_review_freshness(
         outcome["final_submission_certified"] = False
         outcome["review_validity"] = "unbound"
         outcome["review_status_message"] = (
-            "unbound (certification did not record the manuscript SHA-256)"
+            "unbound (certification did not record the manuscript version)"
         )
         return
     try:

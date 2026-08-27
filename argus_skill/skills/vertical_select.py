@@ -792,7 +792,7 @@ def vertical_completion_certificate_status(
         ):
             return {
                 **detail,
-                "reason": "unbound (certification did not record the manuscript SHA-256)",
+                "reason": "unbound (certification did not record the manuscript version)",
                 "freshness_status": "unbound",
             }
     if completion_contract_version <= 0:

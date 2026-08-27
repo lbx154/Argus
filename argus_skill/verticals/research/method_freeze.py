@@ -119,13 +119,16 @@ def research_review_prompt_block(project_root: Path | str) -> str:
         "## Declared method freeze (process-written facts)",
         f"- method identity: {method.get('identity') or '<missing>'}",
         f"- method description: {method.get('description') or '<missing>'}",
-        f"- frozen at: {freeze.get('frozen_at') or '<missing>'}",
-        "- manuscript SHA-256 at freeze: "
-        + str(freeze.get("manuscript_sha256_at_freeze") or "<missing>"),
+        "- frozen at "
+        + str(freeze.get("frozen_at") or "<missing>")
+        + " against the then-current manuscript",
         f"- planned confirmation command: {planned.get('command') or '<missing>'}",
         "- planned confirmation data split: "
         + str(planned.get("data_split_identity") or "<missing>"),
     ]
+    frozen_manuscript = str(freeze.get("manuscript_sha256_at_freeze") or "")
+    if frozen_manuscript != manuscript_sha256(root):
+        lines.append("- the manuscript has changed since the freeze")
     try:
         confirmation = json.loads(
             (root / CONFIRMATION_RESULT_PATH).read_text(encoding="utf-8")

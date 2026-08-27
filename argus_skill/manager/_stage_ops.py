@@ -815,7 +815,7 @@ class _StageDecisionMixin:
                     str(freshness.get("message") or "stale manuscript review"),
                     current_stage=cur,
                     source="stale_manuscript_review_hold",
-                    diagnostic="reviewed_manuscript_sha_mismatch",
+                    diagnostic="reviewed_manuscript_version_mismatch",
                 )
 
         # A parsed, conflict-free Reviewer acceptance is already the semantic
