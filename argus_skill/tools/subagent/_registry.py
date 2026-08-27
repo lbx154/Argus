@@ -13,13 +13,17 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from ...core.daemon_lock import is_pid_running
 from ...core.evidence_ledger import EvidenceLedger
 from ...core.portable_filename import (
     legacy_hashed_filename_components,
     portable_filename_component,
+)
+from ...core.process_identity import (
+    capture_process_identity,
+    process_identity_is_running,
 )
 from ._text import _tail_file
 
@@ -61,19 +65,39 @@ def _task_file_component(task_id: str) -> str:
     return portable_filename_component(str(task_id), windows=os.name == "nt")
 
 
-def _registry_path(task_id: str) -> Path:
-    return REGISTRY_DIR / f"{_task_file_component(task_id)}.json"
+def _registry_root(registry_root: Path | str | None = None) -> Path:
+    return REGISTRY_DIR if registry_root is None else Path(registry_root)
 
 
-def _legacy_registry_paths(task_id: str) -> tuple[Path, ...]:
+def _registry_path(
+    task_id: str,
+    *,
+    registry_root: Path | str | None = None,
+) -> Path:
+    return _registry_root(registry_root) / f"{_task_file_component(task_id)}.json"
+
+
+def _legacy_registry_paths(
+    task_id: str,
+    *,
+    registry_root: Path | str | None = None,
+) -> tuple[Path, ...]:
+    root = _registry_root(registry_root)
     return tuple(
-        REGISTRY_DIR / f"{component}.json"
+        root / f"{component}.json"
         for component in legacy_hashed_filename_components(task_id)
     )
 
 
-def _task_record_paths(task_id: str) -> tuple[Path, ...]:
-    return (_registry_path(task_id), *_legacy_registry_paths(task_id))
+def _task_record_paths(
+    task_id: str,
+    *,
+    registry_root: Path | str | None = None,
+) -> tuple[Path, ...]:
+    return (
+        _registry_path(task_id, registry_root=registry_root),
+        *_legacy_registry_paths(task_id, registry_root=registry_root),
+    )
 
 
 def _unlink_task_records(task_id: str) -> None:
@@ -86,9 +110,14 @@ def _unlink_task_records(task_id: str) -> None:
             path.unlink(missing_ok=True)
 
 
-def _exit_status_path(task_id: str, run_id: str | None = None) -> Path:
+def _exit_status_path(
+    task_id: str,
+    run_id: str | None = None,
+    *,
+    registry_root: Path | str | None = None,
+) -> Path:
     name = f"exit_code.{run_id}" if run_id else "exit_code"
-    return REGISTRY_DIR / f"{_task_file_component(task_id)}_logs" / name
+    return _registry_root(registry_root) / f"{_task_file_component(task_id)}_logs" / name
 
 
 def _task_log_dir(task_id: str) -> Path:
@@ -98,10 +127,13 @@ def _task_log_dir(task_id: str) -> Path:
 def _legacy_exit_status_paths(
     task_id: str,
     run_id: str | None = None,
+    *,
+    registry_root: Path | str | None = None,
 ) -> tuple[Path, ...]:
     name = f"exit_code.{run_id}" if run_id else "exit_code"
+    root = _registry_root(registry_root)
     return tuple(
-        REGISTRY_DIR / f"{component}_logs" / name
+        root / f"{component}_logs" / name
         for component in legacy_hashed_filename_components(task_id)
     )
 
@@ -225,17 +257,31 @@ def _launch_durable_command(
 # Task record I/O
 # ---------------------------------------------------------------------------
 
-def _write_task(task_id: str, data: dict[str, Any]) -> None:
-    REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
-    path = _registry_path(task_id)
-    legacy_paths = _legacy_registry_paths(task_id)
-    existing = _read_task(task_id)
+def _write_task(
+    task_id: str,
+    data: dict[str, Any],
+    *,
+    registry_root: Path | str | None = None,
+) -> None:
+    root = _registry_root(registry_root)
+    root.mkdir(parents=True, exist_ok=True)
+    path = _registry_path(task_id, registry_root=root)
+    legacy_paths = _legacy_registry_paths(task_id, registry_root=root)
+    existing = _read_task(task_id, registry_root=root)
     if existing is None and len(str(task_id).encode("utf-8")) > 120:
         raise ValueError("task_id exceeds 120 UTF-8 bytes")
     if isinstance(existing, dict):
         preserved_fields = {
             key: existing[key]
-            for key in ("cpu_ids", "cpu_count", "cwd")
+            for key in (
+                "cpu_ids",
+                "cpu_count",
+                "cwd",
+                "timeout_seconds",
+                "timeout_defaulted",
+                "process_identity",
+                "worker_process_identity",
+            )
             if key not in data and key in existing
         }
         if preserved_fields:
@@ -274,10 +320,14 @@ def _write_task_if_run_id(
         return True
 
 
-def _read_task(task_id: str) -> dict[str, Any] | None:
+def _read_task(
+    task_id: str,
+    *,
+    registry_root: Path | str | None = None,
+) -> dict[str, Any] | None:
     records: list[tuple[int, bool, dict[str, Any]]] = []
-    canonical = _registry_path(task_id)
-    for path in _task_record_paths(task_id):
+    canonical = _registry_path(task_id, registry_root=registry_root)
+    for path in _task_record_paths(task_id, registry_root=registry_root):
         if not path.exists():
             continue
         try:
@@ -325,10 +375,64 @@ def _is_pid_alive(pid: int) -> bool:
     return is_pid_running(pid)
 
 
-def _read_exit_code(task_id: str, run_id: str | None = None) -> int | None:
+def _identity_from_record(
+    task: Mapping[str, Any],
+    pid_field: str,
+) -> Mapping[str, Any] | None:
+    identity_fields = {
+        "pid": ("process_identity", "command_process_identity"),
+        "worker_pid": ("worker_process_identity",),
+        "submitter_pid": ("submitter_process_identity",),
+    }
+    for field in identity_fields.get(pid_field, ()):
+        identity = task.get(field)
+        if isinstance(identity, Mapping):
+            return identity
+    if pid_field == "pid" and task.get("pid") == task.get("worker_pid"):
+        worker_identity = task.get("worker_process_identity")
+        if isinstance(worker_identity, Mapping):
+            return worker_identity
+    flat_fields = {
+        "pid": ("pid_start_time_ticks", "start_time_ticks"),
+        "worker_pid": ("worker_start_time_ticks",),
+        "submitter_pid": ("submitter_start_time_ticks",),
+    }
+    for field in flat_fields.get(pid_field, ()):
+        start_ticks = task.get(field)
+        if start_ticks not in (None, ""):
+            return {"pid": task.get(pid_field), "start_time_ticks": start_ticks}
+    return None
+
+
+def _recorded_process_alive(task: Mapping[str, Any], pid_field: str) -> bool:
+    try:
+        pid = int(task.get(pid_field) or 0)
+    except (TypeError, ValueError):
+        return False
+    return process_identity_is_running(
+        pid,
+        _identity_from_record(task, pid_field),
+        pid_is_running=_is_pid_alive,
+    )
+
+
+def _process_identity(pid: int) -> dict[str, Any]:
+    return capture_process_identity(pid)
+
+
+def _read_exit_code(
+    task_id: str,
+    run_id: str | None = None,
+    *,
+    registry_root: Path | str | None = None,
+) -> int | None:
     for path in (
-        _exit_status_path(task_id, run_id),
-        *_legacy_exit_status_paths(task_id, run_id),
+        _exit_status_path(task_id, run_id, registry_root=registry_root),
+        *_legacy_exit_status_paths(
+            task_id,
+            run_id,
+            registry_root=registry_root,
+        ),
     ):
         try:
             return int(path.read_text(encoding="utf-8").strip())
@@ -337,16 +441,21 @@ def _read_exit_code(task_id: str, run_id: str | None = None) -> int | None:
     return None
 
 
-def reconcile_terminal_task(task_id: str, task: dict[str, Any]) -> dict[str, Any]:
+def reconcile_terminal_task(
+    task_id: str,
+    task: dict[str, Any],
+    *,
+    registry_root: Path | str | None = None,
+) -> dict[str, Any]:
     """Recover a terminal direct/supervised job after its worker owner died."""
     if task.get("state") not in {"starting", "preflight", "running"}:
         return task
     pid = int(task.get("pid") or 0)
     run_id = str(task.get("run_id") or "") or None
-    exit_code = _read_exit_code(task_id, run_id)
-    if exit_code is None and pid and _is_pid_alive(pid):
+    exit_code = _read_exit_code(task_id, run_id, registry_root=registry_root)
+    if exit_code is None and pid and _recorded_process_alive(task, "pid"):
         worker_pid = int(task.get("worker_pid") or 0)
-        if worker_pid and not _is_pid_alive(worker_pid):
+        if worker_pid and not _recorded_process_alive(task, "worker_pid"):
             task["owner_lost"] = True
             task["terminal_owner"] = "exit_sidecar_reconciler"
         return task
@@ -363,7 +472,7 @@ def reconcile_terminal_task(task_id: str, task: dict[str, Any]) -> dict[str, Any
         task["stdout_tail"] = _tail_file(stdout_path, 3000)
         task["stderr_tail"] = _tail_file(stderr_path, 3000)
     task["completed_at"] = time.time()
-    _write_task(task_id, task)
+    _write_task(task_id, task, registry_root=registry_root)
     return task
 
 
@@ -409,7 +518,7 @@ def _open_discussion_blockers(lane: str | None = None) -> list[dict[str, Any]]:
         # no heartbeat (a worker that died before its first poll) must NOT wedge
         # the gate forever, so a missing heartbeat is treated as stale.
         fresh = isinstance(hb, (int, float)) and (now - hb < DISCUSSION_STALE_AFTER_S)
-        alive = bool(wpid and _is_pid_alive(wpid))
+        alive = bool(wpid and _recorded_process_alive(t, "worker_pid"))
         if alive and fresh:
             blockers.append(t)
     return blockers

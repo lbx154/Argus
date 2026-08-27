@@ -503,7 +503,10 @@ class LifeSupervisor(
 
             from ...tools.subagent._registry import reconcile_terminal_task
 
-            root = Path(self._project_workdir()) / ".argus_subagents"
+            root = (
+                Path(self._project_workdir()).expanduser().resolve(strict=False)
+                / ".argus_subagents"
+            )
             if not root.is_dir():
                 return
             for record_path in root.glob("*.json"):
@@ -517,11 +520,12 @@ class LifeSupervisor(
                     continue
                 before = record.get("state")
                 task_id = str(record.get("task_id") or record_path.stem)
-                updated = reconcile_terminal_task(task_id, dict(record))
+                updated = reconcile_terminal_task(
+                    task_id,
+                    dict(record),
+                    registry_root=root,
+                )
                 if updated.get("state") != before:
-                    record_path.write_text(
-                        json.dumps(updated, ensure_ascii=False), encoding="utf-8"
-                    )
                     self._emit_status(
                         f"external job {record_path.stem} is {updated.get('state')}: "
                         "its process is gone"
