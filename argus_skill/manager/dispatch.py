@@ -104,7 +104,7 @@ def _plan_bounded_execution(
     chat_state: dict[str, Any],
     *,
     root_task_id: str | None = None,
-    require_independent_review: bool = False,
+    require_independent_review: bool = True,
 ) -> Any:
     runner = front_door._ensure_manager_runner(chat_state, mem)
     backend = getattr(runner, "planner_backend", None) if runner is not None else None
@@ -431,7 +431,7 @@ def enqueue_mission(
                 getattr(
                     getattr(prepared_handoff, "decision", None),
                     "require_independent_review",
-                    False,
+                    True,
                 )
             ),
         )
@@ -441,7 +441,7 @@ def enqueue_mission(
         for node in nodes:
             stage_closing = bool(getattr(node, "stage_closing", False))
             require_review = bool(
-                getattr(node, "require_independent_review", False)
+                getattr(node, "require_independent_review", True)
             )
             skip_stage_transition = bool(
                 getattr(node, "skip_stage_transition", False)
@@ -524,7 +524,7 @@ def enqueue_mission(
             stage = current_stage(node_workdir)
             stage_closing = bool(getattr(node, "stage_closing", False))
             require_review = bool(
-                getattr(node, "require_independent_review", False)
+                getattr(node, "require_independent_review", True)
             ) or learned_candidate or bool(
                 manager_decision.get("require_independent_review")
             )
@@ -574,6 +574,11 @@ def enqueue_mission(
                     *(
                         ["review:required"]
                         if stage_closing or require_review
+                        else []
+                    ),
+                    *(
+                        ["review:waived"]
+                        if not stage_closing and not require_review
                         else []
                     ),
                     *(
@@ -641,6 +646,16 @@ def enqueue_mission(
                     "plan_id": plan_id,
                     "node_key": node_item.node_key,
                 })
+                if "review:waived" in node_item.tags:
+                    sink.append({
+                        "type": "life.review.waived",
+                        "item_id": node_item.id,
+                        "text": (
+                            "independent review waived: bounded Planner explicitly "
+                            "set require_independent_review=false"
+                        ),
+                        "reason": reason,
+                    })
         except Exception:  # noqa: BLE001
             pass
         front_door._maybe_name_session(

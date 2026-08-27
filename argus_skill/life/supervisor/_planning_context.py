@@ -60,9 +60,11 @@ class PlanningContextMixin:
         if bool(getattr(task, "stage_closing", False)):
             tags.append("stage_closing")
         if bool(getattr(task, "stage_closing", False)) or bool(
-            getattr(task, "require_independent_review", False)
+            getattr(task, "require_independent_review", True)
         ):
             tags.append("review:required")
+        else:
+            tags.append("review:waived")
         if bool(getattr(task, "skip_stage_transition", False)):
             tags.append("stage_transition:skip")
         if bool(getattr(task, "stage_repair", False)):
@@ -88,11 +90,13 @@ class PlanningContextMixin:
 
     @staticmethod
     def _item_requires_independent_review(item: BacklogItem) -> bool:
-        return any(
+        normalized_tags = {
             str(tag).strip().lower().replace("-", "_")
-            in {"review:required", "independent_review:required"}
             for tag in item.tags
-        )
+        }
+        if normalized_tags & {"review:waived", "independent_review:waived"}:
+            return False
+        return True
 
     @staticmethod
     def _item_is_stage_closing(item: BacklogItem) -> bool:

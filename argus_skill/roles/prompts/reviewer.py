@@ -263,7 +263,7 @@ def render_reviewer_prompt(
     )
     from .registry import resolve_role_prompt
 
-    error_text = main_error or "none"
+    error_text = sanitize_model_visible_text(main_error or "none")
     # Reviewer receives Skill-library paths and searches independently; no
     # Skill body is selected or injected by the runtime.
     _proot = resolve_project_root(vertical_state_root or working_dir)
@@ -399,7 +399,9 @@ def render_reviewer_prompt(
     # round advanced a declared structural line" from "Nth single-knob
     # nibble at a floor that has not moved in N attempts". Empty for
     # verticals that do not surface it.
-    search_altitude_block = prompt_context.search_altitude
+    search_altitude_block = sanitize_model_visible_text(
+        prompt_context.search_altitude
+    )
     if _measured:
         stage_checklist = (
             "## MEASURED-BENCHMARK MODE — TRUST the scorer, judge the IDEA\n"
@@ -492,13 +494,18 @@ def render_reviewer_prompt(
         skill_used=active_skill_id,
         prev_review_summary=prev_review_summary,
     )
+    shared_context_block = sanitize_model_visible_text(shared_context_block)
     incremental_review_block = ""
     if round_index > 1 and prev_review_summary.strip():
         incremental_review_block = _INCREMENTAL_REREVIEW_BOUNDARY
     # Prefer direct runtime and verifier evidence over the Engineer's summary
     # when callers provide it. Omit the block when no such evidence exists.
     evidence_block = (
-        f"\nRaw verification evidence:\n{raw_evidence.rstrip()}\n" if raw_evidence.strip() else ""
+        "\nRaw verification evidence:\n"
+        + sanitize_model_visible_text(raw_evidence.rstrip())
+        + "\n"
+        if raw_evidence.strip()
+        else ""
     )
     # Background-subagent context (rendered by the engineer/runner from the
     # live ``.argus_subagents`` registry). Present only when this mission has
@@ -509,7 +516,9 @@ def render_reviewer_prompt(
     background_block = ""
     if background_context.strip():
         background_block = (
-            f"\n{background_context.strip()}\n\n"
+            "\n"
+            + sanitize_model_visible_text(background_context.strip())
+            + "\n\n"
             "Reviewer note on the above: these are SUPERVISED subagents with "
             "their own independent supervisor, so their autonomous progress is "
             "NOT by itself the engineer's forward progress. If the engineer only "
@@ -539,6 +548,9 @@ def render_reviewer_prompt(
         round_index=round_index,
         measured=_measured,
         compact=not bool((main_error or "").strip()),
+    )
+    engineer_log_audit_block = sanitize_model_visible_text(
+        engineer_log_audit_block
     )
     if direct_workflow:
         rollback_block = ""
@@ -662,12 +674,11 @@ def render_reviewer_prompt(
         + f"{background_block}"
         + f"Main agent fatal error: {error_text}\n\n"
         + "## Engineer's account of this round\n"
-        + f"{main_summary[:6000]}\n\n"
+        + sanitize_model_visible_text(main_summary[:6000])
+        + "\n\n"
         + f"{evidence_block}"
     )
     objective_context = f"{objective_block}{operator_text}\n{planner_review_instruction or 'none'}"
-    static = sanitize_model_visible_text(static)
-    delta = sanitize_model_visible_text(delta)
     owner._last_prompt_block_stats = _prompt_block_stats(
         {
             "static_total": static,
@@ -691,7 +702,7 @@ def render_reviewer_prompt(
 
 def assemble_reviewer_prompt(static: str, delta: str) -> str:
     """Form the exact prompt sent to a fresh Reviewer session."""
-    return sanitize_model_visible_text(static + delta)
+    return static + delta
 
 
 __all__ = [

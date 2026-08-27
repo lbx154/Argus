@@ -358,7 +358,7 @@ class PlanningCycleEnqueueMixin:
         """
         stage_closing = bool(getattr(task, "stage_closing", False))
         requires_review = stage_closing or bool(
-            getattr(task, "require_independent_review", False)
+            getattr(task, "require_independent_review", True)
         )
         if not requires_review:
             return False
@@ -518,7 +518,7 @@ class PlanningCycleEnqueueMixin:
             canonical_require_review = bool(
                 canonical_stage_closing
                 or _independent_review_forced()
-                or getattr(task, "require_independent_review", False)
+                or getattr(task, "require_independent_review", True)
             )
             task = replace(
                 task,
@@ -761,7 +761,19 @@ class PlanningCycleEnqueueMixin:
                 and manager_decision.get("vertical") not in formal_domains
                 and "review:required" not in task_tags
             ):
+                if "review:waived" in task_tags:
+                    task_tags.remove("review:waived")
                 task_tags.append("review:required")
+            if "review:waived" in task_tags:
+                self._emit({
+                    "type": "life.review.waived",
+                    "text": (
+                        "independent review waived: Planner explicitly set "
+                        "require_independent_review=false"
+                    ),
+                    "title": task.title,
+                    "reason": str(state.verdict.reason or "Planner waiver"),
+                })
             item = BacklogItem.new(
                 item_id=item_id,
                 title=task.title,

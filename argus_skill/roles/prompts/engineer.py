@@ -114,8 +114,8 @@ def _long_experiment_rule(task: str) -> str:
 
 def append_live_guidance(prompt: str, guidance: list[str]) -> str:
     if not guidance:
-        return sanitize_model_visible_text(prompt)
-    return sanitize_model_visible_text(
+        return prompt
+    return (
         prompt
         + "\n\n## LIVE MANAGER / OPERATOR DIRECTIVES — HIGHEST PRIORITY\n"
         + "These directives may stop, narrow, or correct the current mission. "
@@ -136,7 +136,7 @@ def assemble_round_prompt(
 ) -> str:
     """Append all dynamic Engineer round fragments in one stable order."""
     tail = [
-        block
+        sanitize_model_visible_text(block)
         for block in (
             checkpoint_block,
             background_advisory,
@@ -145,8 +145,8 @@ def assemble_round_prompt(
         if block
     ]
     if not tail:
-        return sanitize_model_visible_text(prompt)
-    return sanitize_model_visible_text(prompt + "\n\n" + "\n\n".join(tail))
+        return prompt
+    return prompt + "\n\n" + "\n\n".join(tail)
 
 
 def _deduplicated_original_request(original_request: str, task: str) -> str:
@@ -227,7 +227,10 @@ def build_mission_prompt(
         if shell_summary:
             sections.append(shell_summary)
         if role_banner.strip():
-            sections.append("## Active vertical role\n" + role_banner.strip())
+            sections.append(
+                "## Active vertical role\n"
+                + sanitize_model_visible_text(role_banner.strip())
+            )
         if skill_text:
             sections.append(skill_text)
         sections.append(task)
@@ -253,14 +256,17 @@ def build_mission_prompt(
                 "NEXT_OWNER=reviewer"
             )
         )
-        return sanitize_model_visible_text("\n\n".join(sections))
+        return "\n\n".join(sections)
 
     sections: list[str] = [EFFECTIVE_TASK_CONTRACT]
     if shell_summary:
         sections.append(shell_summary)
     delta_sections: list[str] = []
     if role_banner.strip():
-        sections.append("## Active vertical role\n" + role_banner.strip())
+        sections.append(
+            "## Active vertical role\n"
+            + sanitize_model_visible_text(role_banner.strip())
+        )
     if skill_text:
         sections.append(skill_text)
     unique_original_request = _deduplicated_original_request(
@@ -300,12 +306,13 @@ def build_mission_prompt(
             role="Engineer",
         )
         if knowledge_block:
-            sections.append(knowledge_block)
+            sections.append(sanitize_model_visible_text(knowledge_block))
     if next_action:
         delta_sections.append(
             "## Reviewer guidance from prior round\n"
             "The previous round was judged incomplete. Address the\n"
-            "following before declaring done:\n\n" + next_action
+            "following before declaring done:\n\n"
+            + sanitize_model_visible_text(next_action)
         )
     sections.append(
         "## This turn\n"
@@ -344,9 +351,7 @@ def build_mission_prompt(
     static_text = "\n\n".join(sections)
     delta_text = "\n\n".join(delta_sections)
     if include_static:
-        return sanitize_model_visible_text(
-            static_text + ("\n\n" + delta_text if delta_text else "")
-        )
+        return static_text + ("\n\n" + delta_text if delta_text else "")
     compact = (
         "## Continuation turn\n"
         "Read CHECKPOINT.md, then execute the Reviewer next action. Do not repeat an "
@@ -372,9 +377,7 @@ def build_mission_prompt(
         compact = shell_contract + "\n\n" + compact
     if learning_block:
         compact += "\n\n" + learning_block
-    return sanitize_model_visible_text(
-        compact + ("\n\n" + delta_text if delta_text else "")
-    )
+    return compact + ("\n\n" + delta_text if delta_text else "")
 
 
 def mission_request(

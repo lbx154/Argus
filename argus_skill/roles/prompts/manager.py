@@ -313,8 +313,9 @@ def build_fast_vertical_decision_prompt(
         "For research_direction_mode, the only valid values are `broad` (the "
         "direction is still being discovered) and `locked` (the operator fixed the "
         "hypothesis/direction). Never invent another direction-mode value. Never "
-        "infer a publication venue. Set `require_independent_review=true` only when "
-        "the operator explicitly asks for independent review.\n\n"
+        "infer a publication venue. Independent review defaults on; set "
+        "`require_independent_review=false` only for an authorized deliberate waiver "
+        "and state the reason in `RATIONALE`.\n\n"
         "## Task\n"
         f"{(task or '').strip()}\n\n"
         + decision_footer_instruction(
@@ -322,7 +323,7 @@ def build_fast_vertical_decision_prompt(
             "VERTICAL=software\n"
             "DOMAIN=\n"
             "WORKFLOW_MODE=direct\n"
-            "REQUIRE_INDEPENDENT_REVIEW=false\n"
+            "REQUIRE_INDEPENDENT_REVIEW=true\n"
             "CONFIDENCE=0.9\n"
             "RATIONALE=brief reason"
         )
@@ -403,8 +404,8 @@ def build_vertical_decision_prompt(
         "when the direction is still being discovered or `locked` when the operator fixed "
         "the hypothesis/direction; values such as `exploratory`, `publishable`, or "
         "`experimental_validation` are invalid. Never infer a venue. Set "
-        "`require_independent_review=true` only when the operator explicitly asks "
-        "for it.\n\n"
+        "independent review on by default. Set `require_independent_review=false` "
+        "only for an authorized deliberate waiver and state why in `rationale`.\n\n"
         "State `choice`, `vertical`, `domain`, `workflow_mode`, and `rationale` "
         "at the end. Add `stages` only for a revised project domain or new vertical. "
         "Omit `execution_task` for a standalone existing route; include it only when "
@@ -419,7 +420,7 @@ def build_vertical_decision_prompt(
             "VERTICAL=software\n"
             "DOMAIN=\n"
             "WORKFLOW_MODE=direct\n"
-            "REQUIRE_INDEPENDENT_REVIEW=false\n"
+            "REQUIRE_INDEPENDENT_REVIEW=true\n"
             "RATIONALE=brief reason"
         )
         + "\n"
@@ -730,15 +731,13 @@ def assemble_manager_prompt(
     role_skill_block: str = "",
 ) -> str:
     """Apply dynamic Manager policy with vertical authority last."""
-    context = str(role_banner or "").strip()
+    context = sanitize_model_visible_text(str(role_banner or "").strip())
     with_vertical = (
         f"{prompt}\n\n## Active vertical Manager skill\n{context}"
         if context
         else prompt
     )
-    return sanitize_model_visible_text(
-        MODEL_INTEGRITY_BOUNDARY + "\n\n" + str(role_skill_block or "") + with_vertical
-    )
+    return MODEL_INTEGRITY_BOUNDARY + "\n\n" + str(role_skill_block or "") + with_vertical
 
 
 def _advisory_planner(planner_verdict: Any) -> str:

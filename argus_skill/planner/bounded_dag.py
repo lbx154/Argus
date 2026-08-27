@@ -30,7 +30,7 @@ class BoundedDagNode:
     vertical: str = ""
     execution_workdir: str = ""
     work_kind: str = "scope"
-    require_independent_review: bool = False
+    require_independent_review: bool = True
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ def _prompt(
     project_root: Path | str,
     *,
     state_root: Path | str | None = None,
-    require_independent_review: bool = False,
+    require_independent_review: bool = True,
 ) -> str:
     from ..roles.prompts.planner import build_bounded_dag_prompt
 
@@ -194,7 +194,7 @@ def _validate(payload: object) -> tuple[str, tuple[BoundedDagNode, ...]]:
             )
         else:
             raise ValueError("planner task non_goals must be text or an array")
-        raw_review = row.get("require_independent_review", False)
+        raw_review = row.get("require_independent_review", True)
         if isinstance(raw_review, bool):
             require_independent_review = raw_review
         elif str(raw_review).strip().casefold() in {"true", "false"}:
@@ -261,7 +261,7 @@ def plan_bounded_dag(
     *,
     workdir: Path | str,
     state_root: Path | str | None = None,
-    require_independent_review: bool = False,
+    require_independent_review: bool = True,
     model: str | None = None,
     reasoning_effort: str = "high",
 ) -> BoundedDagPlan:

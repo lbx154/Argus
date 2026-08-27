@@ -176,6 +176,7 @@ def test_guard_reuses_the_daemon_manager_instead_of_building_a_runner(
         "vertical": "software",
         "stage": "implementation",
         "workflow_mode": "staged",
+        "require_independent_review": True,
         "routed": True,
     }
     assert needs_manager_decision(routed) is False
@@ -210,6 +211,7 @@ def test_guard_uses_injected_supervisor_runner(tmp_path, monkeypatch) -> None:
     assert routed.manager_decision == {
         "vertical": "research",
         "workflow_mode": "bounded",
+        "require_independent_review": True,
         "routed": True,
     }
 
@@ -248,6 +250,7 @@ def test_guard_reroutes_unknown_persisted_vertical(tmp_path, monkeypatch) -> Non
     assert routed.manager_decision == {
         "vertical": "software",
         "workflow_mode": "direct",
+        "require_independent_review": True,
         "routed": True,
     }
 

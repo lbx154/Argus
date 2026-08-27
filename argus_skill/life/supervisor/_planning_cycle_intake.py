@@ -69,11 +69,13 @@ class PlanningCycleIntakeMixin:
         vertical = str(intent.get("vertical") or "").strip()
         from ...verticals._base import load_vertical_contract
 
-        requires_review = bool(intent.get("require_independent_review")) or (
-            load_vertical_contract(
-                vertical,
-                project_root=self._artifact_root(),
-            ).requires_independent_review
+        vertical_requires_review = load_vertical_contract(
+            vertical,
+            project_root=self._artifact_root(),
+        ).requires_independent_review
+        explicit_review_policy = intent.get("require_independent_review", True)
+        requires_review = bool(
+            explicit_review_policy is not False or vertical_requires_review
         )
         manager_decision = {**intent, "routed": True, "route_source": "manager"}
         item = BacklogItem.new(
@@ -85,6 +87,7 @@ class PlanningCycleIntakeMixin:
                 "scope:bounded",
                 "stage_closing",
                 *(["review:required"] if requires_review else []),
+                *(["review:waived"] if not requires_review else []),
                 *([f"stage:{stage}"] if stage else []),
             ],
             iterate=False,
@@ -93,6 +96,16 @@ class PlanningCycleIntakeMixin:
             manager_decision=manager_decision,
         )
         self.memory.backlog.add(item)
+        if not requires_review:
+            self._emit({
+                "type": "life.review.waived",
+                "item_id": item.id,
+                "text": (
+                    "independent review waived: Manager explicitly set "
+                    "require_independent_review=false"
+                ),
+                "reason": str(intent.get("reason") or "Manager waiver"),
+            })
         self._emit({
             "type": EventType.LIFE_PLANNER_TASK_ADDED,
             "item_id": item.id,

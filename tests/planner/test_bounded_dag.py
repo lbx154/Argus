@@ -30,7 +30,7 @@ class _Runner:
                 f"TASK_SCOPE={task.get('scope', 'bounded')}",
                 f"TASK_STAGE_CLOSING={task.get('stage_closing', 'false')}",
                 "TASK_REQUIRE_INDEPENDENT_REVIEW="
-                f"{task.get('require_independent_review', 'false')}",
+                f"{task.get('require_independent_review', 'true')}",
                 "TASK_SKIP_STAGE_TRANSITION="
                 f"{task.get('skip_stage_transition', 'false')}",
                 "TASK_OPERATOR_APPROVAL_REQUIRED="
@@ -151,7 +151,7 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     assert "PLAN_REASON=" in call["prompt"]
     assert "TASK_CONTEXT_REFS" not in call["prompt"]
     assert "TASK_STAGE_CLOSING" not in call["prompt"]
-    assert "`require_independent_review:true`" in call["prompt"]
+    assert "Independent review defaults on" in call["prompt"]
     assert "`execution_workdir`" in call["prompt"]
     assert "`hypothesis`" in call["prompt"]
     assert "`decision_rule`" in call["prompt"]
@@ -339,6 +339,24 @@ def test_bounded_planner_accepts_minimal_task_without_control_fields(tmp_path) -
 
     assert plan.error == ""
     assert plan.tasks[0].title == "A"
+    assert plan.tasks[0].require_independent_review is True
+
+
+def test_bounded_planner_preserves_an_explicit_review_waiver(tmp_path) -> None:
+    runner = _Runner({
+        "reason": "authorized low-risk waiver",
+        "tasks": [{
+            "key": "a",
+            "deps": [],
+            "title": "A",
+            "objective": "do A",
+            "require_independent_review": "false",
+        }],
+    })
+
+    plan = plan_bounded_dag(runner, "x", workdir=tmp_path)
+
+    assert plan.error == ""
     assert plan.tasks[0].require_independent_review is False
 
 

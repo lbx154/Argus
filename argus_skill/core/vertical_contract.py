@@ -689,7 +689,7 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         ),
         evidence_schema=getattr(provider, "EVIDENCE_SCHEMA", None),
         requires_independent_review=bool(
-            getattr(provider, "REQUIRE_INDEPENDENT_REVIEW", False)
+            getattr(provider, "REQUIRE_INDEPENDENT_REVIEW", True)
         ),
         completion_contract_version=max(
             0, int(getattr(provider, "COMPLETION_CONTRACT_VERSION", 0) or 0)

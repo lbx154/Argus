@@ -138,7 +138,7 @@ _EXTERNAL_TARGET_CONTRACT = (
 def _join_prompt_blocks(*blocks: str) -> str:
     """Join only applicable prompt modules with one stable separator."""
     rendered = [block.strip() for block in blocks if block and block.strip()]
-    return sanitize_model_visible_text("\n\n".join(rendered) + "\n")
+    return "\n\n".join(rendered) + "\n"
 
 
 def continuous_request(
@@ -173,7 +173,7 @@ def build_bounded_dag_prompt(
     *,
     project_root: Path | str | None = None,
     state_root: Path | str | None = None,
-    require_independent_review: bool = False,
+    require_independent_review: bool = True,
 ) -> str:
     verification = ""
     policy_root = state_root if state_root is not None else project_root
@@ -213,7 +213,7 @@ def build_bounded_dag_prompt(
         if require_independent_review
         else ""
     )
-    return sanitize_model_visible_text(
+    return (
         "Plan the Manager handoff as a small executable DAG. Do not do the work."
         + verification
         + shell_block
@@ -243,10 +243,9 @@ def build_bounded_dag_prompt(
         "hours without holding the others, so a cycle that schedules only that "
         "job leaves the rest of the campaign idle for as long as it runs; "
         "schedule what does not need its result too.\n"
-        "- The Host owns execution and enforces review policy. Set "
-        "`require_independent_review:true` on the owned work node when the operator "
-        "explicitly requests independent review or the task crosses an independent "
-        "authority boundary; otherwise omit it.\n"
+        "- The Host owns execution and enforces review policy. Independent review "
+        "defaults on. Omit `require_independent_review` to keep it on; set it false "
+        "only for a deliberate authorized waiver and explain why in `PLAN_REASON`.\n"
         "- End with `PLAN_REASON` and one repeated `TASK_*` block per task. Each "
         "task uses `TASK_KEY`, `TASK_DEPS` (same-batch keys only), `TASK_TITLE`, "
         "and `TASK_OBJECTIVE`; add "
@@ -271,7 +270,7 @@ def build_bounded_dag_repair_prompt(
     *,
     project_root: Path | str | None = None,
     state_root: Path | str | None = None,
-    require_independent_review: bool = False,
+    require_independent_review: bool = True,
 ) -> str:
     """Request one complete replacement after a mechanically invalid DAG."""
     prior = sanitize_model_visible_text(str(previous_output or "")[-40_000:])
@@ -396,7 +395,9 @@ def build_continuous_prompt(
     # floor / distance-to-target / how long it has been frozen / what it has
     # already recombined, instead of re-deriving it from attempts/ each
     # cycle. Empty for verticals that do not surface it.
-    search_altitude_block = prompt_context.search_altitude
+    search_altitude_block = sanitize_model_visible_text(
+        prompt_context.search_altitude
+    )
 
     _vstage_order = list(prompt_context.stage_order)
     if workflow_mode == "direct":
@@ -547,14 +548,19 @@ def build_continuous_prompt(
         search_altitude_block,
         "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
         "## Journal of completed work (most recent last)\n"
-        + (journal_tail.strip() or "(no completed work yet — this is the first cycle)"),
+        + sanitize_model_visible_text(
+            journal_tail.strip()
+            or "(no completed work yet — this is the first cycle)"
+        ),
         _RESEARCH_PLAN_CONTRACT
-        + (
+        + sanitize_model_visible_text(
             research_plan.strip()
             or "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
         ),
         "## Current reality (authoritative over the journal above)\n"
-        + (runtime_change_summary.strip() or "(no additional runtime context)"),
+        + sanitize_model_visible_text(
+            runtime_change_summary.strip() or "(no additional runtime context)"
+        ),
         planner_hygiene_block,
         cycle_line,
         "Use only the focused read/search budget above, delegate the next concrete "
@@ -613,17 +619,22 @@ def build_continuous_resume_prompt(
         # Planner never saw its vertical's altitude at all: the search floor and
         # frozen count for a metric campaign, or the accepted papers pulled to
         # disk for a paper campaign. Each vertical still renders only its own.
-        str(prompt_context.search_altitude or ""),
+        sanitize_model_visible_text(prompt_context.search_altitude or ""),
         "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
         "## Journal of completed work (most recent last)\n"
-        + (journal_tail.strip() or "(no completed work yet — this is the first cycle)"),
+        + sanitize_model_visible_text(
+            journal_tail.strip()
+            or "(no completed work yet — this is the first cycle)"
+        ),
         _RESEARCH_PLAN_CONTRACT
-        + (
+        + sanitize_model_visible_text(
             research_plan.strip()
             or "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
         ),
         "## Current reality (authoritative over the journal above)\n"
-        + (runtime_change_summary.strip() or "(no additional runtime context)"),
+        + sanitize_model_visible_text(
+            runtime_change_summary.strip() or "(no additional runtime context)"
+        ),
         f"This is planning cycle #{planning_cycle + 1}.",
         "Inspect only what is needed to choose the next concrete task or a real "
         "blocker, then end with the Planner decision footer.",
