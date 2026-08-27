@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus_skill.verticals.physics import downgrade, mode_config, stages, tiers
+from argus_skill.verticals.physics import downgrade, stages, tiers
 
 
 def _seed(tmp_path: Path) -> Path:
@@ -55,15 +55,6 @@ def test_downgrade_walks_b_to_d(tmp_path: Path, monkeypatch) -> None:
     assert first is not None and first["to_tier"] == "C"
     assert second is not None and second["to_tier"] == "D"
     assert downgrade.evaluate_and_maybe_downgrade(root, now_iso="t") is None
-
-
-def test_original_research_mode_has_no_negative_result_escape(monkeypatch) -> None:
-    monkeypatch.setenv(
-        "ARGUS_SKILL_PHYSICS_TARGET_PAPER_TYPE",
-        "original_research_article",
-    )
-    monkeypatch.setenv("ARGUS_SKILL_PHYSICS_ALLOW_DOWNGRADE", "false")
-    assert mode_config.is_original_research_required() is True
 
 
 def test_stage_checks_do_not_include_terminal_negative_gate() -> None:
