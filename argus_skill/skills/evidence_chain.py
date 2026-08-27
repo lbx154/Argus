@@ -7,10 +7,9 @@ trace down to (1) an existing evidence file, (2) a bundle directory with
 explicitly marks itself as ``historical_only`` or ``broken_current_evidence``.
 
 This is the integrity side of the harness/agent boundary documented in
-``AGENTS.md`` and
-``docs/edit-principle/skills/04-harness-vs-agent-boundary.md``: claim ↔
-evidence ↔ bundle ↔ BUILD_INFO must line up, or the project's ``review`` stage
-fails and the draft cannot advance to ``submission``.
+``AGENTS.md`` and ``docs/PRINCIPLES.md``: claim ↔ evidence ↔ bundle ↔
+BUILD_INFO must line up, or the project's ``review`` stage fails and the draft
+cannot advance to ``submission``.
 
 CLI:
     python -m argus_skill.skills.evidence_chain \\

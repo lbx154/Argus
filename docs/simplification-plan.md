@@ -3,9 +3,10 @@
 A plan to make Argus smaller. It is a weight-loss problem, not a rewrite: the
 system works, and the goal is to remove what is not carrying weight.
 
-Companion documents: **[system audit](system-audit.md)** for the measurements this
-plan acts on, **[failure modes](failure-modes-and-fixes.md)** for the behaviour it
-is meant to change.
+This plan derives from the **[Argus Principles](PRINCIPLES.md)**. Companion
+documents: **[system audit](system-audit.md)** for the measurements this plan
+acts on, **[failure modes](failure-modes-and-fixes.md)** for the behaviour it is
+meant to change.
 
 Chinese version: [simplification-plan.zh-CN.md](simplification-plan.zh-CN.md)
 

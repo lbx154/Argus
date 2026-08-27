@@ -415,6 +415,12 @@ The Web configuration view and `/config` expose the same setting.
 
 If you are an agent enthusiast, deploy Argus locally and make the complete loop fit the way you work. Tune role prompts, workflow boundaries, review policy, tools, and operating conventions; connect your own infrastructure; preserve the behavior you care about with tests.
 
+The compact constitution behind those choices is **[Argus Principles](docs/PRINCIPLES.md)**:
+agents judge meaning while the runtime guarantees mechanics; Core provides capability while
+Verticals provide policy; thought stays natural language; tokens buy information or action;
+exploration pursues upside while claims remain evidence-bound; failure changes strategy;
+programme outcomes and end-to-end evidence judge progress.
+
 One worked engineering case is **[exploration without local hill climbing](docs/exploration-without-local-hill-climbing.md)**: how report-only research, high-risk mechanism portfolios, single-run screening, and strict final claims were separated after an MI300X serving campaign exposed overly conservative incentives.
 
 For the wider set, **[what goes wrong and what we did about it](docs/failure-modes-and-fixes.md)** records six real failure modes — an experiment that measured its own token cap, world knowledge frozen at the training cut-off, settling for finishing rather than achieving something, ceremony applied before an idea had earned it, local hill climbing, and a reluctance to report a win. It also records a fix we got wrong: adding a gate to enforce ambition, when the honest answer was that defensive checks do not produce good work, they produce work that passes checks.

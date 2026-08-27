@@ -35,9 +35,8 @@
 
 ### 1.1 已经存在、应复用的正确基础
 
-- `docs/VALUE_VS_HONESTY.md` 已明确：诚信是准入条件，不是科研目标；负结果应成为重规划输入。
-- `docs/GOAL_DIRECTED_OPTIMIZATION.md` 已要求 Planner 优先主目标和高影响工作，而不是用局部
-  profiling/文档工作填满 backlog。
+- `docs/PRINCIPLES.zh-CN.md` 已明确：诚信约束声明，探索追求上限；负结果更新策略；
+  Programme 的最终结果优先于把局部 profiling/文档工作填满 backlog。
 - `kernel_engineering` vertical 已有：
   - `frontier_watch.py` 与 event-driven frontier protocol；
   - `specialized_tool_registry.json`（约 90 个工具条目）；
@@ -52,7 +51,7 @@
 ### 1.2 原则与实际行为的断点
 
 1. **价值原则没有变成可观测、可测试的控制行为。**
-   `VALUE_VS_HONESTY.md` 明确不应整段注入 prompt，这是对的；但当前也缺少短结构化策略、行为
+   `PRINCIPLES.zh-CN.md` 明确不应整段注入 prompt，这是对的；但当前也缺少短策略、行为
    指标和回归测试来保证 Planner 真的探索高价值路线。
 2. **`research_target_level` 混合了“项目最终目标”和“当前轮验证强度”。**
    Manager 对“做投稿级论文/持续研究”通常选择 `publishable`；该字段随后进入每轮 Planner 和
@@ -124,7 +123,7 @@
 
 ### 2.6 避免 Prompt 膨胀
 
-不把本 TODO 或 `VALUE_VS_HONESTY.md` 整段复制进四角色 prompt。优先：
+不把本 TODO 或 `PRINCIPLES.zh-CN.md` 整段复制进四角色 prompt。优先：
 
 1. 一个短的结构化 effective-policy block；
 2. vertical-owned checklist metadata；

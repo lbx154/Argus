@@ -3,7 +3,8 @@
 一份把 Argus 变小的计划。**这是减重问题，不是重写**：系统是能用的，目标是删掉那些没有在承重
 的东西。
 
-配套文档：**[系统审计](system-audit.zh-CN.md)**（本计划所依据的实测数字）、
+本计划由 **[Argus 原则](PRINCIPLES.zh-CN.md)** 推出。配套文档：
+**[系统审计](system-audit.zh-CN.md)**（本计划所依据的实测数字）、
 **[失效模式](failure-modes-and-fixes.zh-CN.md)**（本计划想改变的行为）。
 
 English version: [simplification-plan.md](simplification-plan.md)
