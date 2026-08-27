@@ -88,12 +88,20 @@ from ..manager.front_door import (
     ManagerHandoffSupersededError,  # noqa: F401 - used via server_mod.ManagerHandoffSupersededError in webapi/routes/{daemon,workitems}.py
 )
 from . import artifacts, project_state
+from .counterexample_dashboard import (  # noqa: F401 - route delegation export
+    build_counterexample_dashboard,
+)
 from .protocol import build_api_meta, protocol_header
+from .source_update import (  # noqa: F401 - used by routes/meta.py through server_mod
+    read_source_update_status,
+    start_source_update,
+)
 
 log = logging.getLogger(__name__)
 
 _QUIET_ACCESS_PATHS = re.compile(
-    r"^/api/projects(?:/costs|/[^/]+/(?:snapshot|artifacts|git-diff|status|journal))?$"
+    r"^(?:/api/projects(?:/costs|/[^/]+/(?:snapshot|artifacts|git-diff|status|journal))?"
+    r"|/api/runtime/source-update)$"
 )
 
 
@@ -181,6 +189,9 @@ __all__ = [
     "set_operator_config",
     "set_identity",
     "run_skill_command",
+    "read_source_update_status",
+    "start_source_update",
+    "build_counterexample_dashboard",
     "list_project_artifacts",
     "get_project_artifact",
 ]
@@ -622,6 +633,7 @@ def create_app(
 
     from .routes.artifacts import register_artifact_routes
     from .routes.context import ServerContext
+    from .routes.counterexamples import register_counterexample_routes
     from .routes.daemon import register_daemon_routes
     from .routes.manager import register_manager_routes
     from .routes.meta import register_meta_routes
@@ -653,6 +665,7 @@ def create_app(
     # ordering are unchanged.
     register_project_routes(app, ctx, server_mod)
     register_workitem_routes(app, ctx, server_mod)
+    register_counterexample_routes(app, ctx, server_mod)
     register_daemon_routes(app, ctx, server_mod)
     register_artifact_routes(app, ctx, server_mod)
     register_manager_routes(app, ctx, server_mod)

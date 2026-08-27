@@ -123,6 +123,32 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
         )
         return report.to_jsonable()
 
+    @app.get("/api/runtime/source-update", dependencies=[Depends(ctx.require_auth)])
+    def _source_update_status() -> dict[str, Any]:
+        return server_mod.read_source_update_status(
+            server_mod._global_root(ctx.global_root)
+        )
+
+    @app.post(
+        "/api/runtime/source-update/check",
+        dependencies=[Depends(ctx.require_auth)],
+    )
+    def _source_update_check() -> dict[str, Any]:
+        return server_mod.start_source_update(
+            server_mod._global_root(ctx.global_root),
+            action="check",
+        )
+
+    @app.post(
+        "/api/runtime/source-update/apply",
+        dependencies=[Depends(ctx.require_auth)],
+    )
+    def _source_update_apply() -> dict[str, Any]:
+        return server_mod.start_source_update(
+            server_mod._global_root(ctx.global_root),
+            action="apply",
+        )
+
     @app.post("/api/projects/{sid}/config/set", dependencies=[Depends(ctx.require_auth)])
     def _config_set(sid: str, body: ConfigSetIn) -> dict[str, Any]:
         project_state_dir = ctx.resolve_or_404(sid)

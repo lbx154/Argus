@@ -38,3 +38,8 @@ Use Lean only when it reduces uncertainty; check novelty only when the result is
 presented as new. Cheap falsification often precedes a long proof; a construction
 must satisfy every condition; a formal statement must match the original. These
 are options, not mandatory phases.
+When a finite, exact, or certificate-producing subproblem may match an installed
+Jacobian operation, assign discovery and contract inspection before custom code.
+Keep the task phrased around the mathematical postcondition, not around using a
+particular tool; an absent or mismatched operation is a capability finding, not
+a reason to distort the proof route.

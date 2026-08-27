@@ -1,12 +1,13 @@
 import { isImeComposing } from '../lib/ime';
 import { useEffect, useState } from 'react';
-import { api, type MetricsSnapshot, type Snapshot, type TrashEntry } from '../api';
+import { api, type MetricsSnapshot, type Snapshot, type SourceUpdateStatus, type TrashEntry } from '../api';
 import { Modal, ModalHeader } from './Modal';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faArrowRotateRight,
   faChartLine,
   faCheck,
+  faCloudArrowDown,
   faDiagramProject,
   faGear,
   faListCheck,
@@ -64,6 +65,7 @@ export function OperationsModal({
   const [output, setOutput] = useState('');
   const [skillsOutput, setSkillsOutput] = useState('');
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
+  const [sourceUpdate, setSourceUpdate] = useState<SourceUpdateStatus | null>(null);
   const [trash, setTrash] = useState<TrashEntry[]>([]);
   const [trashTotal, setTrashTotal] = useState(0);
   const [trashQuery, setTrashQuery] = useState('');
@@ -82,6 +84,34 @@ export function OperationsModal({
       (error) => setOutput(errorText(error)),
     );
   }, [open, snap.session.cwd, snap.session.workdir]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const next = await api.sourceUpdateStatus();
+        if (!cancelled) setSourceUpdate(next);
+      } catch (error) {
+        if (!cancelled) setOutput(errorText(error));
+      }
+    };
+    void api.sourceUpdateStatus().then(async (initial) => {
+      if (cancelled) return;
+      setSourceUpdate(initial);
+      if (!initial.running) {
+        const checking = await api.checkSourceUpdate();
+        if (!cancelled) setSourceUpdate(checking);
+      }
+    }, (error) => {
+      if (!cancelled) setOutput(errorText(error));
+    });
+    const timer = window.setInterval(() => void refresh(), 1_500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [open]);
 
   const run = async (key: string, operation: () => Promise<unknown>, success: string | null) => {
     if (busy) return;
@@ -187,6 +217,41 @@ export function OperationsModal({
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" onClick={() => void run('reset', () => api.resetManager(sid), 'Manager context reset.')} disabled={!!busy} title={t('operations.resetManager')} aria-label={t('operations.resetManager')} className="flex h-9 w-9 items-center justify-center rounded border border-line text-xs text-ink-dim disabled:opacity-40"><FontAwesomeIcon icon={faRotateLeft} /></button>
             <button type="button" onClick={() => void run('upgrade', () => requireCommandSuccess(api.upgradeDaemon(sid, snap.daemon_commands?.revision)), 'Current-release daemon started after safely draining active work.')} disabled={!!busy || externalDaemon} title={externalDaemon ? 'Externally supervised daemon cannot be restarted from this Web host' : incompatible ? 'Upgrade incompatible daemon' : 'Restart on current release'} aria-label={externalDaemon ? 'Externally supervised daemon' : incompatible ? 'Upgrade incompatible daemon' : 'Restart on current release'} className={`flex h-9 w-9 items-center justify-center rounded border text-xs disabled:opacity-40 ${incompatible ? 'border-err/60 bg-err/10 text-err' : 'border-line text-ink-dim'}`}><FontAwesomeIcon icon={faArrowRotateRight} /></button>
+          </div>
+          <div className="mt-4 rounded-lg border border-line bg-bg p-3">
+            <div className="flex flex-wrap items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-ink">{t('operations.sourceUpdate')}</span>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${sourceUpdate?.state === 'failed' ? 'bg-err/10 text-err' : sourceUpdate?.update_available ? 'bg-warn/10 text-warn' : sourceUpdate?.update_available === false ? 'bg-ok/10 text-ok' : 'bg-line text-ink-dim'}`}>
+                    {sourceUpdate?.running ? t('operations.updateRunning') : sourceUpdate?.update_available ? t('operations.updateAvailable') : sourceUpdate?.update_available === false ? t('operations.updateCurrent') : t('operations.updateChecking')}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-ink-faint">{sourceUpdate?.error || sourceUpdate?.message || t('operations.updateChecking')}</p>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] text-ink-dim">
+                  <span>{t('operations.currentRevision')}: {sourceUpdate?.current_revision?.slice(0, 12) || '—'}</span>
+                  <span>{t('operations.latestRevision')}: {sourceUpdate?.upstream_revision?.slice(0, 12) || '—'}</span>
+                  {sourceUpdate?.phase && sourceUpdate.phase !== 'complete' && sourceUpdate.phase !== 'idle' ? <span>{t('operations.updatePhase')}: {sourceUpdate.phase}</span> : null}
+                </div>
+                {sourceUpdate?.running ? <div className="mt-2 h-1 overflow-hidden rounded bg-line"><div className="h-full w-1/2 animate-pulse rounded bg-blue" /></div> : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => void run('source-update', async () => {
+                  const next = await api.applySourceUpdate();
+                  setSourceUpdate(next);
+                  return next;
+                }, null)}
+                disabled={!!busy || Boolean(sourceUpdate?.running) || sourceUpdate?.can_update === false}
+                title={sourceUpdate?.can_update === false ? (sourceUpdate.error || t('operations.updateUnavailable')) : t('operations.pullLatest')}
+                aria-label={t('operations.pullLatest')}
+                className="flex h-9 items-center gap-2 rounded border border-blue/50 px-3 text-xs font-medium text-blue disabled:opacity-40"
+              >
+                <FontAwesomeIcon icon={faCloudArrowDown} />
+                <span>{sourceUpdate?.running ? t('operations.updateRunning') : t('operations.pullLatest')}</span>
+              </button>
+            </div>
+            {sourceUpdate?.restart_required ? <p className="mt-2 text-xs text-warn">{t('operations.updateRestart')}</p> : null}
           </div>
           {snap.daemon.protocol_error ? <p className="mt-2 text-xs text-err">{snap.daemon.protocol_error}</p> : null}
           {replacements.length ? (

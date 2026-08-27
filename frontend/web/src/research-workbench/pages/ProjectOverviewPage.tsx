@@ -1,10 +1,11 @@
-import { ArrowRight, BookOpen, Code2, FileText, FlaskConical, Inbox, Megaphone, MessagesSquare, ShieldCheck, TimerReset } from 'lucide-react';
+import { ArrowRight, BookOpen, Code2, FileText, FlaskConical, Inbox, Megaphone, MessagesSquare, Radar, ShieldCheck, TimerReset } from 'lucide-react';
 import { Badge, EventTimeline, Panel } from '../components/Common';
 import { formatDuration, statusTone } from '../utils';
 import { useWorkbenchText } from '../useWorkbenchText';
 import type { WorkspacePageProps } from './pageTypes';
 
 const MODULES = [
+  { id: 'counterexamples', zh: '反例实验室', en: 'Counterexample Lab', zhDesc: '切换查看每个猜想的实时阶段、反例构造、证据和复核状态。', enDesc: 'Switch between conjectures and track construction, evidence, and review live.', icon: Radar, color: 'violet', researchOnly: false },
   { id: 'experiments', zh: '运行进程', en: 'Execution', zhDesc: '实时查看 Argus 运行位置、DAG、角色交接和停止原因。', enDesc: 'Track Argus execution, DAG progress, role handoffs, and stop reasons.', icon: FlaskConical, color: 'blue', researchOnly: false },
   { id: 'copilot', zh: 'Argus Copilot', en: 'Argus Copilot', zhDesc: '查看 Argus 对话、Prompt 优化和工具轨迹。', enDesc: 'Chat with Argus, refine prompts, and inspect tool activity.', icon: MessagesSquare, color: 'violet', researchOnly: false },
   { id: 'literature', zh: '文献中心', en: 'Literature', zhDesc: '汇总已读论文、最近工作、检索记录和文献证据。', enDesc: 'Review papers, related work, retrieval history, and evidence.', icon: BookOpen, color: 'indigo', researchOnly: true },
@@ -19,7 +20,8 @@ export function ProjectOverviewPage(props: WorkspacePageProps) {
   const { text } = useWorkbenchText();
   const view = props.snapshot.mission_view;
   const research = view?.routing.vertical === 'research';
-  const modules = research ? MODULES : MODULES.filter((module) => !module.researchOnly);
+  const modules = (research ? MODULES : MODULES.filter((module) => !module.researchOnly))
+    .filter((module) => module.id !== 'counterexamples' || Boolean(props.counterexamples?.total));
   const activeRole = view?.active_role || props.status?.active_role || 'idle';
   const stageStatus = view?.outcome.stage_certification
     ? `${view.mission.status || 'idle'} · ${text('阶段', 'stage')} ${view.outcome.stage_certification}`

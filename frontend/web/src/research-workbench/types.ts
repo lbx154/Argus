@@ -76,8 +76,34 @@ export interface ManagerResult {
   [key: string]: unknown;
 }
 
+export interface CounterexampleCandidate {
+  id: string;
+  title: string;
+  description: string;
+  classification: string;
+  source_grade: string;
+  verification_level: string;
+  status: string;
+  progress: number;
+  disposition: string;
+  result_summary: string;
+  rejection_reason: string;
+  evidence_path: string;
+  parallel_files: number;
+  updated_at: number;
+}
+
+export interface CounterexampleDashboard {
+  schema_version: number;
+  generated_at: number;
+  total: number;
+  counts: Record<string, number>;
+  candidates: CounterexampleCandidate[];
+}
+
 export type PageId =
   | 'overview'
+  | 'counterexamples'
   | 'experiments'
   | 'copilot'
   | 'literature'

@@ -31,7 +31,26 @@ class UpdateResult:
         return self.before_revision != self.after_revision
 
 
+@dataclass(frozen=True)
+class UpdateCheck:
+    root: Path
+    upstream: str
+    current_revision: str
+    upstream_revision: str
+    branch: str
+    dirty: bool
+
+    @property
+    def update_available(self) -> bool:
+        return self.current_revision != self.upstream_revision
+
+    @property
+    def can_update(self) -> bool:
+        return bool(self.branch) and not self.dirty
+
+
 CommandRunner = Callable[[Sequence[str], Path, float], subprocess.CompletedProcess[str]]
+ProgressReporter = Callable[[str], None]
 
 
 def _run_command(
@@ -70,13 +89,63 @@ def _checked(
     return result.stdout.strip()
 
 
+def inspect_source_checkout(
+    root: Path | None = None,
+    *,
+    runner: CommandRunner = _run_command,
+) -> UpdateCheck:
+    """Compare the loaded source checkout with public ``main`` without changing it."""
+    checkout = (root or source_root()).expanduser().resolve()
+    if not (checkout / "pyproject.toml").is_file():
+        raise UpdateError(
+            "this Argus installation is not a source checkout; reinstall it "
+            "from the latest release instead"
+        )
+    git_root = Path(
+        _checked(runner, ["git", "rev-parse", "--show-toplevel"], cwd=checkout)
+    ).resolve()
+    if git_root != checkout:
+        raise UpdateError(
+            f"loaded source root {checkout} does not match Git root {git_root}"
+        )
+    dirty = bool(
+        _checked(
+            runner,
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=checkout,
+        )
+    )
+    branch = _checked(runner, ["git", "branch", "--show-current"], cwd=checkout)
+    current = _checked(runner, ["git", "rev-parse", "HEAD"], cwd=checkout)
+    remote = _checked(
+        runner,
+        ["git", "ls-remote", PUBLIC_REPOSITORY, _PUBLIC_MAIN_REF],
+        cwd=checkout,
+        timeout=60.0,
+    )
+    upstream_revision = remote.split(None, 1)[0] if remote.strip() else ""
+    if not upstream_revision:
+        raise UpdateError("public main did not return a revision")
+    return UpdateCheck(
+        root=checkout,
+        upstream=_PUBLIC_UPSTREAM,
+        current_revision=current,
+        upstream_revision=upstream_revision,
+        branch=branch,
+        dirty=dirty,
+    )
+
+
 def update_source_checkout(
     root: Path | None = None,
     *,
     runner: CommandRunner = _run_command,
     python_executable: str | None = None,
+    on_progress: ProgressReporter | None = None,
 ) -> UpdateResult:
     """Fast-forward from public main and reinstall the loaded source checkout."""
+    report = on_progress or (lambda _phase: None)
+    report("validating")
     checkout = (root or source_root()).expanduser().resolve()
     if not (checkout / "pyproject.toml").is_file():
         raise UpdateError(
@@ -111,6 +180,7 @@ def update_source_checkout(
     if not branch:
         raise UpdateError("source checkout is detached; switch to a branch first")
     before = _checked(runner, ["git", "rev-parse", "HEAD"], cwd=checkout)
+    report("pulling")
     _checked(
         runner,
         ["git", "pull", "--ff-only", PUBLIC_REPOSITORY, _PUBLIC_MAIN_REF],
@@ -120,6 +190,7 @@ def update_source_checkout(
     after = _checked(runner, ["git", "rev-parse", "HEAD"], cwd=checkout)
 
     if before != after:
+        report("installing")
         executable = python_executable or sys.executable
         _checked(
             runner,
@@ -128,6 +199,7 @@ def update_source_checkout(
             timeout=900.0,
         )
 
+    report("complete")
     return UpdateResult(
         root=checkout,
         upstream=_PUBLIC_UPSTREAM,
@@ -158,4 +230,12 @@ def run_update() -> int:
     return 0
 
 
-__all__ = ["PUBLIC_REPOSITORY", "UpdateError", "UpdateResult", "run_update", "update_source_checkout"]
+__all__ = [
+    "PUBLIC_REPOSITORY",
+    "UpdateCheck",
+    "UpdateError",
+    "UpdateResult",
+    "inspect_source_checkout",
+    "run_update",
+    "update_source_checkout",
+]

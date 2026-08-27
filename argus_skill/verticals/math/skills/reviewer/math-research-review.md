@@ -119,3 +119,11 @@ leave novelty unknown rather than demanding a separate audit artifact.
 
 Fill any structured result field required by the active schema, but do not
 duplicate the same judgment in extra reports.
+For Jacobian-backed evidence, independently compare the inspected operation's
+postcondition with the exact claim. When this review backend permits command
+execution, rerun the recorded operation id and payload and inspect the typed
+result; otherwise require a Host-recorded bridge run and review its exact
+payload/output rather than pretending a rerun occurred. A successful process
+exit proves only that the operation returned; the returned mathematical value
+must itself witness the claimed refutation or check. Timeout, transport failure,
+incomplete output, and UNKNOWN remain non-conclusions.

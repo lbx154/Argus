@@ -748,7 +748,10 @@ class _VerticalDecisionMixin:
                     "Record one complete Manager decision event again. If choosing an "
                     "existing project domain, put its exact slug in `vertical` and "
                     "leave `domain` empty. `domain` may only name an optional research "
-                    "domain listed above.",
+                    "domain listed above. If the chosen vertical supports research "
+                    "targets, include `RESEARCH_TARGET_LEVEL` using exactly one of "
+                    "exploratory, publishable, or doctoral; do not omit it unless the "
+                    "active persisted route contract already supplies it.",
                     run_label="manager-classify-field-retry",
                 )
             elif "repeated tool call detected" not in str(exc):

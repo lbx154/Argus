@@ -167,6 +167,27 @@ export interface MetricsSnapshot {
   cost_control?: Record<string, unknown>;
   [key: string]: unknown;
 }
+export interface SourceUpdateStatus {
+  schema_version: number;
+  state: 'idle' | 'checking' | 'available' | 'current' | 'updating' | 'succeeded' | 'failed';
+  phase: string;
+  running: boolean;
+  source_root: string;
+  upstream: string;
+  current_revision: string;
+  upstream_revision: string;
+  branch: string;
+  dirty: boolean | null;
+  can_update: boolean;
+  update_available: boolean | null;
+  changed: boolean;
+  restart_required: boolean;
+  message: string;
+  error: string;
+  started_at: number | null;
+  checked_at: number | null;
+  updated_at: number;
+}
 
 const TOKEN_KEY = 'argus_web_token';
 let inMemoryToken: string | null = null;
@@ -637,6 +658,12 @@ export const api = {
     getJson<GitDiffView>(P(sid, '/git-diff'), signal),
   metrics: (signal?: AbortSignal) =>
     getJson<MetricsSnapshot>('/api/metrics', signal),
+  sourceUpdateStatus: (signal?: AbortSignal) =>
+    getJson<SourceUpdateStatus>('/api/runtime/source-update', signal),
+  checkSourceUpdate: () =>
+    postJson<SourceUpdateStatus>('/api/runtime/source-update/check'),
+  applySourceUpdate: () =>
+    postJson<SourceUpdateStatus>('/api/runtime/source-update/apply'),
   trash: (query = '', limit = 100, offset = 0, signal?: AbortSignal) => {
     const params = new URLSearchParams({
       query,

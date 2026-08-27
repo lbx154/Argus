@@ -7,6 +7,14 @@ Do the mathematics in the form that best fits the problem. Distinguish a proof,
 counterexample, construction, finite experiment, formal verification, known
 result, and conjecture; do not describe one as another.
 
+When the role banner reports a Jacobian capability, use the Argus adapter rather
+than importing Jacobian into the Argus environment. Discover a small set of
+candidate operations, inspect the exact typed contract, then execute one bounded
+operation. Preserve the operation id, exact payload, typed output, and adapter
+error/timeout status in the project evidence. Jacobian supplies mathematical
+moves, not a proof strategy: do not force a nearby operation onto the claim, and
+do not treat timeout, incomplete output, or UNKNOWN as support or refutation.
+
 Start from the exact question and the requested bar. If a complete proof is
 required, useful failures and computations do not make the mission complete.
 Keep a short note about a failed route in the existing `CHECKPOINT.md` when it

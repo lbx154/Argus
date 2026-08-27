@@ -150,6 +150,7 @@ def test_standalone_route_retries_project_domain_in_domain_field(
         "manager-classify-field-retry",
     ]
     assert "project domain" in runner.calls[1]["prompt"]
+    assert "RESEARCH_TARGET_LEVEL" in runner.calls[1]["prompt"]
 
 
 def test_direct_software_handoff_skips_duplicate_manager_grounding(

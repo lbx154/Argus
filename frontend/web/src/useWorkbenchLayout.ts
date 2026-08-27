@@ -16,6 +16,7 @@ export function useWorkbenchLayout() {
   );
   const [workspaceView, setWorkspaceView] = useState<'mission' | 'activity' | 'workbench'>(
     () => {
+      if (params.get('view') === 'workbench') return 'workbench';
       const stored = localStorage.getItem('argus.workspace.view');
       return stored === 'mission' || stored === 'workbench' ? stored : 'activity';
     },

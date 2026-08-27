@@ -1,5 +1,6 @@
 import type {
   ArtifactInfo,
+  CounterexampleDashboard,
   EventMsg,
   GitDiffView,
   JournalEntry,
@@ -17,6 +18,7 @@ export interface WorkspacePageProps {
   events: EventMsg[];
   transcript: Turn[];
   artifacts: ArtifactInfo[];
+  counterexamples?: CounterexampleDashboard;
   gitDiff?: GitDiffView;
   journal: JournalEntry[];
   connected: boolean;

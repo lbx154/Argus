@@ -75,6 +75,12 @@ export function useArgusData(sid: string | null, active = true) {
     enabled,
     refetchInterval: 8_000,
   });
+  const counterexamples = useQuery({
+    queryKey: ['v2-counterexamples', sid],
+    queryFn: ({ signal }) => api.counterexamples(sid!, signal),
+    enabled,
+    refetchInterval: 3_000,
+  });
   const gitDiff = useQuery({
     queryKey: ['v2-git-diff', sid],
     queryFn: ({ signal }) => api.gitDiff(sid!, signal),
@@ -121,6 +127,7 @@ export function useArgusData(sid: string | null, active = true) {
             const type = String(event.type ?? '');
             if (/artifact|review.completed|mission.completed|live_view/.test(type)) {
               void client.invalidateQueries({ queryKey: ['v2-artifacts', sid] });
+              void client.invalidateQueries({ queryKey: ['v2-counterexamples', sid] });
             }
             if (/ui\.|manager/.test(type)) {
               void client.invalidateQueries({ queryKey: ['v2-transcript', sid] });
@@ -147,6 +154,7 @@ export function useArgusData(sid: string | null, active = true) {
       client.invalidateQueries({ queryKey: ['v2-status', sid] }),
       client.invalidateQueries({ queryKey: ['v2-transcript', sid] }),
       client.invalidateQueries({ queryKey: ['v2-artifacts', sid] }),
+      client.invalidateQueries({ queryKey: ['v2-counterexamples', sid] }),
       client.invalidateQueries({ queryKey: ['v2-git-diff', sid] }),
       client.invalidateQueries({ queryKey: ['v2-journal', sid] }),
       client.invalidateQueries({ queryKey: ['v2-events', sid] }),
@@ -164,16 +172,17 @@ export function useArgusData(sid: string | null, active = true) {
   });
 
   const error = useMemo(() => {
-    const failed = [snapshot, status, transcript, artifacts, gitDiff, journal, eventSeed]
+    const failed = [snapshot, status, transcript, artifacts, counterexamples, gitDiff, journal, eventSeed]
       .find((query) => query.error);
     return failed?.error instanceof Error ? failed.error : null;
-  }, [artifacts, eventSeed, gitDiff, journal, snapshot, status, transcript]);
+  }, [artifacts, counterexamples, eventSeed, gitDiff, journal, snapshot, status, transcript]);
 
   return {
     snapshot,
     status,
     transcript,
     artifacts,
+    counterexamples,
     gitDiff,
     journal,
     events,

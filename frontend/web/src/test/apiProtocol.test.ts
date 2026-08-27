@@ -466,6 +466,9 @@ describe('web API protocol handshake', () => {
     const { api } = await import('../api');
 
     await api.metrics();
+    await api.sourceUpdateStatus();
+    await api.checkSourceUpdate();
+    await api.applySourceUpdate();
     await api.trash();
     await api.previewPlan('s-test', 'inspect');
     await api.setConfig('s-test', 'manager_model', 'gpt-5.6-sol');
@@ -488,6 +491,9 @@ describe('web API protocol handshake', () => {
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/api/metrics',
+      '/api/runtime/source-update',
+      '/api/runtime/source-update/check',
+      '/api/runtime/source-update/apply',
       '/api/trash?query=&limit=100&offset=0',
       '/api/projects/s-test/plan',
       '/api/projects/s-test/config/set',
@@ -501,7 +507,7 @@ describe('web API protocol handshake', () => {
       '/api/projects/s-test/daemon/upgrade',
       '/api/trash/0%3Aprojects_trash%2F20260712%2Fs-old/restore',
     ]);
-    const replaceBody = JSON.parse(String(fetchMock.mock.calls[10][1]?.body));
+    const replaceBody = JSON.parse(String(fetchMock.mock.calls[13][1]?.body));
     expect(replaceBody).toMatchObject({ victim_sid: 's-victim', resume_continuous: false });
   });
 

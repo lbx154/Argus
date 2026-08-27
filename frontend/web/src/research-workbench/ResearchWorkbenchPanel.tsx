@@ -7,12 +7,14 @@ import {
   Inbox,
   Megaphone,
   MessagesSquare,
+  Radar,
   ShieldCheck,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useI18n } from '../i18n';
 import { EmptyState, Spinner } from './components/Common';
 import { CopilotPage } from './pages/CopilotPage';
+import { CounterexamplePage } from './pages/CounterexamplePage';
 import { ExperimentsPage } from './pages/ExperimentsPage';
 import { IdePage } from './pages/IdePage';
 import { InboxPage } from './pages/InboxPage';
@@ -28,6 +30,7 @@ import './styles.css';
 
 const MODULES = [
   ['overview', '项目概览', 'Project overview', FolderKanban, false],
+  ['counterexamples', '反例实验室', 'Counterexample Lab', Radar, false],
   ['experiments', '运行进程', 'Execution', FlaskConical, false],
   ['copilot', 'Argus Copilot', 'Argus Copilot', MessagesSquare, false],
   ['literature', '文献中心', 'Literature', BookOpen, true],
@@ -40,16 +43,22 @@ const MODULES = [
 
 export function ResearchWorkbenchPanel({ sid, active }: { sid: string; active: boolean }) {
   const { locale } = useI18n();
-  const [page, setPage] = useState<PageId>('overview');
+  const [page, setPage] = useState<PageId>(() => (
+    new URLSearchParams(window.location.search).get('module') === 'counterexamples'
+      ? 'counterexamples'
+      : 'overview'
+  ));
   const projectsQ = useProjects(active);
   const projects = projectsQ.data?.projects ?? [];
   const project = useMemo(() => projects.find((item) => item.id === sid) ?? null, [projects, sid]);
   const data = useArgusData(sid, active);
   const research = data.snapshot.data?.mission_view?.routing.vertical === 'research';
-  const modules = useMemo(
-    () => research ? MODULES : MODULES.filter((module) => !module[4]),
-    [research],
-  );
+  const modules = useMemo(() => {
+    const visible = research ? MODULES : MODULES.filter((module) => !module[4]);
+    return data.counterexamples.data?.total
+      ? visible
+      : visible.filter(([id]) => id !== 'counterexamples');
+  }, [data.counterexamples.data?.total, research]);
   const activePage = modules.some(([id]) => id === page) ? page : 'overview';
   const controlError = data.controls.start.error || data.controls.stop.error;
   const pageProps: WorkspacePageProps | null = project && data.snapshot.data ? {
@@ -60,6 +69,7 @@ export function ResearchWorkbenchPanel({ sid, active }: { sid: string; active: b
     events: data.events,
     transcript: data.transcript.data ?? [],
     artifacts: data.artifacts.data ?? [],
+    counterexamples: data.counterexamples.data,
     gitDiff: data.gitDiff.data,
     journal: data.journal.data ?? [],
     connected: data.connected,
@@ -77,6 +87,7 @@ export function ResearchWorkbenchPanel({ sid, active }: { sid: string; active: b
   const content = (() => {
     if (!pageProps) return null;
     if (activePage === 'overview') return <ProjectOverviewPage {...pageProps} />;
+    if (activePage === 'counterexamples') return <CounterexamplePage {...pageProps} />;
     if (activePage === 'experiments') return <ExperimentsPage {...pageProps} />;
     if (activePage === 'copilot') return <CopilotPage {...pageProps} />;
     if (activePage === 'literature') return <LiteraturePage {...pageProps} />;

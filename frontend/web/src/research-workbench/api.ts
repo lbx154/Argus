@@ -1,5 +1,6 @@
 import type {
   ArtifactInfo,
+  CounterexampleDashboard,
   EventMsg,
   GitDiffView,
   JournalEntry,
@@ -124,6 +125,9 @@ export const api = {
   artifacts: (sid: string, signal?: AbortSignal) =>
     request<{ artifacts: ArtifactInfo[] }>(projectPath(sid, '/artifacts'), { signal })
       .then((value) => value.artifacts),
+
+  counterexamples: (sid: string, signal?: AbortSignal) =>
+    request<CounterexampleDashboard>(projectPath(sid, '/counterexamples'), { signal }),
 
   artifact: (sid: string, path: string, signal?: AbortSignal) =>
     request<ArtifactInfo>(projectPath(sid, `/artifact?${new URLSearchParams({ path })}`), { signal }),
