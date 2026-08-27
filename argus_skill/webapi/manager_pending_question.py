@@ -55,6 +55,11 @@ def _manager_failure_facts(exc: Exception) -> dict[str, Any]:
             getattr(source, "model_reply_snippet", "") or ""
         )[:300],
         "backend_error": backend_error,
+        **(
+            {"login_required": True}
+            if bool(getattr(source, "login_required", False))
+            else {}
+        ),
     }
 
 
@@ -289,6 +294,7 @@ def _apply_operator_answer(
     decision_id: str = "",
     decision_note: str = "",
     operator_context_persisted: bool = False,
+    operator_context_revision: int = 0,
 ) -> dict[str, Any]:
     """Persist an explicit operator answer and enqueue its continuation."""
     from ..apps._inbox import queue_inbox_message
@@ -344,6 +350,10 @@ def _apply_operator_answer(
             "resolved_from_revision"
         ),
     })
+    if operator_context_revision:
+        from ..core.operator_context import OperatorContextStore
+
+        OperatorContextStore(life_dir).settle_once(operator_context_revision)
     return {
         "answered_item_id": item.id,
         "answer_intent": True,
@@ -385,7 +395,7 @@ def _resolve_pending_question_with_manager(
             root.parent.parent if root.parent.name == "projects" else None
         ),
     )
-    persist_once_answer(
+    answer_record = persist_once_answer(
         mem.project_root,
         answer,
         source="operator.pending_answer",
@@ -404,9 +414,14 @@ def _resolve_pending_question_with_manager(
     except Exception as exc:  # noqa: BLE001
         facts = _manager_failure_facts(exc)
         raw_error = f"{type(exc).__name__}: {facts['cause']}"
+        failure_kind = (
+            f"{facts['phase']}, login_required"
+            if facts.get("login_required")
+            else facts["phase"]
+        )
         message = (
             "Manager pending-question interpretation failed "
-            f"[{facts['phase']}]: {facts['cause']}. "
+            f"[{failure_kind}]: {facts['cause']}. "
             "Your answer is preserved in the inbox/steering record and Manager "
             "interpretation will be retried; the answer was not rejected."
         )
@@ -486,6 +501,7 @@ def _resolve_pending_question_with_manager(
         decision_id=decision_id,
         decision_note=decision_note,
         operator_context_persisted=True,
+        operator_context_revision=answer_record.revision,
     )
 
 
@@ -551,7 +567,7 @@ def manager_answer_pending_question(
         )
         from ..core.operator_context import persist_once_answer
 
-        persist_once_answer(
+        answer_record = persist_once_answer(
             mem.project_root,
             text.strip(),
             source="operator.explicit_answer",
@@ -567,6 +583,7 @@ def manager_answer_pending_question(
             decision_id=decision_id,
             decision_note=decision_note,
             operator_context_persisted=True,
+            operator_context_revision=answer_record.revision,
         )
         reply = str(
             result.get("reply")

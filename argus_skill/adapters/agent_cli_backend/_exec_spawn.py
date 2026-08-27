@@ -28,6 +28,10 @@ from ...core.models import RunnerResult
 from ...core.runner_errors import result_has_pre_provider_refusal
 from ...core.secret_guard import redact_secrets_text
 from ...core.token_usage import extract_token_usage
+from ...provider_integrations.authorization_retry import (
+    AUTHORIZATION_RETRY_OWNER,
+    BackendLoginRequired,
+)
 from ...provider_integrations.copilot_usage import (
     capture_copilot_usage_cursor,
     read_copilot_usage_since,
@@ -104,12 +108,42 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
         capture_copilot_usage_cursor() if backend._is_copilot else None
     )
     try:
-        cli_result = backend._runner.run_exec(
+        cli_result = AUTHORIZATION_RETRY_OWNER.run_agent_cli(
+            backend,
             prompt=ctx.prompt,
             resume_thread_id=ctx.resume_thread_id,
             options=cli_options,
             run_label=ctx.run_label,
         )
+    except BackendLoginRequired as exc:
+        backend._auth_failure_detected = True
+        log.warning(
+            "agent backend requires login after one coordinated auth replay "
+            "(run_label=%s)",
+            ctx.run_label,
+        )
+        finish_quota(ctx, error_text=str(exc), success=False)
+        backend._log_agent_io(ctx.log_path, {
+            "type": EventType.AGENT_IO_ERROR,
+            "io_kind": "error",
+            "call_id": ctx.call_id,
+            "run_label": ctx.run_label,
+            "backend": getattr(backend._runner, "backend", ""),
+            "error": str(exc),
+            "ts": time.time(),
+        })
+        finalize_result(
+            ctx,
+            RunnerResult(
+                exit_code=1,
+                thread_id=ctx.resume_thread_id,
+                fatal_error=exc.cause,
+                stop_kind="permanent_error",
+            ),
+            status="error",
+            error=str(exc),
+        )
+        raise
     except FileNotFoundError as exc:
         log.error(
             "runner binary not found: %s",

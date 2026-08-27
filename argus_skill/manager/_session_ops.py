@@ -26,6 +26,7 @@ import portalocker
 
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.runner_errors import result_has_unrecoverable_resume_state
+from ..provider_integrations.authorization_retry import BackendLoginRequired
 from ._helpers import _manager_backend_failure
 
 log = logging.getLogger(__name__)
@@ -307,6 +308,8 @@ class _ManagerSession:
                     portalocker.unlock(fh)
                 except Exception:  # noqa: BLE001
                     pass
+        except BackendLoginRequired:
+            raise
         except Exception:  # noqa: BLE001 — session-mode failed (lock released) → no-session
             return _no_session()
         finally:

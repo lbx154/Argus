@@ -1197,6 +1197,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     """
     if route is None and mission_is_running(mem):
         route = "simple"
+    from ..provider_integrations.authorization_retry import BackendLoginRequired
+
     runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
     if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
         return None
@@ -1379,10 +1381,14 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             ):
                 chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
                 return captured[0] if captured else _empty_reply_for_outcome()
+        except BackendLoginRequired:
+            raise
         except Exception as exc:  # noqa: BLE001 — triage failure
             if is_pre_provider_refusal_error(exc):
                 return _pre_provider_refusal_reply(exc, body)
             return None
+    except BackendLoginRequired:
+        raise
     except Exception as exc:  # noqa: BLE001 — triage failure: bias to task
         if is_pre_provider_refusal_error(exc):
             return _pre_provider_refusal_reply(exc, body)
