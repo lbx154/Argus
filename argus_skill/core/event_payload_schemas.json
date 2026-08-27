@@ -685,38 +685,6 @@
         "usage_scope": {"type": "string", "enum": ["delta", "cumulative"]}
       }
     },
-    "skill.outcome": {
-      "version": 1,
-      "required": ["skill_hit", "skill_distilled", "rounds", "status", "success"],
-      "properties": {
-        "skill_name": {"type": "string"},
-        "skill_hit": {"type": "boolean"},
-        "skill_distilled": {"type": "boolean"},
-        "matcher_model": {"type": "string"},
-        "distiller_model": {"type": "string"},
-        "matcher_tokens": {"type": "integer", "minimum": 0},
-        "distiller_tokens": {"type": "integer", "minimum": 0},
-        "rounds": {"type": "integer", "minimum": 0},
-        "status": {"type": "string"},
-        "success": {"type": "boolean"}
-      }
-    },
-    "skill.scientist.started": {
-      "version": 1,
-      "required": [],
-      "properties": {"text": {"type": "string"}}
-    },
-    "skill.scientist.created": {
-      "version": 1,
-      "required": ["name"],
-      "properties": {
-        "skill_id": {"type": "string"},
-        "name": {"type": "string", "minLength": 1},
-        "version": {"type": "integer", "minimum": 1},
-        "path": {"type": "string"},
-        "text": {"type": "string"}
-      }
-    },
     "skill.tidied": {
       "version": 1,
       "required": ["name", "placement", "path", "text"],
@@ -726,86 +694,6 @@
         "vertical": {"type": "string"},
         "path": {"type": "string", "minLength": 1},
         "text": {"type": "string", "minLength": 1}
-      }
-    },
-    "skill.compacted": {
-      "version": 1,
-      "required": ["source_skill", "target_skill"],
-      "properties": {
-        "source_skill": {"type": "string", "minLength": 1},
-        "target_skill": {"type": "string", "minLength": 1},
-        "text": {"type": "string"}
-      }
-    },
-    "skill.compact.error": {
-      "version": 1,
-      "required": ["error"],
-      "properties": {
-        "error": {"type": "string", "minLength": 1},
-        "text": {"type": "string"}
-      }
-    },
-    "skill.op.error": {
-      "version": 1,
-      "required": ["operation", "error"],
-      "properties": {
-        "operation": {"type": "string"},
-        "name": {"type": "string"},
-        "error": {"type": "string", "minLength": 1},
-        "text": {"type": "string"}
-      }
-    },
-    "skill.op.refused": {
-      "version": 1,
-      "required": ["operation", "reason"],
-      "properties": {
-        "operation": {"type": "string"},
-        "name": {"type": "string"},
-        "reason": {"type": "string", "minLength": 1},
-        "text": {"type": "string"}
-      }
-    },
-    "skill.proposal.rejected": {
-      "version": 1,
-      "required": ["operation", "reason"],
-      "properties": {
-        "operation": {"type": "string"},
-        "reason": {"type": "string", "minLength": 1},
-        "text": {"type": "string"}
-      }
-    },
-    "skill.distill.rejected": {
-      "version": 1,
-      "required": ["reason"],
-      "properties": {
-        "name": {"type": "string"},
-        "reason": {"type": "string", "minLength": 1},
-        "text": {"type": "string"}
-      }
-    },
-    "skill.revised": {
-      "version": 1,
-      "required": ["skill", "version", "previous_version_path"],
-      "properties": {
-        "skill_id": {"type": "string"},
-        "skill": {"type": "string", "minLength": 1},
-        "version": {"type": "integer", "minimum": 1},
-        "path": {"type": "string"},
-        "previous_version_path": {"type": "string", "minLength": 1},
-        "text": {"type": "string"}
-      }
-    },
-    "skill.use.recorded": {
-      "version": 1,
-      "required": ["skill_id", "skill_name", "task_fingerprint", "success"],
-      "properties": {
-        "skill_id": {"type": "string"},
-        "skill_name": {"type": "string", "minLength": 1},
-        "task_fingerprint": {"type": "string", "minLength": 1},
-        "success": {"type": "boolean"},
-        "successful_uses": {"type": "integer", "minimum": 0},
-        "failed_uses": {"type": "integer", "minimum": 0},
-        "text": {"type": "string"}
       }
     },
     "skill.history.compressed": {
@@ -853,53 +741,11 @@
         "text": {"type": "string"}
       }
     },
-    "wiki.initialization.failed": {
-      "version": 1,
-      "required": ["workdir", "error"],
-      "properties": {
-        "workdir": {"type": "string", "minLength": 1},
-        "error": {"type": "string", "minLength": 1},
-        "text": {"type": "string"}
-      }
-    },
-    "wiki.hook.ok": {
-      "version": 1,
-      "required": ["project", "path", "sources_written", "scratch_written"],
-      "properties": {
-        "project": {"type": "string", "minLength": 1},
-        "path": {"type": "string", "minLength": 1},
-        "sources_written": {"type": "integer", "minimum": 0},
-        "scratch_written": {"type": "integer", "minimum": 0},
-        "text": {"type": "string"}
-      }
-    },
     "wiki.hook.warning": {
       "version": 1,
       "required": ["operation", "error"],
       "properties": {
         "operation": {"type": "string"},
-        "error": {"type": "string", "minLength": 1},
-        "text": {"type": "string"}
-      }
-    },
-    "wiki.compacted": {
-      "version": 1,
-      "required": ["card_type", "page_id", "target_id"],
-      "properties": {
-        "card_type": {"type": "string"},
-        "page_id": {"type": "string", "minLength": 1},
-        "target_id": {"type": "string", "minLength": 1},
-        "retired_path": {"type": "string"},
-        "evidence_sources": {"type": "array", "items": {"type": "string"}},
-        "text": {"type": "string"}
-      }
-    },
-    "wiki.compact.error": {
-      "version": 1,
-      "required": ["error"],
-      "properties": {
-        "card_type": {"type": "string"},
-        "page_id": {"type": "string"},
         "error": {"type": "string", "minLength": 1},
         "text": {"type": "string"}
       }
@@ -935,24 +781,6 @@
         "page_id": {"type": "string", "minLength": 1},
         "card_type": {"type": "string"},
         "reason": {"type": "string"},
-        "text": {"type": "string"}
-      }
-    },
-    "wiki.source.created": {
-      "version": 1,
-      "required": ["source_id", "path"],
-      "properties": {
-        "source_id": {"type": "string", "minLength": 1},
-        "path": {"type": "string", "minLength": 1},
-        "text": {"type": "string"}
-      }
-    },
-    "wiki.source.skipped": {
-      "version": 1,
-      "required": ["source_id", "reason"],
-      "properties": {
-        "source_id": {"type": "string", "minLength": 1},
-        "reason": {"type": "string", "minLength": 1},
         "text": {"type": "string"}
       }
     },

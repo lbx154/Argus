@@ -70,9 +70,6 @@ class EventType(StrEnum):
     ROUND_REVIEWER_BACKEND_FAILURE = "round.reviewer_backend_failure"
     ROLE_SESSION_TURN = "role.session.turn"
     ENGINEER_PROGRESS = "engineer.progress"
-    ENGINEER_SELF_REVIEW_ACCEPTED = "engineer.self_review.accepted"
-    ENGINEER_SELF_REVIEW_REJECTED = "engineer.self_review.rejected"
-    ENGINEER_SKILL_MAINTENANCE_STARTED = "engineer.skill_maintenance.started"
     ENGINEER_SKILL_MAINTENANCE_COMPLETED = "engineer.skill_maintenance.completed"
     LIFE_STATUS = "life.status"
     LIFE_PHASE_STARTED = "life.phase.started"
@@ -112,7 +109,6 @@ class EventType(StrEnum):
     LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED = "life.runtime_failure.circuit_opened"
     LIFE_RUNTIME_FAILURE_CIRCUIT_BLOCKED = "life.runtime_failure.circuit_blocked"
     LIFE_RUNTIME_FAILURE_CANARY_PASSED = "life.runtime_failure.canary_passed"
-    LIFE_PLAN_SIGNAL = "life.plan.signal"
     LIFE_PLAN_REVISION_PROPOSED = "life.plan.revision.proposed"
     LIFE_PLAN_REVISION_REJECTED = "life.plan.revision.rejected"
     LIFE_PLAN_REVISION_COMMITTED = "life.plan.revision.committed"
@@ -141,35 +137,14 @@ class EventType(StrEnum):
     SKILL_CREATED = "skill.created"
     SKILL_UPDATED = "skill.updated"
     SKILL_ARCHIVED = "skill.archived"
-    SKILL_OUTCOME = "skill.outcome"
-    SKILL_TRANSFER_STARTED = "skill.transfer.started"
-    SKILL_TRANSFER_COMPLETED = "skill.transfer.completed"
-    SKILL_SCIENTIST_STARTED = "skill.scientist.started"
-    SKILL_SCIENTIST_CREATED = "skill.scientist.created"
-    SKILL_SCIENTIST_ADAPTATION_STARTED = "skill.scientist.adaptation_started"
-    SKILL_SCIENTIST_ADAPTATION_CREATED = "skill.scientist.adaptation_created"
     SKILL_TIDIED = "skill.tidied"
-    SKILL_COMPACTED = "skill.compacted"
-    SKILL_COMPACT_ERROR = "skill.compact.error"
-    SKILL_OP_ERROR = "skill.op.error"
-    SKILL_OP_REFUSED = "skill.op.refused"
-    SKILL_PROPOSAL_REJECTED = "skill.proposal.rejected"
-    SKILL_DISTILL_REJECTED = "skill.distill.rejected"
-    SKILL_REVISED = "skill.revised"
-    SKILL_USE_RECORDED = "skill.use.recorded"
     SKILL_HISTORY_COMPRESSED = "skill.history.compressed"
     SKILL_EVOLUTION_COMPLETED = "skill.evolution.completed"
     WIKI_INITIALIZED = "wiki.initialized"
-    WIKI_INITIALIZATION_FAILED = "wiki.initialization.failed"
-    WIKI_HOOK_OK = "wiki.hook.ok"
     WIKI_HOOK_WARNING = "wiki.hook.warning"
-    WIKI_COMPACTED = "wiki.compacted"
-    WIKI_COMPACT_ERROR = "wiki.compact.error"
     WIKI_CREATED = "wiki.created"
     WIKI_UPDATED = "wiki.updated"
     WIKI_RETIRED = "wiki.retired"
-    WIKI_SOURCE_CREATED = "wiki.source.created"
-    WIKI_SOURCE_SKIPPED = "wiki.source.skipped"
     WIKI_PROMOTION_PROMOTED = "wiki.promotion.promoted"
     WIKI_PROMOTION_DEMOTED = "wiki.promotion.demoted"
     WIKI_RETIRED_COMPRESSED = "wiki.retired.compressed"
@@ -208,43 +183,19 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.ROUND_ESCALATED,
     EventType.ROUND_STALL,
     EventType.ROUND_REVIEWER_BACKEND_FAILURE,
-    EventType.ENGINEER_SELF_REVIEW_ACCEPTED,
-    EventType.ENGINEER_SELF_REVIEW_REJECTED,
-    EventType.ENGINEER_SKILL_MAINTENANCE_STARTED,
     EventType.ENGINEER_SKILL_MAINTENANCE_COMPLETED,
     EventType.SKILL_LIBRARY_AVAILABLE,
     EventType.SKILL_CREATED,
     EventType.SKILL_UPDATED,
     EventType.SKILL_ARCHIVED,
-    EventType.SKILL_OUTCOME,
-    EventType.SKILL_TRANSFER_STARTED,
-    EventType.SKILL_TRANSFER_COMPLETED,
-    EventType.SKILL_SCIENTIST_STARTED,
-    EventType.SKILL_SCIENTIST_CREATED,
-    EventType.SKILL_SCIENTIST_ADAPTATION_STARTED,
-    EventType.SKILL_SCIENTIST_ADAPTATION_CREATED,
     EventType.SKILL_TIDIED,
-    EventType.SKILL_COMPACTED,
-    EventType.SKILL_COMPACT_ERROR,
-    EventType.SKILL_OP_ERROR,
-    EventType.SKILL_OP_REFUSED,
-    EventType.SKILL_PROPOSAL_REJECTED,
-    EventType.SKILL_DISTILL_REJECTED,
-    EventType.SKILL_REVISED,
-    EventType.SKILL_USE_RECORDED,
     EventType.SKILL_HISTORY_COMPRESSED,
     EventType.SKILL_EVOLUTION_COMPLETED,
     EventType.WIKI_INITIALIZED,
-    EventType.WIKI_INITIALIZATION_FAILED,
-    EventType.WIKI_HOOK_OK,
     EventType.WIKI_HOOK_WARNING,
-    EventType.WIKI_COMPACTED,
-    EventType.WIKI_COMPACT_ERROR,
     EventType.WIKI_CREATED,
     EventType.WIKI_UPDATED,
     EventType.WIKI_RETIRED,
-    EventType.WIKI_SOURCE_CREATED,
-    EventType.WIKI_SOURCE_SKIPPED,
     EventType.WIKI_PROMOTION_PROMOTED,
     EventType.WIKI_PROMOTION_DEMOTED,
     EventType.WIKI_RETIRED_COMPRESSED,
@@ -269,7 +220,6 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED,
     EventType.LIFE_RUNTIME_FAILURE_CIRCUIT_BLOCKED,
     EventType.LIFE_RUNTIME_FAILURE_CANARY_PASSED,
-    EventType.LIFE_PLAN_SIGNAL,
     EventType.LIFE_PLAN_REVISION_PROPOSED,
     EventType.LIFE_PLAN_REVISION_REJECTED,
     EventType.LIFE_PLAN_REVISION_COMMITTED,

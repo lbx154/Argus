@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core.event_catalog import EventType
 from ..life.event_log import JsonlEventSink
 
 INBOX_FILE = "inbox.jsonl"
@@ -169,7 +170,7 @@ def queue_inbox_message(
     with inbox.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
     JsonlEventSink(None, life_dir=Path(life_dir)).append({
-        "type": "life.inbox.queued",
+        "type": EventType.LIFE_INBOX_QUEUED,
         "text": text,
         "source": source,
         "stage": stage.strip().lower(),

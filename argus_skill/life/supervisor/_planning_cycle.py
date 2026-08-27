@@ -853,7 +853,7 @@ class PlanningCycleMixin(
             if persisted is None:
                 return {}
             self._emit({
-                "type": "life.vertical.resolved",
+                "type": EventType.LIFE_VERTICAL_RESOLVED,
                 "vertical": persisted,
                 "profile_hint": "persisted",
                 "agent_layer": "planner",
@@ -913,7 +913,7 @@ class PlanningCycleMixin(
         except Exception:  # noqa: BLE001 - stage is prompt context only
             pass
         self._emit({
-            "type": "life.vertical.resolved",
+            "type": EventType.LIFE_VERTICAL_RESOLVED,
             "vertical": division.vertical,
             "profile_hint": "manager-per-mission",
             "agent_layer": "planner",

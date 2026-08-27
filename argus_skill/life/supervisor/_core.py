@@ -284,7 +284,9 @@ class LifeSupervisor(
             requeued = it.status == "pending"
             self._emit({
                 "type": (
-                    "life.mission.requeued" if requeued else "life.mission.orphaned"
+                    EventType.LIFE_MISSION_REQUEUED
+                    if requeued
+                    else EventType.LIFE_MISSION_ORPHANED
                 ),
                 "item_id": it.id,
                 "title": it.title,
