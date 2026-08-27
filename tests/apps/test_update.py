@@ -16,7 +16,7 @@ def _runner(
     def run(
         command: Sequence[str],
         cwd: Path,
-        timeout: float,
+        timeout: float | None,
     ) -> subprocess.CompletedProcess[str]:
         del cwd, timeout
         key = tuple(command)
@@ -53,7 +53,7 @@ def test_update_pulls_public_main_and_reinstalls(tmp_path: Path) -> None:
     def runner(
         command: Sequence[str],
         cwd: Path,
-        timeout: float,
+        timeout: float | None,
     ) -> subprocess.CompletedProcess[str]:
         nonlocal revision_reads
         del cwd, timeout

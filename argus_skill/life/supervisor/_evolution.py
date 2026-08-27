@@ -50,17 +50,45 @@ class EvolutionMixin:
         usage_mission_id: str,
         mission_objective: str = "",
         mission_result: str = "",
+        reviewer_source: str = "",
+        reviewer_reason: str = "",
+        research_result: dict | None = None,
+        evidence_refs: tuple[str, ...] = (),
+        source_campaign: str = "",
     ) -> dict[str, int]:
         """Propagate reviewed project Skills into shared runtime layers."""
-        if not bool(
-            getattr(self.config, "role_skill_maintenance_enabled", True)
-        ):
-            return {"to_shared": 0, "to_vertical_shared": 0, "errors": 0}
-
         set_usage = getattr(self.runner, "_set_usage_context", None)
         try:
             if callable(set_usage):
                 set_usage(usage_mission_id)
+
+            if (
+                str(reviewer_source or "").strip().casefold() == "reviewer"
+                and isinstance(research_result, dict)
+            ):
+                from ...core.paths import reviewed_facts_digest_path
+                from ...manager.reviewed_facts import review_and_append_fact
+
+                try:
+                    review_and_append_fact(
+                        self.runner,
+                        digest_path=reviewed_facts_digest_path(
+                            self._budget_global_root()
+                        ),
+                        source_campaign=(
+                            source_campaign or str(self._project_workdir())
+                        ),
+                        reviewer_reason=reviewer_reason,
+                        research_result=research_result,
+                        evidence_refs=evidence_refs,
+                    )
+                except Exception:  # noqa: BLE001 - facts never own settlement
+                    log.warning("Manager reviewed-facts hook failed", exc_info=True)
+
+            if not bool(
+                getattr(self.config, "role_skill_maintenance_enabled", True)
+            ):
+                return {"to_shared": 0, "to_vertical_shared": 0, "errors": 0}
 
             from ...manager.skill_tidy import propagate_after_mission
 

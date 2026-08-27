@@ -42,10 +42,7 @@ from ._direct_run import (
     _terminate_proc,
 )
 from ._discuss_run import (
-    DISCUSSION_DEADLINE_S,
-    DISCUSSION_FIRST_REPLY_TIMEOUT,
     DISCUSSION_POLL_INTERVAL,
-    MAX_SUPERVISOR_TURNS,
     _run_discussion,
     _supervisor_discuss,
 )
@@ -78,10 +75,8 @@ from ._normalize import (
 )
 from ._registry import (
     _QUIET_LOGS_ENV,
-    DISCUSSION_STALE_AFTER_S,
     EXPERIMENT_HISTORY_REL,
     REGISTRY_DIR,
-    SUPERVISOR_INTERVAL_CAP,
     SUPERVISOR_MODEL,
     SUPERVISOR_THREAD_MAX_CHECKS,
     _append_experiment_history,
@@ -145,12 +140,7 @@ __all__ = [
     "_codex_thread_id",
     "REGISTRY_DIR",
     "SUPERVISOR_MODEL",
-    "SUPERVISOR_INTERVAL_CAP",
     "DISCUSSION_POLL_INTERVAL",
-    "DISCUSSION_FIRST_REPLY_TIMEOUT",
-    "DISCUSSION_DEADLINE_S",
-    "MAX_SUPERVISOR_TURNS",
-    "DISCUSSION_STALE_AFTER_S",
     "SUPERVISOR_THREAD_MAX_CHECKS",
     "EXPERIMENT_HISTORY_REL",
     "_RL_COLLAPSE_SKILL_REL",

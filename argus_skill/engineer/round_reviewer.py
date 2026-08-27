@@ -551,7 +551,10 @@ class RoundReviewerMixin:
                 })
             if (
                 state.reviewer_backend_failure_streak >= rb_threshold
-                or round_index >= supervised_config.max_rounds
+                or (
+                    supervised_config.max_rounds > 0
+                    and round_index >= supervised_config.max_rounds
+                )
             ):
                 # Failing loud: record this round (with the in-hand engineer
                 # output) and stop — do not run the completion gate blind.

@@ -376,7 +376,6 @@ class SkillLoopExecuteMixin:
         maintenance_mission: bool = False,
         allow_skill_changes: bool = False,
         vertical_override: str = "",
-        work_kind: str = "",
     ) -> _Outcome:
         # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
@@ -422,7 +421,6 @@ class SkillLoopExecuteMixin:
             preplanned=preplanned,
             mission_id=mission_id,
             usage_mission_id=usage_mission_id,
-            work_kind=work_kind,
         )
         self._extract_execute_outcome_fields(ex_state)
         self._maybe_decide_stage_transition(
@@ -906,7 +904,6 @@ class SkillLoopExecuteMixin:
         preplanned: bool,
         mission_id: str | None,
         usage_mission_id: str | None,
-        work_kind: str,
     ) -> None:
         """Run the mission through ``SkillLoop.run``, sandwiched between the
         advisory bounded-planning pass and this call's sink/usage-context
@@ -1020,7 +1017,6 @@ class SkillLoopExecuteMixin:
                 review_objective=ex_state.review_objective,
                 original_objective=original_objective or objective,
                 scope=ex_state.mission_scope,
-                work_kind=work_kind,
             )
             skills_changed, skills_reason, skills_ok = (
                 self._restore_playground_skill_files(

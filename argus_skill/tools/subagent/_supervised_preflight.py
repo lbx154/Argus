@@ -13,7 +13,7 @@ import logging
 from ._direct_run import _parse_launch_flags, _rl_collapse_guidance
 from ._llm import _run_supervisor_with_usage
 from ._normalize import _clean_concern
-from ._registry import _ZERO_USAGE_TUPLE, SUPERVISOR_INTERVAL_CAP, _read_task
+from ._registry import _ZERO_USAGE_TUPLE, _read_task
 from ._text import _strip_code_fence
 
 log = logging.getLogger(__name__)
@@ -103,7 +103,6 @@ def _supervisor_preflight_with_usage(
             model,
             cwd,
             None,
-            timeout=120,
             run_label=f"subagent:{task_id}:preflight",
             mission_id=str((_read_task(task_id) or {}).get("run_id") or "") or None,
         )
@@ -157,7 +156,6 @@ def _next_monitor_interval(
     health: str,
     current: int,
     base: int,
-    cap: int = SUPERVISOR_INTERVAL_CAP,
 ) -> int:
     """Health-adaptive polling backoff for the supervisor.
 
@@ -166,11 +164,10 @@ def _next_monitor_interval(
     supervisor looks closely while things are interesting.
     """
     base = max(int(base), 1)
-    cap = max(int(cap), base)
     current = max(int(current), base)
     if health in {"degrading", "stuck", "diverging", "supervisor_unavailable"}:
         return base
     if health == "healthy":
-        return min(current * 2, cap)
-    # unknown / parse failure: hold steady within bounds.
-    return min(current, cap)
+        return current * 2
+    # Unknown / parse failure: hold steady until a fact changes.
+    return current

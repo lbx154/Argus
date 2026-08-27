@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PassThrough, Readable } from 'node:stream';
 import { test } from 'node:test';
 
 import { renderEvent } from '../src/eventRender.js';
@@ -9,6 +10,7 @@ import {
   renderText,
   type RenderModel,
 } from '../../core/src/eventRender/index.js';
+import { parseRenderEventsArgs, runRenderEvents } from '../src/renderEvents.js';
 
 test('renderEvent reports truthful terminal mission outcomes for new and legacy events', () => {
   assert.deepEqual(
@@ -233,4 +235,33 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
       assert.deepEqual(semantic, current, fixture.id);
     }
   }
+});
+
+test('render-events streams semantic-core corpus events as one plain line per NDJSON record', async () => {
+  const started = EVENT_CORPUS.fixtures.find((fixture) => fixture.id === 'life.manager.intent.started');
+  const blocked = EVENT_CORPUS.fixtures.find((fixture) => fixture.id === 'life.lifecycle.block');
+  assert.ok(started && blocked);
+  const input = Readable.from([
+    `${JSON.stringify(started.event)}\n`,
+    `${JSON.stringify({ type: 'future.event', text: 'kept for grep' })}\n`,
+    `${JSON.stringify(blocked.event)}\n`,
+  ]);
+  const output = new PassThrough();
+  let rendered = '';
+  output.on('data', (chunk) => { rendered += chunk.toString(); });
+
+  await runRenderEvents(
+    input,
+    output,
+    parseRenderEventsArgs([
+      '--locale', 'zh-CN',
+      '--unknown-event-policy', 'greppable',
+      '--density', 'compact',
+    ]),
+  );
+
+  assert.equal(
+    rendered,
+    '🧭 [Manager] 判断任务归属…\n• [Argus] [future.event] kept for grep\n\n',
+  );
 });

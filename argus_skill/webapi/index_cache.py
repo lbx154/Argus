@@ -37,8 +37,7 @@ TTL_ENV_VAR = "ARGUS_WEB_INDEX_CACHE_TTL"
 DEFAULT_SNAPSHOT_TTL_SECONDS = 5.0
 SNAPSHOT_TTL_ENV_VAR = "ARGUS_WEB_SNAPSHOT_CACHE_TTL"
 
-# A wedged leader must not pin every waiter forever. Waiters that hit this
-# fall back to computing for themselves, which is the pre-cache behavior.
+# This bounds a wedged cache-leader handoff; fallback computes instead of failing work.
 _LEADER_WAIT_TIMEOUT_SECONDS = 30.0
 
 # Query parameters are bounded (``limit`` is 1..2000), but a caller can still

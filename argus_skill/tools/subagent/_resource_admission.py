@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from ..resource_ledger.ledger import ResourceLedger, owner_identity
 
+# Renewed leases bound crash cleanup; they never bound a live job's duration.
 _DIRECT_TTL_SECONDS = 120.0
 _SUPERVISED_TTL_SECONDS = 1800.0
 

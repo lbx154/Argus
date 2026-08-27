@@ -336,11 +336,11 @@ class _StageDecisionMixin:
             # "manager held (default)" — which, after a DONE reviewer verdict,
             # wedges current_stage FOREVER (research completes but never advances
             # to plan, because no later mission re-triggers a stage decision).
-            # Retry a couple of times on an empty response before accepting a
-            # hold, mirroring the planner's empty-output retry. A genuine,
+            # Replay once on an empty response before accepting a hold,
+            # matching the non-idempotent model-call retry discipline. A genuine,
             # non-empty hold verdict is never retried.
             _empty_retries = 0
-            while not str(raw or "").strip() and _empty_retries < 2:
+            while not str(raw or "").strip() and _empty_retries < 1:
                 _empty_retries += 1
                 time.sleep(1.0)
                 raw = self._extract_answer_safe(run_exec(prompt))

@@ -50,9 +50,8 @@ Several individually reasonable rules combined into the wrong objective:
 3. **Anti-procrastination rules overcorrected.** Instructions such as "use the
    smallest relevant surface," "run the cheapest falsification check," and
    "produce a measurement every round" discouraged ambitious investigation.
-4. **Live search depended on task classification.** Search was available for
-   `algorithm_discovery`, while research-heavy work was often classified as
-   `engineering_optimization`.
+4. **Live search depended on narrow task routing.** Explicit discovery work had
+   search, while research-heavy engineering work could miss it.
 5. **Certification leaked into exploration.** Repeated runs, multiple seeds,
    reproducibility, confidence intervals, and safe fallbacks became default
    expectations before a mechanism had earned that cost.
@@ -100,7 +99,7 @@ The core rule is:
 The kernel Planner now:
 
 - proactively uses current primary sources without waiting for failure;
-- may schedule report-only `algorithm_discovery` tasks;
+- may schedule report-only source-analysis tasks;
 - keeps a portfolio of genuinely different mechanism families;
 - may research independent families in parallel during long benchmarks;
 - prefers expected upside and information gain over low execution risk;
@@ -145,10 +144,9 @@ The policy is implemented in:
 - `argus_skill/verticals/kernel_engineering/references/idgl-loop.md`
 - `argus_skill/verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`
 
-Live search is available to both `algorithm_discovery` and
-`engineering_optimization` kernel missions. Tests pin the role banners, search
-availability, report-only acceptance, high-upside posture, single-run screening,
-and the separation between exploration and certification.
+Live search is available throughout kernel missions. Tests pin the role banners,
+search availability, report-only acceptance, high-upside posture, single-run
+screening, and the separation between exploration and certification.
 
 The corresponding public implementation history is:
 

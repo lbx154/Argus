@@ -86,6 +86,7 @@ def run_read_only_agent_prompt(
 
     try:
         with tempfile.TemporaryDirectory(prefix="argus-agent-probe-") as workdir:
+            # This bounds a one-shot readiness probe, not a production role turn.
             runner = AgentCliBackend(
                 backend=backend,
                 runner_bin=executable,
@@ -143,7 +144,7 @@ def run_agent_repair_prompt(
             runner_bin=executable,
             default_watchdog_soft_idle_seconds=30,
             default_watchdog_stalled_idle_seconds=120,
-            default_watchdog_hard_idle_seconds=600,
+            default_watchdog_hard_idle_seconds=0,
             known_secret_values_override=known_secret_values,
         )
         result = run_exec(

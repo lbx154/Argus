@@ -35,8 +35,8 @@ _ROLE_SESSION_MAX_TURNS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_TURNS"
 _ROLE_SESSION_MAX_INPUT_TOKENS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
-_DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 30 * 60
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 45 * 60
+_DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 0
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
 # Framework-owned fallback for ``EngineerConfig.live_search_stages``: the
 # research stage, where idea discovery / literature grounding happens. A
 # vertical that owns a different pipeline (math runs scope/solve/review and has
@@ -229,7 +229,8 @@ def _fit_stall_guard(threshold: int, budget: int) -> int:
 class SupervisedConfig:
     """Knobs for the round-loop control."""
 
-    max_rounds: int = 32
+    # Zero means no arbitrary round ceiling; explicit positive budgets still work.
+    max_rounds: int = 0
     # Keep the historical reviewed loop by default. Planner-classified
     # low-risk bounded work may opt into an Engineer self-review completion.
     require_independent_review: bool = True
@@ -315,8 +316,8 @@ class SupervisedConfig:
         """Keep the round-budget guards reachable when ``max_rounds`` shrinks.
 
         ``stall_threshold`` / ``soft_round_limit`` / ``hard_escalate_rounds``
-        are ABSOLUTE round counts sized for the default ``max_rounds`` (32).
-        A specialized caller may explicitly lower the budget for one mission,
+        are absolute semantic thresholds. A specialized caller may explicitly
+        set a positive round budget for one mission,
         and a guard whose threshold is not strictly reachable within that
         budget can then never fire. Nothing reports this: the value stays in
         the config, is passed
@@ -325,11 +326,6 @@ class SupervisedConfig:
         Semantic stall is counted only from the Reviewer's structured
         ``FORWARD_PROGRESS=false`` judgment. The harness never derives it from
         verdict prose or filesystem activity.
-
-        ``_runtime_execute`` already performs the mirror-image coordination in
-        the unbounded direction (a progressive experiment matrix raises
-        ``max_rounds`` and explicitly zeroes both escalation guards). This does
-        the same for the bounded direction, generically.
 
         Rescaling preserves each guard's MEANING ("stop after this much
         fruitless work") expressed in the budget actually available:

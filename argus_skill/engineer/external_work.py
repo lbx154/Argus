@@ -24,6 +24,7 @@ _SUBAGENT_INFLIGHT_STATES = frozenset({
 })
 _SUBAGENT_DEGRADED_HEALTH = frozenset({"degrading", "stuck", "diverging"})
 _CADENCE_FLOOR_SECONDS = 30.0
+# This caps time between observable facts, never the duration of external work.
 _CADENCE_CAP_SECONDS = 900.0
 
 
@@ -45,6 +46,7 @@ class ExternalWorkStatus:
     description: str = ""
     source: str = "external"
     heartbeat_at: float = 0.0
+    # Owners renew heartbeats; this threshold detects a dead owner, not slow work.
     stale_after_seconds: float = 1800.0
     activity_stale_after_seconds: float = 0.0
     activity_silence_seconds: float = 0.0
@@ -243,14 +245,7 @@ def _canonical_status(
                 path=path,
                 now=now,
             )
-            if activity_silence > activity_stale_after:
-                state = ExternalWorkState.NEEDS_ATTENTION
-                reason = (
-                    "external work is alive but declared activity has not changed "
-                    f"for {int(activity_silence) // 60}m"
-                )
-            else:
-                reason = " ".join(str(record.get("reason") or "").split())[:500]
+            reason = " ".join(str(record.get("reason") or "").split())[:500]
     else:
         reason = " ".join(str(record.get("reason") or "").split())[:500]
     return ExternalWorkStatus(
@@ -271,53 +266,6 @@ def _canonical_status(
         activity_paths=_safe_relative_paths(record.get("activity_paths")),
         started_at=_coerce_float(record.get("started_at"), 0.0),
     )
-
-
-def _seconds_since_last_write(
-    record: dict[str, Any], *, path: Path, work_id: str, now: float
-) -> float:
-    """Silence on the files this job itself writes.
-
-    A direct job's health was decided by ``_pid_alive`` alone, so a run that
-    loaded its model and then span for eleven hours writing nothing stayed
-    ``RUNNING_HEALTHY`` and its campaign waited on it all day. Liveness is not
-    activity.
-
-    Only the places this job is known to write count: its log directory and the
-    evidence paths it declared. A job that declared none and writes its results
-    elsewhere is unknown rather than silent -- one such run had produced five
-    hundred files in two hours while its stderr sat two hours old, and calling
-    that unhealthy would have cost its mission the protection healthy work gets.
-    Silence is claimed only when its logs were never written at all, which is
-    the case nobody can watch. Unknown returns 0.0; not knowing must never
-    become an accusation.
-    """
-    declared = [
-        path.parent.parent / relative
-        for relative in _safe_relative_paths(record.get("evidence_paths"))
-    ]
-    log_entries: list[Path] = []
-    logs = path.parent / f"{work_id}_logs"
-    try:
-        if logs.is_dir():
-            log_entries = [entry for entry in logs.iterdir() if entry.is_file()]
-    except OSError:
-        pass
-    wrote_a_log = False
-    for entry in log_entries:
-        try:
-            wrote_a_log = wrote_a_log or entry.stat().st_size > 0
-        except OSError:
-            continue
-    if not declared and wrote_a_log:
-        return 0.0
-    newest = 0.0
-    for entry in [*log_entries, *declared]:
-        try:
-            newest = max(newest, entry.stat().st_mtime)
-        except OSError:
-            continue
-    return max(0.0, now - newest) if newest else 0.0
 
 
 def _subagent_status(
@@ -420,21 +368,6 @@ def _subagent_status(
     elif mode != "direct" and not worker_alive:
         state = ExternalWorkState.STALLED
         reason = "subagent worker process is not alive"
-    elif mode == "supervised" and (
-        heartbeat_at <= 0 or now - heartbeat_at > stale_after
-    ):
-        state = ExternalWorkState.STALLED
-        reason = "subagent supervisor heartbeat is stale"
-    elif mode == "direct" and (
-        silent_for := _seconds_since_last_write(
-            record, path=path, work_id=work_id, now=now
-        )
-    ) > stale_after:
-        state = ExternalWorkState.NEEDS_ATTENTION
-        reason = (
-            f"alive but has written nothing for {int(silent_for) // 60}m — "
-            "a run nobody can watch cannot be resumed or debugged"
-        )
     elif (
         mode not in {"direct", "supervised"}
         or state_value == "discussing"

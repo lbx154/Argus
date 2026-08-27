@@ -19,7 +19,6 @@ import portalocker
 
 from ._registry import REGISTRY_DIR, _list_tasks, _recorded_process_alive
 
-_STALE_RUNNING_SECONDS = 15 * 60.0
 _LOCAL_INPUT_FLAGS = frozenset({
     "config",
     "curriculum",
@@ -305,7 +304,6 @@ def _reconcile_run_status(
     *,
     task_id: str,
     now: float,
-    stale_after_seconds: float,
 ) -> str:
     status_path = run_dir / "status.json"
     if not status_path.exists():
@@ -324,21 +322,10 @@ def _reconcile_run_status(
             "experiment run directory is already owned by live task "
             f"{owner.get('task_id')}: {run_dir}"
         )
-    try:
-        updated_at = float(status.get("updated_at") or status_path.stat().st_mtime)
-    except (OSError, TypeError, ValueError):
-        updated_at = now
-    age = max(0.0, now - updated_at)
-    if age < stale_after_seconds:
-        return (
-            "experiment status says running without a registered live owner; "
-            f"wait or reconcile after {stale_after_seconds:g}s: {status_path}"
-        )
     status.update({
         "state": "failed",
-        "error": "stale running status reconciled before relaunch",
+        "error": "running status has no live owner; reconciled before relaunch",
         "reconciled_at": now,
-        "stale_age_seconds": age,
     })
     _atomic_json(status_path, status)
     return ""
@@ -352,7 +339,6 @@ def experiment_launch_preflight(
     run_dir: str | None,
     claim_owner: str | None = None,
     now: float | None = None,
-    stale_after_seconds: float = _STALE_RUNNING_SECONDS,
 ) -> tuple[bool, str]:
     """Reject deterministic zero-work launches before a process is spawned."""
     base = Path(cwd).expanduser().resolve()
@@ -393,7 +379,6 @@ def experiment_launch_preflight(
                 resolved,
                 task_id=task_id,
                 now=float(now if now is not None else time.time()),
-                stale_after_seconds=max(1.0, float(stale_after_seconds)),
             )
             if issue:
                 return True, issue

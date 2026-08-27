@@ -20,7 +20,6 @@ from ._discussion_log import (
 )
 from ._llm import resolve_supervisor_model
 from ._registry import (
-    DISCUSSION_STALE_AFTER_S,
     REGISTRY_DIR,
     _append_experiment_history,
     _child_env,
@@ -47,9 +46,6 @@ from ..resource_ledger.ledger import normalize_demand
 _ACTIVE_STATES = frozenset({
     "starting", "preflight", "waiting_resource", "running", "discussing",
 })
-_DEFAULT_TIMEOUT_SECONDS = 7200
-
-
 def _detach_child_stdio() -> None:
     """Release caller-owned pipes before the background worker does any work."""
     while True:
@@ -77,13 +73,9 @@ def _busy_owner_pid(task: dict) -> int:
         return 0
     if str(task.get("state") or "") in _ACTIVE_STATES:
         return live_pids[0]
-    completed_at = task.get("completed_at")
-    age = (
-        time.time() - float(completed_at)
-        if isinstance(completed_at, (int, float))
-        else 0.0
-    )
-    return live_pids[0] if age < DISCUSSION_STALE_AFTER_S else 0
+    # A terminal worker may still be persisting its report; identity, not age,
+    # determines when the task id is safe to reuse.
+    return live_pids[0]
 
 
 def _worker_cpu_ids_arg(cpu_ids: tuple[int, ...]) -> str:
@@ -127,7 +119,7 @@ def _windows_worker_command(
     description: str,
     command: str,
     mode: str,
-    timeout: int,
+    timeout: int | None,
     monitor_interval: int,
     model: str | None,
     cwd: str,
@@ -148,13 +140,13 @@ def _windows_worker_command(
         command,
         "--mode",
         mode,
-        "--timeout",
-        str(int(timeout)),
         "--monitor-interval",
         str(int(monitor_interval)),
         "--cwd",
         cwd,
     ]
+    if timeout is not None:
+        argv.extend(["--timeout", str(int(timeout))])
     if model:
         argv.extend(["--model", model])
     if run_dir:
@@ -172,7 +164,7 @@ def _spawn_windows_worker(
     description: str,
     command: str,
     mode: str,
-    timeout: int,
+    timeout: int | None,
     monitor_interval: int,
     model: str | None,
     cwd: str,
@@ -262,6 +254,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
     worker_task.setdefault("pid", os.getpid())
     worker_task["worker_process_identity"] = _process_identity(os.getpid())
     worker_task.setdefault("timeout_seconds", args.timeout)
+    worker_task.setdefault("timeout_defaulted", False)
     _write_task(task_id, worker_task)
     try:
         _cpu_admission.apply_current_process_affinity(
@@ -336,17 +329,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
     if run_dir:
         rp = Path(run_dir).expanduser()
         run_dir = str((rp if rp.is_absolute() else Path(cwd) / rp).resolve())
-    timeout_was_explicit = args.timeout is not None
-    timeout_seconds = int(
-        args.timeout if timeout_was_explicit else _DEFAULT_TIMEOUT_SECONDS
-    )
-    timeout_defaulted = bool(run_dir and not timeout_was_explicit)
-    timeout_notice = (
-        "Hard timeout defaulted to 7200 seconds (2h) for this experiment; "
-        "override it with --timeout <seconds> for a longer run."
-        if timeout_defaulted
-        else ""
-    )
+    timeout_seconds = int(args.timeout) if args.timeout is not None else None
+    timeout_defaulted = False
 
     # Forced-discussion gate: while a supervisor is parked on an OPEN discussion
     # (it stopped a run and is waiting on the engineer), block launching new runs
@@ -512,8 +496,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
         }
         if resource_demand is not None:
             result["resource_demand"] = resource_demand
-        if timeout_notice:
-            result["timeout_notice"] = timeout_notice
         print(json.dumps(result))
         return 0
 
@@ -566,8 +548,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
         }
         if resource_demand is not None:
             result["resource_demand"] = resource_demand
-        if timeout_notice:
-            result["timeout_notice"] = timeout_notice
         print(json.dumps(result))
         return 0
 
@@ -776,8 +756,8 @@ def cmd_list(_args: argparse.Namespace) -> int:
 
 def cmd_wait(args: argparse.Namespace) -> int:
     """Block until a task completes."""
-    deadline = time.time() + args.timeout
-    while time.time() < deadline:
+    deadline = time.time() + args.timeout if args.timeout is not None else None
+    while deadline is None or time.time() < deadline:
         task = _read_task(args.task_id)
         if task is None:
             print(json.dumps({"error": f"task '{args.task_id}' not found"}))
@@ -839,7 +819,6 @@ def cmd_reply(args: argparse.Namespace) -> int:
         worker_pid and _recorded_process_alive(task, "worker_pid")
         and task.get("mode") == "supervised"
         and task.get("state") in ("running", "discussing")
-        and (hb_age is None or hb_age < DISCUSSION_POLL_INTERVAL * 6)
     )
     # The discussion is still open (this reply will get an answer) only while the
     # supervisor is parked discussing. Once it sets a terminal resolution, late
@@ -879,7 +858,7 @@ def main() -> int:
     p_submit.add_argument("--command", required=True, help="Shell command to run")
     p_submit.add_argument("--mode", choices=["direct", "supervised"], default="direct",
                           help="direct: just run (no LLM). supervised: run + periodic LLM monitoring")
-    p_submit.add_argument("--timeout", type=int, default=None, help="Max seconds (default: 2h)")
+    p_submit.add_argument("--timeout", type=int, default=None, help="Optional maximum seconds")
     p_submit.add_argument("--monitor-interval", type=int, default=120,
                           help="Base seconds between supervisor checks; backs off "
                                "while healthy, tightens when degrading (supervised mode)")
@@ -937,7 +916,7 @@ def main() -> int:
     p_worker.add_argument("--description", default="background task")
     p_worker.add_argument("--command", required=True)
     p_worker.add_argument("--mode", choices=["direct", "supervised"], default="direct")
-    p_worker.add_argument("--timeout", type=int, default=7200)
+    p_worker.add_argument("--timeout", type=int, default=None)
     p_worker.add_argument("--monitor-interval", type=int, default=120)
     p_worker.add_argument("--model", default=None)
     p_worker.add_argument("--run-dir", default=None)
@@ -952,7 +931,7 @@ def main() -> int:
 
     p_wait = sub.add_parser("wait", help="Wait for a task to complete")
     p_wait.add_argument("--task-id", required=True)
-    p_wait.add_argument("--timeout", type=int, default=3600)
+    p_wait.add_argument("--timeout", type=int, default=None)
 
     sub.add_parser("clean", help="Remove completed task records")
 

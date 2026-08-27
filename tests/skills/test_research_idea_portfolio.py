@@ -382,7 +382,7 @@ def test_evidence_selector_can_choose_best_not_earliest(tmp_path: Path) -> None:
 
     selection_root = _selection_root(tmp_path)
     assert len(task_board.snapshot(selection_root)) == 1
-    assert all(task["timeout_s"] == 600.0 for task in task_board.snapshot(selection_root))
+    assert all(task["timeout_s"] == 0.0 for task in task_board.snapshot(selection_root))
     selector_task = next(
         task
         for task in task_board.snapshot(selection_root)

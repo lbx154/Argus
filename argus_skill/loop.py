@@ -82,7 +82,8 @@ class SkillLoopConfig:
             True,
         )
     )
-    max_rounds: int = 32
+    # Zero means no wall-clock-independent ceiling; semantic stall guards still apply.
+    max_rounds: int = 0
     no_progress_threshold: int = 2
     # Anti-livelock thresholds threaded into SupervisedConfig: at
     # ``soft_round_limit`` the reviewer is told to escalate an unresolvable
@@ -270,8 +271,7 @@ class SkillLoop(
             objective_for_skill: str | None = None,
             review_objective: str | None = None,
             original_objective: str | None = None,
-            scope: str = "",
-            work_kind: str = "") -> LoopOutcome:
+            scope: str = "") -> LoopOutcome:
         """Run one mission end-to-end.
 
         ``task`` is the *full* prompt the engineer sees (typically a long
@@ -304,7 +304,6 @@ class SkillLoop(
         supervised = self._supervised_for_mission(
             vertical=active_vertical,
             project_root=vertical_state_root,
-            work_kind=work_kind,
         )
         if self.config.wiki_enabled:
             from .wiki.lifecycle import ensure_project_wiki
@@ -332,7 +331,6 @@ class SkillLoop(
             engineer_role_banner=engineer_role_banner,
             seed_thread_id=seed_thread_id,
             scope=scope,
-            work_kind=work_kind,
         )
 
         # Step 1/2: expose Skill-library paths and prepare optional research
@@ -418,14 +416,13 @@ class SkillLoop(
         project_root: Path,
         configured: frozenset[str],
         *,
-        work_kind: str = "",
         preserve_configured: bool = True,
     ) -> frozenset[str]:
         """Let the active vertical declare its own Engineer live-search stages.
 
         ``configured`` always retains the public ``frozenset`` API. Its private
-        construction provenance decides whether a work-kind-specific vertical
-        default may replace it; comparing values cannot distinguish an omitted
+        construction provenance decides whether a vertical default may replace
+        it; comparing values cannot distinguish an omitted
         default from an explicitly passed ``frozenset({"research"})``.
 
         Errors deliberately propagate. ``resolve_role_prompt`` above has already
@@ -448,7 +445,6 @@ class SkillLoop(
         contract = load_vertical_contract(vertical, project_root=project_root)
         return contract.live_search_stages(
             configured,
-            work_kind=work_kind,
             preserve_configured=preserve_configured,
         )
 
@@ -457,7 +453,6 @@ class SkillLoop(
         *,
         vertical: str,
         project_root: Path,
-        work_kind: str = "",
     ) -> SupervisedEngineer:
         """Return the SupervisedEngineer THIS mission should run on.
 
@@ -475,7 +470,6 @@ class SkillLoop(
             vertical,
             project_root,
             configured,
-            work_kind=work_kind,
             preserve_configured=engineer_config._live_search_stages_explicit,
         )
         if (

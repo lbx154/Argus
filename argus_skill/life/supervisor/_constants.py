@@ -5,7 +5,9 @@ import os
 PLANNER_SCOPE_BOUNDED = "bounded"
 PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
 IDLE_BACKOFF_BASE_SECONDS = 15.0
+# This caps event-poll latency while idle; it never limits mission work.
 IDLE_BACKOFF_CAP_SECONDS = 300.0
+# These are fact-emission cadences so indefinite waits remain observable.
 PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS = 1800.0
 LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
 PLAN_TERMINAL_IDLE = "planner_terminal_idle"

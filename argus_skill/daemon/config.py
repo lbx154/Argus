@@ -28,7 +28,7 @@ class LifeWorkerConfig:
     reviewer_reasoning_effort: str = "high"
     global_daily_cap_usd: float = 0.0
     mission_width: int = 2
-    planner_task_iteration_max_cycles: int = 6
+    planner_task_iteration_max_cycles: int = 0
     # See LifeSupervisorConfig.subagent_family_failure_streak_limit /
     # ..._window_hours (life/supervisor/_config.py) for the circuit breaker
     # this configures.
@@ -143,7 +143,7 @@ def config_from_payload(data: dict[str, Any]) -> LifeWorkerConfig:
         global_daily_cap_usd=_number("global_daily_cap_usd", 30.0),
         mission_width=int(data.get("mission_width", 2)),
         planner_task_iteration_max_cycles=int(
-            data.get("planner_task_iteration_max_cycles") or 6
+            data.get("planner_task_iteration_max_cycles", 0) or 0
         ),
         subagent_family_failure_streak_limit=int(
             data.get("subagent_family_failure_streak_limit") or 3

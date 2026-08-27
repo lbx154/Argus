@@ -376,13 +376,9 @@ class MissionExecutionSettlementMixin:
     ) -> dict[str, Any] | None:
         """Intercept a trusted, vertical-declared shortfall before ``done``.
 
-        The hard iteration budget is the backlog item's persisted
-        ``iteration_max_cycles`` (six by default, matching the existing
-        planner/operator cycle knob). ``iteration_cycles_done`` is checked
-        against that ceiling and ``iteration_cost_usd`` accumulates the actual
-        cost of every cycle that bought another attempt. The host-global daily
-        dollar cap remains the monetary admission guard, so this layer does not
-        invent a second, conflicting price limit.
+        A positive persisted ``iteration_max_cycles`` is an explicit iteration
+        budget. Zero leaves the task open-ended; the host-global daily dollar
+        cap remains the monetary admission guard.
 
         Domain policy is deliberately absent here. The active vertical decides
         whether the charter fell short, writes the replacement objective, and
@@ -456,7 +452,7 @@ class MissionExecutionSettlementMixin:
                     "trusted: " + "; ".join(issues)
                 ),
             }
-        if cycles_done >= cycles_max:
+        if cycles_max > 0 and cycles_done >= cycles_max:
             return {
                 **base,
                 "status": "budget_exhausted",
@@ -1039,6 +1035,15 @@ class MissionExecutionSettlementMixin:
         success = state.success
         status = state.status
 
+        research_result = getattr(outcome, "research_result", None)
+        frontier = getattr(outcome, "final_frontier_report", {}) or {}
+        reviewed_evidence = list(
+            research_result.get("evidence") or []
+            if isinstance(research_result, dict)
+            else []
+        )
+        if isinstance(frontier, dict):
+            reviewed_evidence.extend(frontier.get("artifacts") or [])
         self._evolve_runtime_skills_after_mission(
             success=bool(success and not state.iteration_requeued),
             usage_mission_id=state.usage_attempt_id,
@@ -1049,6 +1054,13 @@ class MissionExecutionSettlementMixin:
                 f"status={status}; stop_kind={state.stop_kind or 'none'}; "
                 f"reason={state.stop_reason or 'none'}"
             ),
+            reviewer_source=str(getattr(outcome, "final_review_source", "") or ""),
+            reviewer_reason=str(getattr(outcome, "final_review_reason", "") or ""),
+            research_result=research_result,
+            evidence_refs=tuple(
+                str(ref).strip() for ref in reviewed_evidence if str(ref).strip()
+            ),
+            source_campaign=str(state.execution_workdir or self._project_workdir()),
         )
         state.usage_summary = state.cost_sink.usage_summary()
         state.usd = state.usage_summary.cost_usd

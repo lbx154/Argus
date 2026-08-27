@@ -335,16 +335,15 @@ def _daemon_findings(context: DoctorContext) -> list[DoctorFinding]:
                     drain_age = max(0.0, time.time() - drain_path.stat().st_mtime)
                 except OSError:
                     drain_age = 0.0
-        drain_stuck = draining and drain_age >= 60.0
         semantic = (
-            "drain_stuck" if drain_stuck else "draining" if draining
+            "draining" if draining
             else "stalled" if stalled else state
         )
         return [_finding(
-            "ARGUS-DAEMON-001", "daemon", not stalled and not drain_stuck,
+            "ARGUS-DAEMON-001", "daemon", not stalled,
             semantic, f"daemon pid {status.pid} is alive; health={semantic}",
             severity="error",
-            actions=("stop_owned_stuck_daemon",) if drain_stuck else (),
+            actions=(),
             recommendation="interrupt the verified owned daemon after reviewing its latest boot log",
             evidence={
                 "pid": status.pid,

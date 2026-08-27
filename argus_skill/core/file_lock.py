@@ -8,6 +8,7 @@ from typing import BinaryIO, Iterator, TextIO
 
 import portalocker
 
+# Lock contention is bounded so a crashed holder is reported at the state boundary.
 DEFAULT_FILE_LOCK_TIMEOUT_SECONDS = 30.0
 DEFAULT_FILE_LOCK_POLL_SECONDS = 0.05
 

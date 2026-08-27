@@ -330,7 +330,7 @@ def _run_direct(
     task_id: str,
     command: str,
     description: str,
-    timeout: int,
+    timeout: int | None,
     cwd: str,
     run_dir: str | None = None,
 ) -> None:
@@ -416,14 +416,24 @@ def _run_direct(
             }, model="", totals=_ZERO_USAGE_TUPLE)
             _write_task(task_id, running_task)
             try:
-                if resource_lease is None:
+                if timeout is None and resource_lease is None:
+                    proc.wait()
+                elif resource_lease is None:
                     proc.wait(timeout=timeout)
                 else:
-                    deadline = time.monotonic() + timeout
+                    deadline = (
+                        time.monotonic() + timeout
+                        if timeout is not None
+                        else None
+                    )
                     renew_every = max(1.0, resource_lease.ttl_seconds / 3.0)
                     while True:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
+                        remaining = (
+                            deadline - time.monotonic()
+                            if deadline is not None
+                            else renew_every
+                        )
+                        if deadline is not None and remaining <= 0:
                             raise subprocess.TimeoutExpired(proc.args, timeout)
                         try:
                             proc.wait(timeout=min(renew_every, remaining))
@@ -444,14 +454,8 @@ def _run_direct(
                     "worker_process_identity": worker_identity,
                     **timeout_fields,
                     "timeout_message": (
-                        f"Hard timeout reached after {timeout} seconds"
-                        + (
-                            "; this was the default 2h limit because no "
-                            "--timeout was supplied. Resubmit with "
-                            "--timeout <seconds> for a longer run."
-                            if timeout_defaulted
-                            else "; this was the configured --timeout limit."
-                        )
+                        f"Hard timeout reached after {timeout} seconds; "
+                        "this was the configured --timeout limit."
                     ),
                     "elapsed_seconds": round(time.time() - start_time, 1),
                     "completed_at": time.time(), "mode": "direct",

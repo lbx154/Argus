@@ -81,7 +81,7 @@ def _queue_round(
 def test_default_budget_leaves_every_guard_untouched() -> None:
     config = SupervisedConfig()
 
-    assert config.max_rounds == 32
+    assert config.max_rounds == 0
     assert config.stall_threshold == 4
     assert config.soft_round_limit == 12
     assert config.hard_escalate_rounds == 24

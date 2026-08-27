@@ -13,7 +13,7 @@ This module turns "the idea survived a minimal judgemental experiment" into a
 **mechanically checkable provenance fact**, NOT a scientific verdict. Consistent
 with :mod:`argus_skill.skills.run_contract` ("the harness is not smarter than
 the agent"), it does not decide whether the science is good — only that a real
-≤10-min / ≤$1 experiment was run and that its measured baseline vs proposed
+measured experiment was run and that its baseline vs proposed
 metrics are non-degenerate and move in the claimed direction. Whether the idea
 is *worth pursuing* stays with the L2 reviewer.
 
@@ -47,12 +47,6 @@ SCHEMA_VERSION = 1
 DEFAULT_DERISK_PATH = "research/SIGNAL_DERISK.json"
 DEFAULT_LOG_PATH = "research/SIGNAL_DERISK_LOG.txt"
 
-# --- budget ceilings (provenance arithmetic, not scientific verdicts) --------
-# A de-risk experiment must be cheap: it is a reality screen, not the run-stage
-# matrix. Generous on purpose; the L2 reviewer still judges whether the idea is
-# worth the full investment.
-COST_CEILING_USD = 1.0
-DURATION_CEILING_S = 600.0  # 10 minutes
 # Two measured metrics within this are "the same number" (degenerate).
 _METRIC_EPS = 1e-9
 # Tolerance for the self-reported delta matching proposed - baseline.
@@ -193,7 +187,7 @@ def validate_signal_derisk(
 ) -> list[DeriskIssue]:
     """Provenance + non-degeneracy checks. Does NOT itself act on ``verdict`` /
     ``pivoted`` (that is :func:`validate_for_gate`'s job) — it only reports when
-    the measured facts are degenerate, over budget, or contradict the
+    the measured facts are degenerate or contradict the
     self-report."""
     issues: list[DeriskIssue] = []
 
@@ -210,21 +204,11 @@ def validate_signal_derisk(
         issues.append(DeriskIssue(
             "no_examples", f"n_examples={d.n_examples} < 1; nothing was scored"))
 
-    # --- budget (the screen must be cheap) ---
+    # --- measured resource facts ---
     if d.cost_usd < 0:
         issues.append(DeriskIssue("negative_cost", f"cost_usd={d.cost_usd} < 0"))
-    elif d.cost_usd > COST_CEILING_USD:
-        issues.append(DeriskIssue(
-            "over_budget_cost",
-            f"cost_usd={d.cost_usd:g} > {COST_CEILING_USD} ceiling; a de-risk "
-            "screen must be <=$1 — shrink N / use a cheaper route"))
     if d.duration_s < 0:
         issues.append(DeriskIssue("negative_duration", f"duration_s={d.duration_s} < 0"))
-    elif d.duration_s > DURATION_CEILING_S:
-        issues.append(DeriskIssue(
-            "over_budget_duration",
-            f"duration_s={d.duration_s:g} > {DURATION_CEILING_S} ceiling; a "
-            "de-risk screen must be <=10 min — shrink the experiment"))
 
     # --- provenance: the log must carry the real run behind the numbers ---
     if not d.commands:
@@ -255,7 +239,7 @@ def validate_signal_derisk(
 
     # A smoke/wiring-only screen waives the movement + direction bounds (it is an
     # infra check, not an idea-alive proof) — but it may NOT later be cited as
-    # "the idea is alive" (reviewer dim-8 enforces that). Budget + log still hold.
+    # "the idea is alive" (reviewer dim-8 enforces that). Log checks still hold.
     if d.smoke_only:
         return issues
 

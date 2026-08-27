@@ -45,6 +45,7 @@ from ..core.secret_guard import (
     redact_secrets_text,
 )
 
+# Rotation bounds disk use without truncating live work or losing the current log.
 ROLL_BYTES = 100 * 1024 * 1024  # 100 MiB
 EVENT_FILE = "events.jsonl"
 ROLL_FILE = "events.jsonl.1"

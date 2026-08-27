@@ -26,7 +26,6 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
         mission_id="mission-1",
         stage="research",
         scope="bounded",
-        work_kind="algorithm_discovery",
         objective="Screen one candidate on public tasks.",
         acceptance_check="research/screen.json reports a binding pass/fail",
         plan_hypothesis="The candidate screen can eliminate weak directions cheaply.",
@@ -68,7 +67,7 @@ def test_context_packet_seals_engineer_and_reviewer_handoffs(tmp_path: Path) -> 
     assert latest["mission"]["path"] == str(mission)
     assert mission_payload["stage"] == "research"
     assert mission_payload["scope"] == "bounded"
-    assert mission_payload["work_kind"] == "algorithm_discovery"
+    assert "work_kind" not in mission_payload
     assert mission_payload["objective"] == "Screen one candidate on public tasks."
     assert mission_payload["acceptance_check"].endswith("binding pass/fail")
     assert mission_payload["plan_hypothesis"].startswith("The candidate screen")
@@ -260,7 +259,6 @@ def test_mission_brief_projects_only_named_authoritative_fields(tmp_path: Path) 
         "## MissionBrief\n"
         f"- Workdir: `{workdir}`\n"
         "- Stage: change\n"
-        "- Work kind: scope\n"
         "- Owned paths (authoritative write boundary; Reviewer must not request "
         "edits outside it): argus_skill/life/context_packet.py; "
         "tests/life/test_context_packet.py\n"
@@ -314,7 +312,6 @@ def test_public_skill_loop_ab_injects_same_brief_into_isolated_roles(
         objective="Exercise the public SkillLoop entry point.",
         acceptance_check="reviewer returns done",
         execution_workdir=str(workdir),
-        work_kind="validation",
         owns_paths=owned_paths,
     )
 
@@ -352,7 +349,6 @@ def test_public_skill_loop_ab_injects_same_brief_into_isolated_roles(
     assert all("## MissionBrief" not in prompt for prompt in old_prompts)
     briefs = [_mission_brief_from_prompt(prompt) for prompt in new_prompts]
     assert briefs[0] == briefs[1] == expected_brief
-    assert all(prompt.count("- Work kind: validation") == 1 for prompt in new_prompts)
     reviewer_prompt = next(
         prompt for label, prompt, _options in new_history if label == "reviewer"
     )

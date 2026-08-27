@@ -475,6 +475,30 @@ class OperatorContextStore:
                     capabilities=tuple(capabilities_by_kind.values()),
                 )
 
+    def settle_once(self, revision: int) -> None:
+        """Consume one exact one-shot directive after its work is committed."""
+        self.root.mkdir(parents=True, exist_ok=True)
+        with self.lock_path.open("a+b") as lock:
+            with exclusive_file_lock(lock, lock_name="operator context lock"):
+                records = self.records()
+                target = next(
+                    (record for record in records if record.revision == revision),
+                    None,
+                )
+                if not (
+                    isinstance(target, DirectiveRecord)
+                    and target.lifetime == "once"
+                ):
+                    raise ValueError(
+                        f"operator context revision {revision} is not a one-shot directive"
+                    )
+                cache = _read_cache(self.root)
+                consumed = {int(value) for value in cache.get("consumed_once") or []}
+                if revision in consumed:
+                    return
+                cache["consumed_once"] = sorted(consumed | {revision})
+                self._refresh_cache(records, cache=cache)
+
 
 def append_directive(
     life_dir: Path | str,

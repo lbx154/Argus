@@ -157,7 +157,7 @@ def test_engineer_operator_question_parks_without_reviewer(tmp_path: Path) -> No
             message=(
                 "The required choice belongs to the operator.\n"
                 "MILESTONE_STATUS=continue\n"
-                "`OPERATOR_QUESTION=请选择 A 或 B`\n"
+                "`OPERATOR_QUESTION=Is publishing route A or B acceptable?`\n"
                 "`OPERATOR_OPTIONS=route-a :: 选择 A :: 使用 A 路线继续。; "
                 "route-b :: 选择 B :: 使用 B 路线继续。`"
             ),
@@ -181,7 +181,7 @@ def test_engineer_operator_question_parks_without_reviewer(tmp_path: Path) -> No
     assert status == "blocked"
     assert len(rounds) == 1
     assert rounds[0].review.review_source == "engineer_operator_question"
-    assert rounds[0].review.operator_question == "请选择 A 或 B"
+    assert rounds[0].review.operator_question == "Is publishing route A or B acceptable?"
     assert [option["label"] for option in rounds[0].review.operator_options] == [
         "选择 A",
         "选择 B",
@@ -189,8 +189,48 @@ def test_engineer_operator_question_parks_without_reviewer(tmp_path: Path) -> No
     assert rounds[0].review.planner_report["authority_impact"] == "operator"
     assert "operator-owned decision" in reason
     review_events = [event for event in events if event["type"] == "round.review.completed"]
-    assert review_events[0]["operator_question"] == "请选择 A 或 B"
+    assert review_events[0]["operator_question"] == (
+        "Is publishing route A or B acceptable?"
+    )
     assert review_events[0]["operator_options"][0]["id"] == "route-a"
+
+
+def test_project_local_paper_edit_question_reaches_reviewer_not_operator_pause(
+    tmp_path: Path,
+) -> None:
+    backend = MemoryBackend()
+    backend.queue(
+        "engineer-r1",
+        CannedResponse(
+            message=(
+                "The scoped result is ready to write.\n"
+                "MILESTONE_STATUS=continue\n"
+                "NEXT_OWNER=operator\n"
+                "OPERATOR_QUESTION=Should I edit project-local paper/main.tex "
+                "to present the scoped result?"
+            ),
+            thread_id="t1",
+        ),
+    )
+    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
+
+    status, rounds, _final, _reason, _tid = _engineer(backend).run(
+        objective="Update paper/main.tex with the reviewed scoped result.",
+        engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
+        supervised_config=SupervisedConfig(
+            max_rounds=2,
+            require_independent_review=True,
+        ),
+        workdir=tmp_path,
+    )
+
+    assert status == "done"
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
+    assert rounds[0].review.review_source == "reviewer"
+    assert all(record.review.operator_question == "" for record in rounds)
 
 
 def test_forbidden_engineer_question_becomes_autonomous_continuation(
@@ -208,14 +248,6 @@ def test_forbidden_engineer_question_becomes_autonomous_continuation(
             thread_id="t1",
         ),
     )
-    backend.queue(
-        "engineer-r2",
-        CannedResponse(
-            message="Found the available Git binary and completed the work.\n"
-            "MILESTONE_STATUS=done\nNEXT_OWNER=reviewer",
-            thread_id="t2",
-        ),
-    )
     backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
@@ -231,13 +263,11 @@ def test_forbidden_engineer_question_becomes_autonomous_continuation(
     )
 
     assert status == "done"
-    assert [record.review.operator_question for record in rounds] == ["", ""]
-    assert rounds[0].review.status == "continue"
-    assert rounds[0].review.operator_options == []
-    round_two_prompt = next(
-        prompt for label, prompt, _options in backend.history if label == "engineer-r2"
-    )
-    assert "solve reversible environment, tool, worktree" in round_two_prompt
+    assert [record.review.operator_question for record in rounds] == [""]
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
 
 
 def test_inflight_forbid_takes_effect_at_engineer_boundary(tmp_path: Path) -> None:
@@ -262,14 +292,6 @@ def test_inflight_forbid_takes_effect_at_engineer_boundary(tmp_path: Path) -> No
         "engineer-r1",
         CannedResponse(message_factory=forbid_during_turn, thread_id="t1"),
     )
-    backend.queue(
-        "engineer-r2",
-        CannedResponse(
-            message="Configured the available Git and finished.\n"
-            "MILESTONE_STATUS=done\nNEXT_OWNER=reviewer",
-            thread_id="t2",
-        ),
-    )
     backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
@@ -285,7 +307,11 @@ def test_inflight_forbid_takes_effect_at_engineer_boundary(tmp_path: Path) -> No
     )
 
     assert status == "done"
-    assert rounds[0].review.status == "continue"
+    assert rounds[0].review.status == "done"
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
     assert all(not record.review.operator_question for record in rounds)
 
 
@@ -305,7 +331,11 @@ def test_inflight_allow_reenables_engineer_question_boundary(tmp_path: Path) -> 
             "questions are allowed again",
             operator_question_policy="allow",
         )
-        return "NEXT_OWNER=operator\nOPERATOR_QUESTION=Choose A or B."
+        return (
+            "NEXT_OWNER=operator\n"
+            "OPERATOR_QUESTION=Is route A or B acceptable under the operator "
+            "acceptance contract?"
+        )
 
     backend.queue(
         "engineer-r1",
@@ -323,7 +353,7 @@ def test_inflight_allow_reenables_engineer_question_boundary(tmp_path: Path) -> 
     )
 
     assert status == "blocked"
-    assert rounds[0].review.operator_question == "Choose A or B."
+    assert rounds[0].review.operator_question.startswith("Is route A or B acceptable")
 
 
 def test_forbidden_reviewer_question_preserves_telemetry_and_continues(
@@ -618,7 +648,7 @@ def test_no_review_legacy_blocked_marker_settles_immediately(
     assert reason == "Engineer reported an unresolved blocker."
 
 
-def test_legacy_reviewer_request_without_owner_stays_with_operator(
+def test_legacy_reviewer_request_without_owner_reaches_reviewer(
     tmp_path: Path,
 ) -> None:
     backend = MemoryBackend()
@@ -636,6 +666,7 @@ def test_legacy_reviewer_request_without_owner_stays_with_operator(
             thread_id="t1",
         ),
     )
+    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="complete and independently review the artifact",
         engineer_prompt_builder=lambda _na, _include_static=True: "Do the task.",
@@ -643,10 +674,13 @@ def test_legacy_reviewer_request_without_owner_stays_with_operator(
         workdir=tmp_path,
     )
 
-    assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
-    assert status == "blocked"
-    assert rounds[0].review.review_source == "engineer_operator_question"
-    assert rounds[0].review.operator_question.startswith("Please invoke")
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
+    assert status == "done"
+    assert rounds[0].review.review_source == "reviewer"
+    assert rounds[0].review.operator_question == ""
 
 
 def test_structured_reviewer_handoff_is_authoritative_over_summary_vocabulary(
@@ -684,7 +718,7 @@ def test_structured_reviewer_handoff_is_authoritative_over_summary_vocabulary(
     assert rounds[0].review.operator_question == ""
 
 
-def test_explicit_operator_handoff_is_authoritative_for_reviewer_wording(
+def test_internal_review_request_is_not_operator_authority(
     tmp_path: Path,
 ) -> None:
     backend = MemoryBackend()
@@ -700,6 +734,7 @@ def test_explicit_operator_handoff_is_authoritative_for_reviewer_wording(
             thread_id="t1",
         ),
     )
+    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="perform an authorization-gated review",
@@ -708,12 +743,15 @@ def test_explicit_operator_handoff_is_authoritative_for_reviewer_wording(
         workdir=tmp_path,
     )
 
-    assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
-    assert status == "blocked"
-    assert rounds[0].review.operator_question.startswith("Please authorize")
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
+    assert status == "done"
+    assert rounds[0].review.operator_question == ""
 
 
-def test_legacy_reviewer_wording_does_not_bypass_operator_approval(
+def test_legacy_internal_review_request_is_not_operator_authority(
     tmp_path: Path,
 ) -> None:
     backend = MemoryBackend()
@@ -728,6 +766,7 @@ def test_legacy_reviewer_wording_does_not_bypass_operator_approval(
             thread_id="t1",
         ),
     )
+    backend.queue("reviewer", CannedResponse(message=_done_review(), thread_id="v1"))
 
     status, rounds, _final, _reason, _tid = _engineer(backend).run(
         objective="perform an approval-gated review",
@@ -736,9 +775,12 @@ def test_legacy_reviewer_wording_does_not_bypass_operator_approval(
         workdir=tmp_path,
     )
 
-    assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
-    assert status == "blocked"
-    assert rounds[0].review.operator_question.startswith("Request the independent")
+    assert [label for label, _prompt, _options in backend.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
+    assert status == "done"
+    assert rounds[0].review.operator_question == ""
 
 
 def test_structured_engineer_handoff_continues_without_early_review(

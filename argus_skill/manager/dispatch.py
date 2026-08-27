@@ -217,7 +217,7 @@ def enqueue_mission(
     chat_state: dict[str, Any],
     *,
     iterate: bool = True,
-    max_cycles: int = 6,
+    max_cycles: int = 0,
     root_task_id: str | None = None,
     cancelled: Callable[[], bool] | None = None,
     prepared_handoff: front_door.PreparedManagerHandoff | None = None,
@@ -600,7 +600,6 @@ def enqueue_mission(
                 plan_version=1,
                 node_key=node.key,
                 context_refs=item_context_refs,
-                work_kind=str(getattr(node, "work_kind", "") or ""),
                 acceptance_check=str(getattr(node, "acceptance_check", "") or ""),
                 plan_hypothesis=hypothesis,
                 goal_contribution=str(

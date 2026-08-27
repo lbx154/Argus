@@ -41,24 +41,18 @@ def test_ordinary_task_also_has_no_audit_policy_block(
     assert "## Audit fidelity" not in prompt
 
 
-def test_performance_policy_uses_structured_work_kind_not_task_words(
+def test_compact_team_performance_policy_states_when_it_applies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(engineer, "native_shell_contract", lambda: "")
     monkeypatch.setattr(engineer, "native_shell_summary", lambda: "")
 
-    prose_only = engineer.build_mission_prompt(
-        task="Benchmark and profile the GPU bottleneck.",
-        skill_text="",
-        next_action=None,
-        work_kind="scope",
-    )
-    structured = engineer.build_mission_prompt(
+    prompt = engineer.build_mission_prompt(
         task="Investigate the assigned behavior.",
         skill_text="",
         next_action=None,
-        work_kind="engineering_optimization",
+        compact_team=True,
     )
 
-    assert "## Performance diagnosis" not in prose_only
-    assert "## Performance diagnosis" in structured
+    assert "Performance root-cause/bottleneck/replacement claims need" in prompt
+    assert "hot-path/live-resource evidence plus timing/profiling or controlled A/B" in prompt

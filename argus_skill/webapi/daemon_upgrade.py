@@ -34,7 +34,7 @@ def upgrade_project_daemon(
     sid: str,
     *,
     global_root: Path | str | None = None,
-    drain_timeout: float = 1800.0,
+    drain_timeout: float | None = None,
 ) -> dict[str, Any] | None:
     """Restart one executor without blocking on a long active mission."""
     life_dir = project_life_dir(sid, global_root=global_root)
@@ -69,7 +69,7 @@ def upgrade_project_daemon(
                 "objective": str(continuous.objective or ""),
                 "reason": "operator requested current-release restart",
                 "requested_at": time.time(),
-                "legacy_drain_timeout": float(drain_timeout),
+                "legacy_drain_timeout": drain_timeout,
             },
         )
         scheduled = _srv().schedule_project_daemon_upgrade(

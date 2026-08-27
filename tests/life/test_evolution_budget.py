@@ -133,3 +133,46 @@ def test_failed_mission_still_reaches_team_learning_review(
 
     assert captured["mission_success"] is False
     assert "same fixed threshold" in captured["mission_result"]
+
+
+def test_reviewer_confirmed_research_result_reaches_fact_judgment(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    runner = _Runner()
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=1),
+            project_worktree=tmp_path / "campaign",
+            role_skill_maintenance_enabled=False,
+        ),
+    )
+    captured = {}
+
+    def _review(*args, **kwargs):
+        captured.update(kwargs)
+        return True
+
+    monkeypatch.setattr(
+        "argus_skill.manager.reviewed_facts.review_and_append_fact",
+        _review,
+    )
+    result = {"result_class": "verified_new_result", "evidence": ["result.json"]}
+
+    supervisor._evolve_runtime_skills_after_mission(
+        success=True,
+        usage_mission_id="attempt",
+        reviewer_source="reviewer",
+        reviewer_reason="The held-out effect is confirmed.",
+        research_result=result,
+        evidence_refs=("result.json",),
+        source_campaign="campaign-03",
+    )
+
+    assert captured["source_campaign"] == "campaign-03"
+    assert captured["research_result"] == result
+    assert captured["evidence_refs"] == ("result.json",)

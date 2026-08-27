@@ -31,13 +31,13 @@ class UpdateResult:
         return self.before_revision != self.after_revision
 
 
-CommandRunner = Callable[[Sequence[str], Path, float], subprocess.CompletedProcess[str]]
+CommandRunner = Callable[[Sequence[str], Path, float | None], subprocess.CompletedProcess[str]]
 
 
 def _run_command(
     command: Sequence[str],
     cwd: Path,
-    timeout: float,
+    timeout: float | None,
 ) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
@@ -61,7 +61,7 @@ def _checked(
     command: Sequence[str],
     *,
     cwd: Path,
-    timeout: float = 30.0,
+    timeout: float | None = None,
 ) -> str:
     result = runner(command, cwd, timeout)
     if result.returncode != 0:
@@ -115,7 +115,7 @@ def update_source_checkout(
         runner,
         ["git", "pull", "--ff-only", PUBLIC_REPOSITORY, _PUBLIC_MAIN_REF],
         cwd=checkout,
-        timeout=300.0,
+        timeout=None,
     )
     after = _checked(runner, ["git", "rev-parse", "HEAD"], cwd=checkout)
 
@@ -125,7 +125,7 @@ def update_source_checkout(
             runner,
             [executable, "-m", "pip", "install", "-e", str(checkout)],
             cwd=checkout,
-            timeout=900.0,
+            timeout=None,
         )
 
     return UpdateResult(

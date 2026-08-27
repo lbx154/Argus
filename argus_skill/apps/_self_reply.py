@@ -811,7 +811,7 @@ class SelfReplyMixin:
             skill_paths=native_skill_paths,
             extra_args=extra_args,
             watchdog_hard_idle_seconds=env_int(
-                "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 120
+                "ARGUS_SKILL_SELF_HARD_IDLE_SECONDS", 0
             ),
             watchdog_soft_idle_seconds=env_int(
                 "ARGUS_SKILL_SELF_SOFT_IDLE_SECONDS", 5

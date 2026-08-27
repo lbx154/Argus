@@ -151,6 +151,9 @@ Usage: argus resume [SID] [--all]
              [--exit-policy detach|stop-api|stop-all]
        argus --web [--no-open]  # start Web UI and open/print its URL
        argus --once --json   # headless smoke: fetch snapshot + N events, print JSON, exit
+       argus render-events [--locale en|zh-CN]
+             [--unknown-event-policy hide|greppable] [--density compact|full]
+             [--show-reasoning]  # NDJSON stdin to one plain-text line per event
 
 Every launch compares the local source identity with the running backend. It
 auto-starts a missing backend and safely replaces an outdated backend only when

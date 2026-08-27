@@ -66,6 +66,7 @@ PAPER_FIGURE_CANDIDATE_CACHE_PATH = Path(
 # candidates before it is allowed to stop. Cache reuse exists to avoid wasted
 # image calls on an unchanged context, not to gate progress.
 PAPER_FIGURE_MIN_REVIEWED_CANDIDATES = 1
+# This bounds the on-disk candidate cache, not how long figure work may run.
 PAPER_FIGURE_MAX_REVIEWED_CANDIDATES = 20
 _PAPER_FIGURE_REQUIRED_CONTEXT = (
     Path("research/RESEARCH_BRIEF.md"),
@@ -413,7 +414,7 @@ def review_image(
     rubric: str = "",
     venue_profile: VenueProfile | None = None,
     env: Mapping[str, str] | None = None,
-    timeout: float = _DEFAULT_TIMEOUT_SECONDS,
+    timeout: float | None = _DEFAULT_TIMEOUT_SECONDS,
     max_retries: int = _DEFAULT_MAX_RETRIES,
 ) -> dict[str, Any]:
     """Paper-figure vision review: build the venue-aware paper prompt, then
@@ -1287,7 +1288,7 @@ def main(argv: list[str] | None = None) -> int:
                 prompt=prompt,
                 rubric=args.rubric,
                 venue_profile=get_venue_profile(args.venue) if args.venue is not None else None,
-                timeout=float(args.timeout),
+                timeout=args.timeout,
                 max_retries=int(args.max_retries),
             ))
             return 0

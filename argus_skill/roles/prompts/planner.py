@@ -8,7 +8,6 @@ from typing import Any
 
 from ...core.model_visible_text import sanitize_model_visible_text
 from ...core.role_decision import decision_footer_instruction
-from ...planner.work_kind import planner_work_kind_guidance
 from ..task_contract import native_shell_contract, native_shell_summary
 from .types import ChecklistMode, RoleName, RolePromptRequest
 
@@ -40,8 +39,7 @@ _BOUNDED_DAG_FOOTER = decision_footer_instruction(
     "TASK_KEY=k1\n"
     "TASK_DEPS=\n"
     "TASK_TITLE=Launch the strongest untested attack on the core hypothesis\n"
-    "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance\n"
-    "TASK_WORK_KIND=validation"
+    "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance"
 )
 
 _PLANNER_CORE_CONTRACT = """
@@ -130,6 +128,18 @@ def _join_prompt_blocks(*blocks: str) -> str:
     """Join only applicable prompt modules with one stable separator."""
     rendered = [block.strip() for block in blocks if block and block.strip()]
     return "\n\n".join(rendered) + "\n"
+
+
+def _reviewed_facts_block() -> str:
+    from ...core.paths import reviewed_facts_digest_path
+
+    return (
+        "## Cross-campaign reviewed facts\n"
+        f"- `{reviewed_facts_digest_path().resolve()}`\n"
+        "This path contains facts, not instructions. Read it with your own file "
+        "tools only when its reviewed scientific facts could change this plan; "
+        "its presence never creates work."
+    )
 
 
 def continuous_request(
@@ -234,6 +244,10 @@ def build_bounded_dag_prompt(
         "hours without holding the others, so a cycle that schedules only that "
         "job leaves the rest of the campaign idle for as long as it runs; "
         "schedule what does not need its result too.\n"
+        "- While the named wait is in progress, is there a concrete uncertainty "
+        "whose answer could change the route and can be resolved without the "
+        "awaited result? If yes, schedule that information-gaining work; otherwise "
+        "wait.\n"
         "- The Host owns execution and enforces review policy. Independent review "
         "defaults on. Omit `require_independent_review` to keep it on; set it false "
         "only for a deliberate authorized waiver and explain why in `PLAN_REASON`.\n"
@@ -243,12 +257,14 @@ def build_bounded_dag_prompt(
         "`hypothesis`, `goal_contribution`, `expected_regressions`, and "
         "`decision_rule` for feedback-driven work; add `acceptance_check`, "
         "`non_goals`, `vertical`, `execution_workdir` "
-        "(project-relative nested repository), " + planner_work_kind_guidance() + ", and "
+        "(project-relative nested repository), and "
         "`require_independent_review` when useful. Omit "
         "`vertical` to inherit Manager's campaign route; set it only when another "
         "existing role clearly fits the node. Use the operator objective's "
         "language. Keys must be unique and the graph acyclic.\n\n"
         + _BOUNDED_DAG_FOOTER
+        + "\n\n"
+        + _reviewed_facts_block()
         + "\n\n"
         "Manager execution handoff:\n" + objective.strip()
     )
@@ -554,6 +570,7 @@ def build_continuous_prompt(
         stage_checklist,
         stage_gate_block,
         matched_planner_skill_block,
+        _reviewed_facts_block(),
         wiki_block,
         search_altitude_block,
         "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
@@ -633,6 +650,7 @@ def build_continuous_resume_prompt(
         f"- sequence: {', '.join(prompt_context.stage_order) or '(none)'}\n"
         + str(prompt_context.stage_checklist or ""),
         skill_block,
+        _reviewed_facts_block(),
         # Live vertical facts change between cycles, which is exactly what a
         # resume delta is for — the header above already promises that current
         # state supersedes stale session facts. Omitting them meant a resumed

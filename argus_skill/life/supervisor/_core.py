@@ -1166,7 +1166,11 @@ class LifeSupervisor(
                 "recoverable": True,
             }
 
-        if not self.config.continuous and self._missions_started >= self.config.budget.max_missions:
+        if (
+            not self.config.continuous
+            and self.config.budget.max_missions > 0
+            and self._missions_started >= self.config.budget.max_missions
+        ):
             # Only narrate the cap when there's actually pending work
             # being held back. If the backlog is empty (or the user
             # asked for ``--once`` and we just ran their one mission),

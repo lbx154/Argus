@@ -19,8 +19,11 @@ the underlying ``AgentCliRunner.run_exec`` to return a synthetic
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -35,6 +38,9 @@ from argus_skill.adapters.agent_cli_backend import (
 from argus_skill.adapters.agent_cli_backend._core import _RepeatedToolCallGuard
 from argus_skill.core.models import RunnerOptions
 from argus_skill.core.token_usage import extract_token_usage, sum_token_counts
+from argus_skill.provider_integrations.authorization_retry import (
+    BackendLoginRequired,
+)
 from argus_skill.provider_integrations.copilot_usage import (
     CopilotCallUsage,
     CopilotModelUsage,
@@ -230,6 +236,142 @@ def _make_cli_result(
         fatal_error=fatal_error,
         usage_model=usage_model,
     )
+
+
+def _configure_relay_credential(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    token: str,
+    *,
+    environment_token: str | None = None,
+) -> Path:
+    codex_home = tmp_path / "codex"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        'model_provider = "copilot_relay"\n'
+        '[model_providers.copilot_relay]\n'
+        'base_url = "http://127.0.0.1:41419/v1"\n'
+        'env_key = "COPILOT_RELAY_TOKEN"\n',
+        encoding="utf-8",
+    )
+    relay_dir = tmp_path / ".config" / "copilot-codex-relay"
+    relay_dir.mkdir(parents=True)
+    credential_path = relay_dir / "env"
+    credential_path.write_text(
+        f"COPILOT_RELAY_TOKEN={token}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setenv(
+        "COPILOT_RELAY_TOKEN",
+        token if environment_token is None else environment_token,
+    )
+    return credential_path
+
+
+def test_concurrent_401s_coordinate_one_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    credential_path = _configure_relay_credential(
+        tmp_path,
+        monkeypatch,
+        "fresh-relay-token",
+        environment_token="rejected-relay-token",
+    )
+    backends = [AgentCliBackend(backend="codex") for _ in range(2)]
+    barrier = threading.Barrier(2)
+    state_lock = threading.Lock()
+    calls_by_runner: dict[int, int] = {}
+    replay_tokens: list[str] = []
+    endpoint_expired = True
+    refreshes = 0
+
+    def fake_run_exec(self: Any, **_kwargs: Any) -> AgentRunResult:
+        nonlocal endpoint_expired, refreshes
+        with state_lock:
+            runner_id = id(self)
+            calls_by_runner[runner_id] = calls_by_runner.get(runner_id, 0) + 1
+            call_number = calls_by_runner[runner_id]
+        if call_number == 1:
+            barrier.wait(timeout=5)
+            return _make_cli_result(
+                exit_code=1,
+                fatal_error="401 Missing bearer",
+                stderr_lines=["401 Missing bearer"],
+            )
+        with state_lock:
+            needs_refresh = endpoint_expired
+            replay_tokens.append(os.environ["COPILOT_RELAY_TOKEN"])
+            if needs_refresh:
+                refreshes += 1
+        if needs_refresh:
+            time.sleep(0.05)
+            credential_path.write_text(
+                "COPILOT_RELAY_TOKEN=newer-relay-token\n",
+                encoding="utf-8",
+            )
+            with state_lock:
+                endpoint_expired = False
+        return _make_cli_result(agent_messages=["ok"])
+
+    monkeypatch.setattr(AgentCliRunner, "run_exec", fake_run_exec, raising=True)
+    options = RunnerOptions(skip_git_repo_check=True)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(
+                backend.run_exec,
+                prompt="answer",
+                options=options,
+                run_label="manager-pending-answer",
+            )
+            for backend in backends
+        ]
+        results = [future.result(timeout=5) for future in futures]
+
+    assert [result.last_agent_message for result in results] == ["ok", "ok"]
+    assert sorted(calls_by_runner.values()) == [2, 2]
+    assert replay_tokens == ["fresh-relay-token", "newer-relay-token"]
+    assert refreshes == 1
+
+
+def test_second_401_requires_login_without_third_attempt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_relay_credential(
+        tmp_path,
+        monkeypatch,
+        "fresh-relay-token",
+        environment_token="rejected-relay-token",
+    )
+    backend = AgentCliBackend(backend="codex")
+    calls = 0
+
+    def fake_run_exec(self: Any, **_kwargs: Any) -> AgentRunResult:
+        nonlocal calls
+        calls += 1
+        return _make_cli_result(
+            exit_code=1,
+            fatal_error="401 Missing bearer",
+            stderr_lines=["401 Missing bearer"],
+        )
+
+    monkeypatch.setattr(AgentCliRunner, "run_exec", fake_run_exec, raising=True)
+
+    with pytest.raises(BackendLoginRequired) as caught:
+        backend.run_exec(
+            prompt="answer",
+            options=RunnerOptions(skip_git_repo_check=True),
+            run_label="manager-pending-answer",
+        )
+
+    assert calls == 2
+    assert caught.value.phase == "backend"
+    assert caught.value.cause == "401 Missing bearer"
+    assert caught.value.attempts == 2
+    assert "login_required" in str(caught.value)
 
 
 def test_explicit_secret_snapshot_survives_per_call_refresh(
@@ -2185,4 +2327,4 @@ def test_build_agent_cli_backend_from_env_defaults(monkeypatch):
     assert backend._runner.default_extra_args == []
     assert backend._default_watchdog_soft_idle_seconds == 600
     assert backend._default_watchdog_stalled_idle_seconds == 1800
-    assert backend._default_watchdog_hard_idle_seconds == 2700
+    assert backend._default_watchdog_hard_idle_seconds == 0

@@ -255,7 +255,9 @@ def _safe_remove_control_files(context: DoctorContext) -> dict[str, Any]:
     return {"status": "applied" if removed else "not_needed", "removed": removed}
 
 
-def _run_registered_command(argv: list[str], *, cwd: Path, timeout: float) -> dict[str, Any]:
+def _run_registered_command(
+    argv: list[str], *, cwd: Path, timeout: float | None
+) -> dict[str, Any]:
     completed = subprocess.run(
         argv,
         cwd=str(cwd),
@@ -332,7 +334,7 @@ def _apply_registered_action(
         return _run_registered_command(
             [str(context.python_executable), "-m", "pip", "install", "-e", str(checkout)],
             cwd=checkout,
-            timeout=300,
+            timeout=None,
         )
     if action.id == "install_electron_binary":
         desktop = checkout / "desktop"
@@ -342,7 +344,7 @@ def _apply_registered_action(
         return _run_registered_command(
             [node, "-e", "require('electron')"],
             cwd=desktop,
-            timeout=300,
+            timeout=None,
         )
     if action.id == "rebuild_release_assets":
         git = shutil_which("git")
@@ -350,7 +352,7 @@ def _apply_registered_action(
             return {"status": "failed", "detail": "Git is required to attribute rebuilt files"}
         before = subprocess.run(
             [git, "-C", str(checkout), "status", "--porcelain"],
-            check=False, capture_output=True, text=True, encoding="utf-8", timeout=5,
+            check=False, capture_output=True, text=True, encoding="utf-8",
         )
         if before.returncode != 0 or before.stdout.strip():
             return {
@@ -360,11 +362,11 @@ def _apply_registered_action(
         result = _run_registered_command(
             [str(context.python_executable), "-m", "argus_skill.release_tools.build_release"],
             cwd=checkout,
-            timeout=900,
+            timeout=None,
         )
         after = subprocess.run(
             [git, "-C", str(checkout), "status", "--porcelain"],
-            check=False, capture_output=True, text=True, encoding="utf-8", timeout=5,
+            check=False, capture_output=True, text=True, encoding="utf-8",
         )
         result["changed_paths"] = sorted(
             line[3:].strip().replace("\\", "/")
@@ -524,7 +526,7 @@ def submit_pr(
     def git_text(*args: str) -> str:
         completed = subprocess.run(
             [git, "-C", str(checkout), *args],
-            check=False, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
+            check=False, capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         if completed.returncode != 0:
             raise RuntimeError((completed.stderr or completed.stdout).strip())
@@ -555,7 +557,7 @@ def submit_pr(
             "--title", title, "--body-file", str(report),
         ],
         cwd=str(checkout), check=False, capture_output=True, text=True,
-        encoding="utf-8", errors="replace", timeout=60,
+        encoding="utf-8", errors="replace",
     )
     if created.returncode != 0:
         raise RuntimeError((created.stderr or created.stdout).strip())

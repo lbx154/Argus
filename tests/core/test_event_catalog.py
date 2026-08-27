@@ -250,3 +250,16 @@ def test_generated_event_renderer_corpus_and_coverage_are_current() -> None:
     assert generate_event_fixtures.TYPES_PATH.read_text(encoding="utf-8") == (
         generate_event_fixtures._types()
     )
+
+
+def test_resource_status_schema_and_generated_contracts_are_current() -> None:
+    from argus_skill.release_tools import generate_resource_status
+
+    schema = json.loads(generate_resource_status.SCHEMA_PATH.read_text(encoding="utf-8"))
+    jsonschema.Draft202012Validator.check_schema(schema)
+    assert generate_resource_status.OUTPUT_PATH.read_text(encoding="utf-8") == (
+        generate_resource_status.render()
+    )
+    assert generate_resource_status.PYTHON_OUTPUT_PATH.read_text(encoding="utf-8") == (
+        generate_resource_status.render_python()
+    )

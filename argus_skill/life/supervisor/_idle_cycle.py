@@ -173,7 +173,7 @@ class IdleCycleMixin:
         # In continuous mode, max_missions is not a hard cap — the
         # planner generates new work indefinitely until it declares
         # the project done. Only the host-global daily budget is enforced.
-        if not self.config.continuous:
+        if not self.config.continuous and self.config.budget.max_missions > 0:
             if self._missions_started >= self.config.budget.max_missions:
                 # Suppress the cap message when there's no held-back work.
                 # Treats "you asked for one mission, you got one" as silent

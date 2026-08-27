@@ -10,7 +10,7 @@ from argus_skill.life.memory import BacklogItem, LifeMemory
 def test_backlog_item_new_sets_iteration_defaults():
     it = BacklogItem.new(title="t", objective="ship a calculator")
     assert it.iterate is True
-    assert it.iteration_max_cycles == 6
+    assert it.iteration_max_cycles == 0
     assert it.iteration_cycles_done == 0
     assert it.iteration_cost_usd == 0.0
     assert it.original_objective == "ship a calculator"

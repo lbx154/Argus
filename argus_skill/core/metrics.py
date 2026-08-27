@@ -21,6 +21,7 @@ from .event_catalog import canonical_event_type, event_spec
 METRICS_FILE = "metrics.jsonl"
 METRICS_LOCK_FILE = "metrics.lock"
 METRICS_SCHEMA_VERSION = 1
+# Rotation/retention bounds telemetry storage, not task execution.
 DEFAULT_METRICS_MAX_BYTES = 16 * 1024 * 1024
 DEFAULT_METRICS_RETENTION_DAYS = 7
 DEFAULT_METRICS_MAX_ARCHIVES = 14

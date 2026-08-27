@@ -612,9 +612,9 @@ def test_manager_prompt_has_independent_long_idle_timeout(monkeypatch) -> None:
     monkeypatch.delenv("ARGUS_SKILL_COPILOT_ACP_TIMEOUT_S", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_COPILOT_ACP_MANAGER_TIMEOUT_S", raising=False)
 
-    assert copilot_acp._prompt_timeout("manager-frontdoor-classify") == 60.0
-    assert copilot_acp._prompt_timeout("simple-1") == 300.0
-    assert copilot_acp._prompt_timeout("chat-1") == 300.0
+    assert copilot_acp._prompt_timeout("manager-frontdoor-classify") == 0.0
+    assert copilot_acp._prompt_timeout("simple-1") == 0.0
+    assert copilot_acp._prompt_timeout("chat-1") == 0.0
 
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_ACP_TIMEOUT_S", "17")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_ACP_MANAGER_TIMEOUT_S", "240")

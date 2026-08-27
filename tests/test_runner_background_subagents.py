@@ -181,12 +181,10 @@ def test_a_direct_job_that_writes_nothing_is_not_healthy(tmp_path) -> None:
     assert working.state is ExternalWorkState.RUNNING_HEALTHY
     assert working.waitable is True
 
-    # Past the staleness window it needs a person, and it stops buying the
-    # free rounds the stall guard grants to healthy work.
+    # Quiet work remains healthy while its recorded process identity is alive.
     spinning = _status(4 * 3600)
-    assert spinning.state is ExternalWorkState.NEEDS_ATTENTION
-    assert spinning.waitable is False
-    assert "written nothing for 240m" in spinning.reason
+    assert spinning.state is ExternalWorkState.RUNNING_HEALTHY
+    assert spinning.waitable is True
 
 
 def test_a_job_that_writes_its_results_elsewhere_is_not_accused(tmp_path) -> None:

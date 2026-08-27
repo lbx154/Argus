@@ -13,7 +13,6 @@ from argus_skill.planner.planner import (
     parse_planner_text,
     parse_task_scope,
 )
-from argus_skill.planner.work_kind import DEFAULT_WORK_KIND, WORK_KINDS
 from argus_skill.roles.prompts.planner import (
     _BOUNDED_DAG_FOOTER,
     _PLANNER_CORE_CONTRACT,
@@ -78,57 +77,6 @@ def test_structured_planner_payload_preserves_list_item_text() -> None:
     assert verdict.new_tasks[0].decision_rule.startswith("Revise the parser")
 
 
-@pytest.mark.parametrize("work_kind", WORK_KINDS)
-def test_structured_planner_payload_accepts_explicit_work_kind(work_kind: str) -> None:
-    verdict = parse_planner_payload({
-        "project_done": False,
-        "reason": "one typed task remains",
-        "tasks": [{
-            "title": "Typed task",
-            "objective": "Execute the bounded task.",
-            "scope": "bounded",
-            "work_kind": work_kind,
-        }],
-    })
-
-    assert verdict.error == ""
-    assert verdict.new_tasks[0].work_kind == work_kind
-
-
-def test_structured_planner_payload_defaults_unknown_work_kind() -> None:
-    verdict = parse_planner_payload({
-        "project_done": False,
-        "reason": "invalid type",
-        "tasks": [{
-            "title": "Invented type",
-            "objective": "Deliver and validate an algorithm.",
-            "scope": "bounded",
-            "work_kind": "research_magic",
-        }],
-    })
-
-    assert verdict.error == ""
-    assert verdict.new_tasks[0].work_kind == DEFAULT_WORK_KIND
-    assert verdict.diagnostics == (
-        "task 1 unsupported work_kind defaulted to scope",
-    )
-
-
-def test_missing_work_kind_uses_legacy_default_without_prose_inference() -> None:
-    verdict = parse_planner_payload({
-        "project_done": False,
-        "reason": "legacy task",
-        "tasks": [{
-            "title": "Deliver the optimized environment",
-            "objective": "Validate the algorithm and ship it.",
-            "scope": "bounded",
-        }],
-    })
-
-    assert verdict.error == ""
-    assert verdict.new_tasks[0].work_kind == DEFAULT_WORK_KIND
-
-
 def test_structured_planner_wait_preserves_framed_lists() -> None:
     verdict = parse_planner_payload({
         "project_done": False,
@@ -177,7 +125,6 @@ def test_parse_planner_task_carries_feedback_contract_but_not_legacy_workdir() -
             "TASK_GOAL_CONTRIBUTION=Fix the operator's target repository.",
             "TASK_EXPECTED_REGRESSIONS=The focused test may stay red during repair.",
             "TASK_DECISION_RULE=Replan if the defect is outside this repository.",
-            "TASK_WORK_KIND=engineering_optimization",
             "TASK_WORKDIR=flash-linear-attention",
             "TASK_ACCEPTANCE_CHECK=pytest tests/ops/test_attnres.py -q",
         ])
@@ -197,7 +144,6 @@ def test_parse_planner_task_carries_feedback_contract_but_not_legacy_workdir() -
     assert verdict.new_tasks[0].acceptance_check == (
         "pytest tests/ops/test_attnres.py -q"
     )
-    assert verdict.new_tasks[0].work_kind == "engineering_optimization"
 
 
 def test_parse_planner_emits_disjoint_parallel_task_batch() -> None:
@@ -383,6 +329,7 @@ def test_planner_prompt_requires_read_only_delegation_and_minimal_footer() -> No
         assert field in _PLANNER_CORE_CONTRACT
     for field in (
         "TASK_WORKDIR",
+        "TASK_WORK_KIND",
         "TASK_CONTEXT_REFS",
         "TASK_REQUIRE_INDEPENDENT_REVIEW",
         "TASK_STAGE_CLOSING",
