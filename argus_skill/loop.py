@@ -332,6 +332,7 @@ class SkillLoop(
             engineer_role_banner=engineer_role_banner,
             seed_thread_id=seed_thread_id,
             scope=scope,
+            work_kind=work_kind,
         )
 
         # Step 1/2: expose Skill-library paths and prepare optional research

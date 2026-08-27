@@ -155,7 +155,7 @@ coverage gap. Do not invent an “external enrichment” round.
 Implement, calculate, inspect, measure, or write the requested deliverable. Prefer
 first-hand evidence over commentary about what could be done.
 
-- For code: make the smallest coherent change and run focused plus decisive checks.
+- For code: choose the coherent action that most advances the objective or reduces its key uncertainty; verify in proportion to the claim.
 - For experiments: preserve raw outputs and compare like-for-like baselines.
 - For analysis: map material claims to evidence and represent conflicting evidence.
 - For surveys: define selection scope and do not imply exhaustive coverage without
