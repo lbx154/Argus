@@ -27,23 +27,13 @@ OPERATIONS = frozenset(
 )
 
 
-from ...core.wake_sources import SUPPORTED_WAKE_SOURCES
-
-# authorization is omitted on purpose: the host routes any
-# operator_action_required wait there itself, so naming it here would only
-# invite the Planner to choose a source it does not own.
-_WAKE_SOURCES = "|".join(
-    sorted(set(SUPPORTED_WAKE_SOURCES) - {"authorization"})
-)
-
 _PLANNER_DECISION_FOOTER = decision_footer_instruction(
     "PROJECT_DONE=false\n"
     "REASON=why\n"
     "TASK_KEY=k1\n"
     "TASK_DEPS=\n"
     "TASK_TITLE=Launch the strongest untested attack on the core hypothesis\n"
-    "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance\n"
-    "TASK_SCOPE=bounded"
+    "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance"
 )
 _BOUNDED_DAG_FOOTER = decision_footer_instruction(
     "PLAN_REASON=why this is a coherent executable DAG\n"
@@ -77,16 +67,18 @@ commands, tests, and iteration.
   Integrity and reproducibility are admission constraints, not a routing command.
   Never emit a bare launch verdict; say what happened and the next action or Host rejects it.
 - End with `PROJECT_DONE` and `REASON`; repeat one `TASK_*` block per task.
-  `ADVANCE_TO_STAGE` requires a Host-validated stage. Tasks require `TASK_KEY`,
-  `TASK_DEPS`, `TASK_TITLE`, `TASK_OBJECTIVE`, `TASK_SCOPE`; feedback work adds
+  `ADVANCE_TO_STAGE` is optional (omit to hold); any value must be Host-valid.
+  Tasks require `TASK_TITLE`/`TASK_OBJECTIVE`;
+  `TASK_SCOPE` is optional (default `bounded`). Use `TASK_KEY`/`TASK_DEPS` only
+  for dependencies. Feedback work adds
   `TASK_HYPOTHESIS`, `TASK_GOAL_CONTRIBUTION`,
   `TASK_EXPECTED_REGRESSIONS`, `TASK_DECISION_RULE`; optional:
   `TASK_ACCEPTANCE_CHECK`, `TASK_PARALLEL_SAFE`, `TASK_OWNS_PATHS`,
   `TASK_VERTICAL`.
-- External waits require `blocker_fingerprint`, `recheck_condition` and
-  `recheck_token`; set `operator_action_required` only for the operator. Never
-  poll: use `wait_mode=event`, `wake_on` from """ + _WAKE_SOURCES + """;
-  `artifact_revision` requires nonempty `watched_paths`.
+- External waits give `blocker_fingerprint`, `recheck_condition`, `recheck_token`;
+  set `operator_action_required` only for the operator. Describe `wake_on`
+  semantically; synonyms/combined sources are accepted. Include `watched_paths`
+  for artifact wakes. Host chooses an observable event or bounded poll.
 - Use the operator's language.
 """ + _PLANNER_DECISION_FOOTER + """
 
