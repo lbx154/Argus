@@ -31,6 +31,11 @@ def test_reviewer_never_acts_as_checkpoint_editor():
     assert "You do not change the work under review" in p
     assert "Put the next Engineer instruction only in next_action" in p
     assert "Inspect claim-critical uncertainty with proportional tools" in p
+    assert (
+        "Never reward virtue's form in negative results, hedging, limitation lists, "
+        "or repeat runs—only anchored, decision-changing content; positive and "
+        "negative claims share one evidence standard."
+    ) in p
     assert "six total read/search tool calls" not in p
 
 

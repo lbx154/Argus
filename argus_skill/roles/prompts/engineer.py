@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from ...core.model_visible_text import sanitize_model_visible_text
@@ -28,44 +27,8 @@ _POSIX_LONG_EXPERIMENT_RULE = (
     "`check_with` receipt; on `state=discussing` answer with `reply_with` "
     "and do not poll in the foreground."
 )
-_PERFORMANCE_DIAGNOSTIC_TASK = re.compile(
-    r"\b(?:throughput|latency|performance|bottleneck|profil(?:e|ing|er)?|"
-    r"resource|cpu|gpu|scal(?:e|ing|ability)|benchmark)\b|"
-    r"吞吐|性能|瓶颈|延迟|剖析",
-    re.IGNORECASE,
-)
-_AUDIT_FIDELITY_TASK = re.compile(
-    r"\b(?:audit|ledger|command[ _-]?log|process[ _-]?trace|append[ _-]?only|"
-    r"provenance)\b|审计|账本|问题记录|命令日志|过程记录|只追加|来源归因",
-    re.IGNORECASE,
-)
-_EXTERNAL_WORK_TASK = re.compile(
-    r"\b(?:experiment|evaluation|benchmark|training|serving|host[ _-]?job|"
-    r"external[ _-]?work|long[ _-]?run|sweep)\b|实验|评测|训练|长任务",
-    re.IGNORECASE,
-)
-
-
-def _audit_fidelity_section(task: str) -> str:
-    if not _AUDIT_FIDELITY_TASK.search(task):
-        return ""
-    return (
-        "## Audit fidelity\n"
-        "An objective or inherited summary is a requirement, not observed evidence. "
-        "Attribute a fact to it only when the cited text actually says that fact; "
-        "otherwise label the claim unverified until a command or immutable artifact "
-        "establishes it. If the operator freezes mutation or names a ledger append-only, "
-        "stop installs and repairs immediately: never replace that file, even after "
-        "copying or archiving it; add a correction only through a verified append path. "
-        "Capture each result-bearing shell command byte-faithfully in a sidecar before "
-        "summarizing it. Do not embed Markdown backticks in an unquoted heredoc: use a "
-        "single-quoted delimiter or a literal file API, and judge inner stderr/status "
-        "rather than trusting an outer shell exit 0."
-    )
-
-
-def _performance_diagnostic_section(task: str) -> str:
-    if not _PERFORMANCE_DIAGNOSTIC_TASK.search(task):
+def _performance_diagnostic_section(work_kind: str) -> str:
+    if work_kind != "engineering_optimization":
         return ""
     return (
         "## Performance diagnosis\n"
@@ -88,28 +51,13 @@ _WINDOWS_LONG_EXPERIMENT_RULE = (
     "`state=discussing`, answer with `reply_with`; do not poll in the foreground."
 )
 
-_EXTERNAL_OWNER_RULE = (
-    "If a host service or other owner outside Argus runs the work, require that "
-    "owner to maintain `.argus_external_work/<id>.json` with `started_at`, "
-    "`heartbeat_at`, `stale_after_seconds`, `activity_stale_after_seconds`, "
-    "`evidence_paths`, and concrete file `activity_paths`. Do not create or "
-    "heartbeat that owner record yourself. Once registered, yield with "
-    '`{"wait_for":"external_work","wait_id":"<id>"}`; never hold a provider '
-    "turn by foreground-polling it with `read_bash`."
-)
-
-
-def _long_experiment_rule(task: str) -> str:
+def _long_experiment_rule() -> str:
     shell_rule = (
         _WINDOWS_LONG_EXPERIMENT_RULE
         if native_shell_contract()
         else _POSIX_LONG_EXPERIMENT_RULE
     )
-    return (
-        shell_rule + " " + _EXTERNAL_OWNER_RULE
-        if _EXTERNAL_WORK_TASK.search(task)
-        else shell_rule
-    )
+    return shell_rule
 
 
 def append_live_guidance(prompt: str, guidance: list[str]) -> str:
@@ -214,6 +162,7 @@ def build_mission_prompt(
     project_root: Path | str | None = None,
     project_skill_dir: Path | str | None = None,
     compact_team: bool = False,
+    work_kind: str = "",
 ) -> str:
     """Build the complete per-round Engineer mission prompt."""
     shell_contract = native_shell_contract()
@@ -281,12 +230,9 @@ def build_mission_prompt(
             + unique_original_request
         )
     sections.append("## Current mission task\n" + task)
-    diagnostic_block = _performance_diagnostic_section(task)
+    diagnostic_block = _performance_diagnostic_section(work_kind)
     if diagnostic_block:
         sections.append(diagnostic_block)
-    audit_fidelity_block = _audit_fidelity_section(task)
-    if audit_fidelity_block:
-        sections.append(audit_fidelity_block)
     # The Engineer is the role that can most easily satisfy a task while
     # missing the requirement the task exists to serve — the mission text
     # describes this increment, not what the operator agreed "done" means.
@@ -329,7 +275,7 @@ def build_mission_prompt(
         "Python tests already import code, so avoid compile-only ceremony.\n"
         "Use primary sources when external behavior matters. If repeated attempts fail, "
         "recheck the underlying assumption instead of making another cosmetic tweak.\n"
-        + _long_experiment_rule(task)
+        + _long_experiment_rule()
     )
     if learning_block:
         sections.append(learning_block)
@@ -357,7 +303,7 @@ def build_mission_prompt(
         "Read CHECKPOINT.md, then execute the Reviewer next action. Do not repeat an "
         "unchanged failure; use the most informative decisive diagnostic. The original task "
         "still applies.\n"
-        + _long_experiment_rule(task)
+        + _long_experiment_rule()
         + "\n\n"
         "## Handoff\n"
         "Use next_owner=operator only for an operator-owned choice; its question "
@@ -371,8 +317,6 @@ def build_mission_prompt(
     )
     if diagnostic_block:
         compact = diagnostic_block + "\n\n" + compact
-    if audit_fidelity_block:
-        compact = audit_fidelity_block + "\n\n" + compact
     if shell_contract:
         compact = shell_contract + "\n\n" + compact
     if learning_block:

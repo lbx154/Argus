@@ -553,7 +553,7 @@ class PlanningCycleMixin(
             "trigger": "reviewed_stage_empty_plan_reconciliation",
             "recovered_item_id": item.id,
         })
-        if decision.source == "manager_llm":
+        if decision.source in {"manager_llm", "stage_completion_gate_hold"}:
             outcome = dict(item.outcome)
             outcome["stage_certification"] = {
                 "advance": "certified",

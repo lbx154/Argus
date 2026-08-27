@@ -884,6 +884,77 @@ def test_bounded_continuous_campaign_replays_deferred_stage_review(
     )
 
 
+def test_deterministic_stage_gate_hold_is_not_re_adjudicated_next_cycle(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    backend = _EmptyThenTaskPlannerRunner()
+    backend.manager_action = "advance"
+    backend.manager_target_stage = "solve"
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+        backend=backend,
+        split_memory=True,
+    )
+    project = Path(supervisor.config.project_worktree)
+    _write_reviewed_math_scope_state(project)
+    monkeypatch.setattr(
+        "argus_skill.verticals._base.vertical_stage_completion_issues",
+        lambda *_args, **_kwargs: ("scope evidence is incomplete",),
+    )
+    item = supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Define the mathematical scope",
+            objective="State the admissible conjecture class and completion bar.",
+            tags=["planner", "scope:bounded", "stage:scope"],
+        )
+    )
+    mission_path = create_mission_context(
+        life_dir=supervisor.memory.project_root,
+        mission_id=item.id,
+        stage="scope",
+        objective=item.objective,
+        scope="bounded",
+    )
+    record_reviewed_handoff(
+        mission_context_path=mission_path,
+        round_index=1,
+        engineer_summary="",
+        review=SimpleNamespace(
+            status="done",
+            reason="The scope is ready to advance.",
+            next_action="",
+            operator_question="",
+        ),
+        checkpoint_path=None,
+    )
+    supervisor.memory.backlog.mark_done(
+        item.id,
+        outcome={
+            "execution_status": "completed",
+            "review_status": "done",
+            "stage_certification": "not_assessed",
+            "interruption_kind": "none",
+            "resumable": False,
+        },
+    )
+
+    assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
+    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
+    assert stored.outcome["stage_certification"] == "not_certified"
+    assert backend.manager_calls == 1
+    assert any(
+        event.get("type") == "life.manager.stage_decision"
+        and event.get("source") == "stage_completion_gate_hold"
+        for event in sink.events
+    )
+
+    assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
+    assert backend.manager_calls == 1
+
+
 def test_review_only_item_is_never_replayed_into_stage_writer(
     tmp_path: Path,
     monkeypatch,

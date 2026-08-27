@@ -5,21 +5,19 @@ said "落地建议：做成一份 zh 正则表，reviewer 跑一遍" — but it 
 patterns lived only in an orphan doc. This module IS that lint, modeled 1:1 on
 ``modern_poetry/form.py``'s deterministic ``check_form``.
 
-Honesty contract: the cliché tables and the default budget are **model-seed**,
+Honesty contract: the cliché tables are **model-seed**,
 pending calibration against the BCC modern-Chinese corpus (see
 ``references/source_registry/README.md``). So a table hit is a *prompt for review*,
-NOT ground truth — every such finding is a NON-blocking ``ai_tell`` note carrying
-``calibration="model-seed (BCC-pending)"``. The only teeth are author-declared
-HARD contracts weighed here: a ``forbidden_lexicon`` term present, or a declared
-``ai_tell_budget`` exceeded — those are deterministic facts (a named word appeared
-/ a declared budget was passed), so they are BLOCKING ``voice``/``ai_tell``.
+NOT ground truth — every such finding is a NON-blocking ``ai_tell`` review cue
+carrying ``calibration="model-seed (BCC-pending)"``. Only an explicit
+``forbidden_lexicon`` constraint blocks here.
 """
 from __future__ import annotations
 
 import re
 from typing import Any
 
-from .style import ai_tell_budget, avoided_terms, forbidden_lexicon
+from .style import avoided_terms, forbidden_lexicon
 
 #: The finding types this lint emits (both already in FICTION_CRAFT_TYPES).
 STYLE_LINT_TYPES: frozenset[str] = frozenset({"ai_tell", "voice"})
@@ -119,11 +117,9 @@ def check_style(
 ) -> list[dict[str, Any]]:
     """Return anti-AI + voice findings for ``text`` given an optional voice ``card``.
 
-    Cliché-table hits are NON-blocking ``ai_tell`` notes (model-seed). A declared
-    ``forbidden_lexicon`` term present is a BLOCKING ``voice`` finding; a declared
-    ``ai_tell_budget`` exceeded is a BLOCKING ``ai_tell`` finding; ``avoided_terms``
-    are non-blocking ``voice`` notes. Absent a card, only the cliché notes apply
-    (nothing blocks) — today's behavior is preserved.
+    Cliché-table hits are NON-blocking ``ai_tell`` cues for contextual review. A
+    declared ``forbidden_lexicon`` term is a BLOCKING ``voice`` finding;
+    ``avoided_terms`` are non-blocking ``voice`` notes.
     """
     card = card or {}
     findings: list[dict[str, Any]] = []
@@ -174,17 +170,6 @@ def check_style(
                 "voice", "avoided_term", False,
                 f"avoided term {w!r} present", _line_of(text, idx)))
 
-    # 6. declared ai_tell budget exceeded -> one BLOCKING ai_tell
-    budget = ai_tell_budget(card)
-    if budget is not None:
-        n_chars = max(1, len(re.sub(r"\s", "", text)))
-        n_hits = sum(1 for f in findings if f["type"] == "ai_tell")
-        rate = n_hits * 1000.0 / n_chars
-        if rate > budget:
-            findings.append(_finding(
-                "ai_tell", "ai_tell_budget", True,
-                f"{n_hits} anti-AI hits = {rate:.2f}/1000 chars exceeds declared "
-                f"budget {budget}"))
     return findings
 
 

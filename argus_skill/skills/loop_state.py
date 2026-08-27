@@ -17,6 +17,7 @@ class MissionContext:
     engineer_role_banner: str
     seed_thread_id: str | None
     scope: str
+    work_kind: str = ""
 
 
 @dataclass

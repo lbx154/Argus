@@ -24,6 +24,15 @@ and unsupported interpretations before they enter downstream claims.
   report a fidelity failure and return it upstream; do not repair idea selection
   inside the experiment review.
 
+Before accepting any negative conclusion—method failure, route retirement, or
+“X does not work”—answer from evidence: Was the executed call chain faithful to
+the idea it claims to test? Did baselines and hyperparameters receive a competent,
+competitive effort? Could this scale and setup have revealed the effect if it
+existed? Have credible alternative explanations been excluded? If any answer is
+no, the honest status is “this idea has not yet been given a real chance”:
+unfinished work, not a negative result, paper section, or reason to abandon the
+route.
+
 ## When the method did NOT beat the baseline
 
 A loss is a root-cause and research-value decision point.

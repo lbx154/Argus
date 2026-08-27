@@ -53,6 +53,7 @@ class PromptContextMixin:
             project_root=mission.workdir,
             project_skill_dir=_resolve_project_skill_dir(self.skill_store),
             compact_team=compact_team,
+            work_kind=mission.work_kind,
         )
         guidance: list[str] = []
         if self.extra_guidance_provider is not None:
@@ -89,6 +90,7 @@ class PromptContextMixin:
         project_root=None,
         project_skill_dir: str | None = None,
         compact_team: bool = False,
+        work_kind: str = "",
     ) -> str:
         from ..roles.prompts.engineer import build_mission_prompt
 
@@ -103,4 +105,5 @@ class PromptContextMixin:
             project_root=project_root,
             project_skill_dir=project_skill_dir,
             compact_team=compact_team,
+            work_kind=work_kind,
         )

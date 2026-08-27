@@ -56,7 +56,7 @@ def test_all_four_contracts_plus_edit_are_wired():
     assert _cmd("edit-check editor/source.txt")
 
 
-def test_runtime_edit_gate_passes_disciplined_fails_violation(tmp_path):
+def test_runtime_edit_gate_checks_only_nonempty_and_must_keep(tmp_path):
     cmd = _cmd("edit-check editor/source.txt")
     _write(tmp_path, "editor/source.txt", _SRC)
     _write(tmp_path, "editor/edited.txt",
@@ -64,10 +64,10 @@ def test_runtime_edit_gate_passes_disciplined_fails_violation(tmp_path):
     _write(tmp_path, "editor/edit_brief.json",
            {"mode": "proofread", "must_keep": ["关键句"]})
     assert _run(cmd, tmp_path).returncode == 0
-    # a critique that rewrote the source -> mode discipline violated -> FAIL
+    # Semantic scope is left to the Reviewer, not decided by text comparison.
     _write(tmp_path, "editor/edited.txt", "完全改写成另一段话。")
     _write(tmp_path, "editor/edit_brief.json", {"mode": "critique"})
-    assert _run(cmd, tmp_path).returncode != 0
+    assert _run(cmd, tmp_path).returncode == 0
     # dropping a must-keep segment -> FAIL
     _write(tmp_path, "editor/edited.txt", "改写后的文字，把该保留的丢了。")
     _write(tmp_path, "editor/edit_brief.json",

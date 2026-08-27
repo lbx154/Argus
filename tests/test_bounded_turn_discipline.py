@@ -20,7 +20,7 @@ def _isolate_project_vertical_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> 
     monkeypatch.chdir(tmp_path)
 
 
-def _prompt(task: str, *, paper_mission: bool = False) -> str:
+def _prompt(task: str, *, paper_mission: bool = False, work_kind: str = "") -> str:
     # paper_mission kept as a test label only — the prompt no longer branches on
     # it (turn discipline is unconditional), so both call styles assert the same
     # contract holds.
@@ -28,6 +28,7 @@ def _prompt(task: str, *, paper_mission: bool = False) -> str:
         task=task,
         skill_text="",
         next_action=None,
+        work_kind=work_kind,
     )
 
 
@@ -75,9 +76,6 @@ def test_long_experiment_protocol_is_in_every_engineer_turn():
         assert "launch a supervised subagent" not in out
         assert "session-owned background shell" in out.lower()
         assert "do not poll in the foreground" in out.lower()
-        assert ".argus_external_work/<id>.json" in out
-        assert "activity_stale_after_seconds" in out
-        assert "`read_bash`" in out
 
 
 def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
@@ -93,12 +91,16 @@ def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
 
 
 def test_performance_tasks_require_causal_attribution() -> None:
-    full = _prompt("Diagnose the data throughput bottleneck.")
+    full = _prompt(
+        "Diagnose the data throughput bottleneck.",
+        work_kind="engineering_optimization",
+    )
     compact = SkillLoop._build_engineer_prompt(
         task="Diagnose the data throughput bottleneck.",
         skill_text="",
         next_action="Continue the causal diagnosis.",
         include_static=False,
+        work_kind="engineering_optimization",
     )
 
     for out in (full, compact):

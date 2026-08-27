@@ -207,41 +207,36 @@ def test_live_checklist_requires_thesis_and_implementation_adequacy() -> None:
     assert "Result sign" in review["review.publication_value"]
 
 
-def test_broad_paper_ideation_uses_eighty_percent_review_quorum() -> None:
+def test_broad_paper_ideation_uses_judged_breadth_not_a_quorum() -> None:
     discovery = _skill("engineer/idea-discovery.md")
     creator = _skill("engineer/idea-creator.md")
+    normalized_creator = " ".join(creator.split())
     pipeline = _skill("engineer/auto-research-pipeline.md")
     normalized_discovery = " ".join(discovery.split())
     normalized_creator = " ".join(creator.split())
     normalized_pipeline = " ".join(pipeline.split())
     research = {item.id: item.statement for item in STAGE_CHECKLISTS["research"]}
 
-    assert "pool-set --root <team_root> --width 12 --state running" in discovery
-    assert "spawn only the missing routes" in discovery
-    assert "Never restart a second" in discovery
-    assert "A single model call" in discovery
-    assert "fresh independent reviewer" in discovery
-    assert "`ceil(12 × 0.8) = 10`" in discovery
-    assert "advisory feasibility record" in discovery
-    assert "at least four routes" in discovery
-    assert "network/statistical physics" in normalized_discovery
-    assert "12-route team explores concurrently" in research["research.idea_portfolio"]
-    assert "80% review quorum" in research["research.idea_portfolio"]
-    assert "After at least 80% of reviews" in (
-        research["research.adversarial_selection"]
+    assert "genuinely distinct mechanism families" in discovery
+    assert "twelve-route fanout is a useful default example, not a quota" in normalized_discovery
+    assert "number of tasks or provider width" in normalized_discovery
+    assert "twelve-route fanout is an operating example, not a breadth quota" in (
+        research["research.idea_portfolio"]
     )
-    assert "final routes do not block" in (
-        research["research.adversarial_selection"]
-    )
-    assert "10 of 12 by default" in normalized_creator
-    assert "Do not wait for the final two routes" in normalized_creator
-    assert "10 of 12 by default" in normalized_pipeline
-    assert "final two routes" in normalized_pipeline
+    assert "judges when the evidence covers" in research["research.adversarial_selection"]
+    assert "including probes and later routes" in research["research.adversarial_selection"]
+    assert "rather than satisfying a route count" in normalized_creator
+    assert "breadth and selection sufficiency remain Agent judgments" not in normalized_creator
+    assert "fresh selector judges when" in normalized_pipeline
+    for text in (normalized_discovery, normalized_creator, normalized_pipeline):
+        assert "80%" not in text
+        assert "10 of 12" not in text
 
 
 def test_research_idea_selection_requires_ambition_without_decorative_math() -> None:
     discovery = _skill("engineer/idea-discovery.md")
     creator = _skill("engineer/idea-creator.md")
+    normalized_creator = " ".join(creator.split())
     peer_review = _skill("reviewer/academic-paper-peer-review-benchmark.md")
     research = {item.id: item.statement for item in STAGE_CHECKLISTS["research"]}
 
@@ -250,8 +245,8 @@ def test_research_idea_selection_requires_ambition_without_decorative_math() -> 
     assert "decorative equations" in discovery
     assert "scaling law" in discovery
     assert "measurable quantities" in discovery
-    assert "technical_depth" in creator
-    assert "theoretical_foundation" in creator
+    assert "important, credible, nontrivial new knowledge" in normalized_creator
+    assert "natural language rather than manufacturing scores" in normalized_creator
     thesis = research["research.thesis"]
     assert "plausible nontrivial technical core" in thesis
     assert "formal/causal structure" in thesis
@@ -260,20 +255,18 @@ def test_research_idea_selection_requires_ambition_without_decorative_math() -> 
     assert "shallow prompt/schema/wrapper/scale" in peer_review
 
 
-def test_research_selector_prioritizes_frontier_ambition_over_local_ease() -> None:
+def test_research_selector_judges_any_contribution_form_over_local_ease() -> None:
     discovery = " ".join(_skill("engineer/idea-discovery.md").split())
     creator = " ".join(_skill("engineer/idea-creator.md").split())
     pipeline = " ".join(_skill("engineer/auto-research-pipeline.md").split())
     research = {item.id: item.statement for item in STAGE_CHECKLISTS["research"]}
 
-    for text in (discovery, creator, pipeline):
-        assert "high-novelty method" in text
-        assert "publication-scale empirical" in text
-        assert "shortest evidence path" in text or "shortest-evidence-path" in text
-        assert "single-GPU fit" in text
-    assert "latest 12 months of arXiv" in discovery
-    assert "current major venue cycle" in creator
-    assert "resource gaps become an explicit staged compute plan" in (
+    assert "Theory, measurement, datasets, methods, anomalies, negative results" in discovery
+    assert "theory result, measurement, dataset, method, anomaly" in creator
+    assert "any contribution form" in pipeline
+    for text in (creator, pipeline):
+        assert "local convenience" in text
+    assert "local convenience is not scientific value" in (
         research["research.adversarial_selection"]
     )
 
@@ -308,10 +301,8 @@ def test_literature_grounding_advises_ai_and_foundation_balance() -> None:
         item.id: item.statement for item in STAGE_CHECKLISTS["research"]
     }["research.literature"]
 
-    assert "ACL/EMNLP/NAACL" in discovery
-    assert "ICLR/ICML/NeurIPS" in discovery
-    assert "AAAI/AAMAS" in discovery
-    assert "soft coverage diagnostic, not a quota" in discovery
+    assert "primary papers and official artifacts" in discovery
+    assert "Search mathematical, physical, statistical" in pipeline
     assert "AI-venue/recent-arXiv" in pipeline
     assert "AI-venue/recent-arXiv frontier" in literature
     assert "advisory risk" in literature
@@ -321,6 +312,9 @@ def test_literature_grounding_advises_ai_and_foundation_balance() -> None:
 def test_research_selection_and_review_skills_share_the_ambition_standard() -> None:
     for path in _AMBITION_SKILLS:
         text = " ".join(_skill(path).split())
+        if path == "engineer/idea-creator.md":
+            assert "important, credible, nontrivial new knowledge" in text
+            continue
         assert "nontrivial technical core" in text, path
         assert "verified originality" in text, path
         assert "formal/causal grounding" in text, path
@@ -370,13 +364,13 @@ def test_research_smokes_record_power_limits_without_rejecting_ideas() -> None:
         assert "inconclusive" in text
     assert "Research does not decide whether" in research["research.signal_derisk"]
     assert "explicitly skip the probe" in research["research.signal_derisk"]
-    assert "cannot kill, block, downgrade, or re-rank" in (
+    assert "relevance the Reviewer must judge" in (
         research["research.signal_derisk"]
     )
     assert "Never reject a qualitatively strong idea" in " ".join(pipeline.split())
 
 
-def test_route_review_precedes_quorum_selection_and_advisory_probe() -> None:
+def test_route_review_precedes_judged_selection_and_uses_probe_evidence() -> None:
     creator = _skill("engineer/idea-creator.md")
     probe = _skill("engineer/idea-feasibility-derisk.md")
     pipeline = _skill("engineer/auto-research-pipeline.md")
@@ -391,8 +385,9 @@ def test_route_review_precedes_quorum_selection_and_advisory_probe() -> None:
     ).read_text(encoding="utf-8")
     from argus_skill.verticals.research.stages import role_banner
 
-    assert "Complete this route-local selection" in creator
-    assert "Only after Step 1 has selected" in creator
+    normalized_creator = " ".join(creator.split())
+    assert "Review each route as it arrives" in normalized_creator
+    assert "Use probes as evidence" in creator
     assert "After an idea has passed method-reasonableness selection" in probe
     assert "selection-before-probe" in pipeline
     assert "earlier dependency" in brief
@@ -404,11 +399,9 @@ def test_route_review_precedes_quorum_selection_and_advisory_probe() -> None:
     assert "without waiting for every late route" in normalized_planner
     assert "Use early probes only when" in normalized_planner
     assert "80% review quorum" not in generic_planner
-    assert "must not silently change the frozen premise" in creator
-    assert "Keep route reviews parallel until at least 80%" in " ".join(
-        creator.split()
-    )
-    assert "final two routes" in " ".join(pipeline.split())
+    assert "Let credible later evidence reopen the comparison" in normalized_creator
+    assert "80%" not in creator
+    assert "all evidence that has arrived" in " ".join(pipeline.split())
 
 
 def test_reviewer_treats_research_smokes_as_advisory() -> None:
@@ -422,8 +415,8 @@ def test_reviewer_treats_research_smokes_as_advisory() -> None:
     from argus_skill.verticals.research.stages import role_banner
 
     reviewer_banner = role_banner("reviewer")
-    assert "Weak or underpowered probes" in reviewer_banner
-    assert "cannot by themselves trigger replan" in reviewer_banner
+    assert "could scale/setup show the effect if it existed" in reviewer_banner
+    assert "this idea has not yet been given a real chance" in reviewer_banner
     assert "smoke is advisory" not in generic_verification_policy
     assert "research-stage smoke probes" not in generic_results_review.lower()
 
@@ -435,13 +428,13 @@ def test_research_prompt_policy_does_not_leak_to_other_verticals() -> None:
     software = load_vertical("software")
 
     assert "independent selector" in vertical_role_banner(research, "planner")
-    assert "underpowered probes" in vertical_role_banner(
+    assert "scale/setup show the effect" in vertical_role_banner(
         research, "reviewer"
     )
     for role in ("planner", "engineer", "reviewer"):
         banner = vertical_role_banner(software, role)
         assert "independent selector" not in banner
-        assert "underpowered probes" not in banner
+        assert "scale/setup show the effect" not in banner
 
 
 def test_dynamic_paper_policy_is_owned_by_research_vertical() -> None:
@@ -521,15 +514,7 @@ def test_process_artifacts_are_finishing_steps_not_missions() -> None:
     assert "Each mission must advance the paper's argument" in planner
     assert "not standalone certification, schema, or bookkeeping" in planner
 
-    reviewer = role_banner("reviewer")
-    assert "ceremony stays advisory" in reviewer
-
-
-def test_a_shortfall_is_a_gap_to_close_not_a_verdict() -> None:
-    """Every campaign so far shipped a boundary study, because the policy's only
-    two endings were a positive result and a write-up of what survived. Falling
-    short of the baseline now points at the next fix, the way a leaderboard
-    result is earned, and a loss is never what gets written up."""
+def test_a_shortfall_is_attributed_by_discriminating_evidence() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     research = load_vertical("research")
@@ -541,12 +526,46 @@ def test_a_shortfall_is_a_gap_to_close_not_a_verdict() -> None:
         assert named in planner
     assert "claim-bearing evidence" in planner
 
-    # A miss buys the next fix. It becomes evidence against the claim only
-    # after the stack under it has been checked — before that it is evidence
-    # about the harness, and after it, refusing to count it is not rigour.
-    assert "method, baseline, and evaluator can resolve the effect" in reviewer
-    assert "Count misses only after" in reviewer
-    assert "a loss is never the paper" in reviewer
+    assert "well-characterized negative result, anomaly, or boundary condition" in reviewer
+    for question in (
+        "executed call chain faithful to the idea",
+        "baselines/hyperparameters get competent, competitive effort",
+        "scale/setup show the effect if it existed",
+        "credible alternative explanations excluded",
+    ):
+        assert question in reviewer
+    assert "this idea has not yet been given a real chance" in reviewer
+    assert "unfinished work, not a negative result, paper section" in reviewer
+    assert "a loss is never the paper" not in reviewer
+
+    results_review = _skill("reviewer/experiment-results-review.md")
+    peer_review = _skill("reviewer/academic-paper-peer-review-benchmark.md")
+    for surface in (results_review, peer_review):
+        normalized = " ".join(surface.split())
+        assert "Before accepting any negative conclusion" in normalized
+        assert "executed call chain" in normalized
+        assert "baselines and hyperparameters" in normalized
+        assert "scale and setup" in normalized
+        assert "credible alternative explanations" in normalized
+        assert "this idea has not yet been given a real chance" in normalized
+
+
+def test_paper_review_deletes_unanchored_humility_and_virtue_signaling() -> None:
+    from argus_skill.verticals.research.prompt_policy import academic_paper_review_block
+
+    surfaces = (
+        _skill("reviewer/aaai-academic-language-review.md"),
+        _skill("reviewer/emnlp-academic-language-review.md"),
+        _skill("reviewer/academic-paper-peer-review-benchmark.md"),
+        academic_paper_review_block(),
+    )
+    for surface in surfaces:
+        for label in ("bounded", "limited", "preliminary", "受限"):
+            assert label in surface
+        assert "unsupported humility" in surface
+        assert "named, concrete limitation with evidence" in surface
+        assert "limitations that would change a reader's decision" in surface
+        assert "virtue-signaling filler or integrity self-praise" in surface
 
 
 def test_probes_still_cannot_veto_a_selected_idea() -> None:
@@ -555,7 +574,9 @@ def test_probes_still_cannot_veto_a_selected_idea() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     research = load_vertical("research")
-    assert "cannot by themselves" in vertical_role_banner(research, "reviewer")
+    reviewer = vertical_role_banner(research, "reviewer")
+    assert "could scale/setup show the effect if it existed" in reviewer
+    assert "this idea has not yet been given a real chance" in reviewer
     assert "claim-bearing evidence at " in vertical_role_banner(research, "planner")
 
 
@@ -595,9 +616,17 @@ def test_only_the_manager_retires_an_idea_and_only_reluctantly() -> None:
     assert "Retire only when trustworthy evidence" in manager
     assert "materially different attempts" in manager
     assert "roll the accumulated learning into a stronger direction" in manager
+    assert "same evidence quality as promoting one" in manager
+    assert "a faithful executed call chain" in manager
+    assert "competent competitive baselines and hyperparameters" in manager
+    assert "a setup and scale able to reveal the effect" in manager
+    assert "exclusion of credible alternative explanations" in manager
+    assert "defer the route as `not yet given a real chance`" in manager
 
     # No other role may make that call.
-    assert "The Manager retires routes" in reviewer
+    assert "Manager-owned retirement" in reviewer
+    assert "same claim" in reviewer
+    assert "means `not yet given a real chance`, not retired" in reviewer
 
 
 def test_the_grind_skill_says_what_a_campaign_does_between_rounds() -> None:
