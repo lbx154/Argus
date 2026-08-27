@@ -46,7 +46,8 @@ _INTEGRITY_JUDGMENT_RE = re.compile(
 _MATERIAL_BLOCKER_RE = re.compile(
     r"(?i)\b(?:incomplete|missing|required|must|need(?:s|ed)?|fix|repair|reject|"
     r"fail(?:s|ed|ure)?|wrong|unsatisfied|unresolved|cannot|can't|blocker|"
-    r"problem|issue|gap|lacks?)\b"
+    r"problem|issue|gap|lacks?|unable)\b"
+    r"|\b(?:could\s+not|was\s+not\s+able)\b"
     r"|not\s+(?:done|complete|completed|satisfied|verified)"
     r"|does\s+not\s+(?:meet|pass)"
     r"|未完成|缺失|必须|需要|修复|失败|未满足|阻塞|问题"
