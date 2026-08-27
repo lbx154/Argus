@@ -285,19 +285,19 @@ def build_fast_vertical_decision_prompt(
     menu = (
         "\n".join(
             f"  - `{name}`: {purpose}"
-            for name, purpose in verticals_with_purpose.items()
+            for name, purpose in sorted(verticals_with_purpose.items())
         )
         or "  (none)"
     )
     domain_menu = (
         "\n".join(
             f"  - `{name}`: {purpose}"
-            for name, purpose in (domains_with_purpose or {}).items()
+            for name, purpose in sorted((domains_with_purpose or {}).items())
         )
         or "  (none)"
     )
-    existing = ", ".join(f"`{value}`" for value in existing_data_domains) or "(none)"
-    targeted = ", ".join(f"`{value}`" for value in research_target_verticals) or "(none)"
+    existing = ", ".join(f"`{value}`" for value in sorted(existing_data_domains)) or "(none)"
+    targeted = ", ".join(f"`{value}`" for value in sorted(research_target_verticals)) or "(none)"
     return (
         "You are the Manager making a fast, tool-free front-door judgment. Choose "
         "an existing capability only when the Task makes the fit clear. If routing, "
@@ -351,12 +351,12 @@ def build_vertical_decision_prompt(
 ) -> str:
     """Render the grounded vertical and workflow decision prompt."""
     menu = (
-        "\n".join(f"  - `{name}`: {purpose}" for name, purpose in verticals_with_purpose.items())
+        "\n".join(f"  - `{name}`: {purpose}" for name, purpose in sorted(verticals_with_purpose.items()))
         or "  (none)"
     )
     domain_menu = (
         "\n".join(
-            f"  - `{name}`: {purpose}" for name, purpose in (domains_with_purpose or {}).items()
+            f"  - `{name}`: {purpose}" for name, purpose in sorted((domains_with_purpose or {}).items())
         )
         or "  (none)"
     )
@@ -365,7 +365,7 @@ def build_vertical_decision_prompt(
         if isinstance(existing_data_domains, Mapping)
         else {}
     )
-    names = tuple(mapped) if mapped else tuple(existing_data_domains)
+    names = tuple(sorted(mapped)) if mapped else tuple(sorted(existing_data_domains))
     summaries = {**mapped, **(existing_data_domain_summaries or {})}
     existing = (
         "\n".join(
@@ -374,7 +374,7 @@ def build_vertical_decision_prompt(
         )
         or "  (none)"
     )
-    target_verticals = ", ".join(f"`{name}`" for name in research_target_verticals) or "(none)"
+    target_verticals = ", ".join(f"`{name}`" for name in sorted(research_target_verticals)) or "(none)"
     return (
         "Choose the capability VERTICAL and independent execution WORKFLOW. "
         "A vertical is a stable reusable staged capability, not a Planner DAG.\n\n"
@@ -529,6 +529,7 @@ def build_prompt_rewrite_prompt(
     *,
     role_banner: str = "",
     project_context: str = "",
+    operator_context: str = "",
 ) -> str:
     """Render the prompt asking the Manager to rewrite an operator's draft.
 
@@ -601,6 +602,8 @@ def build_prompt_rewrite_prompt(
         "QUESTIONS=<what you propose or could not infer, kept out of the "
         "rewrite until the operator answers>; <another>\n"
     )
+    if operator_context.strip():
+        prompt += "\n" + operator_context.strip()
     banner = str(role_banner or "").strip()
     if not banner:
         return prompt
@@ -674,7 +677,9 @@ def build_skill_placements_prompt(
     skills: Sequence[dict[str, str]],
     candidate_verticals: Sequence[str],
 ) -> str:
-    candidates = [value for value in candidate_verticals if isinstance(value, str) and value]
+    candidates = sorted(
+        value for value in candidate_verticals if isinstance(value, str) and value
+    )
     return (
         "You are the Manager tidying several project-distilled skills after a "
         "mission. Classify every row independently.\n\n"
@@ -716,7 +721,7 @@ def manager_workspace_capability_prompt(
     )
     return (
         "## Manager workspace and rendering authority\n"
-        f"{json.dumps(context, ensure_ascii=False)}\n"
+        f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}\n"
         "The canonical workspace is where project outputs live and where every render path "
         "is resolved. The state_root is private session memory/control state; never "
         "select a state-root file as a workspace artifact. You own the right-side "

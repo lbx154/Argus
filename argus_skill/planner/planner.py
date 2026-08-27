@@ -430,8 +430,9 @@ class Planner:
             mission=mission,
             project_root=project_root,
             state_root=state_root,
+            trailing_policy=planner_work_kind_guidance(),
         )
-        return prompt + "\n\n" + planner_work_kind_guidance()
+        return prompt
 
     @staticmethod
     def _build_planner_prompt(
@@ -460,8 +461,9 @@ class Planner:
             memory_maintenance_enabled=memory_maintenance_enabled,
             project_root=project_root,
             state_root=state_root,
+            trailing_policy=planner_work_kind_guidance(),
         )
-        return prompt + "\n\n" + planner_work_kind_guidance()
+        return prompt
 
     def _repair_no_task_verdict(
         self,

@@ -1276,11 +1276,12 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         sys.stderr.write("argus-skill: --ask requires a non-empty question\n")
         return 2
     bundle = _resolve_project_bundle(args)
+    from ...core.models import RunnerOptions
     from ...core.operator_context import (
+        append_operator_context,
         build_operator_context_block,
         import_deterministic_credential,
     )
-    from ...core.models import RunnerOptions
     from ...core.run_gateway import run_exec as gateway_run_exec
     from ...manager.config_intent import _front_door_classify
     from ...manager.front_door import _ensure_manager_runner
@@ -1312,8 +1313,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         "manager", bundle.project.root, consume_once=False
     )
     prompt = build_quick_reply_prompt(objective=question)
-    if operator_context:
-        prompt = operator_context + "\n\n" + prompt
+    prompt = append_operator_context(prompt, operator_context)
     result = gateway_run_exec(
         runner,
         prompt=prompt,

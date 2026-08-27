@@ -334,7 +334,9 @@ class _ManagerSession:
         except OSError:
             operator_context = ""
         if operator_context:
-            prompt = operator_context + "\n\n" + prompt
+            from ..core.operator_context import append_operator_context
+
+            prompt = append_operator_context(prompt, operator_context)
         if self.skill_paths:
             options = replace(options, skill_paths=list(self.skill_paths))
 

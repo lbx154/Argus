@@ -158,7 +158,7 @@ def _record_from_dict(payload: dict[str, Any]) -> OperatorRecord:
             lifetime=cast(Lifetime, lifetime),
             source=str(payload.get("source") or "operator").strip() or "operator",
             revision=revision,
-            created_at=str(payload.get("created_at") or "").strip() or _utc_now(),
+            created_at=str(payload.get("created_at") or "").strip() or "unknown time",
         )
     if record_type == "preference":
         kind = str(payload.get("kind") or "").strip().lower()
@@ -228,9 +228,9 @@ def _read_native(path: Path) -> list[OperatorRecord]:
 def _legacy_records(root: Path) -> list[dict[str, Any]]:
     """Read the old steering files without importing their hash/id machinery."""
     from ..manager.directive import (
-        load_active_manager_directive,
         _active_steering_records,
         _read_steering_records,
+        load_active_manager_directive,
     )
 
     rows = _active_steering_records(_read_steering_records(root))
@@ -239,7 +239,7 @@ def _legacy_records(root: Path) -> list[dict[str, Any]]:
             {
                 "text": str(row.get("text") or "").strip(),
                 "source": str(row.get("source") or "legacy.steering"),
-                "created_at": str(row.get("timestamp") or "").strip() or _utc_now(),
+                "created_at": str(row.get("timestamp") or "").strip() or "unknown time",
             }
             for row in rows
             if str(row.get("text") or "").strip()
@@ -247,10 +247,13 @@ def _legacy_records(root: Path) -> list[dict[str, Any]]:
     active = load_active_manager_directive(root)
     if active is None:
         return []
+    created_at = datetime.fromtimestamp(
+        max(0.0, float(active.set_at)), timezone.utc
+    ).isoformat(timespec="seconds").replace("+00:00", "Z")
     return [{
         "text": active.text,
         "source": active.source or "legacy.active_manager_directive",
-        "created_at": _utc_now(),
+        "created_at": created_at,
     }]
 
 
@@ -730,7 +733,6 @@ def build_operator_context_block(
     )
     lines = [
         "## OperatorContext",
-        f"operator_context_revision={projection.revision}",
         "Safety and correctness policy outrank every preference. This context may "
         "tighten behavior but never grants sandbox or authorization permission.",
     ]
@@ -770,8 +772,18 @@ def build_operator_context_block(
             "the bar; they never reduce correctness, evidence, or independent-review "
             "standards."
         )
-    lines.extend(("", JUDGMENT_INSTRUCTION))
+    lines.extend(("", JUDGMENT_INSTRUCTION, f"operator_context_revision={projection.revision}"))
     return "\n".join(lines), projection.revision
+
+
+def append_operator_context(prompt: str, operator_context: str) -> str:
+    """Place live operator facts after the stable role prompt.
+
+    Besides preserving the provider-cacheable prefix, the tail gives current
+    steering the strongest recency position without changing its contents.
+    """
+    context = str(operator_context or "").strip()
+    return str(prompt) + ("\n\n" + context if context else "")
 
 
 def operator_context_revision_from_text(text: str) -> int:
@@ -803,6 +815,7 @@ __all__ = [
     "StaleOperatorContextWrite",
     "append_capability",
     "append_directive",
+    "append_operator_context",
     "append_preference",
     "append_revoke",
     "build_operator_context_block",
