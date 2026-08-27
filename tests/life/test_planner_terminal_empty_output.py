@@ -8,8 +8,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
 from argus_skill.core.event_catalog import EventType
 from argus_skill.core.models import RunnerResult
 from argus_skill.core.role_decision import encode_role_decision
@@ -27,7 +25,7 @@ from argus_skill.life.supervisor._constants import (
 )
 from argus_skill.life.supervisor._core import LifeSupervisor
 from argus_skill.manager import Manager
-from argus_skill.planner import NO_CONCRETE_TASKS_ERROR, WORK_KINDS
+from argus_skill.planner import NO_CONCRETE_TASKS_ERROR
 
 
 class _RecordingSink:
@@ -549,20 +547,16 @@ def test_nonterminal_empty_plan_does_not_park_when_questions_are_forbidden(
     assert error_event["stop_kind"] == "planner_empty_plan"
 
 
-class _StructuredWorkKindPlannerRunner(_EmptyPlannerThenManagerRunner):
-    def __init__(self, work_kind: str) -> None:
-        super().__init__()
-        self.work_kind = work_kind
-
+class _StructuredPlannerRunner(_EmptyPlannerThenManagerRunner):
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
         assert run_label.startswith("planner.cycle")
         self.planner_calls += 1
         payload = {
             "project_done": False,
-            "reason": "one explicitly typed task remains",
+            "reason": "one structured task remains",
             # The fixture project sits in the `delivery` stage, and a decision
             # that creates tasks while a stage is active must name one. This
-            # test is about work_kind reaching the Engineer, not about staging.
+            # fixture is not testing stage selection.
             "advance_to_stage": "delivery",
             "tasks": [{
                 "key": "typed-task",
@@ -570,7 +564,6 @@ class _StructuredWorkKindPlannerRunner(_EmptyPlannerThenManagerRunner):
                 "title": "Execute typed work",
                 "objective": "Run the task exactly as structured.",
                 "scope": "bounded",
-                "work_kind": self.work_kind,
             }],
         }
         return RunnerResult(
@@ -582,38 +575,17 @@ class _StructuredWorkKindPlannerRunner(_EmptyPlannerThenManagerRunner):
         )
 
 
-@pytest.mark.parametrize("work_kind", WORK_KINDS)
-def test_structured_work_kind_persists_and_reaches_engineer_context(
-    tmp_path: Path,
-    monkeypatch,
-    work_kind: str,
-) -> None:
-    supervisor, backend, _sink = _make_supervisor(
-        tmp_path,
-        monkeypatch,
-        terminal_stage_done=False,
-        backend=_StructuredWorkKindPlannerRunner(work_kind),
-    )
-
-    assert supervisor._plan_next_work() is True
-
-    assert backend.planner_calls == 1
-    pending = supervisor.memory.backlog.pending()
-    assert len(pending) == 1
-    item = pending[0]
-    assert item.work_kind == work_kind
-    assert f"- work_kind: {work_kind}" in supervisor._build_mission_prelude(item)
-
-
-def test_legacy_backlog_item_keeps_generic_work_kind_without_prose_inference() -> None:
+def test_legacy_backlog_item_ignores_work_kind() -> None:
     item = BacklogItem.from_jsonable({
         "id": "legacy-item",
         "ts": 1.0,
         "title": "Deliver optimized algorithm",
         "objective": "Set up the environment, validate, and ship.",
+        "work_kind": "validation",
     })
 
-    assert item.work_kind == ""
+    assert not hasattr(item, "work_kind")
+    assert "work_kind" not in item.to_jsonable()
 
 
 def test_nonterminal_empty_plan_repair_exhaustion_stops_for_operator_input(
@@ -1091,7 +1063,7 @@ def test_terminal_replan_trigger_revises_active_same_plan_siblings(
         tmp_path,
         monkeypatch,
         terminal_stage_done=False,
-        backend=_StructuredWorkKindPlannerRunner(WORK_KINDS[0]),
+        backend=_StructuredPlannerRunner(),
     )
     trigger = BacklogItem(
         id=BacklogItem.new_id(),
@@ -1154,7 +1126,7 @@ def test_terminal_replan_trigger_without_active_siblings_plans_fresh(
         tmp_path,
         monkeypatch,
         terminal_stage_done=False,
-        backend=_StructuredWorkKindPlannerRunner(WORK_KINDS[0]),
+        backend=_StructuredPlannerRunner(),
     )
     trigger = BacklogItem(
         id=BacklogItem.new_id(),
@@ -1201,7 +1173,7 @@ def test_stale_terminal_replan_trigger_still_rejects(
         tmp_path,
         monkeypatch,
         terminal_stage_done=False,
-        backend=_StructuredWorkKindPlannerRunner(WORK_KINDS[0]),
+        backend=_StructuredPlannerRunner(),
     )
     trigger = BacklogItem(
         id=BacklogItem.new_id(),

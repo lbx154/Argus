@@ -234,51 +234,6 @@ def test_vertical_declares_its_own_live_search_stages() -> None:
     )
 
 
-def test_vertical_declares_live_search_for_one_persisted_work_kind() -> None:
-    contract = vertical_contract(
-        "routed",
-        _live_search_provider(
-            ENGINEER_LIVE_SEARCH_WORK_KINDS={
-                "algorithm_discovery": ("solve",),
-            }
-        ),
-    )
-
-    assert contract.live_search_stages(
-        _CORE_LIVE_SEARCH_DEFAULT,
-        work_kind="algorithm_discovery",
-    ) == frozenset({"solve"})
-    assert contract.live_search_stages(
-        _CORE_LIVE_SEARCH_DEFAULT,
-        work_kind="engineering_optimization",
-    ) == frozenset(contract.stage_order)
-    assert contract.live_search_stages(
-        frozenset(),
-        work_kind="algorithm_discovery",
-        preserve_configured=True,
-    ) == frozenset()
-
-
-def test_missing_or_none_live_search_work_kinds_are_empty() -> None:
-    missing = vertical_contract("missing", _live_search_provider())
-    declared_none = vertical_contract(
-        "none",
-        _live_search_provider(ENGINEER_LIVE_SEARCH_WORK_KINDS=None),
-    )
-
-    assert missing.engineer_live_search_work_kinds is None
-    assert declared_none.engineer_live_search_work_kinds is None
-
-
-@pytest.mark.parametrize("invalid", [[], ""])
-def test_explicit_non_mapping_live_search_work_kinds_fail(invalid: object) -> None:
-    with pytest.raises(VerticalContractError, match="work kinds are not a mapping"):
-        vertical_contract(
-            "invalid",
-            _live_search_provider(ENGINEER_LIVE_SEARCH_WORK_KINDS=invalid),
-        )
-
-
 def test_declared_empty_live_search_is_distinct_from_no_declaration() -> None:
     """An explicit empty set means "never search", not "use the default"."""
     contract = vertical_contract(

@@ -180,9 +180,6 @@ class VerticalContract:
     # explicitly declared empty set ("never search"): the former keeps the
     # framework default, the latter overrides it off.
     engineer_live_search_stages: frozenset[str] | None = None
-    # Optional work-kind-specific stage declarations. Core forwards only the
-    # persisted mission field; verticals own which domain work kinds need search.
-    engineer_live_search_work_kinds: dict[str, frozenset[str]] | None = None
 
     @property
     def assurance_level(self) -> str:
@@ -235,27 +232,20 @@ class VerticalContract:
         self,
         default: frozenset[str],
         *,
-        work_kind: str = "",
         preserve_configured: bool = False,
     ) -> frozenset[str]:
         """Stages in which THIS vertical's Engineer runs with live web search.
 
         Core owns ``default`` and never enumerates vertical stage names: a
         vertical whose pipeline has no research stage would otherwise never
-        reach a live-search stage at all. Stage names and work-kind policy are
-        vertical-local, so two verticals sharing a stage name (``review``) never
-        leak into each other. An existing all-mission stage declaration retains
-        its historical precedence. Work-kind declarations are mission defaults
-        and therefore do not replace a caller's custom Engineer configuration.
+        reach a live-search stage at all. Stage policy is vertical-local, so two
+        verticals sharing a stage name (``review``) never leak into each other.
+        An existing all-mission stage declaration retains its historical precedence.
         """
         if self.engineer_live_search_stages is not None:
             return self.engineer_live_search_stages
         if preserve_configured:
             return default
-        normalized_kind = str(work_kind or "").strip()
-        by_work_kind = self.engineer_live_search_work_kinds or {}
-        if normalized_kind in by_work_kind:
-            return by_work_kind[normalized_kind]
         # Current literature, official implementations, provider behaviour and
         # hardware facts can change in every kind of work and at every stage.
         # Restricting the fallback to a stage literally named `research` left
@@ -618,24 +608,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         engineer_live_search_stages = _normalize_live_search_stages(
             name, raw_live_search_stages, stage_order
         )
-    raw_live_search_work_kinds = getattr(
-        provider, "ENGINEER_LIVE_SEARCH_WORK_KINDS", None
-    )
-    if raw_live_search_work_kinds is None:
-        raw_live_search_work_kinds = {}
-    if not isinstance(raw_live_search_work_kinds, dict):
-        raise VerticalContractError(
-            f"vertical {name!r} live search work kinds are not a mapping"
-        )
-    engineer_live_search_work_kinds: dict[str, frozenset[str]] = {}
-    for raw_kind, raw_stages in raw_live_search_work_kinds.items():
-        if not isinstance(raw_kind, str) or not raw_kind.strip():
-            raise VerticalContractError(
-                f"vertical {name!r} declares an invalid live search work kind"
-            )
-        engineer_live_search_work_kinds[raw_kind.strip()] = (
-            _normalize_live_search_stages(name, raw_stages, stage_order)
-        )
     raw_verification_profiles = (
         getattr(provider, "VERIFICATION_STAGE_PROFILES", {}) or {}
     )
@@ -726,9 +698,6 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         stage_checks=stage_checks,
         stage_primary_deliverables=stage_primary_deliverables,
         engineer_live_search_stages=engineer_live_search_stages,
-        engineer_live_search_work_kinds=(
-            engineer_live_search_work_kinds or None
-        ),
     )
 
 

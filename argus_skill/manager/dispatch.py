@@ -600,7 +600,6 @@ def enqueue_mission(
                 plan_version=1,
                 node_key=node.key,
                 context_refs=item_context_refs,
-                work_kind=str(getattr(node, "work_kind", "") or ""),
                 acceptance_check=str(getattr(node, "acceptance_check", "") or ""),
                 plan_hypothesis=hypothesis,
                 goal_contribution=str(

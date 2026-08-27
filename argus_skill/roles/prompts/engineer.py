@@ -27,18 +27,10 @@ _POSIX_LONG_EXPERIMENT_RULE = (
     "declare count, memory, duration, checkpointability and intent; never put "
     "nvidia-smi/GPU polling in the command. `waiting_resource` is healthy."
 )
-def _performance_diagnostic_section(work_kind: str) -> str:
-    if work_kind != "engineering_optimization":
-        return ""
-    return (
-        "## Performance diagnosis\n"
-        "An end-to-end threshold miss only shows that this run missed its target. Before "
-        "claiming a root cause, dominant/bottleneck stage, or replacement "
-        "architecture, inspect the code hot path and live resource/wait state, then "
-        "obtain phase timing/profiling or a controlled A/B that explains a material "
-        "share of elapsed time. Otherwise say that the cause is still unclear, "
-        "continue the diagnosis, and do not promote the hypothesis into a Skill."
-    )
+_PERFORMANCE_DIAGNOSTIC_RULE = (
+    "Performance root-cause/bottleneck/replacement claims need hot-path/live-resource "
+    "evidence plus timing/profiling or controlled A/B."
+)
 
 _WINDOWS_LONG_EXPERIMENT_RULE = (
     "For >2m commands on Windows PowerShell 5.1, use: "
@@ -163,7 +155,6 @@ def build_mission_prompt(
     project_root: Path | str | None = None,
     project_skill_dir: Path | str | None = None,
     compact_team: bool = False,
-    work_kind: str = "",
     operator_context: str = "",
 ) -> str:
     """Build the complete per-round Engineer mission prompt."""
@@ -186,6 +177,7 @@ def build_mission_prompt(
         if skill_text:
             sections.append(skill_text)
         sections.append(task)
+        sections.append(_PERFORMANCE_DIAGNOSTIC_RULE)
         sections.append(
             "## Engineer service\n"
             "Manager fixed scope and Planner delegated this package. Inspect only what "
@@ -235,9 +227,6 @@ def build_mission_prompt(
             + unique_original_request
         )
     sections.append("## Current mission task\n" + task)
-    diagnostic_block = _performance_diagnostic_section(work_kind)
-    if diagnostic_block:
-        sections.append(diagnostic_block)
     # The Engineer is the role that can most easily satisfy a task while
     # missing the requirement the task exists to serve — the mission text
     # describes this increment, not what the operator agreed "done" means.
@@ -267,19 +256,19 @@ def build_mission_prompt(
         )
     sections.append(
         "## This turn\n"
-        "Own this task end to end. Plan your own steps, use tools, and iterate until "
-        "the task passes its check or reaches a real blocker. Work in the current "
-        "directory; pure reading without an artifact or measurement is not progress. "
-        "Write only the code this task needs; do not add hashes, UUIDs, retries, "
-        "fallbacks, locks, or abstractions without a concrete requirement. "
-        "Unless required, do not write planning/spec/brief documents, initialize Git, "
-        "branch/worktree, or commit; Planner owns the campaign plan. Delegate wide "
-        "reading, sweeps and long runs to subagents; take back the answer, not the "
-        "transcript. Your context is the budget.\n"
+        "Own this task end to end: plan and use tools until its check passes or a real "
+        "blocker remains. Work here; pure reading needs an artifact or measurement. "
+        "Write only needed code; add no hashes, UUIDs, retries, fallbacks, locks, or "
+        "abstractions unless required. Do not write planning/spec/brief documents, "
+        "initialize Git, branch/worktree, or commit unless required; Planner owns the "
+        "campaign plan. Delegate wide reads, sweeps, and long runs to subagents; take "
+        "back the answer, not the transcript. Budget your context.\n"
         "Never repeat unchanged checks or reads. Ignore `__pycache__`/`.pyc`; "
         "Python tests already import code, so avoid compile-only ceremony.\n"
         "Use primary sources when external behavior matters. If repeated attempts fail, "
         "recheck the underlying assumption instead of making another cosmetic tweak.\n"
+        + _PERFORMANCE_DIAGNOSTIC_RULE
+        + "\n"
         + _long_experiment_rule()
     )
     if learning_block:
@@ -308,6 +297,8 @@ def build_mission_prompt(
         "Read CHECKPOINT.md, then execute the Reviewer next action. Do not repeat an "
         "unchanged failure; use the most informative decisive diagnostic. The original task "
         "still applies.\n"
+        + _PERFORMANCE_DIAGNOSTIC_RULE
+        + "\n"
         + _long_experiment_rule()
         + "\n\n"
         "## Handoff\n"
@@ -320,8 +311,6 @@ def build_mission_prompt(
             "NEXT_OWNER=reviewer"
         )
     )
-    if diagnostic_block:
-        compact = diagnostic_block + "\n\n" + compact
     if shell_contract:
         compact = shell_contract + "\n\n" + compact
     if learning_block:

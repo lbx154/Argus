@@ -8,7 +8,6 @@ from typing import Any
 
 from ...core.model_visible_text import sanitize_model_visible_text
 from ...core.role_decision import decision_footer_instruction
-from ...planner.work_kind import planner_work_kind_guidance
 from ..task_contract import native_shell_contract, native_shell_summary
 from .types import ChecklistMode, RoleName, RolePromptRequest
 
@@ -40,8 +39,7 @@ _BOUNDED_DAG_FOOTER = decision_footer_instruction(
     "TASK_KEY=k1\n"
     "TASK_DEPS=\n"
     "TASK_TITLE=Launch the strongest untested attack on the core hypothesis\n"
-    "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance\n"
-    "TASK_WORK_KIND=validation"
+    "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance"
 )
 
 _PLANNER_CORE_CONTRACT = """
@@ -244,7 +242,7 @@ def build_bounded_dag_prompt(
         "`hypothesis`, `goal_contribution`, `expected_regressions`, and "
         "`decision_rule` for feedback-driven work; add `acceptance_check`, "
         "`non_goals`, `vertical`, `execution_workdir` "
-        "(project-relative nested repository), " + planner_work_kind_guidance() + ", and "
+        "(project-relative nested repository), and "
         "`require_independent_review` when useful. Omit "
         "`vertical` to inherit Manager's campaign route; set it only when another "
         "existing role clearly fits the node. Use the operator objective's "

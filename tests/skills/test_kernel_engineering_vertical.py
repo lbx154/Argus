@@ -47,7 +47,7 @@ def test_kernel_engineering_banner_prioritizes_direct_measured_work() -> None:
     assert "`owns_paths` disjoint" in planner
     assert "never queue status polling" in planner
     assert "Proactively use fresh primary-source research" in planner
-    assert "`work_kind=algorithm_discovery`" in planner
+    assert "bounded report-only source-analysis task" in planner
     assert "do not wait for repeated failures" in planner
     assert "does not need to produce code" in planner
     assert "portfolio of genuinely different mechanisms" in planner
@@ -75,12 +75,6 @@ def test_kernel_optimization_missions_have_live_search_available() -> None:
 
     assert contract.live_search_stages(
         default,
-        work_kind="algorithm_discovery",
-        preserve_configured=False,
-    ) == frozenset({"optimize"})
-    assert contract.live_search_stages(
-        default,
-        work_kind="engineering_optimization",
         preserve_configured=False,
     ) == frozenset({"optimize"})
 

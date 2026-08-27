@@ -118,9 +118,6 @@ FLA campaign 暴露了系统性问题：Planner、Engineer、Reviewer 和 Manage
 
 **工作项**
 
-- [ ] 增加显式 work kind：`scope`、`algorithm_discovery`、`environment_setup`、
-      `engineering_optimization`、`validation`、`delivery`。Stage 准入使用类型，不从任务
-      文本关键词推断。
 - [ ] Scope Engineer 在一个 mission 内固定 API、可改范围、硬件、oracle、benchmark 和
       只读参考边界。
 - [ ] Discover 路由给 Algorithm Scientist：推导公式与数据流，比较至少三种本质不同的
@@ -617,8 +614,8 @@ secret、sandbox、幂等和 crash recovery 保持不变。量化见 P1-04/P1-06
 1. **立即执行：** 用冻结的 FLA 轨迹实施 P0-05 action-first 控制层；把权威 workdir/stage、
    MissionBrief、重复读取复用、有限 grounding、直接 scope 派工和无争议阶段确定性推进拆成
    独立聚焦改动。
-2. **P0-05 canary 成功后：** 实施 P1-07 专业 work kind 与角色路由，并回放 FLA 的
-   Scope → Discover → Prototype 路线。
+2. **P0-05 canary 成功后：** 实施 P1-07 专业角色路由，并回放 FLA 的 Scope → Discover →
+   Prototype 路线。
 3. **随后：** 实施 P1-08 候选组合和分级证据，让探索保持低成本，交付选择可比较的最强候选。
 4. **持续进行：** 使用 P2-03 指标和现有 P2-02 评估矩阵，对比端到端质量、延迟、Tokens、
    成本、重复工作与交付情况。

@@ -259,7 +259,6 @@ def _run_one_round(
     *,
     live_search_stages: frozenset[str] | None = None,
     vertical_state_root: Path | None = None,
-    work_kind: str = "",
     task: str = "Do the work.",
 ) -> CoreOpts:
     """Run one real SkillLoop round and return the engineer's RunnerOptions."""
@@ -273,44 +272,22 @@ def _run_one_round(
         task,
         workdir=tmp_path,
         scope="bounded",
-        work_kind=work_kind,
     )
     return _engineer_options(backend)
 
 
-_KERNEL_KEYWORD_NOISE = (
-    "Algorithm discovery and optimization are mentioned identically; use live search "
-    "only when the persisted mission structure permits it."
-)
-
-
-@pytest.mark.parametrize(
-    ("work_kind", "expected"),
-    [
-        ("algorithm_discovery", True),
-        ("engineering_optimization", True),
-        ("", True),
-    ],
-)
-def test_kernel_skill_loop_keeps_search_for_every_work_kind(
-    tmp_path: Path,
-    work_kind: str,
-    expected: bool,
-) -> None:
-    """Same optimize stage and prose; only mission.work_kind may change routing."""
+def test_kernel_skill_loop_keeps_search_available(tmp_path: Path) -> None:
     _kernel_project(tmp_path)
 
     options = _run_one_round(
         tmp_path,
         "kernel_engineering",
-        work_kind=work_kind,
-        task=_KERNEL_KEYWORD_NOISE,
     )
 
-    assert options.live_search is expected
+    assert options.live_search is True
 
 
-def test_separated_state_root_enables_kernel_algorithm_discovery(
+def test_separated_state_root_enables_kernel_live_search(
     tmp_path: Path,
 ) -> None:
     """The contract and stage gate must read the same production state root."""
@@ -322,7 +299,6 @@ def test_separated_state_root_enables_kernel_algorithm_discovery(
         execution_root,
         "kernel_engineering",
         vertical_state_root=state_root,
-        work_kind="algorithm_discovery",
     )
 
     # State is optimize, while the execution tree is research. Reading the
@@ -330,37 +306,15 @@ def test_separated_state_root_enables_kernel_algorithm_discovery(
     assert options.live_search is True
 
 
-@pytest.mark.parametrize("work_kind", ["engineering_optimization", ""])
-def test_separated_state_root_keeps_other_kernel_work_kinds_searchable(
-    tmp_path: Path,
-    work_kind: str,
-) -> None:
-    state_root = _kernel_project(tmp_path / "state")
-    execution_root = tmp_path / "execution"
-    persist_vertical(execution_root, "research")
-
-    options = _run_one_round(
-        execution_root,
-        "kernel_engineering",
-        vertical_state_root=state_root,
-        work_kind=work_kind,
-    )
-
-    # The state root still decides the stage, but search is available throughout
-    # the vertical regardless of which kind this particular mission carries.
-    assert options.live_search is True
-
-
 @pytest.mark.parametrize(
-    ("work_kind", "custom", "expected"),
+    ("custom", "expected"),
     [
-        ("engineering_optimization", frozenset({"optimize"}), True),
-        ("algorithm_discovery", frozenset(), False),
+        (frozenset({"optimize"}), True),
+        (frozenset(), False),
     ],
 )
-def test_kernel_work_kind_default_does_not_replace_caller_live_search_config(
+def test_kernel_default_does_not_replace_caller_live_search_config(
     tmp_path: Path,
-    work_kind: str,
     custom: frozenset[str],
     expected: bool,
 ) -> None:
@@ -370,8 +324,6 @@ def test_kernel_work_kind_default_does_not_replace_caller_live_search_config(
         tmp_path,
         "kernel_engineering",
         live_search_stages=custom,
-        work_kind=work_kind,
-        task=_KERNEL_KEYWORD_NOISE,
     )
 
     assert options.live_search is expected
@@ -385,13 +337,12 @@ def test_explicit_framework_default_keeps_caller_provenance(tmp_path: Path) -> N
         tmp_path,
         "kernel_engineering",
         live_search_stages=frozenset({"research"}),
-        work_kind="algorithm_discovery",
     )
 
     assert options.live_search is False
 
 
-def test_standard_replace_custom_live_search_overrides_kernel_work_kind_default(
+def test_standard_replace_custom_live_search_overrides_kernel_default(
     tmp_path: Path,
 ) -> None:
     _kernel_project(tmp_path)
@@ -405,14 +356,13 @@ def test_standard_replace_custom_live_search_overrides_kernel_work_kind_default(
         "Do the work.",
         workdir=tmp_path,
         scope="bounded",
-        work_kind="engineering_optimization",
     )
 
     assert loop.supervised.engineer_config._live_search_stages_explicit is True
     assert _engineer_options(backend).live_search is True
 
 
-def test_replaced_live_search_config_overrides_kernel_work_kind_default(
+def test_replaced_live_search_config_overrides_kernel_default(
     tmp_path: Path,
 ) -> None:
     _kernel_project(tmp_path)
@@ -425,13 +375,12 @@ def test_replaced_live_search_config_overrides_kernel_work_kind_default(
         "Do the work.",
         workdir=tmp_path,
         scope="bounded",
-        work_kind="algorithm_discovery",
     )
 
     assert _engineer_options(backend).live_search is False
 
 
-def test_replaced_default_live_search_config_overrides_kernel_work_kind_default(
+def test_replaced_default_live_search_config_overrides_kernel_default(
     tmp_path: Path,
 ) -> None:
     _kernel_project(tmp_path)
@@ -444,7 +393,6 @@ def test_replaced_default_live_search_config_overrides_kernel_work_kind_default(
         "Do the work.",
         workdir=tmp_path,
         scope="bounded",
-        work_kind="algorithm_discovery",
     )
 
     assert _engineer_options(backend).live_search is False
