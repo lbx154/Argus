@@ -20,6 +20,7 @@ from argus_skill.tools.image_api import (
     _require_route,
 )
 
+from ...core.manuscript_snapshot import bind_manuscript_snapshot, manuscript_sha256
 from ._review_contract_constants import (
     ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY,
     ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH,
@@ -258,6 +259,7 @@ def generate_academic_language_review(
     """Review paper prose and optionally persist review artifacts."""
 
     root = Path(project_root)
+    reviewed_manuscript_sha = manuscript_sha256(root)
     venue = resolve_venue_profile(root)
     threshold = max(float(threshold), MIN_ACADEMIC_LANGUAGE_SCORE)
     iteration = iteration or _next_iteration(root)
@@ -370,6 +372,12 @@ def generate_academic_language_review(
     }
     if model_review is not None:
         result["model_review"] = model_review
+    bind_manuscript_snapshot(
+        result,
+        root,
+        recorded_at=result["created_at"],
+        sha256=reviewed_manuscript_sha,
+    )
 
     if write:
         _write_json(root / ACADEMIC_LANGUAGE_REVIEW_JSON_PATH, result)

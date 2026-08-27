@@ -18,6 +18,7 @@ from argus_skill.tools.image_api import (
     _require_route,
 )
 
+from ...core.manuscript_snapshot import bind_manuscript_snapshot, manuscript_sha256
 from ._review_contract_constants import (
     PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY,
     PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH,
@@ -78,6 +79,7 @@ def generate_paper_infrastructure_review(
         )
 
     root = Path(project_root)
+    reviewed_manuscript_sha = manuscript_sha256(root)
     threshold = max(float(threshold), MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE)
     venue = None
     venue_error: KeyError | None = None
@@ -198,6 +200,12 @@ def generate_paper_infrastructure_review(
     }
     if model_review is not None:
         result["model_review"] = model_review
+    bind_manuscript_snapshot(
+        result,
+        root,
+        recorded_at=result["created_at"],
+        sha256=reviewed_manuscript_sha,
+    )
 
     if write:
         _write_json(root / PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH, result)

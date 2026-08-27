@@ -24,6 +24,12 @@ import subprocess
 from pathlib import Path
 from typing import Any, Iterator
 
+from ...core.manuscript_snapshot import (
+    MANUSCRIPT_PATH,
+    manuscript_review_status,
+    recorded_manuscript_snapshot,
+)
+
 
 def _walk(value: Any) -> Iterator[tuple[str, Any]]:
     if isinstance(value, dict):
@@ -167,14 +173,32 @@ def artifact_freshness_issues(project_root: Path) -> tuple[str, ...]:
             except (OSError, UnicodeError, json.JSONDecodeError):
                 continue
             snapshot_lists = list(_snapshot_lists(payload))
-            if not snapshot_lists:
+            manuscript_binding = (
+                recorded_manuscript_snapshot(payload)
+                if isinstance(payload, dict)
+                else None
+            )
+            if not snapshot_lists and manuscript_binding is None:
                 continue
             artifact_name = artifact.relative_to(root).as_posix()
+            if manuscript_binding is not None:
+                freshness = manuscript_review_status(payload, root)
+                if freshness["status"] != "current":
+                    issues.append(
+                        f"{artifact_name}: {freshness['message']} "
+                        f"[{MANUSCRIPT_PATH.as_posix()}; "
+                        f"reviewed_sha256={freshness.get('recorded_sha256', '<missing>')}; "
+                        f"current_sha256={freshness.get('current_sha256', '<missing>')}]"
+                    )
             for snapshots in snapshot_lists:
                 for snapshot in snapshots:
                     if not isinstance(snapshot, dict):
                         continue
                     raw_path = snapshot.get("path")
+                    if Path(str(raw_path or "")).as_posix() == MANUSCRIPT_PATH.as_posix():
+                        # The content-addressed manuscript comparison above owns
+                        # this one message and its stable stale rendering.
+                        continue
                     expected = str(snapshot.get("sha256") or "")
                     source = _resolve_inside(root, raw_path)
                     display = str(raw_path or "<missing path>")

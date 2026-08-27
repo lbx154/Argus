@@ -52,6 +52,7 @@ def record_stage_review(
     item: Any,
     manager_action: str,
     manager_reason: str = "",
+    manuscript_binding: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Record one independently reviewed stage-closing attempt."""
     normalized_stage = str(stage or "").strip().lower()
@@ -80,7 +81,20 @@ def record_stage_review(
         "checklist_fingerprint": checklist_fingerprint,
         "evidence_fingerprint": _evidence_fingerprint(item),
         "recorded_at": now,
+        "project_root": str(Path(project_root).resolve()),
     }
+    try:
+        from .manuscript_snapshot import manuscript_snapshot
+
+        snapshot = (
+            dict(manuscript_binding)
+            if isinstance(manuscript_binding, dict)
+            else manuscript_snapshot(project_root)
+        )
+        if snapshot["sha256"]:
+            record["manuscript_snapshot"] = snapshot
+    except Exception:  # noqa: BLE001 - non-paper certificates remain valid
+        pass
     path = certificate_path(state_root)
     payload = _read(path)
     stages = dict(payload.get("stages") or {})
@@ -99,7 +113,24 @@ def record_stage_review(
 def latest_stage_review(state_root: Path | str, stage: str) -> dict[str, Any] | None:
     payload = _read(certificate_path(state_root))
     record = (payload.get("stages") or {}).get(str(stage or "").strip().lower())
-    return dict(record) if isinstance(record, dict) else None
+    if not isinstance(record, dict):
+        return None
+    result = dict(record)
+    snapshot = result.get("manuscript_snapshot")
+    project_root = str(result.get("project_root") or "").strip()
+    if isinstance(snapshot, dict) and snapshot.get("sha256") and project_root:
+        try:
+            from .manuscript_snapshot import manuscript_review_status
+
+            freshness = manuscript_review_status(result, project_root)
+        except Exception:  # noqa: BLE001 - an unreadable binding never certifies
+            freshness = {"status": "unbound", "message": "unbound manuscript review"}
+        if freshness.get("status") != "current":
+            result["certified"] = False
+            result["review_status"] = "stale"
+            result["freshness_status"] = freshness.get("status")
+            result["stale_reason"] = freshness.get("message")
+    return result
 
 
 __all__ = [

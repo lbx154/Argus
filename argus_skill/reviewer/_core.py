@@ -136,6 +136,15 @@ class Reviewer:
         native_skill_paths = [
             str(path) for path in getattr(review_libraries, "native_paths", [])
         ]
+        reviewed_manuscript_snapshot = None
+        try:
+            from ..core.manuscript_snapshot import manuscript_snapshot
+
+            candidate_snapshot = manuscript_snapshot(config.working_dir)
+            if candidate_snapshot["sha256"]:
+                reviewed_manuscript_snapshot = candidate_snapshot
+        except Exception:  # noqa: BLE001 - non-paper reviews have no manuscript
+            pass
         # Split the prompt into a byte-stable STATIC preamble and per-round DELTA.
         # A matching same-role session receives only the new delta.
         common = dict(
@@ -328,6 +337,7 @@ class Reviewer:
         parsed.thread_id = rev_tid
         parsed.static_fingerprint = new_fp
         parsed.session_resumed = bool(resume)
+        parsed.manuscript_snapshot = reviewed_manuscript_snapshot
         # The L2 reviewer's verdict is authoritative — the harness must not
         # second-guess its scientific judgment from structured result labels or
         # keyword heuristics on the engineer's summary.

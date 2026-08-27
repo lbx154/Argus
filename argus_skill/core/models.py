@@ -210,6 +210,7 @@ class ReviewDecision:
     backend_exit_code: int | None = None
     backend_stop_kind: StopKind | None = None
     research_result: dict[str, Any] | None = None
+    manuscript_snapshot: dict[str, str] | None = None
 
     @property
     def final_submission_certified(self) -> bool:
@@ -247,6 +248,8 @@ class ReviewDecision:
             "stop_kind": self.backend_stop_kind,
             "usage_scope": "delta",
         }
+        if isinstance(self.manuscript_snapshot, dict):
+            payload["manuscript_snapshot"] = dict(self.manuscript_snapshot)
         report = self.planner_report if isinstance(self.planner_report, dict) else {}
         forward_progress = report.get("forward_progress")
         if isinstance(forward_progress, bool):
