@@ -75,6 +75,12 @@ not mean the frozen premise was supported. Report that separately as
    - Is uncertainty handled appropriately for the data-generating process and claim?
    - Are confidence intervals, repeated measurements, sensitivity analyses,
      formal guarantees, or other domain-appropriate support reported?
+   - Does every repeat have a named sampling-noise failure mode? Repeats detect
+     sampling noise and nothing else. When the margin is far from the noise
+     floor, one run suffices; near-noise margins retain the necessary repeats.
+     Repeats cannot validate an implementation, repair a broken control, or find
+     a claim-code mismatch. Require the cheaper faithfulness trace and positive
+     control first, and flag generalized-fear reruns as ritual waste.
    - Are small samples scoped honestly rather than rejected by a universal count?
    - Is the reported margin wider than the spread of this run's own repeats? A
      win inside your own noise is not a small win; it is not a measurement.

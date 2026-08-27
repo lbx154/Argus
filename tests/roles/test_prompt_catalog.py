@@ -99,6 +99,10 @@ def test_reviewer_auto_selects_full_pipeline_for_final_submission(
     assert context.paper_mission is True
     assert "## Near-complete paper review" in context.role_banner
     assert "## Final paper review" in context.role_banner
+    assert "The FIRST question of any paper review" in context.role_banner
+    assert "two or three load-bearing method claims" in context.role_banner
+    assert "incorrect, not 'needs polish'" in context.role_banner
+    assert "integrity is demonstrated by anchors and artifacts" in context.role_banner
     assert context.stage_checklist == format_full_pipeline_checklist(
         role="reviewer",
         project_root=tmp_path,

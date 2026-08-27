@@ -49,6 +49,12 @@ experiment or honest failure report is not automatically a paper.
 - Evidence breadth and scale follow the claim. There is no universal benchmark
   count, task count, model count, seed count, effect-size threshold, or
   wall-clock cutoff.
+- A repeat detects sampling noise and nothing else. Name that failure mode before
+  buying N repeats; if the margin is far from the noise floor, one run suffices.
+  Repeats cannot detect wrong implementation, a broken control, or claim-code
+  mismatch, so the claim-to-code faithfulness trace and positive control come
+  first. Preserve repeats when the margin is near the noise; flag unchanged-
+  configuration reruns motivated only by generalized fear as ritual waste.
 - Do not invent project-specific round-number improvement or error thresholds
   merely to obtain a binary keep/reject rule. A numeric cutoff needs a basis in
   utility, risk, domain standards, prior evidence, theory, or prospective
@@ -121,6 +127,8 @@ A project may finish with a paper only when:
 - empirical claims include appropriate public benchmark/data evidence;
 - the strongest relevant comparisons and confounds are handled fairly;
 - uncertainty and repeatability are appropriate to the data-generating process;
+- every repeat answers a named sampling-noise question after method faithfulness
+  and positive-control checks, rather than serving as generalized assurance;
 - claims are scoped to what was actually measured or proved;
 - the paper has one coherent, venue-relevant thesis and a clear strongest accept
   argument;

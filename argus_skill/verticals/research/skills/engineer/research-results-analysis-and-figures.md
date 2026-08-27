@@ -162,7 +162,9 @@ inventory table.
 
 ## 5. Statistical and visual discipline
 
-- Report mean and dispersion for repeated runs.
+- For repeated runs, report mean and dispersion and name the sampling-noise
+  question the repeats answer. Their existence is not implementation evidence:
+  repeats cannot catch wrong code, broken controls, or claim-code mismatch.
 - Use tests appropriate to the design; otherwise mark significance N/A.
 - Keep units and axis scales explicit; never truncate or transform silently.
 - Use colorblind-safe redundant encoding and inspect at final single/double

@@ -8,7 +8,17 @@ from pathlib import Path
 def academic_paper_review_block() -> str:
     return (
         "## Near-complete paper review\n"
-        "Be a skeptical program-committee reviewer. Judge correctness, evidence "
+        "Be a skeptical program-committee reviewer. The FIRST question of any "
+        "paper review is whether the Method section describes the code that "
+        "produced the results. Pick the two or three load-bearing method claims "
+        "and demand their file:line anchors plus the training/eval entry-point "
+        "call chains that actually execute them; a plausible name or an unused "
+        "function is not evidence. A paper that overclaims its mechanism is "
+        "incorrect, not 'needs polish'. Manuscript prose must never assert its own "
+        "integrity or rigor with language such as 'we carefully', 'we honestly', or "
+        "'we rigorously': integrity is demonstrated by anchors and artifacts, not "
+        "adjectives. Flag self-congratulatory integrity language for deletion. "
+        "Judge correctness, evidence "
         "and presentation, and separately whether the central research idea is "
         "novel, non-obvious, ambitious and important enough for the selected "
         "venue. A clean, defensible selector, allocator, router or small scoreboard "

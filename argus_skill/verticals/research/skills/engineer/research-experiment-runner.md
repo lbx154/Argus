@@ -100,9 +100,15 @@ human cohort, or systems measurement.
    conditions for resource claims. Do not repeat an entire deterministic cohort
    merely to estimate runtime when a declared representative resource sample is
    sufficient.
-   For expensive repeats, choose and justify a statistically valid stopping and
-   uncertainty method for the actual experiment design. Retain every observation
-   regardless of the stopping decision.
+   A repeat detects sampling noise and nothing else. Before expensive repeats,
+   name the sampling-noise failure mode and choose a valid stopping and uncertainty
+   method for the actual design. If the margin is far from the noise floor, one
+   run suffices; preserve genuinely load-bearing repeats when the margin is near
+   the noise. Repeats can never detect wrong implementation, a broken control, or
+   claim-code mismatch, so run the cheaper claim-to-code faithfulness trace and
+   positive control first. Ritual rerunning of the same configuration out of
+   generalized fear is a defect, not diligence. Retain every observation regardless
+   of the stopping decision.
 3. **Monitor without steering toward success.** Preserve crashes, nulls,
    exclusions, and failed cases in the audit trail. Do not change thresholds or
    remove difficult examples after seeing results.

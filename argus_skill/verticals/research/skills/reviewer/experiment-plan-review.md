@@ -50,9 +50,17 @@ post-training plans — omit `rl_config_sanity` from the output for non-RL plans
      decision-time information? Historical executed traces and post-hoc judges
      are diagnostics, not equivalent online baselines.
    - Can the planned comparison distinguish the claimed effect? The tasks must
-    exercise the mechanism, the baseline must have metric headroom, and the
-    cases/repeats must be able to resolve the predeclared contrast; otherwise
-    the plan can produce only inconclusive evidence.
+     exercise the mechanism, the baseline must have metric headroom, and the
+     cases/repeats must be able to resolve the predeclared contrast; otherwise
+     the plan can produce only inconclusive evidence.
+   - Before spending budget on N repeats, does the plan name the sampling-noise
+     failure mode those repeats can detect? A repeat detects sampling noise and
+     nothing else. If the expected margin is far from the noise floor, one run
+     suffices. Repeats can never detect a wrong implementation, broken control,
+     or claim-code mismatch: require the claim-to-code faithfulness trace and a
+     positive-control check first because both are cheaper. Flag ritual reruns of
+     one unchanged configuration out of generalized fear as a design defect, not
+     diligence; retain repeats when the margin is genuinely near the noise.
    - Does every numeric keep/reject cutoff have an external basis in utility,
     risk, an accepted standard, prior evidence, theory, or prospective
     sensitivity? Preregistration does not legitimize an unsupported

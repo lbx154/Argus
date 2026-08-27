@@ -213,7 +213,12 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "official evaluation release with URL, version, license/access, "
                 "evaluation unit, metric, and claim tested. The number of public "
                 "sources, tasks, models, and repeats is justified by the claim scope "
-                "and uncertainty method rather than a universal quota. "
+                "and uncertainty method rather than a universal quota. Before "
+                "budgeting N repeats, name the sampling-noise failure mode they can "
+                "detect; when the expected margin is far from the noise floor, one "
+                "run suffices. A faithfulness trace and positive control must precede "
+                "repeats because repeats cannot detect wrong code, broken controls, "
+                "or claim-code mismatch. "
                 "Clinical or mechanism projects instead enumerate every real public "
                 "data source, comparator/control, and planned cohort, including "
                 "source URL (or the prospective registry plan), license/access "
@@ -599,6 +604,26 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
     ),
     "draft": _checklist(
         ChecklistItem(
+            id="draft.research.method_faithfulness",
+            statement=(
+                "Complete the `research.method_faithfulness` audit before method "
+                "claims enter the manuscript's evidence chain. Trace every named "
+                "mechanism, loss term, equation, and algorithm-box step to a code "
+                "anchor (`file:line`) and evidence that the training/eval path "
+                "actually executes it: follow the call chain from the real entry "
+                "point. A function existing with the right name is not evidence — "
+                "names lie, call graphs do not. Treat any central claim with no "
+                "executed anchor, or with an anchor that contradicts the claim, as "
+                "a top-severity finding with exactly two exits: implement the "
+                "claimed mechanism, or rewrite the paper to describe what the code "
+                "actually does."
+            ),
+            evidence_hint=(
+                "paper/CLAIM_TO_CODE_TRACE.md in the paper evidence chain + "
+                "manuscript claims + training/eval entry points and file:line call-chain evidence"
+            ),
+        ),
+        ChecklistItem(
             id="draft.tex",
             statement=(
                 "paper/main.tex uses the selected venue's official structure and tells "
@@ -719,6 +744,24 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
     ),
     "review": _checklist(
         ChecklistItem(
+            id="review.research.method_faithfulness",
+            statement=(
+                "Independently certify the `research.method_faithfulness` audit: "
+                "for every named mechanism, loss term, equation, and algorithm-box "
+                "step, verify its `file:line` anchor and trace from the actual "
+                "training/eval entry point that executes it. A matching function "
+                "name is not evidence — names lie, call graphs do not. A central "
+                "claim that is unanchored or contradicted by its executed code is a "
+                "top-severity finding, not a prose concern, and has exactly two "
+                "exits: implement the claimed mechanism, or rewrite the paper to "
+                "describe what the code actually does."
+            ),
+            evidence_hint=(
+                "paper/CLAIM_TO_CODE_TRACE.md + paper/main.tex + independently inspected "
+                "training/eval entry-point call chains at cited file:line anchors"
+            ),
+        ),
+        ChecklistItem(
             id="review.infrastructure",
             statement=(
                 "Paper prose contains no local paths (/root/, /home/), no internal "
@@ -781,7 +824,9 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "idea interesting, is the comparison fair, does the claim match what "
                 "was shown, is the related work placed. Seeds, intervals and "
                 "significance belong wherever the claim rests on a small margin, "
-                "and nowhere else; they are not the spine of a paper. The "
+                "and nowhere else; they are not the spine of a paper. Re-running the "
+                "same configuration out of generalized fear is a defect, not "
+                "diligence. The "
                 "model-backed reviewer (academic_language_review) is advisory "
                 "input — this checklist, judged by the reviewer agent, is the "
                 "source of truth."
@@ -864,6 +909,22 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint=(
                 "the endpoint number beside the baseline it was measured against, "
                 "and the margin declared at selection"
+            ),
+        ),
+        ChecklistItem(
+            id="submission.research.method_faithfulness",
+            statement=(
+                "The final `research.method_faithfulness` result is current in the "
+                "paper's evidence chain: every manuscript mechanism, loss, equation, "
+                "and algorithm step has an executed training/eval `file:line` "
+                "call-chain anchor, and no central claim remains unanchored or "
+                "contradicted by code. Such a top-severity mismatch has only two "
+                "exits before submission: implement the claimed mechanism, or "
+                "rewrite the paper to describe what the code actually does."
+            ),
+            evidence_hint=(
+                "current paper/CLAIM_TO_CODE_TRACE.md + final paper/main.tex + "
+                "training/eval code at every recorded file:line anchor"
             ),
         ),
         ChecklistItem(
@@ -1460,9 +1521,15 @@ _AMBITIOUS_RESEARCH_POLICY = (
     "mark inapplicable items instead of manufacturing work. Rigour apparatus is "
     "proportional too, and it is not free: seeds, repeats, content hashes, "
     "provenance ledgers and schema validators cost the hours the method needed. "
-    "Buy them where the answer is genuinely in doubt — repeats when the margin is "
-    "near the noise, a hash when two artifacts are actually at risk of being "
-    "confused. A campaign that hashes every file while its evaluation cannot "
+    "A repeat detects sampling noise and nothing else. Before spending budget on "
+    "N repeats, name the sampling-noise failure mode the repeat can detect; if the "
+    "margin is far from the noise floor, one run suffices. Repeats can never detect "
+    "a wrong implementation, a broken control, or a claim-code mismatch: the "
+    "method-faithfulness trace and positive-control check come first and are "
+    "cheaper. Ritual re-running of the same configuration out of generalized fear "
+    "is a defect to flag, not diligence. Buy repeats when the margin is near the "
+    "noise, and a hash when two artifacts are actually at risk of being confused. "
+    "A campaign that hashes every file while its evaluation cannot "
     "detect its own positive control has bought certainty about which bytes it "
     "measured and none about whether the measurement means anything. When the gap "
     "is enormous or the instrument is broken, more seeds answer nothing. "
@@ -1496,7 +1563,10 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "baseline, expected failure modes, and the result that would convince a skeptical "
     "reader. Derive any win threshold from observed benchmark spread or published "
     "gaps, never a convenient round number. Use early probes only when they reveal premise, harness, or feedback "
-    "quality; they do not decide the full hypothesis. Then buy claim-bearing evidence "
+    "quality; they do not decide the full hypothesis. Before the writing stage begins, "
+    "schedule one claim-to-code-trace mission that follows the actual training/eval "
+    "entry-point call chains and binds every load-bearing manuscript mechanism to "
+    "executed file:line anchors. Then buy claim-bearing evidence "
     "at faithful scale early and improve against it over multiple rounds. Each mission "
     "must advance the paper's argument—a method change, decisive experiment, important "
     "comparison, analysis, figure, or manuscript section—not standalone certification, "

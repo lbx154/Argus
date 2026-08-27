@@ -11,6 +11,7 @@ _SKILLS = (
     / "research"
     / "skills"
 )
+_BUILTIN_SKILLS = Path(__file__).parents[2] / "argus_skill" / "builtin_skills"
 _AMBITION_SKILLS = (
     "engineer/research-ideation.md",
     "engineer/idea-discovery.md",
@@ -26,6 +27,65 @@ _AMBITION_SKILLS = (
 
 def _skill(relative: str) -> str:
     return (_SKILLS / relative).read_text(encoding="utf-8")
+
+
+def _builtin_skill(relative: str) -> str:
+    return (_BUILTIN_SKILLS / relative).read_text(encoding="utf-8")
+
+
+def test_method_faithfulness_is_a_late_stage_research_obligation() -> None:
+    from argus_skill.verticals.research.stages import _PLANNER_RESEARCH_ORCHESTRATION
+
+    expected_ids = {
+        "draft": "draft.research.method_faithfulness",
+        "review": "review.research.method_faithfulness",
+        "submission": "submission.research.method_faithfulness",
+    }
+    for stage, item_id in expected_ids.items():
+        item = next(item for item in STAGE_CHECKLISTS[stage] if item.id == item_id)
+        normalized = " ".join(item.statement.split())
+        assert "training/eval" in normalized
+        assert "file:line" in normalized
+        assert "implement the claimed mechanism" in normalized
+        assert "rewrite the paper to describe what the code actually does" in normalized
+        assert "CLAIM_TO_CODE_TRACE.md" in item.evidence_hint
+
+    planner = " ".join(_PLANNER_RESEARCH_ORCHESTRATION.split())
+    assert "Before the writing stage begins" in planner
+    assert "schedule one claim-to-code-trace mission" in planner
+    assert "executed file:line anchors" in planner
+
+
+def test_claim_to_code_trace_skill_follows_executed_quantities() -> None:
+    skill = _builtin_skill("reviewer/claim-to-code-trace.md")
+
+    for verdict in ("MATCHES", "CONTRADICTS", "NOT-IMPLEMENTED"):
+        assert verdict in skill
+    assert "follow the actual call chain" in skill.lower()
+    assert "Compare formulas symbol by symbol" in skill
+    assert "branch_prefix_hash" in skill
+    assert "only hashes" in skill
+    assert "whole completions" in skill
+    assert "suffix_logprob(model, prompt, completion)" in skill
+    assert "Names lie; call graphs and operands do not" in " ".join(skill.split())
+
+
+def test_repeats_buy_sampling_information_not_assurance() -> None:
+    plan_review = _skill("reviewer/experiment-plan-review.md")
+    results_review = _skill("reviewer/experiment-results-review.md")
+    audit = _skill("reviewer/experiment-audit.md")
+    runner = _skill("engineer/research-experiment-runner.md")
+    pipeline = _skill("engineer/auto-research-pipeline.md")
+    texts = (plan_review, results_review, audit, runner, pipeline)
+
+    for text in texts:
+        normalized = " ".join(text.split())
+        assert "sampling noise and nothing else" in normalized
+        assert "noise floor" in normalized
+        assert "positive control" in normalized or "positive-control" in normalized
+        assert "claim-code mismatch" in normalized
+    assert "Ritual repetition is a defect, not diligence" in audit
+    assert "one run suffices" in " ".join(runner.split())
 
 
 def test_paper_drafting_skills_stay_compact() -> None:

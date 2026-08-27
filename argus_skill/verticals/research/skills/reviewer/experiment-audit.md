@@ -98,9 +98,17 @@ WARN if: metric functions exist but are never called.
 ### E. Scope assessment
 1. How many scenes/datasets/configurations were actually tested?
 2. How many seeds/runs per configuration?
-3. Does the paper use words like "comprehensive", "extensive", "robust"?
-4. Is the actual scope sufficient for those claims?
+3. A repeat detects sampling noise and nothing else. For every repeat, what named
+   sampling-noise failure mode could it detect?
+4. Was the margin near the noise floor, or would one run have sufficed?
+5. Were the claim-to-code faithfulness trace and positive control checked before
+   repeats? Repeats cannot detect wrong implementation, a broken control, or a
+   claim-code mismatch.
+6. Does the paper use words like "comprehensive", "extensive", "robust"?
+7. Is the actual scope sufficient for those claims?
 WARN if: scope language exceeds actual evidence.
+WARN if: an unchanged configuration was rerun out of generalized fear without a
+named sampling-noise question. Ritual repetition is a defect, not diligence.
 
 ### F. Evaluation type classification
 Classify each evaluation as:

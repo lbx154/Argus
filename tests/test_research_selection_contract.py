@@ -855,7 +855,9 @@ def test_rigour_apparatus_is_proportional_to_the_doubt() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     manager = " ".join(vertical_role_banner(load_vertical("research"), "manager").split())
-    assert "where the answer is genuinely in doubt" in manager
+    assert "A repeat detects sampling noise and nothing else" in manager
+    assert "if the margin is far from the noise floor, one run suffices" in manager
+    assert "Ritual re-running of the same configuration" in manager
     assert "Reuse certified upstream evidence" in manager
 
 
