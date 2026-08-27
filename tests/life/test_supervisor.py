@@ -486,7 +486,7 @@ def test_manager_reselects_vertical_for_each_planned_mission(tmp_path) -> None:
     assert len(calls) == 2
     assert calls[0] == calls[1]
     assert calls[0].startswith(
-        "optimize the current project\n\n## Operator steering (standing)"
+        "optimize the current project\n\n## OperatorContext"
     )
     assert "Build the Apple-specific inference kernel." in calls[0]
     assert first["vertical"] == second["vertical"] == "device_tuning"
