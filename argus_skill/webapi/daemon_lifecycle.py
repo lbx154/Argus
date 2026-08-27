@@ -152,7 +152,7 @@ def list_running_daemons(
             continue
         life_dir = core_paths.session_state_root(sid, root=root)
         try:
-            items = LifeMemory.open(life_dir).backlog.all()
+            items = LifeMemory.open(life_dir).backlog.active()
         except Exception:  # noqa: BLE001
             items = []
         unfinished = [
@@ -409,7 +409,7 @@ def _write_parked_state(
     previous_pid: int | None,
 ) -> None:
     try:
-        items = LifeMemory.open(victim_dir).backlog.all()
+        items = LifeMemory.open(victim_dir).backlog.active()
         unfinished = [
             {
                 "id": item.id,

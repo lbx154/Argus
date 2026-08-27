@@ -1130,6 +1130,29 @@ class SkillLoopExecuteMixin:
         if rounds_list:
             _final_review = getattr(rounds_list[-1], "review", None)
             if _final_review is not None:
+                binding = getattr(_final_review, "manuscript_snapshot", None)
+                if isinstance(binding, dict):
+                    try:
+                        from ..core.manuscript_snapshot import (
+                            manuscript_review_status,
+                        )
+
+                        review_freshness = manuscript_review_status(
+                            {"manuscript_snapshot": binding},
+                            Path(getattr(self, "_artifact_root", ex_state.workdir)),
+                        )
+                    except Exception:  # noqa: BLE001 - certification fails closed
+                        review_freshness = {
+                            "status": "unbound",
+                            "message": "unbound (reviewed manuscript cannot be read)",
+                        }
+                    if review_freshness.get("status") != "current":
+                        setattr(_final_review, "status", "stale")
+                        setattr(
+                            _final_review,
+                            "reason",
+                            str(review_freshness.get("message") or "stale review"),
+                        )
                 final_review_status = (
                     str(getattr(_final_review, "status", "") or "").strip().lower()
                 )

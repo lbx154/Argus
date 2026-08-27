@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.core.manuscript_snapshot import manuscript_snapshot
 from argus_skill.core.models import ReviewDecision
 from argus_skill.manager import Manager
 from argus_skill.skills.vertical_select import persist_vertical
@@ -62,6 +63,30 @@ def test_stage_closing_reviewer_done_advances_without_manager_model(tmp_path) ->
     assert decision.source == "manager_deterministic"
     assert decision.diagnostic == "deterministic_reviewer_done"
     assert _state(state_root)["current_stage"] == "optimize"
+
+
+def test_stage_closing_stale_manuscript_review_holds(tmp_path) -> None:
+    manager, state_root, workdir = _manager(tmp_path)
+    manuscript = workdir / "paper/main.tex"
+    manuscript.parent.mkdir(parents=True)
+    manuscript.write_text("reviewed\n", encoding="utf-8")
+    binding = manuscript_snapshot(workdir, recorded_at="review-time")
+    manuscript.write_text("changed\n", encoding="utf-8")
+
+    decision = manager.decide_stage_transition(
+        review=_review(manuscript_snapshot=binding),
+        project_root=state_root,
+        mission_scope="bounded",
+        stage_closing=True,
+        run_exec=lambda _prompt: (_ for _ in ()).throw(
+            AssertionError("stale review must not purchase Manager adjudication")
+        ),
+    )
+
+    assert decision.action == "hold"
+    assert decision.source == "stale_manuscript_review_hold"
+    assert decision.reason.startswith("stale (reviewed ")
+    assert _state(state_root)["current_stage"] == "setup"
 
 
 def test_ordinary_bounded_direct_done_keeps_manager_adjudication(tmp_path) -> None:

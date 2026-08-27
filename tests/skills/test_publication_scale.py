@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from argus_skill.core.manuscript_snapshot import manuscript_snapshot
 from argus_skill.skills.vertical_select import persist_vertical
 from argus_skill.verticals._base import (
     load_vertical,
@@ -21,6 +22,9 @@ def _target(root: Path, level: str = "publishable") -> None:
 
 
 def _assessment(root: Path, **assessment_overrides) -> dict:
+    manuscript = root / "paper/main.tex"
+    manuscript.parent.mkdir(parents=True, exist_ok=True)
+    manuscript.write_text("Current manuscript.\n", encoding="utf-8")
     result = root / "results" / "main.json"
     result.parent.mkdir(parents=True, exist_ok=True)
     result.write_text('{"metric": 0.7}\n', encoding="utf-8")
@@ -48,6 +52,10 @@ def _assessment(root: Path, **assessment_overrides) -> dict:
     assessment.update(assessment_overrides)
     return {
         "schema_version": 1,
+        "created_at": "2026-08-27T00:00:00+00:00",
+        "manuscript_snapshot": manuscript_snapshot(
+            root, recorded_at="2026-08-27T00:00:00+00:00"
+        ),
         "research_target_level": "publishable",
         "contribution_shape": "method",
         "accepted_comparators": [

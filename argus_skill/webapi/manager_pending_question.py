@@ -149,7 +149,7 @@ def _resolved_decision_replay(
         return _decision_stale("another choice was already applied")
     continuation_id = str(card.get("continuation_item_id") or "").strip()
     continuation = next(
-        (row for row in mem.backlog.all() if row.id == continuation_id),
+        (row for row in mem.backlog.history() if row.id == continuation_id),
         None,
     ) if continuation_id else None
     if option_id != "stop" and continuation is None:
@@ -380,7 +380,7 @@ def manager_answer_pending_question(
     with _bridge()._lock_for(sid):
         if not mem.project_root.is_dir():
             return None
-        item = next((row for row in mem.backlog.all() if row.id == item_id), None)
+        item = next((row for row in mem.backlog.history() if row.id == item_id), None)
         if item is None:
             return None
         if not str(item.pending_question or "").strip():
@@ -471,7 +471,7 @@ def manager_resolve_operator_decision(
         item = next(
             (
                 row
-                for row in mem.backlog.all()
+                for row in mem.backlog.history()
                 if str(row.operator_decision.get("id") or "") == decision_id
             ),
             None,
@@ -519,7 +519,7 @@ def manager_resolve_operator_decision(
             )
             if stopped is None:
                 current = next(
-                    (row for row in mem.backlog.all() if row.id == item.id),
+                    (row for row in mem.backlog.history() if row.id == item.id),
                     item,
                 )
                 replay = _resolved_decision_replay(

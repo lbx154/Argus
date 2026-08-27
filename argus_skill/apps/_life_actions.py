@@ -25,8 +25,8 @@ _LIFE_BACKENDS = (
 
 
 def format_backlog_list(mem: Any, *, include_all: bool) -> str:
-    items = mem.backlog.all() if include_all else [
-        i for i in mem.backlog.all() if i.status == "pending"
+    items = mem.backlog.history() if include_all else [
+        i for i in mem.backlog.active() if i.status == "pending"
     ]
     if not items:
         return "(backlog is empty)"

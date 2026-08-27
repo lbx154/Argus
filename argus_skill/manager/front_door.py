@@ -147,7 +147,7 @@ def mission_is_running(mem: Any) -> bool:
     try:
         return any(
             str(getattr(item, "status", "") or "") == "running"
-            for item in mem.backlog.all()
+            for item in mem.backlog.active()
         )
     except Exception:  # noqa: BLE001 - routing must remain available
         return False
