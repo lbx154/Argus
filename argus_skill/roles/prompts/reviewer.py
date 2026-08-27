@@ -262,6 +262,14 @@ def render_reviewer_prompt(
     from .registry import resolve_role_prompt
 
     error_text = sanitize_model_visible_text(main_error or "none")
+    engineer_account = sanitize_model_visible_text(main_summary)
+    if len(engineer_account) > 6000:
+        omitted_chars = len(engineer_account) - 5900
+        engineer_account = (
+            engineer_account[:4000]
+            + f"\n…[middle omitted {omitted_chars} characters]…\n"
+            + engineer_account[-1900:]
+        )
     # Reviewer receives Skill-library paths and searches independently; no
     # Skill body is selected or injected by the runtime.
     _proot = resolve_project_root(vertical_state_root or working_dir)
@@ -714,7 +722,7 @@ def render_reviewer_prompt(
         + f"{background_block}"
         + f"Main agent fatal error: {error_text}\n\n"
         + "## Engineer's account of this round\n"
-        + sanitize_model_visible_text(main_summary[:6000])
+        + engineer_account
         + "\n\n"
         + f"{evidence_block}"
         # OperatorContext is intentionally the final live-facts block: this

@@ -180,9 +180,7 @@ class RoundReviewerMixin:
                 round_index=round_index,
                 round_max=supervised_config.max_rounds,
                 session_id=supervised_config.session_id,
-                main_summary=(
-                    (engineer_message or "(no message)")[:6000]
-                ),
+                main_summary=engineer_message or "(no message)",
                 main_error=safe_fatal_error,
                 config=replace(self.reviewer_config, working_dir=str(workdir)),
                 prev_review_summary=_previous_review_summary(state),
