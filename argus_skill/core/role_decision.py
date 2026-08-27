@@ -40,33 +40,23 @@ def encode_role_decision(role: str, payload: dict[str, Any]) -> str:
 
 
 def extract_role_decisions(values: Iterable[Any]) -> list[dict[str, Any]]:
-    """Extract decisions from assistant messages or nested JSON event lines."""
+    """Extract direct decision events from assistant-authored values.
+
+    Tool-result envelopes are deliberately opaque here. A marker printed by a
+    tool is evidence the role saw, not a decision authored by the role.
+    """
     decisions: list[dict[str, Any]] = []
 
-    def visit(value: Any, *, allow_envelope: bool = False) -> None:
+    def visit(value: Any) -> None:
         if isinstance(value, dict):
             if (
-                allow_envelope
-                and value.get("role") in _ROLES
+                value.get("role") in _ROLES
                 and isinstance(value.get("payload"), dict)
             ):
                 decisions.append(value)
-                return
-            for nested in value.values():
-                visit(nested)
-            return
-        if isinstance(value, list):
-            for nested in value:
-                visit(nested)
             return
         if not isinstance(value, str):
             return
-
-        stripped = value.strip()
-        if stripped.startswith(("{", "[")):
-            decoded = _decode_json_value(stripped)
-            if decoded is not None:
-                visit(decoded)
 
         for line in value.splitlines():
             marker = line.find(ROLE_DECISION_PREFIX)
@@ -89,17 +79,16 @@ def extract_role_decisions(values: Iterable[Any]) -> list[dict[str, Any]]:
                 decisions.append(decision)
 
     for value in values:
-        visit(value, allow_envelope=isinstance(value, dict))
+        visit(value)
     return decisions
 
 
 def latest_role_decision(result: Any, role: str) -> dict[str, Any] | None:
-    """Return the latest decision for ``role`` from a runner result."""
+    """Return the first decision event for ``role`` from its own output."""
     normalized_role = str(role or "").strip().lower()
     values: list[Any] = list(getattr(result, "role_decisions", None) or [])
     values.extend(getattr(result, "agent_messages", None) or [])
-    values.extend(getattr(result, "stdout_lines", None) or [])
-    for decision in reversed(extract_role_decisions(values)):
+    for decision in extract_role_decisions(values):
         if decision["role"] == normalized_role:
             return dict(decision["payload"])
     return None

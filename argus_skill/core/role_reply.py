@@ -33,7 +33,6 @@ import re
 from typing import Any, Iterable, Mapping
 
 _FENCE = re.compile(r"^\s*```[a-zA-Z0-9_-]*\s*$")
-_SENTENCE_END = re.compile(r"[.!?。！？]")
 _DECISION_FOOTER = re.compile(
     r"(?im)^\s*(?:final\s+)?decision\s*:\s*$"
 )
@@ -41,11 +40,6 @@ _DECISION_FOOTER = re.compile(
 #: What may sit immediately before a key for it to still be starting a footer.
 #:
 #: A character-class *fragment*, spliced into the lookbehind below — distinct
-#: from ``_SENTENCE_END`` above, which is a compiled pattern scanned for
-#: boundaries inside an already-read line. The two constants answer different
-#: questions and are deliberately not the same class: this one is about where a
-#: footer may begin, that one about where a sentence ended.
-#:
 #: Deliberately only sentence terminators. A model that writes
 #: ``...the requested Lean source.STATUS=done`` has ended its prose and begun
 #: its verdict; a model that writes ``end with `MILESTONE_STATUS=done|continue``
@@ -94,7 +88,7 @@ def _split_glued_keys(text: str, keys: Iterable[str]) -> str:
         return str(text or "")
     joined = "|".join(re.escape(name) for name in names)
     return re.sub(
-        r"(?<=" + _SENTENCE_END_CLASS + r")[ \t]*"
+        r"(?<=" + _SENTENCE_END_CLASS + r")"
         r"((?:ARGUS_)?(?:" + joined + r")[`*_]*\s*[:=])",
         r"\n\1",
         str(text or ""),
@@ -157,13 +151,6 @@ def _read_key_values(text: str, keys: Iterable[str]) -> dict[str, str]:
             continue
         line = line.strip("`").strip()
         match = pattern.match(line)
-        if match is None:
-            # Streaming models occasionally omit the newline between their
-            # introductory sentence and the first named field.
-            for boundary in reversed(tuple(_SENTENCE_END.finditer(line))):
-                match = pattern.match(line[boundary.end() :].lstrip())
-                if match is not None:
-                    break
         if match is None:
             continue
         found[match.group("key").upper()] = match.group("value").strip().strip("`").strip()
