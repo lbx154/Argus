@@ -10,7 +10,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 ACTIVE_MANAGER_DIRECTIVE_FILENAME = "active_manager_directive.json"
 ACTIVE_MANAGER_DIRECTIVE_PREFIX = (
@@ -209,8 +209,16 @@ def record_operator_messages(
     messages: list[str],
     *,
     source: str = "operator.inbox",
+    manager: Any = None,
+    mission_id: str = "",
 ) -> None:
-    """Make newly drained inbox messages durable standing steering."""
+    """Persist drained operator messages without promoting all of them to standing."""
+    from ..core.operator_context import (
+        OperatorContextStore,
+        append_directive,
+        standing_sounding,
+    )
+
     for message in messages:
         text = str(message or "").strip()
         # Manager steering is queued as the already-rendered standing block for
@@ -220,7 +228,44 @@ def record_operator_messages(
             ACTIVE_MANAGER_DIRECTIVE_PREFIX
         ):
             continue
-        append_steering_directive(state_root, text, source=source)
+        decisions: list[dict[str, Any]] = []
+        if manager is not None:
+            manager.classify_front_door(
+                text,
+                intake_sink=decisions.append,
+                active_mission=True,
+            )
+        if decisions:
+            from ..core.operator_context import IntakeDecision, persist_intake_decision
+
+            if (
+                decisions[-1].get("kind") == "credential_grant"
+                and "[stored in capability vault]" in text
+                and any(
+                    record.type == "capability" and record.available
+                    for record in OperatorContextStore(state_root).records()
+                )
+            ):
+                continue
+            persist_intake_decision(
+                state_root,
+                text,
+                IntakeDecision(**decisions[-1]),
+                source=source,
+                mission_id=mission_id,
+            )
+            continue
+        store = OperatorContextStore(state_root)
+        is_standing = standing_sounding(text)
+        append_directive(
+            state_root,
+            text,
+            scope="project" if is_standing else "mission",
+            lifetime="standing" if is_standing else "bounded_increment",
+            applies_to_roles="all",
+            source=source,
+            expected_revision=store.revision,
+        )
 
 
 def render_active_steering(state_root: Path | str | None) -> str:
@@ -234,6 +279,16 @@ def render_active_steering(state_root: Path | str | None) -> str:
         # inability to create an initial checkpoint must not abort a review.
         records = _read_steering_records(state_root)
     active = _active_steering_records(records)[-STEERING_MAX_ENTRIES:]
+    if not active:
+        from ..core.operator_context import OperatorContextStore
+
+        projection = OperatorContextStore(state_root).project(
+            "engineer", consume_once=False
+        )
+        active = [
+            {"text": record.text, "timestamp": record.created_at}
+            for record in reversed(projection.directives[-STEERING_MAX_ENTRIES:])
+        ]
     if not active:
         return ""
     lines = [STEERING_HEADER]
