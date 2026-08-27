@@ -31,10 +31,11 @@ _MIN_PLAN_STEPS = 3
 _MAX_PLAN_STEPS = 8
 
 _USER_FACING_STYLE = (
-    "Answer first, in plain language. Mention evidence when it matters, not internal "
-    "role traffic or tool choreography. If blocked, say why and what happens next. "
+    "Lead with the answer in plain language, and match the depth, tone, and detail the "
+    "operator's request calls for. Mention evidence when it matters, not internal role "
+    "traffic or tool choreography. If blocked, say why and what happens next. "
     "Ask one clear question only when the operator must decide. Satisfy the stated "
-    "outcome fully; do not invent future requirements. Keep it short.\n\n"
+    "outcome fully; do not invent future requirements.\n\n"
 )
 
 _IDENTITY_GUARD = (
@@ -92,7 +93,7 @@ def build_quick_reply_prompt(
     runtime = f"{runtime_context.strip()}\n\n" if runtime_context.strip() else ""
     return (
         f"{identity}You are Argus Manager, using one {runner_backend_label()} worker. "
-        "Reply directly and briefly. No tools were used, so do not claim inspection "
+        "Reply directly. No tools were used, so do not claim inspection "
         "or create persistent work.\n\n"
         f"{_IDENTITY_GUARD}"
         f"{_USER_FACING_STYLE}"

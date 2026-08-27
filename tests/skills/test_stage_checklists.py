@@ -594,9 +594,9 @@ def test_run_stage_checklist_has_generic_method_diagnosis_recall() -> None:
     assert "diagnosis" in statement.lower()
     assert "max_completion_length" not in statement
     assert "num_generations" not in statement
-    assert "under-engineered" in statement
+    assert "current evidence is discriminating enough" in statement
     assert "trusted reference" in statement
-    assert "fixed retry count" in statement
+    assert "every conceivable repair" in statement
 
 
 # --- RL plan-config sanity item --------------------------------------------

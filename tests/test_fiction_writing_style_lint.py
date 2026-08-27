@@ -1,9 +1,8 @@
 """Unit tests for the anti-AI STYLE LINT (the '正则' layer).
 
 Each zh + en cliché class must fire on a positive sample and stay quiet on clean
-prose; an author-declared forbidden_lexicon term is BLOCKING; a declared
-ai_tell_budget that is exceeded is BLOCKING; an unset budget keeps everything
-non-blocking (today's behavior). Real negatives so gutting the checker goes red.
+prose; an author-declared forbidden_lexicon term is BLOCKING; word-list hits stay
+advisory regardless of their density.
 """
 from __future__ import annotations
 
@@ -84,10 +83,9 @@ def test_avoided_terms_are_nonblocking_voice():
     assert voice and all(not f["blocking"] for f in voice)
 
 
-def test_ai_tell_budget_blocks_only_when_exceeded():
-    text = "他心里满是孤独。"  # one ai_tell hit in a short text -> high rate
-    over = {"meta": {"language": "zh"}, "ai_tell_budget": {"max_hits_per_1000_chars": 1}}
-    under = {"meta": {"language": "zh"}, "ai_tell_budget": {"max_hits_per_1000_chars": 1000}}
-    assert not is_clean(text, over, "zh")          # rate >> 1 -> blocking
-    assert is_clean(text, under, "zh")             # rate < 1000 -> no block
-    assert is_clean(text, {}, "zh")                # no budget declared -> no block
+def test_dense_word_list_hits_remain_advisory():
+    text = "孤独，悲伤，温暖，治愈。然而，一切都变了。"
+    findings = check_style(text, {"meta": {"language": "zh"}}, "zh")
+    assert findings
+    assert all(not finding["blocking"] for finding in findings)
+    assert is_clean(text, {}, "zh")

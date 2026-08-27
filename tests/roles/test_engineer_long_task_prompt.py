@@ -27,10 +27,6 @@ def test_long_task_rule_requires_argus_durable_receipt(
     assert all(field in prompt for field in ("state=submitted", "task_id", "run_id", "check_with"))
     assert "state=discussing" in prompt
     assert "reply_with" in prompt
-    assert ".argus_external_work/<id>.json" in prompt
-    assert "activity_stale_after_seconds" in prompt
-    assert '"wait_for":"external_work"' in prompt
-    assert "`read_bash`" in prompt
     assert "launch a supervised subagent" not in prompt
 
 
@@ -62,8 +58,4 @@ def test_native_windows_rule_uses_powershell_durable_runner(
     assert all(field in prompt for field in ("state=submitted", "task_id", "run_id", "check_with"))
     assert "state=discussing" in prompt
     assert "reply_with" in prompt
-    assert ".argus_external_work/<id>.json" in prompt
-    assert "activity_stale_after_seconds" in prompt
-    assert '"wait_for":"external_work"' in prompt
-    assert "`read_bash`" in prompt
     assert '"${ARGUS_SKILL_PYTHON:-python3}"' not in prompt

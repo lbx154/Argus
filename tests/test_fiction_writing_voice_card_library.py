@@ -2,8 +2,8 @@
 
 Proves: every shipped preset validates against the schema; compose merges by the
 documented semantics (nested dicts merge, lexicon lists UNION, character_voices
-dedup by name with the later layer winning); domain_for_brief maps genre keywords
-to a preset (the deterministic half of auto-建档); and the classical preset ships
+dedup by name with the later layer winning); genre substrings do not select a preset;
+and the classical preset ships
 per-character voices ('什么样的人物什么卡').
 """
 from __future__ import annotations
@@ -50,12 +50,14 @@ def test_classical_preset_has_per_character_voices():
     assert liu["forbidden_for_character"]
 
 
-def test_domain_for_brief_maps_genre_keywords():
-    assert domain_for_brief({"genre": "近未来悬疑科幻"}) == "suspense"
-    assert domain_for_brief({"genre": "红楼章回体续写"}) == "classical_zhanghui"
-    assert domain_for_brief({"genre": "都市言情"}) == "romance"
-    assert domain_for_brief({"genre": "", "market_style": "网文"}) == "web_fiction"
-    assert domain_for_brief({"genre": "散文随笔"}) is None
+def test_domain_for_brief_never_routes_from_substrings():
+    for brief in (
+        {"genre": "近未来悬疑科幻"},
+        {"genre": "红楼章回体续写"},
+        {"genre": "严肃文学"},
+        {"market_style": "网络小说"},
+    ):
+        assert domain_for_brief(brief) is None
 
 
 def test_compose_three_layers_merges_by_semantics():
@@ -83,16 +85,17 @@ def test_compose_three_layers_merges_by_semantics():
     assert daiyu["notes"] == "本作覆盖"
 
 
-def test_auto_build_from_brief_picks_domain_and_stays_valid():
-    # auto-建档: genre alone drives the domain preset; result is schema-valid
+def test_build_from_brief_stays_neutral_without_explicit_voice():
     card = voice_card_from_brief({"language": "zh", "genre": "悬疑推理"})
-    assert card["meta"]["register"] == "contemporary"
-    assert card["abstract_features"]["sentence_rhythm"] == "short_and_tense"
+    assert card == {"meta": {"language": "zh"}}
     validate_voice_card(card)
 
 
-def test_no_domain_match_falls_back_to_profile_default():
-    # no genre keyword -> legacy coarse profile path (unchanged behavior)
+def test_profile_label_does_not_lock_a_voice_preset():
     card = voice_card_from_brief({"language": "zh", "profile": {"name": "literary_fiction"}})
-    assert card["meta"]["register"] == "literary"
-    assert card["abstract_features"]["sentence_rhythm"] == "long_and_flowing"
+    assert card == {"meta": {"language": "zh"}}
+
+
+def test_explicit_domain_choice_still_composes_a_preset():
+    card = voice_card_from_brief({"language": "zh"}, domain="suspense")
+    assert card["abstract_features"]["sentence_rhythm"] == "short_and_tense"

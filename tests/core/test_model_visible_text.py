@@ -8,7 +8,7 @@ from argus_skill.core.model_visible_text import (
 from argus_skill.reviewer import Reviewer
 from argus_skill.reviewer._parsing import parse_decision_text
 from argus_skill.roles.prompts.engineer import build_mission_prompt
-from argus_skill.roles.prompts.manager import assemble_manager_prompt
+from argus_skill.roles.prompts.manager import assemble_manager_prompt, build_quick_reply_prompt
 from argus_skill.roles.prompts.planner import build_bounded_dag_prompt
 
 SHA_A = "a" * 64
@@ -94,6 +94,13 @@ def test_all_role_prompt_boundaries_hide_dynamic_hash_values() -> None:
     for prompt in (manager, reviewer):
         assert MODEL_INTEGRITY_BOUNDARY.splitlines()[0] in prompt
         assert SHA_A not in prompt
+
+
+def test_manager_reply_style_matches_operator_requested_depth() -> None:
+    prompt = build_quick_reply_prompt(objective="Explain the tradeoff in depth.")
+
+    assert "match the depth, tone, and detail" in prompt
+    assert "Keep it short" not in prompt
 
 
 def test_reviewer_requires_causal_performance_evidence() -> None:
