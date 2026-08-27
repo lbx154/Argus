@@ -48,6 +48,22 @@ verdict.
   focused public benchmark plus decisive controls.
 - Every weakness must identify a concrete repair or a justified scope boundary.
 
+Before accepting any negative conclusion—method failure, route retirement, or
+“X does not work”—ask whether the executed call chain faithfully implemented the
+idea, baselines and hyperparameters received a competent competitive effort, the
+scale and setup could have revealed the effect, and credible alternative
+explanations were excluded. If any answer is no, the honest status is “this idea
+has not yet been given a real chance”: unfinished work, not a negative result,
+paper section, or reason to abandon the route.
+
+Treat unsupported humility as the same defect as unsupported boasting: labels
+such as “bounded,” “limited,” “preliminary,” “受限,” or similar must be tied to a
+named, concrete limitation with evidence or be deleted. A limitations section
+lists only
+limitations that would change a reader's decision, each with its evidence;
+flag virtue-signaling filler or integrity self-praise such as “we honestly
+acknowledge…” for deletion.
+
 ## Required inputs
 
 - selected venue profile and official template source;

@@ -53,6 +53,15 @@ Run the final narrative/prose gate for an AAAI-style paper. This skill adapts wo
    - Do not emit `\bibliographystyle{...}`: `aaai2026.sty` sets the bibliography style automatically, and a manual `\bibliographystyle` raises "Illegal, another \bibstyle command". End the paper with `\bibliography{aaai2026}` (your bibliography file named `aaai2026.bib`) so the entries render through `aaai2026.bst`. Cite whatever the paper's claims actually require — every material premise, the nearest competitors, and the contradictions a reader would raise — fetched from Semantic Scholar / arXiv / DBLP / CrossRef / ACL Anthology, never reconstructed from memory. Depth is judged against the claims, not against a reference count: a complete short paper is not deficient for citing fewer works than a broad survey.
 
 5. Calibrate claims:
+
+   Treat unsupported humility as the same defect as unsupported boasting: labels
+   such as “bounded,” “limited,” “preliminary,” “受限,” or similar must be tied to
+   a named, concrete limitation with evidence or be deleted. A limitations section
+   lists only
+   limitations that would change a reader's decision, each with its evidence;
+   flag virtue-signaling filler or integrity self-praise such as “we honestly
+   acknowledge…” for deletion.
+
    - Remove SOTA, novel, significant, robust, or generalization claims unless local evidence and citations support them.
    - Every numeric result in prose, table captions, and figure captions must trace to a local artifact.
    - Captions should state the takeaway, not only describe the figure.

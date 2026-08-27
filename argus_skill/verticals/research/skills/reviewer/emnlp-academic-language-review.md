@@ -51,6 +51,15 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Use only verified citations with full author metadata and ACL/EMNLP author-year natbib style. If a citation cannot be verified, mark it as blocked instead of inventing metadata; do not leave BibTeX `author={... and others}`/`et al.` placeholders that render as `and 1 others`, do not leave title-only entries from missing authors, and do not use starter keys whose titles point to unrelated papers.
 
 5. Calibrate claims:
+
+   Treat unsupported humility as the same defect as unsupported boasting: labels
+   such as “bounded,” “limited,” “preliminary,” “受限,” or similar must be tied to
+   a named, concrete limitation with evidence or be deleted. A limitations section
+   lists only
+   limitations that would change a reader's decision, each with its evidence;
+   flag virtue-signaling filler or integrity self-praise such as “we honestly
+   acknowledge…” for deletion.
+
    - Remove SOTA, novel, significant, robust, or generalization claims unless local evidence and citations support them.
    - Every numeric result in prose, table captions, and figure captions must trace to a local artifact.
    - Captions should state the takeaway, not only describe the figure.

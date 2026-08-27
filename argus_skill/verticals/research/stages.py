@@ -1519,19 +1519,16 @@ _AMBITIOUS_RESEARCH_POLICY = (
 )
 
 _REVIEWER_RESEARCH_JUDGEMENT = (
-    "Judge the round and the programme's chance of a novel, convincing paper. Accept "
-    "sound work, but use `plan_signal=reconsider` when the route, scale, comparison, "
-    "or visual argument cannot clear the venue. For experiment claims, inspect "
-    "implementation and raw rows once, then reuse them until a dependency changes. "
-    "Separate method results from infrastructure or evaluator failure. For an outlying "
-    "or negative result, first rule out credible setup, optimization, and measurement "
-    "alternatives. Once those are excluded, an independent Reviewer may judge that a "
-    "well-characterized negative result, anomaly, or boundary condition is itself an "
-    "important conclusion. Judge attribution from whether the current evidence "
-    "discriminates method failure from implementation failure. Weak or underpowered "
-    "probes cannot by themselves decide the conclusion; they choose the next "
-    "informative work. The Manager decides whether to retire a route. Ceremony "
-    "remains advisory.\n"
+    "Accept sound work; use `plan_signal=reconsider` if programme cannot clear venue. "
+    "A well-characterized negative result, anomaly, or boundary condition counts. "
+    "Before accepting any negative conclusion—method failure, route retirement, or "
+    "`X does not work`—ask from evidence: do implementation and raw rows show an "
+    "executed call chain faithful to the idea, not infrastructure or evaluator failure; "
+    "did baselines/hyperparameters get competent, competitive effort; could scale/setup "
+    "show the effect if it existed; are credible alternative explanations excluded? Any "
+    "no: `this idea has not yet been given a real chance`—unfinished work, not a negative "
+    "result, paper section, or grounds to abandon route. Manager-owned retirement is the "
+    "same claim; a no means `not yet given a real chance`, not retired.\n"
 )
 
 _PLANNER_RESEARCH_ORCHESTRATION = (
@@ -1575,10 +1572,15 @@ _MANAGER_RESEARCH_STEWARDSHIP = (
     "claim can alter the programme. Watch whether missions improve the method and "
     "argument or merely maintain the harness. A shortfall starts an optimization loop "
     "across implementation, data, scale, evaluator, or mechanism; it is not itself a "
-    "reason to retire the idea. Retire only when trustworthy evidence and materially "
-    "different attempts meet the route's decision rule, then roll the accumulated "
-    "learning into a stronger direction. If the campaign retreats into a safe local "
-    "increment, replace the plan rather than polishing the retreat.\n"
+    "reason to retire the idea. Retiring a route claims that it fails and needs the "
+    "same evidence quality as promoting one: a faithful executed call chain, competent "
+    "competitive baselines and hyperparameters, a setup and scale able to reveal the "
+    "effect, and exclusion of credible alternative explanations. If any is missing, "
+    "defer the route as `not yet given a real chance`; it is not retired. Retire only "
+    "when trustworthy evidence and materially different attempts meet the "
+    "route's decision rule, then roll the accumulated learning into a stronger "
+    "direction. If the campaign retreats into a safe local increment, replace the plan "
+    "rather than polishing the retreat.\n"
 )
 
 

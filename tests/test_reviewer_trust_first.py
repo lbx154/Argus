@@ -70,6 +70,10 @@ def test_paper_review_requires_idea_and_built_artifact_quality():
     assert "cross-model, cross-benchmark" in block
     assert "what materially improved" in block
     assert "whether the current manuscript clears the venue bar" in block
+    assert "unsupported humility" in block
+    assert "named, concrete limitation with evidence" in block
+    assert "limitations that would change a reader's decision" in block
+    assert "virtue-signaling filler or integrity self-praise" in block
 
     assert "undefined citations" in block
     assert "bibliography warnings" in block

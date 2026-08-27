@@ -8,11 +8,10 @@ from argus_skill.verticals._base import load_vertical, vertical_role_banner
 def test_research_reviewer_requires_engineering_audit() -> None:
     banner = vertical_role_banner(load_vertical("research"), "reviewer")
 
-    assert "For experiment claims" in banner
     assert "implementation and raw rows" in banner
     assert "infrastructure or evaluator failure" in banner
-    assert "underpowered" in banner
-    assert "cannot by themselves trigger replan" in banner
+    assert "Before accepting any negative conclusion" in banner
+    assert "this idea has not yet been given a real chance" in banner
     assert len(banner) < 800
 
 
@@ -38,7 +37,7 @@ def test_research_reviewer_prompt_disables_trust_first_shortcut(tmp_path) -> Non
         working_dir=tmp_path,
     )
 
-    assert "For experiment claims" in prompt
+    assert "implementation and raw rows" in prompt
     assert "## Evidence policy" not in prompt
     assert "Trust consistent shown results" not in prompt
     assert "TRUST the scorer, judge the IDEA" not in prompt

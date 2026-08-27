@@ -415,8 +415,8 @@ def test_reviewer_treats_research_smokes_as_advisory() -> None:
     from argus_skill.verticals.research.stages import role_banner
 
     reviewer_banner = role_banner("reviewer")
-    assert "Weak or underpowered probes" in reviewer_banner
-    assert "cannot by themselves decide the conclusion" in reviewer_banner
+    assert "could scale/setup show the effect if it existed" in reviewer_banner
+    assert "this idea has not yet been given a real chance" in reviewer_banner
     assert "smoke is advisory" not in generic_verification_policy
     assert "research-stage smoke probes" not in generic_results_review.lower()
 
@@ -428,13 +428,13 @@ def test_research_prompt_policy_does_not_leak_to_other_verticals() -> None:
     software = load_vertical("software")
 
     assert "independent selector" in vertical_role_banner(research, "planner")
-    assert "underpowered probes" in vertical_role_banner(
+    assert "scale/setup show the effect" in vertical_role_banner(
         research, "reviewer"
     )
     for role in ("planner", "engineer", "reviewer"):
         banner = vertical_role_banner(software, role)
         assert "independent selector" not in banner
-        assert "underpowered probes" not in banner
+        assert "scale/setup show the effect" not in banner
 
 
 def test_dynamic_paper_policy_is_owned_by_research_vertical() -> None:
@@ -514,10 +514,6 @@ def test_process_artifacts_are_finishing_steps_not_missions() -> None:
     assert "Each mission must advance the paper's argument" in planner
     assert "not standalone certification, schema, or bookkeeping" in planner
 
-    reviewer = role_banner("reviewer")
-    assert "Ceremony remains advisory" in reviewer
-
-
 def test_a_shortfall_is_attributed_by_discriminating_evidence() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
@@ -530,10 +526,46 @@ def test_a_shortfall_is_attributed_by_discriminating_evidence() -> None:
         assert named in planner
     assert "claim-bearing evidence" in planner
 
-    assert "first rule out credible setup, optimization, and measurement" in reviewer
     assert "well-characterized negative result, anomaly, or boundary condition" in reviewer
-    assert "discriminates method failure from implementation failure" in reviewer
+    for question in (
+        "executed call chain faithful to the idea",
+        "baselines/hyperparameters get competent, competitive effort",
+        "scale/setup show the effect if it existed",
+        "credible alternative explanations excluded",
+    ):
+        assert question in reviewer
+    assert "this idea has not yet been given a real chance" in reviewer
+    assert "unfinished work, not a negative result, paper section" in reviewer
     assert "a loss is never the paper" not in reviewer
+
+    results_review = _skill("reviewer/experiment-results-review.md")
+    peer_review = _skill("reviewer/academic-paper-peer-review-benchmark.md")
+    for surface in (results_review, peer_review):
+        normalized = " ".join(surface.split())
+        assert "Before accepting any negative conclusion" in normalized
+        assert "executed call chain" in normalized
+        assert "baselines and hyperparameters" in normalized
+        assert "scale and setup" in normalized
+        assert "credible alternative explanations" in normalized
+        assert "this idea has not yet been given a real chance" in normalized
+
+
+def test_paper_review_deletes_unanchored_humility_and_virtue_signaling() -> None:
+    from argus_skill.verticals.research.prompt_policy import academic_paper_review_block
+
+    surfaces = (
+        _skill("reviewer/aaai-academic-language-review.md"),
+        _skill("reviewer/emnlp-academic-language-review.md"),
+        _skill("reviewer/academic-paper-peer-review-benchmark.md"),
+        academic_paper_review_block(),
+    )
+    for surface in surfaces:
+        for label in ("bounded", "limited", "preliminary", "受限"):
+            assert label in surface
+        assert "unsupported humility" in surface
+        assert "named, concrete limitation with evidence" in surface
+        assert "limitations that would change a reader's decision" in surface
+        assert "virtue-signaling filler or integrity self-praise" in surface
 
 
 def test_probes_still_cannot_veto_a_selected_idea() -> None:
@@ -542,7 +574,9 @@ def test_probes_still_cannot_veto_a_selected_idea() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     research = load_vertical("research")
-    assert "cannot by themselves" in vertical_role_banner(research, "reviewer")
+    reviewer = vertical_role_banner(research, "reviewer")
+    assert "could scale/setup show the effect if it existed" in reviewer
+    assert "this idea has not yet been given a real chance" in reviewer
     assert "claim-bearing evidence at " in vertical_role_banner(research, "planner")
 
 
@@ -582,9 +616,17 @@ def test_only_the_manager_retires_an_idea_and_only_reluctantly() -> None:
     assert "Retire only when trustworthy evidence" in manager
     assert "materially different attempts" in manager
     assert "roll the accumulated learning into a stronger direction" in manager
+    assert "same evidence quality as promoting one" in manager
+    assert "a faithful executed call chain" in manager
+    assert "competent competitive baselines and hyperparameters" in manager
+    assert "a setup and scale able to reveal the effect" in manager
+    assert "exclusion of credible alternative explanations" in manager
+    assert "defer the route as `not yet given a real chance`" in manager
 
     # No other role may make that call.
-    assert "The Manager decides whether to retire a route" in reviewer
+    assert "Manager-owned retirement" in reviewer
+    assert "same claim" in reviewer
+    assert "means `not yet given a real chance`, not retired" in reviewer
 
 
 def test_the_grind_skill_says_what_a_campaign_does_between_rounds() -> None:

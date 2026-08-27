@@ -735,9 +735,9 @@ def test_reviewer_suspects_the_setup_before_the_idea() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     reviewer = " ".join(vertical_role_banner(load_vertical("research"), "reviewer").split())
-    assert "first rule out credible setup, optimization, and measurement alternatives" in reviewer
-    assert "For an outlying or negative result" in reviewer
-    assert "discriminates method failure from implementation failure" in reviewer
+    assert "not infrastructure or evaluator failure" in reviewer
+    assert "well-characterized negative result, anomaly, or boundary condition" in reviewer
+    assert "Before accepting any negative conclusion" in reviewer
 
 
 def test_manager_keeps_the_campaign_optimizing_instead_of_settling() -> None:
@@ -888,8 +888,12 @@ def test_training_below_its_own_baseline_triggers_attribution_review() -> None:
     from argus_skill.verticals._base import load_vertical, vertical_role_banner
 
     reviewer = " ".join(vertical_role_banner(load_vertical("research"), "reviewer").split())
-    assert "first rule out credible setup, optimization, and measurement" in reviewer
     assert "well-characterized negative result, anomaly, or boundary condition" in reviewer
+    assert "executed call chain faithful to the idea" in reviewer
+    assert "baselines/hyperparameters get competent, competitive effort" in reviewer
+    assert "scale/setup show the effect if it existed" in reviewer
+    assert "credible alternative explanations excluded" in reviewer
+    assert "this idea has not yet been given a real chance" in reviewer
 
     skill = (
         Path(argus_skill.__file__).parent
@@ -1630,7 +1634,7 @@ def test_a_sound_round_can_still_report_an_unpublishable_programme() -> None:
     policy = _REVIEWER_RESEARCH_JUDGEMENT
     assert "`plan_signal=reconsider`" in policy
     assert "Accept sound work" in policy
-    assert "cannot clear the venue" in policy
+    assert "cannot clear venue" in policy
 
 
 def test_the_planner_is_asked_about_the_paper_it_already_has(tmp_path) -> None:
