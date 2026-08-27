@@ -38,14 +38,13 @@ read-only Reviewer judge real evidence instead.
 
 Work top to bottom. Each step is verifiable before the next begins.
 
-### 1. Delete the no-op Wiki lifecycle API — provably safe
+### 1. Delete the no-op Wiki lifecycle API — completed
 
-`wiki/lifecycle.py:54` `maintain_wikis_after_mission()` takes seven parameters,
-discards five, and says so: `"""Do nothing: Agents maintain pages and INDEX.md
-during the mission."""` It has no callers.
+The unused post-mission Wiki lifecycle hook was removed. Wiki lifecycle now
+exports only `ensure_project_wiki()`; Agents maintain pages and `INDEX.md`
+during the mission.
 
-Keep `ensure_project_wiki()` at `:22`.
-**Verify:** repo-wide reference search; `pytest tests/test_wiki_bootstrap.py tests/test_minimal_skill_wiki.py`.
+**Verified:** repo-wide reference search; `pytest tests/test_wiki_bootstrap.py tests/test_minimal_skill_wiki.py`.
 
 ### 2. Delete the 31 unreferenced event types
 

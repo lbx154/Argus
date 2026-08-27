@@ -33,14 +33,12 @@ English version: [simplification-plan.md](simplification-plan.md)
 
 自上而下做。每一步在下一步开始前都可验证。
 
-### 1. 删掉那个空转的 Wiki 生命周期 API —— 可证明安全
+### 1. 删掉那个空转的 Wiki 生命周期 API —— 已完成
 
-`wiki/lifecycle.py:54` 的 `maintain_wikis_after_mission()` 接收七个参数、丢掉五个，而且自己
-就写着：`"""Do nothing: Agents maintain pages and INDEX.md during the mission."""`
-**它没有任何调用方。**
+未使用的任务后 Wiki 生命周期钩子已删除。Wiki 生命周期现在只导出
+`ensure_project_wiki()`；Agent 在任务期间维护页面和 `INDEX.md`。
 
-保留 `:22` 的 `ensure_project_wiki()`。
-**验证：** 全仓引用搜索；`pytest tests/test_wiki_bootstrap.py tests/test_minimal_skill_wiki.py`。
+**已验证：** 全仓引用搜索；`pytest tests/test_wiki_bootstrap.py tests/test_minimal_skill_wiki.py`。
 
 ### 2. 删掉 31 个未被引用的事件类型
 
