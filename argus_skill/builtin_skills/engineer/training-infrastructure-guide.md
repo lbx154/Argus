@@ -189,8 +189,8 @@ The headline run must actually *use* the machine.
    (`code/run_condition.py` or similar) hard-codes a low
    `gpu_memory_utilization` / `max_num_seqs`, raise the defaults or pass larger
    values rather than inheriting the trickle.
-5. **Verify, don't assume.** While the run is live, check actual utilization
-   (`nvidia-smi` or an equivalent project-owned probe) at least once and record
+5. **Verify, don't assume.** Read the resource ledger's probe facts while the
+   run is live and record
    **peak VRAM per GPU, observed GPU util%, and throughput (step time or
    samples/sec)** in the run's `manifest.json`/report. "I launched a distributed
    command" is not evidence; measured utilization is. A run that trained at a
@@ -262,7 +262,9 @@ These resources are allocated to you. Use them.
 **GPU**:
 - Config file: `~/.argus-skill/capabilities/gpu_resources.json`
 - Read with: `json.load(open(os.path.expanduser('~/.argus-skill/capabilities/gpu_resources.json')))`
-- `CUDA_VISIBLE_DEVICES` is auto-set by the daemon. All training/inference inherits it.
+- Static capability visibility is a constraint, not free-capacity evidence. A
+  declared subagent demand receives the authoritative CUDA/ROCm visibility env
+  from its active ledger grant at launch.
 
 **API (for reward models, VLM scoring, image generation)**:
 - Load named routes with `argus_skill.tools.capability_vault.load_model_api_route`; never open or print the capability file directly.
@@ -303,6 +305,14 @@ These resources are allocated to you. Use them.
 **Subagent** (for long GPU tasks):
 - Default stable launch: `python -m argus_skill.tools.subagent submit --task-id <id> --mode direct --command '.venv/bin/python ...'`
 - Semantic live supervision, only when justified: `python -m argus_skill.tools.subagent submit --task-id <id> --mode supervised --run-dir experiments/<id> --command '.venv/bin/python ...'`
+- Declare accelerator demand honestly with `--accelerator`, `--gpu-count`,
+  `--gpu-mem-mib`, `--expected-duration`, `--checkpointable`, and a one-line
+  `--intent`. Never call `nvidia-smi` or poll for a GPU inside the command.
+  `waiting_resource` is a healthy wait: trust it; queue and holder intents are
+  visible to every participant through the ledger.
+- A yield request is a fact, not preemption. The holder judges whether to
+  checkpoint/release or records a reason with
+  `python -m argus_skill.tools.resource_ledger yield-response`.
 - For CPU-exclusive preprocessing/evaluation, add `--cpu-count N` (automatic
   disjoint selection) or `--cpu-ids i,j` (exact allocation). Admission happens
   before task/log/run artifacts, and the child process inherits the selected
@@ -328,17 +338,15 @@ These resources are allocated to you. Use them.
   progress signature has stopped advancing.
 - Do NOT block — submit and continue other work.
 No project helper code is pre-seeded. Inspect the repository first, then create only
-the smallest helpers the actual experiment needs. GPU discovery, run bookkeeping,
-and condition fan-out belong to the project implementation and must be tested there;
-do not assume fixed filenames or APIs supplied by the harness.
+the smallest helpers the actual experiment needs. Run bookkeeping and condition
+fan-out belong to the project; device discovery and admission belong to the ledger.
 
-**Multi-GPU utilization** (this box has multiple GPUs — use them):
-- One large job that needs all GPUs → declare one condition with `"gpus": "0,1,2,3"` in
-  `MATRIX.json` and launch your framework's distributed runner inside its command
+**Multi-GPU utilization**:
+- One large job that needs multiple GPUs → declare its count with `--gpu-count` and
+  launch your framework's distributed runner inside its command
   (torchrun / accelerate / deepspeed / vLLM `--tensor-parallel-size`).
-- Several independent conditions → give each a disjoint GPU subset (`gpu_policy:
-  "fanout_one_gpu"` or explicit `"gpus"`) so they train/evaluate in PARALLEL on
-  different GPUs. Never leave allocated GPUs idle while work is queued.
+- Several independent conditions → submit each with an honest separate demand;
+  the ledger grants disjoint devices when capacity exists.
 - Never run two parallel conditions on the same GPU unless you have measured the memory
   headroom; `run_experiments.py` warns on oversubscription.
 

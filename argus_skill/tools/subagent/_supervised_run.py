@@ -54,6 +54,13 @@ from ._registry import (
     _write_task,
 )
 from ._reporting import _alert_engineer
+from ._resource_admission import (
+    ResourceLease,
+    acquire_for_task,
+    command_env,
+    record_renewal_failure,
+    yield_facts_for_task,
+)
 from ._supervised_preflight import _next_monitor_interval, _supervisor_preflight_with_usage
 from ._text import _strip_code_fence, _tail_file
 
@@ -148,6 +155,16 @@ def _supervisor_check_with_usage(
         prompt += f"=== progress.jsonl (last 1500 chars) ===\n{progress_tail}\n\n"
     if status_tail:
         prompt += f"=== status.json ===\n{status_tail}\n\n"
+    yield_requests = yield_facts_for_task(task_id)
+    if yield_requests:
+        prompt += (
+            "=== resource yield requests (facts, never an automatic command) ===\n"
+            + json.dumps(yield_requests, ensure_ascii=False, indent=2)
+            + "\nSomeone asks for the card. Judge whether this run should checkpoint "
+            "and release it or continue; a request alone never authorizes a kill. "
+            "If continuing, give the Engineer a concrete reason to record with "
+            "resource-ledger yield-response.\n\n"
+        )
 
     prompt += (
         "Judge health by whatever signals appear — this may be supervised\n"
@@ -576,6 +593,7 @@ def _run_supervised(
     supervisor_thread_id: str | None = None
     supervisor_usage_totals = _ZERO_USAGE_TUPLE
     guard_status_fields: dict[str, str] = {}
+    resource_lease: ResourceLease | None = None
     # Resolve run_dir once relative to the task cwd so the supervisor reads the
     # right progress/status and writes STOP where RunWriter watches.
     resolved_run_dir: str | None = None
@@ -744,6 +762,11 @@ def _run_supervised(
                     task_id, "EARLY-STOPPED", final_td, cwd, report)
                 return
 
+        resource_lease = acquire_for_task(
+            task_id,
+            mode="supervised",
+            project_root=Path.cwd(),
+        )
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             proc = _launch_durable_command(
                 task_id=task_id,
@@ -752,6 +775,7 @@ def _run_supervised(
                 stdout=out,
                 stderr=err,
                 cwd=cwd,
+                env=command_env(resource_lease),
             )
             command_identity = _process_identity(proc.pid)
             current_interval = min(
@@ -801,6 +825,8 @@ def _run_supervised(
                     break  # Process exited
                 except subprocess.TimeoutExpired:
                     pass  # Still running, do supervisor check
+                if resource_lease is not None and not resource_lease.renew():
+                    record_renewal_failure(task_id, resource_lease)
 
                 elapsed = time.time() - start_time
                 if elapsed > timeout:
@@ -968,6 +994,8 @@ def _run_supervised(
         report = _alert_engineer(task_id, "CRASHED", td)
         _persist_experiment_record(task_id, "CRASHED", td, cwd, report)
     finally:
+        if resource_lease is not None:
+            resource_lease.release()
         release_experiment_launch_claim(
             task_id=task_id,
             cwd=cwd,

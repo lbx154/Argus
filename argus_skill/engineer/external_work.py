@@ -20,7 +20,7 @@ from ..core.process_identity import process_identity_is_running
 EXTERNAL_WORK_REGISTRY = ".argus_external_work"
 EXTERNAL_WORK_PROTOCOL_VERSION = 1
 _SUBAGENT_INFLIGHT_STATES = frozenset({
-    "running", "starting", "preflight", "discussing",
+    "running", "starting", "preflight", "waiting_resource", "discussing",
 })
 _SUBAGENT_DEGRADED_HEALTH = frozenset({"degrading", "stuck", "diverging"})
 _CADENCE_FLOOR_SECONDS = 30.0
@@ -55,6 +55,7 @@ class ExternalWorkStatus:
     activity_paths: tuple[str, ...] = ()
     run_id: str = ""
     started_at: float = 0.0
+    facts: tuple[str, ...] = ()
 
     @property
     def waitable(self) -> bool:
@@ -359,11 +360,57 @@ def _subagent_status(
     exit_status_exists = bool(
         exit_status_path and Path(exit_status_path).is_file()
     )
+    resource_facts: list[str] = []
+    resource_wait = record.get("resource_wait")
+    if state_value == "waiting_resource" and isinstance(resource_wait, dict):
+        poll_after_seconds = max(
+            1.0,
+            _coerce_float(resource_wait.get("poll_after_seconds"), poll_after_seconds),
+        )
+        holders = resource_wait.get("holders")
+        holder_intents = [
+            str(item.get("intent") or "(intent not declared)")
+            for item in holders or []
+            if isinstance(item, dict)
+        ]
+        resource_facts.append(
+            f"resource queue position {resource_wait.get('position')}; "
+            f"holder intents: {', '.join(holder_intents) or '(none visible)'}"
+        )
+    ledger_root = str(record.get("resource_ledger_root") or "").strip()
+    grant_id = str(record.get("resource_grant_id") or "").strip()
+    if (
+        ledger_root
+        and grant_id
+        and Path(ledger_root).is_absolute()
+        and Path(ledger_root).is_dir()
+    ):
+        try:
+            from ..tools.resource_ledger.ledger import ResourceLedger  # noqa: PLC0415
+
+            ledger_status = ResourceLedger(root=ledger_root).status(refresh_probe=False)
+            grant = next(
+                (item for item in ledger_status["grants"] if item.get("id") == grant_id),
+                None,
+            )
+            for request in (grant or {}).get("yield_requests", []):
+                if not isinstance(request, dict):
+                    continue
+                response = request.get("response")
+                fact = f"someone asks for the card: {request.get('reason', '')}"
+                if response:
+                    fact += f"; holder response: {response.get('decision')}: {response.get('reason')}"
+                resource_facts.append(fact)
+        except (OSError, ValueError):
+            pass
     if state_value not in _SUBAGENT_INFLIGHT_STATES:
         state = ExternalWorkState.TERMINAL
         reason = str(record.get("timeout_message") or "").strip() or (
             f"subagent state={state_value or 'unknown'}"
         )
+    elif state_value == "waiting_resource" and worker_alive:
+        state = ExternalWorkState.RUNNING_HEALTHY
+        reason = resource_facts[0] if resource_facts else "waiting for a resource grant"
     elif mode == "direct" and exit_status_exists:
         state = ExternalWorkState.TERMINAL
         reason = "direct subagent exit receipt is present"
@@ -417,6 +464,7 @@ def _subagent_status(
         evidence_paths=_safe_relative_paths(record.get("evidence_paths")),
         run_id=str(record.get("run_id") or "").strip()[:240],
         started_at=_coerce_float(record.get("started_at"), 0.0),
+        facts=tuple(resource_facts),
     )
 
 
@@ -569,6 +617,9 @@ def render_external_work_advisory(
         lines.append(
             f"- `{status.work_id}` ({status.source}): {status.state.value}{suffix}"
         )
+        for fact in status.facts:
+            if fact != detail:
+                lines.append(f"  - fact: {fact}")
     if any(status.waitable for status in statuses):
         lines.extend([
             "If all remaining work depends on one RUNNING_HEALTHY item, end your response with one JSON line:",

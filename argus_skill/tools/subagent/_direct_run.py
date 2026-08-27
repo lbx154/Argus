@@ -32,6 +32,12 @@ from ._registry import (
     _write_task,
 )
 from ._reporting import _alert_engineer
+from ._resource_admission import (
+    ResourceLease,
+    acquire_for_task,
+    command_env,
+    record_renewal_failure,
+)
 from ._text import _tail_file
 
 log = logging.getLogger(__name__)
@@ -347,6 +353,7 @@ def _run_direct(
     }
     worker_identity = _process_identity(os.getpid())
     claim_owner = f"{run_id}:{os.getpid()}:{time.time_ns()}"
+    resource_lease: ResourceLease | None = None
     try:
         rejected, concern = experiment_launch_preflight(
             task_id=task_id,
@@ -376,6 +383,11 @@ def _run_direct(
             _write_task(task_id, td)
             _alert_engineer(task_id, "PREFLIGHT-REJECTED", td)
             return
+        resource_lease = acquire_for_task(
+            task_id,
+            mode="direct",
+            project_root=Path.cwd(),
+        )
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             proc = _launch_durable_command(
                 task_id=task_id,
@@ -384,6 +396,7 @@ def _run_direct(
                 stdout=out,
                 stderr=err,
                 cwd=cwd,
+                env=command_env(resource_lease),
             )
             command_identity = _process_identity(proc.pid)
             running_task = _apply_supervisor_usage_fields({
@@ -403,7 +416,21 @@ def _run_direct(
             }, model="", totals=_ZERO_USAGE_TUPLE)
             _write_task(task_id, running_task)
             try:
-                proc.wait(timeout=timeout)
+                if resource_lease is None:
+                    proc.wait(timeout=timeout)
+                else:
+                    deadline = time.monotonic() + timeout
+                    renew_every = max(1.0, resource_lease.ttl_seconds / 3.0)
+                    while True:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise subprocess.TimeoutExpired(proc.args, timeout)
+                        try:
+                            proc.wait(timeout=min(renew_every, remaining))
+                            break
+                        except subprocess.TimeoutExpired:
+                            if not resource_lease.renew():
+                                record_renewal_failure(task_id, resource_lease)
             except subprocess.TimeoutExpired:
                 # Kill the whole process group, not just the shell: the command
                 # runs with start_new_session=True, so a GPU trainer it spawned
@@ -473,6 +500,8 @@ def _run_direct(
         _write_task(task_id, td)
         _alert_engineer(task_id, "CRASHED", td)
     finally:
+        if resource_lease is not None:
+            resource_lease.release()
         release_experiment_launch_claim(
             task_id=task_id,
             cwd=cwd,

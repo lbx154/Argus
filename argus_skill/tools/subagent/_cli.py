@@ -41,8 +41,12 @@ from ._registry import (
     reconcile_terminal_task,
 )
 from ._supervised_run import _run_supervised
+from ..resource_ledger.cli import parse_duration
+from ..resource_ledger.ledger import normalize_demand
 
-_ACTIVE_STATES = frozenset({"starting", "preflight", "running", "discussing"})
+_ACTIVE_STATES = frozenset({
+    "starting", "preflight", "waiting_resource", "running", "discussing",
+})
 _DEFAULT_TIMEOUT_SECONDS = 7200
 
 
@@ -90,6 +94,31 @@ def _parse_worker_cpu_ids(value: str | None) -> tuple[int, ...]:
     if not value:
         return ()
     return tuple(int(part.strip()) for part in value.split(",") if part.strip())
+
+
+def _declared_resource_demand(args: argparse.Namespace) -> dict | None:
+    values = (
+        getattr(args, "accelerator", None),
+        getattr(args, "gpu_count", None),
+        getattr(args, "gpu_mem_mib", None),
+        getattr(args, "expected_duration", None),
+        getattr(args, "checkpointable", None),
+        getattr(args, "intent", None),
+    )
+    if all(value is None for value in values):
+        return None
+    accelerator = getattr(args, "accelerator", None) or "any"
+    count = getattr(args, "gpu_count", None)
+    if count is None:
+        count = 0 if accelerator == "none" else 1
+    return normalize_demand({
+        "accelerator": accelerator,
+        "device_count": count,
+        "mem_mib_estimate": getattr(args, "gpu_mem_mib", None) or 0,
+        "expected_duration_seconds": getattr(args, "expected_duration", None) or 0,
+        "checkpointable": bool(getattr(args, "checkpointable", None)),
+        "intent": getattr(args, "intent", None) or "",
+    })
 
 
 def _windows_worker_command(
@@ -292,6 +321,11 @@ def cmd_submit(args: argparse.Namespace) -> int:
     registry_cwd = str(Path.cwd().resolve())
     mode = args.mode
     run_id = f"{task_id}-{time.time_ns()}"
+    try:
+        resource_demand = _declared_resource_demand(args)
+    except ValueError as exc:
+        print(json.dumps({"error": f"invalid resource demand: {exc}"}))
+        return 1
 
     # Resolve the run directory: prefer an explicit --run-dir, else recover it
     # from the command itself (commands already carry --run-dir). Store it as an
@@ -408,6 +442,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "timeout_seconds": timeout_seconds,
                 "timeout_defaulted": timeout_defaulted,
             }
+            if resource_demand is not None:
+                initial_task["resource_demand"] = resource_demand
             if selected_cpu_ids:
                 initial_task["cpu_ids"] = list(selected_cpu_ids)
                 initial_task["cpu_count"] = len(selected_cpu_ids)
@@ -474,6 +510,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 task_id,
             ]),
         }
+        if resource_demand is not None:
+            result["resource_demand"] = resource_demand
         if timeout_notice:
             result["timeout_notice"] = timeout_notice
         print(json.dumps(result))
@@ -526,6 +564,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 task_id,
             ]),
         }
+        if resource_demand is not None:
+            result["resource_demand"] = resource_demand
         if timeout_notice:
             result["timeout_notice"] = timeout_notice
         print(json.dumps(result))
@@ -587,7 +627,9 @@ def cmd_submit(args: argparse.Namespace) -> int:
 # failure, so polling its status must exit 0 — otherwise the engineer's shell
 # flags every poll as a failed command and wastes rounds working around a
 # non-error. Only genuine failures get a non-zero exit.
-_OK_STATES = frozenset({"done", "running", "starting", "preflight", "early_stopped"})
+_OK_STATES = frozenset({
+    "done", "running", "starting", "preflight", "waiting_resource", "early_stopped",
+})
 
 _FAILED_STATES = frozenset({"error", "crashed", "timeout"})
 
@@ -697,16 +739,17 @@ def cmd_list(_args: argparse.Namespace) -> int:
 
     # Update crashed tasks
     for task in tasks:
-        if task.get("state") in {"running", "starting", "preflight"}:
+        if task.get("state") in {"running", "starting", "preflight", "waiting_resource"}:
             reconcile_terminal_task(str(task.get("task_id") or ""), task)
 
     # Summary table
     running = [t for t in tasks if t.get("state") == "running"]
+    waiting = [t for t in tasks if t.get("state") == "waiting_resource"]
     done = [t for t in tasks if t.get("state") == "done"]
     errors = [t for t in tasks if t.get("state") in ("error", "crashed", "timeout")]
     discussing = [t for t in tasks if t.get("state") == "discussing"]
 
-    print(f"Sub-agents: {len(running)} running, {len(done)} done, "
+    print(f"Sub-agents: {len(running)} running, {len(waiting)} waiting for resources, {len(done)} done, "
           f"{len(errors)} failed, {len(discussing)} awaiting your reply")
     print()
     for t in tasks:
@@ -716,7 +759,7 @@ def cmd_list(_args: argparse.Namespace) -> int:
         elapsed = t.get("elapsed_seconds", "")
         icon = {"done": "✅", "running": "⏳", "error": "❌",
                 "crashed": "💀", "timeout": "⏰", "early_stopped": "🛑",
-                "discussing": "💬"}.get(state, "?")
+                "waiting_resource": "⌛", "discussing": "💬"}.get(state, "?")
         elapsed_str = f" ({elapsed:.0f}s)" if isinstance(elapsed, (int, float)) else ""
         print(f"  {icon} {tid}: {state}{elapsed_str} — {desc}")
         if state == "discussing":
@@ -740,7 +783,7 @@ def cmd_wait(args: argparse.Namespace) -> int:
             print(json.dumps({"error": f"task '{args.task_id}' not found"}))
             return 1
         task = reconcile_terminal_task(args.task_id, task)
-        if task.get("state") not in ("running", "starting", "preflight"):
+        if task.get("state") not in ("running", "starting", "preflight", "waiting_resource"):
             print(json.dumps(task, indent=2))
             return 1 if task.get("state") in _FAILED_STATES else 0
         time.sleep(5)
@@ -859,6 +902,17 @@ def main() -> int:
     p_submit.add_argument("--no-preflight", action="store_true",
                           help="Skip the supervised-mode pre-launch RL config "
                                "preflight (escape hatch for a known-good config).")
+    p_submit.add_argument(
+        "--accelerator",
+        choices=["cuda", "rocm", "any", "none"],
+        default=None,
+        help="Declare accelerator demand; omit all demand flags for legacy behavior.",
+    )
+    p_submit.add_argument("--gpu-count", type=int, default=None)
+    p_submit.add_argument("--gpu-mem-mib", type=int, default=None)
+    p_submit.add_argument("--expected-duration", type=parse_duration, default=None)
+    p_submit.add_argument("--checkpointable", action="store_true", default=None)
+    p_submit.add_argument("--intent", default=None)
     cpu_group = p_submit.add_mutually_exclusive_group()
     cpu_group.add_argument(
         "--cpu-count",

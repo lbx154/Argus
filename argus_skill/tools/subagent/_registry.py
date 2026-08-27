@@ -182,6 +182,7 @@ def _launch_durable_command(
     cwd: str,
     stdout: Any,
     stderr: Any,
+    env: dict[str, str] | None = None,
 ) -> "subprocess.Popen[Any]":
     """Launch a command whose exit status survives loss of its Python owner."""
     exit_path = _exit_status_path(task_id, run_id).resolve()
@@ -212,12 +213,12 @@ def _launch_durable_command(
             "Move-Item -LiteralPath $__tmp -Destination $__exit -Force\n"
             "exit $__rc\n"
         )
-        env = _child_env()
-        env.setdefault("PYTHONUTF8", "1")
-        env.setdefault("PYTHONIOENCODING", "utf-8")
-        env["ARGUS_DURABLE_COMMAND"] = command
-        env["ARGUS_DURABLE_TMP"] = str(temporary)
-        env["ARGUS_DURABLE_EXIT"] = str(exit_path)
+        child_env = _child_env() if env is None else dict(env)
+        child_env.setdefault("PYTHONUTF8", "1")
+        child_env.setdefault("PYTHONIOENCODING", "utf-8")
+        child_env["ARGUS_DURABLE_COMMAND"] = command
+        child_env["ARGUS_DURABLE_TMP"] = str(temporary)
+        child_env["ARGUS_DURABLE_EXIT"] = str(exit_path)
         return subprocess.Popen(
             [
                 "powershell.exe",
@@ -229,7 +230,7 @@ def _launch_durable_command(
             stdout=stdout,
             stderr=stderr,
             cwd=cwd,
-            env=env,
+            env=child_env,
             creationflags=(
                 getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
                 | getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -249,7 +250,7 @@ def _launch_durable_command(
         stderr=stderr,
         cwd=cwd,
         start_new_session=os.name != "nt",
-        env=_child_env(),
+        env=_child_env() if env is None else env,
     )
 
 
@@ -271,17 +272,28 @@ def _write_task(
     if existing is None and len(str(task_id).encode("utf-8")) > 120:
         raise ValueError("task_id exceeds 120 UTF-8 bytes")
     if isinstance(existing, dict):
+        preserved_keys = [
+            "cpu_ids",
+            "cpu_count",
+            "cwd",
+            "timeout_seconds",
+            "timeout_defaulted",
+            "process_identity",
+            "worker_process_identity",
+        ]
+        if str(existing.get("run_id") or "") == str(data.get("run_id") or ""):
+            preserved_keys.extend([
+                "resource_demand",
+                "resource_grant_id",
+                "resource_grant",
+                "resource_enforcement",
+                "resource_warning",
+                "resource_ledger_root",
+                "resource_owner",
+            ])
         preserved_fields = {
             key: existing[key]
-            for key in (
-                "cpu_ids",
-                "cpu_count",
-                "cwd",
-                "timeout_seconds",
-                "timeout_defaulted",
-                "process_identity",
-                "worker_process_identity",
-            )
+            for key in preserved_keys
             if key not in data and key in existing
         }
         if preserved_fields:
@@ -448,7 +460,7 @@ def reconcile_terminal_task(
     registry_root: Path | str | None = None,
 ) -> dict[str, Any]:
     """Recover a terminal direct/supervised job after its worker owner died."""
-    if task.get("state") not in {"starting", "preflight", "running"}:
+    if task.get("state") not in {"starting", "preflight", "waiting_resource", "running"}:
         return task
     pid = int(task.get("pid") or 0)
     run_id = str(task.get("run_id") or "") or None
