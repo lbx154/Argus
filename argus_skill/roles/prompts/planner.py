@@ -231,6 +231,11 @@ def build_bounded_dag_prompt(
         "`|| true`, unconditional success, or an unmeasured unchanged-file claim.\n"
         "- Preserve the requested outcome and order. Do not add planning documents, "
         "cleanup, Git ceremony, duplicate verification, or unrelated research.\n"
+        "- For optimization work, first establish a task-relevant performance or "
+        "capability baseline and require a like-for-like before/after report. Measurable "
+        "performance or capability improvement is the objective; deletion is only a "
+        "means. Delete the superseded path instead of keeping old and new paths in "
+        "parallel, and never change a product interface solely for testability.\n"
         "- Preserve every operator-named execution mechanism and role-owned Skill. "
         "Planner's Skill catalog differs from Engineer's, so never declare an "
         "Engineer Skill unavailable from Planner visibility, add a fallback, or "
@@ -402,12 +407,10 @@ def build_continuous_prompt(
     if open_ended:
         standing_continuous_block = (
             "## Standing continuous objective\n"
-            "This campaign remains active until the operator stops it or a real "
-            "external blocker requires waiting. Completing one increment is not "
-            "project completion. Do not return `PROJECT_DONE=true`; after inspecting "
-            "the latest certified result, delegate the next distinct high-value task. "
-            "If no legal work can proceed, use `WAITING=true` with a concrete blocker "
-            "and recheck condition instead of declaring completion.\n\n"
+            "This campaign remains active until the operator stops it. After a materially "
+            "complete round, report and close by default. A new round needs one sentence "
+            "stating its expected value and reason and must target behavior reachable "
+            "through a real entry point.\n\n"
         )
 
     # Live search-altitude facts (NO verdict) so the planner can SEE the

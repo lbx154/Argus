@@ -138,6 +138,36 @@ def test_role_prompts_are_byte_identical_for_identical_state(tmp_path) -> None:
     assert first == second
 
 
+def test_optimization_policy_reaches_planner_and_engineer_prompts(tmp_path) -> None:
+    persist_vertical(tmp_path, "software")
+    continuous = build_continuous_prompt(
+        continuous_objective="Optimize inference.",
+        journal_tail="",
+        planning_cycle=0,
+        project_root=tmp_path,
+        state_root=tmp_path,
+    )
+    bounded = build_bounded_dag_prompt("Optimize inference.", project_root=tmp_path)
+    engineer_context = resolve_role_prompt(mission_request(tmp_path))
+    engineer = build_mission_prompt(
+        task="Optimize inference.",
+        skill_text="",
+        next_action=None,
+        role_banner=engineer_context.role_banner,
+    )
+    required = (
+        "performance or capability baseline",
+        "like-for-like before/after",
+        "deletion is only a means",
+        "solely for testability",
+    )
+
+    assert all(
+        all(phrase in prompt for phrase in required)
+        for prompt in (continuous, bounded, engineer)
+    )
+
+
 def test_consecutive_role_cycles_keep_a_large_common_prefix(tmp_path) -> None:
     persist_vertical(tmp_path, "software")
     append_directive(tmp_path, "Preserve every required fact.", expected_revision=0)

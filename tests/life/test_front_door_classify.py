@@ -12,6 +12,7 @@ from argus_skill.life.router import (
     build_front_door_prompt,
     classify_front_door,
 )
+from argus_skill.roles.prompts.planner import build_continuous_prompt
 
 
 class _FakeResult:
@@ -52,8 +53,18 @@ def _exec_sequence(*answers: str):
     return run_exec
 
 
-def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
+def test_front_door_prompt_has_a_strict_token_efficiency_budget(tmp_path) -> None:
     prompt = build_front_door_prompt("你好", active_mission=True)
+    standing = " ".join(
+        build_continuous_prompt(
+            continuous_objective="Keep improving the project.",
+            journal_tail="The prior round is materially complete.",
+            planning_cycle=1,
+            open_ended=True,
+            project_root=tmp_path,
+            state_root=tmp_path,
+        ).split()
+    )
 
     assert len(prompt) <= 3_000
     assert "live research" in prompt
@@ -88,6 +99,15 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
     assert "BOUNDED" in prompt
     assert "STANDING" in prompt
     assert "default BOUNDED" in prompt
+    assert all(
+        phrase in policy
+        for phrase, policy in (
+            ("casual unscoped work absent ongoing intent", prompt),
+            ("materially complete round", standing),
+            ("sentence stating its expected value and reason", standing),
+            ("behavior reachable through a real entry point", standing),
+        )
+    )
 
 
 def test_front_door_uses_process_decision_without_final_message() -> None:

@@ -147,6 +147,8 @@ def test_build_simple_prompt_is_minimal() -> None:
     assert "do not invent extra tasks or artifacts" in out
     assert "ask at most one question" in out
     assert "then wait" in out
+    assert "time-by-category cross-slices" in out
+    assert "reread the complete draft once" in out
 
 
 def test_build_simple_prompt_includes_identity_when_given() -> None:

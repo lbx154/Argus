@@ -190,7 +190,10 @@ def _reviewer_fragment(stage: str, scope: str, project_root: Path | None) -> str
     blocks: list[str] = [
         "## Research-program adjudication\n"
         "Judge whether the mission advanced the research plan's stated program, "
-        "not merely whether it completed its own scope."
+        "not merely whether it completed its own scope.\n"
+        "Review the full trial record, including discarded or archived failed rounds "
+        "and the protocol-change history; reviewing only the final showcase is not a "
+        "qualified review."
     ]
     # Reading the paper as a paper used to wait for the campaign to declare a
     # writing stage. They do not: run-07 held a twenty-page manuscript at
@@ -228,7 +231,7 @@ def _reviewer_fragment(stage: str, scope: str, project_root: Path | None) -> str
 
 
 def _engineer_fragment(project_root: Path | None) -> str:
-    """Name the figures this campaign has already drawn and not used.
+    """Require result-aware disclosure and name drawn but unused figures.
 
     The Engineer is the role that writes the paper and puts figures in it, and
     it is the one role the altitude facts never reach. So the Reviewer asks for
@@ -240,8 +243,14 @@ def _engineer_fragment(project_root: Path | None) -> str:
     Everything else about the manuscript the Engineer can open and see, and
     listing that here would be the host doing its looking for it.
     """
+    disclosure = (
+        "## Research result disclosure\n"
+        "Any protocol change, discarded sample or round, or rerun made after inspecting "
+        "results must be prominently disclosed in the report's main text, stating when "
+        "it happened, why, and how it affects the evidence."
+    )
     if project_root is None:
-        return ""
+        return disclosure
     try:
         from .paper_structural_minimums import validate_paper_structural_minimums
 
@@ -251,10 +260,10 @@ def _engineer_fragment(project_root: Path | None) -> str:
             if note.code == "figures_drawn_but_unused"
         ]
     except Exception:  # noqa: BLE001 - context is advisory
-        return ""
+        return disclosure
     if not unused:
-        return ""
-    return "## Already drawn\n" + unused[0] + "."
+        return disclosure
+    return disclosure + "\n\n## Already drawn\n" + unused[0] + "."
 
 
 def render_role_prompt_fragment(

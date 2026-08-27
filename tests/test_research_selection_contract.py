@@ -1616,9 +1616,9 @@ def test_the_engineer_is_told_which_figures_it_already_drew(tmp_path) -> None:
 
     assert "left_behind.pdf" in fragment()
 
-    # A campaign with nothing left over hears nothing.
+    # A campaign with nothing left over gets no unused-figure warning.
     (paper / "figures" / "left_behind.pdf").unlink()
-    assert fragment() == ""
+    assert "## Already drawn" not in fragment()
 
 
 def test_a_sound_round_can_still_report_an_unpublishable_programme() -> None:

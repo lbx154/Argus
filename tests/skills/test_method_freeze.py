@@ -82,3 +82,33 @@ def test_research_contract_review_prompt_renders_method_freeze_facts(
     assert "against the then-current manuscript" in prompt
     assert "the manuscript has changed since the freeze" in prompt
     assert frozen_digest not in prompt
+
+
+def test_research_prompts_disclose_changed_trials_and_review_the_full_record(
+    tmp_path: Path,
+) -> None:
+    contract = load_vertical_contract("research", project_root=tmp_path)
+    engineer = contract.prompt_fragment(
+        role="engineer",
+        operation="mission",
+        stage="research",
+        scope="",
+        project_root=tmp_path,
+    )
+    reviewer = contract.prompt_fragment(
+        role="reviewer",
+        operation="evaluate",
+        stage="review",
+        scope="",
+        project_root=tmp_path,
+    )
+
+    assert all(
+        phrase in prompt
+        for phrase, prompt in (
+            ("after inspecting results", engineer),
+            ("report's main text", engineer),
+            ("discarded or archived failed rounds", reviewer),
+            ("final showcase is not a qualified review", reviewer),
+        )
+    )
