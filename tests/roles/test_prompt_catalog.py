@@ -1,18 +1,33 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.core.operator_context import (
+    OperatorContextStore,
+    append_directive,
+    append_operator_context,
+    append_preference,
+    build_operator_context_block,
+)
 from argus_skill.roles.prompts import (
     ChecklistMode,
     RoleName,
     RolePromptRequest,
     resolve_role_prompt,
 )
-from argus_skill.roles.prompts.engineer import mission_request
+from argus_skill.roles.prompts.engineer import (
+    assemble_round_prompt as assemble_engineer_prompt,
+)
+from argus_skill.roles.prompts.engineer import (
+    build_mission_prompt,
+    mission_request,
+)
 from argus_skill.roles.prompts.manager import (
     FRONT_DOOR,
+    build_vertical_decision_prompt,
     stage_decision_request,
 )
 from argus_skill.roles.prompts.planner import (
@@ -21,7 +36,11 @@ from argus_skill.roles.prompts.planner import (
     continuous_request,
     preview_request,
 )
-from argus_skill.roles.prompts.reviewer import evaluate_request
+from argus_skill.roles.prompts.reviewer import (
+    assemble_reviewer_prompt,
+    evaluate_request,
+    render_reviewer_prompt,
+)
 from argus_skill.skills.stage_machine import (
     format_full_pipeline_checklist,
     format_stage_checklist,
@@ -35,6 +54,108 @@ def _set_stage(project_root, stage: str) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["current_stage"] = stage
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _common_prefix_ratio(first: str, second: str) -> float:
+    common = 0
+    for left, right in zip(first.encode(), second.encode()):
+        if left != right:
+            break
+        common += 1
+    return common / min(len(first.encode()), len(second.encode()))
+
+
+def _cache_probe_prompts(root, cycle: int, *, reverse_catalog: bool = False):
+    contexts = {
+        role: build_operator_context_block(role, root, consume_once=False)[0]
+        for role in ("manager", "planner", "engineer", "reviewer")
+    }
+    catalog = (
+        {"software": "software engineering", "research": "research"}
+        if not reverse_catalog
+        else {"research": "research", "software": "software engineering"}
+    )
+    manager = append_operator_context(
+        build_vertical_decision_prompt(
+            "Fix prompt caching without reducing quality.",
+            verticals_with_purpose=catalog,
+            domains_with_purpose={"physics": "physics"},
+        ),
+        contexts["manager"],
+    )
+    planner = build_continuous_prompt(
+        continuous_objective="Fix prompt caching without reducing quality.",
+        journal_tail=f"cycle {cycle - 1} completed work",
+        planning_cycle=cycle - 1,
+        runtime_change_summary=f"cycle {cycle} runtime facts",
+        project_root=root,
+        state_root=root,
+    )
+    engineer = assemble_engineer_prompt(
+        build_mission_prompt(
+            task="Implement the cache-stability fix.",
+            skill_text="## Skill\nPreserve prompt meaning.",
+            next_action=f"Address reviewer finding from cycle {cycle}.",
+            original_request="Fix prompt caching without reducing quality.",
+            project_root=root,
+            operator_context=contexts["engineer"],
+        ),
+        checkpoint_block=f"## Checkpoint\ncycle {cycle} state",
+    )
+    owner = SimpleNamespace(skill_store=None, mission=None, _last_prompt_block_stats={})
+    static, delta = render_reviewer_prompt(
+        owner,
+        objective="Implement the cache-stability fix.",
+        original_objective="Fix prompt caching without reducing quality.",
+        operator_messages=[contexts["reviewer"]],
+        planner_review_instruction="Verify behavior and cache-prefix stability.",
+        round_index=cycle,
+        session_id="session-stable",
+        main_summary=f"cycle {cycle} implementation result",
+        main_error=None,
+        round_max=3,
+        working_dir=root,
+        vertical_state_root=root,
+        vertical="software",
+        preselected_skill_block="",
+    )
+    return {
+        "manager": manager,
+        "planner": planner,
+        "engineer": engineer,
+        "reviewer": assemble_reviewer_prompt(static, delta),
+    }
+
+
+def test_role_prompts_are_byte_identical_for_identical_state(tmp_path) -> None:
+    persist_vertical(tmp_path, "software")
+    append_directive(tmp_path, "Preserve every required fact.", expected_revision=0)
+
+    first = _cache_probe_prompts(tmp_path, 1)
+    second = _cache_probe_prompts(tmp_path, 1, reverse_catalog=True)
+
+    assert first == second
+
+
+def test_consecutive_role_cycles_keep_a_large_common_prefix(tmp_path) -> None:
+    persist_vertical(tmp_path, "software")
+    append_directive(tmp_path, "Preserve every required fact.", expected_revision=0)
+    first = _cache_probe_prompts(tmp_path, 1)
+    append_preference(
+        tmp_path,
+        kind="workflow",
+        value="Keep live facts near the end.",
+        expected_revision=OperatorContextStore(tmp_path).revision,
+    )
+    second = _cache_probe_prompts(tmp_path, 2)
+
+    ratios = {
+        role: _common_prefix_ratio(prompt, second[role])
+        for role, prompt in first.items()
+    }
+    # The post-fix probe measured a 0.768 minimum (Planner); 0.75 protects
+    # that stable prefix while leaving room for intended role-text edits.
+    assert min(ratios.values()) >= 0.75, ratios
 
 
 def test_engineer_banner_resolves_through_role_catalog(tmp_path) -> None:

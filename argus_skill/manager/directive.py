@@ -291,18 +291,36 @@ def render_active_steering(state_root: Path | str | None) -> str:
         ]
     if not active:
         return ""
-    lines = [STEERING_HEADER]
-    for record in reversed(active):
+    directive_lines: list[str] = []
+    timestamp_lines: list[str] = []
+
+    def rendered() -> str:
+        return "\n".join(
+            [
+                STEERING_HEADER,
+                *directive_lines,
+                "## Steering record timestamps",
+                *timestamp_lines,
+            ]
+        )
+
+    for index, record in enumerate(reversed(active), start=1):
         timestamp = str(record.get("timestamp") or "unknown time")
         text = " ".join(str(record.get("text") or "").split())
-        line = f"- {timestamp}: {text}"
-        if len("\n".join((*lines, line))) > STEERING_MAX_CHARS:
-            remaining = STEERING_MAX_CHARS - len("\n".join(lines)) - 1
+        line = f"- {text}"
+        timestamp_line = f"- directive {index}: {timestamp}"
+        directive_lines.append(line)
+        timestamp_lines.append(timestamp_line)
+        if len(rendered()) > STEERING_MAX_CHARS:
+            directive_lines.pop()
+            timestamp_lines.pop()
+            fixed = len(rendered()) + len(timestamp_line) + 2
+            remaining = STEERING_MAX_CHARS - fixed
             if remaining > 20:
-                lines.append(line[: max(0, remaining - 1)].rstrip() + "…")
+                directive_lines.append(line[: remaining - 1].rstrip() + "…")
+                timestamp_lines.append(timestamp_line)
             break
-        lines.append(line)
-    return "\n".join(lines)
+    return rendered()
 
 
 def _current_objective_sha256(state_root: Path | str) -> str:

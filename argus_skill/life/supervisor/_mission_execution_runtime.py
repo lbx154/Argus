@@ -49,8 +49,10 @@ class MissionExecutionRuntimeMixin:
             consume_once=False,
         )
         if operator_context:
+            # Live facts belong at the tail for provider prefix caching and
+            # model recency; role/task policy above remains byte-stable.
             prelude = (
-                operator_context + "\n\n---\n\n" + prelude
+                prelude + "\n\n---\n\n" + operator_context
                 if prelude
                 else operator_context
             )

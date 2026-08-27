@@ -117,14 +117,16 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
                 "`/ask` cannot answer inline. Send the message without `/ask` "
                 "to queue it as work instead."
             )
-        from ..core.operator_context import build_operator_context_block
+        from ..core.operator_context import (
+            append_operator_context,
+            build_operator_context_block,
+        )
 
         operator_context, _revision = build_operator_context_block(
             "manager", life_dir, consume_once=False
         )
         prompt = build_quick_reply_prompt(objective=question)
-        if operator_context:
-            prompt = operator_context + "\n\n" + prompt
+        prompt = append_operator_context(prompt, operator_context)
         result = gateway_run_exec(
             chat_state.get("manager_session") or runner,
             prompt=prompt,
@@ -760,10 +762,6 @@ def manager_rewrite(
             "manager", mem.project_root, consume_once=False
         )
         project_context = _rewrite_project_context(mem, sid)
-        if operator_context:
-            project_context = "\n\n".join(
-                part for part in (operator_context, project_context) if part
-            )
         rewrite = rewrite_prompt(
             runner,
             body,
@@ -771,6 +769,7 @@ def manager_rewrite(
             reasoning_effort=effort,
             run_label="manager-rewrite",
             project_context=project_context,
+            operator_context=operator_context,
         )
     return {
         "original": rewrite.original or body,

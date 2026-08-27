@@ -401,8 +401,8 @@ def main(argv: list[str] | None = None) -> int:
     launch_prelude = "\n\n".join(
         part
         for part in (
-            operator_context,
             _vertical_prelude(task, cwd=cwd, state_root=life_dir),
+            operator_context,
         )
         if part
     )

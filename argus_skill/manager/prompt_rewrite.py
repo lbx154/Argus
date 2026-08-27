@@ -248,6 +248,7 @@ def rewrite_prompt(
     run_label: str = "manager-rewrite",
     role_banner: str = "",
     project_context: str = "",
+    operator_context: str = "",
 ) -> PromptRewrite:
     """Ask the Manager to restate ``draft`` as an executable brief.
 
@@ -275,6 +276,7 @@ def rewrite_prompt(
                 original,
                 role_banner=role_banner,
                 project_context=project_context,
+                operator_context=operator_context,
             )
         )
     except Exception:  # noqa: BLE001 — keep the cockpit alive but surface failure

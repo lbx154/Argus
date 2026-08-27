@@ -769,15 +769,17 @@ class SelfReplyMixin:
                 else None
             )
 
-        from ..core.operator_context import build_operator_context_block
+        from ..core.operator_context import (
+            append_operator_context,
+            build_operator_context_block,
+        )
 
         operator_context, operator_context_revision = build_operator_context_block(
             "manager",
             getattr(self, "_manager_session_root", None),
             consume_once=False,
         )
-        if operator_context:
-            prompt = operator_context + "\n\n" + prompt
+        prompt = append_operator_context(prompt, operator_context)
 
         def _self_inactivity(snapshot: Any) -> str | None:
             try:

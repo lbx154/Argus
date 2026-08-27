@@ -285,7 +285,10 @@ def render_reviewer_prompt(
                 "## Manuscript-bound review validity (mechanical facts)\n"
                 + "\n".join(
                     f"- {fact['path']}: {fact['message']}"
-                    for fact in stale_review_facts
+                    for fact in sorted(
+                        stale_review_facts,
+                        key=lambda item: (str(item["path"]), str(item["message"])),
+                    )
                 )
                 + "\nTreat these records as stale facts, never as passed/certified. "
                 "Do not request a new model review merely because they are stale; "
@@ -684,9 +687,7 @@ def render_reviewer_prompt(
         + handoff_policy
         + "\n\n"
         + objective_block
-        + "Operator messages:\n"
-        f"{operator_text}\n\n"
-        "Planner guidance:\n"
+        + "Planner guidance:\n"
         f"{planner_review_instruction or 'none'}\n\n"
         + (optimize_banner + "\n\n" if optimize_banner else "")
     )
@@ -708,6 +709,10 @@ def render_reviewer_prompt(
         + sanitize_model_visible_text(main_summary[:6000])
         + "\n\n"
         + f"{evidence_block}"
+        # OperatorContext is intentionally the final live-facts block: this
+        # preserves the static cache prefix and improves steering recency.
+        + "Operator messages:\n"
+        + operator_text
     )
     objective_context = f"{objective_block}{operator_text}\n{planner_review_instruction or 'none'}"
     owner._last_prompt_block_stats = _prompt_block_stats(

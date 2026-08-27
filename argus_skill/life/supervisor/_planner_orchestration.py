@@ -109,7 +109,7 @@ class PlannerOrchestrationMixin:
         stage_rows: list[str] = []
         stages = pipeline.get("stages")
         if isinstance(stages, dict):
-            for name, value in list(stages.items())[:12]:
+            for name, value in sorted(stages.items())[:12]:
                 status = value.get("status") if isinstance(value, dict) else value
                 stage_rows.append(f"{name}:{status or 'unknown'}")
 
@@ -285,7 +285,9 @@ class PlannerOrchestrationMixin:
             "(root-cause fix, reduced scope, alternate method) or an explicit "
             "operator-escalation task instead.",
         ]
-        for failure in sorted(family_failures.values(), key=lambda f: -f.streak):
+        for failure in sorted(
+            family_failures.values(), key=lambda f: (-f.streak, f.family)
+        ):
             reason = (
                 f" (last failure: {failure.last_reason})"
                 if failure.last_reason

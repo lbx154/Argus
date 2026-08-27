@@ -68,13 +68,11 @@ class _FrontDoorMixin:
             _pi = str(getattr(_backend, "backend", "")) == "pi"
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
+                from ..core.operator_context import append_operator_context
+
                 return gateway_run_exec(
                     _backend,
-                    prompt=(
-                        operator_context + "\n\n" + prompt
-                        if operator_context
-                        else prompt
-                    ),
+                    prompt=append_operator_context(prompt, operator_context),
                     options=RunnerOptions(
                         model=resolve_manager_classify_model(
                             backend=getattr(_backend, "backend", None),

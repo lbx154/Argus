@@ -76,6 +76,10 @@ def assemble_round_prompt(
     external_work_advisory: str = "",
 ) -> str:
     """Append all dynamic Engineer round fragments in one stable order."""
+    marker = "\n\n## OperatorContext\n"
+    stable_prompt, separator, operator_tail = prompt.partition(marker)
+    if separator:
+        prompt = stable_prompt
     tail = [
         sanitize_model_visible_text(block)
         for block in (
@@ -85,6 +89,8 @@ def assemble_round_prompt(
         )
         if block
     ]
+    if separator:
+        tail.append("## OperatorContext\n" + operator_tail)
     if not tail:
         return prompt
     return prompt + "\n\n" + "\n\n".join(tail)
@@ -165,8 +171,7 @@ def build_mission_prompt(
         project_skill_dir=project_skill_dir,
     )
     if compact_team and include_static:
-        sections = [operator_context.strip(), EFFECTIVE_TASK_CONTRACT]
-        sections = [section for section in sections if section]
+        sections = [EFFECTIVE_TASK_CONTRACT]
         if shell_summary:
             sections.append(shell_summary)
         if role_banner.strip():
@@ -200,11 +205,11 @@ def build_mission_prompt(
                 "NEXT_OWNER=reviewer"
             )
         )
-        return "\n\n".join(sections)
+        from ...core.operator_context import append_operator_context
 
-    sections: list[str] = [
-        section for section in (operator_context.strip(), EFFECTIVE_TASK_CONTRACT) if section
-    ]
+        return append_operator_context("\n\n".join(sections), operator_context)
+
+    sections: list[str] = [EFFECTIVE_TASK_CONTRACT]
     if shell_summary:
         sections.append(shell_summary)
     delta_sections: list[str] = []
@@ -291,7 +296,10 @@ def build_mission_prompt(
     static_text = "\n\n".join(sections)
     delta_text = "\n\n".join(delta_sections)
     if include_static:
-        return static_text + ("\n\n" + delta_text if delta_text else "")
+        from ...core.operator_context import append_operator_context
+
+        prompt = static_text + ("\n\n" + delta_text if delta_text else "")
+        return append_operator_context(prompt, operator_context)
     compact = (
         "## Continuation turn\n"
         "Read CHECKPOINT.md, then execute the Reviewer next action. Do not repeat an "
@@ -315,7 +323,10 @@ def build_mission_prompt(
         compact = shell_contract + "\n\n" + compact
     if learning_block:
         compact += "\n\n" + learning_block
-    return compact + ("\n\n" + delta_text if delta_text else "")
+    from ...core.operator_context import append_operator_context
+
+    prompt = compact + ("\n\n" + delta_text if delta_text else "")
+    return append_operator_context(prompt, operator_context)
 
 
 def mission_request(

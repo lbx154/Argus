@@ -258,7 +258,9 @@ def build_bounded_dag_prompt(
             "planner", policy_root
         )
         if operator_context:
-            prompt = operator_context + "\n\n" + prompt
+            from ...core.operator_context import append_operator_context
+
+            prompt = append_operator_context(prompt, operator_context)
     return prompt
 
 
@@ -303,6 +305,7 @@ def build_continuous_prompt(
     memory_maintenance_enabled: bool = True,
     project_root: Path | str | None = None,
     state_root: Path | str | None = None,
+    trailing_policy: str = "",
 ) -> str:
     """Build the continuous Planner prompt from the unified role catalog."""
     from ...core.project import resolve_project_root
@@ -534,7 +537,6 @@ def build_continuous_prompt(
             "planner", state_root
         )
     return _join_prompt_blocks(
-        operator_context,
         ground_truth_mandate(
             "planner",
             workflow_mode=resolve_evidence_mode(_proot),
@@ -573,6 +575,8 @@ def build_continuous_prompt(
         "Use only the focused read/search budget above, delegate the next concrete "
         "work or report a real "
         "blocker, then end with the Planner decision footer.",
+        trailing_policy,
+        operator_context,
     )
 
 
@@ -586,6 +590,7 @@ def build_continuous_resume_prompt(
     mission: Any | None = None,
     project_root: Path | str | None = None,
     state_root: Path | str | None = None,
+    trailing_policy: str = "",
 ) -> str:
     """Render only the changing Planner delta for a resumable role session.
 
@@ -617,7 +622,6 @@ def build_continuous_resume_prompt(
             "planner", state_root
         )
     return _join_prompt_blocks(
-        operator_context,
         "## Continued Planner cycle\n"
         "You are resuming your own bounded Planner session. The original role "
         "contract remains binding; do not replay old exploration or re-author "
@@ -653,6 +657,8 @@ def build_continuous_resume_prompt(
         f"This is planning cycle #{planning_cycle + 1}.",
         "Inspect only what is needed to choose the next concrete task or a real "
         "blocker, then end with the Planner decision footer.",
+        trailing_policy,
+        operator_context,
     )
 
 
