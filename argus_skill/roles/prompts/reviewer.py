@@ -267,6 +267,33 @@ def render_reviewer_prompt(
     # Reviewer receives Skill-library paths and searches independently; no
     # Skill body is selected or injected by the runtime.
     _proot = resolve_project_root(vertical_state_root or working_dir)
+    try:
+        from ...core.manuscript_snapshot import (
+            manuscript_review_artifact_statuses,
+        )
+        from ...verticals.research.method_freeze import research_review_prompt_block
+
+        freeze_facts_block = research_review_prompt_block(_proot)
+        stale_review_facts = [
+            fact
+            for fact in manuscript_review_artifact_statuses(_proot)
+            if fact["status"] != "current"
+        ]
+        review_validity_block = ""
+        if stale_review_facts:
+            review_validity_block = (
+                "## Manuscript-bound review validity (mechanical facts)\n"
+                + "\n".join(
+                    f"- {fact['path']}: {fact['message']}"
+                    for fact in stale_review_facts
+                )
+                + "\nTreat these records as stale facts, never as passed/certified. "
+                "Do not request a new model review merely because they are stale; "
+                "judge the next action under the current plan.\n\n"
+            )
+    except Exception:  # noqa: BLE001 - optional paper facts never break review
+        freeze_facts_block = ""
+        review_validity_block = ""
     scope_normalized = (scope or "").strip().lower().replace("-", "_")
     _persisted = _persisted_vertical(_proot)
     explicit_vertical = str(vertical or "").strip()
@@ -646,6 +673,8 @@ def render_reviewer_prompt(
         + wiki_curator_skill_block
         + direct_memory_edit_block
         + matched_review_skill_block
+        + review_validity_block
+        + freeze_facts_block
         + stage_checklist
         + "\n\n"
         + rollback_block
@@ -690,6 +719,8 @@ def render_reviewer_prompt(
             "direct_memory": direct_memory_edit_block,
             "wiki_curator": wiki_curator_skill_block,
             "research_target": verification_instruction,
+            "manuscript_review_validity": review_validity_block,
+            "method_freeze": freeze_facts_block,
             "objective_context": objective_context,
             "checkpoint": checkpoint_block,
             "execution_log_audit": engineer_log_audit_block,

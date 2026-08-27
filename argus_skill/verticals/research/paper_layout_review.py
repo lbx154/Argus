@@ -25,6 +25,7 @@ from argus_skill.tools.image_api import (
     _require_route,
 )
 
+from ...core.manuscript_snapshot import bind_manuscript_snapshot, manuscript_sha256
 from ._review_contract_constants import (
     LAYOUT_REVIEW_GENERATED_BY,
     LAYOUT_REVIEW_HISTORY_PATH,
@@ -105,6 +106,7 @@ def generate_layout_review(
     """Review the compiled paper layout and optionally persist review artifacts."""
 
     root = Path(project_root)
+    reviewed_manuscript_sha = manuscript_sha256(root)
     profile = venue or resolve_venue_profile(root)
     threshold = max(float(threshold), MIN_LAYOUT_SCORE)
     iteration = iteration or _next_iteration(root)
@@ -242,6 +244,12 @@ def generate_layout_review(
     }
     if vision_review is not None:
         result["vision_review"] = vision_review
+    bind_manuscript_snapshot(
+        result,
+        root,
+        recorded_at=result["created_at"],
+        sha256=reviewed_manuscript_sha,
+    )
 
     if write:
         _write_json(root / LAYOUT_REVIEW_JSON_PATH, result)

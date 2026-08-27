@@ -62,7 +62,7 @@ class PlanningCycleVerdictMixin:
         item_id = str(revision.get("item_id") or "")
         if item_id:
             item = next(
-                (row for row in self.memory.backlog.all() if row.id == item_id),
+                (row for row in self.memory.backlog.history() if row.id == item_id),
                 None,
             )
         if item is None:

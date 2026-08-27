@@ -4,7 +4,8 @@ Current storage shapes:
 
 - ``events.jsonl``: the canonical append-only mission/runtime timeline.
   ``EventJournal`` projects selected event types into compact history entries.
-- ``Backlog``: ordered ``backlog.jsonl`` of pending mission objectives.
+- ``Backlog``: ordered ``backlog.jsonl`` of live mission objectives plus an
+  append-only ``backlog.archive.jsonl`` of terminal rows.
   Status field on each row toggles ``pending`` → ``running`` → ``done``
   / ``failed`` / ``skipped`` / ``superseded``. We rewrite the whole file on status
   changes; the file is small (tens-to-hundreds of items).
@@ -42,8 +43,8 @@ from typing import Any, Callable, Iterable, Iterator
 
 import portalocker
 
-from ..core.prompt_example_tasks import is_prompt_example_task
 from ..core.event_catalog import EventType, canonical_event_type
+from ..core.prompt_example_tasks import is_prompt_example_task
 from ..planner.work_kind import DEFAULT_WORK_KIND, parse_work_kind
 
 _BACKLOG_THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
@@ -357,6 +358,22 @@ def _atomic_rewrite_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
                 tmp_path.unlink()
             except OSError:
                 pass
+
+
+def _append_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
+    """Append complete JSON rows while the caller holds the backlog lock."""
+    materialized = list(rows)
+    if not materialized:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for row in materialized:
+            handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+        handle.flush()
+        try:
+            os.fsync(handle.fileno())
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1003,14 +1020,36 @@ class Backlog:
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
+        self.archive_path = self.path.with_name(f"{self.path.stem}.archive.jsonl")
         self._lock_path = self.path.parent / f"{self.path.name}.lock"
 
     # --- io ---
     def _load(self) -> list[BacklogItem]:
         return [BacklogItem.from_jsonable(r) for r in _read_jsonl(self.path)]
 
+    def _load_archive(self) -> list[BacklogItem]:
+        return [
+            BacklogItem.from_jsonable(r)
+            for r in _read_jsonl(self.archive_path)
+        ]
+
     def _save(self, items: Iterable[BacklogItem]) -> None:
-        _atomic_rewrite_jsonl(self.path, (it.to_jsonable() for it in items))
+        # This partition is also the lazy migration: the first mutation of a
+        # legacy mixed backlog appends its terminal rows to the archive and
+        # rewrites only live rows to backlog.jsonl.
+        live: list[BacklogItem] = []
+        terminal: list[BacklogItem] = []
+        for item in items:
+            (terminal if item.status in _TERMINAL_STATUSES else live).append(item)
+        _append_jsonl(
+            self.archive_path,
+            (item.to_jsonable() for item in terminal),
+        )
+        _atomic_rewrite_jsonl(self.path, (item.to_jsonable() for item in live))
+
+    def _dependency_history(self, items: Iterable[BacklogItem]) -> list[BacklogItem]:
+        live = list(items)
+        return self._load_archive() if any(item.deps for item in live) else []
 
     @staticmethod
     def _done_ids(items: Iterable[BacklogItem]) -> set[str]:
@@ -1155,7 +1194,12 @@ class Backlog:
             rendered = "; ".join(" ↔ ".join(component) for component in cycles)
             raise ValueError(f"backlog dependency cycle: {rendered}")
 
-    def _cascade_blocked(self, items: list[BacklogItem]) -> bool:
+    def _cascade_blocked(
+        self,
+        items: list[BacklogItem],
+        *,
+        history: Iterable[BacklogItem] = (),
+    ) -> bool:
         """Skip pending items whose deps can never all become ``done``.
 
         A pending item that lists a dep already in a terminal-but-not-done
@@ -1188,7 +1232,8 @@ class Backlog:
         # Resolve to a fixed point: skipping a cycle or dead dependency may
         # make additional downstream rows permanently unreachable.
         while True:
-            by_id = {it.id: it for it in items}
+            by_id = {it.id: it for it in history}
+            by_id.update({it.id: it for it in items})
             pass_changed = False
             for it in items:
                 if it.status != "pending":
@@ -1251,7 +1296,8 @@ class Backlog:
             raise ValueError("backlog batch contains duplicate item ids")
         with self._locked():
             items = self._load()
-            existing = {item.id for item in items}
+            existing = {item.id for item in self._load_archive()}
+            existing.update(item.id for item in items)
             duplicate = next((item_id for item_id in ids if item_id in existing), None)
             if duplicate is not None:
                 raise ValueError(f"backlog item already exists: {duplicate}")
@@ -1341,6 +1387,7 @@ class Backlog:
 
         with self._locked():
             items = self._load()
+            archived_by_id = {item.id: item for item in self._load_archive()}
             active_ids = {
                 item.id
                 for item in items
@@ -1367,7 +1414,8 @@ class Backlog:
                     raise RuntimeError(
                         "plan revision conflict: active plan grew after witness capture"
                     )
-                by_id = {item.id: item for item in items}
+                by_id = dict(archived_by_id)
+                by_id.update({item.id: item for item in items})
                 missing_ids = [
                     item_id for item_id in expected_active_ids if item_id not in by_id
                 ]
@@ -1396,7 +1444,8 @@ class Backlog:
                             "plan revision conflict: non-source item terminalized"
                         )
                 active_ids = expected_set
-            existing_ids = {item.id for item in items}
+            existing_ids = set(archived_by_id)
+            existing_ids.update(item.id for item in items)
             if replacement_id_set & existing_ids:
                 raise ValueError("replacement plan reuses an existing backlog item id")
             for item in replacements:
@@ -1417,6 +1466,7 @@ class Backlog:
                 )
 
             now = time.time()
+            terminal_updates: list[BacklogItem] = []
             for item in items:
                 if item.id not in active_ids:
                     continue
@@ -1424,6 +1474,18 @@ class Backlog:
                 item.finished_ts = now
                 item.superseded_by_plan_id = new_plan_id
                 item.superseded_reason = reason
+            for item_id in active_ids:
+                if any(item.id == item_id for item in items):
+                    continue
+                archived = archived_by_id.get(item_id)
+                if archived is None:
+                    continue
+                archived.status = "superseded"
+                archived.finished_ts = now
+                archived.superseded_by_plan_id = new_plan_id
+                archived.superseded_reason = reason
+                terminal_updates.append(archived)
+            items.extend(terminal_updates)
             items.extend(replacements)
             self._save(items)
 
@@ -1525,7 +1587,31 @@ class Backlog:
                     break
             if out is not None:
                 self._save(items)
-            return out
+                return out
+            archived = next(
+                (
+                    item
+                    for item in reversed(self._load_archive())
+                    if item.id == item_id
+                ),
+                None,
+            )
+            if archived is not None:
+                if "status" in fields:
+                    new_status = str(fields.get("status") or "pending")
+                    if new_status not in _TERMINAL_STATUSES:
+                        raise IllegalStateTransition(
+                            f"backlog item {item_id} is in terminal state "
+                            f"{archived.status!r}; refusing transition to "
+                            f"{new_status!r}. Enqueue a new item instead."
+                        )
+                for key, value in fields.items():
+                    if hasattr(archived, key):
+                        setattr(archived, key, value)
+                if archived.status in _TERMINAL_STATUSES:
+                    _expire_unanswered_operator_question(archived)
+                _append_jsonl(self.archive_path, [archived.to_jsonable()])
+            return archived
 
     def continue_with_operator_reply(
         self,
@@ -1547,6 +1633,17 @@ class Backlog:
         with self._locked():
             items = self._load()
             blocked = next((item for item in items if item.id == item_id), None)
+            blocked_was_archived = False
+            if blocked is None:
+                blocked = next(
+                    (
+                        item
+                        for item in reversed(self._load_archive())
+                        if item.id == item_id
+                    ),
+                    None,
+                )
+                blocked_was_archived = blocked is not None
             if blocked is None:
                 return None, None
             card = blocked.operator_decision
@@ -1669,6 +1766,10 @@ class Backlog:
                     continuation.id if dep == blocked.id else dep
                     for dep in item.deps
                 ))
+            if blocked_was_archived:
+                # Append the resolved terminal revision; history() selects the
+                # latest row for this stable id.
+                items.append(blocked)
             items.append(continuation)
             self._validate_no_dependency_cycles(items)
             self._save(items)
@@ -1750,8 +1851,9 @@ class Backlog:
             # Clear dead dependencies first (failed/skipped/missing dep →
             # the dependent can never run). Persist the skip so the
             # supervisor doesn't keep re-seeing a permanently-blocked item.
-            cascaded = self._cascade_blocked(items)
-            done = self._done_ids(items)
+            history = self._dependency_history(items)
+            cascaded = self._cascade_blocked(items, history=history)
+            done = self._done_ids([*history, *items])
             ready = [it for it in items if self._is_ready(it, done)]
             # An example that reached the backlog before the planner learned to
             # reject it is still sitting there, and a stored item is claimed
@@ -1765,7 +1867,7 @@ class Backlog:
                 item.last_error = "the planner prompt's example task, not a plan"
             if examples:
                 ready = [it for it in ready if it not in examples]
-                self._save(items)
+                cascaded = True
             if parallel_only or (
                 respect_running
                 and any(
@@ -1996,7 +2098,10 @@ class Backlog:
                 item.last_error = ""
                 resumed.append(item)
             if resumed:
-                self._cascade_blocked(items)
+                self._cascade_blocked(
+                    items,
+                    history=self._dependency_history(items),
+                )
                 self._save(items)
             return resumed
 
@@ -2011,7 +2116,21 @@ class Backlog:
 
     # --- read ---
     def all(self) -> list[BacklogItem]:
+        """Compatibility history view; runtime readers should choose explicitly."""
+        return self.history()
+
+    def active(self) -> list[BacklogItem]:
+        """Read only the compact live backlog."""
         return self._load()
+
+    def history(self) -> list[BacklogItem]:
+        """Read terminal archive plus current live rows, oldest group first."""
+        rows = [*self._load_archive(), *self._load()]
+        # Terminal corrections are appended, never rewritten. Present the
+        # latest state for each stable item id while retaining first-seen order.
+        latest = {item.id: item for item in rows}
+        order = dict.fromkeys(item.id for item in rows)
+        return [latest[item_id] for item_id in order]
 
     def pending(self) -> list[BacklogItem]:
         items = [it for it in self._load() if it.status == "pending"]
@@ -2028,7 +2147,8 @@ class Backlog:
         ``ready()`` and ``pending()`` return the same list.
         """
         items = self._load()
-        done = self._done_ids(items)
+        history = self._dependency_history(items)
+        done = self._done_ids([*history, *items])
         out = [it for it in items if self._is_ready(it, done)]
         out.sort(key=lambda it: (it.priority, it.ts))
         return out
@@ -2052,8 +2172,9 @@ class Backlog:
         """
         with self._locked():
             items = self._load()
-            changed = self._cascade_blocked(items)
-            done = self._done_ids(items)
+            history = self._dependency_history(items)
+            changed = self._cascade_blocked(items, history=history)
+            done = self._done_ids([*history, *items])
             ready = [item for item in items if self._is_ready(item, done)]
             if parallel_only or (
                 respect_running
@@ -2379,7 +2500,7 @@ def request_running_item_abort(
     """Persist an abort request for the backlog item running right now."""
     root = Path(life_dir)
     running = [
-        item for item in LifeMemory.open(root).backlog.all()
+        item for item in LifeMemory.open(root).backlog.active()
         if item.status == "running"
     ]
     if not running:
@@ -2465,7 +2586,7 @@ def consume_running_item_abort(
     try:
         target = next(
             (
-                item for item in LifeMemory.open(Path(life_dir)).backlog.all()
+                item for item in LifeMemory.open(Path(life_dir)).backlog.active()
                 if item.id == item_id
             ),
             None,

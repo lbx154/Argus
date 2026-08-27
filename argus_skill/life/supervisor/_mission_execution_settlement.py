@@ -136,7 +136,7 @@ class MissionExecutionSettlementMixin:
             try:
                 unfinished_plan_nodes = [
                     sibling
-                    for sibling in self.memory.backlog.all()
+                    for sibling in self.memory.backlog.active()
                     if sibling.id != item.id
                     and sibling.plan_id == item.plan_id
                     and sibling.plan_version == item.plan_version
@@ -215,6 +215,15 @@ class MissionExecutionSettlementMixin:
             and review_status == "done"
             and state.pipeline_stage_at_start
         ):
+            review_manuscript_binding = None
+            review_rounds = getattr(outcome, "rounds", None) or []
+            if isinstance(review_rounds, (list, tuple)) and review_rounds:
+                final_round_review = getattr(review_rounds[-1], "review", None)
+                candidate_binding = getattr(
+                    final_round_review, "manuscript_snapshot", None
+                )
+                if isinstance(candidate_binding, dict):
+                    review_manuscript_binding = dict(candidate_binding)
             try:
                 from ...core.stage_certificate import record_stage_review
 
@@ -229,6 +238,7 @@ class MissionExecutionSettlementMixin:
                         if isinstance(stage_transition, dict)
                         else ""
                     ),
+                    manuscript_binding=review_manuscript_binding,
                 )
             except Exception:  # noqa: BLE001 - certificate is observability/control aid
                 log.exception("life supervisor: failed to record stage review certificate")
@@ -957,6 +967,14 @@ class MissionExecutionSettlementMixin:
             if final_submission_certified
             else ""
         )
+        final_submission_manuscript_snapshot: dict[str, str] | None = None
+        if final_submission_certified:
+            rounds = getattr(outcome, "rounds", None) or []
+            if isinstance(rounds, (list, tuple)) and rounds:
+                final_review = getattr(rounds[-1], "review", None)
+                candidate = getattr(final_review, "manuscript_snapshot", None)
+                if isinstance(candidate, dict):
+                    final_submission_manuscript_snapshot = dict(candidate)
         try:
             remaining_work = any(
                 row.id != item.id
@@ -970,7 +988,7 @@ class MissionExecutionSettlementMixin:
                     "paused_provider_fence",
                     "paused_operator",
                 }
-                for row in self.memory.backlog.all()
+                for row in self.memory.backlog.active()
             )
         except Exception:  # noqa: BLE001 - completion presentation fails closed
             remaining_work = True
@@ -1045,6 +1063,8 @@ class MissionExecutionSettlementMixin:
                 stage=state.pipeline_stage_at_start,
                 reviewer_artifacts=reviewer_artifacts,
             )
+            if delivery is not None and final_submission_manuscript_snapshot is not None:
+                delivery["manuscript_snapshot"] = final_submission_manuscript_snapshot
         except Exception:  # noqa: BLE001 - delivery presentation never owns settlement
             log.debug("mission delivery receipt could not be built", exc_info=True)
         try:
@@ -1172,6 +1192,7 @@ class MissionExecutionSettlementMixin:
             ),
             "final_submission_certified": final_submission_certified,
             "final_submission_signature": final_submission_signature,
+            "manuscript_snapshot": final_submission_manuscript_snapshot,
             "overall_complete": overall_complete,
             "campaign_continues": campaign_continues,
             "delivery": delivery,

@@ -60,7 +60,7 @@ def _recent_team_replay(
     eligible_statuses = {"pending", "running", "done", "paused_operator"}
     recent_items = []
     now = time.time()
-    for item in sorted(mem.backlog.all(), key=lambda row: float(row.ts), reverse=True):
+    for item in sorted(mem.backlog.history(), key=lambda row: float(row.ts), reverse=True):
         if now - float(item.ts) > _TEAM_REPLAY_WINDOW_S:
             break
         if str(item.status) not in eligible_statuses:
@@ -325,7 +325,7 @@ def manager_message(
 
         pending_questions = [
             item
-            for item in mem.backlog.all()
+            for item in mem.backlog.active()
             if item.pending_question.strip()
         ]
         pending_result = _handle_pending_question_turn(
@@ -336,7 +336,7 @@ def manager_message(
         if pending_result is not None:
             return pending_result
 
-        previous_items = mem.backlog.all()
+        previous_items = mem.backlog.history()
         last_team_task = ""
         if previous_items:
             previous = max(previous_items, key=lambda item: float(item.ts))
@@ -503,7 +503,7 @@ def manager_message(
         running_id = next(
             (
                 str(row.id)
-                for row in mem.backlog.all()
+                for row in mem.backlog.active()
                 if str(row.status) == "running"
             ),
             "",

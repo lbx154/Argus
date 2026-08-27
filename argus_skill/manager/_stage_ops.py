@@ -792,6 +792,32 @@ class _StageDecisionMixin:
                     ),
                 )
 
+        manuscript_binding = getattr(review, "manuscript_snapshot", None)
+        if isinstance(manuscript_binding, dict):
+            try:
+                from ..core.manuscript_snapshot import (
+                    manuscript_review_status,
+                )
+
+                freshness = manuscript_review_status(
+                    {"manuscript_snapshot": manuscript_binding},
+                    self.execution_workdir,
+                )
+            except Exception:  # noqa: BLE001 - a bound review fails closed
+                freshness = {
+                    "status": "unbound",
+                    "message": "unbound (reviewed manuscript cannot be read)",
+                }
+            if freshness.get("status") != "current":
+                return StageTransition(
+                    "hold",
+                    cur,
+                    str(freshness.get("message") or "stale manuscript review"),
+                    current_stage=cur,
+                    source="stale_manuscript_review_hold",
+                    diagnostic="reviewed_manuscript_sha_mismatch",
+                )
+
         # A parsed, conflict-free Reviewer acceptance is already the semantic
         # judgment for an intermediate stage. Manager still performs the exact
         # stage-machine preflight and remains the sole writer; only its duplicate

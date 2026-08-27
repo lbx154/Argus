@@ -324,6 +324,16 @@ def _set_stage(
             # code I am running?" — record the answer instead of making the next
             # operator reconstruct it from process archaeology.
             prev_record["completion_contract_source"] = str(framework_source_root())
+        snapshot_root = Path(evidence_root) if evidence_root is not None else root
+        try:
+            from ..core.manuscript_snapshot import manuscript_snapshot
+
+            snapshot = manuscript_snapshot(snapshot_root)
+            if snapshot["sha256"]:
+                prev_record["manuscript_snapshot"] = snapshot
+                prev_record["manuscript_project_root"] = str(snapshot_root.resolve())
+        except Exception:  # noqa: BLE001 - non-paper stages have no manuscript
+            pass
 
     skipped_stages: list[str] = []
     if direction in {"advance", "complete"}:

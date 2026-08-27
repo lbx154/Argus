@@ -37,8 +37,8 @@ from ._helpers import (
     _sanitize_planner_task_text,
     _unique_normalized_task_key_aliases,
 )
-from ._planning_cycle_helpers import _PlanCycleState, _revision_reason
 from ._planner_rendering import _forward_progress
+from ._planning_cycle_helpers import _PlanCycleState, _revision_reason
 
 log = logging.getLogger(__name__)
 
@@ -172,7 +172,9 @@ class PlanningCycleEnqueueMixin:
 
     def _pc_build_dedupe_index(self, state: _PlanCycleState) -> Any | None:
         try:
-            state.existing_items = self.memory.backlog.all()
+            # Planner semantic dedup intentionally includes archived terminal
+            # node ids/keys; otherwise compaction would repurchase old work.
+            state.existing_items = self.memory.backlog.history()
         except Exception:  # noqa: BLE001
             log.exception("life supervisor: failed to inspect backlog before planning")
             state.existing_items = []
@@ -269,7 +271,7 @@ class PlanningCycleEnqueueMixin:
             return None
         try:
             current_stage = str(stage_reader() or "").strip().lower()
-            rows = list(self.memory.backlog.all())
+            rows = list(self.memory.backlog.history())
         except Exception:  # noqa: BLE001 - dedupe remains fail-open
             return None
         if not current_stage:
@@ -312,6 +314,14 @@ class PlanningCycleEnqueueMixin:
                 return None
             latest = max(reviewed, key=finished_at)
             cutoff = finished_at(latest)
+
+        try:
+            from ...verticals.research.review_purchase import method_freeze_timestamp
+
+            if method_freeze_timestamp(self._project_workdir()) > cutoff:
+                return None
+        except Exception:  # noqa: BLE001 - ordinary repair evidence remains available
+            pass
 
         # A successful ordinary mission after the review is the evidence delta
         # that unlocks one new stage-closing attempt.  Merely renaming or
@@ -582,6 +592,11 @@ class PlanningCycleEnqueueMixin:
                     "reason": "; ".join(policy_issues),
                 })
                 continue
+            from ...verticals.research.review_purchase import (
+                completed_review_predates_freeze,
+                paper_review_purchase_defer_reason,
+            )
+
             certification_blocker = self._stage_closing_reproposal_blocker(task)
             if certification_blocker is not None:
                 prior_item, blocker_reason = certification_blocker
@@ -631,6 +646,38 @@ class PlanningCycleEnqueueMixin:
                 base_signature
             ) or state.seen_signatures.get(signature)
             terminal_fingerprint_match = terminal_duplicate is not None
+            if (
+                duplicate_item is not None
+                and completed_review_predates_freeze(
+                    duplicate_item,
+                    vertical=policy_vertical,
+                    project_root=policy_root,
+                )
+            ):
+                duplicate_item = None
+            review_purchase_reason = paper_review_purchase_defer_reason(
+                task,
+                vertical=policy_vertical,
+                project_root=policy_root,
+                existing_items=state.existing_items,
+                semantic_duplicate=duplicate_item,
+            )
+            if review_purchase_reason:
+                state.skipped_certification_reproposal_titles.append(task.title)
+                state.skipped_certification_reproposal_reasons.append(
+                    review_purchase_reason
+                )
+                self._emit({
+                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                    "cycle": self._planning_cycles,
+                    "title": task.title,
+                    "objective": task.objective,
+                    "impact_score": task.impact_score,
+                    "impact_area": task.impact_area,
+                    "skip_category": "paper_review_purchase_deferred",
+                    "reason": review_purchase_reason,
+                })
+                continue
             if (
                 duplicate_item is not None
                 and not terminal_fingerprint_match

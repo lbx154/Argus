@@ -24,9 +24,15 @@ import argparse
 import json
 import re
 import tomllib
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ...core.manuscript_snapshot import (
+    MANUSCRIPT_SNAPSHOT_FIELD,
+    manuscript_review_status,
+    manuscript_snapshot,
+)
 from ...core.research_contract import (
     normalize_research_target_level,
     resolve_research_target_level,
@@ -215,6 +221,11 @@ def publication_scale_issues(
         )
 
     issues: list[str] = []
+    freshness = manuscript_review_status(payload, root)
+    if freshness["status"] != "current":
+        issues.append(
+            "publication-scale assessment " + str(freshness["message"])
+        )
     if payload.get("schema_version") != SCHEMA_VERSION:
         issues.append(
             f"unsupported publication-scale schema_version: "
@@ -369,6 +380,11 @@ def scaffold_issues(project_root: Path) -> tuple[str, ...]:
     # added when absent.
     payload["schema_version"] = SCHEMA_VERSION
     payload["research_target_level"] = resolve_research_target_level(root) or ""
+    payload.setdefault("created_at", datetime.now(UTC).isoformat())
+    payload.setdefault(
+        MANUSCRIPT_SNAPSHOT_FIELD,
+        manuscript_snapshot(root, recorded_at=str(payload["created_at"])),
+    )
 
     skeleton: dict[str, Any] = {
         "contribution_shape": "",

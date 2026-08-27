@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from argus_skill.core.manuscript_snapshot import manuscript_snapshot
 from argus_skill.core.transcript import append_turn
 from argus_skill.life.event_log import JsonlEventSink
 from argus_skill.life.memory import LifeMemory
@@ -248,6 +249,9 @@ def test_operator_blocker_surfaces_the_exact_question_without_templates(tmp_path
 
 
 def test_final_submission_completion_is_explicitly_certified(tmp_path) -> None:
+    manuscript = tmp_path / "paper/main.tex"
+    manuscript.parent.mkdir(parents=True)
+    manuscript.write_text("final paper\n", encoding="utf-8")
     memory = LifeMemory.open(tmp_path)
     supervisor = LifeSupervisor(
         memory=memory,
@@ -263,6 +267,8 @@ def test_final_submission_completion_is_explicitly_certified(tmp_path) -> None:
         "success": True,
         "status": "done",
         "final_submission_certified": True,
+        "execution_workdir": str(tmp_path),
+        "manuscript_snapshot": manuscript_snapshot(tmp_path),
         "outcome": {
             "review_status": "done",
             "stage_certification": "certified",

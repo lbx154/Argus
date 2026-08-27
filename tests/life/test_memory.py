@@ -605,3 +605,30 @@ def test_render_prelude_empty_when_nothing_relevant_and_no_identity(
     mem.root.mkdir(parents=True, exist_ok=True)
     # Don't init — no identity, no journal.
     assert mem.render_prelude() == ""
+
+
+def test_legacy_mixed_backlog_lazily_splits_terminal_archive(tmp_path: Path) -> None:
+    path = tmp_path / "backlog.jsonl"
+    done = BacklogItem.new(title="Historical", objective="already complete")
+    done.status = "done"
+    failed = BacklogItem.new(title="Failed", objective="failed attempt")
+    failed.status = "failed"
+    pending = BacklogItem.new(title="Live", objective="still live")
+    path.write_text(
+        "".join(json.dumps(item.to_jsonable()) + "\n" for item in (done, pending, failed)),
+        encoding="utf-8",
+    )
+    backlog = Backlog(path)
+
+    added = backlog.add(BacklogItem.new(title="New", objective="new live work"))
+
+    assert {item.id for item in backlog.active()} == {pending.id, added.id}
+    assert {item.id for item in backlog.history()} == {
+        done.id, failed.id, pending.id, added.id
+    }
+    active_rows = [json.loads(line) for line in path.read_text().splitlines()]
+    archive_rows = [
+        json.loads(line) for line in backlog.archive_path.read_text().splitlines()
+    ]
+    assert {row["status"] for row in active_rows} == {"pending"}
+    assert {row["status"] for row in archive_rows} == {"done", "failed"}

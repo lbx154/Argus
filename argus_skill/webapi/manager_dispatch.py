@@ -709,7 +709,7 @@ def _handle_steer_control(
 
         running = [
             item
-            for item in LifeMemory.open(life_dir).backlog.all()
+            for item in LifeMemory.open(life_dir).backlog.active()
             if item.status == "running"
         ]
         active_objective = ""

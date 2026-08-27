@@ -1352,7 +1352,7 @@ def _cmd_answer(args: argparse.Namespace) -> int:
     backlog = Backlog(bundle.project.root / "backlog.jsonl")
     waiting = [
         item
-        for item in backlog.all()
+        for item in backlog.active()
         if str(getattr(item, "pending_question", "") or "").strip()
     ]
     if not waiting:
@@ -2223,7 +2223,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
         print("  next     : run `argus` to create a session")
         return 0
     status = read_daemon_status(bundle.project.root)
-    all_items = bundle.backlog.all()
+    all_items = bundle.backlog.history()
     pending, running, paused, done, failed, skipped = count_backlog_statuses(all_items)
     current_running = select_current_running_item(all_items)
     # Status should stay cheap even on a long-lived daemon.
@@ -2284,7 +2284,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     # Nothing errors, so say it here or it stays invisible.
     from ...life.supervisor.backlog_guard import describe_undecided
 
-    _undecided = describe_undecided(bundle.backlog.all())
+    _undecided = describe_undecided(bundle.backlog.active())
     if _undecided:
         print(f"  manager  : {_undecided}")
     # The one thing an operator most needs from --status: a run that stopped

@@ -115,7 +115,7 @@ class PlannerOrchestrationMixin:
 
         backlog_rows: list[Any] = []
         try:
-            backlog_rows = list(self.memory.backlog.all())
+            backlog_rows = list(self.memory.backlog.history())
         except Exception:  # noqa: BLE001 - digest is advisory
             pass
         # Rendered because the supervisor no longer stops the campaign for an

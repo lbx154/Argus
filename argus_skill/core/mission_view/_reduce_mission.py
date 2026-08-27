@@ -135,6 +135,12 @@ def reduce_mission_lifecycle_event(
                 stop_kind=event.get("stop_kind"),
                 resumable=bool(event.get("resumable")),
             )
+        if event.get("final_submission_certified") is True:
+            view["outcome"]["final_submission_certified"] = True
+            if isinstance(event.get("manuscript_snapshot"), dict):
+                view["outcome"]["manuscript_snapshot"] = dict(
+                    event["manuscript_snapshot"]
+                )
         _set_role(view, "engineer", role_status, label, ts)
         detail = (
             _text(event, "summary", 1200)
@@ -314,6 +320,10 @@ def reduce_round_event(
             "rejected_attempts": int(view.get("review", {}).get("rejected_attempts") or 0)
             + (1 if status in {"continue", "blocked"} else 0),
         }
+        if isinstance(event.get("manuscript_snapshot"), dict):
+            view["review"]["manuscript_snapshot"] = dict(
+                event["manuscript_snapshot"]
+            )
         frontier_change = _text(event, "frontier_change")
         if frontier_change:
             view["frontier"] = {

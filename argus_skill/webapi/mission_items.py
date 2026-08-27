@@ -177,7 +177,7 @@ def get_status(sid: str, *, global_root: Path | str | None = None) -> dict[str, 
             return default
 
     identity = _safe(lambda: mem.identity.read().strip(), "")
-    items = _safe(lambda: mem.backlog.all(), [])
+    items = _safe(lambda: mem.backlog.active(), [])
     pending = [it.to_jsonable() for it in items if it.status == "pending"]
     questions = [it.to_jsonable() for it in items if it.to_jsonable().get("pending_question")]
     journal = _safe(lambda: [e.to_jsonable() for e in mem.journal.tail(3)], [])
@@ -269,7 +269,7 @@ def get_backlog_item(
         return None
     try:
         item = next(
-            (row for row in LifeMemory.open(life_dir).backlog.all() if row.id == item_id),
+            (row for row in LifeMemory.open(life_dir).backlog.history() if row.id == item_id),
             None,
         )
     except Exception:  # noqa: BLE001

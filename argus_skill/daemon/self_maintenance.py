@@ -796,7 +796,7 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
 
     def _active_item(self) -> BacklogItem | None:
         active_id = str(self._state().get("active_item_id") or "")
-        for item in self.memory.backlog.all():
+        for item in self.memory.backlog.active():
             operator_wait = bool(str(item.pending_question or "").strip())
             if item.id == active_id and (
                 item.status in {"pending", "running"} or operator_wait
@@ -824,7 +824,7 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
         item = next(
             (
                 candidate
-                for candidate in backlog.all()
+                for candidate in backlog.active()
                 if candidate.status in {"pending", "running"}
                 and "framework_maintenance" in set(candidate.tags)
                 and Path(candidate.execution_workdir).resolve() == expected
@@ -1915,7 +1915,7 @@ class DaemonSelfMaintenance(SelfMaintenanceState):
             continuation = next(
                 (
                     item
-                    for item in self.memory.backlog.all()
+                    for item in self.memory.backlog.active()
                     if item.id == outcome_item_id
                 ),
                 None,
