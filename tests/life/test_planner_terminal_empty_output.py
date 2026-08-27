@@ -323,6 +323,51 @@ def _make_supervisor(
     return supervisor, backend, sink
 
 
+def test_review_purchase_hook_releases_stage_blocker_before_deferring(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from argus_skill.core.vertical_contract import PlannerReviewPurchaseDecision
+    from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
+    from argus_skill.planner import PlannerVerdict, TaskSpec
+    from argus_skill.verticals import _base
+
+    supervisor, _backend, sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+    )
+    monkeypatch.setenv("ARGUS_SKILL_FORCE_STAGE_CLOSING", "1")
+    monkeypatch.setattr(
+        _base,
+        "load_vertical_contract",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            planner_task_issues=lambda *_args: (),
+            review_purchase=lambda **_kwargs: PlannerReviewPurchaseDecision(
+                defer_reason="current review exists",
+                release_stage_closing_blocker=True,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_stage_closing_reproposal_blocker",
+        lambda _task: (SimpleNamespace(), "needs repair", 1.0),
+    )
+    state = _PlanCycleState(None)
+    state.verdict = PlannerVerdict(
+        project_done=False,
+        reason="review already purchased",
+        new_tasks=[TaskSpec(title="Final paper review", objective="Review the paper.")],
+    )
+
+    supervisor._pc_build_dedupe_index(state)
+    supervisor._pc_build_pending_items(state)
+
+    assert state.pending_items == []
+    assert sink.events[-1]["skip_category"] == "paper_review_purchase_deferred"
+
+
 def test_bounded_completed_campaign_stops_before_planner_cycle(
     tmp_path: Path,
     monkeypatch,

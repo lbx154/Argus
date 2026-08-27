@@ -254,7 +254,7 @@ class PlanningCycleEnqueueMixin:
 
     def _stage_closing_reproposal_blocker(
         self, task: Any,
-    ) -> tuple[Any, str] | None:
+    ) -> tuple[Any, str, float] | None:
         """Reject certification churn until substantive repair intervenes.
 
         A completed independently reviewed stage-closing mission is one review
@@ -320,14 +320,6 @@ class PlanningCycleEnqueueMixin:
             latest = max(reviewed, key=finished_at)
             cutoff = finished_at(latest)
 
-        try:
-            from ...verticals.research.review_purchase import method_freeze_timestamp
-
-            if method_freeze_timestamp(self._project_workdir()) > cutoff:
-                return None
-        except Exception:  # noqa: BLE001 - ordinary repair evidence remains available
-            pass
-
         # A successful ordinary mission after the review is the evidence delta
         # that unlocks one new stage-closing attempt.  Merely renaming or
         # repackaging another certification does not.
@@ -345,7 +337,7 @@ class PlanningCycleEnqueueMixin:
             "repair that changes the stage evidence before requesting another "
             "certification"
         )
-        return latest, reason
+        return latest, reason, cutoff
 
     def _gate_reproposal_is_not_a_duplicate(self, task: Any, duplicate_item: Any) -> bool:
         """Whether a stage-closing proposal escapes the duplicate filter.
@@ -557,7 +549,7 @@ class PlanningCycleEnqueueMixin:
             )
             from ...skills.stage_machine import current_stage
             from ...skills.vertical_select import resolve_vertical
-            from ...verticals._base import load_vertical, vertical_planner_task_issues
+            from ...verticals._base import load_vertical_contract
 
             policy_root = Path(context_root or self._project_workdir()).resolve()
             policy_stage = current_stage(state_root)
@@ -567,7 +559,7 @@ class PlanningCycleEnqueueMixin:
                 or campaign_vertical
             )
             try:
-                policy_definition = load_vertical(
+                policy_contract = load_vertical_contract(
                     policy_vertical,
                     project_root=state_root,
                 )
@@ -581,11 +573,10 @@ class PlanningCycleEnqueueMixin:
                     "reason": f"unknown Planner task vertical: {policy_vertical}",
                 })
                 continue
-            policy_issues = vertical_planner_task_issues(
-                policy_definition,
-                stage=policy_stage,
-                project_root=policy_root,
-                task=task,
+            policy_issues = policy_contract.planner_task_issues(
+                policy_stage,
+                policy_root,
+                task,
             )
             if policy_issues:
                 self._emit({
@@ -597,35 +588,8 @@ class PlanningCycleEnqueueMixin:
                     "reason": "; ".join(policy_issues),
                 })
                 continue
-            from ...verticals.research.review_purchase import (
-                completed_review_predates_freeze,
-                paper_review_purchase_defer_reason,
-            )
 
             certification_blocker = self._stage_closing_reproposal_blocker(task)
-            if certification_blocker is not None:
-                prior_item, blocker_reason = certification_blocker
-                state.skipped_certification_reproposal_titles.append(task.title)
-                state.skipped_certification_reproposal_reasons.append(blocker_reason)
-                self._emit(
-                    {
-                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                        "cycle": self._planning_cycles,
-                        "title": task.title,
-                        "objective": task.objective,
-                        "impact_score": task.impact_score,
-                        "impact_area": task.impact_area,
-                        "evidence": task.evidence,
-                        "matched_item_id": prior_item.id,
-                        "matched_status": prior_item.status,
-                        "matched_stage": self._item_pipeline_stage(prior_item),
-                        "skip_category": (
-                            "stage_closing_requires_intervening_repair"
-                        ),
-                        "reason": blocker_reason,
-                    }
-                )
-                continue
             signature = _planner_task_signature(
                 task.title,
                 task.objective,
@@ -662,21 +626,50 @@ class PlanningCycleEnqueueMixin:
                 or state.seen_signatures.get(signature)
             )
             terminal_fingerprint_match = terminal_duplicate is not None
-            if (
-                duplicate_item is not None
-                and completed_review_predates_freeze(
-                    duplicate_item,
-                    vertical=policy_vertical,
-                    project_root=policy_root,
-                )
-            ):
-                duplicate_item = None
-            review_purchase_reason = paper_review_purchase_defer_reason(
-                task,
-                vertical=policy_vertical,
+            review_purchase = policy_contract.review_purchase(
                 project_root=policy_root,
+                task=task,
                 existing_items=state.existing_items,
                 semantic_duplicate=duplicate_item,
+                stage_reviewed_at=(
+                    certification_blocker[2]
+                    if certification_blocker is not None
+                    else None
+                ),
+            )
+            if certification_blocker is not None and not (
+                review_purchase is not None
+                and review_purchase.release_stage_closing_blocker
+            ):
+                prior_item, blocker_reason, _reviewed_at = certification_blocker
+                state.skipped_certification_reproposal_titles.append(task.title)
+                state.skipped_certification_reproposal_reasons.append(blocker_reason)
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                        "cycle": self._planning_cycles,
+                        "title": task.title,
+                        "objective": task.objective,
+                        "impact_score": task.impact_score,
+                        "impact_area": task.impact_area,
+                        "evidence": task.evidence,
+                        "matched_item_id": prior_item.id,
+                        "matched_status": prior_item.status,
+                        "matched_stage": self._item_pipeline_stage(prior_item),
+                        "skip_category": (
+                            "stage_closing_requires_intervening_repair"
+                        ),
+                        "reason": blocker_reason,
+                    }
+                )
+                continue
+            if (
+                review_purchase is not None
+                and review_purchase.discard_semantic_duplicate
+            ):
+                duplicate_item = None
+            review_purchase_reason = (
+                review_purchase.defer_reason if review_purchase is not None else ""
             )
             if review_purchase_reason:
                 state.skipped_certification_reproposal_titles.append(task.title)

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .method_freeze import research_review_prompt_block
+
 
 def academic_paper_review_block() -> str:
     return (
@@ -218,6 +220,10 @@ def _reviewer_fragment(stage: str, scope: str, project_root: Path | None) -> str
             "Do not require or manufacture an assurance memo, reviewer-question "
             "bundle, or other certification packet."
         )
+    if project_root is not None:
+        freeze_block = research_review_prompt_block(project_root)
+        if freeze_block:
+            blocks.append(freeze_block.rstrip())
     return "\n\n".join(blocks)
 
 

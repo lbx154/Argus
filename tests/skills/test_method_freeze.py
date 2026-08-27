@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from argus_skill.verticals._base import load_vertical_contract
 from argus_skill.verticals.research.method_freeze import (
     CONFIRMATION_RESULT_PATH,
     FREEZE_PATH,
     declare_method_freeze,
     record_confirmation_result,
-    research_review_prompt_block,
 )
 
 
@@ -37,10 +37,21 @@ def test_helpers_write_well_formed_freeze_and_confirmation(tmp_path: Path) -> No
     assert confirmation["confirmation_run"]["data_split_identity"].startswith("heldout-v1")
 
 
-def test_review_prompt_is_silent_without_freeze_and_renders_facts_when_present(
+def test_research_contract_review_prompt_renders_method_freeze_facts(
     tmp_path: Path,
 ) -> None:
-    assert research_review_prompt_block(tmp_path) == ""
+    contract = load_vertical_contract("research", project_root=tmp_path)
+
+    def review_fragment() -> str:
+        return contract.prompt_fragment(
+            role="reviewer",
+            operation="evaluate",
+            stage="review",
+            scope="",
+            project_root=tmp_path,
+        )
+
+    assert "Declared method freeze" not in review_fragment()
     manuscript = tmp_path / "paper/main.tex"
     manuscript.parent.mkdir(parents=True)
     manuscript.write_text("frozen manuscript\n", encoding="utf-8")
@@ -54,14 +65,14 @@ def test_review_prompt_is_silent_without_freeze_and_renders_facts_when_present(
     frozen_digest = json.loads(
         (tmp_path / FREEZE_PATH).read_text()
     )["manuscript_sha256_at_freeze"]
-    frozen_prompt = research_review_prompt_block(tmp_path)
+    frozen_prompt = review_fragment()
 
     assert "the manuscript has changed since the freeze" not in frozen_prompt
     assert frozen_digest not in frozen_prompt
 
     manuscript.write_text("changed manuscript\n", encoding="utf-8")
 
-    prompt = research_review_prompt_block(tmp_path)
+    prompt = review_fragment()
 
     assert "method-final" in prompt
     assert "never-seen-confirmation-split" in prompt

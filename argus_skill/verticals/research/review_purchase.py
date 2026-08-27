@@ -12,6 +12,7 @@ from ...core.manuscript_snapshot import (
     manuscript_review_status,
     recorded_manuscript_snapshot,
 )
+from ...core.vertical_contract import PlannerReviewPurchaseDecision
 from .method_freeze import load_method_freeze
 
 _PAPER_REVIEW_MARKERS = (
@@ -227,9 +228,42 @@ def paper_review_purchase_defer_reason(
     return ""
 
 
+def review_purchase_policy(
+    *,
+    project_root: Path,
+    task: Any,
+    existing_items: Iterable[Any],
+    semantic_duplicate: Any | None,
+    stage_reviewed_at: float | None,
+) -> PlannerReviewPurchaseDecision:
+    release_stage_closing_blocker = (
+        stage_reviewed_at is not None
+        and method_freeze_timestamp(project_root) > stage_reviewed_at
+    )
+    if stage_reviewed_at is not None and not release_stage_closing_blocker:
+        return PlannerReviewPurchaseDecision()
+    discard_duplicate = completed_review_predates_freeze(
+        semantic_duplicate,
+        vertical="research",
+        project_root=project_root,
+    )
+    return PlannerReviewPurchaseDecision(
+        defer_reason=paper_review_purchase_defer_reason(
+            task,
+            vertical="research",
+            project_root=project_root,
+            existing_items=existing_items,
+            semantic_duplicate=None if discard_duplicate else semantic_duplicate,
+        ),
+        discard_semantic_duplicate=discard_duplicate,
+        release_stage_closing_blocker=release_stage_closing_blocker,
+    )
+
+
 __all__ = [
     "is_paper_wide_review_task",
     "completed_review_predates_freeze",
     "method_freeze_timestamp",
     "paper_review_purchase_defer_reason",
+    "review_purchase_policy",
 ]

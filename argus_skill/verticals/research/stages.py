@@ -19,6 +19,7 @@ from ...core.vertical_contract import IterationAssessment
 from ...skills.stage_machine import ChecklistItem
 from . import library_preparation
 from .prompt_policy import render_role_prompt_fragment
+from .review_purchase import review_purchase_policy
 from .venue_profiles import VenueProfile, resolve_venue_profile
 
 log = logging.getLogger(__name__)
@@ -2223,6 +2224,7 @@ __all__ = [
     "role_banner",
     "search_altitude_context",
     "render_role_prompt_fragment",
+    "review_purchase_policy",
     "stage_completion_issues",
     "iteration_assessment",
     "completion_gate",

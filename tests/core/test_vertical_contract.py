@@ -34,6 +34,13 @@ def test_minimal_non_research_vertical_implements_only_documented_contract() -> 
     assert contract.banner("engineer") == ""
     assert contract.evidence_schema is None
     assert contract.assurance_level == "reviewer"
+    assert contract.review_purchase(
+        project_root=Path("."),
+        task=object(),
+        existing_items=(),
+        semantic_duplicate=None,
+        stage_reviewed_at=None,
+    ) is None
 
 
 def test_provider_declares_routing_metadata_without_manager_name_tables() -> None:
