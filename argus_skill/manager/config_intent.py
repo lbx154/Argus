@@ -271,18 +271,6 @@ def _front_door_classify(
                     mission_id=intake_mission_id,
                 )
                 intake_commit_started = False
-            if context_root is not None:
-                from ..core.operator_context import OperatorContextStore
-                from .front_door import _emit_manager_event
-
-                _emit_manager_event(mem, {
-                    "type": "role.session.turn",
-                    "role": "manager",
-                    "operation": "front_door",
-                    "operator_context_revision": OperatorContextStore(
-                        context_root
-                    ).revision,
-                })
         return (
             intent,
             control if control in {"abort", "pause", "no_dispatch", "steer"} else None,

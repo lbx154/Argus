@@ -1366,6 +1366,7 @@ def test_dispatch_ack_stream_persists_truthful_text(
     # SSE delta emitted
     deltas = [p for k, p in fragments if k == "delta"]
     assert any(expected_substr in d.get("text", "") for d in deltas)
+    assert not (life_dir / "events.jsonl").exists()
 
 
 @pytest.mark.parametrize("daemon_result,expected_substr", _DISPATCH_ACK_CASES)
@@ -1399,6 +1400,11 @@ def test_dispatch_ack_blocking_persists_truthful_text(
 
     turns = read_turns(life_dir)
     assert any(t["role"] == "argus" and expected_substr in t["text"] for t in turns)
+    events = [
+        json.loads(line)
+        for line in (life_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [event["text"] for event in events if event["type"] == "ui.argus"] == [text]
 
 
 def test_dispatch_ack_distinguishes_durable_campaign_update(tmp_path: Path) -> None:

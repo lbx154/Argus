@@ -294,19 +294,19 @@ def test_bounded_independent_review_completion_is_natural_and_footer_free(
         sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
         config=LifeSupervisorConfig(continuous=False, open_ended=False),
     )
-    append_turn(memory.root, "operator", "请实现缓存，并由独立 Reviewer 检查。")
+    append_turn(memory.root, "operator", "请调研缓存方案，并由独立 Reviewer 检查。")
 
     supervisor._emit({
         "type": "life.mission.completed",
         "item_id": "task-reviewed",
-        "title": "Implement cache",
+        "title": "Research cache options",
         "success": True,
         "status": "done",
         "summary": (
-            "实现了线程安全缓存并通过 20 项测试。\n\n"
+            "完成了缓存方案调研并形成报告。\n\n"
             "Decision:\n"
             "MILESTONE_STATUS=done\n"
-            "RESULT=cache implementation passed\n"
+            "RESULT=cache research reviewed\n"
             "NEXT_OWNER=reviewer"
         ),
         "independent_review_required": True,
@@ -321,14 +321,15 @@ def test_bounded_independent_review_completion_is_natural_and_footer_free(
         (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
     )["text"]
     assert text.startswith("任务已完成\n")
-    assert "实现了线程安全缓存并通过 20 项测试。" in text
-    assert "独立 Reviewer 已检查实现和测试，未发现阻断问题。" in text
+    assert "完成了缓存方案调研并形成报告。" in text
+    assert "独立 Reviewer 已复核本轮产出，未发现阻断问题。" in text
+    assert "实现和测试" not in text
     for internal in (
         "RESULT=",
         "NEXT_OWNER",
         "review=done",
         "阶段结论",
         "本计划工作项",
-        "Implement cache",
+        "Research cache options",
     ):
         assert internal not in text

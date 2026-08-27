@@ -114,7 +114,7 @@ describe('MissionControl', () => {
     expect(markup).toContain('cold history · skill 4 · wiki 2 · 1.5 KB saved');
     expect(markup).toContain('Mission replay');
     expect(markup).toContain('execution=completed');
-    expect(markup).toContain('stage=not_certified');
+    expect(markup).toContain('Stage not approved');
     expect(markup).toContain('Git changes · main');
   });
 

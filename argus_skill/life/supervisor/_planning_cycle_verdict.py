@@ -181,12 +181,6 @@ class PlanningCycleVerdictMixin:
                     ),
                     config=self._planner_config(),
                 )
-                self._emit({
-                    "type": EventType.ROLE_SESSION_TURN,
-                    "role": "planner",
-                    "cycle": self._planning_cycles,
-                    "operator_context_revision": state.operator_context_revision,
-                })
                 self._apply_research_plan_update(
                     getattr(state.verdict, "raw_text", "") or ""
                 )

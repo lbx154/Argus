@@ -1831,11 +1831,11 @@ class LifeSupervisor(
                 )
             elif overall_complete and independent_review_required and review == "done":
                 continuation = (
-                    "独立 Reviewer 已检查实现和测试，未发现阻断问题。"
+                    "独立 Reviewer 已复核本轮产出，未发现阻断问题。"
                     if chinese
                     else (
-                        "An independent Reviewer checked the implementation and "
-                        "tests and found no blocking issue."
+                        "An independent Reviewer reviewed this run's output and "
+                        "found no blocking issues."
                     )
                 )
             elif str(outcome.get("stage_certification") or "").strip() == "deferred":

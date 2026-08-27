@@ -2,9 +2,11 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { debuglog } from 'node:util';
 import {
   describeApiRuntime,
   inspectApiMeta,
+  RELEASE_ARTIFACT_DRIFT_WARNING,
   type ApiRuntimeExpectation,
   type ApiMeta,
 } from '../../core/src/protocol.js';
@@ -18,6 +20,8 @@ import {
   type ApiOwnershipRecord,
 } from './apiOwnership.js';
 import { requestWithTimeout } from './network.js';
+
+const debugArgus = debuglog('argus');
 
 /**
  * Make `argus` a true one-command launch: if the backend API isn't up, start
@@ -135,7 +139,8 @@ export async function probeApi(
           if (!(error instanceof SyntaxError)) throw error;
           return { state: 'incompatible', message: 'backend returned malformed /api/meta JSON' };
         }
-        const compatibility = inspectApiMeta(body, localRuntimeExpectation());
+        const expectation = localRuntimeExpectation();
+        const compatibility = inspectApiMeta(body, expectation);
         if (!compatibility.compatible || !compatibility.meta) {
           return {
             state: 'incompatible',
@@ -143,10 +148,15 @@ export async function probeApi(
             meta: compatibility.meta,
           };
         }
+        let warning = compatibility.warning;
+        if (warning === RELEASE_ARTIFACT_DRIFT_WARNING && expectation.sourceDigest) {
+          debugArgus('local source checkout has release artifact drift: %s', warning);
+          warning = undefined;
+        }
         return {
           state: 'compatible',
           message: describeApiRuntime(compatibility.meta),
-          warning: compatibility.warning,
+          warning,
           meta: compatibility.meta,
         };
       },

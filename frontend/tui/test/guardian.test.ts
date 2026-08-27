@@ -29,6 +29,30 @@ test('a stall is a warn-tone alert', () => {
   assert.equal(a?.tone, 'warn');
 });
 
+test('internal role-session validation stays out of WATCHING and other validation moves on', () => {
+  const roleSessionFailure = ev({
+    type: 'role.session.turn',
+    event_validation: {
+      status: 'invalid',
+      errors: ['missing required fields: policy, action'],
+    },
+  });
+  assert.equal(activeGuardianAlert([roleSessionFailure]), null);
+
+  const otherFailure = ev({
+    type: 'agent.io.error',
+    event_validation: {
+      status: 'invalid',
+      errors: ['missing required fields: error'],
+    },
+  });
+  assert.equal(activeGuardianAlert([otherFailure])?.kind, 'validation');
+  assert.equal(activeGuardianAlert([
+    otherFailure,
+    ev({ type: 'engineer.progress', text: 'work continued' }),
+  ]), null);
+});
+
 test('the alert clears once the mission moves on', () => {
   const a = activeGuardianAlert([
     ev({ type: 'life.lifecycle.block', reason: 'needs creds' }),

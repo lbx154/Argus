@@ -1016,7 +1016,7 @@ def record_task_dispatch_ack(
     on_fragment: Any = None,
 ) -> str:
     """Derive truthful acknowledgement text from the daemon-start outcome,
-    persist it durably (transcript + UI event + optional SSE delta), and set
+    persist it durably, publish it on the caller's live UI channel, and set
     ``result["reply"]``.
 
     Unlike chat turns, transcript write failures are NOT swallowed — the caller
@@ -1083,11 +1083,6 @@ def record_task_dispatch_ack(
     with (life_dir / "transcript.jsonl").open("a", encoding="utf-8") as fh:
         fh.write(_json.dumps(rec, ensure_ascii=False) + "\n")
 
-    # Persist UI event (best-effort — Activity mirroring must not break dispatch)
-    message_id = f"dispatch-{uuid.uuid4().hex}"
-    _emit_ui_turn(life_dir, "argus", text, message_id=message_id)
-
-    # SSE delta for streaming callers
     if callable(on_fragment):
         try:
             on_fragment("delta", {
@@ -1097,6 +1092,10 @@ def record_task_dispatch_ack(
             })
         except Exception:  # noqa: BLE001 — UI progress must never break dispatch
             pass
+    else:
+        # Blocking callers rely on the shared Activity stream for the live echo.
+        message_id = f"dispatch-{uuid.uuid4().hex}"
+        _emit_ui_turn(life_dir, "argus", text, message_id=message_id)
 
     result["reply"] = text
     return text

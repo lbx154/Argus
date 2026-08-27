@@ -99,7 +99,7 @@ test('protocol contract accepts the current server and rejects missing capabilit
   assert.equal(driftedSource.compatible, true);
   assert.equal(
     driftedSource.warning,
-    'backend code and installed artifacts differ; reinstall a complete published build',
+    'python -m argus_skill.release_tools.build_release',
   );
 });
 
@@ -193,8 +193,9 @@ test('startup probe reports generic backend status', async () => {
   }
 });
 
-test('startup probe surfaces source drift without rejecting the backend', async () => {
+test('startup probe hides local source drift but warns packaged clients', async () => {
   const originalFetch = globalThis.fetch;
+  const originalDigest = process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
   const drifted = meta({
     runtime: {
       ...(meta().runtime as Record<string, unknown>),
@@ -207,14 +208,21 @@ test('startup probe surfaces source drift without rejecting the backend', async 
     headers: { 'Content-Type': 'application/json' },
   })) as typeof fetch;
   try {
-    const probe = await probeApi('127.0.0.1', 8799);
-    assert.equal(probe.state, 'compatible');
+    delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
+    const packagedProbe = await probeApi('127.0.0.1', 8799);
+    assert.equal(packagedProbe.state, 'compatible');
     assert.equal(
-      probe.warning,
-      'backend code and installed artifacts differ; reinstall a complete published build',
+      packagedProbe.warning,
+      'python -m argus_skill.release_tools.build_release',
     );
+    process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST = 'deadbeef';
+    const sourceProbe = await probeApi('127.0.0.1', 8799);
+    assert.equal(sourceProbe.state, 'compatible');
+    assert.equal(sourceProbe.warning, undefined);
   } finally {
     globalThis.fetch = originalFetch;
+    if (originalDigest === undefined) delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
+    else process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST = originalDigest;
   }
 });
 
@@ -1036,7 +1044,7 @@ test('ApiClient forwards compatible source-drift warnings', async () => {
     await api.listProjects();
 
     assert.deepEqual(warnings, [
-      'backend code and installed artifacts differ; reinstall a complete published build',
+      'python -m argus_skill.release_tools.build_release',
     ]);
   } finally {
     globalThis.fetch = originalFetch;

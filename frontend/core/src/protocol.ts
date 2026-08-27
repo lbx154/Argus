@@ -9,6 +9,8 @@ export const API_PROTOCOL = {
   minServerMinor: 13,
 } as const;
 export const SNAPSHOT_SCHEMA_VERSION = 7;
+export const RELEASE_ARTIFACT_DRIFT_WARNING =
+  'python -m argus_skill.release_tools.build_release';
 export const REQUIRED_API_CAPABILITIES = [
   'daemon.admission.v1',
   'daemon.status.protocol.v1',
@@ -184,7 +186,7 @@ export function inspectApiMeta(
   // snapshot schema, and capabilities above remain the compatibility authority;
   // keep drift visible so operators still know to rebuild before release.
   const warning = runtime.release_matches_source === false
-    ? 'backend code and installed artifacts differ; reinstall a complete published build'
+    ? RELEASE_ARTIFACT_DRIFT_WARNING
     : undefined;
   return { compatible: true, reason: '', warning, meta };
 }

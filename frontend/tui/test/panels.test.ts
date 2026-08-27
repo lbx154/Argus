@@ -26,6 +26,7 @@ import { CostGauge } from '../src/components/CostGauge.js';
 import { MissionCockpit } from '../src/components/MissionCockpit.js';
 import { PendingDecisionPrompt } from '../src/components/PendingDecisionPrompt.js';
 import { emptyMissionView } from '../../core/src/missionView.js';
+import { RELEASE_ARTIFACT_DRIFT_WARNING } from '../../core/src/protocol.js';
 import type { EventMsg, ResourceStatus, Snapshot, StatusView } from '../src/api.js';
 import { SLASH_COMMANDS } from '../src/input/slash.js';
 
@@ -156,14 +157,28 @@ test('connection health remains visible without overflowing a 60-column terminal
   assert.match(output, /snapshot refresh failed/);
   const finalFrame = output.slice(output.lastIndexOf('◆ ARGUS'));
   assert.ok(finalFrame.split('\n').every((line) => Array.from(line).length <= 60));
+
+  const warning = await renderNode(
+    React.createElement(Footer, {
+      notice: `warning: ${RELEASE_ARTIFACT_DRIFT_WARNING}`,
+      width: 60,
+    }),
+    60,
+  );
+  assert.match(warning, /build_release/);
 });
 
-test('header establishes the autonomous research lab identity without ops clutter', async () => {
+test('header uses a neutral lab identity outside research missions', async () => {
   const output = await renderNode(
     React.createElement(Header, { width: 120 }),
     120,
   );
-  assert.match(output, /Autonomous Research Lab/);
+  const researchOutput = await renderNode(
+    React.createElement(Header, { width: 120, vertical: 'research' }),
+    120,
+  );
+  assert.match(output, /Autonomous Work Lab/);
+  assert.match(researchOutput, /Autonomous Research Lab/);
   assert.doesNotMatch(output, /pid|backend|daily cap/);
 });
 
@@ -182,6 +197,13 @@ test('mission cockpit keeps mission, team, and timeline readable at 60 columns',
   view.mission.elapsed_seconds = 8040;
   view.stage = { id: 'optimize', label: 'Optimize' };
   view.round = { current: 7, max: 24 };
+  view.outcome = {
+    execution_status: 'completed',
+    review_status: 'not_assessed',
+    stage_certification: 'deferred',
+    interruption_kind: 'none',
+    resumable: false,
+  };
   view.roles.find((role) => role.role === 'planner')!.status = 'active';
   view.roles.find((role) => role.role === 'planner')!.label = 'Comparing 3 branches';
   view.timeline = [{
@@ -190,10 +212,12 @@ test('mission cockpit keeps mission, team, and timeline readable at 60 columns',
   }];
   const output = await renderNode(React.createElement(MissionCockpit, { view, width: 60 }), 60);
   assert.match(output, /MISSION/);
-  assert.match(output, /AI RESEARCH TEAM/);
+  assert.match(output, /AI TEAM/);
   assert.match(output, /LIVE RESEARCH TIMELINE/);
   assert.match(output, /Comparing 3 branches/);
   assert.match(output, /MISSION SUMMARY/);
+  assert.match(output, /Stage decision pending/);
+  assert.doesNotMatch(output, /stage=deferred/);
   assert.match(output, /MODE TEAM · kernel_engineering · STAGED · BOUNDED · FINITE/);
   assert.match(output, /CONTINUOUS/);
   assert.match(output, /Improved the kernel/);
@@ -780,7 +804,7 @@ test('19-row cockpit stays below Ink full-screen clear threshold', async () => {
   const finalFrame = output.slice(output.lastIndexOf('◉ argus'));
   assert.ok(finalFrame.trimEnd().split('\n').length < 19);
   assert.match(finalFrame, /MISSION/);
-  assert.match(finalFrame, /AI RESEARCH TEAM/);
+  assert.match(finalFrame, /AI TEAM/);
   assert.match(finalFrame, /MANAGER.*Waiting/);
   assert.match(finalFrame, /PLANNER.*Waiting/);
   assert.match(finalFrame, /ENGINEER.*Waiting/);

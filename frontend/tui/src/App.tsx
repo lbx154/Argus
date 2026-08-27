@@ -866,7 +866,7 @@ export function App({
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Header width={terminal.columns} />
+      <Header width={terminal.columns} vertical={missionView?.routing.vertical} />
       {!slashMenuOpen ? <GuardianBanner alert={activeGuardianAlert(events)} /> : null}
       {pendingDecision ? (
         <PendingDecisionPrompt

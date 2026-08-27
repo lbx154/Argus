@@ -386,12 +386,11 @@ def main(argv: list[str] | None = None) -> int:
 
     life_dir = root / "life" / member_safe
     operator_context = ""
-    operator_context_revision = 0
     operator_context_root = os.environ.get("ARGUS_OPERATOR_CONTEXT_DIR", "").strip()
     if operator_context_root:
         from ..core.operator_context import build_operator_context_block
 
-        operator_context, operator_context_revision = build_operator_context_block(
+        operator_context, _ = build_operator_context_block(
             "teammate",
             operator_context_root,
             mission_id=task_id,
@@ -405,16 +404,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         if part
     )
-    if operator_context:
-        from ..core.event_catalog import EventType
-        from ..life.event_log import JsonlEventSink
-
-        JsonlEventSink(None, life_dir=life_dir).append({
-            "type": EventType.ROLE_SESSION_TURN,
-            "role": "teammate",
-            "operation": "launch",
-            "operator_context_revision": operator_context_revision,
-        })
     with _temporary_env("ARGUS_SKILL_TEAM_TASK_ID", task_id):
         mission = _coerce_mission_result(
             run_one_engineer_mission(

@@ -170,8 +170,13 @@ def reduce_planner_event(
             "branch_id": _text(event, "branch_id") or item_id,
             "parent_branch_id": _text(event, "parent_branch_id") or None,
         })
-        _set_role(view, "planner", "done", "Research branch added", ts)
-        _timeline(view, event, role="planner", title="Research branch added", detail=_text(event, "title"), tone="info")
+        label = (
+            "Research branch added"
+            if _text(view.get("routing", {}), "vertical") == "research"
+            else "Task added"
+        )
+        _set_role(view, "planner", "done", label, ts)
+        _timeline(view, event, role="planner", title=label, detail=_text(event, "title"), tone="info")
         _role_work(
             view,
             event,

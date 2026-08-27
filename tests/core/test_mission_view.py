@@ -93,6 +93,15 @@ def test_manager_grounding_lifecycle_is_visible(tmp_path: Path) -> None:
         "open_ended": False,
     }
     assert roles["manager"]["status"] == "done"
+    view = emit(
+        tmp_path,
+        "life.planner.task_added",
+        3,
+        item_id="task-1",
+        title="Fix the CLI",
+    )
+    planner = next(role for role in view["roles"] if role["role"] == "planner")
+    assert planner["label"] == "Task added"
 
 
 def test_manager_intent_failure_is_not_labeled_as_grounding_failed(

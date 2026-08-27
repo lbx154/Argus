@@ -74,6 +74,24 @@ def test_front_door_wrapper_routes_team_work_as_complex() -> None:
     assert state["_frontdoor_lifetime"] == "standing"
 
 
+def test_front_door_intake_does_not_emit_a_role_session_turn(tmp_path) -> None:
+    class _IntakeManager:
+        @staticmethod
+        def classify_front_door(_text, *, intake_sink):
+            intake_sink({"kind": "ephemeral"})
+            return None, None, "complex"
+
+    decision = _front_door_classify(
+        SimpleNamespace(project_root=tmp_path),
+        "inspect this request",
+        {},
+        ensure_runner=lambda *_args: SimpleNamespace(manager=_IntakeManager()),
+    )
+
+    assert decision == (None, None, "complex")
+    assert not (tmp_path / "events.jsonl").exists()
+
+
 def test_front_door_wrapper_caches_bounded_lifetime_for_dispatch() -> None:
     """A TEAM request keeps the same-call bounded verdict for dispatch."""
     state: dict = {}

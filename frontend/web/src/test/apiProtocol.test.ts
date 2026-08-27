@@ -360,9 +360,9 @@ describe('web API protocol handshake', () => {
     const { api } = await import('../api');
 
     await expect(api.listProjects()).resolves.toEqual([]);
-    expect(warning).toHaveBeenCalledWith(expect.stringMatching(
-      /code and installed artifacts differ/,
-    ));
+    expect(warning).toHaveBeenCalledWith(
+      'Argus API compatibility warning: python -m argus_skill.release_tools.build_release',
+    );
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/api/meta',
       '/api/projects',

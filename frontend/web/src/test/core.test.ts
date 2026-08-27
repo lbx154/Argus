@@ -303,6 +303,7 @@ describe('shared frontend core', () => {
       },
     }])).toEqual({
       tone: 'warn',
+      kind: 'validation',
       text: 'invalid event agent.io.error: missing required fields: error',
     });
   });
