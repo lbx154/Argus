@@ -910,7 +910,8 @@ class LifeSupervisor(
                     stopped_by = "backlog_empty"
                     break
                 continue
-            results.append(outcome)
+            if outcome.get("status") != "claim_lost":
+                results.append(outcome)
             if outcome.get("status") in {
                 # Nothing ran and the item is still there, so re-selecting it
                 # immediately just loses the claim again. run-07-panel emitted 154

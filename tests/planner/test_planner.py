@@ -1187,3 +1187,25 @@ def test_planner_reports_newer_operator_generation_as_superseded() -> None:
 
     assert verdict.project_done is False
     assert verdict.error == PLANNER_SUPERSEDED_ERROR
+
+
+def test_planner_zero_exit_fatal_error_preserves_actionable_reason() -> None:
+    class Runner:
+        def run_exec(self, **_kwargs):
+            return RunnerResult(
+                exit_code=0,
+                fatal_error="backend stream ended before a planner decision",
+                stderr_lines=["ignored old stderr", "recent stderr detail"],
+            )
+
+    verdict = Planner(Runner()).plan_next(
+        continuous_objective="keep optimizing Argus",
+        config=PlannerConfig(working_dir="/tmp/project", open_ended=True),
+    )
+
+    assert verdict.project_done is False
+    assert verdict.error == (
+        "backend stream ended before a planner decision\n"
+        "ignored old stderr\n"
+        "recent stderr detail"
+    )

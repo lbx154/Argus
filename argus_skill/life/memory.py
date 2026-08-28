@@ -1893,12 +1893,8 @@ class Backlog:
                     self._save(items)
                 return None
             ready.sort(key=lambda it: (it.priority, it.ts))
-            head = (
-                next((item for item in ready if item.id == expected_id), None)
-                if expected_id
-                else ready[0]
-            )
-            if head is None:
+            head = ready[0]
+            if expected_id and head.id != expected_id:
                 return None
             head.status = "running"
             head.started_ts = time.time()

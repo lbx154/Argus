@@ -239,6 +239,103 @@ def test_crash_after_mission_claim_requeues_audit_and_reemits_started(
     assert started[0]["item_id"] == item.id
 
 
+def test_serial_claim_lost_does_not_rollback_another_ready_item(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    first = memory.backlog.add(BacklogItem.new(
+        title="stale",
+        objective="already handled elsewhere",
+        priority=1,
+    ))
+    second = memory.backlog.add(BacklogItem.new(
+        title="still ready",
+        objective="must remain untouched",
+        priority=2,
+    ))
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_MaintenanceRunner(),
+        sink=_RecordingSink(memory.root),
+        config=LifeSupervisorConfig(project_worktree=tmp_path),
+    )
+    original_next_pending = memory.backlog.next_pending
+    original_update = memory.backlog.update
+    raced = False
+    updates: list[tuple[str, dict[str, Any]]] = []
+
+    def stale_next_pending(*args: Any, **kwargs: Any) -> BacklogItem | None:
+        nonlocal raced
+        item = original_next_pending(*args, **kwargs)
+        if not raced and item is not None and item.id == first.id:
+            raced = True
+            assert original_update(first.id, status="done") is not None
+        return item
+
+    def recording_update(item_id: str, **fields: Any) -> BacklogItem | None:
+        updates.append((item_id, dict(fields)))
+        return original_update(item_id, **fields)
+
+    monkeypatch.setattr(memory.backlog, "next_pending", stale_next_pending)
+    monkeypatch.setattr(memory.backlog, "update", recording_update)
+
+    result = supervisor.tick()
+
+    rows = {item.id: item for item in memory.backlog.all()}
+    assert result == {"status": "claim_lost", "item_id": first.id}
+    assert rows[first.id].status == "done"
+    assert rows[second.id].status == "pending"
+    assert not any(
+        item_id == second.id and fields.get("status") == "pending"
+        for item_id, fields in updates
+    )
+
+
+def test_claim_lost_is_not_counted_as_mission(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    first = memory.backlog.add(BacklogItem.new(
+        title="stale",
+        objective="already completed by another supervisor",
+        priority=1,
+    ))
+    second = memory.backlog.add(BacklogItem.new(
+        title="still ready",
+        objective="run after the coordination miss",
+        priority=2,
+    ))
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_MaintenanceRunner(),
+        sink=_RecordingSink(memory.root),
+        config=LifeSupervisorConfig(project_worktree=tmp_path),
+    )
+    original_next_pending = memory.backlog.next_pending
+    raced = False
+
+    def stale_next_pending(*args: Any, **kwargs: Any) -> BacklogItem | None:
+        nonlocal raced
+        item = original_next_pending(*args, **kwargs)
+        if not raced and item is not None and item.id == first.id:
+            raced = True
+            assert memory.backlog.update(first.id, status="done") is not None
+        return item
+
+    monkeypatch.setattr(memory.backlog, "next_pending", stale_next_pending)
+
+    result = supervisor.run()
+
+    assert result["missions_started"] == 0
+    assert result["missions_run"] == 0
+    assert result["results"] == []
+    rows = {item.id: item for item in memory.backlog.all()}
+    assert rows[first.id].status == "done"
+    assert rows[second.id].status == "pending"
+
+
 def test_framework_maintenance_uses_private_worktree_and_review(
     tmp_path,
     monkeypatch,

@@ -265,6 +265,31 @@ def test_reviewer_auto_selects_full_pipeline_for_final_submission(
     )
 
 
+def test_reviewer_auto_uses_bounded_submission_stage_checklist(
+    tmp_path,
+) -> None:
+    persist_vertical(tmp_path, "research")
+    _set_stage(tmp_path, "submission")
+
+    context = resolve_role_prompt(evaluate_request(tmp_path, scope="bounded"))
+
+    assert context.scope == "bounded"
+    assert context.stage == "submission"
+    assert "Full pipeline checklist" not in context.stage_checklist
+    assert context.stage_checklist == format_stage_checklist(
+        "submission",
+        role="reviewer",
+        project_root=tmp_path,
+        scope="bounded",
+    )
+    assert "vertical:research:checklist:reviewer:stage:submission" in (
+        context.fragment_ids
+    )
+    assert "vertical:research:checklist:reviewer:full_pipeline" not in (
+        context.fragment_ids
+    )
+
+
 def test_research_planner_receives_dynamic_paper_policy(tmp_path) -> None:
     persist_vertical(tmp_path, "research")
     _set_stage(tmp_path, "run")

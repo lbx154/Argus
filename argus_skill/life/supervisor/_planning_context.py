@@ -1042,6 +1042,14 @@ class PlanningContextMixin:
                 )
                 if same_blocker and previous.get("idle_capacity_turn_used"):
                     payload["idle_capacity_turn_used"] = True
+                    if "idle_capacity_turn_ts" in previous:
+                        payload["idle_capacity_turn_ts"] = previous[
+                            "idle_capacity_turn_ts"
+                        ]
+                    if "idle_capacity_backlog_revision" in previous:
+                        payload["idle_capacity_backlog_revision"] = previous[
+                            "idle_capacity_backlog_revision"
+                        ]
         except (OSError, ValueError):
             pass
         path.parent.mkdir(parents=True, exist_ok=True)

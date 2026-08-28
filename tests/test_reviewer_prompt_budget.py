@@ -22,6 +22,8 @@ role/routing and named-verdict prose this file was written to protect.
 
 from __future__ import annotations
 
+import json
+
 from argus_skill.reviewer import Reviewer
 from argus_skill.roles.prompts import reviewer as reviewer_prompt
 from argus_skill.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
@@ -77,6 +79,16 @@ def _build(measured: bool, monkeypatch) -> tuple[str, Reviewer]:
 
 def _prompt(measured: bool, monkeypatch) -> str:
     return _build(measured, monkeypatch)[0]
+
+
+def _persist_research_stage(project_root, stage: str) -> None:
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(project_root, "research")
+    state_path = project_root / ".argus" / "PIPELINE_STATE.json"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    payload["current_stage"] = stage
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def test_fixed_contract_prose_within_budget(monkeypatch):
@@ -194,6 +206,37 @@ def test_reviewer_records_prompt_block_token_estimates(monkeypatch):
     assert stats["main_summary"]["chars"] == len("RESULT: evidence exists")
     assert stats["static_total"]["estimated_tokens"] > 0
     assert stats["static_total"]["chars"] + stats["delta_total"]["chars"] == len(prompt)
+
+
+def test_bounded_submission_reviewer_stage_checklist_stays_compact(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
+    _persist_research_stage(tmp_path, "submission")
+    reviewer = Reviewer(runner=None, skill_store=None)
+    prompt = reviewer._build_prompt(
+        objective="bounded submission package repair",
+        operator_messages=[],
+        planner_review_instruction="",
+        round_index=1,
+        session_id=None,
+        main_summary="done",
+        main_error=None,
+        prior_checkpoint={},
+        working_dir=str(tmp_path),
+        scope="bounded",
+    )
+
+    stats = reviewer.last_prompt_block_stats["stage_checklist"]
+    assert stats["chars"] < 10_000
+    assert stats["estimated_tokens"] < 2_500
+    assert "## Stage checklist (submission)" in prompt
+    assert "Full pipeline checklist" not in prompt
+    assert "bounded mission" in prompt
+    assert "only the checklist items materially touched by this mission" in prompt
+    assert "submission.upstream" in prompt
+    assert "submission.anonymous" in prompt
 
 
 def test_reviewer_does_not_duplicate_identical_objective(monkeypatch):
