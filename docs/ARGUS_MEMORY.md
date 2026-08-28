@@ -31,6 +31,5 @@ execution
 
 While roles work, Argus records observable events. At execution boundaries, it compresses current state into the frontier, checkpoint, handoffs, and role capsules. After settlement, stable facts can enter the Wiki, reusable procedures can enter Skills, and verified failures can become failure experience. Later roles retrieve each layer according to project, mission, role, and authority.
 
-A proposed always-loaded behavioral Skill asks every role to state important insights immediately in natural-language reasoning or progress output. Argus would persist that observable statement, and post-mission analysis would inspect relevant role trajectories and consolidate lessons worth retaining.
 
 This description reflects `lbx154/Argus` at commit `ae2daa1fbc2c918b4e7126151fe55eb68fd0cb98`.
