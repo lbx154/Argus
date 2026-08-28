@@ -1,0 +1,21 @@
+{
+  "criteria": {
+    "scope_adequacy": {
+      "enabled": true,
+      "uses_llm": false,
+      "threshold": 0.6,
+      "error_message": "The PR description is too brief for the size of the patch. Describe the main changes and affected behavior."
+    },
+    "file_type_consistency": {
+      "enabled": true,
+      "uses_llm": false,
+      "threshold": 0.8,
+      "error_message": "The PR description does not match the patch's test, documentation, or configuration file changes. Update the description or patch."
+    },
+    "task_type_alignment": {
+      "enabled": false,
+      "uses_llm": true,
+      "error_message": "The PR's stated task type does not align with the change described by the patch."
+    }
+  }
+}
