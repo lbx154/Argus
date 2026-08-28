@@ -787,6 +787,8 @@ export default function App() {
                 {standardWorkspaceView === 'mission' && missionView ? (
                   <MissionControl
                     view={missionView}
+                    sid={snap.session.id}
+                    snapshot={snap}
                     gitDiff={gitDiffQ.data}
                     onOpenArtifact={setArtifactPath}
                     onOpenDelivery={openDelivery}

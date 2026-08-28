@@ -8,6 +8,7 @@ import { theme } from '../lib/theme';
 import { formatRelativeTime } from '../lib/format';
 import { MarkdownContent } from './MarkdownContent';
 import { useI18n } from '../i18n';
+import { api, type Snapshot } from '../api';
 import {
   frontierLabel,
   roleLabel,
@@ -74,11 +75,15 @@ function Achievement({ view }: { view: MissionView }) {
 
 export function MissionControl({
   view,
+  sid = '',
+  snapshot,
   onOpenArtifact,
   onOpenDelivery,
   gitDiff,
 }: {
   view: MissionView;
+  sid?: string;
+  snapshot?: Snapshot;
   onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
   gitDiff?: GitDiffView;
@@ -94,6 +99,7 @@ export function MissionControl({
   const [replayIndex, setReplayIndex] = useState(Math.max(0, view.timeline.length - 1));
   const [selectedRole, setSelectedRole] = useState(view.active_role || 'planner');
   const [selectedTaskId, setSelectedTaskId] = useState(activeNode?.id || '');
+  const [resumeBusy, setResumeBusy] = useState(false);
   const routing = routingLabels(view.routing, t).join(' · ');
   const delivery = view.delivery;
   const healthNeedsAttention = ['red', 'critical'].includes(view.health?.toLowerCase() ?? '');
@@ -113,6 +119,17 @@ export function MissionControl({
   useEffect(() => {
     if (activeNode?.id) setSelectedTaskId(activeNode.id);
   }, [activeNode?.id]);
+  const handleResume = async () => {
+    if (resumeBusy) return;
+    setResumeBusy(true);
+    try {
+      await api.setContinuous(sid, true, snapshot?.continuous?.objective ?? '');
+    } catch {
+      // ignore
+    } finally {
+      setResumeBusy(false);
+    }
+  };
   const replayRows = view.timeline.slice(0, replayIndex + 1).slice(-12).reverse();
   const selectedTask = view.dag.find((node) => node.id === selectedTaskId);
   const selectedRoleWork = view.role_work
@@ -193,6 +210,24 @@ export function MissionControl({
           {t(attentionKey)}
         </div>
       ) : null}
+
+      {snapshot?.continuous?.done_at && (
+        <div className="mb-3 flex items-center gap-3 rounded-lg border-l-2 border-blue bg-blue/5 px-3 py-2">
+          <span className="text-base">↩</span>
+          <span className="min-w-0 flex-1 truncate text-sm text-ink-dim">
+            {t('mission.continuousDone')}
+            {snapshot.continuous.objective ? ` · ${snapshot.continuous.objective}` : ''}
+          </span>
+          <button
+            type="button"
+            disabled={resumeBusy}
+            onClick={() => void handleResume()}
+            className="compact-control shrink-0 px-3"
+          >
+            {resumeBusy ? '…' : t('mission.resumeContinuous')}
+          </button>
+        </div>
+      )}
 
       <Achievement view={view} />
 

@@ -70,6 +70,9 @@ export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean
 export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean; onClose: () => void }) {
   const { t } = useI18n();
   const { data, isLoading, refetch } = useConfig(sid, open);
+  const [quickModelValue, setQuickModelValue] = useState('');
+  const [quickConfigBusy, setQuickConfigBusy] = useState(false);
+  const [quickConfigMsg, setQuickConfigMsg] = useState('');
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
@@ -79,11 +82,42 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
   const [budgets, setBudgets] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!open || !data) return;
+    setQuickModelValue(data?.operator_knobs?.find((knob) => knob.name === 'ARGUS_SKILL_MODEL')?.value ?? '');
     const byName = new Map(data.operator_knobs.map((knob) => [knob.name, knob.value]));
     setBudgets(Object.fromEntries(
       BUDGET_FIELDS.map((field) => [field.alias, byName.get(field.env) ?? '']),
     ));
   }, [data, open]);
+  const currentBackend = data?.operator_knobs?.find((knob) => knob.name === 'ARGUS_SKILL_RUNNER_BACKEND')?.value
+    ?? data?.roles?.[0]?.backend_label?.toLowerCase()
+    ?? '';
+  const setBackend = async (backend: string) => {
+    if (quickConfigBusy) return;
+    setQuickConfigBusy(true);
+    setQuickConfigMsg('');
+    try {
+      await api.setConfig(sid, 'ARGUS_SKILL_RUNNER_BACKEND', backend);
+      await refetch();
+    } catch (error) {
+      setQuickConfigMsg(error instanceof Error ? error.message : String(error));
+    } finally {
+      setQuickConfigBusy(false);
+    }
+  };
+  const applyModel = async () => {
+    if (quickConfigBusy) return;
+    setQuickConfigBusy(true);
+    setQuickConfigMsg('');
+    try {
+      await api.setConfig(sid, 'ARGUS_SKILL_MODEL', quickModelValue.trim() || 'auto');
+      await refetch();
+      setQuickConfigMsg(t('settings.applied'));
+    } catch (error) {
+      setQuickConfigMsg(error instanceof Error ? error.message : String(error));
+    } finally {
+      setQuickConfigBusy(false);
+    }
+  };
   const saveBudgets = async () => {
     if (budgetBusy) return;
     setBudgetBusy(true);
@@ -129,6 +163,47 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
   return (
     <Modal open={open} onClose={onClose} label={t('common.settings')} width="max-w-4xl">
       <ModalHeader title={t('common.settings')} sub={t('settings.subtitle')} />
+      <div className="mx-4 mt-3 rounded-lg border border-line glass-card p-3">
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('settings.quickConfig')}</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] text-ink-faint w-12 shrink-0">{t('settings.backend')}</span>
+          <div className="flex flex-wrap gap-1">
+            {(['copilot', 'codex', 'claude', 'opencode'] as const).map((backend) => (
+              <button
+                key={backend}
+                type="button"
+                disabled={quickConfigBusy}
+                onClick={() => void setBackend(backend)}
+                className={`rounded-md px-2.5 h-7 text-xs font-medium transition-colors disabled:opacity-40 ${
+                  currentBackend === backend
+                    ? 'bg-blue-deep text-white'
+                    : 'border border-line/70 text-ink-dim hover:border-blue/50'
+                }`}
+              >
+                {backend}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-[10px] text-ink-faint w-12 shrink-0">{t('settings.model')}</span>
+          <input
+            value={quickModelValue}
+            onChange={(event) => setQuickModelValue(event.target.value)}
+            placeholder={t('settings.modelPlaceholder')}
+            className="h-8 flex-1 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue min-w-0"
+          />
+          <button
+            type="button"
+            onClick={() => void applyModel()}
+            disabled={quickConfigBusy}
+            className="h-8 shrink-0 rounded border border-line/70 px-2.5 text-xs font-medium text-ink-dim hover:border-blue/50 disabled:opacity-40"
+          >
+            {t('settings.applyModel')}
+          </button>
+        </div>
+        {quickConfigMsg && <div className="mt-1.5 text-[10px] text-ink-dim">{quickConfigMsg}</div>}
+      </div>
       <div className="p-4">
         {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
         <section className="mb-4 rounded-lg border border-line bg-surface p-3">
