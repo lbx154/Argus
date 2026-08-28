@@ -39,6 +39,6 @@ jobs:
           fi
       - name: Verify product tree parity
         run: |
-          python -m argus_skill.release_tools.check_repository_parity \
+          python argus_skill/release_tools/check_repository_parity.py \
             --private-ref HEAD \
             --public-ref "$PUBLIC_REF"
