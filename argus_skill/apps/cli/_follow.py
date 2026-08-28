@@ -808,41 +808,45 @@ def _format_follow_event_body(
         iter_info = raw_iteration if isinstance(raw_iteration, dict) else {}
         context = _format_follow_mission_context(event, mission_context=mission_context)
         title = context[0]
-        summary = _clean_follow_text(
+        objective = _clean_follow_text(
             str(
-                event.get("summary")
-                or event.get("stop_reason")
-                or event.get("failure_reason")
-                or event.get("reason")
+                event.get("objective")
+                or (mission_context or {}).get("objective")
                 or ""
             ),
             limit=None,
         )
-        chinese = uses_cjk(f"{title}\n{summary}")
-        if iter_info.get("requeued"):
-            headline = (
+        summary = _clean_follow_text(str(event.get("summary") or ""), limit=None)
+        failure_reason = _clean_follow_text(
+            str(event.get("failure_reason") or summary), limit=None,
+        )
+        status_text = str(event.get("status") or "").strip()
+        status = status_text.lower()
+        chinese = uses_cjk(f"{title}\n{objective}\n{summary}\n{failure_reason}")
+        if status == "continued" or iter_info.get("requeued"):
+            text = (
                 f"{title} 的本轮已完成；下一轮已加入队列。"
                 if chinese
                 else f"Round complete for {title}; another iteration is queued."
             )
             icon = "🔁"
-        else:
-            status = str(event.get("status") or "").strip().lower()
-            paused = (
-                status.startswith("paused_")
-                or event.get("resumable") is True
-                or event.get("recoverable") is True
+        elif event.get("success") is True and status == "done":
+            text = f"已完成：{title}。" if chinese else f"Completed: {title}."
+            detail = summary or objective
+            if detail:
+                text += f" {detail}"
+            icon = "✅"
+        elif status == "failed" or event.get("success") is False:
+            text = (
+                f"未能完成 {title}：{failure_reason}"
+                if chinese
+                else f"Could not complete {title}: {failure_reason}"
             )
-            if event.get("success") is True or status in {"done", "success", "completed"}:
-                headline = f"已完成：{title}。" if chinese else f"Completed: {title}."
-                icon = "✅"
-            elif paused:
-                headline = f"已暂停：{title}。" if chinese else f"Paused: {title}."
-                icon = "⏸️"
-            else:
-                headline = f"未能完成 {title}。" if chinese else f"Could not complete {title}."
-                icon = "❌"
-        return f"{icon} {headline}" + (f" {summary}" if summary else "")
+            icon = "❌"
+        else:
+            text = f"{title}：{status_text}" if chinese else f"{title}: {status_text}"
+            icon = "ℹ️"
+        return f"{icon} {text}"
 
     if etype == "life.mission.failed":
         return f"❌ mission failed · {_clean_follow_text(str(event.get('reason') or event.get('error') or ''), limit=None)}"
