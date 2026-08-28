@@ -50,6 +50,20 @@ class _FakeProc:
         return 0
 
 
+class _LingeringCopilotProc(_FakeProc):
+    def __init__(self, stdout_lines: list[str]) -> None:
+        super().__init__(stdout_lines)
+        self.returncode = None
+        self.pid = 424242
+        self.terminated = False
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):  # noqa: ARG002
+        return self.returncode
+
+
 @pytest.fixture()
 def _fake_copilot(monkeypatch: pytest.MonkeyPatch):
     lines = [
@@ -107,6 +121,62 @@ def test_none_callback_leaves_turn_unchanged(_fake_copilot, monkeypatch) -> None
     )
     assert result.agent_messages == ["block one", "block two"]
     assert result.exit_code == 0
+
+
+def test_copilot_model_response_completes_and_reaps_lingering_cli(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    final = "MILESTONE_STATUS=done\nNEXT_OWNER=reviewer"
+    lines = [
+        json.dumps({"type": "assistant.message", "data": {"content": final}}),
+        json.dumps(
+            {
+                "type": "model.response",
+                "data": {
+                    "kind": "response",
+                    "response": {
+                        "content": final,
+                        "responses_message_status": "completed",
+                        "phase": "final_answer",
+                    },
+                },
+            }
+        ),
+    ]
+    process = _LingeringCopilotProc(lines)
+
+    monkeypatch.setattr(runner_mod.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        AgentCliRunner,
+        "_resolve_executable",
+        staticmethod(lambda value: value),
+    )
+    monkeypatch.setattr(
+        AgentCliRunner,
+        "_build_command",
+        lambda self, **kwargs: ["copilot", "-p"],
+    )
+
+    def terminate(proc, *, include_detached_children=False):  # noqa: ARG001
+        proc.terminated = True
+        proc.returncode = -15
+
+    monkeypatch.setattr(AgentCliRunner, "_terminate_process", staticmethod(terminate))
+
+    result = AgentCliRunner(
+        agent_bin="copilot",
+        backend=BACKEND_COPILOT,
+    ).run_exec(
+        prompt="finish",
+        resume_thread_id=None,
+        options=RunnerOptions(),
+        run_label="engineer-r1",
+    )
+
+    assert process.terminated is True
+    assert result.turn_completed is True
+    assert result.turn_failed is False
+    assert result.agent_messages == [final]
 
 
 def test_claude_stream_records_tool_activity_and_model(

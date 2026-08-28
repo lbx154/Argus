@@ -398,6 +398,7 @@ class Planner:
             return self._repair_no_task_verdict(
                 previous_raw_text=text,
                 previous_error=rejection,
+                previous_verdict=verdict,
                 options=planner_options,
                 planning_cycle=planning_cycle,
                 resume_thread_id=repair_thread_id,
@@ -471,6 +472,7 @@ class Planner:
         *,
         previous_raw_text: str,
         previous_error: str,
+        previous_verdict: PlannerVerdict | None = None,
         options: RunnerOptions,
         planning_cycle: int,
         resume_thread_id: str,
@@ -517,6 +519,32 @@ class Planner:
                     f"planner repair backend exit {getattr(result, 'exit_code', 'unknown')}"
                 )
                 continue
+            if (
+                previous_verdict is not None
+                and not previous_verdict.error
+                and previous_verdict.new_tasks
+                and str(previous_error).startswith(MISSING_STAGE_DECISION_ERROR)
+            ):
+                if process_decision is not None:
+                    repaired_stage = str(
+                        process_decision.get("advance_to_stage")
+                        or process_decision.get("ADVANCE_TO_STAGE")
+                        or ""
+                    ).strip().lower()
+                else:
+                    repaired_values, _repaired_tasks = _planner_key_values(text)
+                    repaired_stage = repaired_values.get(
+                        "ADVANCE_TO_STAGE", ""
+                    ).strip().lower()
+                if repaired_stage:
+                    return replace(
+                        previous_verdict,
+                        advance_to_stage=repaired_stage,
+                        raw_text="\n\n--- planner repair attempt ---\n\n".join(
+                            raw_attempts
+                        ),
+                        error="",
+                    )
             repaired = (
                 parse_planner_payload(process_decision)
                 if process_decision is not None

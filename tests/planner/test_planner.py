@@ -966,6 +966,56 @@ def test_plan_next_repairs_missing_staged_advance(monkeypatch) -> None:
     assert "TASK_OBJECTIVE=Execute the real benchmark." in runner.calls[1]["prompt"]
 
 
+def test_missing_stage_repair_preserves_valid_task_when_repair_corrupts_scope(
+    monkeypatch,
+) -> None:
+    runner = _SequenceRunner([
+        "\n".join(
+            [
+                "PROJECT_DONE=false",
+                "REASON=review the isolated candidate",
+                "TASK_KEY=review-candidate",
+                "TASK_TITLE=Review candidate",
+                "TASK_OBJECTIVE=Review exactly the frozen candidate rows.",
+                "TASK_SCOPE=bounded；one isolated review mission",
+            ]
+        ),
+        "\n".join(
+            [
+                "PROJECT_DONE=false",
+                "REASON=review the isolated candidate",
+                "ADVANCE_TO_STAGE=solve",
+                "TASK_KEY=review-candidate",
+                "TASK_TITLE=Review candidate",
+                "TASK_OBJECTIVE=This repair accidentally rewrote the task.",
+                "TASK_SCOPE=review only the frozen candidate rows",
+            ]
+        ),
+    ])
+    monkeypatch.setattr(
+        Planner,
+        "_build_planner_prompt",
+        staticmethod(lambda **kwargs: "original planner prompt"),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="audit the candidate",
+        planning_cycle=10,
+        config=PlannerConfig(
+            working_dir="/tmp/project",
+            require_stage_decision=True,
+            current_stage="solve",
+        ),
+    )
+
+    assert verdict.error == ""
+    assert verdict.advance_to_stage == "solve"
+    assert verdict.new_tasks[0].scope == "bounded"
+    assert verdict.new_tasks[0].objective == (
+        "Review exactly the frozen candidate rows."
+    )
+
+
 def test_plan_next_repairs_binary_outcome_label(monkeypatch) -> None:
     forbidden_label = "no" + "-go"
     runner = _SequenceRunner([

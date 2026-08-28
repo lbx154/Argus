@@ -90,6 +90,50 @@ def test_commit_resolves_dependency_from_prior_planning_cycle(tmp_path: Path) ->
     assert persisted.deps == [implementation.id]
 
 
+def test_commit_resolves_completed_backlog_item_id_dependency(tmp_path: Path) -> None:
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    completed = backlog.add(
+        BacklogItem.new(
+            title="Seal the independent verdict",
+            objective="Produce the accepted verdict artifact.",
+            node_key="review-first-eight",
+        )
+    )
+    backlog.mark_done(completed.id)
+    integration = BacklogItem.new(
+        title="Integrate accepted rows",
+        objective="Consume the sealed verdict and publish accepted rows.",
+        node_key="integrate-first-eight",
+    )
+    task = SimpleNamespace(
+        deps=[completed.id],
+        impact_score=0,
+        impact_area="",
+    )
+
+    class Harness(PlanningCycleEnqueueMixin):
+        _planning_cycles = 3
+        memory = SimpleNamespace(backlog=backlog)
+
+        def _emit(self, _event: dict[str, object]) -> None:
+            return None
+
+        def _emit_status(self, _text: str) -> None:
+            return None
+
+        def _enter_idle_backoff(self) -> float:
+            raise AssertionError("completed item-id dependency must not back off")
+
+    state = _PlanCycleState(None)
+    state.existing_items = backlog.all()
+    state.manager_intent = {}
+    state.pending_items = [(task, integration)]
+
+    assert Harness()._pc_commit_pending_items(state) is None
+    persisted = next(item for item in backlog.all() if item.id == integration.id)
+    assert persisted.deps == [completed.id]
+
+
 def test_planner_task_inherits_manager_routing_without_optional_fields() -> None:
     assert PlanningCycleEnqueueMixin._manager_decision_evidence({}) == {
         "routed": True,

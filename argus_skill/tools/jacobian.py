@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import shutil
+import sys
 from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
@@ -100,7 +101,13 @@ def jacobian_capability_note() -> str:
     executable = resolve_jacobian_mcp_executable()
     if executable is None:
         return ""
-    module = "python -m argus_skill.tools.jacobian"
+    source_interpreter = (
+        Path(__file__).resolve().parents[2]
+        / ".venv"
+        / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    )
+    interpreter = source_interpreter if source_interpreter.is_file() else Path(sys.executable)
+    module = f"{interpreter} -m argus_skill.tools.jacobian"
     return (
         "\n\n## This host's Jacobian capability\n\n"
         f"Jacobian MCP is available at `{executable}` through Argus's isolated "
@@ -354,6 +361,11 @@ def run_operation(
 
 def _payload_file(path_value: str) -> dict[str, Any]:
     path = Path(path_value).expanduser()
+    if path.suffix.casefold() != ".json":
+        raise JacobianAdapterError(
+            "payload file must use a dedicated .json path; never use a README, "
+            "CSV, proof, or source file as temporary Jacobian input"
+        )
     try:
         stat = path.lstat()
     except OSError as exc:

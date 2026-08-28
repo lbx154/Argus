@@ -42,7 +42,9 @@ def test_capability_note_names_the_mcp_bridge(tmp_path: Path, monkeypatch) -> No
     binary = _binary(tmp_path)
     monkeypatch.setenv(jacobian.JACOBIAN_MCP_BIN_ENV, str(binary))
     note = jacobian.jacobian_capability_note()
+    source_interpreter = Path(jacobian.__file__).resolve().parents[2] / ".venv/bin/python"
     assert str(binary.resolve()) in note
+    assert str(source_interpreter) in note
     assert "argus_skill.tools.jacobian find" in note
     assert "import Jacobian" not in note
 
@@ -113,6 +115,13 @@ def test_payload_file_rejects_symlink(tmp_path: Path) -> None:
     link.symlink_to(target)
     with pytest.raises(jacobian.JacobianAdapterError, match="non-symlink"):
         jacobian._payload_file(str(link))
+
+
+def test_payload_file_rejects_non_json_extension(tmp_path: Path) -> None:
+    payload = tmp_path / "result.csv"
+    payload.write_text("{}")
+    with pytest.raises(jacobian.JacobianAdapterError, match="dedicated .json"):
+        jacobian._payload_file(str(payload))
 
 
 def test_invalid_operation_id_is_rejected_before_sidecar_start(tmp_path: Path) -> None:

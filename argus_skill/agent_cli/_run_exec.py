@@ -39,7 +39,7 @@ from ._idle_watchdog import (
     IdleEscalation,
 )
 from .models import AgentRunResult, InactivitySnapshot
-from .runner_backend import BACKEND_DSH, BACKEND_OPENCODE
+from .runner_backend import BACKEND_COPILOT, BACKEND_DSH, BACKEND_OPENCODE
 
 _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS = 0.1
 _POST_EXIT_PIPE_DRAIN_MAX_SECONDS = 5.0
@@ -584,6 +584,13 @@ class RunExecMixin:
                             _cb(_blk)
                         except Exception:  # noqa: BLE001 — UI callback must not break the turn
                             pass
+                if (
+                    self.backend == BACKEND_COPILOT
+                    and str(event.get("type") or "").strip() == "model.response"
+                    and state.turn_completed
+                    and process.poll() is None
+                ):
+                    self._terminate_process(process)
             else:
                 state.stderr_line_count += 1
                 state.stderr_lines.append(text)

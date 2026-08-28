@@ -36,8 +36,8 @@ from ._helpers import (
     _resolve_task_dep_ids,
     _sanitize_planner_task_text,
 )
-from ._planning_cycle_helpers import _PlanCycleState, _revision_reason
 from ._planner_rendering import _forward_progress
+from ._planning_cycle_helpers import _PlanCycleState, _revision_reason
 
 log = logging.getLogger(__name__)
 
@@ -912,6 +912,17 @@ class PlanningCycleEnqueueMixin:
             for item in state.existing_items
             if str(item.node_key or "").strip()
         }
+        # Persisted DAG edges use backlog item ids after commit. A later
+        # Planner cycle may therefore name a completed parent by that canonical
+        # id instead of by its original node key. Treat both spellings as the
+        # same dependency while continuing to reject genuinely unknown ids.
+        known_key_map.update(
+            {
+                str(item.id): item.id
+                for item in state.existing_items
+                if str(item.id or "").strip()
+            }
+        )
         known_key_map.update(state.key_map)
         unresolved: list[tuple[str, list[str]]] = []
         for task, item in state.pending_items:
