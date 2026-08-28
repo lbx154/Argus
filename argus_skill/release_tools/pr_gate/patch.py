@@ -11,14 +11,18 @@ CONFIG_RE = re.compile(r"(^|/)(\.github/workflows|ci|config)(/|$)")
 CONFIG_BASENAMES = {
     ".gitattributes",
     ".gitignore",
+    ".mcp.json",
     "build.gradle",
     "composer.json",
+    "config.json",
     "environment.yml",
     "gradle.properties",
     "package-lock.json",
     "package.json",
+    "plugin.json",
     "pom.xml",
     "pyproject.toml",
+    "release_manifest.json",
     "requirements.txt",
     "setup.cfg",
     "tox.ini",
@@ -47,18 +51,21 @@ def is_docs_path(path: str) -> bool:
 
 def is_config_path(path: str) -> bool:
     value = path.lower()
+    basename = value.rsplit("/", 1)[-1]
     return bool(
         CONFIG_RE.search(value)
-        or value.rsplit("/", 1)[-1] in CONFIG_BASENAMES
+        or basename in CONFIG_BASENAMES
+        or (basename.startswith("tsconfig") and basename.endswith(".json"))
+        or basename.endswith(".config.json")
         or value.endswith(
-            (".yml", ".yaml", ".json", ".toml", ".ini", ".cfg", ".conf", ".lock")
+            (".yml", ".yaml", ".toml", ".ini", ".cfg", ".conf", ".lock")
         )
     )
 
 
 def patch_stats(base_sha: str, head_sha: str) -> dict[str, Any]:
     result = subprocess.run(
-        ["git", "diff", "--numstat", "--no-renames", base_sha, head_sha],
+        ["git", "diff", "--numstat", base_sha, head_sha],
         text=True,
         capture_output=True,
         check=False,

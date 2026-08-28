@@ -26,7 +26,11 @@ def scope_adequacy(message: str, patch: dict[str, Any]) -> tuple[float, dict[str
     word_count = len(message.split())
     churn = patch["total_churn"]
     if churn <= 0:
-        return 0.5, {"message_word_count": word_count, "code_churn": churn}
+        return 1.0, {
+            "message_word_count": word_count,
+            "code_churn": churn,
+            "not_applicable": "no_text_churn",
+        }
 
     expected_words = int(min(50, max(10, churn / 20)))
     ratio = min(1.0, word_count / expected_words)
