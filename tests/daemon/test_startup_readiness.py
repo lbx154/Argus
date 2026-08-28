@@ -28,10 +28,6 @@ class _FakeWorker(LifeWorkerBootMixin):
     def _rf_build_supervisor(self, _state) -> None:
         self.calls.append("supervisor")
 
-    def _rf_init_self_maintenance(self, _state):
-        self.calls.append("maintenance")
-        return None
-
     def _rf_start_services(self, _state) -> None:
         self.calls.append("services")
 

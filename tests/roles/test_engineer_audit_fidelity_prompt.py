@@ -6,7 +6,7 @@ from argus_skill.roles.prompts import engineer
 
 
 @pytest.mark.parametrize("include_static", [True, False])
-def test_audit_tasks_get_provenance_and_append_only_guards(
+def test_audit_words_do_not_inject_a_policy_block(
     monkeypatch: pytest.MonkeyPatch,
     include_static: bool,
 ) -> None:
@@ -23,16 +23,10 @@ def test_audit_tasks_get_provenance_and_append_only_guards(
         include_static=include_static,
     )
 
-    assert "An objective or inherited summary is a requirement, not observed evidence" in prompt
-    assert "label the claim unverified" in prompt
-    assert "stop installs and repairs immediately" in prompt
-    assert "never replace that file" in prompt
-    assert "byte-faithfully in a sidecar" in prompt
-    assert "unquoted heredoc" in prompt
-    assert "inner stderr/status" in prompt
+    assert "## Audit fidelity" not in prompt
 
 
-def test_ordinary_task_does_not_pay_audit_prompt_cost(
+def test_ordinary_task_also_has_no_audit_policy_block(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(engineer, "native_shell_contract", lambda: "")
@@ -45,3 +39,20 @@ def test_ordinary_task_does_not_pay_audit_prompt_cost(
     )
 
     assert "## Audit fidelity" not in prompt
+
+
+def test_compact_team_performance_policy_states_when_it_applies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(engineer, "native_shell_contract", lambda: "")
+    monkeypatch.setattr(engineer, "native_shell_summary", lambda: "")
+
+    prompt = engineer.build_mission_prompt(
+        task="Investigate the assigned behavior.",
+        skill_text="",
+        next_action=None,
+        compact_team=True,
+    )
+
+    assert "Performance root-cause/bottleneck/replacement claims need" in prompt
+    assert "hot-path/live-resource evidence plus timing/profiling or controlled A/B" in prompt

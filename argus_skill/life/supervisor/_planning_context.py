@@ -13,7 +13,7 @@ from typing import Any
 
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
-from ...core.wake_sources import SUPPORTED_WAKE_SOURCES
+from ...core.wake_sources import normalize_wake_sources
 from ..memory import BacklogItem
 from ._constants import (
     IDLE_BACKOFF_CAP_SECONDS,
@@ -28,6 +28,8 @@ from ._constants import (
 from ._helpers import _operator_only_external_blocker_wait_reason_for_project
 
 log = logging.getLogger(__name__)
+
+_DEGRADED_WAIT_POLL_SECONDS = 300
 
 
 class PlanningContextMixin:
@@ -60,9 +62,11 @@ class PlanningContextMixin:
         if bool(getattr(task, "stage_closing", False)):
             tags.append("stage_closing")
         if bool(getattr(task, "stage_closing", False)) or bool(
-            getattr(task, "require_independent_review", False)
+            getattr(task, "require_independent_review", True)
         ):
             tags.append("review:required")
+        else:
+            tags.append("review:waived")
         if bool(getattr(task, "skip_stage_transition", False)):
             tags.append("stage_transition:skip")
         if bool(getattr(task, "stage_repair", False)):
@@ -88,11 +92,13 @@ class PlanningContextMixin:
 
     @staticmethod
     def _item_requires_independent_review(item: BacklogItem) -> bool:
-        return any(
+        normalized_tags = {
             str(tag).strip().lower().replace("-", "_")
-            in {"review:required", "independent_review:required"}
             for tag in item.tags
-        )
+        }
+        if normalized_tags & {"review:waived", "independent_review:waived"}:
+            return False
+        return True
 
     @staticmethod
     def _item_is_stage_closing(item: BacklogItem) -> bool:
@@ -184,7 +190,6 @@ class PlanningContextMixin:
     def _render_backlog_item_metadata(self, item: BacklogItem) -> str:
         scope = self._planner_scope_from_item(item)
         context_refs = [ref for ref in getattr(item, "context_refs", []) if isinstance(ref, dict)]
-        work_kind = str(getattr(item, "work_kind", "") or "").strip()
         acceptance_check = str(getattr(item, "acceptance_check", "") or "").strip()
         plan_hypothesis = str(getattr(item, "plan_hypothesis", "") or "").strip()
         goal_contribution = str(getattr(item, "goal_contribution", "") or "").strip()
@@ -208,7 +213,6 @@ class PlanningContextMixin:
             and not item.tags
             and not getattr(item, "plan_id", "")
             and not context_refs
-            and not work_kind
             and not acceptance_check
             and not plan_hypothesis
             and not goal_contribution
@@ -227,8 +231,6 @@ class PlanningContextMixin:
             lines.append(f"- node_key: {item.node_key}")
         if scope:
             lines.append(f"- planner_scope: {scope}")
-        if work_kind:
-            lines.append(f"- work_kind: {work_kind}")
         if execution_workdir:
             lines.append(
                 "- execution_repository_request: " + execution_workdir
@@ -340,6 +342,24 @@ class PlanningContextMixin:
                 continue
             extra = getattr(entry, "extra", {}) or {}
             if isinstance(extra, dict) and bool(extra.get("final_submission_certified")):
+                manuscript_binding = extra.get("manuscript_snapshot")
+                if (
+                    (Path(self._project_workdir()) / "paper/main.tex").is_file()
+                    and not isinstance(manuscript_binding, dict)
+                ):
+                    continue
+                if isinstance(manuscript_binding, dict):
+                    try:
+                        from ...core.manuscript_snapshot import (
+                            manuscript_review_status,
+                        )
+
+                        if manuscript_review_status(
+                            extra, self._project_workdir()
+                        ).get("status") != "current":
+                            continue
+                    except Exception:  # noqa: BLE001 - unreadable binding fails closed
+                        continue
                 certified_signature = str(extra.get("final_submission_signature") or "")
                 if certified_signature:
                     if bool(current_signature) and certified_signature == current_signature:
@@ -1022,6 +1042,14 @@ class PlanningContextMixin:
                 )
                 if same_blocker and previous.get("idle_capacity_turn_used"):
                     payload["idle_capacity_turn_used"] = True
+                    if "idle_capacity_turn_ts" in previous:
+                        payload["idle_capacity_turn_ts"] = previous[
+                            "idle_capacity_turn_ts"
+                        ]
+                    if "idle_capacity_backlog_revision" in previous:
+                        payload["idle_capacity_backlog_revision"] = previous[
+                            "idle_capacity_backlog_revision"
+                        ]
         except (OSError, ValueError):
             pass
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1317,6 +1345,37 @@ class PlanningContextMixin:
         granted = float(state.get("idle_capacity_turn_ts") or 0.0)
         return time.time() - granted >= IDLE_BACKOFF_CAP_SECONDS
 
+    def _confined_planner_wait_paths(self, values: list[str]) -> list[str]:
+        """Validate watched paths before they can influence revision reads."""
+        if not values:
+            return []
+        root = self._project_workdir().expanduser().resolve(strict=False)
+        confined: list[str] = []
+        seen: set[str] = set()
+        for raw in values:
+            value = str(raw or "").strip().replace("\\", "/")
+            path = Path(value)
+            if (
+                not value
+                or "\x00" in value
+                or path.is_absolute()
+                or ".." in path.parts
+                or value in {".", "./"}
+            ):
+                raise ValueError(f"watched path must be a project child: {value!r}")
+            normalized = Path(*path.parts).as_posix()
+            candidate = (root / normalized).resolve(strict=False)
+            try:
+                candidate.relative_to(root)
+            except ValueError as exc:
+                raise ValueError(
+                    f"watched path escapes the project root: {value!r}"
+                ) from exc
+            if normalized not in seen:
+                seen.add(normalized)
+                confined.append(normalized)
+        return confined
+
     def _persist_planner_waiting_contract(
         self,
         contract: Any,
@@ -1331,9 +1390,37 @@ class PlanningContextMixin:
             and previous.get("recheck_token") == recheck_token
         )
         now = time.time()
-        wait_mode = str(getattr(contract, "wait_mode", "poll") or "poll")
-        wake_on = [str(value) for value in getattr(contract, "wake_on", ())]
-        watched_paths = [str(value) for value in getattr(contract, "watched_paths", ())]
+        raw_wait_mode = str(
+            getattr(contract, "wait_mode", "poll") or "poll"
+        ).strip().casefold()
+        normalized_wake_on, unknown_wake_on, wake_changed = normalize_wake_sources(
+            getattr(contract, "wake_on", ())
+        )
+        wake_on = list(normalized_wake_on)
+        normalization_reasons: list[str] = []
+        if raw_wait_mode not in {"event", "poll"}:
+            normalization_reasons.append(
+                f"unknown wait_mode {raw_wait_mode!r} normalized from context"
+            )
+        if wake_changed:
+            normalization_reasons.append("wake sources normalized")
+        if unknown_wake_on:
+            normalization_reasons.append(
+                "unsupported wake hints ignored: " + ", ".join(unknown_wake_on)
+            )
+        try:
+            watched_paths = self._confined_planner_wait_paths(
+                [str(value) for value in getattr(contract, "watched_paths", ())]
+            )
+        except ValueError as exc:
+            self._emit({
+                "type": EventType.LIFE_PLANNER_ERROR,
+                "error": "planner wait has unsafe watched path",
+                "detail": str(exc),
+                "blocker_fingerprint": blocker_fingerprint,
+                "recheck_token": recheck_token,
+            })
+            return None
         # operator_action_required means only fresh operator input can change
         # this blocker, so the source it wakes on is not the Planner's to pick.
         # run-05 declared operator waits against subagent_state and had
@@ -1344,68 +1431,105 @@ class PlanningContextMixin:
         operator_action_required = bool(
             getattr(contract, "operator_action_required", False)
         )
+        context_requires_event = False
         if operator_action_required:
-            wait_mode = "event"
             wake_on = ["authorization"]
+            context_requires_event = True
+            if normalized_wake_on != ("authorization",) or raw_wait_mode != "event":
+                normalization_reasons.append(
+                    "operator wait bound to authorization events"
+                )
+        elif watched_paths:
+            if "artifact_revision" not in wake_on:
+                wake_on.append("artifact_revision")
+                normalization_reasons.append(
+                    "artifact_revision derived from watched paths"
+                )
+            context_requires_event = True
+
+        source_wait_id = str(getattr(contract, "wait_id", "") or "").strip()
+        resolved_wait = None
+        wait_id_source_unknown = False
+        if source_wait_id:
+            try:
+                from ...engineer.external_work import inspect_external_work
+
+                resolved_wait = inspect_external_work(
+                    self._project_workdir(), source_wait_id
+                )
+            except Exception:  # noqa: BLE001 - registry discovery is fail-soft
+                log.warning("failed to resolve planner wait registry id", exc_info=True)
+            if resolved_wait is not None and resolved_wait.source == "subagent":
+                if "subagent_state" not in wake_on:
+                    wake_on.append("subagent_state")
+                context_requires_event = True
+                normalization_reasons.append(
+                    "subagent_state derived from resolved wait_id"
+                )
+            else:
+                wait_id_source_unknown = True
+                normalization_reasons.append(
+                    "wait_id did not resolve to a Host-observed subagent"
+                )
+
         contract_observed_revision = str(
             getattr(contract, "observed_revision", "") or ""
         )
-        unsupported_wake_sources = sorted(
-            set(wake_on).difference(SUPPORTED_WAKE_SOURCES)
-        )
-        if wait_mode == "event" and unsupported_wake_sources:
-            self._emit(
-                {
-                    "type": EventType.LIFE_PLANNER_ERROR,
-                    "error": "event wait has unsupported wake source",
-                    "unsupported_wake_sources": unsupported_wake_sources,
-                    "blocker_fingerprint": blocker_fingerprint,
-                    "recheck_token": recheck_token,
-                }
+
+        if "artifact_revision" in wake_on and not watched_paths:
+            wake_on = [source for source in wake_on if source != "artifact_revision"]
+            normalization_reasons.append(
+                "artifact_revision hint ignored without confined watched paths"
             )
-            return None
-        if wait_mode == "event" and not wake_on:
-            self._emit(
-                {
-                    "type": EventType.LIFE_PLANNER_ERROR,
-                    "error": "event wait has no deterministic wake source",
-                    "blocker_fingerprint": blocker_fingerprint,
-                    "recheck_token": recheck_token,
-                }
-            )
-            return None
         if (
-            wait_mode == "event"
-            and "artifact_revision" in wake_on
-            and not watched_paths
-        ):
-            self._emit(
-                {
-                    "type": EventType.LIFE_PLANNER_ERROR,
-                    "error": "artifact event wait has no watched paths",
-                    "blocker_fingerprint": blocker_fingerprint,
-                    "recheck_token": recheck_token,
-                }
-            )
-            return None
-        if (
-            wait_mode == "event"
-            and {"subagent_state", "subagent_terminal"}.intersection(wake_on)
+            {"subagent_state", "subagent_terminal"}.intersection(wake_on)
             and not contract_observed_revision
+            and not (resolved_wait is not None and resolved_wait.source == "subagent")
         ):
-            self._emit(
-                {
-                    "type": EventType.LIFE_PLANNER_ERROR,
-                    "error": "subagent event wait lacks host-observed revision",
-                    "blocker_fingerprint": blocker_fingerprint,
-                    "recheck_token": recheck_token,
-                }
+            wake_on = [
+                source
+                for source in wake_on
+                if source not in {"subagent_state", "subagent_terminal"}
+            ]
+            normalization_reasons.append(
+                "subagent wake hint ignored without a Host-observed revision"
             )
-            return None
+
+        if context_requires_event:
+            wait_mode = "event"
+        elif raw_wait_mode in {"event", "poll"}:
+            wait_mode = raw_wait_mode
+        else:
+            wait_mode = "event" if wake_on else "poll"
+            normalization_reasons.append(f"wait_mode selected as {wait_mode}")
+
+        degraded = False
+        if wait_mode == "event" and not wake_on:
+            wait_mode = "poll"
+            degraded = True
+            normalization_reasons.append(
+                "event wait degraded to bounded poll without an observable source"
+            )
+        elif (
+            wait_mode == "poll"
+            and (unknown_wake_on or wait_id_source_unknown)
+            and not wake_on
+        ):
+            degraded = True
+            normalization_reasons.append(
+                "unobservable source degraded to bounded poll"
+            )
         current_observed_revision = self._planner_waiting_observed_revision(
             wake_on=wake_on,
             watched_paths=watched_paths,
         )
+        if (
+            wait_mode == "event"
+            and {"subagent_state", "subagent_terminal"}.intersection(wake_on)
+            and resolved_wait is not None
+            and resolved_wait.source == "subagent"
+        ):
+            contract_observed_revision = current_observed_revision
         if (
             contract_observed_revision
             and current_observed_revision != contract_observed_revision
@@ -1421,7 +1545,18 @@ class PlanningContextMixin:
                 }
             )
             return None
-        wait_id = hashlib.sha256(
+        if normalization_reasons:
+            self._emit({
+                "type": "life.planner.waiting_contract.normalized",
+                "blocker_fingerprint": blocker_fingerprint,
+                "recheck_token": recheck_token,
+                "reasons": normalization_reasons,
+                "degraded": degraded,
+                "wait_mode": wait_mode,
+                "wake_on": wake_on,
+            })
+
+        durable_wait_id = hashlib.sha256(
             (
                 self._planner_waiting_objective_fingerprint()
                 + "\0"
@@ -1443,7 +1578,7 @@ class PlanningContextMixin:
             )
             control_head = control.activate_wait(
                 identity=identity,
-                wait_id=wait_id,
+                wait_id=durable_wait_id,
                 blocker_fingerprint=blocker_fingerprint,
                 recheck_token=recheck_token,
                 watched_paths=watched_paths,
@@ -1474,7 +1609,10 @@ class PlanningContextMixin:
                 0,
                 min(
                     604800,
-                    int(getattr(contract, "recheck_after_seconds", 0) or 0),
+                    max(
+                        _DEGRADED_WAIT_POLL_SECONDS if degraded else 0,
+                        int(getattr(contract, "recheck_after_seconds", 0) or 0),
+                    ),
                 ),
             ),
             "wait_mode": wait_mode,
@@ -1485,7 +1623,8 @@ class PlanningContextMixin:
                 float(getattr(contract, "expires_at", 0.0) or 0.0),
             ),
             **control_binding,
-            "wait_id": wait_id,
+            "wait_id": durable_wait_id,
+            "source_wait_id": source_wait_id,
             "observed_revision": (
                 contract_observed_revision or current_observed_revision
             ),
@@ -1612,7 +1751,7 @@ class PlanningContextMixin:
         recheck_token = str(pending.get("recheck_token") or "")
         try:
             item_exists = any(
-                getattr(item, "id", "") == item_id for item in self.memory.backlog.all()
+                getattr(item, "id", "") == item_id for item in self.memory.backlog.history()
             )
         except Exception:  # noqa: BLE001
             log.exception("failed to reconcile pending planner verification probe")
@@ -1682,7 +1821,6 @@ class PlanningContextMixin:
         return (
             "AUTHORITATIVE MANAGER WAIT RESOLUTION (current objective):\n"
             f"- stage remains: {resolution.get('target_stage') or '(unchanged)'}\n"
-            f"- prior blocker: {resolution.get('blocker_fingerprint') or ''}\n"
             "- prior recheck condition: "
             f"{resolution.get('recheck_condition') or ''}\n"
             f"- Manager directive: {reason}\n"
@@ -1771,7 +1909,6 @@ class PlanningContextMixin:
             return ""
         return (
             "PERSISTED PLANNER WAITING CONTRACT (authored by your prior verdict):\n"
-            f"- blocker_fingerprint: {state['blocker_fingerprint']}\n"
             f"- recheck_token: {state['recheck_token']}\n"
             f"- recheck_condition: {state.get('recheck_condition') or ''}\n"
             f"- wait_mode: {state.get('wait_mode') or 'poll'}\n"
@@ -1782,9 +1919,13 @@ class PlanningContextMixin:
             f"{bool(state.get('operator_action_required'))}\n"
             f"- last_probe_at: {state.get('last_probe_at') or 0}\n"
             "If current evidence does not satisfy the declared recheck condition, "
-            "reuse the exact fingerprint and token with waiting=true and do not "
+            "reuse the same blocker semantics and token with waiting=true and do not "
             "queue an equivalent polling task. Change the token only when concrete "
-            "current evidence changes; the harness does not infer that change."
+            "current evidence changes; the harness does not infer that change. "
+            "While the named wait is in progress, is there a concrete uncertainty "
+            "whose answer could change the route and can be resolved without the "
+            "awaited result? If yes, schedule that information-gaining work; otherwise "
+            "wait."
         )
 
     def _maybe_dispatch_verification_probe(self, verdict: Any) -> bool:
@@ -1834,7 +1975,7 @@ class PlanningContextMixin:
             return False
         # Never stack a second probe while one is still pending/running.
         try:
-            for it in self.memory.backlog.all():
+            for it in self.memory.backlog.active():
                 if "verification_probe" in (getattr(it, "tags", []) or []) and getattr(
                     it, "status", ""
                 ) in ("pending", "running"):

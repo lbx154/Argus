@@ -147,7 +147,7 @@ def mission_is_running(mem: Any) -> bool:
     try:
         return any(
             str(getattr(item, "status", "") or "") == "running"
-            for item in mem.backlog.all()
+            for item in mem.backlog.active()
         )
     except Exception:  # noqa: BLE001 - routing must remain available
         return False
@@ -312,7 +312,7 @@ def _ensure_manager_runner(chat_state: dict[str, Any], mem: Any) -> Any:
             ),
             plan_mode="auto",
             plan_model=None,
-            max_rounds=500,
+            max_rounds=0,
             # The Manager uses the same persisted workdir as Planner, Engineer,
             # and Reviewer. Session state remains rooted at session_root.
             workdir=workspace_key,
@@ -700,7 +700,7 @@ class PreparedManagerHandoff:
             "route": "team",
             "workflow_mode": workflow_mode,
             "require_independent_review": bool(
-                getattr(division, "require_independent_review", False)
+                getattr(division, "require_independent_review", True)
             ),
             "lifetime": lifetime,
             "continuous": continuous,
@@ -729,7 +729,20 @@ class PreparedManagerHandoff:
         _emit_manager_event(self.mem, event)
 
     def failed(self, exc: Exception) -> None:
-        _emit_manager_event(self.mem, {
+        raw_cause = str(getattr(exc, "cause", "") or str(exc)).strip()
+        phase = str(getattr(exc, "phase", "") or "").strip()
+        contract_field = str(
+            getattr(exc, "contract_field", "") or ""
+        ).strip()
+        if not phase:
+            if isinstance(exc, TimeoutError):
+                phase = "timeout"
+            elif "execution_task" in raw_cause:
+                phase = "contract"
+                contract_field = contract_field or "execution_task"
+            else:
+                phase = "backend"
+        event = {
             "type": "life.manager.intent.failed",
             "agent_layer": "manager",
             "intent_id": self.intent_id,
@@ -737,8 +750,19 @@ class PreparedManagerHandoff:
             "source": "user",
             "objective": self.body,
             "error": f"{type(exc).__name__}: {exc}",
+            "phase": phase,
+            "cause": raw_cause,
+            "contract_field": contract_field,
+            "attempts": max(1, int(getattr(exc, "attempts", 1) or 1)),
+            "model_reply_snippet": str(
+                getattr(exc, "model_reply_snippet", "") or ""
+            )[:300],
+            "backend_error": str(
+                getattr(exc, "backend_error", "") or ""
+            ).strip(),
             "text": "manager intent interpretation failed",
-        })
+        }
+        _emit_manager_event(self.mem, event)
 
     def superseded(self) -> None:
         _emit_manager_event(self.mem, {
@@ -992,7 +1016,7 @@ def _bounded_handoff_division(
         workflow_mode=resolve_workflow_mode(project_root),
         execution_task=prepared.execution_task,
         require_independent_review=bool(
-            getattr(prepared.decision, "require_independent_review", False)
+            getattr(prepared.decision, "require_independent_review", True)
         ),
     )
 
@@ -1173,6 +1197,8 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     """
     if route is None and mission_is_running(mem):
         route = "simple"
+    from ..provider_integrations.authorization_retry import BackendLoginRequired
+
     runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
     if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
         return None
@@ -1355,10 +1381,14 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             ):
                 chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
                 return captured[0] if captured else _empty_reply_for_outcome()
+        except BackendLoginRequired:
+            raise
         except Exception as exc:  # noqa: BLE001 — triage failure
             if is_pre_provider_refusal_error(exc):
                 return _pre_provider_refusal_reply(exc, body)
             return None
+    except BackendLoginRequired:
+        raise
     except Exception as exc:  # noqa: BLE001 — triage failure: bias to task
         if is_pre_provider_refusal_error(exc):
             return _pre_provider_refusal_reply(exc, body)

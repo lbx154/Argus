@@ -66,7 +66,3 @@ def test_learning_stage_contract_runs_typed_validator(tmp_path: Path) -> None:
     from argus_skill.verticals.learning import stages
 
     assert "MATERIAL_MANIFEST" in " ".join(stages.stage_completion_issues("ingest", tmp_path))
-    assert all(
-        "learning.curation" in " ".join(command for _label, command in stages.STAGE_CHECKS[stage])
-        for stage in stages.STAGE_ORDER
-    )

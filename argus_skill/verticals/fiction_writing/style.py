@@ -6,13 +6,11 @@ or validated it, and the review stage never even read it — so the only real st
 knob was the coarse 5-value genre profile. This module gives the card a real,
 checkable schema and threads it end-to-end:
 
-* **captured** at intake (:func:`voice_card_from_brief` seeds a valid default from
-  the genre profile; the author overrides it richly — e.g. a 红楼梦 continuation's
-  appellations / forbidden modern words / classical register);
+* **captured** at intake (:func:`voice_card_from_brief` preserves explicit style
+  choices and otherwise produces a neutral card for the Engineer to develop);
 * **injected** into the drafting prompt (the engineer honors register / lexicon);
-* **enforced** at review — a declared ``forbidden_lexicon`` term or an exceeded
-  ``ai_tell_budget`` is a BLOCKING finding (see :mod:`.style_lint`), while softer
-  features stay non-blocking reviewer guidance.
+* **reviewed** in context — explicit ``forbidden_lexicon`` constraints remain hard,
+  while word-list cues and other voice features inform the Reviewer.
 
 The card is ABSTRACT FEATURES + an EXPLICIT lexicon, never "imitate author X".
 Its SHAPE is language/genre-agnostic; a zh classical work and an en thriller
@@ -26,8 +24,6 @@ from typing import Any
 
 import jsonschema
 
-from .profiles import DEFAULT_PROFILE
-
 _SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 _VOICE_CARD_DIR = Path(__file__).resolve().parent / "references" / "voice_cards"
 
@@ -38,31 +34,6 @@ def _load_schema(name: str) -> dict[str, Any]:
 
 
 STYLE_PROFILE_SCHEMA: dict[str, Any] = _load_schema("style_profile.schema.json")
-
-#: Per-genre-profile default abstract features, so EVERY mission gets a valid,
-#: non-empty card even when the operator declares no fine-grained style. The
-#: author (especially a continuation) overrides these richly.
-_PROFILE_DEFAULTS: dict[str, dict[str, str]] = {
-    "web_fiction": {"sentence_rhythm": "short_and_tense", "imagery_density": "low",
-                    "exposition_level": "direct", "ending_strategy": "reversal"},
-    "genre_fiction": {"sentence_rhythm": "varied", "imagery_density": "medium",
-                      "exposition_level": "moderate", "ending_strategy": "reversal"},
-    "literary_fiction": {"sentence_rhythm": "long_and_flowing", "imagery_density": "high",
-                         "exposition_level": "restrained", "ending_strategy": "image_out"},
-    "short_story": {"sentence_rhythm": "varied", "imagery_density": "medium",
-                    "exposition_level": "restrained", "ending_strategy": "image_out"},
-    "long_form_serial": {"sentence_rhythm": "varied", "imagery_density": "medium",
-                         "exposition_level": "moderate", "ending_strategy": "open"},
-}
-
-#: Default register per genre profile. ``classical`` is never guessed — a
-#: continuation of a classical work sets it explicitly via an override.
-_PROFILE_REGISTER: dict[str, str] = {
-    "web_fiction": "web",
-    "literary_fiction": "literary",
-    "short_story": "literary",
-}
-
 
 class StyleProfileError(ValueError):
     """Raised when a voice card (style_profile) is malformed."""
@@ -79,20 +50,6 @@ def validate_voice_card(card: dict[str, Any]) -> None:
 # --------------------------------------------------------------------------- #
 # Voice-card LIBRARY + 3-layer composition (base <- domain preset <- work/char)
 # --------------------------------------------------------------------------- #
-#: genre/market keyword -> library domain preset. The DETERMINISTIC half of
-#: "auto-建档 from the prompt": pick a domain preset from the brief's genre. The
-#: authored half (称谓 / character_voices, read from the prompt) stays the
-#: engineer's job — dialogue and cast can't be regex-extracted reliably.
-_DOMAIN_KEYWORDS: dict[str, str] = {
-    "suspense": "suspense", "悬疑": "suspense", "推理": "suspense", "mystery": "suspense",
-    "romance": "romance", "言情": "romance", "爱情": "romance",
-    "scifi": "scifi", "sci-fi": "scifi", "科幻": "scifi",
-    "literary": "literary", "纯文学": "literary", "严肃": "literary",
-    "web": "web_fiction", "网文": "web_fiction", "网络": "web_fiction",
-    "classical": "classical_zhanghui", "古典": "classical_zhanghui",
-    "章回": "classical_zhanghui", "红楼": "classical_zhanghui",
-}
-
 #: lexicon list keys whose layers UNION (accumulate across base/domain/work);
 #: object-list keys dedup by an identity field so a later layer overrides a
 #: same-named entry.
@@ -169,15 +126,12 @@ def compose_voice_card(*layers: str | dict[str, Any]) -> dict[str, Any]:
 
 
 def domain_for_brief(brief: dict[str, Any]) -> str | None:
-    """Deterministic first guess at a library domain preset from the brief's genre.
+    """Return no automatic preset; voice requires whole-brief judgment.
 
-    Returns a preset name or ``None`` (no keyword matched). The DETERMINISTIC half
-    of auto-建档; the engineer still authors 称谓/character_voices from the prompt.
+    Kept as a compatibility hook for callers that previously asked for a keyword
+    guess. A preset is now used only when passed explicitly to
+    :func:`voice_card_from_brief`.
     """
-    hay = " ".join(str(brief.get(k, "")) for k in ("genre", "market_style")).lower()
-    for keyword, preset in _DOMAIN_KEYWORDS.items():
-        if keyword in hay:
-            return preset
     return None
 
 
@@ -199,31 +153,17 @@ def voice_card_from_brief(
 ) -> dict[str, Any]:
     """Derive a valid voice card from a ``creative_brief``, then merge overrides.
 
-    Guarantees every mission a schema-valid, non-empty card. If a library ``domain``
-    preset applies — passed explicitly OR auto-detected from the brief's genre via
-    :func:`domain_for_brief` — the card is the 3-layer compose ``base <- domain <-
-    {language} <- overrides`` (the auto-建档 path). Otherwise it falls back to the
-    coarse genre-profile defaults. ``overrides`` (the author's hand-authored slots —
-    称谓 / character_voices / forbidden anachronisms) always win. Never invents
-    lexicon it was not given.
+    An explicit ``domain`` composes a library preset. Without one, return a neutral
+    card containing only language and explicit overrides; the Engineer proposes voice
+    after reading the whole brief. Never infer a preset from a substring or invent a
+    lexicon the operator did not provide.
     """
     language = brief.get("language", "zh")
-    resolved = domain if domain is not None else domain_for_brief(brief)
-    if resolved:
+    if domain:
         return compose_voice_card(
-            "base", resolved, {"meta": {"language": language}}, overrides or {})
+            "base", domain, {"meta": {"language": language}}, overrides or {})
 
-    # no library domain matched -> coarse genre-profile default
-    profile_name = (brief.get("profile") or {}).get("name") or DEFAULT_PROFILE
-    card: dict[str, Any] = {
-        "meta": {
-            "language": language,
-            "register": _PROFILE_REGISTER.get(profile_name, "contemporary"),
-        },
-        "abstract_features": dict(
-            _PROFILE_DEFAULTS.get(profile_name, _PROFILE_DEFAULTS[DEFAULT_PROFILE])
-        ),
-    }
+    card: dict[str, Any] = {"meta": {"language": language}}
     if overrides:
         card = _merge(card, overrides)
     validate_voice_card(card)
@@ -238,12 +178,6 @@ def forbidden_lexicon(card: dict[str, Any]) -> list[str]:
 def avoided_terms(card: dict[str, Any]) -> list[str]:
     """Soft terms to avoid (drives a NON-blocking lint note)."""
     return [w for w in ((card.get("lexicon") or {}).get("avoided_terms") or []) if w]
-
-
-def ai_tell_budget(card: dict[str, Any]) -> float | None:
-    """The declared max anti-AI-cliché hits per 1000 chars, or ``None`` if unset."""
-    val = (card.get("ai_tell_budget") or {}).get("max_hits_per_1000_chars")
-    return float(val) if isinstance(val, (int, float)) else None
 
 
 def novelty_budget(card: dict[str, Any]) -> dict[str, Any]:
@@ -275,6 +209,5 @@ __all__ = [
     "voice_card_from_brief",
     "forbidden_lexicon",
     "avoided_terms",
-    "ai_tell_budget",
     "novelty_budget",
 ]

@@ -1,31 +1,7 @@
-"""A self-maintenance canary must not roll the running framework backwards.
-
-Bugs #41 and #42, one cause, observed live in testbed run 5 (s-e25c3b7c).
-
-At 01:05:37 the daemon handed itself off to a repair canary running out of
-``self-maintenance/worktrees/a1e7d7f19c9fc4ef``. ``_prepare_worktree`` branches
-from ``main``, and ``git worktree add`` materializes committed content only, so
-that canary was 36 commits behind and — decisively — missing every uncommitted
-edit in the operator's checkout. Two of those edits mattered:
-
-* ``REQUIRE_INDEPENDENT_REVIEW = True`` on the math vertical. Absent from the
-  canary, ``getattr(provider, "REQUIRE_INDEPENDENT_REVIEW", False)`` answered
-  False and the next 14 missions closed on the Engineer's own say-so (#42).
-* A third ``scope`` checklist item. The canary stamped a completion fingerprint
-  computed from its own two-item checklist; the operator's framework recomputes
-  three and rejects it. The Goal Gate then refused its own ledger until the
-  daemon idled out at 02:59, and the rejection printed the *final* stage's
-  fingerprint rather than the disputed one, so the number it complained about
-  appeared nowhere in the file (#41).
-
-Nothing here tests git plumbing. It tests that a canary which cannot contain the
-running framework is declined, that a resolved vertical fails closed, and that a
-mismatched certificate says which stage and which two hashes disagree.
-"""
+"""A resolved vertical fails closed and reports stale stage evidence clearly."""
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -33,104 +9,8 @@ import pytest
 from argus_skill.apps._runtime_supervisor import (
     _independent_review_required_for_project_root,
 )
-from argus_skill.daemon import self_maintenance
 from argus_skill.skills import stage_machine
 from argus_skill.skills.vertical_select import persist_vertical
-
-# --- the canary must not be a downgrade -------------------------------------
-
-
-class _Git:
-    """Stand-in for the running framework's checkout."""
-
-    def __init__(self, *, dirty: str = "", ahead: str = "0", is_repo: bool = True):
-        self.dirty = dirty
-        self.ahead = ahead
-        self.is_repo = is_repo
-
-    def __call__(self, argv, **kwargs):
-        from types import SimpleNamespace
-
-        if argv[:3] == ["git", "rev-parse", "--show-toplevel"]:
-            return SimpleNamespace(
-                returncode=0 if self.is_repo else 128,
-                stdout=f"{kwargs.get('cwd', '')}\n",
-                stderr="",
-            )
-        if argv[:2] == ["git", "status"]:
-            return SimpleNamespace(returncode=0, stdout=self.dirty, stderr="")
-        if argv[:2] == ["git", "rev-list"]:
-            return SimpleNamespace(returncode=0, stdout=self.ahead + "\n", stderr="")
-        raise AssertionError(f"unexpected git call: {argv}")
-
-
-def _maintainer(tmp_path: Path) -> "self_maintenance.DaemonSelfMaintenance":
-    return self_maintenance.DaemonSelfMaintenance.__new__(
-        self_maintenance.DaemonSelfMaintenance
-    )
-
-
-@pytest.fixture
-def maintainer(tmp_path: Path):
-    obj = _maintainer(tmp_path)
-    obj.root = tmp_path / "state"
-    obj.framework_root = tmp_path / "Argus-0812"
-    obj.framework_root.mkdir()
-    (obj.framework_root / ".git").mkdir()
-    return obj
-
-
-def test_uncommitted_operator_work_declines_the_handoff(maintainer, monkeypatch):
-    """The exact run-5 shape: the policy that mattered was never committed."""
-    monkeypatch.setattr(
-        self_maintenance,
-        "_run",
-        _Git(dirty=" M argus_skill/verticals/math/stages.py\n"),
-    )
-
-    reason = maintainer._handoff_regression("99b4de93")
-
-    assert "uncommitted" in reason
-    assert "argus_skill/verticals/math/stages.py" in reason
-
-
-def test_commits_the_canary_never_saw_decline_the_handoff(maintainer, monkeypatch):
-    monkeypatch.setattr(self_maintenance, "_run", _Git(ahead="36"))
-
-    reason = maintainer._handoff_regression("99b4de93")
-
-    assert "36 commit(s) ahead" in reason
-    assert "99b4de93" in reason
-
-
-def test_a_clean_checkout_at_the_canary_commit_still_hands_off(
-    maintainer, monkeypatch
-):
-    """Self-repair has to keep working; this is how the system fixes itself."""
-    monkeypatch.setattr(self_maintenance, "_run", _Git())
-
-    assert maintainer._handoff_regression("99b4de93") == ""
-
-
-def test_a_non_git_deployment_still_hands_off(maintainer, monkeypatch):
-    """An installed (non-checkout) framework has no local work to lose."""
-    monkeypatch.setattr(self_maintenance, "_run", _Git(is_repo=False))
-
-    assert maintainer._handoff_regression("99b4de93") == ""
-
-
-def test_the_declined_handoff_is_reported_not_swallowed():
-    source = subprocess.run(
-        ["grep", "-c", "handoff_declined", str(
-            Path(self_maintenance.__file__)
-        )],
-        capture_output=True,
-        text=True,
-    )
-    assert int(source.stdout.strip()) >= 4, "decline must set phase AND emit an event"
-
-
-# --- a resolved vertical fails closed ---------------------------------------
 
 
 def test_a_vertical_that_cannot_be_read_still_requires_review(tmp_path, monkeypatch):

@@ -18,6 +18,7 @@ from argus_skill.tools.image_api import (
     _require_route,
 )
 
+from ...core.manuscript_snapshot import bind_manuscript_snapshot, manuscript_sha256
 from ._review_contract_constants import (
     PAPER_INFRASTRUCTURE_REVIEW_GENERATED_BY,
     PAPER_INFRASTRUCTURE_REVIEW_HISTORY_PATH,
@@ -46,7 +47,7 @@ from .venue_profiles import VenueProfile, resolve_venue_profile
 PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH = Path("paper/PAPER_INFRASTRUCTURE_REVIEW.json")
 PAPER_INFRASTRUCTURE_REVIEW_MD_PATH = Path("paper/PAPER_INFRASTRUCTURE_REVIEW.md")
 MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE = 4.0
-DEFAULT_TIMEOUT_SECONDS = 500.0
+DEFAULT_TIMEOUT_SECONDS: float | None = None
 PAPER_INFRASTRUCTURE_REVIEW_SOURCE_CHAR_LIMIT = 140000
 REQUIRED_CHECKED_SCOPES: tuple[str, ...] = (
     "title",
@@ -65,7 +66,7 @@ def generate_paper_infrastructure_review(
     *,
     review_mode: str = "model",
     threshold: float = MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE,
-    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    timeout: float | None = DEFAULT_TIMEOUT_SECONDS,
     iteration: int | None = None,
     write: bool = True,
     env: Mapping[str, str] | None = None,
@@ -78,6 +79,7 @@ def generate_paper_infrastructure_review(
         )
 
     root = Path(project_root)
+    reviewed_manuscript_sha = manuscript_sha256(root)
     threshold = max(float(threshold), MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE)
     venue = None
     venue_error: KeyError | None = None
@@ -198,6 +200,12 @@ def generate_paper_infrastructure_review(
     }
     if model_review is not None:
         result["model_review"] = model_review
+    bind_manuscript_snapshot(
+        result,
+        root,
+        recorded_at=result["created_at"],
+        sha256=reviewed_manuscript_sha,
+    )
 
     if write:
         _write_json(root / PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH, result)
@@ -212,7 +220,7 @@ def _run_model_review(
     source_text_by_path: Mapping[str, str],
     threshold: float,
     env: Mapping[str, str] | None,
-    timeout: float,
+    timeout: float | None,
     venue: VenueProfile,
 ) -> dict[str, Any]:
     prompt = _review_prompt(

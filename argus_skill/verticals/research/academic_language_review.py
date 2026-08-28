@@ -20,6 +20,7 @@ from argus_skill.tools.image_api import (
     _require_route,
 )
 
+from ...core.manuscript_snapshot import bind_manuscript_snapshot, manuscript_sha256
 from ._review_contract_constants import (
     ACADEMIC_LANGUAGE_REVIEW_GENERATED_BY,
     ACADEMIC_LANGUAGE_REVIEW_HISTORY_PATH,
@@ -40,7 +41,7 @@ PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
 ACADEMIC_LANGUAGE_REVIEW_JSON_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.json")
 ACADEMIC_LANGUAGE_REVIEW_MD_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.md")
 MIN_ACADEMIC_LANGUAGE_SCORE = 4.0
-DEFAULT_TIMEOUT_SECONDS = 500.0
+DEFAULT_TIMEOUT_SECONDS: float | None = None
 MAX_SOURCE_FILES = 120
 MIN_REVIEW_ABSTRACT_WORDS = 170
 INTRODUCTION_DEPTH_SIGNAL_WORDS = 900
@@ -250,7 +251,7 @@ def generate_academic_language_review(
     *,
     review_mode: str = "model",
     threshold: float = MIN_ACADEMIC_LANGUAGE_SCORE,
-    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    timeout: float | None = DEFAULT_TIMEOUT_SECONDS,
     iteration: int | None = None,
     write: bool = True,
     env: Mapping[str, str] | None = None,
@@ -258,6 +259,7 @@ def generate_academic_language_review(
     """Review paper prose and optionally persist review artifacts."""
 
     root = Path(project_root)
+    reviewed_manuscript_sha = manuscript_sha256(root)
     venue = resolve_venue_profile(root)
     threshold = max(float(threshold), MIN_ACADEMIC_LANGUAGE_SCORE)
     iteration = iteration or _next_iteration(root)
@@ -370,6 +372,12 @@ def generate_academic_language_review(
     }
     if model_review is not None:
         result["model_review"] = model_review
+    bind_manuscript_snapshot(
+        result,
+        root,
+        recorded_at=result["created_at"],
+        sha256=reviewed_manuscript_sha,
+    )
 
     if write:
         _write_json(root / ACADEMIC_LANGUAGE_REVIEW_JSON_PATH, result)
@@ -734,7 +742,7 @@ def _run_model_review(
     deterministic: dict[str, Any],
     threshold: float,
     env: Mapping[str, str] | None,
-    timeout: float,
+    timeout: float | None,
     venue: VenueProfile,
 ) -> dict[str, Any]:
     prompt = _review_prompt(

@@ -1,5 +1,6 @@
 import { operatorDecisionCards } from '../../../core/src/decisions';
 import type { BacklogItem } from '../api';
+import { useI18n } from '../i18n';
 
 export function PendingBanner({
   questions,
@@ -10,6 +11,7 @@ export function PendingBanner({
   backlog: BacklogItem[];
   onAnswer: () => void;
 }) {
+  const { t } = useI18n();
   const cards = operatorDecisionCards(
     questions,
     backlog as unknown as Array<Record<string, unknown>>,
@@ -27,7 +29,7 @@ export function PendingBanner({
       </div>
       {cards.length > 1 ? <span className="font-mono text-xs text-ink-faint">+{cards.length - 1}</span> : null}
       <button onClick={onAnswer} className="shrink-0 text-xs font-medium text-gold hover:text-gold-soft">
-        Decide
+        {t('pending.reviewRespond')}
       </button>
     </div>
   );

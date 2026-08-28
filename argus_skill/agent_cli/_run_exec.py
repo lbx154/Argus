@@ -42,7 +42,9 @@ from .models import AgentRunResult, InactivitySnapshot
 from .runner_backend import BACKEND_COPILOT, BACKEND_DSH, BACKEND_OPENCODE
 
 _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS = 0.1
+# Post-exit drain bounds retained pipe resources after the provider has exited.
 _POST_EXIT_PIPE_DRAIN_MAX_SECONDS = 5.0
+# This is process-group detach grace, not a role-turn deadline.
 _ORPHAN_GROUP_DETACH_GRACE_SECONDS = 0.5
 
 

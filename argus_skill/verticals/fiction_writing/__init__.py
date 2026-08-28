@@ -11,19 +11,17 @@ from __future__ import annotations
 from .stages import (
     CHECKLIST_ITEMS,
     CHECKLIST_STAGE_ORDER,
-    REVIEWER_CHECKLISTS,
-    STAGE_CHECKS,
     STAGE_ORDER,
     completion_gate,
     role_banner,
+    stage_completion_issues,
 )
 
 __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
-    "REVIEWER_CHECKLISTS",
-    "STAGE_CHECKS",
     "STAGE_ORDER",
     "completion_gate",
     "role_banner",
+    "stage_completion_issues",
 ]

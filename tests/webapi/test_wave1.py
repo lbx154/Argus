@@ -4,7 +4,9 @@ and /done /skip /rm /stop). Real temp project; no daemon needed."""
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 import subprocess
 import time
 from contextlib import contextmanager
@@ -1321,7 +1323,10 @@ _DISPATCH_ACK_CASES = [
     ({"rc": 0, "pid": 42}, "executor started"),
     (None, "executor already running"),
     ({"admission_required": True}, "waiting for an executor slot"),
-    ({"rc": 2, "error": "auth failed"}, "executor failed to start: auth failed"),
+    (
+        {"rc": 2, "error": "auth failed"},
+        "The background worker could not start. Check its startup details and try again.",
+    ),
 ]
 
 
@@ -1358,6 +1363,9 @@ def test_dispatch_ack_stream_persists_truthful_text(
 
     assert expected_substr in text
     assert result["reply"] == text
+    if isinstance(daemon_result, dict) and int(daemon_result.get("rc", 0)) != 0:
+        assert result["daemon"]["error"] == "The background worker could not start."
+        assert result["daemon"]["diagnostic"] == "auth failed"
 
     # Transcript persisted
     turns = read_turns(life_dir)
@@ -1366,6 +1374,7 @@ def test_dispatch_ack_stream_persists_truthful_text(
     # SSE delta emitted
     deltas = [p for k, p in fragments if k == "delta"]
     assert any(expected_substr in d.get("text", "") for d in deltas)
+    assert not (life_dir / "events.jsonl").exists()
 
 
 @pytest.mark.parametrize("daemon_result,expected_substr", _DISPATCH_ACK_CASES)
@@ -1399,6 +1408,11 @@ def test_dispatch_ack_blocking_persists_truthful_text(
 
     turns = read_turns(life_dir)
     assert any(t["role"] == "argus" and expected_substr in t["text"] for t in turns)
+    events = [
+        json.loads(line)
+        for line in (life_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [event["text"] for event in events if event["type"] == "ui.argus"] == [text]
 
 
 def test_dispatch_ack_distinguishes_durable_campaign_update(tmp_path: Path) -> None:
@@ -1462,34 +1476,60 @@ def test_dispatch_ack_describes_queue_state(
     assert "executor already running" not in text
 
 
-def test_dispatch_ack_raises_on_transcript_write_failure(
+def test_dispatch_ack_surfaces_transcript_write_failure(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    """Transcript persistence failure must NOT be swallowed."""
-    life_dir = tmp_path / "projects" / "s-ack-fail"
-    life_dir.mkdir(parents=True)
+    """Transcript persistence failure is visible while the mission stays queued."""
+    sid = "s-ack-fail"
+    life_dir = _make_project(tmp_path, sid)
     transcript = life_dir / "transcript.jsonl"
-    transcript.write_text("")
     real_open = Path.open
 
     def deny_transcript_append(path: Path, *args, **kwargs):
         mode = args[0] if args else kwargs.get("mode", "r")
         if path == transcript and "a" in mode:
-            raise PermissionError("simulated transcript write failure")
+            raise OSError(
+                errno.ENOSPC,
+                os.strerror(errno.ENOSPC),
+                str(transcript),
+            )
         return real_open(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", deny_transcript_append)
+    fragments: list[tuple[str, dict]] = []
     result: dict = {
         "kind": "task",
         "daemon_alive": False,
         "daemon": {"rc": 0, "pid": 99},
+        "item": {"id": "item1", "status": "pending"},
         "reply": None,
     }
-    with pytest.raises(PermissionError):
-        manager_pending_question.record_task_dispatch_ack(
-            "s-ack-fail",
-            result,
-            global_root=tmp_path,
-            on_fragment=None,
-        )
+    text = manager_pending_question.record_task_dispatch_ack(
+        sid,
+        result,
+        global_root=tmp_path,
+        on_fragment=lambda kind, payload: fragments.append((kind, payload)),
+    )
+
+    assert result["kind"] == "task"
+    assert result["ack_error"] == text
+    assert result["reply"] == text
+    assert text == (
+        "The mission is queued, but I couldn't save its confirmation. "
+        "It remains in the queue."
+    )
+    assert str(transcript) in result["ack_diagnostic"]
+    assert f"[Errno {errno.ENOSPC}] {os.strerror(errno.ENOSPC)}" in (
+        result["ack_diagnostic"]
+    )
+    assert str(transcript) not in text
+    assert "Errno" not in text
+    assert any(
+        kind == "delta" and payload.get("text") == text
+        for kind, payload in fragments
+    )
+    queued = LifeMemory.open(life_dir).backlog.all()
+    assert len(queued) == 1
+    assert queued[0].id == result["item"]["id"]
+    assert queued[0].status == "pending"

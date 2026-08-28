@@ -1,15 +1,15 @@
 """fiction_writing genre PROFILES — data that really changes the plan/rubric.
 
-Loop 10. A profile is NOT a new vertical and it does NOT bypass any contract: a
-fiction mission under any profile still goes through the same Task Envelope,
-Review, Artifact and Provenance gates and the same story_state patch engine. What
-a profile DOES is tune the *creative* knobs — pacing, chapter hooks, exposition
+Loop 10. A profile is NOT a new vertical and does not alter the shared payload
+contracts or story_state patch engine. It tunes the *creative* knobs — pacing,
+chapter hooks, exposition
 tolerance, character complexity, thematic explicitness, ending strategy — and
 carry a per-profile set of REVIEWER EMPHASES into the brief, so the reviewer's
 guidance genuinely differs between, say, web_fiction and literary_fiction.
 
-The profile is resolved at intake and recorded in the creative_brief; an UNKNOWN
-profile is rejected at the intake gate (so a typo can't silently fall through).
+The profile is resolved during intake normalization and recorded in the
+creative_brief; an UNKNOWN profile is rejected (so a typo can't silently fall
+through).
 Whether the prose actually honors the pacing is, as always, live-reviewer — the
 deterministic part is: the profile is known, its config is distinct, and it is
 consumed by the brief + reviewer banner.
@@ -86,7 +86,7 @@ def resolve_profile(name: str | None) -> dict[str, Any]:
     """Return the resolved profile config for ``name``.
 
     ``None``/empty -> the default profile. A named-but-unknown profile is REJECTED
-    (never silently defaulted) so a typo fails loudly at the intake gate. The
+    (never silently defaulted) so a typo fails loudly. The
     returned dict includes the profile ``name`` plus its creative knobs.
     """
     key = (name or "").strip() or DEFAULT_PROFILE

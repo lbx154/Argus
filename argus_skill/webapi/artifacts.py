@@ -382,9 +382,8 @@ def project_git_diff(
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=5,
             )
-        except (OSError, subprocess.TimeoutExpired):
+        except OSError:
             return ""
         return result.stdout if result.returncode == 0 else ""
 

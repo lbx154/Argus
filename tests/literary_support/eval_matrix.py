@@ -5,9 +5,9 @@ Every capability is classified into exactly one tier:
 
 * **A — deterministic**: machine-decidable, reproducible, and NEGATIVE-tested (break
   the implementation and a test goes red). Its ``evidence`` names the test file.
-* **B — fake-backend integration**: a runtime consumption chain proven with a fake
-  backend / subprocess (the contract is enforced at the real stage gate, not only
-  in a helper unit test). ``evidence`` names the runtime test file.
+* **B — stage integration**: a deterministic check is exercised through the real
+  stage-completion hook, not only through its validator unit test. ``evidence``
+  names the integration test file.
 * **C — live-model**: requires model judgement (aesthetics, literariness). It is
   NEVER mechanized or given a fake numeric score. ``evidence`` explains why it is live.
 * **GAP — not implemented**: a capability we deliberately did NOT mechanize and do
@@ -60,17 +60,17 @@ CAPABILITIES: tuple[Capability, ...] = (
                "shared", "tests/test_literary_artifact_manifest.py"),
     Capability("source registry rights + provenance ledger", "A",
                "shared", "tests/test_literary_source_registry.py"),
-    Capability("shared stage-protocol conformance", "A",
-               "shared", "tests/test_literary_stage_protocol.py"),
     Capability("genre profiles: validity + distinct rubric", "A",
                "fiction_writing", "tests/test_fiction_writing_profiles.py"),
-    # ---- B: fake-backend runtime integration ------------------------------ #
-    Capability("review -> revise enforced at the runtime stage gate", "B",
-               "fiction_writing", "tests/test_fiction_writing_revise_runtime.py"),
-    Capability("mandatory provenance ledger at runtime", "B",
-               "fiction_writing", "tests/test_fiction_writing_sources.py"),
+    # ---- B: stage-completion integration ---------------------------------- #
+    Capability("fiction hard checks enforced at stage completion", "B",
+               "fiction_writing", "tests/test_fiction_writing_style_runtime.py"),
     Capability("prosody gate enforced at the runtime stage", "B",
                "classical_poetry", "tests/test_classical_poetry_runtime.py"),
+    Capability("modern form gate enforced at the runtime stage", "B",
+               "modern_poetry", "tests/test_modern_poetry_runtime.py"),
+    Capability("prose structure gate enforced at the runtime stage", "B",
+               "prose", "tests/test_prose_runtime.py"),
     Capability("edit-discipline gate enforced at the runtime stage", "B",
                "literary_editor", "tests/test_literary_editor_runtime.py"),
     # ---- C: live-model, never mechanized ---------------------------------- #
@@ -100,7 +100,7 @@ def gaps() -> list[Capability]:
 
 def render_matrix() -> str:
     lines = ["Literary Platform v0 — Capability Matrix", "=" * 42]
-    labels = {"A": "A · 机检 (deterministic)", "B": "B · fake-backend integration",
+    labels = {"A": "A · 机检 (deterministic)", "B": "B · stage integration",
               "C": "C · live-model", "GAP": "GAP · not implemented"}
     grouped = by_tier()
     for t in TIERS:

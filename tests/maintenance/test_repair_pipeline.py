@@ -146,7 +146,7 @@ def test_doctor_reports_stalled_daemon_separately_from_stopped(
     assert finding.ok is False
 
 
-def test_doctor_plans_identity_bound_repair_for_stuck_drain(
+def test_doctor_does_not_time_box_a_live_drain(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -171,13 +171,9 @@ def test_doctor_plans_identity_bound_repair_for_stuck_drain(
 
     report = run_full_doctor(context, include_backend=False)
     finding = next(item for item in report.findings if item.code == "ARGUS-DAEMON-001")
-    plan = create_plan(context, [finding])
-    action = next(item for item in plan.actions if item.id == "stop_owned_stuck_daemon")
-
-    assert finding.status == "drain_stuck"
-    assert action.risk == "consent"
-    assert action.precondition["pid"] == 123
-    assert action.precondition["started_at_iso"] == "2026-08-14T00:00:00+00:00"
+    assert finding.status == "draining"
+    assert finding.ok is True
+    assert finding.repair_action_ids == ()
 
 
 def test_plan_persists_registered_actions_and_never_shell_text(tmp_path: Path) -> None:

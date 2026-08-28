@@ -15,6 +15,11 @@ _TIMEOUT_RE = re.compile(
 )
 
 
+def uses_cjk(text: str) -> bool:
+    """Return whether *text* indicates a CJK operator-language message."""
+    return bool(_CJK_RE.search(str(text or "")))
+
+
 def humanize_runtime_reason(reason: str, *, language_hint: str = "") -> str:
     """Translate common control-plane failures into useful operator prose.
 
@@ -25,7 +30,7 @@ def humanize_runtime_reason(reason: str, *, language_hint: str = "") -> str:
     raw = str(reason or "").strip()
     if not raw:
         return ""
-    zh = bool(_CJK_RE.search(str(language_hint or "")))
+    zh = uses_cjk(language_hint)
     lowered = raw.casefold()
     timeout = _TIMEOUT_RE.search(raw)
     if timeout:
@@ -77,7 +82,7 @@ def render_operator_update(
     """Render structured runtime state as a short, plain operator update."""
     subject = str(title or "the current task").strip()
     state = str(status or "").strip().lower()
-    chinese = bool(_CJK_RE.search(str(language_hint or subject)))
+    chinese = uses_cjk(language_hint or subject)
     why = humanize_runtime_reason(reason, language_hint=subject)
     # Reviewer/Manager next_action is already the actionable instruction. Do
     # not replace it with the generic explanation used for a raw error reason.
@@ -163,4 +168,5 @@ __all__ = [
     "humanize_runtime_reason",
     "publish_operator_message",
     "render_operator_update",
+    "uses_cjk",
 ]

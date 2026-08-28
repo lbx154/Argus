@@ -17,6 +17,7 @@ test('full Rounded art has the eye glyph, no legacy banner, and is six lines', (
   assert.equal(full.length, 6);
   assert.doesNotMatch(full.join('\n'), /ARGUS-SKILL/);
   assert.match(full.join('\n'), /[●◉]/);
+  assert.match(full.join('\n'), /Autonomous Work Lab/);
   assert.ok(Math.max(...full.map((line) => [...line].length)) > 80);
 });
 

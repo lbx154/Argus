@@ -9,7 +9,6 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { spinnerFrame } from '../lib/soul';
-import { thinkingStatusLine } from '../../../core/src/thinking';
 import { slashCompletions, applyCompletion } from '../../../core/src/commands';
 import { isPromptRewriteShortcut } from '../../../core/src/shortcuts';
 import {
@@ -88,7 +87,6 @@ export function ChatBox({
   pending,
   focusSignal,
   embedded = false,
-  phase = '',
   heartbeat = false,
   quietS = 0,
   startedAt = 0,
@@ -133,7 +131,9 @@ export function ChatBox({
     const id = setInterval(() => setThinkTick((t) => t + 1), 120);
     return () => clearInterval(id);
   }, [pending, rewriting]);
-  const thinkingLine = thinkingStatusLine(phase, thinkTick, heartbeat, quietS);
+  const thinkingLine = heartbeat
+    ? t('chat.workingQuiet', { quiet: Math.max(0, Math.floor(quietS)) })
+    : t('chat.working');
   const elapsedS = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
   const trailRows = visibleTrail(steps);
   const trailNow = Date.now() / 1000;
@@ -301,8 +301,7 @@ export function ChatBox({
         <div className="border-b border-line/40 px-3 py-2">
           <div className="flex min-w-0 items-center gap-2 text-xs">
             <span className="font-mono text-manager">{spinnerFrame(thinkTick)}</span>
-            <span className="shrink-0 font-semibold text-manager">{t('chat.yourMessage')}</span>
-            <span className="min-w-0 flex-1 truncate text-blue" title={thinkingLine}>{thinkingLine}</span>
+            <span className="min-w-0 flex-1 truncate font-semibold text-manager" title={thinkingLine}>{thinkingLine}</span>
             <span className="shrink-0 font-mono tabular-nums text-ink-faint">{elapsedS}s</span>
           </div>
           {trailRows.length ? (

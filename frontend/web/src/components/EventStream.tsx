@@ -6,12 +6,12 @@ import { renderEvent, toneColor, isReasoning, eventKey, mergeFragment, type Rend
 import { eventMatchesView, fragmentMode, type EventViewFilter } from '../../../core/src/events';
 import { theme } from '../lib/theme';
 import { clockOf } from '../lib/format';
-import { rotate, IDLE_LINES } from '../lib/soul';
 import { PanelHeader, EmptyHint } from './primitives';
 import { MarkdownContent } from './MarkdownContent';
 import { ArgusMark } from './Wordmark';
 import { useI18n } from '../i18n';
 import { CopyButton } from './CopyButton';
+import { roleLabel } from '../lib/enumLabels';
 
 type ActivityRow = { ev: EventMsg; r: Rendered; key: string };
 type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
@@ -148,6 +148,7 @@ function RoleLogGroup({
   active: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useI18n();
   const color = theme.role[role];
   const logScroller = useRef<HTMLDivElement>(null);
   const tailLength = rows[rows.length - 1]?.r.text.length ?? 0;
@@ -177,7 +178,7 @@ function RoleLogGroup({
           className={`h-2 w-2 rounded-full ${active ? 'animate-pulse' : 'opacity-55'}`}
           style={{ background: color }}
         />
-        <span className="text-xs font-semibold capitalize text-ink-dim">{role}</span>
+        <span className="text-xs font-semibold text-ink-dim">{roleLabel(role, t)}</span>
         <span className="font-mono text-xs text-ink-faint">{rows.length}</span>
         {rows.length > 0 ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">{rows[rows.length - 1].r.text}</span> : <span className="flex-1" />}
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -189,7 +190,7 @@ function RoleLogGroup({
           <div ref={logScroller} className="max-h-72 overflow-x-hidden overflow-y-auto border-t border-line/40 scroll-thin">
             {rows.length > 0 ? rows.map(({ ev, r, key }, index) => (
               <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === rows.length - 1} />
-            )) : <div className="px-4 py-3 text-xs text-ink-faint">No logs</div>}
+            )) : <div className="px-4 py-3 text-xs text-ink-faint">{t('stream.noLogs')}</div>}
           </div>
         </div>
       </div>
@@ -219,6 +220,7 @@ function partitionRoleRows(rows: ActivityRow[]) {
 }
 
 function RoleLogCollection({ rows, live }: { rows: ActivityRow[]; live: boolean }) {
+  const { t } = useI18n();
   const { roleRows, systemRows, lastRole } = useMemo(() => partitionRoleRows(rows), [rows]);
   const [openRoles, setOpenRoles] = useState<Set<string>>(
     () => new Set(live && lastRole ? [lastRole] : []),
@@ -252,7 +254,7 @@ function RoleLogCollection({ rows, live }: { rows: ActivityRow[]; live: boolean 
       {systemRows.length > 0 ? (
         <details className="border-b border-line/50">
           <summary className="flex h-10 cursor-pointer list-none items-center gap-2 px-4 text-xs text-ink-faint hover:bg-bg/60">
-            <span>System</span>
+            <span>{t('stream.system')}</span>
             <span className="font-mono">{systemRows.length}</span>
           </summary>
           <div className="border-t border-line/40">
@@ -281,15 +283,14 @@ function DeliveryCard({
   delivery: DeliveryReceipt;
   onOpen?: (delivery: DeliveryReceipt) => void;
 }) {
-  const { locale } = useI18n();
-  const zh = locale === 'zh-CN';
+  const { t } = useI18n();
   const certified = delivery.kind === 'submission_certified';
   return (
     <aside className="mx-auto my-3 flex w-full max-w-full gap-3 rounded-lg border border-ok/35 bg-ok/5 px-4 py-3 lg:max-w-[61.8vw]">
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ok/15 font-semibold text-ok">✓</span>
       <div className="min-w-0 flex-1">
         <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ok">
-          {certified ? (zh ? '交付已认证' : 'Delivery certified') : (zh ? '任务已完成' : 'Task completed')}
+          {t(certified ? 'mission.deliveryCertified' : 'mission.taskCompleted')}
         </div>
         <div className="mt-1 truncate text-sm font-semibold text-ink" title={delivery.title}>{delivery.title}</div>
         {delivery.summary ? <p className="mt-1 text-xs leading-5 text-ink-dim">{delivery.summary}</p> : null}
@@ -299,7 +300,7 @@ function DeliveryCard({
             onClick={() => onOpen(delivery)}
             className="mt-2 rounded border border-ok/40 px-2 py-1 font-mono text-[10px] text-ok hover:border-ok hover:bg-ok/10"
           >
-            {delivery.primary_target ? (zh ? '打开成果' : 'Open result') : (zh ? '查看任务' : 'View task')}
+            {t(delivery.primary_target ? 'mission.openResult' : 'mission.viewTask')}
           </button>
         ) : null}
       </div>
@@ -505,12 +506,12 @@ export function EventStream({
               className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
                 showReasoning ? 'text-blue-sky' : 'text-ink-faint hover:text-ink-dim'
               }`}
-              title="toggle agent reasoning (⌘T)"
+              title={t('stream.toggleReasoning')}
             >
-              reasoning{reasoningTotal ? ` ·${reasoningTotal}` : ''}
+              {t('stream.reasoning')}{reasoningTotal ? ` ·${reasoningTotal}` : ''}
             </button>
             <span className={`text-xs ${connected ? 'text-ok' : 'text-ink-faint'}`}>
-              {connected ? '● live' : '○ reconnecting'}
+              {connected ? `● ${t('common.live')}` : `○ ${t('common.reconnecting')}`}
             </span>
           </div>
         }
@@ -519,7 +520,7 @@ export function EventStream({
         <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/60 bg-blue-deep/5 px-4 text-xs text-ink-dim">
           <span className="h-2 w-2 animate-pulse rounded-full bg-blue-sky" />
           <span className="truncate">
-            {String(activeProvider.run_label ?? 'provider call')} · working
+            {t('stream.backgroundWork')}
           </span>
           <span className="ml-auto shrink-0 font-mono tabular-nums text-ink-faint">
             {providerElapsed}s
@@ -528,13 +529,13 @@ export function EventStream({
       ) : null}
       <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin">
         {rows.list.length === 0 ? (
-          <EmptyHint>{rotate(IDLE_LINES)}</EmptyHint>
+          <EmptyHint>{t('stream.ready')}</EmptyHint>
         ) : (
           <>
             {conversations.earlier.length > 0 ? (
               <section className="mx-auto w-full max-w-full border-b border-line/60 lg:max-w-[61.8vw]">
                 <div className="flex h-10 items-center gap-2 border-b border-line/40 px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
-                  Autonomous activity
+                  {t('stream.autonomous')}
                   <span className="font-mono font-normal tracking-normal">{conversations.earlier.length}</span>
                 </div>
                 <RoleLogCollection

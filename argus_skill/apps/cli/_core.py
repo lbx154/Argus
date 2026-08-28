@@ -35,7 +35,6 @@ from .._target_paths import resolve_life_root
 from ._follow import (
     _clean_follow_text,
     _follow_layer_from_event,
-    _format_follow_event,
     _format_follow_heartbeat,
     _read_backlog_rows,
     _resolve_follow_events_path,
@@ -298,23 +297,6 @@ def _resolve_project_bundle(
     )
 
 
-def _lifetime_entry_error(args: argparse.Namespace) -> str:
-    """Return an actionable error if the lifetime agent is under-configured.
-
-    The lifetime daemon / cockpit requires trusted machine house rules, but it
-    may start without an objective. The first substantive user prompt is routed
-    through the Manager, which decides BOUNDED versus STANDING and authors the
-    persisted execution objective for a standing campaign.
-    """
-    from ...life.special_prompts import describe_special_prompt_gate
-
-    ok, detail = describe_special_prompt_gate()
-    if not ok:
-        return detail
-    return ""
-
-
-
 _FOLLOW_HEARTBEAT_SECONDS = 20.0
 
 
@@ -429,8 +411,6 @@ def main(argv: list[str] | None = None) -> int:
         + bool(args.init_model_api)
         + bool(args.install_ppt_master)
         + bool(args.ppt_master_status)
-        + bool(getattr(args, "approve_publication", ""))
-        + bool(getattr(args, "list_pending_publications", False))
         + bool(args.export_builtin_skills is not None)
         + bool(args.evidence_chain_check)
         + bool(args.anti_mediocrity_check)
@@ -447,14 +427,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     setup_only = (
         bool(getattr(args, "non_interactive", False))
-        or bool(getattr(args, "accept_house_rules", False))
         or bool(getattr(args, "set_git_global", False))
         or bool(getattr(args, "configure_codex", False))
     )
     if setup_only and not args.setup:
         sys.stderr.write(
-            "argus-skill: --non-interactive / --accept-house-rules / "
-            "--set-git-global / --configure-codex require --setup\n"
+            "argus-skill: --non-interactive / --set-git-global / "
+            "--configure-codex require --setup\n"
         )
         return 2
     readiness_modifier = (
@@ -564,10 +543,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     if getattr(args, "web", False):
-        entry_error = _lifetime_entry_error(args)
-        if entry_error:
-            sys.stderr.write(f"argus-skill: {entry_error}\n")
-            return 2
         # Nothing may promise a URL before the stack that serves it is known
         # to be present.
         missing = _missing_web_dependency()
@@ -611,7 +586,6 @@ def main(argv: list[str] | None = None) -> int:
             backend=getattr(args, "backend", None),
             auth_mode=getattr(args, "auth_mode", None),
             non_interactive=bool(getattr(args, "non_interactive", False)),
-            accept_house_rules=bool(getattr(args, "accept_house_rules", False)),
             allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
             api_url=getattr(args, "api_url", None),
             api_key=getattr(args, "api_key", None),
@@ -627,14 +601,6 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_install_ppt_master(args))
     if args.ppt_master_status:
         return _run_with_path_resolution_errors(lambda: _cmd_ppt_master_status(args))
-    if getattr(args, "list_pending_publications", False):
-        return _run_with_path_resolution_errors(
-            lambda: _cmd_list_pending_publications(args)
-        )
-    if getattr(args, "approve_publication", ""):
-        return _run_with_path_resolution_errors(
-            lambda: _cmd_approve_publication(args)
-        )
     if args.export_builtin_skills is not None:
         return _run_with_path_resolution_errors(
             lambda: _cmd_export_builtin_skills(args)
@@ -662,10 +628,6 @@ def main(argv: list[str] | None = None) -> int:
 
     # All interactive use goes through the Ink cockpit; ``argus-skill`` remains
     # the daemon/admin CLI for explicit flags.
-    entry_error = _lifetime_entry_error(args)
-    if entry_error:
-        sys.stderr.write(f"argus-skill: {entry_error}\n")
-        return 2
     from ..tui_launcher import main as run_tui
 
     forwarded = list(sys.argv[1:] if argv is None else argv)
@@ -735,7 +697,7 @@ def _build_worker_config(args: argparse.Namespace):
         ),
         global_daily_cap_usd=budget.global_daily_cap_usd,
         mission_width=getattr(args, "mission_width", 2),
-        planner_task_iteration_max_cycles=int(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "6")),
+        planner_task_iteration_max_cycles=int(os.environ.get("ARGUS_SKILL_PLANNER_TASK_ITERATION_MAX_CYCLES", "0")),
         poll_interval=float(os.environ.get("ARGUS_SKILL_DAEMON_POLL_S", "5.0")),
         continuous=getattr(args, "continuous", False),
         continuous_objective=getattr(args, "objective", ""),
@@ -778,10 +740,6 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
     )
     if continuous_error:
         sys.stderr.write(f"argus-skill: {continuous_error}\n")
-        return 2
-    entry_error = _lifetime_entry_error(args)
-    if entry_error:
-        sys.stderr.write(f"argus-skill: {entry_error}\n")
         return 2
     if bool(getattr(args, "allow_prerelease", False)):
         os.environ["ARGUS_SKILL_ALLOW_BACKEND_PRERELEASE"] = "1"
@@ -1106,9 +1064,10 @@ def _cmd_follow(args: argparse.Namespace) -> int:
     current_mission: dict[str, str] = {"item_id": "", "title": "", "objective": ""}
     from ...cli.theme import Theme
     from ...core import log_view as lv
-    from ._follow import _FollowCoalescer
+    from ._follow import _FollowCoalescer, _FollowEventRenderer
     state = lv.LogState()
     theme = Theme.auto()
+    renderer = _FollowEventRenderer(theme=theme)
     last_event_at = time.monotonic()
     last_heartbeat_at = 0.0
     seen_order: deque[str] = deque(maxlen=512)
@@ -1157,11 +1116,10 @@ def _cmd_follow(args: argparse.Namespace) -> int:
                 "title": title,
                 "objective": objective,
             }
-        body = _format_follow_event(
+        body = renderer.render(
             ev,
             current_layer,
             mission_context=current_mission,
-            theme=theme,
         )
         if not body:
             return
@@ -1257,6 +1215,7 @@ def _cmd_follow(args: argparse.Namespace) -> int:
         print("\nargus-skill: stopped following", flush=True)
     finally:
         coalescer.flush()
+        renderer.close()
         if fh is not None:
             fh.close()
     return 0
@@ -1277,7 +1236,13 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         return 2
     bundle = _resolve_project_bundle(args)
     from ...core.models import RunnerOptions
+    from ...core.operator_context import (
+        append_operator_context,
+        build_operator_context_block,
+        import_deterministic_credential,
+    )
     from ...core.run_gateway import run_exec as gateway_run_exec
+    from ...manager.config_intent import _front_door_classify
     from ...manager.front_door import _ensure_manager_runner
     from ...manager.stage_decider import extract_answer
     from ...roles.prompts.manager import build_quick_reply_prompt
@@ -1287,6 +1252,13 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     chat_state = _chat_state_for(sid)
     chat_state["session_id"] = sid
     chat_state["global_root"] = str(bundle.global_root)
+    question, credential = import_deterministic_credential(
+        bundle.project.root,
+        question,
+        global_root=bundle.global_root,
+    )
+    chat_state["_frontdoor_credential_imported"] = credential is not None
+    _front_door_classify(bundle, question, chat_state)
     runner = _ensure_manager_runner(chat_state, bundle)
     if runner is None:
         reason = str(chat_state.get("manager_runner_error") or "").strip()
@@ -1296,9 +1268,14 @@ def _cmd_ask(args: argparse.Namespace) -> int:
             + " — nothing was queued\n"
         )
         return 1
+    operator_context, _revision = build_operator_context_block(
+        "manager", bundle.project.root, consume_once=False
+    )
+    prompt = build_quick_reply_prompt(objective=question)
+    prompt = append_operator_context(prompt, operator_context)
     result = gateway_run_exec(
         runner,
-        prompt=build_quick_reply_prompt(objective=question),
+        prompt=prompt,
         options=RunnerOptions(skip_git_repo_check=True),
         run_label="manager-ask",
     )
@@ -1352,7 +1329,7 @@ def _cmd_answer(args: argparse.Namespace) -> int:
     backlog = Backlog(bundle.project.root / "backlog.jsonl")
     waiting = [
         item
-        for item in backlog.all()
+        for item in backlog.active()
         if str(getattr(item, "pending_question", "") or "").strip()
     ]
     if not waiting:
@@ -1373,6 +1350,34 @@ def _cmd_answer(args: argparse.Namespace) -> int:
 
     item = waiting[0]
     question = str(getattr(item, "pending_question", "") or "").strip()
+    card = dict(getattr(item, "operator_decision", {}) or {})
+    if card.get("decision_kind") == "framework_deployment":
+        option_id = answer.casefold()
+        if option_id not in {"adopt", "decline"}:
+            sys.stderr.write(
+                "argus-skill: answer this deployment decision with adopt or decline\n"
+            )
+            return 2
+        from ...webapi.manager_pending_question import (
+            manager_resolve_operator_decision,
+        )
+
+        result = manager_resolve_operator_decision(
+            bundle.project.fingerprint,
+            str(card.get("id") or ""),
+            option_id,
+            global_root=bundle.global_root,
+        )
+        if result is None or result.get("error"):
+            message = str((result or {}).get("error") or "decision is unavailable")
+            sys.stderr.write(f"argus-skill: {message}\n")
+            return 1
+        sys.stdout.write(f"argus-skill: answered {item.id} ({item.title})\n")
+        reply = str(result.get("reply") or "").strip()
+        if reply:
+            sys.stdout.write(f"  result: {reply}\n")
+        return 0
+
     blocked, continuation = backlog.continue_with_operator_reply(
         item.id, answer, manager_decision=answer
     )
@@ -1615,84 +1620,6 @@ def _run_with_path_resolution_errors(action) -> int:
     except core_paths.PathResolutionError as exc:
         sys.stderr.write(f"argus-skill: {exc}\n")
         return 2
-
-
-def _pending_publications() -> list[tuple[Path, Any]]:
-    """Every project holding a reviewed fix that is waiting on the operator.
-
-    Scans all projects rather than the current one: each daemon maintains its
-    own repair state, and on this host there are sixteen. A command that only
-    looked at the project you happen to be standing in would make the approval
-    gate a thing you find by accident.
-    """
-    from ...core.paths import global_root
-    from ...daemon.self_maintenance import read_self_maintenance_snapshot
-
-    found: list[tuple[Path, Any]] = []
-    projects = global_root() / "projects"
-    if not projects.is_dir():
-        return found
-    for life_dir in sorted(projects.iterdir()):
-        if not life_dir.is_dir():
-            continue
-        snapshot = read_self_maintenance_snapshot(life_dir)
-        if snapshot is not None and snapshot.awaiting_commit:
-            found.append((life_dir, snapshot))
-    return found
-
-
-def _cmd_list_pending_publications(args: argparse.Namespace) -> int:
-    _ = args
-    pending = _pending_publications()
-    if not pending:
-        print("argus-skill: no self-maintenance fix is waiting for approval")
-        return 0
-    print(f"argus-skill: {len(pending)} reviewed fix(es) awaiting approval\n")
-    for life_dir, snapshot in pending:
-        print(f"  project : {life_dir.name}")
-        print(f"  commit  : {snapshot.awaiting_commit[:12]}")
-        if snapshot.publication_error:
-            print(f"  note    : {snapshot.publication_error}")
-        print(f"  approve : argus-skill --approve-publication {snapshot.awaiting_commit[:12]}")
-        print()
-    return 0
-
-
-def _cmd_approve_publication(args: argparse.Namespace) -> int:
-    from ...daemon.self_maintenance import SelfMaintenanceState
-
-    wanted = str(getattr(args, "approve_publication", "") or "").strip()
-    pending = _pending_publications()
-    matches = [
-        (life_dir, snap)
-        for life_dir, snap in pending
-        if snap.awaiting_commit.startswith(wanted) or wanted.startswith(snap.awaiting_commit)
-    ]
-    if not matches:
-        sys.stderr.write(
-            f"argus-skill: no reviewed fix is waiting at {wanted[:12]}. "
-            "Run --list-pending-publications to see what is.\n"
-        )
-        return 2
-    if len(matches) > 1:
-        sys.stderr.write(
-            f"argus-skill: {wanted[:12]} matches {len(matches)} projects; "
-            "use a longer commit prefix\n"
-        )
-        return 2
-
-    life_dir, snapshot = matches[0]
-    approvals = SelfMaintenanceState(life_dir=life_dir)
-    error = approvals.approve_publication(snapshot.awaiting_commit)
-    if error:
-        sys.stderr.write(f"argus-skill: {error}\n")
-        return 1
-    print(
-        f"argus-skill: approved {snapshot.awaiting_commit[:12]} in {life_dir.name}; "
-        "the daemon will push the branch and open a PR on its next maintenance "
-        "pass. It will not merge it."
-    )
-    return 0
 
 
 def _cmd_export_builtin_skills(args: argparse.Namespace) -> int:
@@ -2223,7 +2150,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
         print("  next     : run `argus` to create a session")
         return 0
     status = read_daemon_status(bundle.project.root)
-    all_items = bundle.backlog.all()
+    all_items = bundle.backlog.history()
     pending, running, paused, done, failed, skipped = count_backlog_statuses(all_items)
     current_running = select_current_running_item(all_items)
     # Status should stay cheap even on a long-lived daemon.
@@ -2284,7 +2211,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     # Nothing errors, so say it here or it stays invisible.
     from ...life.supervisor.backlog_guard import describe_undecided
 
-    _undecided = describe_undecided(bundle.backlog.all())
+    _undecided = describe_undecided(bundle.backlog.active())
     if _undecided:
         print(f"  manager  : {_undecided}")
     # The one thing an operator most needs from --status: a run that stopped
@@ -2305,7 +2232,10 @@ def _cmd_status(args: argparse.Namespace) -> int:
             question = _clean_follow_text(
                 str(getattr(item, "pending_question", "")), limit=160
             )
-            print(f"    - [{getattr(item, 'id', '')}] {question}")
+            title = _clean_follow_text(
+                str(getattr(item, "title", "current task")), limit=80
+            )
+            print(f"    - {title}: {question}")
         print("    answer with: argus (then just reply), or argus --notify '<answer>'")
     history_parts = [part for part in (
         f"{done} done" if done else "",
@@ -2324,7 +2254,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
         summary = outcome_dimension_summary(
             getattr(latest_outcome_item, "outcome", None)
         )
-        print(f"  outcome  : {' · '.join(summary)}")
+        print(f"  result   : {' · '.join(summary)}")
     latest_reply = _latest_user_visible_reply(Path(bundle.project.root))
     if latest_reply:
         print(f"  last reply: {latest_reply}")

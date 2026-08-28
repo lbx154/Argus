@@ -3,13 +3,19 @@ import type { DeliveryReceipt, GitDiffView, MissionView } from '../../../core/sr
 import {
   displayObjective,
   formatMissionElapsed,
-  formatMissionRouting,
 } from '../../../core/src/missionView';
-import { outcomeDimensionSummary } from '../../../core/src/missionOutcome';
-import { formatBytes } from '../lib/format';
 import { theme } from '../lib/theme';
 import { MarkdownContent } from './MarkdownContent';
 import { useI18n } from '../i18n';
+import {
+  frontierLabel,
+  outcomeLabels,
+  roleLabel,
+  routingLabels,
+  stageLabel,
+  statusLabel,
+  workKindLabel,
+} from '../lib/enumLabels';
 
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
 
@@ -78,7 +84,7 @@ export function MissionControl({
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
   gitDiff?: GitDiffView;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const roleMap = new Map(view.roles.map((role) => [role.role, role]));
   const activeNode = view.dag.find((node) => ['running', 'in_progress', 'claimed'].includes(node.status));
   const dagView = compactMissionDag(view);
@@ -89,8 +95,8 @@ export function MissionControl({
   const [replayIndex, setReplayIndex] = useState(Math.max(0, view.timeline.length - 1));
   const [selectedRole, setSelectedRole] = useState(view.active_role || 'planner');
   const [selectedTaskId, setSelectedTaskId] = useState(activeNode?.id || '');
-  const outcome = outcomeDimensionSummary(view.outcome);
-  const routing = formatMissionRouting(view.routing);
+  const outcome = outcomeLabels(view.outcome, t);
+  const routing = routingLabels(view.routing, t).join(' · ');
   const delivery = view.delivery;
   useEffect(() => setReplayIndex(Math.max(0, view.timeline.length - 1)), [view.timeline.length]);
   useEffect(() => {
@@ -122,7 +128,7 @@ export function MissionControl({
           </details>
         ) : null}
         <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-4">
-          <div><div className="text-ink-faint">{t('mission.stage')}</div><div className="mt-0.5 font-medium capitalize text-blue-sky">{view.stage.label || view.stage.id || '—'}</div></div>
+          <div><div className="text-ink-faint">{t('mission.stage')}</div><div className="mt-0.5 font-medium text-blue-sky">{view.stage.label || stageLabel(view.stage.id, t)}</div></div>
           <div><div className="text-ink-faint">{t(view.routing.open_ended ? 'mission.campaign' : 'mission.totalElapsed')}</div><div className="mt-0.5 font-mono text-ink">{formatMissionElapsed(view.mission.campaign_elapsed_seconds)}</div></div>
           <div><div className="text-ink-faint">{t('mission.round')}</div><div className="mt-0.5 font-mono text-ink">{view.round.current || '—'}{view.round.max ? ` / ${view.round.max}` : ''}</div></div>
           <div><div className="text-ink-faint">{t('mission.mode')}</div><div className="mt-0.5 font-mono text-ink">{routing || '—'}</div></div>
@@ -146,7 +152,7 @@ export function MissionControl({
           <div className="mt-3 flex flex-wrap items-center gap-3 rounded border border-ok/30 bg-ok/5 px-3 py-2">
             <div className="min-w-0 flex-1">
               <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ok">
-                {delivery.kind === 'submission_certified' ? 'Delivery certified' : 'Task completed'}
+                {t(delivery.kind === 'submission_certified' ? 'mission.deliveryCertified' : 'mission.taskCompleted')}
               </div>
               <div className="mt-1 truncate text-xs text-ink-dim" title={delivery.summary || delivery.title}>
                 {delivery.summary || delivery.title}
@@ -158,7 +164,7 @@ export function MissionControl({
                 onClick={() => onOpenDelivery(delivery)}
                 className="shrink-0 rounded border border-ok/40 px-2 py-1 font-mono text-[10px] text-ok hover:border-ok"
               >
-                {delivery.primary_target ? 'Open result' : 'View task'}
+                {t(delivery.primary_target ? 'mission.openResult' : 'mission.viewTask')}
               </button>
             ) : null}
           </div>
@@ -166,7 +172,7 @@ export function MissionControl({
         {view.frontier.change ? (
           <div className="mt-3 rounded border border-blue/25 bg-blue/5 px-3 py-2">
             <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-sky">
-              Task frontier · {view.frontier.change.replaceAll('_', ' ')}
+              {t('mission.taskPlan')} · {frontierLabel(view.frontier.change, t)}
             </div>
             {view.frontier.summary ? <p className="mt-1 text-xs text-ink-dim">{view.frontier.summary}</p> : null}
           </div>
@@ -193,7 +199,7 @@ export function MissionControl({
               >
                 <div className="flex items-center gap-2">
                   <span className={`h-2 w-2 rounded-full ${active ? 'animate-pulse motion-reduce:animate-none' : ''}`} style={{ background: rejected ? theme.error : active || role?.status === 'done' ? color : theme.inkFaint }} />
-                  <span className="text-xs font-semibold capitalize" style={{ color }}>{name}</span>
+                  <span className="text-xs font-semibold" style={{ color }}>{roleLabel(name, t)}</span>
                 </div>
                 <div className={`mt-1 truncate text-xs ${rejected ? 'text-err' : 'text-ink-dim'}`}>{role?.label || t('mission.waitingShort')}</div>
               </button>
@@ -205,11 +211,11 @@ export function MissionControl({
       <section className="border-b border-line/60 px-5 py-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
-            {t('mission.roleWork')} · <span className="text-blue-sky">{selectedRole}</span>
+            {t('mission.roleWork')} · <span className="text-blue-sky">{roleLabel(selectedRole, t)}</span>
           </div>
           {selectedTask ? (
             <button type="button" onClick={() => setSelectedTaskId('')} className="text-[10px] text-ink-faint hover:text-ink">
-              {t('mission.filteredBy', { task: selectedTask.title || selectedTask.id })}
+              {t('mission.filteredBy', { task: selectedTask.title || selectedTask.objective || t('task.untitled') })}
             </button>
           ) : <span className="text-[10px] text-ink-faint">{t('mission.allVisible')}</span>}
         </div>
@@ -219,12 +225,12 @@ export function MissionControl({
               <div className="flex items-center justify-between gap-3">
                 <span className="truncate text-xs font-medium text-ink">{item.title}</span>
                 <time className="shrink-0 font-mono text-[10px] text-ink-faint">
-                  {new Date(item.ts * 1000).toISOString().slice(11, 19)}
+                  {new Date(item.ts * 1000).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
                 </time>
               </div>
               <div className="mt-1 flex gap-2 font-mono text-[10px] text-ink-faint">
-                <span>{item.kind}</span>
-                {item.status ? <span>{item.status}</span> : null}
+                <span>{workKindLabel(item.kind, t)}</span>
+                {item.status ? <span>{statusLabel(item.status, t)}</span> : null}
                 {item.round_index != null ? <span>{t('mission.roundNumber', { count: item.round_index })}</span> : null}
               </div>
               {item.detail ? <p className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap text-[11px] leading-5 text-ink-dim scroll-thin">{item.detail}</p> : null}
@@ -232,7 +238,7 @@ export function MissionControl({
           ))}
           {!selectedRoleWork.length ? (
             <div className="col-span-full py-8 text-center text-xs text-ink-faint">
-              {t('mission.noRoleWork', { role: selectedRole })}
+              {t('mission.noRoleWork', { role: roleLabel(selectedRole, t) })}
             </div>
           ) : null}
         </div>
@@ -247,7 +253,11 @@ export function MissionControl({
           <div className="mt-3 space-y-0">
             {dagView.hidden.length ? (
               <div className="mb-3 rounded border border-line/60 bg-bg/50 px-3 py-2 text-[10px] text-ink-faint">
-                {dagView.hidden.length} earlier tasks collapsed · {dagView.hidden.filter((node) => ['failed', 'blocked'].includes(node.status)).length} failed · {dagView.hidden.filter((node) => node.status === 'skipped').length} skipped
+                {t('mission.hiddenTasks', {
+                  count: dagView.hidden.length,
+                  failed: dagView.hidden.filter((node) => ['failed', 'blocked'].includes(node.status)).length,
+                  skipped: dagView.hidden.filter((node) => node.status === 'skipped').length,
+                })}
               </div>
             ) : null}
             {dag.length ? dag.map((node, index) => {
@@ -264,8 +274,8 @@ export function MissionControl({
                   {index < dag.length - 1 ? <span className="absolute left-[5px] top-3 h-full w-px bg-line" /> : null}
                   <span className={`relative z-10 mt-1 h-3 w-3 shrink-0 rounded-full border-2 border-panel ${active ? 'animate-pulse bg-blue motion-reduce:animate-none' : done ? 'bg-ok' : failed ? 'bg-err' : 'bg-ink-faint'}`} />
                   <div className="min-w-0 flex-1">
-                    <div className={`truncate text-xs font-medium ${active ? 'text-blue-sky' : 'text-ink'}`}>{node.title || node.objective || node.id}</div>
-                    <div className="mt-0.5 flex gap-2 font-mono text-[10px] text-ink-faint"><span>{node.status}</span>{node.deps.length ? <span>after {node.deps.join(', ')}</span> : null}</div>
+                    <div className={`truncate text-xs font-medium ${active ? 'text-blue-sky' : 'text-ink'}`}>{node.title || node.objective || t('task.untitled')}</div>
+                    <div className="mt-0.5 flex gap-2 text-[10px] text-ink-faint"><span>{statusLabel(node.status, t)}</span>{node.deps.length ? <span>{t('mission.startsAfter', { count: node.deps.length })}</span> : null}</div>
                   </div>
                 </button>
               );
@@ -273,29 +283,29 @@ export function MissionControl({
           </div>
           {selectedTask ? (
             <div className="mt-3 rounded border border-blue/25 bg-blue/5 px-3 py-3">
-              <div className="text-xs font-semibold text-blue-sky">{selectedTask.title || selectedTask.id}</div>
+              <div className="text-xs font-semibold text-blue-sky">{selectedTask.title || selectedTask.objective || t('task.untitled')}</div>
               {selectedTask.objective ? <p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.objective}</p> : null}
               {selectedTask.plan_hypothesis ? (
                 <div className="mt-3">
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">Working hypothesis · revisable</div>
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.workingHypothesis')}</div>
                   <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.plan_hypothesis}</p>
                 </div>
               ) : null}
               {selectedTask.goal_contribution ? (
                 <div className="mt-3">
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">Goal contribution</div>
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.goalContribution')}</div>
                   <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.goal_contribution}</p>
                 </div>
               ) : null}
               {selectedTask.expected_regressions ? (
                 <div className="mt-3">
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">Temporary regressions</div>
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.temporaryRegressions')}</div>
                   <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.expected_regressions}</p>
                 </div>
               ) : null}
               {selectedTask.decision_rule ? (
                 <div className="mt-3">
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">Revise / split / stop when</div>
+                  <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.decisionRule')}</div>
                   <p className="mt-1 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{selectedTask.decision_rule}</p>
                 </div>
               ) : null}
@@ -325,12 +335,8 @@ export function MissionControl({
               <div className="mt-2 space-y-2">
                 {view.learned_skills.filter((skill) => skill.status === 'active').slice(-8).map((skill) => (
                   <details key={String(skill.id)} className="rounded border border-ok/35 bg-ok/5 px-2 py-1.5">
-                    <summary className="cursor-pointer text-[10px] text-ok">{String(skill.name || skill.id)}</summary>
-                    <div className="mt-2 space-y-1 font-mono text-[9px] text-ink-faint">
-                      {skill.mission_title ? <div>evolved during · {skill.mission_title}</div> : null}
-                      {skill.path ? <div className="break-all">path · {skill.path}</div> : null}
-                      <div>version · {skill.version} · scope · {skill.scope || 'project'}</div>
-                    </div>
+                    <summary className="cursor-pointer text-[10px] text-ok">{String(skill.name || t('mission.learnedCapability'))}</summary>
+                    {skill.mission_title ? <div className="mt-2 text-[9px] text-ink-faint">{t('mission.learnedDuring', { mission: skill.mission_title })}</div> : null}
                     {skill.content ? (
                       <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border-t border-ok/20 pt-2 font-mono text-[10px] leading-5 text-ink-dim scroll-thin">
                         {skill.content}{skill.content_truncated ? '\n… content truncated' : ''}
@@ -352,12 +358,7 @@ export function MissionControl({
           {(view.storage.project_skill_dir || view.storage.global_skill_dir || view.storage.wiki_paths.length || view.storage.skill_history_compressed || view.storage.wiki_retired_compressed) ? (
             <div className="mt-4 border-t border-line/50 pt-3">
               <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.selfEvolution')}</div>
-              <div className="mt-2 space-y-1 font-mono text-[10px] text-ink-dim">
-                {view.storage.project_skill_dir ? <div className="break-all">project skills ({view.storage.project_skill_count}) · {view.storage.project_skill_dir}</div> : null}
-                {view.storage.global_skill_dir ? <div className="break-all">global skills ({view.storage.global_skill_count}) · {view.storage.global_skill_dir}</div> : null}
-                {view.storage.wiki_paths.map((path) => <div key={path} className="break-all">project wiki · {path}</div>)}
-                {(view.storage.skill_history_compressed || view.storage.wiki_retired_compressed) ? <div>cold history · skill {view.storage.skill_history_compressed} · wiki {view.storage.wiki_retired_compressed} · {formatBytes(view.storage.skill_history_bytes_saved + view.storage.wiki_retired_bytes_saved)} saved</div> : null}
-              </div>
+              <div className="mt-2 text-[10px] text-ink-dim">{t('mission.knowledgeSaved')}</div>
             </div>
           ) : null}
         </section>
@@ -384,7 +385,7 @@ export function MissionControl({
         <div className="mt-3 space-y-3">
           {replayRows.map((item) => (
             <div key={item.id} className="grid grid-cols-[44px_10px_minmax(0,1fr)] gap-2 text-xs">
-              <time className="font-mono text-[10px] text-ink-faint">{new Date(item.ts * 1000).toISOString().slice(11, 16)}</time>
+              <time className="font-mono text-[10px] text-ink-faint">{new Date(item.ts * 1000).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false })}</time>
               <span className={`mt-1 h-2 w-2 rounded-full ${item.tone === 'error' ? 'bg-err' : item.tone === 'success' || item.tone === 'metric' || item.tone === 'skill' ? 'bg-ok' : 'bg-blue'}`} />
               <div className="min-w-0"><span className="font-medium text-ink">{item.title}</span>{item.detail ? <span className="text-ink-dim"> · {item.detail}</span> : null}</div>
             </div>
@@ -397,20 +398,17 @@ export function MissionControl({
               const path = String(artifact.path || '');
               return (
                 <button key={String(artifact.id || path)} type="button" disabled={!path || !onOpenArtifact} onClick={() => path && onOpenArtifact?.(path)} className="rounded border border-line px-2 py-1 font-mono text-[10px] text-blue-sky hover:border-blue-sky/50 disabled:text-ink-faint">
-                  {String(artifact.title || path)}
+                  {String(artifact.title || t('research.artifact'))}
                 </button>
               );
             })}
           </div>
         ) : null}
         {gitDiff?.available && (gitDiff.status || gitDiff.diff) ? (
-          <details className="mt-5 border-t border-line/50 pt-4">
-            <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint hover:text-ink">
-              Git changes{gitDiff.branch ? ` · ${gitDiff.branch}` : ''}
-            </summary>
-            {gitDiff.stat ? <pre className="mt-3 overflow-x-auto whitespace-pre-wrap font-mono text-[10px] leading-5 text-ink-dim">{gitDiff.stat}</pre> : null}
-            {gitDiff.diff ? <pre className="mt-3 max-h-80 overflow-auto whitespace-pre font-mono text-[10px] leading-5 text-ink-dim scroll-thin">{gitDiff.diff}{gitDiff.truncated ? '\n… diff truncated' : ''}</pre> : null}
-          </details>
+          <div className="mt-5 border-t border-line/50 pt-4 text-[10px] text-ink-faint">
+            <span className="font-semibold uppercase tracking-[0.14em]">{t('mission.projectFilesChanged')}</span>
+            <span> · {t('mission.reviewInIde')}</span>
+          </div>
         ) : null}
       </section>
     </section>

@@ -22,7 +22,6 @@ class _Runner:
                 f"TASK_TITLE={task['title']}",
                 f"TASK_OBJECTIVE={task['objective']}",
                 f"TASK_WORKDIR={task.get('execution_workdir', '')}",
-                f"TASK_WORK_KIND={task.get('work_kind', '')}",
                 f"TASK_HYPOTHESIS={task.get('hypothesis', 'This task tests its stated mechanism.')}",
                 f"TASK_GOAL_CONTRIBUTION={task.get('goal_contribution', 'This task advances the requested deliverable.')}",
                 f"TASK_EXPECTED_REGRESSIONS={task.get('expected_regressions', 'None expected beyond local work in progress.')}",
@@ -30,7 +29,7 @@ class _Runner:
                 f"TASK_SCOPE={task.get('scope', 'bounded')}",
                 f"TASK_STAGE_CLOSING={task.get('stage_closing', 'false')}",
                 "TASK_REQUIRE_INDEPENDENT_REVIEW="
-                f"{task.get('require_independent_review', 'false')}",
+                f"{task.get('require_independent_review', 'true')}",
                 "TASK_SKIP_STAGE_TRANSITION="
                 f"{task.get('skip_stage_transition', 'false')}",
                 "TASK_OPERATOR_APPROVAL_REQUIRED="
@@ -104,7 +103,6 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
                     ),
                     "scope": "bounded",
                     "execution_workdir": "nested/target",
-                    "work_kind": "validation",
                     "stage_closing": "false",
                     "require_independent_review": "true",
                     "skip_stage_transition": "true",
@@ -128,7 +126,6 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     assert plan.tasks[2].acceptance_check == "pytest -q exits zero"
     assert plan.tasks[2].non_goals == ("do not publish", "do not edit pipeline state")
     assert plan.tasks[2].execution_workdir == "nested/target"
-    assert plan.tasks[2].work_kind == "validation"
     assert plan.tasks[2].hypothesis == "This task tests its stated mechanism."
     assert plan.tasks[2].goal_contribution == (
         "This task advances the requested deliverable."
@@ -151,11 +148,11 @@ def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     assert "PLAN_REASON=" in call["prompt"]
     assert "TASK_CONTEXT_REFS" not in call["prompt"]
     assert "TASK_STAGE_CLOSING" not in call["prompt"]
-    assert "`require_independent_review:true`" in call["prompt"]
+    assert "Independent review defaults on" in call["prompt"]
     assert "`execution_workdir`" in call["prompt"]
     assert "`hypothesis`" in call["prompt"]
     assert "`decision_rule`" in call["prompt"]
-    assert "`work_kind` (validated; no prose inference)" in call["prompt"]
+    assert "TASK_WORK_KIND" not in call["prompt"]
     assert "The Host owns execution and enforces review policy" in call["prompt"]
     assert "Never create a review-only or validation-only task" in call["prompt"]
     assert "never declare an Engineer Skill unavailable from Planner visibility" in call[
@@ -339,6 +336,24 @@ def test_bounded_planner_accepts_minimal_task_without_control_fields(tmp_path) -
 
     assert plan.error == ""
     assert plan.tasks[0].title == "A"
+    assert plan.tasks[0].require_independent_review is True
+
+
+def test_bounded_planner_preserves_an_explicit_review_waiver(tmp_path) -> None:
+    runner = _Runner({
+        "reason": "authorized low-risk waiver",
+        "tasks": [{
+            "key": "a",
+            "deps": [],
+            "title": "A",
+            "objective": "do A",
+            "require_independent_review": "false",
+        }],
+    })
+
+    plan = plan_bounded_dag(runner, "x", workdir=tmp_path)
+
+    assert plan.error == ""
     assert plan.tasks[0].require_independent_review is False
 
 

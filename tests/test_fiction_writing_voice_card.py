@@ -1,8 +1,8 @@
 """Unit tests for the VOICE CARD (style_profile) schema + derivation.
 
 A thin card ({}) validates; a rich 红楼梦-style card validates; a bad enum or a
-stray key is rejected; voice_card_from_brief derives per-profile defaults and
-merges author overrides — fixing the ghost style_profile.json.
+stray key is rejected; voice_card_from_brief stays neutral unless voice choices
+are explicit.
 """
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import pytest
 
 from argus_skill.verticals.fiction_writing.style import (
     StyleProfileError,
-    ai_tell_budget,
     forbidden_lexicon,
     validate_voice_card,
     voice_card_from_brief,
@@ -31,7 +30,6 @@ _RICH_CARD = {
     "forbidden_lexicon": ["手机", "地铁", "OK"],
     "sentence_targets": {"max_mean_sentence_len": None, "parallelism_ok": True},
     "dialogue_conventions": {"quote_style": "cjk_corner", "tag_discipline": "action_beats"},
-    "ai_tell_budget": {"max_hits_per_1000_chars": 2.5},
 }
 
 
@@ -42,7 +40,6 @@ def test_thin_card_is_valid():
 def test_rich_classical_card_is_valid():
     validate_voice_card(_RICH_CARD)
     assert forbidden_lexicon(_RICH_CARD) == ["手机", "地铁", "OK"]
-    assert ai_tell_budget(_RICH_CARD) == 2.5
 
 
 def test_bad_enum_is_rejected():
@@ -62,22 +59,21 @@ def test_appellation_requires_referent_and_forms():
         validate_voice_card({"lexicon": {"appellations": [{"referent": "贾母"}]}})
 
 
-def test_default_card_derives_from_profile():
+def test_unspecified_style_card_stays_neutral_despite_profile_labels():
     literary = voice_card_from_brief({"language": "zh", "profile": {"name": "literary_fiction"}})
-    assert literary["meta"]["register"] == "literary"
     assert literary["meta"]["language"] == "zh"
-    assert literary["abstract_features"]["sentence_rhythm"] == "long_and_flowing"
+    assert "register" not in literary["meta"]
+    assert "abstract_features" not in literary
 
     web = voice_card_from_brief({"language": "zh", "profile": {"name": "web_fiction"}})
-    assert web["meta"]["register"] == "web"
-    assert web["abstract_features"]["sentence_rhythm"] == "short_and_tense"
+    assert web == {"meta": {"language": "zh"}}
 
 
 def test_default_card_is_schema_valid_even_with_empty_brief():
     validate_voice_card(voice_card_from_brief({}))
 
 
-def test_overrides_merge_onto_defaults():
+def test_explicit_overrides_merge_onto_neutral_card():
     card = voice_card_from_brief(
         {"language": "zh", "profile": {"name": "literary_fiction"}},
         {"meta": {"register": "classical"}, "forbidden_lexicon": ["手机"]},
@@ -86,5 +82,4 @@ def test_overrides_merge_onto_defaults():
     assert card["meta"]["register"] == "classical"
     assert card["meta"]["language"] == "zh"
     assert card["forbidden_lexicon"] == ["手机"]
-    # abstract_features default survived the merge
-    assert card["abstract_features"]["imagery_density"] == "high"
+    assert "abstract_features" not in card

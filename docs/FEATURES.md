@@ -262,8 +262,7 @@ reasons to delay substantive work.
 Argus has four distinct evolution mechanisms. SELF and TEAM learning maintain
 reusable Skills; the Wiki stores durable project facts; framework
 self-maintenance repairs or adopts Argus runtime code. These names are not
-interchangeable: a `manager.self_maintenance.*` event is not a SELF learning
-review.
+interchangeable.
 
 ### SELF evolution
 
@@ -319,23 +318,19 @@ review.
 
 ### Framework self-maintenance
 
-- Event family: `manager.self_maintenance.*`, deliberately separate from
-  `self.learning.review.*`.
-- Trigger: observed supervisor/Planner/Wiki-hook failures may request an
-  immediate audit; otherwise the daemon audits on a recovery interval (30
-  minutes by default).
-- Input: a bounded, deduplicated set of runtime observations plus upstream
-  update availability.
-- Decision: Manager chooses `no_action`, evidence-bound `repair`, or `adopt`.
-- Execution: repairs run in a private framework worktree with explicit affected
-  paths and an acceptance check. Upstream adoption also uses a private worktree.
-- Safety: the change must pass independent review and canary validation before
-  handoff/publication; the maintenance role does not push, merge, or publish.
-- Source capability: worktree repair is advertised only when the loaded framework
-  root is a clean Git checkout with a committed HEAD. A frozen Desktop `_internal`
-  tree is never treated as source and never reaches worktree preparation; it
-  reports `maintenance_mode=release_update` and waits for a verified release built
-  from a separate source repository.
+- Trigger: Planner may create an ordinary `framework_maintenance` mission when
+  existing event, receipt, review, or operator-steering facts show a concrete
+  harness defect with an observable acceptance check.
+- Execution: the normal Engineer→Reviewer loop runs in an explicit disposable
+  worktree. Reviewer `done` makes the change eligible for an ordinary operator
+  decision; it does not deploy it.
+- Safety: one synchronous boundary compares the repository CI lanes on public
+  base and candidate, runs the acceptance reproducer, rebuilds the release, and
+  completes both public and private publication routes before permitting a
+  natural-boundary daemon roll. Approval is single-use and process-local.
+- Failure: rejected runs dispose their worktrees and never touch the loaded
+  runtime. A public-success/private-failure receipt records partial publication;
+  it neither rolls the daemon nor force-reverts public main.
 - Scope: Argus framework source and runtime release state. It does not learn user
   preferences and does not write SELF Skills or project Wiki pages.
 
@@ -369,7 +364,7 @@ Consequences:
 | SELF review | Cannot change the reply that triggered it | Available | Available | Only if the profile is copied or synced |
 | TEAM review | Cannot change the settled mission | Available | Available | Only if the profile is copied or synced |
 | Wiki edit | Available to later turns after the edit | Available | Available when the same project workspace is reused | Only if the project workspace is copied or synced |
-| Framework self-maintenance | Never mutates the active turn in place | Available only after reviewed canary adoption | Available through the adopted runtime revision | Available only when that runtime revision is installed |
+| Framework self-maintenance | Never mutates the active turn in place | Available only after reviewed deployment | Available through the adopted runtime revision | Available only when that runtime revision is installed |
 | Custom vertical promotion | Applies after review | Available | Available | Only if learned vertical data is copied or synced |
 
 SELF and TEAM Skills are profile-scoped, Wiki knowledge is project-scoped, and

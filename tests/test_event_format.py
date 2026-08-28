@@ -102,12 +102,16 @@ def test_loop_done_supports_structured_and_text_events() -> None:
     )
 
 
-def test_life_mission_completed_renders_dimensions() -> None:
+def test_life_mission_completed_leads_with_outcome_then_metrics() -> None:
     rendered = format_event_message(
         {
             "type": "life.mission.completed",
+            "title": "Repair parser",
             "status": "done",
+            "success": True,
+            "summary": "Empty input now returns a clear error.",
             "rounds": 2,
+            "elapsed_seconds": 3.25,
             "cost_usd": 0.5,
             "outcome": {
                 "execution_status": "completed",
@@ -118,9 +122,11 @@ def test_life_mission_completed_renders_dimensions() -> None:
             },
         }
     )
-    assert "rounds=2" in rendered
-    assert "cost=$0.5000" in rendered
-    assert "execution=completed" in rendered
+    assert "Completed: Repair parser. Empty input now returns a clear error." in rendered
+    assert "2 rounds · 3.2s · cost $0.5000" in rendered
+    assert "rounds=" not in rendered
+    assert "execution=" not in rendered
+    assert "review=" not in rendered
 
 
 def test_match_info_diagnostic_still_renders() -> None:

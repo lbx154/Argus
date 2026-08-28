@@ -525,10 +525,10 @@ def test_engineer_turn_wall_clock_default_and_override(monkeypatch) -> None:
         "self-synthesize",
     ],
 )
-def test_manager_turn_wall_clock_is_bounded_by_default(monkeypatch, run_label: str) -> None:
+def test_manager_turn_wall_clock_is_unbounded_by_default(monkeypatch, run_label: str) -> None:
     monkeypatch.delenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", raising=False)
 
-    assert _turn_wall_clock_seconds(run_label) == 300
+    assert _turn_wall_clock_seconds(run_label) == 0
 
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS", "45")
     assert _turn_wall_clock_seconds(run_label) == 45

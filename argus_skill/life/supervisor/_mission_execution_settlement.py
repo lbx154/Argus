@@ -10,7 +10,9 @@ plus the ``_run_one`` return dict.
 
 from __future__ import annotations
 
+import json
 import logging
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -136,7 +138,7 @@ class MissionExecutionSettlementMixin:
             try:
                 unfinished_plan_nodes = [
                     sibling
-                    for sibling in self.memory.backlog.all()
+                    for sibling in self.memory.backlog.active()
                     if sibling.id != item.id
                     and sibling.plan_id == item.plan_id
                     and sibling.plan_version == item.plan_version
@@ -215,6 +217,15 @@ class MissionExecutionSettlementMixin:
             and review_status == "done"
             and state.pipeline_stage_at_start
         ):
+            review_manuscript_binding = None
+            review_rounds = getattr(outcome, "rounds", None) or []
+            if isinstance(review_rounds, (list, tuple)) and review_rounds:
+                final_round_review = getattr(review_rounds[-1], "review", None)
+                candidate_binding = getattr(
+                    final_round_review, "manuscript_snapshot", None
+                )
+                if isinstance(candidate_binding, dict):
+                    review_manuscript_binding = dict(candidate_binding)
             try:
                 from ...core.stage_certificate import record_stage_review
 
@@ -229,6 +240,7 @@ class MissionExecutionSettlementMixin:
                         if isinstance(stage_transition, dict)
                         else ""
                     ),
+                    manuscript_binding=review_manuscript_binding,
                 )
             except Exception:  # noqa: BLE001 - certificate is observability/control aid
                 log.exception("life supervisor: failed to record stage review certificate")
@@ -364,13 +376,9 @@ class MissionExecutionSettlementMixin:
     ) -> dict[str, Any] | None:
         """Intercept a trusted, vertical-declared shortfall before ``done``.
 
-        The hard iteration budget is the backlog item's persisted
-        ``iteration_max_cycles`` (six by default, matching the existing
-        planner/operator cycle knob). ``iteration_cycles_done`` is checked
-        against that ceiling and ``iteration_cost_usd`` accumulates the actual
-        cost of every cycle that bought another attempt. The host-global daily
-        dollar cap remains the monetary admission guard, so this layer does not
-        invent a second, conflicting price limit.
+        A positive persisted ``iteration_max_cycles`` is an explicit iteration
+        budget. Zero leaves the task open-ended; the host-global daily dollar
+        cap remains the monetary admission guard.
 
         Domain policy is deliberately absent here. The active vertical decides
         whether the charter fell short, writes the replacement objective, and
@@ -444,7 +452,7 @@ class MissionExecutionSettlementMixin:
                     "trusted: " + "; ".join(issues)
                 ),
             }
-        if cycles_done >= cycles_max:
+        if cycles_max > 0 and cycles_done >= cycles_max:
             return {
                 **base,
                 "status": "budget_exhausted",
@@ -714,12 +722,119 @@ class MissionExecutionSettlementMixin:
                 outcome.operator_question = ""
                 outcome.operator_options = []
 
+        maintenance_reviewed = bool(
+            "framework_maintenance" in state.item_tags
+            and success
+            and not iteration_requeued
+            and final_review_status.strip().lower() == "done"
+            and str(
+                getattr(outcome, "final_review_source", "") or ""
+            ).strip().lower() == "reviewer"
+        )
+        maintenance_input_digest = ""
+        if maintenance_reviewed:
+            try:
+                maintenance_input_digest = self._freeze_reviewed_maintenance_change(
+                    state
+                )
+            except (OSError, KeyError, ValueError, subprocess.CalledProcessError) as exc:
+                maintenance_reviewed = False
+                success = False
+                status = "error"
+                resumable = False
+                err = f"maintenance change could not be frozen: {exc}"
+                state.stop_reason = err
+                outcome_dimensions = mission_outcome_dimensions(
+                    status=status,
+                    success=False,
+                    review_status=final_review_status,
+                    stage_transition=stage_transition,
+                    stop_kind=state.stop_kind,
+                    resumable=False,
+                )
+
         # Update backlog row. A bounded research cycle that did not achieve its
         # persisted success target is resumable, not a success or terminal failure.
         if success and iteration_requeued:
             # ``requeue_for_iteration`` already performed the only backlog
             # transition allowed here: running -> pending on the same item.
             pass
+        elif maintenance_reviewed:
+            from ...core.operator_decision import build_operator_decision
+
+            status = "paused_operator"
+            resumable = True
+            operator_question = (
+                f"The change for “{item.title}” passed review. Should I run repository CI "
+                f"and the acceptance check ({item.acceptance_check}), then apply it?"
+            )
+            decision_card = build_operator_decision(
+                item_id=item.id,
+                title=f"Adopt reviewed change: {item.title}",
+                reason=str(
+                    getattr(outcome, "final_review_reason", "")
+                    or "Reviewer accepted the maintenance change."
+                ),
+                question=operator_question,
+                options=[
+                    {
+                        "id": "adopt",
+                        "label": "Adopt reviewed change",
+                        "description": (
+                            "Run the bounded deployment checks and publish the "
+                            "reviewed change."
+                        ),
+                    },
+                    {
+                        "id": "decline",
+                        "label": "Decline deployment",
+                        "description": (
+                            "Keep the current runtime and discard the reviewed change."
+                        ),
+                    },
+                ],
+                evidence=list(item.context_refs),
+                project_id=self.memory.root.name,
+            )
+            decision_card["decision_kind"] = "framework_deployment"
+            from ._mission_execution_runtime import _maintenance_sidecar_path
+
+            sidecar = _maintenance_sidecar_path(self.memory.root, item.id)
+            metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+            metadata["approval_binding"] = {
+                "input_digest": maintenance_input_digest,
+            }
+            sidecar.write_text(
+                json.dumps(metadata, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            outcome_dimensions = mission_outcome_dimensions(
+                status=status,
+                success=True,
+                review_status=final_review_status,
+                stage_transition=stage_transition,
+                stop_kind=state.stop_kind,
+                resumable=True,
+            )
+            self.memory.backlog.update(
+                item.id,
+                status=status,
+                finished_ts=time.time(),
+                last_error="",
+                outcome=outcome_dimensions,
+                pending_question=operator_question,
+                operator_decision=decision_card,
+            )
+            item.pending_question = operator_question
+            item.operator_decision = decision_card
+            notify_pending_question(self.memory.root, item)
+            self._emit({
+                "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
+                "item_id": item.id,
+                "title": item.title,
+                "question": operator_question,
+                "agent_layer": "manager",
+            })
         elif success:
             self.memory.backlog.mark_done(item.id, outcome=outcome_dimensions)
             if "runtime_failure_canary" in state.item_tags:
@@ -920,6 +1035,15 @@ class MissionExecutionSettlementMixin:
         success = state.success
         status = state.status
 
+        research_result = getattr(outcome, "research_result", None)
+        frontier = getattr(outcome, "final_frontier_report", {}) or {}
+        reviewed_evidence = list(
+            research_result.get("evidence") or []
+            if isinstance(research_result, dict)
+            else []
+        )
+        if isinstance(frontier, dict):
+            reviewed_evidence.extend(frontier.get("artifacts") or [])
         self._evolve_runtime_skills_after_mission(
             success=bool(success and not state.iteration_requeued),
             usage_mission_id=state.usage_attempt_id,
@@ -930,6 +1054,13 @@ class MissionExecutionSettlementMixin:
                 f"status={status}; stop_kind={state.stop_kind or 'none'}; "
                 f"reason={state.stop_reason or 'none'}"
             ),
+            reviewer_source=str(getattr(outcome, "final_review_source", "") or ""),
+            reviewer_reason=str(getattr(outcome, "final_review_reason", "") or ""),
+            research_result=research_result,
+            evidence_refs=tuple(
+                str(ref).strip() for ref in reviewed_evidence if str(ref).strip()
+            ),
+            source_campaign=str(state.execution_workdir or self._project_workdir()),
         )
         state.usage_summary = state.cost_sink.usage_summary()
         state.usd = state.usage_summary.cost_usd
@@ -957,6 +1088,14 @@ class MissionExecutionSettlementMixin:
             if final_submission_certified
             else ""
         )
+        final_submission_manuscript_snapshot: dict[str, str] | None = None
+        if final_submission_certified:
+            rounds = getattr(outcome, "rounds", None) or []
+            if isinstance(rounds, (list, tuple)) and rounds:
+                final_review = getattr(rounds[-1], "review", None)
+                candidate = getattr(final_review, "manuscript_snapshot", None)
+                if isinstance(candidate, dict):
+                    final_submission_manuscript_snapshot = dict(candidate)
         try:
             remaining_work = any(
                 row.id != item.id
@@ -970,12 +1109,13 @@ class MissionExecutionSettlementMixin:
                     "paused_provider_fence",
                     "paused_operator",
                 }
-                for row in self.memory.backlog.all()
+                for row in self.memory.backlog.active()
             )
         except Exception:  # noqa: BLE001 - completion presentation fails closed
             remaining_work = True
         overall_complete = bool(
             success
+            and status != "paused_operator"
             and state.iteration is None
             and (
                 final_submission_certified
@@ -1045,6 +1185,8 @@ class MissionExecutionSettlementMixin:
                 stage=state.pipeline_stage_at_start,
                 reviewer_artifacts=reviewer_artifacts,
             )
+            if delivery is not None and final_submission_manuscript_snapshot is not None:
+                delivery["manuscript_snapshot"] = final_submission_manuscript_snapshot
         except Exception:  # noqa: BLE001 - delivery presentation never owns settlement
             log.debug("mission delivery receipt could not be built", exc_info=True)
         try:
@@ -1099,6 +1241,9 @@ class MissionExecutionSettlementMixin:
             "outcome": state.outcome_dimensions,
             "planner_report": planner_report,
             "plan_challenge": plan_challenge,
+            "plan_revision_witness": (
+                dict(state.plan_revision_witness) if state.replan_requested else {}
+            ),
             "rounds": state.rounds,
             "elapsed_seconds": state.elapsed,
             "cost_usd": state.usd,
@@ -1169,6 +1314,7 @@ class MissionExecutionSettlementMixin:
             ),
             "final_submission_certified": final_submission_certified,
             "final_submission_signature": final_submission_signature,
+            "manuscript_snapshot": final_submission_manuscript_snapshot,
             "overall_complete": overall_complete,
             "campaign_continues": campaign_continues,
             "delivery": delivery,
@@ -1216,6 +1362,9 @@ class MissionExecutionSettlementMixin:
             "delivery": delivery,
             "planner_report": planner_report,
             "plan_challenge": plan_challenge,
+            "plan_revision_witness": (
+                dict(state.plan_revision_witness) if state.replan_requested else {}
+            ),
             "expected_plan_id": item.plan_id,
             "expected_plan_version": item.plan_version,
             "context_packet": (

@@ -21,12 +21,11 @@ DEFAULT_TOKEN_HARD = 15_000_000
 
 #: Large artifacts that must be referenced by pointer + digest, never inlined wholesale.
 _POINTER_ONLY = (
-    "events.jsonl", "usage.jsonl", "NUMERICAL_STUDY_PLAN.csv",
-    "PRIOR_WORK_MATRIX.csv", "THEORY_OPPORTUNITY_AUDIT.csv",
+    "events.jsonl", "usage.jsonl",
 )
 #: Small, decision-bearing artifacts worth a short inline summary.
 _SUMMARY_FILES = (
-    "ROUTE_CLOSURE_STATUS.json", "PAPER_TYPE_CLASSIFIER.json", "research/TIER_STATE.json",
+    "ROUTE_CLOSURE_STATUS.json", "research/TIER_STATE.json",
     "research/DOWNGRADE_DECISION.json", "research/NEXT_ROLE_DIRECTIVE.json",
 )
 

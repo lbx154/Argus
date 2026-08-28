@@ -284,7 +284,9 @@ class LifeSupervisor(
             requeued = it.status == "pending"
             self._emit({
                 "type": (
-                    "life.mission.requeued" if requeued else "life.mission.orphaned"
+                    EventType.LIFE_MISSION_REQUEUED
+                    if requeued
+                    else EventType.LIFE_MISSION_ORPHANED
                 ),
                 "item_id": it.id,
                 "title": it.title,
@@ -468,7 +470,7 @@ class LifeSupervisor(
         # check the CLI already makes.
         self._reconcile_dead_subagent_records()
 
-        for item in self.memory.backlog.all():
+        for item in self.memory.backlog.active():
             if item.status != "paused_external_work":
                 continue
             wait = (
@@ -501,7 +503,10 @@ class LifeSupervisor(
 
             from ...tools.subagent._registry import reconcile_terminal_task
 
-            root = Path(self._project_workdir()) / ".argus_subagents"
+            root = (
+                Path(self._project_workdir()).expanduser().resolve(strict=False)
+                / ".argus_subagents"
+            )
             if not root.is_dir():
                 return
             for record_path in root.glob("*.json"):
@@ -515,11 +520,12 @@ class LifeSupervisor(
                     continue
                 before = record.get("state")
                 task_id = str(record.get("task_id") or record_path.stem)
-                updated = reconcile_terminal_task(task_id, dict(record))
+                updated = reconcile_terminal_task(
+                    task_id,
+                    dict(record),
+                    registry_root=root,
+                )
                 if updated.get("state") != before:
-                    record_path.write_text(
-                        json.dumps(updated, ensure_ascii=False), encoding="utf-8"
-                    )
                     self._emit_status(
                         f"external job {record_path.stem} is {updated.get('state')}: "
                         "its process is gone"
@@ -628,7 +634,7 @@ class LifeSupervisor(
                 from ...core.operator_decision import build_operator_decision
 
                 item = next(
-                    row for row in self.memory.backlog.all() if row.id == item_id
+                    row for row in self.memory.backlog.active() if row.id == item_id
                 )
                 question = (
                     "Please decide whether this operator-owned constraint may change: "
@@ -779,7 +785,7 @@ class LifeSupervisor(
             if outcome is None:
                 running_items = [
                     item
-                    for item in self.memory.backlog.all()
+                    for item in self.memory.backlog.active()
                     if str(getattr(item, "status", "") or "") == "running"
                 ]
                 if running_items:
@@ -790,7 +796,7 @@ class LifeSupervisor(
                 if self.config.continuous and self.config.continuous_objective:
                     pending_questions = [
                         item
-                        for item in self.memory.backlog.all()
+                        for item in self.memory.backlog.active()
                         if str(getattr(item, "pending_question", "") or "").strip()
                     ]
                     if pending_questions:
@@ -904,7 +910,8 @@ class LifeSupervisor(
                     stopped_by = "backlog_empty"
                     break
                 continue
-            results.append(outcome)
+            if outcome.get("status") != "claim_lost":
+                results.append(outcome)
             if outcome.get("status") in {
                 # Nothing ran and the item is still there, so re-selecting it
                 # immediately just loses the claim again. run-07-panel emitted 154
@@ -989,24 +996,6 @@ class LifeSupervisor(
                 else:
                     stopped_by = "planner_error"
                 break
-            maintenance_outcome = "framework_maintenance" in {
-                str(tag).strip().lower()
-                for tag in (outcome.get("tags") or [])
-            }
-            if maintenance_outcome:
-                post_mission_stop = self._post_mission_hook(outcome)
-                if post_mission_stop:
-                    self._emit({
-                        "type": "life.post_mission.stop",
-                        "reason": post_mission_stop,
-                        "item_id": outcome.get("item_id"),
-                        "status": outcome.get("status"),
-                    })
-                    self._emit_status(post_mission_stop)
-                    stopped_by = post_mission_stop
-                    break
-            if maintenance_outcome:
-                continue
             post_mission_stop = self._post_mission_hook(outcome)
             if post_mission_stop:
                 self._emit({
@@ -1067,7 +1056,7 @@ class LifeSupervisor(
         ``running`` rows forever.
         """
         try:
-            items = self.memory.backlog.all()
+            items = self.memory.backlog.active()
         except Exception:  # noqa: BLE001
             log.exception("life supervisor: failed to inspect backlog after error")
             return []
@@ -1178,7 +1167,11 @@ class LifeSupervisor(
                 "recoverable": True,
             }
 
-        if not self.config.continuous and self._missions_started >= self.config.budget.max_missions:
+        if (
+            not self.config.continuous
+            and self.config.budget.max_missions > 0
+            and self._missions_started >= self.config.budget.max_missions
+        ):
             # Only narrate the cap when there's actually pending work
             # being held back. If the backlog is empty (or the user
             # asked for ``--once`` and we just ran their one mission),
@@ -1203,8 +1196,44 @@ class LifeSupervisor(
         if lifecycle_block is not None:
             return lifecycle_block
 
-        result = self._run_one(item)
-        return result
+        mission_returned = False
+        try:
+            result = self._run_one(item)
+            mission_returned = True
+            return result
+        finally:
+            tags = {str(tag or "").strip().lower() for tag in item.tags}
+            if "framework_maintenance" in tags:
+                should_dispose = not mission_returned
+                if mission_returned:
+                    settled = next(
+                        (
+                            row
+                            for row in reversed(self.memory.backlog.history())
+                            if row.id == item.id
+                        ),
+                        item,
+                    )
+                    should_dispose = settled.status in {
+                        "done",
+                        "failed",
+                        "aborted",
+                        "skipped",
+                        "superseded",
+                    }
+                if should_dispose:
+                    from ._mission_execution_runtime import (
+                        dispose_maintenance_worktree,
+                    )
+
+                    try:
+                        dispose_maintenance_worktree(self.memory.root, item.id)
+                    except (OSError, KeyError, RuntimeError, ValueError):
+                        log.exception(
+                            "life supervisor: maintenance worktree cleanup failed"
+                        )
+                    else:
+                        self.memory.backlog.update(item.id, execution_workdir="")
 
     def _budget_global_root(self) -> Path:
         configured = getattr(self.memory, "global_root", None)
@@ -1331,7 +1360,36 @@ class LifeSupervisor(
             candidates = latest.get("delivery_candidates")
             candidates = candidates if isinstance(candidates, list) else []
             project_id = Path(self.memory.root).name
-            return build_delivery_receipt(
+            workspace = (
+                str(latest.get("execution_workdir") or "").strip()
+                or self._project_workdir()
+            )
+            final_submission_certified = bool(
+                latest.get("final_submission_certified")
+            )
+            review_validity_message = ""
+            if final_submission_certified:
+                binding = latest.get("manuscript_snapshot")
+                if isinstance(binding, dict):
+                    from ...core.manuscript_snapshot import (
+                        manuscript_review_status,
+                    )
+
+                    freshness = manuscript_review_status(
+                        {"manuscript_snapshot": binding},
+                        workspace,
+                    )
+                    if freshness.get("status") != "current":
+                        final_submission_certified = False
+                        review_validity_message = str(
+                            freshness.get("message") or "stale manuscript review"
+                        )
+                else:
+                    final_submission_certified = False
+                    review_validity_message = (
+                        "unbound (certification did not record the manuscript version)"
+                    )
+            receipt = build_delivery_receipt(
                 item_id=f"project-{project_id}",
                 title=(
                     str(getattr(self.config, "continuous_objective", "") or "").strip()
@@ -1342,17 +1400,17 @@ class LifeSupervisor(
                 overall_complete=True,
                 status="done",
                 review_status=str(outcome.get("review_status") or "not_assessed"),
-                final_submission_certified=bool(
-                    latest.get("final_submission_certified")
-                ),
-                workspace=(
-                    str(latest.get("execution_workdir") or "").strip()
-                    or self._project_workdir()
-                ),
+                final_submission_certified=final_submission_certified,
+                workspace=workspace,
                 state_root=self.memory.root,
                 stage=str(self._current_pipeline_stage() or ""),
                 reviewer_artifacts=candidates,
             )
+            if review_validity_message:
+                receipt["kind"] = "submission_stale"
+                receipt["review_status"] = "stale"
+                receipt["summary"] = review_validity_message
+            return receipt
         except Exception:  # noqa: BLE001 - completion authority is unchanged
             log.debug("terminal project delivery could not be built", exc_info=True)
             return None
@@ -1591,9 +1649,49 @@ class LifeSupervisor(
             independent_review_required = bool(
                 event.get("independent_review_required")
             )
+            delivery = (
+                dict(event["delivery"])
+                if isinstance(event.get("delivery"), dict)
+                else None
+            )
             final_submission_certified = (
                 event.get("final_submission_certified") is True
             )
+            if final_submission_certified:
+                binding = event.get("manuscript_snapshot")
+                if not isinstance(binding, dict) and isinstance(delivery, dict):
+                    binding = delivery.get("manuscript_snapshot")
+                if isinstance(binding, dict):
+                    try:
+                        from ...core.manuscript_snapshot import (
+                            manuscript_review_status,
+                        )
+
+                        freshness = manuscript_review_status(
+                            {"manuscript_snapshot": binding},
+                            str(event.get("execution_workdir") or "").strip()
+                            or self._project_workdir(),
+                        )
+                    except Exception:  # noqa: BLE001 - presentation fails closed
+                        freshness = {
+                            "status": "unbound",
+                            "message": "unbound (certified manuscript cannot be read)",
+                        }
+                else:
+                    freshness = {
+                        "status": "unbound",
+                        "message": (
+                            "unbound (certification did not record the manuscript version)"
+                        ),
+                    }
+                if freshness.get("status") != "current":
+                    final_submission_certified = False
+                    review = "stale"
+                    summary = str(freshness.get("message") or "stale review")
+                    if isinstance(delivery, dict):
+                        delivery["kind"] = "submission_stale"
+                        delivery["review_status"] = "stale"
+                        delivery["summary"] = summary
             explicit_continuation = event.get("campaign_continues")
             campaign_continues = bool(
                 success
@@ -1605,11 +1703,6 @@ class LifeSupervisor(
                         and not final_submission_certified
                     )
                 )
-            )
-            delivery = (
-                dict(event["delivery"])
-                if isinstance(event.get("delivery"), dict)
-                else None
             )
             delivery_ready = bool(
                 delivery and isinstance(delivery.get("primary_target"), dict)
@@ -1739,11 +1832,11 @@ class LifeSupervisor(
                 )
             elif overall_complete and independent_review_required and review == "done":
                 continuation = (
-                    "独立 Reviewer 已检查实现和测试，未发现阻断问题。"
+                    "独立 Reviewer 已复核本轮产出，未发现阻断问题。"
                     if chinese
                     else (
-                        "An independent Reviewer checked the implementation and "
-                        "tests and found no blocking issue."
+                        "An independent Reviewer reviewed this run's output and "
+                        "found no blocking issues."
                     )
                 )
             elif str(outcome.get("stage_certification") or "").strip() == "deferred":
@@ -1803,9 +1896,7 @@ class LifeSupervisor(
     def _publish_budget_pause_message(self, event: dict[str, Any]) -> None:
         """Surface a durable, deduplicated budget pause in the Manager chat."""
         try:
-            import hashlib
-
-            from ...core.operator_messages import publish_operator_message
+            from ...core.operator_messages import publish_operator_message, uses_cjk
 
             project = getattr(self.memory, "project", None)
             life_dir = getattr(project, "root", None) or getattr(self.memory, "root", None)
@@ -1814,17 +1905,18 @@ class LifeSupervisor(
             item_id = str(event.get("item_id") or "")
             title = str(event.get("title") or "current task").strip()
             reason = str(event.get("reason") or "budget cap reached").strip()
-            signature = hashlib.sha256(f"{item_id}\0{reason}".encode("utf-8")).hexdigest()[:16]
+            chinese = uses_cjk(f"{title}\n{reason}")
             text = (
-                "Budget pause · 预算不足，任务已暂停。\n"
-                f"Task: {title}\n"
-                f"Reason: {reason}\n"
-                "任务状态与 CHECKPOINT.md 已保留；提高项目预算后可以继续。"
+                f"项目已达到预算上限，任务已暂停：{title}。\n"
+                "现有进度已保存；提高项目预算或缩小任务后即可继续。"
+                if chinese
+                else f"Paused because this project reached its budget limit: {title}.\n"
+                "Existing work is saved; raise the project budget or narrow the task to continue."
             )
             publish_operator_message(
                 life_dir,
                 text=text,
-                message_id=f"budget-pause-{signature}",
+                message_id=f"budget-pause-{item_id}-{reason}",
                 event_fields={
                     "budget_pause": True,
                     "item_id": item_id,
@@ -1864,7 +1956,7 @@ class LifeSupervisor(
                 return
             self.config.continuous_objective = objective
 
-            items = self.memory.backlog.all()
+            items = self.memory.backlog.active()
             # An operator question belongs to its item, not to the spare
             # campaign slot. The main idle path already plans around unanswered
             # questions; returning here reintroduced the same whole-campaign
@@ -1887,7 +1979,7 @@ class LifeSupervisor(
             # Re-read after planning so a task that was queued but cannot be
             # claimed counts as a change, and the next tick does not spin.
             self._parallel_plan_fingerprint = self._backlog_fingerprint(
-                self.memory.backlog.all()
+                self.memory.backlog.active()
             )
         except Exception:  # noqa: BLE001 - filling a spare slot is best effort
             log.exception("life supervisor: parallel planning attempt failed")

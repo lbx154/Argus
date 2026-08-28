@@ -15,15 +15,17 @@ export const HEADER_STATIC_ITEMS: HeaderStaticItem[] = [
 export function Header({
   width,
   health = '',
+  vertical = '',
 }: {
   width: number;
   health?: string;
+  vertical?: string;
 }) {
   return (
     <Box flexDirection="column">
       <Box>
         <Wordmark />
-        <Text dimColor> · Autonomous Research Lab</Text>
+        <Text dimColor>{vertical === 'research' ? ' · Autonomous Research Lab' : ' · Autonomous Work Lab'}</Text>
       </Box>
       {health ? (
         <Text color={theme.warning}>{`  ! ${truncate(health, Math.max(12, width - 6))}`}</Text>

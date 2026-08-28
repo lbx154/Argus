@@ -111,11 +111,20 @@ class _ResearchBreakthroughRunner:
 class _MaintenanceRunner:
     def __init__(self) -> None:
         self.kwargs: dict[str, Any] = {}
+        self.success = True
+        self.status = "done"
+        self.review_status = "done"
 
     def execute(self, **kwargs) -> _Outcome:
         self.kwargs = kwargs
-        outcome = _Outcome()
-        outcome.final_review_status = "done"
+        if kwargs.get("maintenance_mission"):
+            Path(kwargs["working_dir_override"], "reviewed-change.txt").write_text(
+                "reviewed\n",
+                encoding="utf-8",
+            )
+        outcome = _Outcome(success=self.success, status=self.status)
+        outcome.final_review_status = self.review_status
+        outcome.final_review_source = "reviewer"
         return outcome
 
 
@@ -230,16 +239,154 @@ def test_crash_after_mission_claim_requeues_audit_and_reemits_started(
     assert started[0]["item_id"] == item.id
 
 
+def test_serial_claim_lost_does_not_rollback_another_ready_item(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    first = memory.backlog.add(BacklogItem.new(
+        title="stale",
+        objective="already handled elsewhere",
+        priority=1,
+    ))
+    second = memory.backlog.add(BacklogItem.new(
+        title="still ready",
+        objective="must remain untouched",
+        priority=2,
+    ))
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_MaintenanceRunner(),
+        sink=_RecordingSink(memory.root),
+        config=LifeSupervisorConfig(project_worktree=tmp_path),
+    )
+    original_next_pending = memory.backlog.next_pending
+    original_update = memory.backlog.update
+    raced = False
+    updates: list[tuple[str, dict[str, Any]]] = []
+
+    def stale_next_pending(*args: Any, **kwargs: Any) -> BacklogItem | None:
+        nonlocal raced
+        item = original_next_pending(*args, **kwargs)
+        if not raced and item is not None and item.id == first.id:
+            raced = True
+            assert original_update(first.id, status="done") is not None
+        return item
+
+    def recording_update(item_id: str, **fields: Any) -> BacklogItem | None:
+        updates.append((item_id, dict(fields)))
+        return original_update(item_id, **fields)
+
+    monkeypatch.setattr(memory.backlog, "next_pending", stale_next_pending)
+    monkeypatch.setattr(memory.backlog, "update", recording_update)
+
+    result = supervisor.tick()
+
+    rows = {item.id: item for item in memory.backlog.all()}
+    assert result == {"status": "claim_lost", "item_id": first.id}
+    assert rows[first.id].status == "done"
+    assert rows[second.id].status == "pending"
+    assert not any(
+        item_id == second.id and fields.get("status") == "pending"
+        for item_id, fields in updates
+    )
+
+
+def test_claim_lost_is_not_counted_as_mission(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    first = memory.backlog.add(BacklogItem.new(
+        title="stale",
+        objective="already completed by another supervisor",
+        priority=1,
+    ))
+    second = memory.backlog.add(BacklogItem.new(
+        title="still ready",
+        objective="run after the coordination miss",
+        priority=2,
+    ))
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_MaintenanceRunner(),
+        sink=_RecordingSink(memory.root),
+        config=LifeSupervisorConfig(project_worktree=tmp_path),
+    )
+    original_next_pending = memory.backlog.next_pending
+    raced = False
+
+    def stale_next_pending(*args: Any, **kwargs: Any) -> BacklogItem | None:
+        nonlocal raced
+        item = original_next_pending(*args, **kwargs)
+        if not raced and item is not None and item.id == first.id:
+            raced = True
+            assert memory.backlog.update(first.id, status="done") is not None
+        return item
+
+    monkeypatch.setattr(memory.backlog, "next_pending", stale_next_pending)
+
+    result = supervisor.run()
+
+    assert result["missions_started"] == 0
+    assert result["missions_run"] == 0
+    assert result["results"] == []
+    rows = {item.id: item for item in memory.backlog.all()}
+    assert rows[first.id].status == "done"
+    assert rows[second.id].status == "pending"
+
+
 def test_framework_maintenance_uses_private_worktree_and_review(
     tmp_path,
+    monkeypatch,
 ) -> None:
+    import subprocess
+
+    source = tmp_path / "framework"
+    origin = tmp_path / "origin.git"
+    private_remote = tmp_path / "private.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(origin)], check=True)
+    subprocess.run(
+        ["git", "init", "--bare", "-q", str(private_remote)],
+        check=True,
+    )
+    subprocess.run(["git", "init", "-q", str(source)], check=True)
+    subprocess.run(["git", "checkout", "-qb", "main"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "test"], cwd=source, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=source,
+        check=True,
+    )
+    (source / "baseline.txt").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "baseline.txt"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-qm", "baseline"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", str(origin)], cwd=source, check=True
+    )
+    subprocess.run(
+        ["git", "remote", "add", "private", str(private_remote)],
+        cwd=source,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "push", "-qu", "origin", "main"], cwd=source, check=True
+    )
+    subprocess.run(
+        ["git", "push", "-q", "private", "main"], cwd=source, check=True
+    )
+    monkeypatch.setattr(
+        "argus_skill.core.runtime_identity.source_root",
+        lambda: source,
+    )
+
     memory = LifeMemory.open(tmp_path / "life")
     sink = _RecordingSink(memory.root)
     runner = _MaintenanceRunner()
     project = tmp_path / "project"
     project.mkdir()
-    private = tmp_path / "private-framework"
-    private.mkdir()
     supervisor = LifeSupervisor(
         memory=memory,
         runner=runner,
@@ -249,11 +396,19 @@ def test_framework_maintenance_uses_private_worktree_and_review(
             artifact_root=project,
         ),
     )
-    memory.backlog.add(BacklogItem.new(
+    item = memory.backlog.add(BacklogItem.new(
         title="repair framework",
         objective="fix observed defect",
         tags=["framework_maintenance", "review:required", "scope:bounded"],
-        execution_workdir=str(private),
+        execution_workdir="",
+        context_refs=[{
+            "ref": str(memory.root / "events.jsonl"),
+            "why": "life.planner.error showed the observed harness failure",
+        }],
+        acceptance_check=(
+            "python -c \"from pathlib import Path; "
+            "raise SystemExit(not Path('reviewed-change.txt').is_file())\""
+        ),
         manager_decision={
             "routed": True,
             "vertical": "argus_maintenance",
@@ -263,13 +418,69 @@ def test_framework_maintenance_uses_private_worktree_and_review(
 
     result = supervisor.tick()
 
-    assert result is not None and result["status"] == "done"
+    assert result is not None and result["status"] == "paused_operator"
     assert result["review_status"] == "done"
-    assert runner.kwargs["working_dir_override"] == str(private)
+    worktree = Path(runner.kwargs["working_dir_override"])
+    assert worktree.is_dir()
+    assert worktree.is_relative_to(memory.root / "maintenance" / "worktrees")
+    assert worktree != source
     assert runner.kwargs["maintenance_mission"] is True
     assert runner.kwargs["vertical_override"] == "argus_maintenance"
     assert runner.kwargs["require_independent_review"] is True
     assert runner.kwargs["allow_skill_changes"] is False
+    settled = next(row for row in memory.backlog.history() if row.id == item.id)
+    assert settled.status == "paused_operator"
+    assert settled.execution_workdir == str(worktree)
+    assert [
+        option["id"] for option in settled.operator_decision["options"]
+    ] == ["adopt", "decline"]
+    assert settled.operator_decision["decision_kind"] == "framework_deployment"
+    assert settled.pending_question == (
+        "The change for “repair framework” passed review. Should I run repository CI "
+        "and the acceptance check (python -c \"from pathlib import Path; "
+        "raise SystemExit(not Path('reviewed-change.txt').is_file())\"), then apply it?"
+    )
+    sidecar = json.loads(
+        (memory.root / "maintenance" / "pending" / f"{item.id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert sidecar["worktree"] == str(worktree)
+    assert sidecar["reviewed_candidate"] != sidecar["public_base"]
+    assert sidecar["input_digest"]
+    assert sidecar["approval_binding"] == {
+        "input_digest": sidecar["input_digest"],
+    }
+    assert "input_digest" not in settled.operator_decision
+    assert sidecar["input_digest"] not in json.dumps(settled.operator_decision)
+
+    runner.success = False
+    runner.status = "error"
+    runner.review_status = "continue"
+    rejected = memory.backlog.add(BacklogItem.new(
+        title="rejected framework repair",
+        objective="leave a rejected change undeployed",
+        tags=["framework_maintenance", "review:required", "scope:bounded"],
+        execution_workdir="",
+        context_refs=[{
+            "ref": str(memory.root / "events.jsonl"),
+            "why": "observed failure",
+        }],
+        acceptance_check="python -c \"raise SystemExit(1)\"",
+        manager_decision={"routed": True, "vertical": "argus_maintenance"},
+    ))
+
+    rejected_result = supervisor.tick()
+
+    assert rejected_result is not None
+    assert rejected_result["status"] == "error"
+    rejected_row = next(
+        row for row in memory.backlog.history() if row.id == rejected.id
+    )
+    assert rejected_row.operator_decision == {}
+    assert rejected_row.execution_workdir == ""
+    assert not (memory.root / "maintenance" / "pending" / f"{rejected.id}.json").exists()
+    assert not Path(runner.kwargs["working_dir_override"]).exists()
 
 
 def test_skill_changes_require_explicit_mission_permission(tmp_path) -> None:
@@ -486,7 +697,7 @@ def test_manager_reselects_vertical_for_each_planned_mission(tmp_path) -> None:
     assert len(calls) == 2
     assert calls[0] == calls[1]
     assert calls[0].startswith(
-        "optimize the current project\n\n## Operator steering (standing)"
+        "optimize the current project\n\n## OperatorContext"
     )
     assert "Build the Apple-specific inference kernel." in calls[0]
     assert first["vertical"] == second["vertical"] == "device_tuning"
@@ -638,14 +849,38 @@ def test_budget_pause_is_published_once_in_operator_chat(tmp_path) -> None:
     assert sup._emit(event)
 
     (turn,) = read_turns(mem.root)
-    assert "预算不足" in turn["text"]
+    assert "Paused because this project reached its budget limit" in turn["text"]
     assert "Long experiment" in turn["text"]
+    assert "Existing work is saved" in turn["text"]
+    assert "CHECKPOINT.md" not in turn["text"]
     ui_events = [
         event
         for line in (mem.root / "events.jsonl").read_text(encoding="utf-8").splitlines()
         if (event := json.loads(line)).get("type") == "ui.argus"
     ]
     assert len(ui_events) == 1
+
+
+def test_budget_pause_uses_chinese_for_a_chinese_task(tmp_path) -> None:
+    mem = LifeMemory.open(tmp_path / "life")
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_ResearchBreakthroughRunner(),
+        sink=_RecordingSink(mem.root),
+    )
+
+    assert sup._emit({
+        "type": EventType.LIFE_BUDGET_PAUSE,
+        "item_id": "task-zh",
+        "title": "运行完整实验",
+        "reason": "项目预算已用完",
+    })
+
+    (turn,) = read_turns(mem.root)
+    assert turn["text"] == (
+        "项目已达到预算上限，任务已暂停：运行完整实验。\n"
+        "现有进度已保存；提高项目预算或缩小任务后即可继续。"
+    )
 
 
 def test_research_incomplete_mission_is_paused_and_resumable(tmp_path) -> None:

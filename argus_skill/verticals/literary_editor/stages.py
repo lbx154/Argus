@@ -2,8 +2,8 @@
 
 The FIFTH literary consumer — an EDITING service over existing text, reusing the
 framework Reviewer + revise capability. It consumes the same four shared contracts
-as the genre verticals. Its machine layer is EDIT DISCIPLINE (genuinely
-deterministic); whether the edit is GOOD is live-reviewer.
+as the genre verticals. Its machine layer checks non-empty output and explicit
+must-keep constraints; edit quality and semantic scope are live Reviewer judgments.
 
 Stages (``completion_gate="none"``):
 1. **intake**: record ``editor/task_envelope.json`` + ``editor/source.txt`` +
@@ -11,11 +11,15 @@ Stages (``completion_gate="none"``):
 2. **diagnose**: reviewer emits ``editor/review.json`` — findings on the SOURCE
    against the goal (edit-discipline blocking + craft live).
 3. **revision_plan**: ``editor/revision_plan.json`` derived from the review.
-4. **edit**: produce ``editor/edited.txt`` honoring the mode + must_keep.
-5. **verify**: machine edit-check + ``editor/change_summary.json`` +
+4. **edit**: produce ``editor/edited.txt`` honoring the mode + must_keep; stage
+   completion checks the deterministic edit constraints.
+5. **verify**: produce ``editor/change_summary.json`` and
    ``editor/artifact_manifest.json``.
 """
 from __future__ import annotations
+
+import json
+from pathlib import Path
 
 from ...skills.stage_machine import ChecklistItem
 
@@ -23,83 +27,23 @@ STAGE_ORDER = ["intake", "diagnose", "revision_plan", "edit", "verify"]
 CHECKLIST_OPTIONAL_STAGES = ("intake", "diagnose", "revision_plan")
 completion_gate = "none"
 
-_PIPELINE_CHECK = ("Pipeline state present", "test -f .argus/PIPELINE_STATE.json")
-_CHECKS = "{python} -m argus_skill.verticals.literary_editor.checks"
+def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
+    if stage != "edit":
+        return ()
 
-STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
-    "intake": [
-        _PIPELINE_CHECK,
-        ("Task envelope recorded", "test -s editor/task_envelope.json"),
-        ("Task envelope valid and editor-consumable",
-         f"{_CHECKS} intake-validate editor/task_envelope.json"),
-        ("Source text recorded", "test -s editor/source.txt"),
-        ("Edit brief produced", "test -s editor/edit_brief.json"),
-        ("Source registry is well-formed", f"{_CHECKS} source-registry"),
-    ],
-    "diagnose": [
-        _PIPELINE_CHECK,
-        ("Diagnosis review produced", "test -s editor/review.json"),
-        ("Review conforms to the literary review contract",
-         f"{_CHECKS} review-validate editor/review.json"),
-    ],
-    "revision_plan": [
-        _PIPELINE_CHECK,
-        ("Revision plan produced", "test -s editor/revision_plan.json"),
-        ("Revision plan covers every blocking finding",
-         f"{_CHECKS} check-plan editor/review.json editor/revision_plan.json"),
-    ],
-    "edit": [
-        _PIPELINE_CHECK,
-        ("Edited text produced", "test -s editor/edited.txt"),
-        ("Edit respects its mode discipline + must-keep list",
-         f"{_CHECKS} edit-check editor/source.txt editor/edited.txt "
-         "editor/edit_brief.json"),
-    ],
-    "verify": [
-        _PIPELINE_CHECK,
-        ("Change summary produced", "test -s editor/change_summary.json"),
-        ("Source-usage ledger produced (explicit, empty uses[] if none)",
-         "test -s editor/source_usage.json"),
-        ("Every recorded source use is rights-defensible",
-         f"{_CHECKS} check-usage editor/source_usage.json"),
-        ("Artifact manifest records the chain", "test -s editor/artifact_manifest.json"),
-        ("Artifact manifest conforms to the shared lineage contract",
-         f"{_CHECKS} manifest-validate editor/artifact_manifest.json"),
-        ("Every artifact the manifest records is present",
-         f"{_CHECKS} manifest-content editor/artifact_manifest.json"),
-    ],
-}
+    from .edit_ops import check_edit
 
-_REVIEW_SKILL = "reviewer/edit-review.md"
-
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    "intake": (_REVIEW_SKILL,
-               "Confirm the brief derives from editor/task_envelope.json: an "
-               "editing mode, a source text present, and the must_keep list "
-               "captured. An editing mode without a source must have failed here.",
-               ["editor/task_envelope.json", "editor/edit_brief.json",
-                "editor/source.txt"]),
-    "diagnose": (_REVIEW_SKILL,
-                 "Produce findings on the SOURCE against the goal. Mark what MUST "
-                 "be preserved (must_not_break). Do not rewrite here — diagnose.",
-                 ["editor/source.txt", "editor/edit_brief.json"]),
-    "revision_plan": (_REVIEW_SKILL,
-                      "Gate the plan: it covers every blocking finding and carries "
-                      "the must_not_break invariants into the edit instructions.",
-                      ["editor/review.json", "editor/revision_plan.json"]),
-    "edit": (_REVIEW_SKILL,
-             "Verify EDIT DISCIPLINE: a critique did not rewrite; a proofread did "
-             "not become a rewrite; an expand added material; every must-keep "
-             "segment survives. Then judge (live, non-blocking) whether the edit "
-             "reads better and — critically — whether any FACT was invented.",
-             ["editor/source.txt", "editor/edited.txt", "editor/edit_brief.json"]),
-    "verify": (_REVIEW_SKILL,
-               "Confirm change_summary.json explains the edits, artifact_manifest "
-               "records the chain (edited supersedes source, traces to source + "
-               "review), and no invented fact slipped through.",
-               ["editor/edited.txt", "editor/change_summary.json",
-                "editor/artifact_manifest.json"]),
-}
+    editor = project_root / "editor"
+    try:
+        source = (editor / "source.txt").read_text(encoding="utf-8")
+        edited = (editor / "edited.txt").read_text(encoding="utf-8")
+        brief = json.loads((editor / "edit_brief.json").read_text(encoding="utf-8"))
+        if not isinstance(brief, dict) or "mode" not in brief:
+            raise ValueError("edit_brief must be an object carrying a 'mode'")
+        findings = check_edit(source, edited, brief["mode"], brief.get("must_keep"))
+    except (OSError, ValueError) as exc:
+        return (f"literary editor inputs invalid: {exc}",)
+    return tuple(finding["detail"] for finding in findings)
 
 CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
 
@@ -107,10 +51,9 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
     "edit": (
         ChecklistItem(
             id="mode-discipline-held",
-            statement="The edit respected its mode: critique did not rewrite, "
-            "proofread stayed close to the source, expand added material; every "
-            "must-keep segment survives verbatim.",
-            evidence_hint="editor edit-check passes (no blocking findings)",
+            statement="The Reviewer judged the semantic change against the stated "
+            "mode and goal; every explicit must-keep segment survives verbatim.",
+            evidence_hint="review judgment + editor edit-check",
         ),
     ),
     "verify": (
@@ -129,8 +72,9 @@ def role_banner(role: str) -> str:
         "MISSION TYPE: LITERARY EDITING. The deliverable is an EDITED version of an "
         "existing text that respects its editing mode (rewrite/expand/polish/"
         "proofread/critique) and a must-keep list. Reuse the Reviewer + revise "
-        "capability — do NOT invent a new agent. Whether the edit is GOOD is a live "
-        "judgement; edit DISCIPLINE is the machine gate.\n"
+        "capability — do NOT invent a new agent. Whether the edit is good or stayed "
+        "within its semantic mandate is a live judgment; only non-empty output and "
+        "explicit must-keep constraints are machine checked.\n"
     )
     if role == "planner":
         return common + ("Drive intake -> diagnose -> revision_plan -> edit -> "
@@ -147,10 +91,10 @@ def role_banner(role: str) -> str:
             "(empty uses[] if none) and editor/artifact_manifest.json.")
     if role == "reviewer":
         return common + (
-            "You gate the edit. Edit-discipline findings (mode_discipline/over_edit/"
-            "no_expansion/must_not_break/empty) are BLOCKING and mirror the machine "
-            "edit-check. edit_quality/fact_fidelity/coherence/over_reach are "
-            "NON-BLOCKING live judgements — flag any invented fact. Follow the "
+            "You gate the edit. Only empty output and dropped explicit must-keep "
+            "segments mirror the machine check. Judge from the brief and semantic "
+            "change whether the edit exceeded its mandate; character similarity and "
+            "length are not verdicts. Flag any invented fact. Follow the "
             "'Literary Editing Review' skill. Emit editor/review.json per the shared "
             "literary review contract.")
     return common

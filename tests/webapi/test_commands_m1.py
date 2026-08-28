@@ -99,6 +99,10 @@ def test_post_task_appends_to_backlog(ctx) -> None:
     # went through the real Backlog store (flock CAS), not a raw write
     items = LifeMemory.open(life).backlog.all()
     assert len(items) == 1 and items[0].objective == "optimize the kernel"
+    assert items[0].manager_decision == {
+        "require_independent_review": True,
+        "routed": True,
+    }
 
 
 def test_post_task_preserves_active_continuous_campaign_governance(
@@ -217,7 +221,11 @@ def test_post_task_enqueues_only_manager_execution_handoff(ctx, monkeypatch) -> 
     assert captured["sid"] == sid
     assert captured["text"] == raw
     assert captured["root_task_id"] == item["id"]
-    assert LifeMemory.open(life).backlog.all()[0].objective == "write the MRAM paper"
+    persisted = LifeMemory.open(life).backlog.all()[0]
+    assert persisted.objective == "write the MRAM paper"
+    # Even a narrow/fake handoff that omits Division details has completed the
+    # Manager gate.  The daemon must not classify the claimed item again.
+    assert persisted.manager_decision == {"routed": True}
 
 
 def test_post_task_returns_503_instead_of_enqueuing_raw_on_handoff_failure(
@@ -713,8 +721,16 @@ def test_daemon_start_surfaces_clean_launcher_failure(ctx, monkeypatch) -> None:
     response = client.post(f"/api/projects/{sid}/daemon/start")
 
     assert response.status_code == 200
-    assert response.json()["rc"] == 2
-    assert "ModuleNotFoundError: No module named 'uvicorn'" in response.json()["error"]
+    body = response.json()
+    assert body["rc"] == 2
+    assert body["error"] == (
+        "The background worker could not start. "
+        "Check the startup diagnostic and try again."
+    )
+    assert body["startup_diagnostic"] == (
+        "RuntimeError: ModuleNotFoundError: No module named 'uvicorn'"
+    )
+    assert "ModuleNotFoundError" not in body["error"]
 
 
 def test_daemon_start_surfaces_captured_helper_stderr(ctx, monkeypatch, caplog) -> None:
@@ -735,7 +751,11 @@ def test_daemon_start_surfaces_captured_helper_stderr(ctx, monkeypatch, caplog) 
     body = response.json()
     assert body["rc"] == 1
     assert body["startup_diagnostic"] == diagnostic
-    assert body["error"] == f"background executor failed to start (rc=1): {diagnostic}"
+    assert body["error"] == (
+        "The background worker could not start. "
+        "Check the startup diagnostic and try again."
+    )
+    assert diagnostic not in body["error"]
     assert diagnostic in caplog.text
 
 

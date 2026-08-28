@@ -71,6 +71,10 @@ Manager/Planner/Engineer/Reviewer runtime as a custom agent. See
 **Coding-agent plugin:** use the packaged MCP bridge and host-specific Skills
 without changing the core runtime. See **[Plugin quick start](docs/plugin.md)**.
 
+**Counterexample research extension:** the preview branch adds a live
+Counterexample Lab, an isolated Jacobian MCP bridge, and safe in-app source
+updates. See **[Counterexample Lab and Jacobian setup](docs/counterexample-lab-jacobian.md)**.
+
 ## WeChat community
 
 Scan the QR code to join the Argus community. Click the image to open it at full
@@ -78,10 +82,12 @@ size. If the printed expiry date has passed, open an Issue and ask the
 maintainers for the latest code.
 
 <p align="center">
-  <a href="docs/assets/argus-wechat-group.jpg">
-    <img src="docs/assets/argus-wechat-group.jpg" width="360" alt="Argus WeChat community QR code">
+  <a href="docs/assets/argus-wechat-group-2.jpg">
+    <img src="docs/assets/argus-wechat-group-2.jpg" width="360" alt="Argus WeChat Group 2 QR code">
   </a>
 </p>
+
+<p align="center"><strong>Community Group 1 is full. Please join Group 2.</strong></p>
 
 ## Quick Install
 
@@ -414,6 +420,12 @@ The Web configuration view and `/config` expose the same setting.
 ### Adapt the runtime
 
 If you are an agent enthusiast, deploy Argus locally and make the complete loop fit the way you work. Tune role prompts, workflow boundaries, review policy, tools, and operating conventions; connect your own infrastructure; preserve the behavior you care about with tests.
+
+The compact constitution behind those choices is **[Argus Principles](docs/PRINCIPLES.md)**:
+agents judge meaning while the runtime guarantees mechanics; Core provides capability while
+Verticals provide policy; thought stays natural language; tokens buy information or action;
+exploration pursues upside while claims remain evidence-bound; failure changes strategy;
+programme outcomes and end-to-end evidence judge progress.
 
 One worked engineering case is **[exploration without local hill climbing](docs/exploration-without-local-hill-climbing.md)**: how report-only research, high-risk mechanism portfolios, single-run screening, and strict final claims were separated after an MI300X serving campaign exposed overly conservative incentives.
 

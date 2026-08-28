@@ -36,9 +36,9 @@ _RUNNER_STALLED_IDLE_ENV = "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS"
 _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _RUNNER_DEFAULT_SOFT_IDLE_SECONDS = 10 * 60
 _RUNNER_DEFAULT_STALLED_IDLE_SECONDS = 30 * 60
-_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 45 * 60
+_RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
 class _RepeatedToolCallGuard:
-    """Interrupt a provider turn repeating one identical tool call."""
+    """Interrupt a factually repeating identical tool-call livelock."""
 
     def __init__(self, limit: int = 3) -> None:
         self.limit = limit
@@ -530,8 +530,7 @@ def build_agent_cli_backend_from_env() -> AgentCliBackend:
       * ``ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS`` — likely-stalled warning,
         default 1800 seconds.
       * ``ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS`` — terminate only the current
-        model process group, default 2700 seconds. Set any threshold to ``0`` to
-        disable that stage explicitly.
+        model process group when explicitly configured; disabled by default.
     """
     import shlex
 

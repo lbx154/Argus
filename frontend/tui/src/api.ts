@@ -25,6 +25,7 @@ import {
   DEFAULT_READ_TIMEOUT_MS,
   requestWithTimeout,
 } from './network.js';
+import type { ResourceStatus } from '../../core/src/resourceStatus.generated.js';
 
 export type {
   ArtifactInfo,
@@ -39,6 +40,7 @@ export type {
   Snapshot,
   UsageSummary,
 } from '../../core/src/types.js';
+export type { ResourceStatus } from '../../core/src/resourceStatus.generated.js';
 
 /**
  * Client for the argus-skill webapi (argus_skill/webapi/server.py). ALL network
@@ -606,6 +608,19 @@ export class ApiClient {
 
   getStatus(): Promise<StatusView> {
     return this.getJson<StatusView>('/status');
+  }
+
+  getResources(): Promise<ResourceStatus> {
+    const path = '/api/system/resources';
+    return requestWithTimeout(
+      `${this.httpBase}${path}`,
+      { headers: this.authHeaders() },
+      this.readTimeoutMs,
+      async (response) => {
+        await ensureResponseOk(response, 'GET', path);
+        return (await response.json()) as ResourceStatus;
+      },
+    );
   }
 
   async getJournal(n = 10): Promise<JournalEntry[]> {

@@ -38,7 +38,7 @@ Install and authenticate xAI's official CLI:
 ```bash
 curl -fsSL https://x.ai/cli/install.sh | bash
 grok login
-argus --setup --non-interactive --backend grok --accept-house-rules
+argus --setup --non-interactive --backend grok
 ```
 
 For CI or another headless host, set `XAI_API_KEY` instead of starting the
@@ -58,7 +58,7 @@ Install Qoder's official CLI and authenticate:
 ```bash
 npm install -g @qoder-ai/qodercli
 qodercli login            # browser OAuth; tokens refresh automatically
-argus --setup --non-interactive --backend qoder --accept-house-rules
+argus --setup --non-interactive --backend qoder
 ```
 
 For CI or a headless daemon, create a Personal Access Token at
@@ -79,7 +79,7 @@ Install the launcher and put a DeepSeek API key in the launching environment:
 ```bash
 npm install -g @deepseek-ai/dsh
 export DEEPSEEK_API_KEY=sk-...     # or set it on the dsh web Models page
-argus --setup --non-interactive --backend dsh --accept-house-rules
+argus --setup --non-interactive --backend dsh
 ```
 
 dsh has no stream-json surface, no session resume, and no model flag: Argus

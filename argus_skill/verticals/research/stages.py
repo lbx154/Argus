@@ -19,6 +19,7 @@ from ...core.vertical_contract import IterationAssessment
 from ...skills.stage_machine import ChecklistItem
 from . import library_preparation
 from .prompt_policy import render_role_prompt_fragment
+from .review_purchase import review_purchase_policy
 from .venue_profiles import VenueProfile, resolve_venue_profile
 
 log = logging.getLogger(__name__)
@@ -61,9 +62,9 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.idea_portfolio",
             statement=(
-                "A 12-route team explores concurrently; each result gets an independent "
-                "review, and a fresh selector acts at the 80% review quorum without "
-                "waiting for the final routes."
+                "A team explores genuinely distinct mechanism families sized to the "
+                "problem, and each result receives independent review. The familiar "
+                "twelve-route fanout is an operating example, not a breadth quota."
             ),
             evidence_hint=(
                 "research/IDEA_PORTFOLIO.json + research/ideation/portfolios/**/"
@@ -73,12 +74,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.adversarial_selection",
             statement=(
-                "After at least 80% of reviews (10/12 by default), a fresh Agent selects "
-                "a current-frontier contribution that is either a high-novelty method or "
-                "a publication-scale empirical study. No-training convenience, shortest "
-                "evidence path, cheapness, and single-GPU fit are not ranking advantages; "
-                "resource gaps become an explicit staged compute plan. Probe metrics "
-                "cannot veto the choice; final routes do not block planning."
+                "A fresh Agent judges when the evidence covers the important alternatives "
+                "well enough to select. It reads all relevant evidence that has arrived, "
+                "including probes and later routes, and chooses the strongest credible "
+                "case for important, nontrivial new knowledge in any form. New evidence "
+                "may change the choice; local convenience is not scientific value."
             ),
             evidence_hint=(
                 "research/IDEA_SELECTION.json + selected route/review/EVIDENCE.json"
@@ -97,8 +97,8 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "The selected thesis has a plausible nontrivial technical core, "
                 "originality, formal/causal structure, field-level potential, and an "
-                "evidence path sized to the contribution: a high-novelty method or a "
-                "publication-scale empirical study, not merely a small diagnostic. "
+                "evidence path suited to its contribution. Judge whether it offers "
+                "important, credible new knowledge rather than admitting it by category. "
                 "Research review is qualitative: no finished theorem, fixed implementation, "
                 "or reliable effect size is required. Reject clear duplicates, trivial "
                 "prompt/schema/wrapper/scale variants, incoherent mechanisms, or decorative "
@@ -119,8 +119,8 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "training-heavy or large-scale empirical work, explicitly skip the probe "
                 "as untested and advance to plan/benchmark/run. The Planner authors the "
                 "evidence contract. Preserve raw evidence honestly. A weak, failed, or "
-                "inconclusive probe cannot kill, block, downgrade, or re-rank a qualified "
-                "idea or become a mechanical routing decision. Infrastructure failures, "
+                "inconclusive probe is evidence whose relevance the Reviewer must judge, "
+                "not a mechanical routing decision. Infrastructure failures, "
                 "saturation, and missing predeclared power or headroom are limitations; "
                 "later stages own scientific outcomes and decisive benchmarks. "
                 "`argus_skill.verticals.research.signal_derisk validate` is available "
@@ -494,12 +494,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "universal requirement that every seed, benchmark, or strongest baseline "
                 "must succeed. Evaluators, conditions, and comparisons may evolve for a "
                 "documented methodological reason when earlier outcomes remain visible "
-                "and the final claim is scoped accordingly. Classify the result as genuine "
-                "method failure only after an independent Reviewer finds the "
-                "implementation competitive and no credible repair remains or the "
-                "approved resource budget is exhausted. Classify interim outcomes as "
-                "misconfigured, under-engineered, inconclusive, or still-repairable. Do "
-                "not stop because of a fixed retry count."
+                "and the final claim is scoped accordingly. An independent Reviewer "
+                "judges when the current evidence is discriminating enough to attribute "
+                "a shortfall to the method rather than implementation, setup, or "
+                "measurement. Pursue a repair when it can resolve that attribution, not "
+                "because every conceivable repair or the full budget must be exhausted."
             ),
             evidence_hint=(
                 "reference reproduction + implementation source + executed manifests "
@@ -1011,9 +1010,21 @@ def stage_completion_issues(
         return tuple(issues)
     if normalized != "research":
         return ()
+    from ...core.pipeline_state import pipeline_state_exists
     from .idea_portfolio import idea_portfolio_completion_issues
 
-    return idea_portfolio_completion_issues(project_root)
+    resolved_state_root = state_root or project_root
+    if not pipeline_state_exists(resolved_state_root):
+        log.warning(
+            "research stage requirements cannot be determined: "
+            "PIPELINE_STATE.json is missing at resolved state root %s",
+            resolved_state_root,
+        )
+        return (
+            "research stage requirements cannot be determined because "
+            "PIPELINE_STATE.json is missing at the resolved state root",
+        )
+    return idea_portfolio_completion_issues(resolved_state_root)
 
 
 def iteration_assessment(
@@ -1509,16 +1520,16 @@ _AMBITIOUS_RESEARCH_POLICY = (
 )
 
 _REVIEWER_RESEARCH_JUDGEMENT = (
-    "Judge the round and the programme's chance of a novel, convincing paper. Accept "
-    "sound work, but use `plan_signal=reconsider` when the route, scale, comparison, "
-    "or visual argument cannot clear the venue. For experiment claims, inspect "
-    "implementation and raw rows once, then reuse them until a dependency changes. "
-    "Separate method results from infrastructure or evaluator failure. An outlying "
-    "result, or training below its own untrained checkpoint, is a setup/optimization "
-    "defect signal before a finding. Weak or underpowered probes cannot by themselves "
-    "trigger replan; they choose the next informative work. Count misses only after "
-    "the method, baseline, and evaluator can resolve the effect. The Manager retires "
-    "routes; a loss is never the paper, and ceremony stays advisory.\n"
+    "Accept sound work; use `plan_signal=reconsider` if programme cannot clear venue. "
+    "A well-characterized negative result, anomaly, or boundary condition counts. "
+    "Before accepting any negative conclusion—method failure, route retirement, or "
+    "`X does not work`—ask from evidence: do implementation and raw rows show an "
+    "executed call chain faithful to the idea, not infrastructure or evaluator failure; "
+    "did baselines/hyperparameters get competent, competitive effort; could scale/setup "
+    "show the effect if it existed; are credible alternative explanations excluded? Any "
+    "no: `this idea has not yet been given a real chance`—unfinished work, not a negative "
+    "result, paper section, or grounds to abandon route. Manager-owned retirement is the "
+    "same claim; a no means `not yet given a real chance`, not retired.\n"
 )
 
 _PLANNER_RESEARCH_ORCHESTRATION = (
@@ -1562,10 +1573,15 @@ _MANAGER_RESEARCH_STEWARDSHIP = (
     "claim can alter the programme. Watch whether missions improve the method and "
     "argument or merely maintain the harness. A shortfall starts an optimization loop "
     "across implementation, data, scale, evaluator, or mechanism; it is not itself a "
-    "reason to retire the idea. Retire only when trustworthy evidence and materially "
-    "different attempts meet the route's decision rule, then roll the accumulated "
-    "learning into a stronger direction. If the campaign retreats into a safe local "
-    "increment, replace the plan rather than polishing the retreat.\n"
+    "reason to retire the idea. Retiring a route claims that it fails and needs the "
+    "same evidence quality as promoting one: a faithful executed call chain, competent "
+    "competitive baselines and hyperparameters, a setup and scale able to reveal the "
+    "effect, and exclusion of credible alternative explanations. If any is missing, "
+    "defer the route as `not yet given a real chance`; it is not retired. Retire only "
+    "when trustworthy evidence and materially different attempts meet the "
+    "route's decision rule, then roll the accumulated learning into a stronger "
+    "direction. If the campaign retreats into a safe local increment, replace the plan "
+    "rather than polishing the retreat.\n"
 )
 
 
@@ -1950,7 +1966,7 @@ def _unasked_manuscript_block(project_root: object) -> str:
 
 
 def _late_selection_reviews_block(project_root: object) -> str:
-    """Put routes unseen by the original quorum selector before Reviewer."""
+    """Put routes unseen by the original selector before Reviewer."""
     try:
         from .idea_portfolio import late_selection_reviews
 
@@ -2171,7 +2187,7 @@ def _accepted_papers_block(project_root: object) -> str:
                 checkout = str(code.get("local_checkout") or "").strip()
                 revision = str(code.get("revision") or "").strip()
                 if checkout and (root / checkout).is_dir():
-                    pin = f" @ {revision[:12]}" if revision else ""
+                    pin = " (pinned revision recorded)" if revision else ""
                     entry.append(f"    official code: `{checkout}`{pin}")
             lines.extend(entry)
         if not lines:
@@ -2208,6 +2224,7 @@ __all__ = [
     "role_banner",
     "search_altitude_context",
     "render_role_prompt_fragment",
+    "review_purchase_policy",
     "stage_completion_issues",
     "iteration_assessment",
     "completion_gate",

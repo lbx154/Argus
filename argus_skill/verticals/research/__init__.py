@@ -99,6 +99,12 @@ from .method_differentiation import (
     PairFinding,
     validate_method_differentiation,
 )
+from .method_freeze import (
+    CONFIRMATION_RESULT_PATH,
+    FREEZE_PATH,
+    declare_method_freeze,
+    record_confirmation_result,
+)
 from .paper_infrastructure_review import (
     MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE,
     PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
@@ -195,6 +201,11 @@ __all__ = [
     "MethodDifferentiationReport",
     "PairFinding",
     "validate_method_differentiation",
+    # method_freeze process writers
+    "CONFIRMATION_RESULT_PATH",
+    "FREEZE_PATH",
+    "declare_method_freeze",
+    "record_confirmation_result",
     # paper_structural_minimums
     "StructuralIssue",
     "StructuralReport",

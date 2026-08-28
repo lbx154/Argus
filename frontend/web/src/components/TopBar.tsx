@@ -81,6 +81,7 @@ export function TopBar({
       <span className="hidden h-4 w-px shrink-0 bg-line/40 sm:block" />
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <span
+          aria-label={roleActive ? t('topbar.roleActive', { role: roleName }) : t('topbar.roleIdle', { role: roleName })}
           className={`h-2 w-2 shrink-0 rounded-full ${roleActive ? 'animate-pulse' : ''}`}
           style={{ background: theme.role[roleName] || 'rgb(var(--ink-faint))' }}
         />
@@ -96,7 +97,9 @@ export function TopBar({
             ? 'bg-ok ring-1 ring-ok/30 ring-offset-1 ring-offset-panel'
             : 'bg-ink-faint/50'
         }`}
-      />
+      >
+        <span className="sr-only">{healthTitle}</span>
+      </span>
       <DaemonSpendBadge
         settledUsd={snap.spend_usd}
         knownUsd={snap.usage_summary?.known_cost_usd}

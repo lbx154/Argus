@@ -6,7 +6,6 @@ the Manager to derive an objective from the first substantive user prompt.
 """
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -89,47 +88,6 @@ def test_no_suppression_is_passthrough():
     # A resume-intent daemon (or no stale campaign) never suppresses.
     state = {"active": False, "objective": ""}
     assert _apply_continuous_suppression(state, True, "obj") == (True, "obj")
-
-
-# ---- entry gate: objective may be supplied later by the Manager ------------
-
-
-def _args(**kw):
-    base = dict(objective="", continuous=False, resume_continuous=False)
-    base.update(kw)
-    return argparse.Namespace(**base)
-
-
-def test_bare_daemon_can_wait_for_manager_objective(monkeypatch):
-    import argus_skill.apps.cli._core as core
-
-    monkeypatch.setattr(
-        "argus_skill.life.special_prompts.describe_special_prompt_gate",
-        lambda: (True, ""),
-    )
-    assert core._lifetime_entry_error(_args()) == ""
-
-
-def test_lifetime_entry_still_requires_special_prompt(monkeypatch):
-    import argus_skill.apps.cli._core as core
-
-    monkeypatch.setattr(
-        "argus_skill.life.special_prompts.describe_special_prompt_gate",
-        lambda: (False, "trusted special prompt required"),
-    )
-    assert core._lifetime_entry_error(_args()) == "trusted special prompt required"
-
-
-def test_resume_continuous_entry_allowed_with_special_prompt(monkeypatch):
-    import argus_skill.apps.cli._core as core
-
-    # special-prompt gate is orthogonal here — force it open so we isolate the
-    # lifetime entry path.
-    monkeypatch.setattr(
-        "argus_skill.life.special_prompts.describe_special_prompt_gate",
-        lambda: (True, ""),
-    )
-    assert core._lifetime_entry_error(_args(resume_continuous=True)) == ""
 
 
 def test_resume_continuous_rearms_operator_drain_stop(tmp_path: Path) -> None:

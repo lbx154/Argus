@@ -13,6 +13,10 @@ from . import front_door
 DEFAULT_MANAGER_CONFIG = DEFAULT_LIFE_CONFIG
 
 
+class MissionPersistenceError(front_door.ManagerHandoffError):
+    """A Manager-authored mission could not be written to the backlog."""
+
+
 def _resolve_manager_workdir(mem: Any) -> Path:
     from ..core.session import read_session_meta, resolve_session_workdir
 
@@ -104,7 +108,7 @@ def _plan_bounded_execution(
     chat_state: dict[str, Any],
     *,
     root_task_id: str | None = None,
-    require_independent_review: bool = False,
+    require_independent_review: bool = True,
 ) -> Any:
     runner = front_door._ensure_manager_runner(chat_state, mem)
     backend = getattr(runner, "planner_backend", None) if runner is not None else None
@@ -217,7 +221,7 @@ def enqueue_mission(
     chat_state: dict[str, Any],
     *,
     iterate: bool = True,
-    max_cycles: int = 6,
+    max_cycles: int = 0,
     root_task_id: str | None = None,
     cancelled: Callable[[], bool] | None = None,
     prepared_handoff: front_door.PreparedManagerHandoff | None = None,
@@ -321,7 +325,14 @@ def enqueue_mission(
                 original_objective=execution_body,
                 manager_decision=decision_evidence(division) or {"routed": True},
             )
-            mem.backlog.add(item)
+            try:
+                mem.backlog.add(item)
+            except OSError as exc:
+                chat_state.setdefault("_pending_missions", []).append((item,))
+                raise MissionPersistenceError(
+                    f"Could not persist mission to {mem.backlog.path}: {exc}. "
+                    "The mission remains pending in memory and was not dispatched."
+                ) from exc
             persisted["item"] = item
             try:
                 from ..life.event_log import JsonlEventSink
@@ -431,7 +442,7 @@ def enqueue_mission(
                 getattr(
                     getattr(prepared_handoff, "decision", None),
                     "require_independent_review",
-                    False,
+                    True,
                 )
             ),
         )
@@ -441,7 +452,7 @@ def enqueue_mission(
         for node in nodes:
             stage_closing = bool(getattr(node, "stage_closing", False))
             require_review = bool(
-                getattr(node, "require_independent_review", False)
+                getattr(node, "require_independent_review", True)
             )
             skip_stage_transition = bool(
                 getattr(node, "skip_stage_transition", False)
@@ -524,7 +535,7 @@ def enqueue_mission(
             stage = current_stage(node_workdir)
             stage_closing = bool(getattr(node, "stage_closing", False))
             require_review = bool(
-                getattr(node, "require_independent_review", False)
+                getattr(node, "require_independent_review", True)
             ) or learned_candidate or bool(
                 manager_decision.get("require_independent_review")
             )
@@ -577,6 +588,11 @@ def enqueue_mission(
                         else []
                     ),
                     *(
+                        ["review:waived"]
+                        if not stage_closing and not require_review
+                        else []
+                    ),
+                    *(
                         ["stage_transition:skip"]
                         if skip_stage_transition
                         else []
@@ -595,7 +611,6 @@ def enqueue_mission(
                 plan_version=1,
                 node_key=node.key,
                 context_refs=item_context_refs,
-                work_kind=str(getattr(node, "work_kind", "") or ""),
                 acceptance_check=str(getattr(node, "acceptance_check", "") or ""),
                 plan_hypothesis=hypothesis,
                 goal_contribution=str(
@@ -611,7 +626,14 @@ def enqueue_mission(
             )
             item.original_objective = execution_body
             items.append(item)
-        mem.backlog.add_many(items)
+        try:
+            mem.backlog.add_many(items)
+        except OSError as exc:
+            chat_state.setdefault("_pending_missions", []).append(tuple(items))
+            raise MissionPersistenceError(
+                f"Could not persist mission to {mem.backlog.path}: {exc}. "
+                "The mission remains pending in memory and was not dispatched."
+            ) from exc
         item = items[0]
         try:
             from ..core.planner_verdict import (
@@ -641,6 +663,16 @@ def enqueue_mission(
                     "plan_id": plan_id,
                     "node_key": node_item.node_key,
                 })
+                if "review:waived" in node_item.tags:
+                    sink.append({
+                        "type": "life.review.waived",
+                        "item_id": node_item.id,
+                        "text": (
+                            "independent review waived: bounded Planner explicitly "
+                            "set require_independent_review=false"
+                        ),
+                        "reason": reason,
+                    })
         except Exception:  # noqa: BLE001
             pass
         front_door._maybe_name_session(
@@ -743,6 +775,7 @@ def maybe_promote_to_continuous(
 
 __all__ = [
     "DEFAULT_MANAGER_CONFIG",
+    "MissionPersistenceError",
     "enqueue_mission",
     "maybe_promote_to_continuous",
     "resume_done_lifecycle_for_team_dispatch",

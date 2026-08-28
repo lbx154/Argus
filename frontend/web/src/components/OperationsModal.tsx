@@ -1,6 +1,6 @@
 import { isImeComposing } from '../lib/ime';
 import { useEffect, useState } from 'react';
-import { api, type MetricsSnapshot, type Snapshot, type SourceUpdateStatus, type TrashEntry } from '../api';
+import { api, type MetricsSnapshot, type ResourceStatus, type Snapshot, type SourceUpdateStatus, type TrashEntry } from '../api';
 import { Modal, ModalHeader } from './Modal';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -19,6 +19,7 @@ import {
   faTrashArrowUp,
 } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
+import { ResourceStatusView } from './ResourceStatus';
 
 type QuickAction = 'task' | 'nudge' | 'note' | 'plan';
 type OperationTab = 'work' | 'runtime' | 'system' | 'recovery';
@@ -66,6 +67,8 @@ export function OperationsModal({
   const [skillsOutput, setSkillsOutput] = useState('');
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
   const [sourceUpdate, setSourceUpdate] = useState<SourceUpdateStatus | null>(null);
+  const [resources, setResources] = useState<ResourceStatus | null>(null);
+  const [resourceError, setResourceError] = useState('');
   const [trash, setTrash] = useState<TrashEntry[]>([]);
   const [trashTotal, setTrashTotal] = useState(0);
   const [trashQuery, setTrashQuery] = useState('');
@@ -112,6 +115,16 @@ export function OperationsModal({
       window.clearInterval(timer);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || tab !== 'system') return;
+    setResources(null);
+    setResourceError('');
+    void api.resources().then(
+      setResources,
+      (error) => setResourceError(errorText(error)),
+    );
+  }, [open, tab]);
 
   const run = async (key: string, operation: () => Promise<unknown>, success: string | null) => {
     if (busy) return;
@@ -283,6 +296,8 @@ export function OperationsModal({
           </div>
           {metrics ? <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-bg p-3 font-mono text-[10px] text-ink-dim scroll-thin">{JSON.stringify({ web: metrics.web, provider: metrics.provider, cost_control: metrics.cost_control }, null, 2)}</pre> : null}
         </section> : null}
+
+        {tab === 'system' ? <ResourceStatusView status={resources} error={resourceError} /> : null}
 
         {tab === 'recovery' ? <section className="rounded-lg border border-line bg-panel p-4 lg:col-span-2">
           <div className="flex flex-wrap items-center gap-2">

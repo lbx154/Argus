@@ -163,8 +163,8 @@ def test_status_projects_latest_persisted_mission_outcome(
 
     assert rc == 0
     assert (
-        "outcome  : execution=completed · review=done · "
-        "stage=not_certified"
+        "result   : Work completed · Review passed · "
+        "Stage remains open"
     ) in out
 
 
@@ -473,6 +473,9 @@ def test_status_names_the_question_it_is_waiting_on(
 
     out = capsys.readouterr().out
     assert "waiting on you" in out
+    question_line = next(line for line in out.splitlines() if "NVIDIA GPU" in line)
+    assert "benchmark the GPU:" in question_line
+    assert "[" not in question_line
     assert "NVIDIA GPU" in out
     assert "--notify" in out, "an operator told they are needed must be told how to reply"
 

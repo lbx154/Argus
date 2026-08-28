@@ -50,6 +50,16 @@ def main() -> int:
         run(
             sys.executable,
             "-m",
+            "argus_skill.release_tools.generate_event_fixtures",
+        )
+        run(
+            sys.executable,
+            "-m",
+            "argus_skill.release_tools.generate_resource_status",
+        )
+        run(
+            sys.executable,
+            "-m",
             "argus_skill.release_tools.generate_manifest",
             "--prepare-build",
         )
@@ -63,7 +73,7 @@ def main() -> int:
     except subprocess.CalledProcessError as exc:
         return int(exc.returncode or 1)
     manifest = json.loads((ROOT / "argus_skill" / "release_manifest.json").read_text())
-    print(f"release ready: {manifest['release_id']}")
+    print(f"release ready: {manifest['package_version']}")
     return 0
 
 

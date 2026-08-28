@@ -156,15 +156,13 @@ def run_one_engineer_mission(
     folded into it, so the Reviewer still reviews the task and not the briefing.
     Empty for the common case; see ``_vertical_prelude``.
 
-    Time-boxed: capped at ``max_rounds`` engineer rounds AND a wall-clock
-    ``timeout_s`` (a watchdog sets the runner's stop_event), so a hard task
-    cannot run without a bound. Both are environment-tunable through
-    ``ARGUS_TEAMMATE_MAX_ROUNDS`` and ``ARGUS_TEAMMATE_TIMEOUT_S``.
+    Positive ``max_rounds`` or ``timeout_s`` values remain available as explicit
+    limits; both default to unlimited.
     """
     if max_rounds is None:
-        max_rounds = int(os.environ.get("ARGUS_TEAMMATE_MAX_ROUNDS", "200"))
+        max_rounds = int(os.environ.get("ARGUS_TEAMMATE_MAX_ROUNDS", "0"))
     if timeout_s is None:
-        timeout_s = float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400"))  # 90 min: measure + iterate >=3-4 distinct approaches (aligned with the full engineer, not a shallow one-shot)
+        timeout_s = float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "0"))
     # A teammate's events go to its isolated ``life_dir``, NOT the daemon's
     # ``<global_root>/projects/<fingerprint>/events.jsonl`` that the reviewer's
     # engineer-execution-log audit greps — so that audit would inspect a
@@ -183,9 +181,10 @@ def run_one_engineer_mission(
             # Soft time-box: a Timer sets stop_event at timeout_s; the runner
             # polls it between rounds and exits cleanly.
             stop_event = threading.Event()
-            watchdog = threading.Timer(timeout_s, stop_event.set)
-            watchdog.daemon = True
-            watchdog.start()
+            if timeout_s > 0:
+                watchdog = threading.Timer(timeout_s, stop_event.set)
+                watchdog.daemon = True
+                watchdog.start()
             ns = _build_runner_ns(
                 cwd,
                 max_rounds=max_rounds,
@@ -386,6 +385,25 @@ def main(argv: list[str] | None = None) -> int:
     threading.Thread(target=_heartbeat_loop, args=(root, task_id, stop), daemon=True).start()
 
     life_dir = root / "life" / member_safe
+    operator_context = ""
+    operator_context_root = os.environ.get("ARGUS_OPERATOR_CONTEXT_DIR", "").strip()
+    if operator_context_root:
+        from ..core.operator_context import build_operator_context_block
+
+        operator_context, _ = build_operator_context_block(
+            "teammate",
+            operator_context_root,
+            mission_id=task_id,
+            consume_once=False,
+        )
+    launch_prelude = "\n\n".join(
+        part
+        for part in (
+            _vertical_prelude(task, cwd=cwd, state_root=life_dir),
+            operator_context,
+        )
+        if part
+    )
     with _temporary_env("ARGUS_SKILL_TEAM_TASK_ID", task_id):
         mission = _coerce_mission_result(
             run_one_engineer_mission(
@@ -393,7 +411,7 @@ def main(argv: list[str] | None = None) -> int:
                 cwd=cwd,
                 life_dir=life_dir,
                 timeout_s=float(task.get("timeout_s", 0) or 0) or None,
-                prelude_context=_vertical_prelude(task, cwd=cwd, state_root=life_dir),
+                prelude_context=launch_prelude,
             )
         )
 

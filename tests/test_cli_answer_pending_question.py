@@ -110,6 +110,54 @@ def test_an_unknown_item_is_refused(_project) -> None:
     assert next(i for i in backlog.all() if i.id == "aaa").status == "paused_operator"
 
 
+def test_framework_deployment_answer_uses_the_decision_boundary(
+    tmp_path, monkeypatch,
+) -> None:
+    class _Project:
+        root = tmp_path / "project"
+        fingerprint = "session-1"
+
+    class _Bundle:
+        project = _Project()
+        global_root = tmp_path
+
+    backlog = _backlog(_Project.root)
+    _paused(backlog, "maintenance-1", "Adopt the reviewed framework change?")
+    backlog.update(
+        "maintenance-1",
+        operator_decision={
+            "id": "decision-1",
+            "status": "pending",
+            "decision_kind": "framework_deployment",
+        },
+    )
+    observed = {}
+
+    def resolve(sid, decision_id, option_id, **kwargs):
+        observed.update(
+            sid=sid,
+            decision_id=decision_id,
+            option_id=option_id,
+            global_root=kwargs["global_root"],
+        )
+        return {"resolved": True, "reply": "Deployment completed."}
+
+    monkeypatch.setattr(_core, "_resolve_project_bundle", lambda args: _Bundle())
+    monkeypatch.setattr(
+        "argus_skill.webapi.manager_pending_question.manager_resolve_operator_decision",
+        resolve,
+    )
+
+    assert _core._cmd_answer(_args(tmp_path, answer="adopt")) == 0
+    assert observed == {
+        "sid": "session-1",
+        "decision_id": "decision-1",
+        "option_id": "adopt",
+        "global_root": tmp_path,
+    }
+    assert len(backlog.all()) == 1
+
+
 def test_answering_does_not_need_a_terminal() -> None:
     """The whole point is unblocking an unattended box, so the launcher must
     route --answer to the Python CLI rather than treating it as a request to

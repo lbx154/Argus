@@ -30,12 +30,9 @@ FICTION_CONTINUITY_TYPES: frozenset[str] = frozenset({
     "temporal_consistency", "verbatim_copy",
 })
 
-#: Non-blocking craft / AI-tell finding types (heuristic observations). NOTE:
-#: ``voice`` and ``ai_tell`` MAY carry ``blocking=True`` when the deterministic
-#: style lint (:mod:`.style_lint`) trips an author-declared HARD contract — a
-#: forbidden_lexicon term present or a declared ai_tell_budget exceeded. The
-#: shared contract gates on the per-finding ``blocking`` flag, not on which set a
-#: type belongs to, so this needs no separate vocabulary.
+#: Non-blocking craft / AI-tell finding types (heuristic observations). ``voice``
+#: may still block when an explicit forbidden_lexicon constraint is violated; word-list
+#: AI-tell hits remain advisory.
 FICTION_CRAFT_TYPES: frozenset[str] = frozenset({
     "style", "voice", "concreteness", "show_tell", "over_summary",
     "mechanical_twist", "pacing", "ending", "ai_tell",

@@ -99,14 +99,15 @@ def reduce_manager_event(
 
     elif event_type == EventType.LIFE_MANAGER_INTENT_FAILED:
         mission["status"] = "failed"
-        title = "Manager routing failed"
+        title = "I couldn't determine how to handle this request."
+        detail = "Nothing was queued. See the recorded diagnostic for details."
         _set_role(view, "manager", "error", title, ts)
         _timeline(
             view,
             event,
             role="manager",
             title=title,
-            detail=_text(event, "error") or _text(event, "reason"),
+            detail=detail,
             tone="error",
         )
         _role_work(
@@ -115,25 +116,32 @@ def reduce_manager_event(
             role="manager",
             kind="grounding",
             title=title,
-            detail=_text(event, "error", 4000)
-            or _text(event, "reason", 4000),
+            detail=detail,
             status="error",
         )
 
     elif event_type == EventType.LIFE_MANAGER_STAGE_DECISION:
         stage = _text(event, "target_stage") or _text(event, "stage") or _text(event, "current_stage")
+        stage_name = stage.replace("_", " ") or "this stage"
+        action = _text(event, "action").strip().lower()
+        title = {
+            "advance": f"Advanced to {stage_name}",
+            "hold": f"Staying in {stage_name}",
+            "rollback": f"Returning to {stage_name}",
+            "complete": f"Completed {stage_name}",
+        }.get(action, f"Reviewed {stage_name}")
         if stage:
             view["stage"] = {"id": stage, "label": stage.replace("_", " ").title()}
-        _set_role(view, "manager", "done", f"Stage · {stage}" if stage else "Stage reviewed", ts)
-        _timeline(view, event, role="manager", title=f"Stage → {stage}" if stage else "Stage reviewed", detail=_text(event, "reason"))
+        _set_role(view, "manager", "done", title, ts)
+        _timeline(view, event, role="manager", title=title, detail=_text(event, "reason"))
         _role_work(
             view,
             event,
             role="manager",
             kind="stage_decision",
-            title=f"Stage → {stage}" if stage else "Stage reviewed",
+            title=title,
             detail=_text(event, "reason", 4000),
-            status=_text(event, "action"),
+            status="done",
         )
 
 
@@ -170,8 +178,13 @@ def reduce_planner_event(
             "branch_id": _text(event, "branch_id") or item_id,
             "parent_branch_id": _text(event, "parent_branch_id") or None,
         })
-        _set_role(view, "planner", "done", "Research branch added", ts)
-        _timeline(view, event, role="planner", title="Research branch added", detail=_text(event, "title"), tone="info")
+        label = (
+            "Research branch added"
+            if _text(view.get("routing", {}), "vertical") == "research"
+            else "Task added"
+        )
+        _set_role(view, "planner", "done", label, ts)
+        _timeline(view, event, role="planner", title=label, detail=_text(event, "title"), tone="info")
         _role_work(
             view,
             event,

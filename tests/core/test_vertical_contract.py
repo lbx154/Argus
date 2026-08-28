@@ -33,7 +33,13 @@ def test_minimal_non_research_vertical_implements_only_documented_contract() -> 
     assert contract.ground_before_handoff is False
     assert contract.banner("engineer") == ""
     assert contract.evidence_schema is None
-    assert contract.assurance_level == "reviewer"
+    assert contract.review_purchase(
+        project_root=Path("."),
+        task=object(),
+        existing_items=(),
+        semantic_duplicate=None,
+        stage_reviewed_at=None,
+    ) is None
 
 
 def test_provider_declares_routing_metadata_without_manager_name_tables() -> None:
@@ -64,7 +70,6 @@ def test_provider_completion_validator_is_typed_and_normalized(tmp_path: Path) -
     assert contract.completion_issues("verify", tmp_path) == (
         f"verify:{tmp_path.name}",
     )
-    assert contract.assurance_level == "hybrid"
 
 
 def test_vertical_validator_can_defer_checks_by_verification_profile(
@@ -141,7 +146,7 @@ def test_empty_required_checklist_fails_but_runtime_authored_is_explicit() -> No
             completion_gate="none",
         ),
     )
-    assert contract.assurance_level == "runtime-authored"
+    assert contract.checklist_optional_stages == frozenset({"work"})
 
 
 def test_primary_stage_deliverables_are_exposed_by_contract() -> None:
@@ -164,26 +169,6 @@ def test_primary_stage_deliverables_are_exposed_by_contract() -> None:
         "research/setup.md",
     )
     assert contract.primary_deliverables("work") == ()
-
-
-def test_stage_checks_are_validated_and_mark_contract_hybrid() -> None:
-    provider = SimpleNamespace(
-        CHECKLIST_STAGE_ORDER=("work",),
-        CHECKLIST_ITEMS={"work": (_item("work.output"),)},
-        STAGE_CHECKS={"work": [("Artifact exists", "test -s RESULT.md")]},
-        completion_gate="none",
-    )
-
-    contract = vertical_contract("checked", provider)
-
-    assert contract.assurance_level == "hybrid"
-    assert contract.stage_checks == {
-        "work": (("Artifact exists", "test -s RESULT.md"),)
-    }
-
-    provider.STAGE_CHECKS = {"ghost": [("No", "false")]}
-    with pytest.raises(VerticalContractError, match="unknown stages"):
-        vertical_contract("checked", provider)
 
 
 def test_incomplete_vertical_fails_visibly() -> None:
@@ -232,51 +217,6 @@ def test_vertical_declares_its_own_live_search_stages() -> None:
     assert contract.live_search_stages(_CORE_LIVE_SEARCH_DEFAULT) == frozenset(
         {"scope", "solve"}
     )
-
-
-def test_vertical_declares_live_search_for_one_persisted_work_kind() -> None:
-    contract = vertical_contract(
-        "routed",
-        _live_search_provider(
-            ENGINEER_LIVE_SEARCH_WORK_KINDS={
-                "algorithm_discovery": ("solve",),
-            }
-        ),
-    )
-
-    assert contract.live_search_stages(
-        _CORE_LIVE_SEARCH_DEFAULT,
-        work_kind="algorithm_discovery",
-    ) == frozenset({"solve"})
-    assert contract.live_search_stages(
-        _CORE_LIVE_SEARCH_DEFAULT,
-        work_kind="engineering_optimization",
-    ) == frozenset(contract.stage_order)
-    assert contract.live_search_stages(
-        frozenset(),
-        work_kind="algorithm_discovery",
-        preserve_configured=True,
-    ) == frozenset()
-
-
-def test_missing_or_none_live_search_work_kinds_are_empty() -> None:
-    missing = vertical_contract("missing", _live_search_provider())
-    declared_none = vertical_contract(
-        "none",
-        _live_search_provider(ENGINEER_LIVE_SEARCH_WORK_KINDS=None),
-    )
-
-    assert missing.engineer_live_search_work_kinds is None
-    assert declared_none.engineer_live_search_work_kinds is None
-
-
-@pytest.mark.parametrize("invalid", [[], ""])
-def test_explicit_non_mapping_live_search_work_kinds_fail(invalid: object) -> None:
-    with pytest.raises(VerticalContractError, match="work kinds are not a mapping"):
-        vertical_contract(
-            "invalid",
-            _live_search_provider(ENGINEER_LIVE_SEARCH_WORK_KINDS=invalid),
-        )
 
 
 def test_declared_empty_live_search_is_distinct_from_no_declaration() -> None:

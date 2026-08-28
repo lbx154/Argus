@@ -1,9 +1,9 @@
 import { useBacklogItem } from '../hooks';
 import { isTerminalBacklogItem } from '../../../core/src/backlog';
-import { outcomeDimensionSummary } from '../../../core/src/missionOutcome';
 import { Modal } from './Modal';
 import { Button, Chip, Spinner } from './primitives';
 import { useI18n } from '../i18n';
+import { outcomeLabels, priorityLabel, statusLabel } from '../lib/enumLabels';
 
 const when = (ts: number | null | undefined): string =>
   ts ? new Date(ts * 1000).toLocaleString() : '—';
@@ -41,16 +41,15 @@ export function TaskDetailModal({
   const query = useBacklogItem(sid, itemId);
   const item = query.data;
   const terminal = item ? isTerminalBacklogItem(item) : false;
-  const outcome = outcomeDimensionSummary(item?.outcome);
+  const outcome = outcomeLabels(item?.outcome, t);
   return (
     <Modal open={Boolean(itemId)} onClose={onClose} label={t('task.details')} width="max-w-3xl">
       <div className="flex flex-wrap items-start gap-3 border-b border-line px-4 py-3 sm:flex-nowrap sm:px-5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-sm font-semibold text-ink">{item?.title || t('task.details')}</h2>
-            {item ? <Chip>{item.status}</Chip> : null}
+            {item ? <Chip>{statusLabel(item.status, t)}</Chip> : null}
           </div>
-          <p className="mt-0.5 font-mono text-[10px] text-ink-faint">{itemId}</p>
         </div>
         {!readOnly && item && !terminal ? (
           <div className="order-3 flex w-full shrink-0 items-center justify-end gap-1 sm:order-none sm:w-auto">
@@ -88,7 +87,7 @@ export function TaskDetailModal({
               </div>
             </section>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Metric label={t('task.priority')} value={`p${item.priority}`} />
+              <Metric label={t('task.priority')} value={priorityLabel(item.priority, t)} />
               <Metric label={t('task.started')} value={when(item.started_ts)} />
               <Metric label={t('task.finished')} value={when(item.finished_ts)} />
             </div>
@@ -125,7 +124,7 @@ export function TaskDetailModal({
             {(item.tags?.length || item.deps?.length) ? (
               <div className="flex flex-wrap gap-1.5">
                 {(item.tags ?? []).map((tag) => <Chip key={`tag-${tag}`}>#{tag}</Chip>)}
-                {(item.deps ?? []).map((dep) => <Chip key={`dep-${dep}`}>{t('task.dependsOn')} {dep}</Chip>)}
+                {item.deps?.length ? <Chip>{t('task.dependsOnCount', { count: item.deps.length })}</Chip> : null}
               </div>
             ) : null}
           </div>

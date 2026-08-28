@@ -23,28 +23,6 @@ REQUIRE_INDEPENDENT_REVIEW = True
 # is not automatically a paper-submission or metric campaign.
 completion_gate = "none"
 
-_PIPELINE_CHECK = (
-    "Pipeline state present",
-    "test -f .argus/PIPELINE_STATE.json",
-)
-_EVIDENCE_CHECK = (
-    "Materials evidence index validates",
-    "${ARGUS_SKILL_PYTHON:-python} -m "
-    "argus_skill.verticals.materials.evidence check --project-root .",
-)
-
-# Shell checks stay structural. Scientific correctness, solver convergence, and
-# evidence quality belong to the Reviewer checklists below.
-STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
-    stage: [_PIPELINE_CHECK] for stage in STAGE_ORDER
-}
-for _evidence_stage in ("execute", "validate", "report"):
-    label, command = _EVIDENCE_CHECK
-    STAGE_CHECKS[_evidence_stage].append(
-        (label, f"{command} --stage {_evidence_stage}")
-    )
-
-
 def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
     """Require inspectable evidence for execution, validation, and reporting."""
     stage_name = (stage or "").strip().lower()
@@ -53,54 +31,6 @@ def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
     from .evidence import validate_evidence
 
     return tuple(validate_evidence(project_root, stage_name))
-
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    "scope": (
-        "reviewer/materials-research-review.md",
-        "Confirm the actual material system, processing or service regime, length/time "
-        "scale, observables, research question, and success criterion. The proposed route "
-        "must fit the question rather than forcing atomistic simulation, FEM, or experiments. "
-        "If physical work is proposed, require authorization and applicable safety controls "
-        "before execution.",
-        [],
-    ),
-    "grounding": (
-        "reviewer/materials-research-review.md",
-        "Check primary literature, public data, prior methods, strongest relevant baseline, "
-        "tool and license availability, and the boundary between known results and the "
-        "proposed contribution. Reject inaccessible or fabricated sources.",
-        [],
-    ),
-    "model": (
-        "reviewer/materials-simulation-signoff.md",
-        "Audit material identity and state, units, governing model, parameter provenance, "
-        "constitutive law or interatomic/electronic-structure settings, geometry, mesh, "
-        "boundary/initial conditions, calibration split, and declared validity range.",
-        [],
-    ),
-    "execute": (
-        "reviewer/materials-simulation-signoff.md",
-        "Inspect the real computation or experiment. Require native solver or instrument "
-        "evidence, exact versions and inputs, retained failures, and honest treatment of "
-        "missing licenses, hardware, samples, or instruments. For physical work, verify that "
-        "execution remained inside the approved procedure and safety envelope.",
-        [],
-    ),
-    "validate": (
-        "reviewer/materials-validation-review.md",
-        "Independently test physical and numerical validity using appropriate convergence, "
-        "sensitivity, conservation, limiting-case, baseline, public benchmark, and "
-        "experimental comparisons. Reject calibration leakage and solver-success claims.",
-        [],
-    ),
-    "report": (
-        "reviewer/materials-research-review.md",
-        "Trace every conclusion to actual evidence, distinguish simulation from physical "
-        "experiment, state uncertainty and applicability limits, and require a reproducible "
-        "delivery proportional to the claimed result.",
-        [],
-    ),
-}
 
 CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
     "scope": (
@@ -347,8 +277,6 @@ __all__ = [
     "CHECKLIST_STAGE_ORDER",
     "REQUIRE_INDEPENDENT_REVIEW",
     "RESEARCH_TARGET_LEVELS",
-    "REVIEWER_CHECKLISTS",
-    "STAGE_CHECKS",
     "STAGE_ORDER",
     "WORKFLOW_MODE",
     "completion_gate",

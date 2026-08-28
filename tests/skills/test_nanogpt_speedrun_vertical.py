@@ -66,14 +66,3 @@ def test_nanogpt_capstone_checks_freeze_metric_and_report(tmp_path: Path) -> Non
 
     (tmp_path / "metrics.py").write_text("metric changed", encoding="utf-8")
     assert "frozen file changed" in " ".join(validate_capstone(tmp_path, "report"))
-
-
-def test_specializations_receive_independent_base_containers() -> None:
-    from argus_skill.verticals.nanochat import stages as nanochat
-    from argus_skill.verticals.optimization_base import speedrun_base_contract
-
-    first = speedrun_base_contract()
-    second = speedrun_base_contract()
-    assert first.stage_order == ("setup", "optimize", "measure", "report")
-    assert first.stage_checks is not second.stage_checks
-    assert nanochat.STAGE_CHECKS is not first.stage_checks

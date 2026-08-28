@@ -40,8 +40,6 @@ def test_ale_last_exam_is_registered_and_loadable() -> None:
     mod = load_vertical("ale_last_exam")
     assert mod.STAGE_ORDER == ["execute"]
     assert mod.CHECKLIST_STAGE_ORDER == ("execute",)
-    assert tuple(mod.STAGE_CHECKS) == ("execute",)
-    assert tuple(mod.REVIEWER_CHECKLISTS) == ("execute",)
     assert vertical_completion_gate(mod) == "none"
 
 

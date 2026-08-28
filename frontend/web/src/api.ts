@@ -22,6 +22,7 @@ import {
   requireSnapshotContract,
   type ApiMeta,
 } from '../../core/src/protocol';
+import type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 
 export type {
   ArtifactInfo,
@@ -37,6 +38,7 @@ export type {
   Snapshot,
   UsageSummary,
 } from '../../core/src/types';
+export type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 
 export interface JournalEntry {
   id: string;
@@ -664,6 +666,8 @@ export const api = {
     postJson<SourceUpdateStatus>('/api/runtime/source-update/check'),
   applySourceUpdate: () =>
     postJson<SourceUpdateStatus>('/api/runtime/source-update/apply'),
+  resources: (signal?: AbortSignal) =>
+    getJson<ResourceStatus>('/api/system/resources', signal),
   trash: (query = '', limit = 100, offset = 0, signal?: AbortSignal) => {
     const params = new URLSearchParams({
       query,

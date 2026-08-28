@@ -64,9 +64,9 @@ def test_manager_role_skill_file_exists_and_loads() -> None:
     text = load_builtin_skill_text("argus-manager-role.md")
     compact = " ".join(text.split())
     assert "Argus Manager Role" in text
-    assert "Runtime maintenance must use an isolated worktree" in text
-    assert "controlled canary" in text
-    assert "Publishing that repair is optional" in compact
+    assert "evidence-backed ordinary mission in an isolated worktree" in text
+    assert "Reviewer `done`" in text
+    assert "operator-approved deployment boundary" in compact
     assert "never automatic" in compact
 
 

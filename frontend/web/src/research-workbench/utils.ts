@@ -15,9 +15,9 @@ export function formatDuration(value: number | null | undefined): string {
   return `${minutes}m`;
 }
 
-export function formatClock(ts: number | null | undefined): string {
+export function formatClock(ts: number | null | undefined, locale: 'en' | 'zh-CN'): string {
   if (!ts) return '—';
-  return new Date(ts * 1_000).toLocaleTimeString('zh-CN', {
+  return new Date(ts * 1_000).toLocaleTimeString(locale, {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -25,9 +25,9 @@ export function formatClock(ts: number | null | undefined): string {
   });
 }
 
-export function formatDate(ts: number | null | undefined): string {
+export function formatDate(ts: number | null | undefined, locale: 'en' | 'zh-CN'): string {
   if (!ts) return '—';
-  return new Date(ts * 1_000).toLocaleString('zh-CN', {
+  return new Date(ts * 1_000).toLocaleString(locale, {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',

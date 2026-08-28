@@ -12,7 +12,12 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from ..apps.update import UpdateError, inspect_source_checkout, update_source_checkout
+from ..apps.update import (
+    UpdateError,
+    inspect_source_checkout,
+    public_upstream,
+    update_source_checkout,
+)
 from ..core.runtime_identity import runtime_identity, source_root
 
 STATUS_FILE = "source-update.json"
@@ -46,6 +51,7 @@ def _write_status(global_root: Path | str, payload: dict[str, Any]) -> dict[str,
 def _initial_status() -> dict[str, Any]:
     identity = runtime_identity()
     worktree = identity.get("worktree") or {}
+    branch = str(worktree.get("branch") or "")
     now = time.time()
     return {
         "schema_version": 1,
@@ -53,10 +59,10 @@ def _initial_status() -> dict[str, Any]:
         "phase": "idle",
         "running": False,
         "source_root": str(source_root()),
-        "upstream": "lbx154/Argus/main",
+        "upstream": public_upstream(branch),
         "current_revision": str(identity.get("revision") or ""),
         "upstream_revision": "",
-        "branch": str(worktree.get("branch") or ""),
+        "branch": branch,
         "dirty": worktree.get("dirty"),
         "can_update": bool(worktree.get("branch")) and worktree.get("dirty") is False,
         "update_available": None,
@@ -118,9 +124,9 @@ def _run_source_update(
                 message=(
                     "Version check complete. Local changes block source updates."
                     if check.dirty
-                    else "A newer public main revision is available."
+                    else f"A newer revision is available on {check.upstream}."
                     if check.update_available
-                    else "Argus is already on the latest public main revision."
+                    else f"Argus is already on the latest {check.upstream} revision."
                 ),
                 error=(
                     "Source checkout has local changes; commit or stash them before updating."
@@ -160,7 +166,7 @@ def _run_source_update(
                 "message": (
                     "Latest source installed. Restart the cockpit and safely reload active daemons."
                     if result.changed
-                    else "Argus is already on the latest public main revision."
+                    else f"Argus is already on the latest {result.upstream} revision."
                 ),
                 "error": "",
             },
@@ -201,9 +207,9 @@ def start_source_update(
                 "changed": False,
                 "restart_required": False,
                 "message": (
-                    "Checking public main…"
+                    "Checking the published branch…"
                     if action == "check"
-                    else "Preparing to pull public main…"
+                    else "Preparing to pull the published branch…"
                 ),
                 "error": "",
                 "started_at": time.time(),

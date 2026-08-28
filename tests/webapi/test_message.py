@@ -8,7 +8,9 @@ an unknown project 404s.
 """
 from __future__ import annotations
 
+import errno
 import json
+import os
 import queue
 import threading
 import time
@@ -23,7 +25,7 @@ from argus_skill.core.session import (
     read_session_meta,
     write_session_meta,
 )
-from argus_skill.life.memory import BacklogItem, LifeMemory
+from argus_skill.life.memory import Backlog, BacklogItem, LifeMemory
 from argus_skill.manager import Manager, config_intent, dispatch, front_door
 from argus_skill.manager.domain_author import VerticalDecision
 from argus_skill.webapi import (
@@ -447,6 +449,11 @@ def test_explicit_authorization_persists_current_blocker_and_never_dispatches(
         "validator_repair",
         "acceptance_retry",
     ]
+    assert result["reply"] == (
+        "Authorization saved for the current blocker. "
+        "The team can use it when the task resumes."
+    )
+    assert result["authorization_id"] not in result["reply"]
     event = store.get_authorization(result["authorization_id"])
     assert event is not None
     assert event["source_channel"] == "vscode"
@@ -684,6 +691,9 @@ def test_natural_pause_is_frontdoor_control_after_pending_question_manager_check
     assert result["control"] == "pause"
     assert result["pause_persisted"] is True
     assert result["item_id"] == running.id
+    assert "已暂停" in result["reply"]
+    assert "后台工作进程" in result["reply"]
+    assert "daemon" not in result["reply"]
     assert read_continuous_state(life).enabled is False
     assert (life / "running_item_abort.json").exists()
     stored = LifeMemory.open(life).backlog.all()
@@ -1055,6 +1065,43 @@ def test_manager_handoff_failure_persists_and_streams_error_reply(
         event.get("type") == "ui.argus" and event.get("text") == result["reply"]
         for event in events
     )
+
+
+def test_mission_write_failure_is_visible_and_keeps_pending_item(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-mission-write-failure"
+    life = _make_project(tmp_path, sid)
+    target = life / "backlog.jsonl"
+    fragments: list[tuple[str, dict]] = []
+
+    def fail_save(backlog: Backlog, _items) -> None:
+        assert backlog.path == target
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), str(target))
+
+    monkeypatch.setattr(Backlog, "_save", fail_save)
+    result = manager_bridge.manager_message(
+        sid,
+        "preserve this mission",
+        global_root=tmp_path,
+        on_fragment=lambda kind, payload: fragments.append((kind, payload)),
+    )
+
+    assert result["kind"] == "error"
+    assert str(target) in result["reply"]
+    assert f"[Errno {errno.ENOSPC}] {os.strerror(errno.ENOSPC)}" in result["reply"]
+    assert any(
+        kind == "delta" and payload.get("text") == result["reply"]
+        for kind, payload in fragments
+    )
+    pending = manager_state._STATES[sid]["_pending_missions"][-1]
+    assert len(pending) == 1
+    assert pending[0].status == "pending"
+    assert pending[0].original_objective == "preserve this mission"
+    assert result["item"]["id"] == pending[0].id
+    assert result["item"]["status"] == "pending"
+    assert LifeMemory.open(life).backlog.all() == []
 
 
 def test_active_mission_team_message_uses_continuous_dispatch(
@@ -1645,7 +1692,7 @@ def test_manager_message_resolves_single_pending_question(
 ) -> None:
     life = _make_project(tmp_path)
     blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
-    blocked.status = "failed"
+    blocked.status = "paused_operator"
     blocked.pending_question = "Which GPU may I use?"
     LifeMemory.open(life).backlog.add(blocked)
     monkeypatch.setattr(
@@ -1679,7 +1726,7 @@ def test_non_answer_message_falls_through_without_clearing_pending_question(
 ) -> None:
     life = _make_project(tmp_path)
     blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
-    blocked.status = "failed"
+    blocked.status = "paused_operator"
     blocked.pending_question = "Which GPU may I use?"
     LifeMemory.open(life).backlog.add(blocked)
     monkeypatch.setattr(
@@ -1711,7 +1758,7 @@ def test_manager_keeps_pending_question_when_answer_is_insufficient(
 ) -> None:
     life = _make_project(tmp_path)
     blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
-    blocked.status = "failed"
+    blocked.status = "paused_operator"
     blocked.pending_question = "Which GPU may I use?"
     LifeMemory.open(life).backlog.add(blocked)
     monkeypatch.setattr(
@@ -1902,6 +1949,71 @@ def test_message_stream_standing_task_starts_continuous_executor(
     assert spawned == {"sid": "s-msgtest0", "resume_continuous": True}
 
 
+def test_message_stream_keeps_startup_exception_in_diagnostic(
+    client: TestClient, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "argus_skill.webapi.manager_bridge.manager_message",
+        lambda sid, text, *, global_root=None, on_fragment=None, **kwargs: {
+            "kind": "task",
+            "reply": None,
+            "item": {"id": "x1", "title": "repair parser"},
+            "daemon_alive": False,
+        },
+    )
+    monkeypatch.setattr(
+        server,
+        "start_project_daemon",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("private startup traceback")
+        ),
+    )
+
+    response = client.post(
+        "/api/projects/s-msgtest0/message/stream",
+        json={"text": "repair the parser"},
+    )
+
+    result = _parse_sse(response.text)[-1]["result"]
+    assert result["daemon"]["error"] == "The background worker could not start."
+    assert result["daemon"]["diagnostic"] == (
+        "RuntimeError: private startup traceback"
+    )
+    assert "traceback" not in result["reply"]
+
+
+def test_message_stream_keeps_ack_exception_in_diagnostic(
+    client: TestClient, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "argus_skill.webapi.manager_bridge.manager_message",
+        lambda sid, text, *, global_root=None, on_fragment=None, **kwargs: {
+            "kind": "task",
+            "reply": None,
+            "item": {"id": "x1", "title": "repair parser"},
+            "daemon_alive": True,
+        },
+    )
+    monkeypatch.setattr(
+        "argus_skill.webapi.manager_pending_question.record_task_dispatch_ack",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("private transcript path")
+        ),
+    )
+
+    response = client.post(
+        "/api/projects/s-msgtest0/message/stream",
+        json={"text": "repair the parser"},
+    )
+
+    result = _parse_sse(response.text)[-1]["result"]
+    assert result["ack_error"] == (
+        "The task was queued, but its confirmation could not be saved."
+    )
+    assert result["ack_diagnostic"] == "RuntimeError: private transcript path"
+    assert "private transcript path" not in result["ack_error"]
+
+
 def test_message_stream_error_frame(client: TestClient, monkeypatch) -> None:
     """A triage crash surfaces as an ``error`` frame, not a wedged stream."""
     def _boom(sid, text, *, global_root=None, on_fragment=None, cancelled=None):
@@ -1912,7 +2024,9 @@ def test_message_stream_error_frame(client: TestClient, monkeypatch) -> None:
     assert r.status_code == 200
     frames = _parse_sse(r.text)
     assert frames[-1]["type"] == "error"
-    assert "kaboom" in frames[-1]["error"]
+    assert frames[-1]["error"] == "I couldn't finish handling that request."
+    assert frames[-1]["diagnostic"] == "RuntimeError: kaboom"
+    assert "kaboom" not in frames[-1]["error"]
 
 
 def test_message_stream_empty_400(client: TestClient) -> None:

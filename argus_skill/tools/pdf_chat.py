@@ -60,7 +60,8 @@ DEFAULT_CACHE = (
     if _CACHE_OVERRIDE
     else global_root() / "pdf_cache"
 )
-MAX_FULL_CHARS = 200_000  # safety cap on `full` output
+# This bounds one stdout/context payload; it does not stop PDF extraction.
+MAX_FULL_CHARS = 200_000
 
 
 @dataclass
@@ -94,6 +95,7 @@ def _resolve_source(source: str, *, cache_dir: Path) -> Path:
                 req = urllib.request.Request(
                     url, headers={"User-Agent": "argus-skill/pdf_chat"},
                 )
+                # Socket timeout detects a stalled remote transport; extraction is unlimited.
                 with urllib.request.urlopen(req, timeout=60) as resp:
                     target.write_bytes(resp.read())
             except (urllib.error.URLError, TimeoutError) as exc:
@@ -116,7 +118,7 @@ def _extract_with_pdftotext(pdf: Path) -> tuple[str, int]:
     """Use the pdftotext CLI; cleaner column handling. Returns (text, page_count)."""
     out = subprocess.run(
         ["pdftotext", "-layout", "-q", str(pdf), "-"],
-        capture_output=True, check=False, timeout=120,
+        capture_output=True, check=False,
     )
     if out.returncode != 0:
         raise RuntimeError(
@@ -147,7 +149,7 @@ def _extract(pdf: Path) -> tuple[str, int]:
     if shutil.which("pdftotext"):
         try:
             pdftotext_result = _extract_with_pdftotext(pdf)
-        except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired):
+        except (RuntimeError, FileNotFoundError):
             pdftotext_result = None
         else:
             # Fast path: pdftotext already produced detectable section heads.

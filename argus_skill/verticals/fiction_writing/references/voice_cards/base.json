@@ -1,5 +1,5 @@
 {
-  "_note": "通用底卡 (Layer 0). Every work inherits this; a domain preset and the work overlay compose on top. Holds only universal, register-neutral anti-AI defaults. No hard forbidden_lexicon and no blocking ai_tell_budget here — the base never blocks; teeth are opt-in per work.",
+  "_note": "通用底卡 (Layer 0). Holds only register-neutral guidance. Domain presets are explicit references, never inferred from genre substrings.",
   "meta": {"register": "contemporary"},
   "abstract_features": {
     "sentence_rhythm": "varied",

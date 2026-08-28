@@ -23,7 +23,6 @@ def _run(args: list[str], cwd: Path, env: dict[str, str] | None = None):
         env=env,
         capture_output=True,
         text=True,
-        timeout=60,
     )
 
 

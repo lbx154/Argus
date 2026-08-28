@@ -10,6 +10,7 @@ from ..core.model_visible_text import (
     contains_integrity_judgment,
     has_material_blocker,
     sanitize_model_judgment_text,
+    sanitize_model_visible_text,
 )
 from ..core.models import ReviewDecision
 from ..core.operator_decision import (
@@ -159,29 +160,48 @@ def _session_signal(value: Any) -> dict[str, str]:
 
 
 def _apply_model_judgment_policy(decision: ReviewDecision) -> ReviewDecision:
-    """Ensure opaque integrity identifiers cannot become Reviewer blockers."""
+    """Ignore hash-only blockers without overruling substantive judgment."""
     original_reason = str(decision.reason or "")
     original_next_action = str(decision.next_action or "")
-    integrity_judgment = contains_integrity_judgment(original_reason + "\n" + original_next_action)
-    decision.reason = sanitize_model_judgment_text(original_reason)
-    decision.next_action = sanitize_model_judgment_text(original_next_action)
+    original_judgment = original_reason + "\n" + original_next_action
+    integrity_judgment = contains_integrity_judgment(original_judgment)
+    material_blocker = has_material_blocker(original_judgment)
+
+    def sanitize_without_gutting_material_paragraphs(value: str) -> str:
+        kept: list[str] = []
+        for paragraph in value.splitlines():
+            sanitized = sanitize_model_judgment_text(paragraph)
+            if not sanitized and paragraph.strip() and has_material_blocker(paragraph):
+                # Redact opaque values, but retain a paragraph whose engineering
+                # meaning would otherwise disappear with its integrity wording.
+                sanitized = sanitize_model_visible_text(paragraph).strip()
+            if sanitized:
+                kept.append(sanitized)
+        return "\n".join(kept)
+
+    decision.reason = sanitize_without_gutting_material_paragraphs(original_reason)
+    decision.next_action = sanitize_without_gutting_material_paragraphs(
+        original_next_action
+    )
     decision.operator_question = sanitize_model_judgment_text(decision.operator_question)
     if (
-        decision.status != "done"
+        decision.status == "blocked"
         and integrity_judgment
         and not decision.operator_question
         and not decision.next_action
-        and not has_material_blocker(decision.reason)
+        and not material_blocker
     ):
-        decision.status = "done"
-        decision.reason = decision.reason or (
-            "No model-relevant blocker remains after ignoring machine-only integrity metadata."
+        decision.status = "continue"
+        policy_note = (
+            "Policy note: machine-only integrity metadata does not by itself "
+            "justify blocking the project."
         )
+        decision.reason = "\n".join(filter(None, (decision.reason, policy_note)))
     elif not decision.reason:
-        decision.reason = (
-            "The Reviewer cited only machine-only integrity metadata and did not "
-            "identify a semantic blocker."
-        )
+        # Preserve the Reviewer's text whenever possible. This fallback only
+        # covers a non-blocked verdict whose entire rationale was an opaque
+        # integrity assertion.
+        decision.reason = sanitize_model_visible_text(original_reason).strip()
     frontier = decision.frontier_report
     if isinstance(frontier, dict):
         change = str(frontier.get("change") or "")

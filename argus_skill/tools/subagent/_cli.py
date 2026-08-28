@@ -20,7 +20,6 @@ from ._discussion_log import (
 )
 from ._llm import resolve_supervisor_model
 from ._registry import (
-    DISCUSSION_STALE_AFTER_S,
     REGISTRY_DIR,
     _append_experiment_history,
     _child_env,
@@ -30,8 +29,10 @@ from ._registry import (
     _lane_of,
     _list_tasks,
     _open_discussion_blockers,
+    _process_identity,
     _progress_summary,
     _read_task,
+    _recorded_process_alive,
     _run_dir_from_command,
     _task_log_dir,
     _unlink_task_records,
@@ -39,10 +40,12 @@ from ._registry import (
     reconcile_terminal_task,
 )
 from ._supervised_run import _run_supervised
+from ..resource_ledger.cli import parse_duration
+from ..resource_ledger.ledger import normalize_demand
 
-_ACTIVE_STATES = frozenset({"starting", "preflight", "running", "discussing"})
-
-
+_ACTIVE_STATES = frozenset({
+    "starting", "preflight", "waiting_resource", "running", "discussing",
+})
 def _detach_child_stdio() -> None:
     """Release caller-owned pipes before the background worker does any work."""
     while True:
@@ -64,19 +67,15 @@ def _busy_owner_pid(task: dict) -> int:
             pid = int(task.get(key) or 0)
         except (TypeError, ValueError):
             continue
-        if pid > 0 and _is_pid_alive(pid):
+        if pid > 0 and _recorded_process_alive(task, key):
             live_pids.append(pid)
     if not live_pids:
         return 0
     if str(task.get("state") or "") in _ACTIVE_STATES:
         return live_pids[0]
-    completed_at = task.get("completed_at")
-    age = (
-        time.time() - float(completed_at)
-        if isinstance(completed_at, (int, float))
-        else 0.0
-    )
-    return live_pids[0] if age < DISCUSSION_STALE_AFTER_S else 0
+    # A terminal worker may still be persisting its report; identity, not age,
+    # determines when the task id is safe to reuse.
+    return live_pids[0]
 
 
 def _worker_cpu_ids_arg(cpu_ids: tuple[int, ...]) -> str:
@@ -89,13 +88,38 @@ def _parse_worker_cpu_ids(value: str | None) -> tuple[int, ...]:
     return tuple(int(part.strip()) for part in value.split(",") if part.strip())
 
 
+def _declared_resource_demand(args: argparse.Namespace) -> dict | None:
+    values = (
+        getattr(args, "accelerator", None),
+        getattr(args, "gpu_count", None),
+        getattr(args, "gpu_mem_mib", None),
+        getattr(args, "expected_duration", None),
+        getattr(args, "checkpointable", None),
+        getattr(args, "intent", None),
+    )
+    if all(value is None for value in values):
+        return None
+    accelerator = getattr(args, "accelerator", None) or "any"
+    count = getattr(args, "gpu_count", None)
+    if count is None:
+        count = 0 if accelerator == "none" else 1
+    return normalize_demand({
+        "accelerator": accelerator,
+        "device_count": count,
+        "mem_mib_estimate": getattr(args, "gpu_mem_mib", None) or 0,
+        "expected_duration_seconds": getattr(args, "expected_duration", None) or 0,
+        "checkpointable": bool(getattr(args, "checkpointable", None)),
+        "intent": getattr(args, "intent", None) or "",
+    })
+
+
 def _windows_worker_command(
     *,
     task_id: str,
     description: str,
     command: str,
     mode: str,
-    timeout: int,
+    timeout: int | None,
     monitor_interval: int,
     model: str | None,
     cwd: str,
@@ -116,13 +140,13 @@ def _windows_worker_command(
         command,
         "--mode",
         mode,
-        "--timeout",
-        str(int(timeout)),
         "--monitor-interval",
         str(int(monitor_interval)),
         "--cwd",
         cwd,
     ]
+    if timeout is not None:
+        argv.extend(["--timeout", str(int(timeout))])
     if model:
         argv.extend(["--model", model])
     if run_dir:
@@ -140,7 +164,7 @@ def _spawn_windows_worker(
     description: str,
     command: str,
     mode: str,
-    timeout: int,
+    timeout: int | None,
     monitor_interval: int,
     model: str | None,
     cwd: str,
@@ -228,6 +252,9 @@ def cmd_worker(args: argparse.Namespace) -> int:
     }
     worker_task["worker_pid"] = os.getpid()
     worker_task.setdefault("pid", os.getpid())
+    worker_task["worker_process_identity"] = _process_identity(os.getpid())
+    worker_task.setdefault("timeout_seconds", args.timeout)
+    worker_task.setdefault("timeout_defaulted", False)
     _write_task(task_id, worker_task)
     try:
         _cpu_admission.apply_current_process_affinity(
@@ -287,6 +314,11 @@ def cmd_submit(args: argparse.Namespace) -> int:
     registry_cwd = str(Path.cwd().resolve())
     mode = args.mode
     run_id = f"{task_id}-{time.time_ns()}"
+    try:
+        resource_demand = _declared_resource_demand(args)
+    except ValueError as exc:
+        print(json.dumps({"error": f"invalid resource demand: {exc}"}))
+        return 1
 
     # Resolve the run directory: prefer an explicit --run-dir, else recover it
     # from the command itself (commands already carry --run-dir). Store it as an
@@ -297,6 +329,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
     if run_dir:
         rp = Path(run_dir).expanduser()
         run_dir = str((rp if rp.is_absolute() else Path(cwd) / rp).resolve())
+    timeout_seconds = int(args.timeout) if args.timeout is not None else None
+    timeout_defaulted = False
 
     # Forced-discussion gate: while a supervisor is parked on an OPEN discussion
     # (it stopped a run and is waiting on the engineer), block launching new runs
@@ -388,7 +422,12 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "cwd": str(Path(cwd).resolve()),
                 "submitted_at": time.time(),
                 "submitter_pid": os.getpid(),
+                "submitter_process_identity": _process_identity(os.getpid()),
+                "timeout_seconds": timeout_seconds,
+                "timeout_defaulted": timeout_defaulted,
             }
+            if resource_demand is not None:
+                initial_task["resource_demand"] = resource_demand
             if selected_cpu_ids:
                 initial_task["cpu_ids"] = list(selected_cpu_ids)
                 initial_task["cpu_count"] = len(selected_cpu_ids)
@@ -413,7 +452,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 description=args.description,
                 command=args.command,
                 mode=mode,
-                timeout=args.timeout,
+                timeout=timeout_seconds,
                 monitor_interval=args.monitor_interval or 120,
                 model=args.model,
                 cwd=cwd,
@@ -433,8 +472,9 @@ def cmd_submit(args: argparse.Namespace) -> int:
         rec = _read_task(task_id) or initial_task
         rec.setdefault("worker_pid", worker.pid)
         rec.setdefault("pid", worker.pid)
+        rec["worker_process_identity"] = _process_identity(worker.pid)
         _write_task(task_id, rec)
-        print(json.dumps({
+        result = {
             "state": "submitted",
             "task_id": task_id,
             "run_id": run_id,
@@ -443,6 +483,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "run_dir": run_dir,
             "description": args.description,
             "cpu_ids": list(selected_cpu_ids),
+            "timeout_seconds": timeout_seconds,
+            "timeout_defaulted": timeout_defaulted,
             "check_with": shlex.join([
                 sys.executable,
                 "-m",
@@ -451,7 +493,10 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "--task-id",
                 task_id,
             ]),
-        }))
+        }
+        if resource_demand is not None:
+            result["resource_demand"] = resource_demand
+        print(json.dumps(result))
         return 0
 
     # Fork: parent returns immediately
@@ -474,11 +519,14 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "run_id": run_id,
             "description": args.description, "command": args.command,
             "mode": mode, "run_dir": run_dir, "submitted_at": time.time(),
+            "timeout_seconds": timeout_seconds,
+            "timeout_defaulted": timeout_defaulted,
         }
         rec["worker_pid"] = pid
         rec.setdefault("pid", pid)
+        rec["worker_process_identity"] = _process_identity(pid)
         _write_task(task_id, rec)
-        print(json.dumps({
+        result = {
             "state": "submitted",
             "task_id": task_id,
             "run_id": run_id,
@@ -487,6 +535,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "run_dir": run_dir,
             "description": args.description,
             "cpu_ids": list(selected_cpu_ids),
+            "timeout_seconds": timeout_seconds,
+            "timeout_defaulted": timeout_defaulted,
             "check_with": shlex.join([
                 sys.executable,
                 "-m",
@@ -495,7 +545,10 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "--task-id",
                 task_id,
             ]),
-        }))
+        }
+        if resource_demand is not None:
+            result["resource_demand"] = resource_demand
+        print(json.dumps(result))
         return 0
 
     # Child: detach and run
@@ -509,6 +562,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "error": f"stdio detach failed: {exc}",
             "completed_at": time.time(),
             "worker_pid": os.getpid(),
+            "worker_process_identity": _process_identity(os.getpid()),
         })
         _write_task(task_id, task)
         os._exit(1)
@@ -521,6 +575,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "error": f"CPU affinity setup failed: {exc}",
             "completed_at": time.time(),
             "worker_pid": os.getpid(),
+            "worker_process_identity": _process_identity(os.getpid()),
         })
         _write_task(task_id, task)
         os._exit(1)
@@ -530,7 +585,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             task_id=task_id,
             command=args.command,
             description=args.description,
-            timeout=args.timeout,
+            timeout=timeout_seconds,
             monitor_interval=args.monitor_interval or 120,
             model=args.model or resolve_supervisor_model(),
             cwd=cwd,
@@ -542,7 +597,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             task_id=task_id,
             command=args.command,
             description=args.description,
-            timeout=args.timeout,
+            timeout=timeout_seconds,
             cwd=cwd,
             run_dir=run_dir,
         )
@@ -552,7 +607,9 @@ def cmd_submit(args: argparse.Namespace) -> int:
 # failure, so polling its status must exit 0 — otherwise the engineer's shell
 # flags every poll as a failed command and wastes rounds working around a
 # non-error. Only genuine failures get a non-zero exit.
-_OK_STATES = frozenset({"done", "running", "starting", "preflight", "early_stopped"})
+_OK_STATES = frozenset({
+    "done", "running", "starting", "preflight", "waiting_resource", "early_stopped",
+})
 
 _FAILED_STATES = frozenset({"error", "crashed", "timeout"})
 
@@ -606,7 +663,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     # Enrich with a live-process flag and run-directory progress so a single
     # poll tells the engineer whether the job is alive and advancing, without
     # it having to hand-inspect progress.jsonl/status.json itself.
-    task["live"] = bool(pid and _is_pid_alive(pid))
+    task["live"] = bool(pid and _recorded_process_alive(task, "pid"))
     progress = _progress_summary(_effective_run_dir(task))
     if progress:
         task["progress"] = progress
@@ -662,16 +719,17 @@ def cmd_list(_args: argparse.Namespace) -> int:
 
     # Update crashed tasks
     for task in tasks:
-        if task.get("state") in {"running", "starting", "preflight"}:
+        if task.get("state") in {"running", "starting", "preflight", "waiting_resource"}:
             reconcile_terminal_task(str(task.get("task_id") or ""), task)
 
     # Summary table
     running = [t for t in tasks if t.get("state") == "running"]
+    waiting = [t for t in tasks if t.get("state") == "waiting_resource"]
     done = [t for t in tasks if t.get("state") == "done"]
     errors = [t for t in tasks if t.get("state") in ("error", "crashed", "timeout")]
     discussing = [t for t in tasks if t.get("state") == "discussing"]
 
-    print(f"Sub-agents: {len(running)} running, {len(done)} done, "
+    print(f"Sub-agents: {len(running)} running, {len(waiting)} waiting for resources, {len(done)} done, "
           f"{len(errors)} failed, {len(discussing)} awaiting your reply")
     print()
     for t in tasks:
@@ -681,7 +739,7 @@ def cmd_list(_args: argparse.Namespace) -> int:
         elapsed = t.get("elapsed_seconds", "")
         icon = {"done": "✅", "running": "⏳", "error": "❌",
                 "crashed": "💀", "timeout": "⏰", "early_stopped": "🛑",
-                "discussing": "💬"}.get(state, "?")
+                "waiting_resource": "⌛", "discussing": "💬"}.get(state, "?")
         elapsed_str = f" ({elapsed:.0f}s)" if isinstance(elapsed, (int, float)) else ""
         print(f"  {icon} {tid}: {state}{elapsed_str} — {desc}")
         if state == "discussing":
@@ -698,14 +756,14 @@ def cmd_list(_args: argparse.Namespace) -> int:
 
 def cmd_wait(args: argparse.Namespace) -> int:
     """Block until a task completes."""
-    deadline = time.time() + args.timeout
-    while time.time() < deadline:
+    deadline = time.time() + args.timeout if args.timeout is not None else None
+    while deadline is None or time.time() < deadline:
         task = _read_task(args.task_id)
         if task is None:
             print(json.dumps({"error": f"task '{args.task_id}' not found"}))
             return 1
         task = reconcile_terminal_task(args.task_id, task)
-        if task.get("state") not in ("running", "starting", "preflight"):
+        if task.get("state") not in ("running", "starting", "preflight", "waiting_resource"):
             print(json.dumps(task, indent=2))
             return 1 if task.get("state") in _FAILED_STATES else 0
         time.sleep(5)
@@ -758,10 +816,9 @@ def cmd_reply(args: argparse.Namespace) -> int:
     # A live supervisor = worker process alive, supervised, in a live state, and
     # a fresh heartbeat (guards against PID reuse on a stale record).
     supervisor_alive = bool(
-        worker_pid and _is_pid_alive(worker_pid)
+        worker_pid and _recorded_process_alive(task, "worker_pid")
         and task.get("mode") == "supervised"
         and task.get("state") in ("running", "discussing")
-        and (hb_age is None or hb_age < DISCUSSION_POLL_INTERVAL * 6)
     )
     # The discussion is still open (this reply will get an answer) only while the
     # supervisor is parked discussing. Once it sets a terminal resolution, late
@@ -801,7 +858,7 @@ def main() -> int:
     p_submit.add_argument("--command", required=True, help="Shell command to run")
     p_submit.add_argument("--mode", choices=["direct", "supervised"], default="direct",
                           help="direct: just run (no LLM). supervised: run + periodic LLM monitoring")
-    p_submit.add_argument("--timeout", type=int, default=7200, help="Max seconds (default: 2h)")
+    p_submit.add_argument("--timeout", type=int, default=None, help="Optional maximum seconds")
     p_submit.add_argument("--monitor-interval", type=int, default=120,
                           help="Base seconds between supervisor checks; backs off "
                                "while healthy, tightens when degrading (supervised mode)")
@@ -824,6 +881,17 @@ def main() -> int:
     p_submit.add_argument("--no-preflight", action="store_true",
                           help="Skip the supervised-mode pre-launch RL config "
                                "preflight (escape hatch for a known-good config).")
+    p_submit.add_argument(
+        "--accelerator",
+        choices=["cuda", "rocm", "any", "none"],
+        default=None,
+        help="Declare accelerator demand; omit all demand flags for legacy behavior.",
+    )
+    p_submit.add_argument("--gpu-count", type=int, default=None)
+    p_submit.add_argument("--gpu-mem-mib", type=int, default=None)
+    p_submit.add_argument("--expected-duration", type=parse_duration, default=None)
+    p_submit.add_argument("--checkpointable", action="store_true", default=None)
+    p_submit.add_argument("--intent", default=None)
     cpu_group = p_submit.add_mutually_exclusive_group()
     cpu_group.add_argument(
         "--cpu-count",
@@ -848,7 +916,7 @@ def main() -> int:
     p_worker.add_argument("--description", default="background task")
     p_worker.add_argument("--command", required=True)
     p_worker.add_argument("--mode", choices=["direct", "supervised"], default="direct")
-    p_worker.add_argument("--timeout", type=int, default=7200)
+    p_worker.add_argument("--timeout", type=int, default=None)
     p_worker.add_argument("--monitor-interval", type=int, default=120)
     p_worker.add_argument("--model", default=None)
     p_worker.add_argument("--run-dir", default=None)
@@ -863,7 +931,7 @@ def main() -> int:
 
     p_wait = sub.add_parser("wait", help="Wait for a task to complete")
     p_wait.add_argument("--task-id", required=True)
-    p_wait.add_argument("--timeout", type=int, default=3600)
+    p_wait.add_argument("--timeout", type=int, default=None)
 
     sub.add_parser("clean", help="Remove completed task records")
 

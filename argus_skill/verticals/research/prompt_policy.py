@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .method_freeze import research_review_prompt_block
+
 
 def academic_paper_review_block() -> str:
     return (
@@ -14,10 +16,14 @@ def academic_paper_review_block() -> str:
         "load-bearing anchors and follow their training/eval entry-point call chains "
         "to verify the claimed method actually executes; a plausible name or an "
         "unused function is not evidence. A paper that overclaims its mechanism is "
-        "incorrect, not 'needs polish'. Manuscript prose must never assert its own "
-        "integrity or rigor with language such as 'we carefully', 'we honestly', or "
-        "'we rigorously': integrity is demonstrated by anchors and artifacts, not "
-        "adjectives. Flag self-congratulatory integrity language for deletion. "
+        "incorrect, not 'needs polish'. Treat unsupported humility as the same defect "
+        "as unsupported boasting: labels such as 'bounded', 'limited', 'preliminary', "
+        "'受限', or similar must be tied to a named, concrete limitation with evidence "
+        "or be deleted. A limitations section lists only limitations that would change "
+        "a reader's "
+        "decision, each with its evidence; flag virtue-signaling filler or integrity "
+        "self-praise such as 'we honestly acknowledge...' for deletion; integrity is "
+        "demonstrated by anchors and artifacts, not adjectives. "
         "Judge correctness, evidence "
         "and presentation, and separately whether the central research idea is "
         "novel, non-obvious, ambitious and important enough for the selected "
@@ -184,7 +190,10 @@ def _reviewer_fragment(stage: str, scope: str, project_root: Path | None) -> str
     blocks: list[str] = [
         "## Research-program adjudication\n"
         "Judge whether the mission advanced the research plan's stated program, "
-        "not merely whether it completed its own scope."
+        "not merely whether it completed its own scope.\n"
+        "Review the full trial record, including discarded or archived failed rounds "
+        "and the protocol-change history; reviewing only the final showcase is not a "
+        "qualified review."
     ]
     # Reading the paper as a paper used to wait for the campaign to declare a
     # writing stage. They do not: run-07 held a twenty-page manuscript at
@@ -214,11 +223,15 @@ def _reviewer_fragment(stage: str, scope: str, project_root: Path | None) -> str
             "Do not require or manufacture an assurance memo, reviewer-question "
             "bundle, or other certification packet."
         )
+    if project_root is not None:
+        freeze_block = research_review_prompt_block(project_root)
+        if freeze_block:
+            blocks.append(freeze_block.rstrip())
     return "\n\n".join(blocks)
 
 
 def _engineer_fragment(project_root: Path | None) -> str:
-    """Name the figures this campaign has already drawn and not used.
+    """Require result-aware disclosure and name drawn but unused figures.
 
     The Engineer is the role that writes the paper and puts figures in it, and
     it is the one role the altitude facts never reach. So the Reviewer asks for
@@ -230,8 +243,14 @@ def _engineer_fragment(project_root: Path | None) -> str:
     Everything else about the manuscript the Engineer can open and see, and
     listing that here would be the host doing its looking for it.
     """
+    disclosure = (
+        "## Research result disclosure\n"
+        "Any protocol change, discarded sample or round, or rerun made after inspecting "
+        "results must be prominently disclosed in the report's main text, stating when "
+        "it happened, why, and how it affects the evidence."
+    )
     if project_root is None:
-        return ""
+        return disclosure
     try:
         from .paper_structural_minimums import validate_paper_structural_minimums
 
@@ -241,10 +260,10 @@ def _engineer_fragment(project_root: Path | None) -> str:
             if note.code == "figures_drawn_but_unused"
         ]
     except Exception:  # noqa: BLE001 - context is advisory
-        return ""
+        return disclosure
     if not unused:
-        return ""
-    return "## Already drawn\n" + unused[0] + "."
+        return disclosure
+    return disclosure + "\n\n## Already drawn\n" + unused[0] + "."
 
 
 def render_role_prompt_fragment(

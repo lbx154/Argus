@@ -228,6 +228,8 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
         self._curator: Any = None  # resident teammate-pool Curator (built in run_forever)
         self._control_thread: threading.Thread | None = None
         self._control_started_at_iso = ""
+        self._running_stall_stop = threading.Event()
+        self._running_stall_thread: threading.Thread | None = None
 
     # -- signal handling ------------------------------------------------
 
@@ -330,7 +332,7 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
             project_root=Path(workdir),
             default_width=int(os.environ.get("ARGUS_TEAM_DEFAULT_WIDTH", "8")),
             tick_s=float(os.environ.get("ARGUS_TEAM_CURATOR_TICK_S", "5")),
-            teammate_timeout_s=float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "5400")),
+            teammate_timeout_s=float(os.environ.get("ARGUS_TEAMMATE_TIMEOUT_S", "0")),
             hard_grace_s=float(os.environ.get("ARGUS_TEAMMATE_HARD_GRACE_S", "600")),
             distill_fn=self._curator_distill_fn(runner),
             distill_interval_s=float(

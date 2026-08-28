@@ -10,8 +10,8 @@ Conclusion.
 papers without ≥1 figure, in-text citations, or a Related Work section
 do not constitute a valid submission — they fail at the venue regardless
 of what any reviewer agent thinks of the prose. That's the harness's job
-(see ``docs/edit-principle/skills/04-harness-vs-agent-boundary.md``): the floor is
-structural; the ceiling is the reviewer's.
+(see ``docs/PRINCIPLES.md``): the floor is structural; the ceiling is the
+reviewer's.
 
 Thresholds here are deliberately well below typical EMNLP norms (e.g.
 ``min_cited_bib=8`` when a real EMNLP paper has 35+) so the gate only

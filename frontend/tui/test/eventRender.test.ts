@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
+import { PassThrough, Readable } from 'node:stream';
 import { test } from 'node:test';
 
 import { renderEvent } from '../src/eventRender.js';
 import type { EventMsg } from '../src/api.js';
+import { EVENT_CORPUS } from '../../core/src/eventCorpus.generated.js';
+import {
+  renderEvent as renderSemanticEvent,
+  renderText,
+  type RenderModel,
+} from '../../core/src/eventRender/index.js';
+import { parseRenderEventsArgs, runRenderEvents } from '../src/renderEvents.js';
 
 test('renderEvent reports truthful terminal mission outcomes for new and legacy events', () => {
   assert.deepEqual(
@@ -109,6 +117,23 @@ test('agent speech and task handoffs remain fully readable', () => {
   assert.doesNotMatch(task?.text ?? '', /…$/);
 });
 
+test('Manager routing failures lead with structured facts and retain raw error', () => {
+  const rendered = renderEvent({
+    type: 'life.manager.intent.failed',
+    phase: 'contract',
+    cause: 'research_target_level got "phd", expected exploratory|publishable|doctoral',
+    attempts: 2,
+    error: 'ManagerClassificationContractError: raw contract failure',
+  } as EventMsg);
+
+  assert.match(
+    rendered?.text ?? '',
+    /^分流失败 · 契约： research_target_level got "phd", expected exploratory\|publishable\|doctoral \(第2次尝试\)/,
+  );
+  assert.match(rendered?.text ?? '', /原始错误: ManagerClassificationContractError/);
+  assert.equal(rendered?.expand, true);
+});
+
 test('agent speech hides internal handoff fields', () => {
   const speech = renderEvent({
     type: 'engineer.progress',
@@ -160,4 +185,83 @@ test('manager routing shows topology, vertical, workflow, and lifetime', () => {
   } as EventMsg);
 
   assert.equal(routed?.text, '→ TEAM · software · STAGED · STANDING · OPEN-ENDED');
+});
+
+function semanticProjection(value: ReturnType<typeof renderEvent> | RenderModel) {
+  if (value === null || 'visibility' in value && value.visibility === 'hidden') {
+    return { visibility: 'hidden', role: '', tone: '', text: '' };
+  }
+  if ('visibility' in value) {
+    return { visibility: value.visibility, role: value.role, tone: value.tone, text: renderText(value) };
+  }
+  return {
+    visibility: value.tone === 'err' || value.tone === 'warn' ? 'alert' : 'normal',
+    role: value.role,
+    tone: value.tone,
+    text: value.text,
+  };
+}
+
+test('semantic renderer shadows current TUI with full-density policy and triaged corrections', () => {
+  const context = { locale: 'en', showReasoning: true, unknownEventPolicy: 'hide', density: 'full' } as const;
+  const oldRendererBugs: Record<string, Partial<ReturnType<typeof semanticProjection>>> = {
+    // The old TUI hard-codes Chinese for only three event families instead of honoring one locale policy.
+    'life.manager.intent.started': { text: 'classifying request…' },
+    'life.manager.intent.failed': { text: 'routing failed · backend 401 Missing bearer (attempt 2) · raw: VerticalDecisionError: routing failed' },
+    'life.phase.started': { text: 'entering implementation' },
+    // The old TUI leaks secrets and lags Python follow's complete handoff-field stripping.
+    'engineer.progress.secret-redaction': { text: 'using token <REDACTED:github-token>' },
+    'engineer.progress.handoff-fields': { text: 'Artifact complete.' },
+    // These are semantic distinctions/events that the old whitelist currently loses.
+    'life.planner.task_skipped.review-purchase-deferred': { text: 'review purchase deferred Purchase another paper review' },
+    'life.planner.normalized': { text: 'normalized · removed duplicate planner task' },
+    // The old renderer leaves a trailing space when this schema has no objective field.
+    'life.planner.start': { text: 'planning' },
+    'life.planner.waiting': { role: 'planner', visibility: 'normal' },
+    'life.planner.waiting.waiting-resource': { text: 'waiting · subagent state waiting_resource is a healthy resource wait' },
+    'life.planner.waiting_woken': { role: 'planner', visibility: 'normal' },
+    'life.planner.terminal_idle': { role: 'planner', visibility: 'normal' },
+    'life.planner.verification_probe': { role: 'planner', visibility: 'normal' },
+  };
+
+  for (const fixture of EVENT_CORPUS.fixtures) {
+    const current = semanticProjection(renderEvent(fixture.event as EventMsg));
+    const semantic = semanticProjection(renderSemanticEvent(fixture.event, context));
+    const correction = oldRendererBugs[fixture.id];
+    if (correction) {
+      assert.partialDeepStrictEqual(semantic, correction, fixture.id);
+      assert.notDeepEqual(current, semantic, fixture.id);
+    } else {
+      assert.deepEqual(semantic, current, fixture.id);
+    }
+  }
+});
+
+test('render-events streams semantic-core corpus events as one plain line per NDJSON record', async () => {
+  const started = EVENT_CORPUS.fixtures.find((fixture) => fixture.id === 'life.manager.intent.started');
+  const blocked = EVENT_CORPUS.fixtures.find((fixture) => fixture.id === 'life.lifecycle.block');
+  assert.ok(started && blocked);
+  const input = Readable.from([
+    `${JSON.stringify(started.event)}\n`,
+    `${JSON.stringify({ type: 'future.event', text: 'kept for grep' })}\n`,
+    `${JSON.stringify(blocked.event)}\n`,
+  ]);
+  const output = new PassThrough();
+  let rendered = '';
+  output.on('data', (chunk) => { rendered += chunk.toString(); });
+
+  await runRenderEvents(
+    input,
+    output,
+    parseRenderEventsArgs([
+      '--locale', 'zh-CN',
+      '--unknown-event-policy', 'greppable',
+      '--density', 'compact',
+    ]),
+  );
+
+  assert.equal(
+    rendered,
+    '🧭 [Manager] 判断任务归属…\n• [Argus] [future.event] kept for grep\n\n',
+  );
 });

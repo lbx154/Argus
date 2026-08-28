@@ -109,6 +109,9 @@ class RoundExecutionMixin:
         on_event: Callable[[dict], None] | None,
         state: RoundLoopState,
     ) -> EngineerTurnOutcome:
+        from ..core.operator_context import operator_context_revision_from_text
+
+        operator_context_revision = operator_context_revision_from_text(engineer_prompt)
         round_started_at = time.time()
         engineer_result, _round_compactions = self._run_engineer(
             prompt=engineer_prompt,
@@ -168,6 +171,7 @@ class RoundExecutionMixin:
                 "capsule_path": str(engineer_session.path or ""),
                 "metadata_persisted": session_metadata_persisted,
                 "persistence_warning": engineer_session.persistence_error,
+                "operator_context_revision": operator_context_revision,
             })
         if supervised_config.context_packet_path:
             try:
@@ -240,6 +244,7 @@ class RoundExecutionMixin:
                 "reasoning_output_tokens": int(engineer_result.reasoning_output_tokens or 0),
                 "premium_requests": float(engineer_result.premium_requests or 0.0),
                 "usage_scope": "delta",
+                "operator_context_revision": operator_context_revision,
             })
 
         return EngineerTurnOutcome(
@@ -311,6 +316,7 @@ class RoundExecutionMixin:
             review = operator_abort_review_decision(
                 fatal_error=fatal_error,
                 exit_code=engineer_result.exit_code,
+                engineer_aborted_before_review=True,
             )
             if on_event:
                 on_event(_review_event_payload(
@@ -483,7 +489,10 @@ class RoundExecutionMixin:
             if watchdog_failure and on_event:
                 exhausted = (
                     state.backend_failure_streak >= threshold
-                    or round_index >= supervised_config.max_rounds
+                    or (
+                        supervised_config.max_rounds > 0
+                        and round_index >= supervised_config.max_rounds
+                    )
                 )
                 checkpoint_path = supervised_config.checkpoint_path
                 try:
@@ -509,7 +518,10 @@ class RoundExecutionMixin:
                     "operator_alert": True,
                     "fatal_error": fatal_error,
                 })
-            if state.backend_failure_streak >= threshold or round_index >= supervised_config.max_rounds:
+            if state.backend_failure_streak >= threshold or (
+                supervised_config.max_rounds > 0
+                and round_index >= supervised_config.max_rounds
+            ):
                 return control_return((
                     "error",
                     state.rounds,

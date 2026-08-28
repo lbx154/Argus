@@ -67,7 +67,7 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     # quick-reply runner never
     # sets this, so the Manager's own SELF-turn can never abort itself.
     ns.enable_mission_abort_signal = True
-    ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "32"))
+    ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "0"))
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
     ns.color = None
@@ -183,7 +183,7 @@ def _build_supervisor_config(
     return LifeSupervisorConfig(
         budget=LifeBudget(
             global_daily_cap_usd=cfg.global_daily_cap_usd,
-            max_missions=64,
+            max_missions=0,
         ),
         planner_task_iteration_max_cycles=cfg.planner_task_iteration_max_cycles,
         subagent_family_failure_streak_limit=cfg.subagent_family_failure_streak_limit,
@@ -218,7 +218,6 @@ class _DaemonSink:
     def __init__(self, worker: LifeWorker, health_tracker: Any = None) -> None:
         self._worker = worker
         self.health_tracker = health_tracker
-        self.self_maintenance: Any = None
 
     def handle_event(self, event: dict[str, Any]) -> None:
         if self.health_tracker is not None:
@@ -226,11 +225,6 @@ class _DaemonSink:
                 self.health_tracker.observe(event)
             except Exception:  # noqa: BLE001 - health telemetry is non-critical
                 log.exception("daemon: health telemetry update failed")
-        if self.self_maintenance is not None:
-            try:
-                self.self_maintenance.observe(event)
-            except Exception:  # noqa: BLE001 - observation never blocks work
-                log.exception("daemon: self-maintenance observation failed")
         kind = event.get("type") or event.get("kind") or ""
         if kind in (
             "life.mission.done",

@@ -293,7 +293,7 @@ class PlanningCycleMixin(
         try:
             if any(
                 item.status in {"pending", "running"} and item.title == title
-                for item in self.memory.backlog.all()
+                for item in self.memory.backlog.active()
             ):
                 return None
         except Exception:  # noqa: BLE001
@@ -431,7 +431,7 @@ class PlanningCycleMixin(
         if not stage:
             return None
         items = sorted(
-            self.memory.backlog.all(),
+            self.memory.backlog.history(),
             key=lambda item: (float(item.finished_ts or 0), float(item.ts or 0)),
             reverse=True,
         )
@@ -553,7 +553,7 @@ class PlanningCycleMixin(
             "trigger": "reviewed_stage_empty_plan_reconciliation",
             "recovered_item_id": item.id,
         })
-        if decision.source == "manager_llm":
+        if decision.source in {"manager_llm", "stage_completion_gate_hold"}:
             outcome = dict(item.outcome)
             outcome["stage_certification"] = {
                 "advance": "certified",
@@ -853,7 +853,7 @@ class PlanningCycleMixin(
             if persisted is None:
                 return {}
             self._emit({
-                "type": "life.vertical.resolved",
+                "type": EventType.LIFE_VERTICAL_RESOLVED,
                 "vertical": persisted,
                 "profile_hint": "persisted",
                 "agent_layer": "planner",
@@ -861,9 +861,11 @@ class PlanningCycleMixin(
             return {"vertical": persisted}
 
         mgr = self._bound_manager()
-        from ...manager.directive import active_manager_directive_message
+        from ...core.operator_context import build_operator_context_block
 
-        directive = active_manager_directive_message(artifact_root)
+        directive, _operator_context_revision = build_operator_context_block(
+            "manager", artifact_root, consume_once=False
+        )
         selection_objective = "\n\n".join(
             part
             for part in (
@@ -913,7 +915,7 @@ class PlanningCycleMixin(
         except Exception:  # noqa: BLE001 - stage is prompt context only
             pass
         self._emit({
-            "type": "life.vertical.resolved",
+            "type": EventType.LIFE_VERTICAL_RESOLVED,
             "vertical": division.vertical,
             "profile_hint": "manager-per-mission",
             "agent_layer": "planner",

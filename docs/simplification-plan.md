@@ -3,9 +3,10 @@
 A plan to make Argus smaller. It is a weight-loss problem, not a rewrite: the
 system works, and the goal is to remove what is not carrying weight.
 
-Companion documents: **[system audit](system-audit.md)** for the measurements this
-plan acts on, **[failure modes](failure-modes-and-fixes.md)** for the behaviour it
-is meant to change.
+This plan derives from the **[Argus Principles](PRINCIPLES.md)**. Companion
+documents: **[system audit](system-audit.md)** for the measurements this plan
+acts on, **[failure modes](failure-modes-and-fixes.md)** for the behaviour it is
+meant to change.
 
 Chinese version: [simplification-plan.zh-CN.md](simplification-plan.zh-CN.md)
 
@@ -38,14 +39,13 @@ read-only Reviewer judge real evidence instead.
 
 Work top to bottom. Each step is verifiable before the next begins.
 
-### 1. Delete the no-op Wiki lifecycle API — provably safe
+### 1. Delete the no-op Wiki lifecycle API — completed
 
-`wiki/lifecycle.py:54` `maintain_wikis_after_mission()` takes seven parameters,
-discards five, and says so: `"""Do nothing: Agents maintain pages and INDEX.md
-during the mission."""` It has no callers.
+The unused post-mission Wiki lifecycle hook was removed. Wiki lifecycle now
+exports only `ensure_project_wiki()`; Agents maintain pages and `INDEX.md`
+during the mission.
 
-Keep `ensure_project_wiki()` at `:22`.
-**Verify:** repo-wide reference search; `pytest tests/test_wiki_bootstrap.py tests/test_minimal_skill_wiki.py`.
+**Verified:** repo-wide reference search; `pytest tests/test_wiki_bootstrap.py tests/test_minimal_skill_wiki.py`.
 
 ### 2. Delete the 31 unreferenced event types
 
@@ -127,16 +127,10 @@ decomposition, Engineer local iteration, Reviewer independent judgement.
 
 ### 7. Make daemon self-maintenance an ordinary mission
 
-`ARGUS_SKILL_SELF_MAINTENANCE` defaults to `"1"`
-(`daemon/_life_worker_run.py:46`), enabling a 3,186-line worktree/canary/
-publication subsystem. Argus changes can be ordinary engineering missions under
-the normal Engineer/Reviewer loop.
-
-Run with it disabled first. **This is the largest deletion by line count and the
-smallest by behavioural improvement** — do it after step 5, not before.
-
-**Risk:** loses unattended framework self-updating. That is a real capability;
-decide deliberately.
+Argus changes are ordinary engineering missions under the normal
+Engineer/Reviewer loop. Autonomous discovery and repair remain; reviewed changes
+cross one operator-approved deployment boundary instead of a resident promotion
+daemon.
 
 ### 8. Only then purge defensive handlers and spin loops
 

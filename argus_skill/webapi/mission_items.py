@@ -72,13 +72,23 @@ def _enqueue_task_unlocked(
 
     mem = LifeMemory.open(life_dir)
 
-    def _persist(execution_task: str, _division: Any):
+    def _persist(execution_task: str, division: Any):
+        # The Manager handoff has already classified and committed this task.
+        # Persist that fact on the backlog item so the daemon's backlog guard
+        # does not classify the same claimed item a second time.  The duplicate
+        # Manager turn can race with an operator nudge or daemon restart,
+        # leaving the item ``running`` while the supervisor reports
+        # ``backlog_empty`` indefinitely.
+        from ..life.supervisor.backlog_guard import decision_evidence
+
+        manager_decision = decision_evidence(division) or {"routed": True}
         return add_backlog_item(
             mem,
             execution_task,
             item_id=item_id,
             iterate=iterate,
             iteration_max_cycles=cycles,
+            manager_decision=manager_decision,
         )
 
     should_name = not bool(
@@ -177,7 +187,7 @@ def get_status(sid: str, *, global_root: Path | str | None = None) -> dict[str, 
             return default
 
     identity = _safe(lambda: mem.identity.read().strip(), "")
-    items = _safe(lambda: mem.backlog.all(), [])
+    items = _safe(lambda: mem.backlog.active(), [])
     pending = [it.to_jsonable() for it in items if it.status == "pending"]
     questions = [it.to_jsonable() for it in items if it.to_jsonable().get("pending_question")]
     journal = _safe(lambda: [e.to_jsonable() for e in mem.journal.tail(3)], [])
@@ -269,7 +279,7 @@ def get_backlog_item(
         return None
     try:
         item = next(
-            (row for row in LifeMemory.open(life_dir).backlog.all() if row.id == item_id),
+            (row for row in LifeMemory.open(life_dir).backlog.history() if row.id == item_id),
             None,
         )
     except Exception:  # noqa: BLE001
@@ -456,6 +466,21 @@ def set_operator_config(
     if env_name not in allowed:
         raise ValueError(f"config key is not cockpit-editable: {raw}")
     val = normalize_cockpit_knob_value(env_name, value)
+    if project_state_dir is not None:
+        from ..core.operator_context import IntakeDecision, persist_intake_decision
+
+        persist_intake_decision(
+            project_state_dir,
+            f"{env_name}={val}",
+            IntakeDecision(
+                kind="preference",
+                scope="project",
+                applies_to_roles="all",
+                preference_kind="workflow",
+                preference_value=f"{env_name}={val}",
+            ),
+            source="web.config",
+        )
     # Budget caps are ordinary config.json knobs now (budget.json retired) — they
     # fall through to the generic knob_store write path below like any other knob.
     if not write_persisted_knob(env_name, val):
@@ -495,6 +520,21 @@ def set_budget_config(
             env_name,
             str(values[alias]),
         )
+    from ..core.operator_context import IntakeDecision, persist_intake_decision
+
+    rendered = ", ".join(f"{key}={normalized[key]}" for key in sorted(normalized))
+    persist_intake_decision(
+        project_state_dir,
+        rendered,
+        IntakeDecision(
+            kind="preference",
+            scope="project",
+            applies_to_roles=("manager", "planner"),
+            preference_kind="workflow",
+            preference_value=rendered,
+        ),
+        source="web.config.budget",
+    )
     # Budget caps are ordinary config.json knobs now (budget.json retired) — write
     # the whole normalized batch (caps + quota knobs) to the knob_store.
     for key, value in normalized.items():

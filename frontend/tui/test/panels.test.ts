@@ -26,7 +26,8 @@ import { CostGauge } from '../src/components/CostGauge.js';
 import { MissionCockpit } from '../src/components/MissionCockpit.js';
 import { PendingDecisionPrompt } from '../src/components/PendingDecisionPrompt.js';
 import { emptyMissionView } from '../../core/src/missionView.js';
-import type { EventMsg, Snapshot } from '../src/api.js';
+import { RELEASE_ARTIFACT_DRIFT_WARNING } from '../../core/src/protocol.js';
+import type { EventMsg, ResourceStatus, Snapshot, StatusView } from '../src/api.js';
 import { SLASH_COMMANDS } from '../src/input/slash.js';
 
 const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
@@ -156,14 +157,28 @@ test('connection health remains visible without overflowing a 60-column terminal
   assert.match(output, /snapshot refresh failed/);
   const finalFrame = output.slice(output.lastIndexOf('◆ ARGUS'));
   assert.ok(finalFrame.split('\n').every((line) => Array.from(line).length <= 60));
+
+  const warning = await renderNode(
+    React.createElement(Footer, {
+      notice: `warning: ${RELEASE_ARTIFACT_DRIFT_WARNING}`,
+      width: 60,
+    }),
+    60,
+  );
+  assert.match(warning, /build_release/);
 });
 
-test('header establishes the autonomous research lab identity without ops clutter', async () => {
+test('header uses a neutral lab identity outside research missions', async () => {
   const output = await renderNode(
     React.createElement(Header, { width: 120 }),
     120,
   );
-  assert.match(output, /Autonomous Research Lab/);
+  const researchOutput = await renderNode(
+    React.createElement(Header, { width: 120, vertical: 'research' }),
+    120,
+  );
+  assert.match(output, /Autonomous Work Lab/);
+  assert.match(researchOutput, /Autonomous Research Lab/);
   assert.doesNotMatch(output, /pid|backend|daily cap/);
 });
 
@@ -182,6 +197,13 @@ test('mission cockpit keeps mission, team, and timeline readable at 60 columns',
   view.mission.elapsed_seconds = 8040;
   view.stage = { id: 'optimize', label: 'Optimize' };
   view.round = { current: 7, max: 24 };
+  view.outcome = {
+    execution_status: 'completed',
+    review_status: 'not_assessed',
+    stage_certification: 'deferred',
+    interruption_kind: 'none',
+    resumable: false,
+  };
   view.roles.find((role) => role.role === 'planner')!.status = 'active';
   view.roles.find((role) => role.role === 'planner')!.label = 'Comparing 3 branches';
   view.timeline = [{
@@ -190,10 +212,12 @@ test('mission cockpit keeps mission, team, and timeline readable at 60 columns',
   }];
   const output = await renderNode(React.createElement(MissionCockpit, { view, width: 60 }), 60);
   assert.match(output, /MISSION/);
-  assert.match(output, /AI RESEARCH TEAM/);
+  assert.match(output, /AI TEAM/);
   assert.match(output, /LIVE RESEARCH TIMELINE/);
   assert.match(output, /Comparing 3 branches/);
   assert.match(output, /MISSION SUMMARY/);
+  assert.match(output, /Stage decision pending/);
+  assert.doesNotMatch(output, /stage=deferred/);
   assert.match(output, /MODE TEAM · kernel_engineering · STAGED · BOUNDED · FINITE/);
   assert.match(output, /CONTINUOUS/);
   assert.match(output, /Improved the kernel/);
@@ -314,6 +338,64 @@ test('operations panel owns cost, quota, pid, backend, and model details', async
   assert.match(output, /\.autors\/demo\/wiki/);
   assert.match(output, /skill 4 · wiki 2 · 1\.5 KB saved/);
   assert.ok(output.split('\n').every((line) => stringWidth(line) <= 60));
+});
+
+test('status panel renders degraded and contended resource status', async () => {
+  const status: StatusView = {
+    identity: '',
+    backlog_pending: [],
+    pending_questions: [],
+    journal: [],
+    continuous: { enabled: false, objective: '' },
+    inbox_pending: 0,
+    daemon: {
+      alive: true,
+      pid: 42,
+      uptime_seconds: 60,
+      backend: 'codex',
+      global_daily_cap_usd: null,
+    },
+    roles: [],
+    active_role: null,
+  };
+  const resources: ResourceStatus = {
+    schema_version: 1,
+    enforcement: 'advisory',
+    accelerators: [
+      { kind: 'cuda', status: 'degraded', device_count: 1, detail: 'could not parse one telemetry row' },
+      { kind: 'rocm', status: 'absent', device_count: 0, detail: 'rocm-smi is not installed' },
+    ],
+    holders: [{
+      project: 'training',
+      task_id: 'train-1',
+      intent: 'train the reranker',
+      ttl_seconds: 90,
+      device_count: 1,
+      yield_requests: [{
+        reason: 'checkpoint for an urgent evaluation',
+        response: { decision: 'decline', reason: 'unsafe checkpoint boundary' },
+      }],
+    }],
+    queue: [{
+      position: 1,
+      project: 'evaluation',
+      task_id: 'eval-2',
+      intent: 'run the held-out evaluation',
+      ttl_seconds: 45,
+    }],
+  };
+
+  const output = await renderPanel({ kind: 'status', data: [status, resources] }, 70, { viewportRows: 40 });
+
+  assert.match(output, /resources\s+advisory mode/);
+  assert.match(output, /CUDA\s+degraded · 1 devices/);
+  assert.match(output, /could not parse one telemetry row/);
+  assert.match(output, /training · train-1 · 1 devices · 1m 30s left/);
+  assert.match(output, /train the reranker/);
+  assert.match(output, /yield request · checkpoint for an urgent evaluation/);
+  assert.match(output, /decline · unsafe checkpoint boundary/);
+  assert.match(output, /#1 · evaluation · eval-2 · 45s left/);
+  assert.ok(output.split('\n').every((line) => stringWidth(line) <= 70));
 });
 
 test('daemon replacement picker shows running work and state-preservation promise', async () => {
@@ -722,7 +804,7 @@ test('19-row cockpit stays below Ink full-screen clear threshold', async () => {
   const finalFrame = output.slice(output.lastIndexOf('◉ argus'));
   assert.ok(finalFrame.trimEnd().split('\n').length < 19);
   assert.match(finalFrame, /MISSION/);
-  assert.match(finalFrame, /AI RESEARCH TEAM/);
+  assert.match(finalFrame, /AI TEAM/);
   assert.match(finalFrame, /MANAGER.*Waiting/);
   assert.match(finalFrame, /PLANNER.*Waiting/);
   assert.match(finalFrame, /ENGINEER.*Waiting/);

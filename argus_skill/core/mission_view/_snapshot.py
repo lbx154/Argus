@@ -202,6 +202,70 @@ def merge_mission_view_snapshot(
     return view
 
 
+def _apply_manuscript_review_freshness(
+    view: dict[str, Any],
+    session: Mapping[str, Any],
+) -> None:
+    """Ensure a persisted paper certificate is never rendered for newer bytes."""
+    workdir = str(
+        session.get("campaign_workdir")
+        or session.get("workdir")
+        or session.get("session_workdir")
+        or ""
+    ).strip()
+    review = view.get("review")
+    if (
+        isinstance(review, dict)
+        and isinstance(review.get("manuscript_snapshot"), dict)
+        and workdir
+    ):
+        try:
+            from ..manuscript_snapshot import manuscript_review_status
+
+            review_freshness = manuscript_review_status(review, workdir)
+        except Exception:  # noqa: BLE001 - UI review status fails closed
+            review_freshness = {"status": "unbound", "message": "unbound review"}
+        if review_freshness.get("status") != "current":
+            review["status"] = "stale"
+            review["reason"] = str(review_freshness.get("message") or "stale review")
+
+    outcome = view.get("outcome")
+    if not isinstance(outcome, dict) or outcome.get("final_submission_certified") is not True:
+        return
+    binding = outcome.get("manuscript_snapshot")
+    if not isinstance(binding, dict) or not workdir:
+        outcome["final_submission_certified"] = False
+        outcome["review_validity"] = "unbound"
+        outcome["review_status_message"] = (
+            "unbound (certification did not record the manuscript version)"
+        )
+        return
+    try:
+        from ..manuscript_snapshot import manuscript_review_status
+
+        freshness = manuscript_review_status(outcome, workdir)
+    except Exception:  # noqa: BLE001 - UI certification fails closed
+        freshness = {
+            "status": "unbound",
+            "message": "unbound (certified manuscript cannot be read)",
+        }
+    if freshness.get("status") == "current":
+        outcome["review_validity"] = "current"
+        return
+    message = str(freshness.get("message") or "stale manuscript certification")
+    outcome["final_submission_certified"] = False
+    outcome["review_validity"] = freshness.get("status")
+    outcome["review_status_message"] = message
+    review = view.setdefault("review", {})
+    review["status"] = "stale"
+    review["reason"] = message
+    delivery = view.get("delivery")
+    if isinstance(delivery, dict) and delivery.get("kind") == "submission_certified":
+        delivery["kind"] = "submission_stale"
+        delivery["review_status"] = "stale"
+        delivery["summary"] = message
+
+
 def _mission_for_timestamp(
     backlog: list[Mapping[str, Any]],
     timestamp: float,
@@ -331,6 +395,10 @@ def snapshot_mission_view(
         response = merge_mission_view_snapshot(
             json.loads(json.dumps(view)),
             **kwargs,
+        )
+        _apply_manuscript_review_freshness(
+            response,
+            kwargs.get("session") or {},
         )
         if enrich_skill_content:
             _enrich_skill_content(

@@ -1,11 +1,10 @@
 """Composition root for the user-facing Manager.
 
 The Manager owns control-plane decisions around a mission: front-door routing,
-vertical selection and persistence, stage transitions, and bounded
-self-maintenance. Mission execution remains with LifeSupervisor, Planner,
-Engineer, and Reviewer.
+vertical selection and persistence, and stage transitions. Mission execution
+remains with LifeSupervisor, Planner, Engineer, and Reviewer.
 
-The implementation is split by concern across four sibling mixins. This module
+The implementation is split by concern across three sibling mixins. This module
 contains only the public result dataclasses and the ``Manager`` shell that wires
 shared state, usage accounting, and pipeline locking.
 """
@@ -17,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 from ._front_door_ops import _FrontDoorMixin
-from ._maintenance_ops import _MaintenanceMixin
 from ._session_ops import _ManagerSession, manager_pipeline_lock
 from ._stage_ops import _StageDecisionMixin
 from ._vertical_ops import _VerticalDecisionMixin
@@ -36,7 +34,7 @@ class Division:
     domain: str = ""         # optional built-in overlay, currently for research
     workflow_mode: str = "staged"
     execution_task: str = ""
-    require_independent_review: bool = False
+    require_independent_review: bool = True
     # Set when the Manager AUTHORED a new data domain for a task that fit no
     # preset vertical. ``pending_confirmation`` means the proposal has NOT been
     # written yet — the interactive caller must confirm and then call
@@ -74,8 +72,8 @@ class StageTransition:
     target_stage: str
     reason: str
     current_stage: str = ""
-    # manager_llm | no_review_hold | no_runner_hold | failsafe_hold |
-    # illegal_target_hold
+    # manager_llm | manager_deterministic | no_review_hold | no_runner_hold |
+    # operator_abort_hold | failsafe_hold | illegal_target_hold
     source: str = "manager_llm"
     # Non-secret parser/runtime code for log triage (never raw model output).
     diagnostic: str = ""
@@ -89,7 +87,6 @@ class StageTransition:
 # ---------------------------------------------------------------------------
 
 class Manager(
-    _MaintenanceMixin,
     _VerticalDecisionMixin,
     _StageDecisionMixin,
     _FrontDoorMixin,
@@ -162,6 +159,25 @@ class Manager(
         if not root_task_id or self._usage_context_factory is None:
             return nullcontext()
         return self._usage_context_factory(root_task_id)
+
+    def _role_skill_block(
+        self, objective: str, *, include_libraries: bool = True
+    ) -> str:
+        """Return path-only Manager Skill context and edit rules."""
+        if self.skill_store is None:
+            return ""
+        block = ""
+        if include_libraries and (objective or "").strip():
+            libraries = self.mission.libraries()
+            if libraries.block:
+                block = libraries.block + "\n\n"
+        from ..skills.role_memory import role_skill_maintenance_block
+
+        return block + role_skill_maintenance_block(
+            self.skill_store,
+            "manager",
+            enabled=self.memory_maintenance_enabled,
+        )
 
     def pipeline_lock(self):
         return manager_pipeline_lock(self.manager_session_root)

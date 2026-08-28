@@ -1,7 +1,6 @@
 """Budgeted agent-CLI boundary for supervised subagent decisions."""
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 from ...adapters.agent_cli_backend import AgentCliBackend
@@ -67,7 +66,6 @@ def _run_backend_turn(
     model: str,
     cwd: str,
     thread_id: str | None,
-    timeout: int,
     run_label: str,
     mission_id: str | None = None,
 ) -> RunnerResult:
@@ -76,13 +74,6 @@ def _run_backend_turn(
         project_root=_usage_project_root(cwd),
         mission_id=mission_id or run_label,
     )
-    deadline = time.monotonic() + max(1, timeout)
-
-    def timeout_reason() -> str | None:
-        if time.monotonic() >= deadline:
-            return f"subagent model turn exceeded {timeout}s"
-        return None
-
     sandbox_mode = (
         engineer_sandbox_mode()
         if str(getattr(backend, "backend", "") or "") == "codex"
@@ -98,10 +89,9 @@ def _run_backend_turn(
             skip_git_repo_check=True,
             sandbox_mode=sandbox_mode,
             dangerous_yolo=sandbox_mode is None,
-            external_interrupt_reason_provider=timeout_reason,
             watchdog_soft_idle_seconds=0,
             watchdog_stalled_idle_seconds=0,
-            watchdog_hard_idle_seconds=timeout,
+            watchdog_hard_idle_seconds=0,
         ),
         run_label=run_label,
         resume_thread_id=thread_id,
@@ -122,7 +112,6 @@ def _run_supervisor_with_usage(
     model: str,
     cwd: str,
     thread_id: str | None = None,
-    timeout: int = 120,
     *,
     run_label: str = "subagent",
     mission_id: str | None = None,
@@ -133,7 +122,6 @@ def _run_supervisor_with_usage(
         model,
         cwd,
         thread_id,
-        timeout,
         run_label,
         mission_id,
     )
@@ -147,7 +135,6 @@ def _run_supervisor_with_usage(
             model,
             cwd,
             None,
-            timeout,
             f"{run_label}:resume-recovery",
             mission_id,
         )
@@ -162,7 +149,6 @@ def _run_supervisor(
     model: str,
     cwd: str,
     thread_id: str | None = None,
-    timeout: int = 120,
 ) -> tuple[list[str], str | None]:
     """Backward-compatible wrapper returning only messages and thread id."""
     messages, new_thread_id, _usage = _run_supervisor_with_usage(
@@ -170,7 +156,6 @@ def _run_supervisor(
         model,
         cwd,
         thread_id,
-        timeout,
     )
     return messages, new_thread_id
 

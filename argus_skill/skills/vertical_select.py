@@ -782,6 +782,19 @@ def vertical_completion_certificate_status(
                 "workflow_mode": mode,
                 "final_stage": stage_order[-1],
             }
+    manuscript_root = str(record.get("manuscript_project_root") or "").strip()
+    manuscript_binding = record.get("manuscript_snapshot")
+    if str(vertical or "").strip().casefold() == "research":
+        binding_root = Path(manuscript_root or str(project_root))
+        if (
+            (binding_root / "paper/main.tex").is_file()
+            and not isinstance(manuscript_binding, dict)
+        ):
+            return {
+                **detail,
+                "reason": "unbound (certification did not record the manuscript version)",
+                "freshness_status": "unbound",
+            }
     if completion_contract_version <= 0:
         return {"ok": True}
     try:
@@ -807,6 +820,19 @@ def vertical_completion_certificate_status(
         return {**detail, "reason": "contract version moved since certification"}
     if persisted != expected:
         return {**detail, "reason": "certified checklist differs from the live one"}
+    if isinstance(manuscript_binding, dict) and manuscript_root:
+        try:
+            from ..core.manuscript_snapshot import manuscript_review_status
+
+            freshness = manuscript_review_status(record, manuscript_root)
+        except Exception:  # noqa: BLE001 - unreadable paper identity fails closed
+            return {**detail, "reason": "certified manuscript identity unreadable"}
+        if freshness.get("status") != "current":
+            return {
+                **detail,
+                "reason": str(freshness.get("message") or "certified manuscript is stale"),
+                "freshness_status": freshness.get("status"),
+            }
     return {"ok": True}
 
 

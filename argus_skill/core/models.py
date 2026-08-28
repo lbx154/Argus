@@ -72,7 +72,7 @@ class RunnerOptions:
     # Remove all model-visible tools for prompts that contain untrusted
     # diagnostic text. Unsupported backends must fail closed before spawning.
     disable_tools: bool = False
-    # Strong process-level confinement used by daemon self-maintenance. Unlike
+    # Strong process-level confinement used by isolated framework maintenance. Unlike
     # backend-native sandbox flags, this applies to every CLI backend and fails
     # closed when the host cannot provide isolation.
     isolate_workdir: bool = False
@@ -164,6 +164,7 @@ class RunnerResult:
     orphan_process_group_id: int = 0
     orphan_process_group_cleanup_succeeded: bool = False
     role_decisions: list[dict[str, Any]] = field(default_factory=list)
+    operator_context_revision: int = 0
 
     @property
     def last_agent_message(self) -> str:
@@ -209,7 +210,10 @@ class ReviewDecision:
     backend_fatal_error: str = ""
     backend_exit_code: int | None = None
     backend_stop_kind: StopKind | None = None
+    # Runtime provenance for the pre-Reviewer operator-abort short circuit.
+    engineer_aborted_before_review: bool = False
     research_result: dict[str, Any] | None = None
+    manuscript_snapshot: dict[str, str] | None = None
 
     @property
     def final_submission_certified(self) -> bool:
@@ -247,6 +251,8 @@ class ReviewDecision:
             "stop_kind": self.backend_stop_kind,
             "usage_scope": "delta",
         }
+        if isinstance(self.manuscript_snapshot, dict):
+            payload["manuscript_snapshot"] = dict(self.manuscript_snapshot)
         report = self.planner_report if isinstance(self.planner_report, dict) else {}
         forward_progress = report.get("forward_progress")
         if isinstance(forward_progress, bool):

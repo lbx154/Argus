@@ -64,7 +64,9 @@ def test_the_message_carries_what_a_decision_needs() -> None:
         options=[{"label": "CIFAR"}, {"label": "ImageNet"}],
     )
 
-    assert "需要你决策" in text
+    assert "Your decision is needed" in text
+    assert "Project: s-research1" in text
+    assert "Task: survey the literature" in text
     assert "s-research1" in text
     assert "survey the literature" in text
     assert "which dataset" in text
@@ -76,7 +78,7 @@ def test_options_are_optional() -> None:
     text = pending_question_message(project="p", title="t", question="q?")
 
     assert "q?" in text
-    assert "可选" not in text
+    assert "Options:" not in text
 
 
 def test_malformed_options_do_not_break_the_message() -> None:
@@ -84,7 +86,21 @@ def test_malformed_options_do_not_break_the_message() -> None:
         project="p", title="t", question="q?", options=["not a dict", {}, {"label": ""}]
     )
 
-    assert "可选" not in text
+    assert "Options:" not in text
+
+
+def test_chinese_question_uses_a_chinese_wrapper() -> None:
+    text = pending_question_message(
+        project="研究项目",
+        title="选择数据集",
+        question="基线应该使用哪个数据集？",
+        options=[{"label": "数据集 A"}, {"label": "数据集 B"}],
+    )
+
+    assert "需要你决定" in text
+    assert "项目：研究项目" in text
+    assert "任务：选择数据集" in text
+    assert "可选：数据集 A / 数据集 B" in text
 
 
 # -- sending ----------------------------------------------------------------

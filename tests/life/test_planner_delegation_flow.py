@@ -114,6 +114,12 @@ def test_planner_delegates_to_engineer_and_continues_after_one_increment(
     assert [item.title for item in pending] == ["Deduplicate Manager reply rows"]
     assert pending[0].manager_decision["vertical"] == "argus_maintenance"
     assert pending[0].manager_decision["route_source"] == "planner"
+    assert "framework_maintenance" in pending[0].tags
+    assert pending[0].context_refs == [{
+        "ref": str(supervisor.memory.root / "events.jsonl"),
+        "kind": "runtime evidence",
+        "why": "Identity drift causes duplicate Manager reply rows.",
+    }]
 
     assert len(planner.calls) == 3
     assert all(call["options"].sandbox_mode == "read-only" for call in planner.calls)
@@ -251,7 +257,7 @@ def test_bounded_manager_direct_task_skips_planner_decomposition(
     assert pending[0].objective == objective
     assert "manager_direct" in pending[0].tags
     assert "stage_closing" in pending[0].tags
-    assert "review:required" not in pending[0].tags
+    assert "review:required" in pending[0].tags
     assert planner.calls == []
 
 
@@ -579,6 +585,137 @@ def test_0d3_later_no_gap_evidence_replaces_skip_zero_plan(
     assert decided and decided[-1]["manager_action"] == "replace"
     assert decided[-1]["revision_latency_seconds"] >= 1
     assert committed and committed[-1]["alternative"].startswith("Use the no-gap")
+
+
+def _assert_replan_replace_commits_after_source_terminalized(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    plan_version: int,
+    expected_replacement_version: int,
+) -> None:
+    class _TerminalizedReplanRunner:
+        def execute(self, **_kwargs):  # noqa: ANN003
+            return SimpleNamespace(
+                success=False,
+                status="replan_requested",
+                stop_reason="completed work requires a replacement plan",
+                rounds=1,
+                final_review_status="done",
+                final_review_reason=(
+                    "The source node completed enough evidence to refute itself."
+                ),
+                final_planner_report={
+                    "forward_progress": True,
+                    "plan_signal": "reconsider",
+                    "challenge": "The source route is now worse than the replacement.",
+                    "alternative": "Commit the replacement route.",
+                    "authority_impact": "technical",
+                },
+                plan_challenge={
+                    "manager_action": "replace",
+                    "manager_reason": "Later evidence supports a replacement.",
+                    "challenge": "The source route is now worse than the replacement.",
+                    "alternative": "Commit the replacement route.",
+                    "authority_impact": "technical",
+                    "source": "manager_authority_policy",
+                    "raised_at": time.time() - 2,
+                },
+                stage_transition={},
+            )
+
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    planner = _PlannerBackend([
+        "\n".join([
+            "PROJECT_DONE=false",
+            "REASON=replace the terminalized source with the approved route",
+            "TASK_KEY=replacement",
+            "TASK_TITLE=Commit the replacement route",
+            "TASK_OBJECTIVE=Implement the replacement route approved by Manager.",
+            "TASK_HYPOTHESIS=The replacement route satisfies the original goal.",
+            "TASK_GOAL_CONTRIBUTION=Preserve progress after the source refuted itself.",
+            "TASK_EXPECTED_REGRESSIONS=The original route is superseded.",
+            "TASK_DECISION_RULE=Reject if the replacement does not meet the old goal.",
+            "TASK_ACCEPTANCE_CHECK=Verify the original goal on the replacement route.",
+        ])
+    ])
+    supervisor = _supervisor(project, tmp_path / "life", planner)
+    supervisor.runner = _TerminalizedReplanRunner()
+    trigger = supervisor.memory.backlog.add(BacklogItem.new(
+        title="Run the source route",
+        objective="Run the source route until its evidence is decisive.",
+        item_id="source-route",
+        plan_id="plan-old",
+        plan_version=plan_version,
+        node_key="source",
+        manager_decision={"routed": True, "vertical": "software"},
+    ))
+    supervisor.memory.backlog.add(BacklogItem.new(
+        title="Continue the source route",
+        objective="Continue after the source route.",
+        item_id="source-followup",
+        plan_id="plan-old",
+        plan_version=plan_version,
+        node_key="followup",
+        deps=[trigger.id],
+    ))
+
+    outcome = supervisor._run_one(trigger)
+
+    rows_after_run = {item.id: item for item in supervisor.memory.backlog.all()}
+    assert rows_after_run["source-route"].status == "failed"
+    assert outcome["status"] == "replan_requested"
+    assert outcome["plan_revision_witness"]["active_item_ids"] == [
+        "source-route",
+        "source-followup",
+    ]
+    assert supervisor._adjudicate_mission_challenge(outcome) == "replace"
+    assert supervisor._plan_next_work(revision_request=outcome) is True
+
+    rows = {item.id: item for item in supervisor.memory.backlog.all()}
+    assert rows["source-route"].status == "superseded"
+    assert rows["source-followup"].status == "superseded"
+    replacement = next(item for item in rows.values() if item.status == "pending")
+    assert replacement.title == "Commit the replacement route"
+    assert replacement.plan_version == expected_replacement_version
+    events = [
+        json.loads(line)
+        for line in (supervisor.memory.root / "events.jsonl").read_text().splitlines()
+    ]
+    committed = [
+        event for event in events
+        if event.get("type") == "life.plan.revision.committed"
+    ]
+    assert committed and committed[-1]["superseded_item_ids"] == [
+        "source-route",
+        "source-followup",
+    ]
+
+
+def test_replan_replace_commits_after_source_terminalized(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _assert_replan_replace_commits_after_source_terminalized(
+        tmp_path,
+        monkeypatch,
+        plan_version=1,
+        expected_replacement_version=2,
+    )
+
+
+def test_replan_replace_commits_after_version_zero_source_terminalized(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _assert_replan_replace_commits_after_source_terminalized(
+        tmp_path,
+        monkeypatch,
+        plan_version=0,
+        expected_replacement_version=1,
+    )
 
 
 def test_forbidden_questions_request_revision_within_existing_authority(

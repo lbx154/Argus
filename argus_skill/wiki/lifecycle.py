@@ -51,25 +51,4 @@ def ensure_project_wiki(
     return wiki_root
 
 
-def maintain_wikis_after_mission(
-    *,
-    workdir: Path,
-    auto_compact_enabled: bool,
-    reviewer_runner: Any,
-    reviewer_model: str,
-    reviewer_reasoning_effort: str,
-    on_event: EventSink = None,
-) -> dict[str, Any]:
-    """Do nothing: Agents maintain pages and INDEX.md during the mission."""
-    _ = (
-        auto_compact_enabled,
-        reviewer_runner,
-        reviewer_model,
-        reviewer_reasoning_effort,
-        on_event,
-    )
-    roots = discover_wikis(workdir)
-    return {"wiki_count": len(roots), "paths": [str(path) for path in roots]}
-
-
-__all__ = ["ensure_project_wiki", "maintain_wikis_after_mission"]
+__all__ = ["ensure_project_wiki"]

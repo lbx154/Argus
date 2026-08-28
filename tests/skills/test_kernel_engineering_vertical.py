@@ -47,7 +47,7 @@ def test_kernel_engineering_banner_prioritizes_direct_measured_work() -> None:
     assert "`owns_paths` disjoint" in planner
     assert "never queue status polling" in planner
     assert "Proactively use fresh primary-source research" in planner
-    assert "`work_kind=algorithm_discovery`" in planner
+    assert "bounded report-only source-analysis task" in planner
     assert "do not wait for repeated failures" in planner
     assert "does not need to produce code" in planner
     assert "portfolio of genuinely different mechanisms" in planner
@@ -75,12 +75,6 @@ def test_kernel_optimization_missions_have_live_search_available() -> None:
 
     assert contract.live_search_stages(
         default,
-        work_kind="algorithm_discovery",
-        preserve_configured=False,
-    ) == frozenset({"optimize"})
-    assert contract.live_search_stages(
-        default,
-        work_kind="engineering_optimization",
         preserve_configured=False,
     ) == frozenset({"optimize"})
 
@@ -150,25 +144,3 @@ def test_kernel_reference_guidance_does_not_gate_exploration() -> None:
     assert "high-risk exploration" in idgl
     assert "One clean run is enough for exploratory screening" in idgl
     assert "do not require multiple seeds" in measurement
-
-
-def test_kernel_optimize_stage_has_no_framework_file_gate() -> None:
-    mod = load_vertical("kernel_engineering")
-    commands = "\n".join(command for _label, command in mod.STAGE_CHECKS["optimize"])
-    assert commands == ""
-
-
-def test_reviewer_checklist_skill_paths_exist() -> None:
-    mod = load_vertical("kernel_engineering")
-    skill_root = (
-        Path(__file__).resolve().parents[2]
-        / "argus_skill"
-        / "verticals"
-        / "kernel_engineering"
-        / "skills"
-    )
-    missing = []
-    for stage, (skill_path, _instructions, _artifacts) in mod.REVIEWER_CHECKLISTS.items():
-        if not (skill_root / skill_path).is_file():
-            missing.append(f"{stage}: {skill_path}")
-    assert missing == []

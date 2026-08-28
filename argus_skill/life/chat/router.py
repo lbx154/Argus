@@ -154,6 +154,30 @@ class CommandRouter:
         """Inbox provenance tag, e.g. ``telegram.nudge`` / ``feishu.nudge``."""
         return f"{self.channel}.{kind}"
 
+    def _intake_operator_text(self, text: str) -> tuple[str, Any, str | None, str]:
+        """Redact credentials, then run the shared Manager intake classifier."""
+        from ...core.operator_context import import_deterministic_credential
+        from ...manager.config_intent import _front_door_classify
+        from ..memory import MemoryBundle
+
+        safe_text, credential = import_deterministic_credential(
+            self.life_dir,
+            text,
+            global_root=self.life_dir.parent.parent,
+        )
+        mem = MemoryBundle.for_cwd(
+            fingerprint=self.life_dir.name,
+            global_root=self.life_dir.parent.parent,
+        )
+        self._state["_frontdoor_credential_imported"] = credential is not None
+        intent, control, route = _front_door_classify(
+            mem,
+            safe_text,
+            self._state,
+            active_mission=bool(select_current_running_item(mem.backlog.active())),
+        )
+        return safe_text, intent, control, route
+
     # -- routing -----------------------------------------------------------
 
     def dispatch(self, text: str) -> None:
@@ -194,17 +218,17 @@ class CommandRouter:
         if handler:
             try:
                 handler(arg)
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 log.exception("%s command %s failed", self.channel, cmd_raw)
-                self._reply(f"❌ 命令执行失败: {exc}")
+                self._reply("❌ 这条命令暂时无法完成。详细错误已记录，请稍后重试。")
         elif text.startswith("/"):
             self._reply(f"❓ 未知命令: {cmd_raw}\n使用 /help 查看可用命令")
         else:
             try:
                 self._cmd_free_text(text)
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 log.exception("%s free-text dispatch failed", self.channel)
-                self._reply(f"❌ 任务未派发: {exc}")
+                self._reply("❌ 暂时无法安排这项任务。详细错误已记录，请稍后重试。")
 
     # -- individual commands -----------------------------------------------
 
@@ -230,7 +254,9 @@ class CommandRouter:
             pass
         return ""
 
-    def _queue_task(self, arg: str) -> QueuedTask | None:
+    def _queue_task(self, arg: str, *, intake_done: bool = False) -> QueuedTask | None:
+        if not intake_done:
+            arg, _intent, _control, _route = self._intake_operator_text(arg)
         cfg = self._state.setdefault("config", dict(DEFAULT_LIFE_CONFIG))
         iterate, cycles, body = parse_add_flags(
             arg,
@@ -295,22 +321,28 @@ class CommandRouter:
         self._reply(
             f"✅ 任务已添加\n\n"
             f"📌 <b>{_esc(queued.title)}</b>\n"
-            f"🎯 {_esc(queued.objective[:200])}\n"
-            f"🔖 ID: <code>{queued.id}</code>"
+            f"🎯 {_esc(queued.objective[:200])}"
         )
 
     def _cmd_free_text(self, text: str) -> None:
         """Route natural chat text to the most timely useful action."""
         from ...apps._inbox import queue_inbox_message
         from ...daemon.life_worker import read_daemon_status
+        from ...manager.config_intent import _apply_config_intent
         from ...manager.front_door import manager_triage
         from ..memory import LifeMemory, MemoryBundle
 
         mem = LifeMemory.open(self.life_dir)
-        current_task = select_current_running_item(mem.backlog.all())
+        current_task = select_current_running_item(mem.backlog.active())
         daemon_status = read_daemon_status(self.life_dir)
         if daemon_status.alive and current_task is not None:
-            text = text.strip()
+            from ...core.operator_context import import_deterministic_credential
+
+            text, _credential = import_deterministic_credential(
+                self.life_dir,
+                text.strip(),
+                global_root=self.life_dir.parent.parent,
+            )
             queue_inbox_message(self.life_dir, text, source=self._source("free_text"))
             title = _esc(str(getattr(current_task, "title", ""))[:80])
             self._reply(
@@ -321,16 +353,41 @@ class CommandRouter:
             )
             return
 
+        text, intent, _control, route = self._intake_operator_text(text.strip())
+        if intent is not None:
+            confirmations: list[str] = []
+            manager_mem = MemoryBundle.for_cwd(
+                fingerprint=self.life_dir.name,
+                global_root=self.life_dir.parent.parent,
+            )
+            if _apply_config_intent(
+                manager_mem,
+                intent,
+                self._state,
+                on_confirm=confirmations.append,
+            ):
+                self._reply("\n".join(confirmations))
+                return
+
         manager_mem = MemoryBundle.for_cwd(
             fingerprint=self.life_dir.name,
             global_root=self.life_dir.parent.parent,
         )
-        reply = manager_triage(manager_mem, text, self._state)
+        from ...manager.front_door import _accepts_parameter
+
+        triage_kwargs: dict[str, Any] = {}
+        if _accepts_parameter(manager_triage, "route"):
+            triage_kwargs["route"] = route
+        if _accepts_parameter(manager_triage, "self_mode"):
+            triage_kwargs["self_mode"] = str(
+                self._state.get("_frontdoor_self_mode", "inspect")
+            )
+        reply = manager_triage(manager_mem, text, self._state, **triage_kwargs)
         if reply is not None:
             self._reply(_esc(reply))
             return
 
-        queued = self._queue_task(text)
+        queued = self._queue_task(text, intake_done=True)
         if queued is None:
             self._reply("我没收到有效内容；可以直接发任务描述，或用 /help 查看命令。")
             return
@@ -342,7 +399,6 @@ class CommandRouter:
             "收到，我会把这当作一个新任务来做。\n"
             f"📌 <b>{_esc(queued.title)}</b>\n"
             f"🎯 {_esc(queued.objective[:200])}\n"
-            f"🔖 ID: <code>{queued.id}</code>\n"
             f"{status_line}\n"
             "中间如果在匹配技能、读代码或跑测试，我也会发进展；/status 可以随时查看。"
         )
@@ -359,7 +415,9 @@ class CommandRouter:
         ds = read_daemon_status(self.life_dir)
         cs = read_continuous_state(self.life_dir)
 
-        all_items = mem.backlog.all()
+        # /status reports cumulative done/failed/skipped counts, so it is an
+        # explicit history consumer rather than a live scheduling read.
+        all_items = mem.backlog.history()
         pending, running, paused, done, failed, skipped = count_backlog_statuses(
             all_items
         )
@@ -380,9 +438,9 @@ class CommandRouter:
         # Daemon
         if ds.alive:
             uptime_str = _fmt_duration(ds.uptime_seconds) if ds.uptime_seconds else "?"
-            lines.append(f"🟢 守护进程运行中 (PID {ds.pid}, 已运行 {uptime_str})")
+            lines.append(f"🟢 后台工作进程运行中（已运行 {uptime_str}）")
         else:
-            lines.append("🔴 守护进程未运行")
+            lines.append("🔴 后台工作进程未运行")
 
         # Continuous mode
         if cont.enabled:
@@ -397,11 +455,9 @@ class CommandRouter:
 
         # Current task + active layer
         if current_task:
-            current_id = _esc(str(getattr(current_task, "id", "")))
             current_title = _esc(str(getattr(current_task, "title", ""))[:60])
             current_objective = _esc(str(getattr(current_task, "objective", ""))[:150])
             lines.append(f"\n🔧 <b>当前任务:</b> {current_title}")
-            lines.append(f"🔖 ID: <code>{current_id}</code>")
             lines.append(f"🎯 {current_objective}")
             # Determine active layer from most recent journal entry
             active_layer = self._detect_active_layer(mem)
@@ -417,15 +473,15 @@ class CommandRouter:
 
         # Backlog
         lines.append(
-            f"\n📋 active: {pending} pending · {running} running · {paused} paused"
+            f"\n📋 进行中：{pending} 项待办 · {running} 项执行中 · {paused} 项已暂停"
         )
         history_parts = [part for part in (
-            f"{done} done" if done else "",
-            f"{failed} failed" if failed else "",
-            f"{skipped} skipped" if skipped else "",
+            f"{done} 项完成" if done else "",
+            f"{failed} 项未完成" if failed else "",
+            f"{skipped} 项已跳过" if skipped else "",
         ) if part]
         if history_parts:
-            lines.append(f"🕰️ history: {' · '.join(history_parts)}")
+            lines.append(f"🕰️ 历史：{' · '.join(history_parts)}")
 
         lines.append(f"📬 收件箱: {inbox_pending} 条待处理")
         lines.append(f"💵 {format_budget_status(mem.journal, status=ds)}")
@@ -464,7 +520,9 @@ class CommandRouter:
         self._state["continuous_state"] = read_continuous_state(self.life_dir)
         self._state["continuous_objective"] = self._state["continuous_state"].objective
         tokens = shlex.split(arg) if arg.strip() else []
-        self._reply(f"<pre>{_esc(render_backend_cmd(tokens, self._state))}</pre>")
+        self._reply(
+            f"<pre>{_esc(render_backend_cmd(tokens, self._state, life_dir=self.life_dir))}</pre>"
+        )
 
     def _cmd_reset(self, _arg: str) -> None:
         self._reply(f"<pre>{_esc(render_reset_cmd(self._state))}</pre>")
@@ -638,7 +696,13 @@ class CommandRouter:
             return
         from ...apps._inbox import queue_inbox_message
 
-        text = arg.strip()
+        from ...core.operator_context import import_deterministic_credential
+
+        text, _credential = import_deterministic_credential(
+            self.life_dir,
+            arg.strip(),
+            global_root=self.life_dir.parent.parent,
+        )
         queue_inbox_message(self.life_dir, text, source=self._source("nudge"))
         self._reply(
             f"💬 指令已注入 ({len(text)} 字)\n"
@@ -654,6 +718,7 @@ class CommandRouter:
             return
         from ...webapi.manager_bridge import _answer_inline
 
+        question, _intent, _control, _route = self._intake_operator_text(question)
         self._reply(_esc(_answer_inline(self.life_dir.name, self.life_dir, question)))
 
     def _cmd_help(self, _arg: str) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, cast
 
@@ -18,6 +19,16 @@ from ..roles.prompts.manager import (
 )
 
 _IDENTITY_GUARD = _PROMPT_IDENTITY_GUARD
+log = logging.getLogger(__name__)
+
+
+def _routing_diagnostic(
+    message: str,
+    failure_sink: Callable[[str], None] | None,
+) -> None:
+    log.warning("Manager front-door diagnostic: %s", message)
+    if callable(failure_sink):
+        failure_sink(message)
 
 
 def _route_from_token(token: str) -> str:
@@ -47,6 +58,12 @@ def classify_route(
 
 #: The front-door decision fields, in the order the Manager contract lists them.
 _FRONT_DOOR_FIELDS = (
+    "intake_type",
+    "intake_scope",
+    "intake_roles",
+    "preference_kind",
+    "preference_value",
+    "revoke_revision",
     "config",
     "control",
     "authorization",
@@ -304,6 +321,7 @@ def classify_front_door(
     steering_sink: Callable[[str], None] | None = None,
     operator_question_policy_sink: Callable[[OperatorQuestionPolicy], None] | None = None,
     authorization_sink: Callable[[tuple[str, ...]], None] | None = None,
+    intake_sink: Callable[[dict[str, Any]], None] | None = None,
     failure_sink: Callable[[str], None] | None = None,
     active_mission: bool = False,
 ) -> "tuple[ConfigDecision, ControlIntent | None, str]":
@@ -325,7 +343,10 @@ def classify_front_door(
         return None, None, "complex"
     if int(getattr(result, "exit_code", 0) or 0) != 0:
         if callable(failure_sink):
-            failure_sink("classifier backend failed")
+            failure_sink(
+                str(getattr(result, "fatal_error", "") or "").strip()
+                or "classifier backend failed"
+            )
         return None, None, "complex"
     fields = _front_door_fields(result)
     intent = _parse_config_decision(fields["config"])
@@ -365,10 +386,18 @@ def classify_front_door(
         "TEAM",
         "COMPLEX",
     }:
-        if callable(failure_sink):
-            failure_sink("classifier returned no valid route")
-        return intent, None, "complex"
-    route = _route_from_token(route_token)
+        if control in {"abort", "pause", "no_dispatch", "steer"}:
+            _routing_diagnostic(
+                "route token invalid; control preserved "
+                f"(token={route_token or '<missing>'!r}, control={control!r})",
+                failure_sink,
+            )
+            route = "simple"
+        else:
+            _routing_diagnostic("classifier returned no valid route", failure_sink)
+            return intent, None, "complex"
+    else:
+        route = _route_from_token(route_token)
     if control in {"abort", "pause", "no_dispatch", "steer"}:
         route = "simple"
     authorization = _parse_authorization_line(fields["authorization"])
@@ -396,7 +425,7 @@ def classify_front_door(
         except Exception:  # noqa: BLE001 - advisory metadata never owns routing
             pass
     reply = _plain_reply(fields["reply"])
-    if (
+    reply_eligible = (
         callable(reply_sink)
         and route == "simple"
         and self_mode == "reply"
@@ -404,8 +433,14 @@ def classify_front_door(
         and control in {None, "no_dispatch"}
         and not authorization
         and reply.upper() != "NONE"
-        and 0 < len(reply) <= 1600
-    ):
+        and len(reply) > 0
+    )
+    if reply_eligible and len(reply) > 1600:
+        _routing_diagnostic(
+            f"reply exceeded 1600 chars; not delivered (length={len(reply)})",
+            failure_sink,
+        )
+    elif reply_eligible:
         try:
             reply_sink(reply)
         except Exception:  # noqa: BLE001 - optional fast reply only
@@ -455,13 +490,19 @@ def classify_front_door(
             pass
     steering = fields["steer_directive"]
     steering_token = steering.rstrip(".。!！").upper()
-    if (
+    steering_eligible = (
         callable(steering_sink)
         and control == "steer"
         and steering
         and steering_token not in {"NONE", "N/A", "NA", "NULL"}
-        and len(steering) <= 1600
-    ):
+    )
+    if steering_eligible and len(steering) > 1600:
+        _routing_diagnostic(
+            "steer_directive exceeded 1600 chars; not delivered "
+            f"(length={len(steering)})",
+            failure_sink,
+        )
+    elif steering_eligible:
         try:
             steering_sink(steering)
         except Exception:  # noqa: BLE001 - advisory metadata never owns routing
@@ -482,6 +523,57 @@ def classify_front_door(
         try:
             name_sink(name)
         except Exception:  # noqa: BLE001 - cosmetic metadata never owns routing
+            pass
+    intake_type = fields["intake_type"].strip().lower()
+    if intake_type not in {
+        "ephemeral",
+        "objective_amendment",
+        "standing_directive",
+        "preference",
+        "credential_grant",
+        "revocation",
+    }:
+        if intent is not None:
+            intake_type = "preference"
+        elif control == "steer" or route == "complex":
+            intake_type = "objective_amendment"
+        else:
+            intake_type = "ephemeral"
+    intake_scope = fields["intake_scope"].strip().lower()
+    if intake_scope not in {"mission", "project", "global"}:
+        intake_scope = "mission" if intake_type == "objective_amendment" else "project"
+    raw_roles = fields["intake_roles"].strip().lower()
+    if raw_roles == "all" or not raw_roles:
+        intake_roles: str | tuple[str, ...] = "all"
+    else:
+        intake_roles = tuple(
+            dict.fromkeys(
+                role.strip()
+                for role in raw_roles.split(",")
+                if role.strip() in {"manager", "planner", "engineer", "reviewer", "teammate"}
+            )
+        ) or "all"
+    preference_kind = fields["preference_kind"].strip().lower()
+    if preference_kind not in {"autonomy", "interaction", "workflow"}:
+        preference_kind = "workflow"
+    try:
+        revocation_target = int(fields["revoke_revision"])
+    except (TypeError, ValueError):
+        revocation_target = 0
+    if callable(intake_sink):
+        try:
+            intake_sink({
+                "kind": intake_type,
+                "scope": intake_scope,
+                "applies_to_roles": intake_roles,
+                "preference_kind": preference_kind,
+                "preference_value": (
+                    "" if fields["preference_value"].upper() == "NONE"
+                    else fields["preference_value"]
+                ),
+                "target_revision": revocation_target,
+            })
+        except Exception:  # noqa: BLE001 - intake metadata never owns routing
             pass
     return intent, control, route
 

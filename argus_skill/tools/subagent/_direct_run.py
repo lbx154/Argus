@@ -26,11 +26,18 @@ from ._registry import (
     _apply_supervisor_usage_fields,
     _exit_status_path,
     _launch_durable_command,
+    _process_identity,
     _read_task,
     _task_log_dir,
     _write_task,
 )
 from ._reporting import _alert_engineer
+from ._resource_admission import (
+    ResourceLease,
+    acquire_for_task,
+    command_env,
+    record_renewal_failure,
+)
 from ._text import _tail_file
 
 log = logging.getLogger(__name__)
@@ -323,7 +330,7 @@ def _run_direct(
     task_id: str,
     command: str,
     description: str,
-    timeout: int,
+    timeout: int | None,
     cwd: str,
     run_dir: str | None = None,
 ) -> None:
@@ -334,11 +341,19 @@ def _run_direct(
     stderr_path = log_dir / "stderr.log"
 
     start_time = time.time()
+    submitted_task = _read_task(task_id) or {}
     run_id = str(
-        (_read_task(task_id) or {}).get("run_id")
+        submitted_task.get("run_id")
         or f"{task_id}-{time.time_ns()}"
     )
+    timeout_defaulted = bool(submitted_task.get("timeout_defaulted", False))
+    timeout_fields = {
+        "timeout_seconds": timeout,
+        "timeout_defaulted": timeout_defaulted,
+    }
+    worker_identity = _process_identity(os.getpid())
     claim_owner = f"{run_id}:{os.getpid()}:{time.time_ns()}"
+    resource_lease: ResourceLease | None = None
     try:
         rejected, concern = experiment_launch_preflight(
             task_id=task_id,
@@ -360,12 +375,19 @@ def _run_direct(
                 "completed_at": time.time(),
                 "mode": "direct",
                 "worker_pid": os.getpid(),
+                "worker_process_identity": worker_identity,
                 "run_dir": run_dir,
+                **timeout_fields,
             }
             _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
             _write_task(task_id, td)
             _alert_engineer(task_id, "PREFLIGHT-REJECTED", td)
             return
+        resource_lease = acquire_for_task(
+            task_id,
+            mode="direct",
+            project_root=Path.cwd(),
+        )
         with stdout_path.open("w") as out, stderr_path.open("w") as err:
             proc = _launch_durable_command(
                 task_id=task_id,
@@ -374,22 +396,51 @@ def _run_direct(
                 stdout=out,
                 stderr=err,
                 cwd=cwd,
+                env=command_env(resource_lease),
             )
+            command_identity = _process_identity(proc.pid)
             running_task = _apply_supervisor_usage_fields({
                 "state": "running", "task_id": task_id,
                 "run_id": run_id,
                 "description": description, "command": command,
                 "pid": proc.pid, "worker_pid": os.getpid(),
+                "process_identity": command_identity,
+                "worker_process_identity": worker_identity,
                 "started_at": time.time(), "mode": "direct",
                 "run_dir": run_dir,
                 "exit_status_path": str(
                     _exit_status_path(task_id, run_id).resolve()
                 ),
                 "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
+                **timeout_fields,
             }, model="", totals=_ZERO_USAGE_TUPLE)
             _write_task(task_id, running_task)
             try:
-                proc.wait(timeout=timeout)
+                if timeout is None and resource_lease is None:
+                    proc.wait()
+                elif resource_lease is None:
+                    proc.wait(timeout=timeout)
+                else:
+                    deadline = (
+                        time.monotonic() + timeout
+                        if timeout is not None
+                        else None
+                    )
+                    renew_every = max(1.0, resource_lease.ttl_seconds / 3.0)
+                    while True:
+                        remaining = (
+                            deadline - time.monotonic()
+                            if deadline is not None
+                            else renew_every
+                        )
+                        if deadline is not None and remaining <= 0:
+                            raise subprocess.TimeoutExpired(proc.args, timeout)
+                        try:
+                            proc.wait(timeout=min(renew_every, remaining))
+                            break
+                        except subprocess.TimeoutExpired:
+                            if not resource_lease.renew():
+                                record_renewal_failure(task_id, resource_lease)
             except subprocess.TimeoutExpired:
                 # Kill the whole process group, not just the shell: the command
                 # runs with start_new_session=True, so a GPU trainer it spawned
@@ -399,7 +450,13 @@ def _run_direct(
                     "run_id": run_id,
                     "description": description, "command": command,
                     "pid": proc.pid, "worker_pid": os.getpid(),
-                    "timeout_seconds": timeout,
+                    "process_identity": command_identity,
+                    "worker_process_identity": worker_identity,
+                    **timeout_fields,
+                    "timeout_message": (
+                        f"Hard timeout reached after {timeout} seconds; "
+                        "this was the configured --timeout limit."
+                    ),
                     "elapsed_seconds": round(time.time() - start_time, 1),
                     "completed_at": time.time(), "mode": "direct",
                     "run_dir": run_dir,
@@ -419,9 +476,12 @@ def _run_direct(
             "command": command, "exit_code": proc.returncode,
             "elapsed_seconds": elapsed, "completed_at": time.time(),
             "pid": proc.pid, "worker_pid": os.getpid(), "mode": "direct",
+            "process_identity": command_identity,
+            "worker_process_identity": worker_identity,
             "run_dir": run_dir,
             "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
+            **timeout_fields,
         }
         _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
         _write_task(task_id, td)
@@ -436,12 +496,16 @@ def _run_direct(
             "elapsed_seconds": round(time.time() - start_time, 1),
             "completed_at": time.time(), "mode": "direct",
             "worker_pid": os.getpid(),
+            "worker_process_identity": worker_identity,
             "run_dir": run_dir,
+            **timeout_fields,
         }
         _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
         _write_task(task_id, td)
         _alert_engineer(task_id, "CRASHED", td)
     finally:
+        if resource_lease is not None:
+            resource_lease.release()
         release_experiment_launch_claim(
             task_id=task_id,
             cwd=cwd,

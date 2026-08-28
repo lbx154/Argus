@@ -65,6 +65,23 @@ function trunc(s: string, n: number): string {
 }
 const S = (ev: EventMsg, k: string) => String((ev as Record<string, unknown>)[k] ?? '');
 
+function managerFailureText(ev: EventMsg): string {
+  const phase = S(ev, 'phase');
+  const cause = S(ev, 'cause') || S(ev, 'backend_error');
+  const raw = S(ev, 'error');
+  if (!phase || !cause) return `分流失败 ${trunc(raw, 160)}`;
+  const phaseLabel: Record<string, string> = {
+    backend: '后端',
+    parse: '解析',
+    contract: '契约：',
+    timeout: '超时',
+  };
+  const attempts = Number((ev as Record<string, unknown>).attempts || 0);
+  const attempt = attempts > 1 ? ` (第${attempts}次尝试)` : '';
+  const summary = `分流失败 · ${phaseLabel[phase] || phase} ${cause}${attempt}`;
+  return raw ? `${summary} · 原始错误: ${raw}` : summary;
+}
+
 /** Accept both lifecycle event schemas.  The supervised Engineer historically
  * emitted `round`, while other producers emitted `round_index`. */
 const roundNo = (ev: EventMsg): string | number => {
@@ -154,7 +171,7 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     });
     return { role: 'manager', label: 'Manager', glyph: '🧭', text: `→ ${routing || S(ev, 'kind') || 'resolved'}`, tone: 'info' };
   }
-  if (t === 'life.manager.intent.failed') return { role: 'manager', label: 'Manager', glyph: '⚠', text: `分流失败 ${trunc(S(ev, 'error'), 160)}`, tone: 'err' };
+  if (t === 'life.manager.intent.failed') return { role: 'manager', label: 'Manager', glyph: '⚠', text: managerFailureText(ev), tone: 'err', expand: true };
   if (t === 'life.manager.stage_decision') {
     const target = S(ev, 'target_stage') || S(ev, 'stage') || S(ev, 'current_stage');
     return { role: 'manager', label: 'Manager', glyph: '🧭', text: `${S(ev, 'action')}${target ? ` → ${target}` : ''} ${trunc(S(ev, 'reason'), 140)}`, tone: 'info' };

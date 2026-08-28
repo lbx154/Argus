@@ -16,7 +16,7 @@ from argus_skill.verticals.kernel_engineering.frontier_watch import (
     validate_record,
     write_record,
 )
-from argus_skill.verticals.kernel_engineering.stages import CHECKLIST_ITEMS, STAGE_CHECKS
+from argus_skill.verticals.kernel_engineering.stages import CHECKLIST_ITEMS
 
 
 def _record(*, stage: str = "optimize", searched_at: datetime | None = None) -> dict:
@@ -224,7 +224,6 @@ def test_record_cli_accepts_stdin(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_frontier_utility_is_not_a_kernel_workflow_gate() -> None:
-    assert STAGE_CHECKS == {"optimize": []}
     assert {
         item.id
         for items in CHECKLIST_ITEMS.values()

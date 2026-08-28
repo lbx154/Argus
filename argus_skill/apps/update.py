@@ -11,8 +11,19 @@ from typing import Callable, Sequence
 from ..core.runtime_identity import source_root
 
 PUBLIC_REPOSITORY = "https://github.com/lbx154/Argus.git"
-_PUBLIC_MAIN_REF = "refs/heads/main"
-_PUBLIC_UPSTREAM = "lbx154/Argus/main"
+
+
+def public_branch_ref(branch: str) -> str:
+    """Return the published ref that corresponds to the checked-out branch."""
+    name = str(branch or "").strip() or "main"
+    if any(ord(char) < 32 for char in name):
+        raise UpdateError("source branch contains invalid control characters")
+    return f"refs/heads/{name}"
+
+
+def public_upstream(branch: str) -> str:
+    name = str(branch or "").strip() or "main"
+    return f"lbx154/Argus/{name}"
 
 
 class UpdateError(RuntimeError):
@@ -42,21 +53,21 @@ class UpdateCheck:
 
     @property
     def update_available(self) -> bool:
-        return self.current_revision != self.upstream_revision
+        return bool(self.upstream_revision) and self.current_revision != self.upstream_revision
 
     @property
     def can_update(self) -> bool:
         return bool(self.branch) and not self.dirty
 
 
-CommandRunner = Callable[[Sequence[str], Path, float], subprocess.CompletedProcess[str]]
+CommandRunner = Callable[[Sequence[str], Path, float | None], subprocess.CompletedProcess[str]]
 ProgressReporter = Callable[[str], None]
 
 
 def _run_command(
     command: Sequence[str],
     cwd: Path,
-    timeout: float,
+    timeout: float | None,
 ) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
@@ -80,7 +91,7 @@ def _checked(
     command: Sequence[str],
     *,
     cwd: Path,
-    timeout: float = 30.0,
+    timeout: float | None = None,
 ) -> str:
     result = runner(command, cwd, timeout)
     if result.returncode != 0:
@@ -117,18 +128,20 @@ def inspect_source_checkout(
     )
     branch = _checked(runner, ["git", "branch", "--show-current"], cwd=checkout)
     current = _checked(runner, ["git", "rev-parse", "HEAD"], cwd=checkout)
+    upstream_ref = public_branch_ref(branch)
+    upstream = public_upstream(branch)
     remote = _checked(
         runner,
-        ["git", "ls-remote", PUBLIC_REPOSITORY, _PUBLIC_MAIN_REF],
+        ["git", "ls-remote", PUBLIC_REPOSITORY, upstream_ref],
         cwd=checkout,
         timeout=60.0,
     )
     upstream_revision = remote.split(None, 1)[0] if remote.strip() else ""
     if not upstream_revision:
-        raise UpdateError("public main did not return a revision")
+        raise UpdateError(f"published branch {upstream!r} did not return a revision")
     return UpdateCheck(
         root=checkout,
-        upstream=_PUBLIC_UPSTREAM,
+        upstream=upstream,
         current_revision=current,
         upstream_revision=upstream_revision,
         branch=branch,
@@ -143,7 +156,7 @@ def update_source_checkout(
     python_executable: str | None = None,
     on_progress: ProgressReporter | None = None,
 ) -> UpdateResult:
-    """Fast-forward from public main and reinstall the loaded source checkout."""
+    """Fast-forward from the matching published branch and reinstall the checkout."""
     report = on_progress or (lambda _phase: None)
     report("validating")
     checkout = (root or source_root()).expanduser().resolve()
@@ -179,13 +192,15 @@ def update_source_checkout(
     )
     if not branch:
         raise UpdateError("source checkout is detached; switch to a branch first")
+    upstream_ref = public_branch_ref(branch)
+    upstream = public_upstream(branch)
     before = _checked(runner, ["git", "rev-parse", "HEAD"], cwd=checkout)
     report("pulling")
     _checked(
         runner,
-        ["git", "pull", "--ff-only", PUBLIC_REPOSITORY, _PUBLIC_MAIN_REF],
+        ["git", "pull", "--ff-only", PUBLIC_REPOSITORY, upstream_ref],
         cwd=checkout,
-        timeout=300.0,
+        timeout=None,
     )
     after = _checked(runner, ["git", "rev-parse", "HEAD"], cwd=checkout)
 
@@ -196,13 +211,13 @@ def update_source_checkout(
             runner,
             [executable, "-m", "pip", "install", "-e", str(checkout)],
             cwd=checkout,
-            timeout=900.0,
+            timeout=None,
         )
 
     report("complete")
     return UpdateResult(
         root=checkout,
-        upstream=_PUBLIC_UPSTREAM,
+        upstream=upstream,
         before_revision=before,
         after_revision=after,
     )
@@ -216,17 +231,10 @@ def run_update() -> int:
         return 2
 
     if result.changed:
-        print(
-            "Argus updated "
-            f"{result.before_revision[:12]} -> {result.after_revision[:12]} "
-            f"from {result.upstream}."
-        )
+        print(f"Argus updated from {result.upstream}.")
         print("Run `argus` to activate the updated cockpit and safe daemon handoff.")
     else:
-        print(
-            f"Argus is already up to date at {result.after_revision[:12]} "
-            f"({result.upstream})."
-        )
+        print(f"Argus is already up to date ({result.upstream}).")
     return 0
 
 
@@ -236,6 +244,8 @@ __all__ = [
     "UpdateError",
     "UpdateResult",
     "inspect_source_checkout",
+    "public_branch_ref",
+    "public_upstream",
     "run_update",
     "update_source_checkout",
 ]

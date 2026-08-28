@@ -146,7 +146,7 @@ def mission_outcome_dimensions(
 
 
 def outcome_dimension_summary(outcome: object) -> list[str]:
-    """Render the compact cross-surface projection of a canonical outcome."""
+    """Render canonical outcome dimensions as compact colleague-readable facts."""
     if not isinstance(outcome, dict):
         return []
     execution = str(outcome.get("execution_status") or "").strip().lower()
@@ -155,15 +155,40 @@ def outcome_dimension_summary(outcome: object) -> list[str]:
     review = str(outcome.get("review_status") or "").strip().lower()
     stage = str(outcome.get("stage_certification") or "").strip().lower()
     interruption = str(outcome.get("interruption_kind") or "").strip().lower()
-    parts = [f"execution={execution}"]
+    parts = [{
+        "completed": "Work completed",
+        "paused": "Work paused",
+        "aborted": "Work canceled",
+        "incomplete": "Work remains",
+        "blocked": "Work is blocked",
+        "stalled": "Work stalled",
+        "failed": "Work failed",
+        "ended": "Work ended",
+    }.get(execution, f"Work {execution.replace('_', ' ')}")]
     if review and review != "not_assessed":
-        parts.append(f"review={review}")
+        parts.append({
+            "done": "Review passed",
+            "continue": "Review requested another pass",
+            "blocked": "Review needs an external decision",
+            "research_incomplete": "Review found work remaining",
+            "paused_no_breakthrough": "Review found no breakthrough yet",
+            "exhausted_current_methods": "Review found the current methods exhausted",
+        }.get(review, f"Review {review.replace('_', ' ')}"))
     if stage and stage != "not_assessed":
-        parts.append(f"stage={stage}")
+        parts.append({
+            "certified": "Stage certified",
+            "not_certified": "Stage remains open",
+            "revoked": "Stage certification revoked",
+            "intentionally_skipped": "Stage review intentionally skipped",
+            "deferred": "Stage decision deferred",
+        }.get(stage, f"Stage {stage.replace('_', ' ')}"))
     if interruption and interruption != "none":
-        parts.append(f"interrupt={interruption}")
+        parts.append({
+            "operator_abort": "Stopped at your request",
+            "budget_exhausted": "Stopped at the budget limit",
+        }.get(interruption, f"Stopped because {interruption.replace('_', ' ')}"))
     if outcome.get("resumable") is True:
-        parts.append("resumable=yes")
+        parts.append("Can resume")
     return parts
 
 

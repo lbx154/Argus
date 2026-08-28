@@ -32,7 +32,6 @@ def test_vertical_loads_with_expected_contract():
     ]
     # open-ended, non-benchmark: reviewer verdict ends it (like learning)
     assert mod.completion_gate == "none"
-    assert set(mod.REVIEWER_CHECKLISTS) == set(mod.STAGE_ORDER)
     assert "FICTION" in mod.role_banner("engineer")
 
 

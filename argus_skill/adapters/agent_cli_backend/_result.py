@@ -375,10 +375,7 @@ def translate_result(
     return RunnerResult(
         exit_code=cli_result.exit_code,
         agent_messages=list(cli_result.agent_messages or []),
-        role_decisions=extract_role_decisions([
-            *(cli_result.agent_messages or []),
-            *(cli_result.stdout_lines or []),
-        ]),
+        role_decisions=extract_role_decisions(cli_result.agent_messages or []),
         stdout_lines=list(cli_result.stdout_lines or []),
         stderr_lines=list(cli_result.stderr_lines or []),
         thread_id=cli_result.thread_id or resume_thread_id,

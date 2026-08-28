@@ -32,9 +32,9 @@ Semantic invariants the JSON schema cannot express, all enforced by
   ``"superseded"`` must be replaced by exactly one successor — you cannot quietly
   retire an artifact nothing replaced, nor claim to replace one still active.
 
-Content-on-disk existence is deliberately a SEPARATE, runtime-only check
+Content-on-disk existence is deliberately a separate check
 (:func:`assert_content_present`) so the pure-data contract stays testable without
-a filesystem, and a vertical's STAGE_CHECKS can enforce presence at run time.
+a filesystem. Callers that need this stronger guarantee invoke it explicitly.
 """
 from __future__ import annotations
 

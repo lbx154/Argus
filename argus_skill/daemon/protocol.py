@@ -88,16 +88,14 @@ def daemon_protocol_compatibility(status: Any) -> tuple[bool | None, str]:
     if expected_release and actual_release and expected_release != actual_release:
         return (
             False,
-            f"daemon release {actual_release} is incompatible with WebAPI release "
-            f"{expected_release}",
+            "daemon release is incompatible with WebAPI release",
         )
     expected_digest = str(expected_runtime.get("runtime_source_digest") or "")
     actual_digest = str((runtime or {}).get("runtime_source_digest") or "")
     if expected_digest and actual_digest and expected_digest != actual_digest:
         return (
             False,
-            f"daemon process source {actual_digest[:16]} is incompatible with "
-            f"WebAPI source {expected_digest[:16]}",
+            "daemon process source is incompatible with WebAPI source",
         )
     return True, ""
 

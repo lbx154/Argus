@@ -75,9 +75,6 @@ def test_long_experiment_protocol_is_in_every_engineer_turn():
         assert "launch a supervised subagent" not in out
         assert "session-owned background shell" in out.lower()
         assert "do not poll in the foreground" in out.lower()
-        assert ".argus_external_work/<id>.json" in out
-        assert "activity_stale_after_seconds" in out
-        assert "`read_bash`" in out
 
 
 def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
@@ -92,7 +89,7 @@ def test_engineer_must_not_spawn_a_subagent_to_impersonate_reviewer():
     assert "yield" in out.lower()
 
 
-def test_performance_tasks_require_causal_attribution() -> None:
+def test_performance_claims_require_causal_attribution() -> None:
     full = _prompt("Diagnose the data throughput bottleneck.")
     compact = SkillLoop._build_engineer_prompt(
         task="Diagnose the data throughput bottleneck.",
@@ -102,11 +99,8 @@ def test_performance_tasks_require_causal_attribution() -> None:
     )
 
     for out in (full, compact):
-        assert "## Performance diagnosis" in out
-        assert "live resource/wait state" in out
-        assert "phase timing/profiling or a controlled A/B" in out
-        assert "threshold miss only shows that this run missed its target" in out
-        assert "do not promote the hypothesis into a Skill" in out
+        assert "Performance root-cause/bottleneck/replacement claims need" in out
+        assert "hot-path/live-resource evidence plus timing/profiling or controlled A/B" in out
 
 
 def test_engineer_does_not_create_extra_handoff_packets():

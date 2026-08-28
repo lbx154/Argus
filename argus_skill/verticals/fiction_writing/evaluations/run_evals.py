@@ -80,8 +80,9 @@ def safe_bash(cmd: str, cwd: Path) -> str:
     if ">" in scan:
         return "blocked: output redirection not allowed"
     try:
-        out = subprocess.run(cmd, shell=True, cwd=str(cwd), timeout=20,
-                             capture_output=True, text=True)
+        out = subprocess.run(
+            cmd, shell=True, cwd=str(cwd), capture_output=True, text=True
+        )
         return (out.stdout + out.stderr)[:4000] or "(no output)"
     except Exception as e:  # noqa: BLE001
         return f"error: {e}"
@@ -105,7 +106,7 @@ def _post_raw(model: str, messages: list[dict], *, system: str | None = None,
                  "authorization": "Bearer placeholder"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=180) as r:
+        with urllib.request.urlopen(req) as r:
             return json.loads(r.read())
     except Exception as e:  # noqa: BLE001
         return {"_error": str(e), "content": [{"type": "text", "text": f"<transport-error: {e}>"}]}

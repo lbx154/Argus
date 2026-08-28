@@ -99,13 +99,15 @@ def test_engineer_account_is_labeled_and_capped_at_6000_chars(monkeypatch) -> No
         planner_review_instruction="",
         round_index=1,
         session_id=None,
-        main_summary="a" * 7000,
+        main_summary="HEAD:" + "m" * 6990 + ":TAIL",
         main_error=None,
     )
 
-    account = prompt.split("## Engineer's account of this round\n", 1)[1]
-    assert account.startswith("a" * 6000)
-    assert not account.startswith("a" * 6001)
+    account = prompt.split("## Engineer's account of this round\n", 1)[1].split(
+        "\n\nOperator messages:\n", 1
+    )[0]
+    assert account.startswith("HEAD:") and account.endswith(":TAIL")
+    assert "…[middle omitted 1100 characters]…" in account and len(account) <= 6000
 
 
 def test_reviewer_rejects_retroactive_audit_reconstruction(monkeypatch) -> None:

@@ -38,8 +38,6 @@ _PYTHON_ADMIN_FLAGS = frozenset(
         "--init-model-api",
         "--install-ppt-master",
         "--ppt-master-status",
-        "--approve-publication",
-        "--list-pending-publications",
         "--export-builtin-skills",
         "--evidence-chain-check",
         "--anti-mediocrity-check",
@@ -285,12 +283,6 @@ def main(argv: list[str] | None = None) -> int:
     headless = _headless_stdin_error()
     if headless:
         sys.stderr.write(f"{headless}\n")
-        return 2
-    from ..life.special_prompts import describe_special_prompt_gate
-
-    ok, detail = describe_special_prompt_gate()
-    if not ok:
-        sys.stderr.write(f"argus: {detail}\n")
         return 2
     bundle = _bundle_path()
     if bundle is None:

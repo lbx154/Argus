@@ -25,51 +25,20 @@ boundary finding may close that gap.
 
 For a `publishable` or `doctoral` paper mission that starts from a broad
 direction rather than an operator-locked hypothesis, use `agent-team-lead` to
-form a 12-route streaming idea pipeline:
+form a streaming portfolio of genuinely distinct mechanism families. Size it to
+the problem: a twelve-route fanout is a useful default example, not a quota.
 
-1. First inventory existing independent route reports. Count every report that
-   already has a distinct mechanism, source trail, closest work, kill argument,
-   and faithful probe; spawn only the missing routes. Never restart a second
-   "broad search" merely because the directory or route names differ.
-2. Give each route a materially different mechanism/domain slice, its own
-   `research/ideation/routes/<route-id>.md` output, and a separately checkable
-   source trail. Each route must identify the closest work, a non-obvious gap,
-   the strongest kill argument, and a faithful public-benchmark or real-trace
-   probe. Briefly inspect both application-frontier evidence
-   (ACL/EMNLP/NAACL, ICLR/ICML/NeurIPS, AAAI/AAMAS, recent arXiv) and relevant
-   mathematical, physical, statistical, ML, or deep-learning foundations.
-   This is a soft coverage diagnostic, not a quota: explain a missing side and
-   continue rather than spending tokens to fill categories.
-   For a broad publishable/doctoral Agent paper, reserve at least four routes for
-   independent foundation-first searches across relevant areas such as
-   probability and learning theory, information theory, control and dynamical
-   systems, causal inference, game theory, formal methods, or network/statistical
-   physics. Each such route must start from a concrete Agent failure and derive
-   an algorithm, bound, impossibility result, scaling law, threshold, or
-   quantitative prediction. A borrowed analogy or renamed physical quantity is
-   not a foundation.
-3. Form all missing tasks, then set the team pool with
-   `pool-set --root <team_root> --width 12 --state running`. The lead continues
-   venue and source verification while the Curator supervises the portfolio.
-4. As soon as one route report lands, give it to a fresh independent reviewer.
-   The reviewer verifies primary sources, attacks prior art and ambition, and
-   emits `qualified` or `rejected` plus the cheapest faithful probe contract.
-   Judge primarily from theoretical depth, novelty, mechanism, and professional
-   plausibility. Missing implementation detail or uncertain early evidence is
-   not a rejection reason. Keep reviews streaming while the remaining routes
-   continue.
-5. Search primary papers and official artifacts for novelty. Also inspect
-   credible practitioner reports, technical blogs, benchmark issue trackers,
-   and incident reports when they reveal deployment failures or unmet needs;
-   these may motivate a gap but never replace primary evidence for a novelty
-   claim.
-6. Preserve every route report and failed route. A single model call, several
-   parallel search queries inside one context, or twelve variants of one
-   mechanism do not satisfy the portfolio.
+Inventory existing reports before spawning work. Ask which mechanisms, alternative
+explanations, foundations, or deployment realities could change the decision, and
+assign independent routes to those uncertainties rather than to a preset discipline
+list. Each route should preserve the source trail, closest work, gap, kill argument,
+and any useful probe evidence. Search primary papers and official artifacts deeply
+enough to support novelty, using practitioner or incident evidence when it reveals a
+real unmet need.
 
-If provider capacity cannot sustain width 12, remain in research and surface
-the capacity blocker. Do not silently collapse the portfolio into a single
-author's candidate list.
+Review each route as it arrives. Preserve rejected routes and avoid duplicating the
+same mechanism under new names. Breadth is established by distinct explanatory and
+intervention possibilities, not by the number of tasks or provider width.
 
 ### Step 1 — bound the direction
 
@@ -261,34 +230,21 @@ later can stress-test it for real>
 ### Step 5 — review each route as it lands
 
 Every route has its own fresh `idea-review` task. That reviewer searches for the
-nearest implementation, benchmark, negative result, and simpler explanation,
-including a date-sorted search over the latest 12 months of arXiv and the current
-major-venue cycle, then judges novelty, technical depth, theoretical/causal
-foundation, frontier significance, falsifiability, and publication-scale evidence.
-Local ease cannot rescue a shallow or already-occupied idea and cannot outrank a
-stronger idea. A qualified route must be a high-novelty method or a large-scale
-empirical contribution; small diagnostics and benchmark audits need a field-changing
-question and publication-scale evaluation plan.
+nearest implementation, benchmark, negative result, and simpler explanation, then
+judges whether the route offers important, credible, nontrivial new knowledge. Theory,
+measurement, datasets, methods, anomalies, negative results, and boundary conditions
+are all eligible. Local ease cannot rescue a shallow or already-occupied idea.
 
-### Step 6 — select at the 80% review quorum, then smoke once
+### Step 6 — judge coverage, then select
 
-Wait until at least 80% of the 12 routes have completed independent reviews:
-`ceil(12 × 0.8) = 10`. Do not wait for the final two. Give those ten route and
-review artifacts to one fresh selector Agent, which chooses the strongest idea
-by current-frontier novelty, technical depth, generality, and top-conference
-contribution. The winner must be a high-novelty method or publication-scale empirical
-study. No-training convenience, shortest evidence path, cheapness, and single-GPU fit
-are not positive criteria; resource gaps become a staged compute plan. The selector
-writes `research/IDEA_SELECTION.json`.
-
-Only the selected route receives an advisory feasibility record. Run a sub-ten-minute
-observation only when it checks plumbing, data shape, or evaluator availability without
-pretending to decide a large-scale empirical hypothesis. Otherwise record the probe as
-skipped/untested and advance. Research must not run a full benchmark, training job,
-broad sweep, or publication-scale multi-seed evaluation. Success, failure, or absence
-of this observation cannot reverse the selector's judgment; plan/benchmark/run own the
-scientific result. The final two routes may finish in the background but do not block
-planning.
+Give one fresh selector every relevant route, review, probe, and later result that has
+arrived. The selector decides whether the portfolio contains genuinely distinct
+mechanism families and covers the uncertainties that could change the ranking. A
+twelve-route portfolio is a common operating example, not a quota; request the missing
+kind of evidence when coverage is weak. When coverage is sufficient, select the
+strongest qualified contribution and write `research/IDEA_SELECTION.json`. New evidence
+may update the choice and its rationale. Resource gaps become a staged plan rather than
+a reason to substitute a scientifically weaker route.
 
 ## Anti-patterns
 
@@ -305,8 +261,6 @@ planning.
 
 ## Output contract
 
-For broad publishable/doctoral paper ideation, preserves route and review
-artifacts under `research/ideation/portfolios/<direction>/`. After ten reviews,
-writes the selector Agent's winner to `research/IDEA_SELECTION.json` and one
-short advisory observation under the same portfolio. The final two routes never
-block the selected idea from entering planning.
+For broad publishable/doctoral paper ideation, preserve route and review artifacts
+under `research/ideation/portfolios/<direction>/`. Once the fresh selector judges the
+evidence broad enough, write its adversarial choice to `research/IDEA_SELECTION.json`.

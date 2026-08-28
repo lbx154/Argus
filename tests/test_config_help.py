@@ -61,7 +61,7 @@ def test_registry_covers_the_key_operator_knobs() -> None:
     assert "ARGUS_SKILL_SUPERVISOR_MODEL" in names
 
 
-def test_mission_round_default_is_bounded_and_consistent() -> None:
+def test_mission_round_default_is_unbounded_and_consistent() -> None:
     from argus_skill.engineer.round_config import SupervisedConfig
     from argus_skill.loop import SkillLoopConfig
 
@@ -69,9 +69,9 @@ def test_mission_round_default_is_bounded_and_consistent() -> None:
         knob for knob in KNOBS if knob.name == "ARGUS_SKILL_MAX_ROUNDS"
     )
 
-    assert max_rounds_knob.default == "32"
-    assert SkillLoopConfig().max_rounds == 32
-    assert SupervisedConfig().max_rounds == 32
+    assert max_rounds_knob.default == "0"
+    assert SkillLoopConfig().max_rounds == 0
+    assert SupervisedConfig().max_rounds == 0
 
 
 def test_manager_planner_and_self_reasoning_defaults_are_high() -> None:

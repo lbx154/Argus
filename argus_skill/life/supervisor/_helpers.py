@@ -12,6 +12,7 @@ from ._constants import PLANNER_RECENT_FAILURE_STATUS
 def _resolve_task_dep_ids(
     deps: list[str],
     key_map: dict[str, str],
+    normalized_key_map: dict[str, str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Map a task's dependency keys to real backlog item ids.
 
@@ -20,7 +21,10 @@ def _resolve_task_dep_ids(
 
     * a known key becomes its real item id (de-duped,
       order-preserving — a dep can only be satisfied once);
-    * an unknown key is dropped and reported in ``unresolved_keys``.
+    * an exact key wins; otherwise a uniquely resolved normalized key alias is
+      accepted (case-insensitive, with dashes/underscores/spaces equivalent);
+    * an unknown or ambiguous key is dropped and reported in
+      ``unresolved_keys``.
 
     A task with no ``deps`` yields ``([], [])`` — i.e. a flat item, scheduled
     exactly as before the DAG existed.
@@ -30,6 +34,8 @@ def _resolve_task_dep_ids(
     seen: set[str] = set()
     for key in deps:
         item_id = key_map.get(key)
+        if item_id is None and normalized_key_map is not None:
+            item_id = normalized_key_map.get(_normalize_task_dep_key(key))
         if item_id is None:
             unresolved.append(key)
             continue
@@ -38,6 +44,27 @@ def _resolve_task_dep_ids(
         seen.add(item_id)
         resolved.append(item_id)
     return resolved, unresolved
+
+
+def _normalize_task_dep_key(value: object) -> str:
+    """Canonicalize a Planner-local dependency key for alias matching."""
+    return re.sub(r"[-_\s]+", "_", str(value or "").strip().casefold())
+
+
+def _unique_normalized_task_key_aliases(
+    entries: list[tuple[str, str]],
+) -> dict[str, str]:
+    """Return normalized aliases only where every spelling names one item."""
+    candidates: dict[str, set[str]] = {}
+    for key, item_id in entries:
+        alias = _normalize_task_dep_key(key)
+        if alias:
+            candidates.setdefault(alias, set()).add(item_id)
+    return {
+        alias: next(iter(item_ids))
+        for alias, item_ids in candidates.items()
+        if len(item_ids) == 1
+    }
 
 
 def _operator_only_blocker_paths_for_project(project_root: Path) -> list[Path]:

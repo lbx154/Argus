@@ -651,7 +651,7 @@ def svg_to_png(svg_path: str, png_path: str) -> bool:
     try:
         result = subprocess.run(
             ["rsvg-convert", "-o", png_path, svg_path],
-            capture_output=True, timeout=30
+            capture_output=True,
         )
         if result.returncode == 0:
             return True
@@ -665,8 +665,6 @@ def svg_to_png(svg_path: str, png_path: str) -> bool:
         # is rsvg-convert's argument, not something Python opens.
         absent.append("rsvg-convert")
         reasons.append("rsvg-convert: not installed")
-    except subprocess.TimeoutExpired:
-        reasons.append("rsvg-convert: timed out after 30s")
     # Any other OSError (a permission denial on the output directory, say)
     # still propagates, as before -- it is not a backend problem and the
     # renderer has nothing useful to say about it.

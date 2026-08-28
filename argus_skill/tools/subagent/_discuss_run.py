@@ -35,9 +35,6 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DISCUSSION_POLL_INTERVAL = 20      # seconds between checks for a new engineer turn
-DISCUSSION_FIRST_REPLY_TIMEOUT = 1800  # give up if the engineer never engages (30 min)
-DISCUSSION_DEADLINE_S = 7200       # hard cap on the whole discussion once engaged (2 h)
-MAX_SUPERVISOR_TURNS = 6           # cap supervisor LLM replies so a loop can't run away
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +105,6 @@ def _supervisor_discuss_with_usage(
             model,
             cwd,
             thread_id,
-            timeout=120,
             run_label=f"subagent:{task_id}:discussion",
             mission_id=str(task_data.get("run_id") or "") or None,
         )
@@ -172,8 +168,8 @@ def _run_discussion(
 
     The subprocess is already killed (GPU freed); this only sleeps and watches
     the shared transcript for new engineer turns, answering each via the LLM.
-    Bounded so a worker never waits forever: it gives up if the engineer never
-    engages, and caps both the total wall-clock and the number of replies.
+    The periodic task heartbeat keeps this legitimate wait observable; recorded
+    process identity distinguishes a dead worker from a long discussion.
     """
     concern = task_data.get("concern", "") or task_data.get("last_supervisor_concern", "")
     expected_run_id = str(task_data.get("run_id") or "")
@@ -197,15 +193,11 @@ def _run_discussion(
     # The engineer is alerted via the EARLY-STOPPED report (sent by the caller),
     # which points at this transcript and the `subagent reply` command.
 
-    opened = time.time()
-    overall_deadline = opened + DISCUSSION_DEADLINE_S
     # Process EVERY engineer turn, including any that arrived between the
     # early-stop alert and this loop starting. ``baseline`` tracks the highest
     # engineer-turn index already ANSWERED (not merely observed), so a reply is
     # never silently skipped.
     baseline = 0
-    engaged = _engineer_turn_count(task_id) > 0
-    turns = 0
     resolution = "unresolved"
     recorded_usage = (
         int(task_data.get("supervisor_input_tokens") or 0),
@@ -216,7 +208,7 @@ def _run_discussion(
     if any(recorded_usage):
         usage_totals = recorded_usage
     try:
-        while time.time() < overall_deadline and turns < MAX_SUPERVISOR_TURNS:
+        while True:
             # Heartbeat so the engineer can tell a live supervisor from a dead one.
             task = _read_task(task_id) or dict(task_data)
             task["state"] = "discussing"
@@ -234,19 +226,12 @@ def _run_discussion(
                 resolution = "superseded"
                 return
 
-            remaining = overall_deadline - time.time()
-            time.sleep(min(DISCUSSION_POLL_INTERVAL, max(1, int(remaining))))
+            time.sleep(DISCUSSION_POLL_INTERVAL)
 
             count = _engineer_turn_count(task_id)
             if count <= baseline:
-                # No new engineer turn yet. If nobody ever engaged, give up early
-                # rather than holding the worker for the full deadline.
-                if not engaged and (time.time() - opened) > DISCUSSION_FIRST_REPLY_TIMEOUT:
-                    resolution = "no_engineer_response"
-                    break
                 continue
 
-            engaged = True
             # Advance the answered-baseline to the turns we are about to feed into
             # the LLM (``count``), NOT to the post-call count: a reply that lands
             # while the LLM runs may not be in this prompt, so leave it for the
@@ -296,26 +281,13 @@ def _run_discussion(
                     task_id,
                     _discussion_path(task_id),
                 )
-            turns += 1
             if resolved:
                 resolution = "resolved"
                 break
-        else:
-            if turns >= MAX_SUPERVISOR_TURNS:
-                resolution = "turn_cap"
-            elif resolution == "unresolved":
-                resolution = "deadline"
         # Closing turn so the transcript always has a terminal state.
         closing = {
             "resolved": "We agreed on the path forward; the run stays stopped "
                         "until you relaunch.",
-            "no_engineer_response": "No reply within the window — closing the "
-                                    "discussion. The run stays stopped; see the "
-                                    "early-stop report when you pick this up.",
-            "turn_cap": "We have gone back and forth enough — closing. The run "
-                        "stays stopped; proceed with your best judgement.",
-            "deadline": "Discussion timed out — closing. The run stays stopped; "
-                        "see the early-stop report.",
         }.get(resolution, "Closing the discussion; the run stays stopped.")
         _append_discussion(task_id, "supervisor", closing)
         _mirror_discussion_md(task_id, run_dir)

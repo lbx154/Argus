@@ -132,7 +132,7 @@ def test_build_quick_reply_prompt_never_points_operator_at_the_backend_cli() -> 
 
 def test_build_quick_reply_prompt_includes_identity_when_given() -> None:
     out = build_quick_reply_prompt(objective="who are you", identity_card="I am argus.")
-    assert out.startswith("I am argus.\n\n")
+    assert out.index("You are Argus Manager") < out.index("I am argus.\n\n")
     assert "who are you" in out
 
 
@@ -147,6 +147,8 @@ def test_build_simple_prompt_is_minimal() -> None:
     assert "do not invent extra tasks or artifacts" in out
     assert "ask at most one question" in out
     assert "then wait" in out
+    assert "time-by-category cross-slices" in out
+    assert "reread the complete draft once" in out
 
 
 def test_build_simple_prompt_includes_identity_when_given() -> None:

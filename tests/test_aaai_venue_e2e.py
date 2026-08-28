@@ -93,3 +93,12 @@ def test_emnlp_project_is_unchanged(tmp_path: Path) -> None:
     sub = format_stage_checklist("submission", role="reviewer", project_root=root)
     assert "Anonymous EMNLP Submission" in sub
     assert profile.review_skill_path == "reviewer/emnlp-academic-language-review.md"
+
+
+def test_venue_language_reviews_describe_claims_without_sentence_templates() -> None:
+    root = Path(__file__).parents[1] / "argus_skill/verticals/research/skills/reviewer"
+    for name in ("aaai-academic-language-review.md", "emnlp-academic-language-review.md"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "what is studied, what is claimed, under which conditions" in text
+        assert "X is better for Y in Z because W" not in text
+        assert "We propose X. We show X improves Y by Z because W" not in text

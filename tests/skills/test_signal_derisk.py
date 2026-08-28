@@ -11,8 +11,6 @@ import json
 from pathlib import Path
 
 from argus_skill.verticals.research.signal_derisk import (
-    COST_CEILING_USD,
-    DURATION_CEILING_S,
     load_signal_derisk,
     main,
     validate_for_gate,
@@ -131,21 +129,6 @@ def test_wrong_direction_rejects(tmp_path):
     assert "wrong_direction" in concern
 
 
-# --- budget -----------------------------------------------------------------
-
-
-def test_over_budget_cost_rejects(tmp_path):
-    reject, concern = _gate(tmp_path, _good(cost_usd=COST_CEILING_USD + 1))
-    assert reject is True
-    assert "over_budget_cost" in concern
-
-
-def test_over_budget_duration_rejects(tmp_path):
-    reject, concern = _gate(tmp_path, _good(duration_s=DURATION_CEILING_S + 1))
-    assert reject is True
-    assert "over_budget_duration" in concern
-
-
 # --- tamper / provenance ----------------------------------------------------
 
 
@@ -219,12 +202,6 @@ def test_smoke_only_waives_movement(tmp_path):
     assert reject is False
 
 
-def test_smoke_only_still_enforces_budget(tmp_path):
-    reject, concern = _gate(tmp_path, _good(smoke_only=True, cost_usd=COST_CEILING_USD + 5))
-    assert reject is True
-    assert "over_budget_cost" in concern
-
-
 def test_smoke_only_false_string_fails_closed(tmp_path):
     # "false" must NOT be read as truthy and silently exempt a dead idea.
     data = _good(proposed_metric=0.62, delta=0.0)
@@ -256,10 +233,9 @@ def test_cli_validate_degenerate(tmp_path, capsys):
 # --- the stage keeps quality judgment with the Reviewer ---------------------
 
 
-def test_research_stage_checks_do_not_dispatch_task_specific_derisk():
+def test_research_checklist_does_not_dispatch_task_specific_derisk():
     from argus_skill.verticals.research import stages
 
-    assert not hasattr(stages, "STAGE_CHECKS")
     rendered = " ".join(item.statement for item in stages.STAGE_CHECKLISTS["research"])
     assert "mechanical routing decision" in rendered
     assert "theorem_derisk" not in rendered

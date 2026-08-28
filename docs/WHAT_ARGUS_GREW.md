@@ -15,13 +15,15 @@ human in the loop, with paths so you can go check it.
 
 ---
 
-## Part 1: It repairs its own runtime
+## Part 1: It repaired its own runtime
 
-Argus runs a self-maintenance loop against its own source tree. Not "suggests
-improvements" — diagnoses a defect in its own code, names the files, writes the fix,
-and states the command that decides whether the fix worked.
+Argus's retired resident self-maintenance loop ran against its own source tree. It
+did not merely suggest improvements: it diagnosed defects in its own code, named the
+files, wrote fixes, and stated the commands that decided whether they worked. Current
+self-maintenance uses the ordinary mission flow and an operator-approved deployment
+boundary instead of that resident loop.
 
-**The record so far: 16 defects diagnosed in its own runtime. All 16 carry an
+**The historical record: 16 defects diagnosed in its own runtime. All 16 carry an
 executable acceptance command.**
 
 | Outcome | Count |
@@ -31,8 +33,8 @@ executable acceptance command.**
 | Queued | 2 |
 | **Failed to commit** | **2** |
 
-Those last two are in the table because they happened. A self-repair loop that never
-reports its own failures is not a self-repair loop.
+Those last two are in the table because they happened. A historical record that
+omitted the loop's failures would misrepresent its results.
 
 Here are three, in increasing order of what they say about the system.
 
@@ -430,7 +432,7 @@ the seed, and for AG nobody has.
 
 ## Part 8: Go look yourself
 
-**Self-repair records**
+**Historical self-repair records from the retired resident loop**
 
 ```
 ~/.argus-skill/projects/<session>/self-maintenance/

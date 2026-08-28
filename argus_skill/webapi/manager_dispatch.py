@@ -335,7 +335,13 @@ def _handle_pending_question_turn(
     from ..life.memory import BacklogItem
 
     if len(pending_questions) == 1:
-        emitter.phase("Manager · interpreting your answer to the blocked mission")
+        from ..core.operator_messages import uses_cjk
+
+        emitter.phase(
+            "正在核对你的回答与已暂停的任务…"
+            if uses_cjk(body)
+            else "Checking your answer against the paused task…"
+        )
         result = _resolve_pending_question_with_manager(
             mem,
             pending_questions[0],
@@ -420,7 +426,13 @@ def _classify_operator_turn(
     # Emit the stage BEFORE the classifier call. Copilot ACP may produce no
     # protocol events while the model is reasoning, so without this real
     # transition the TUI can only show its generic rotating slogan.
-    emitter.phase("Manager · classifying this message")
+    from ..core.operator_messages import uses_cjk
+
+    emitter.phase(
+        "正在理解你的请求…"
+        if uses_cjk(body)
+        else "Understanding your request…"
+    )
 
     # Persistent Manager session with context-rotation: it stays alive (the
     # codex/copilot thread is resumed via last_thread_id each turn) and is
@@ -638,8 +650,8 @@ def _handle_authorization_control(
             expected_wait_id=str(active_wait.get("wait_id") or ""),
         )
         reply = (
-            "Authorization recorded for the current campaign blocker "
-            f"as {authorization.authorization_id}. No task was dispatched."
+            "Authorization saved for the current blocker. "
+            "The team can use it when the task resumes."
         )
         result = {
             "kind": "control",
@@ -709,7 +721,7 @@ def _handle_steer_control(
 
         running = [
             item
-            for item in LifeMemory.open(life_dir).backlog.all()
+            for item in LifeMemory.open(life_dir).backlog.active()
             if item.status == "running"
         ]
         active_objective = ""
@@ -811,42 +823,47 @@ def _handle_pause_control(
     daemon_stop_requested, daemon_pid = request_daemon_stop(life_dir)
     daemon_stop_failed = daemon_pid is not None and not daemon_stop_requested
 
-    chinese = any("\u3400" <= ch <= "\u9fff" for ch in body)
+    from ..core.operator_messages import uses_cjk
+
+    chinese = uses_cjk(body)
     if not pause_persisted:
         reply = (
-            "已请求中止当前任务和停止 daemon，但暂停状态未能持久化；"
-            "在检查 continuous.json 前不要重启该会话。"
+            "我已要求当前任务和后台工作进程停止，但暂停状态未能保存。"
+            "请先检查项目状态，再恢复工作。"
             if chinese
-            else "The active task and daemon were asked to stop, but the pause "
-            "could not be persisted; do not restart this session until "
-            "continuous.json is checked."
+            else "I asked the current task and background worker to stop, but "
+            "could not save the paused state. Check the project status before resuming."
+        )
+    elif daemon_stop_failed:
+        reply = (
+            "任务已暂停，现有工作已保存，但后台工作进程未能停止。"
+            "恢复前请检查其状态。"
+            if chinese
+            else "The task is paused and your work is saved, but the background "
+            "worker did not stop. Check its status before resuming."
         )
     elif chinese:
-        pieces = ["已暂停：持续任务已关闭"]
-        pieces.append("当前任务已请求中止" if abort_requested else "当前没有运行中的任务")
-        if daemon_stop_requested:
-            pieces.append("daemon 正在停止")
-        elif daemon_stop_failed:
-            pieces.append("daemon 停止请求失败")
+        if abort_requested and daemon_stop_requested:
+            first = "已暂停。当前任务和后台工作进程正在停止。"
+        elif abort_requested:
+            first = "已暂停。当前任务正在停止，后台工作进程已经停止。"
+        elif daemon_stop_requested:
+            first = "已暂停。当前没有运行中的任务，后台工作进程正在停止。"
         else:
-            pieces.append("daemon 已停止")
-        reply = "，".join(pieces) + "。目标和待办已保留；明确继续时才会恢复。"
+            first = "已暂停。当前没有运行中的任务，后台工作进程已经停止。"
+        reply = first + "目标和待办已保存；只有你提出继续时才会恢复。"
     else:
-        pieces = ["Paused: continuous work is disabled"]
-        pieces.append(
-            "the active task was asked to abort"
-            if abort_requested
-            else "no task is currently running"
-        )
-        if daemon_stop_requested:
-            pieces.append("the daemon is stopping")
-        elif daemon_stop_failed:
-            pieces.append("the daemon stop request failed")
+        if abort_requested and daemon_stop_requested:
+            first = "Paused. The current task and background worker are stopping."
+        elif abort_requested:
+            first = "Paused. The current task is stopping; the background worker is stopped."
+        elif daemon_stop_requested:
+            first = "Paused. No task is running, and the background worker is stopping."
         else:
-            pieces.append("the daemon is stopped")
+            first = "Paused. No task is running, and the background worker is stopped."
         reply = (
-            "; ".join(pieces)
-            + ". The objective and backlog are preserved until you explicitly resume."
+            first
+            + " Your objective and queue are saved; work will resume only when you ask."
         )
 
     return emitter.respond(
@@ -880,13 +897,22 @@ def _handle_abort_control(
         reason=f"operator requested: {body}",
         requested_by="manager",
     )
+    from ..core.operator_messages import uses_cjk
+
+    chinese = uses_cjk(body)
     if requested:
-        reply = f"Stop requested for running task {item_id}."
+        reply = "我已要求当前任务停止。" if chinese else "I asked the current task to stop."
     elif item_id is not None:
-        reply = f"Stop request failed for running task {item_id}."
+        reply = (
+            "当前任务未能停止；请先检查其状态，再重试。"
+            if chinese
+            else "I couldn't ask the current task to stop. Check its status before trying again."
+        )
     else:
         reply = (
-            "No running task to abort. Pending tasks were left unchanged."
+            "当前没有运行中的任务；待办任务未受影响。"
+            if chinese
+            else "No task is currently running. Pending tasks were left unchanged."
         )
     return emitter.respond(
         reply,
@@ -1025,14 +1051,25 @@ def _dispatch_team_mission(
     # A publication campaign has a finite finish line, but Manager may still
     # require staged progression. Run the normal workflow decision once, use it
     # to choose topology, then reuse the sealed handoff during commit.
-    emitter.phase("Manager · choosing workflow and task lifetime")
+    from ..core.operator_messages import uses_cjk
+
+    chinese = uses_cjk(body)
+    emitter.phase(
+        "正在选择合适的工作流程…"
+        if chinese
+        else "Choosing the right workflow…"
+    )
     prepared = prepare_manager_execution_task(
         mem,
         body,
         chat_state,
         root_task_id=root_task_id,
     )
-    emitter.phase("Manager · validating project lifecycle")
+    emitter.phase(
+        "正在确认这个项目能否恢复…"
+        if chinese
+        else "Checking whether this project can resume…"
+    )
     resume_done_lifecycle_for_team_dispatch(mem)
     workflow_mode = str(
         getattr(prepared.decision, "workflow_mode", "") or ""

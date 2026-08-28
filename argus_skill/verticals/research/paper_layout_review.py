@@ -25,6 +25,7 @@ from argus_skill.tools.image_api import (
     _require_route,
 )
 
+from ...core.manuscript_snapshot import bind_manuscript_snapshot, manuscript_sha256
 from ._review_contract_constants import (
     LAYOUT_REVIEW_GENERATED_BY,
     LAYOUT_REVIEW_HISTORY_PATH,
@@ -43,9 +44,8 @@ LAYOUT_REVIEW_JSON_PATH = Path("paper/LAYOUT_REVIEW.json")
 LAYOUT_REVIEW_MD_PATH = Path("paper/LAYOUT_REVIEW.md")
 LAYOUT_REVIEW_PAGE_DIR = Path("paper/layout_review/pages")
 MIN_LAYOUT_SCORE = 3.5
-MAX_DEFAULT_PAGES = 32
 DEFAULT_DPI = 120
-DEFAULT_TIMEOUT_SECONDS = 500.0
+DEFAULT_TIMEOUT_SECONDS: float | None = None
 MAX_RESEARCH_MD_OVERFULL_HBOX_PT = 5.0
 LAYOUT_HEADING_LINE_NUMBER_PREFIX = r"(?:\d{1,5}\s+)?"
 LAYOUT_TOP_LEVEL_NUMBER_PREFIX = r"(?:(?:\d{1,5}\.?)\s+){0,2}"
@@ -94,9 +94,9 @@ def generate_layout_review(
     *,
     review_mode: str = "vision",
     threshold: float = MIN_LAYOUT_SCORE,
-    max_pages: int = MAX_DEFAULT_PAGES,
+    max_pages: int | None = None,
     dpi: int = DEFAULT_DPI,
-    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    timeout: float | None = DEFAULT_TIMEOUT_SECONDS,
     iteration: int | None = None,
     write: bool = True,
     env: Mapping[str, str] | None = None,
@@ -105,6 +105,7 @@ def generate_layout_review(
     """Review the compiled paper layout and optionally persist review artifacts."""
 
     root = Path(project_root)
+    reviewed_manuscript_sha = manuscript_sha256(root)
     profile = venue or resolve_venue_profile(root)
     threshold = max(float(threshold), MIN_LAYOUT_SCORE)
     iteration = iteration or _next_iteration(root)
@@ -242,6 +243,12 @@ def generate_layout_review(
     }
     if vision_review is not None:
         result["vision_review"] = vision_review
+    bind_manuscript_snapshot(
+        result,
+        root,
+        recorded_at=result["created_at"],
+        sha256=reviewed_manuscript_sha,
+    )
 
     if write:
         _write_json(root / LAYOUT_REVIEW_JSON_PATH, result)
@@ -254,9 +261,9 @@ def _render_pdf_pages(
     root: Path,
     pdf_path: Path,
     *,
-    max_pages: int,
+    max_pages: int | None,
     dpi: int,
-    timeout: float,
+    timeout: float | None,
 ) -> list[dict[str, Any]]:
     output_dir = root / LAYOUT_REVIEW_PAGE_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -309,28 +316,21 @@ def _render_pdf_pages_with_pdftoppm(
     output_dir: Path,
     pdf_path: Path,
     *,
-    max_pages: int,
+    max_pages: int | None,
     dpi: int,
-    timeout: float,
+    timeout: float | None,
 ) -> None:
     pdftoppm = shutil.which("pdftoppm")
     if pdftoppm is None:
         raise LayoutReviewError("pdftoppm is not installed")
 
     _clear_rendered_pages(output_dir)
+    command = [pdftoppm, "-png", "-r", str(int(dpi))]
+    if max_pages is not None:
+        command.extend(["-f", "1", "-l", str(max(1, int(max_pages)))])
+    command.extend([str(pdf_path), str(output_dir / "page")])
     completed = subprocess.run(
-        [
-            pdftoppm,
-            "-png",
-            "-r",
-            str(int(dpi)),
-            "-f",
-            "1",
-            "-l",
-            str(max(1, int(max_pages))),
-            str(pdf_path),
-            str(output_dir / "page"),
-        ],
+        command,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -345,28 +345,30 @@ def _render_pdf_pages_with_mutool(
     output_dir: Path,
     pdf_path: Path,
     *,
-    max_pages: int,
+    max_pages: int | None,
     dpi: int,
-    timeout: float,
+    timeout: float | None,
 ) -> None:
     mutool = shutil.which("mutool")
     if mutool is None:
         raise LayoutReviewError("mutool is not installed")
 
     _clear_rendered_pages(output_dir)
+    command = [
+        mutool,
+        "draw",
+        "-r",
+        str(int(dpi)),
+        "-F",
+        "png",
+        "-o",
+        str(output_dir / "page-%02d.png"),
+        str(pdf_path),
+    ]
+    if max_pages is not None:
+        command.append(f"1-{max(1, int(max_pages))}")
     completed = subprocess.run(
-        [
-            mutool,
-            "draw",
-            "-r",
-            str(int(dpi)),
-            "-F",
-            "png",
-            "-o",
-            str(output_dir / "page-%02d.png"),
-            str(pdf_path),
-            f"1-{max(1, int(max_pages))}",
-        ],
+        command,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -524,7 +526,7 @@ def _paeth(left: int, up: int, up_left: int) -> int:
     return up_left
 
 
-def _extract_pdf_layout_text(pdf_path: Path, *, timeout: float) -> str:
+def _extract_pdf_layout_text(pdf_path: Path, *, timeout: float | None) -> str:
     pdftotext = shutil.which("pdftotext")
     if pdftotext is None:
         return ""
@@ -950,7 +952,7 @@ def _run_vision_review(
     deterministic: dict[str, Any],
     threshold: float,
     env: Mapping[str, str] | None,
-    timeout: float,
+    timeout: float | None,
     venue: VenueProfile,
 ) -> dict[str, Any]:
     route = _require_route("image_review", env)
@@ -1450,7 +1452,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--review-mode", choices=("vision", "heuristic"), default="vision")
     parser.add_argument("--threshold", type=float, default=MIN_LAYOUT_SCORE)
-    parser.add_argument("--max-pages", type=int, default=MAX_DEFAULT_PAGES)
+    parser.add_argument(
+        "--max-pages", type=int, default=None,
+        help="explicit page ceiling; omitted reviews the complete PDF",
+    )
     parser.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--iteration", type=int)

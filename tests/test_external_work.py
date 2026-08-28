@@ -60,7 +60,7 @@ def test_stale_healthy_record_downgrades_without_becoming_progress(tmp_path: Pat
     assert "stale" in status.reason
 
 
-def test_fresh_heartbeat_with_stale_declared_activity_needs_attention(
+def test_fresh_heartbeat_with_quiet_declared_activity_stays_waitable(
     tmp_path: Path,
 ) -> None:
     progress = tmp_path / "experiments" / "progress.jsonl"
@@ -79,10 +79,9 @@ def test_fresh_heartbeat_with_stale_declared_activity_needs_attention(
     status = inspect_external_work(tmp_path, "job-1", now=1000)
 
     assert status is not None
-    assert status.state is ExternalWorkState.NEEDS_ATTENTION
-    assert status.waitable is False
+    assert status.state is ExternalWorkState.RUNNING_HEALTHY
+    assert status.waitable is True
     assert status.activity_silence_seconds == 300
-    assert "declared activity has not changed for 5m" in status.reason
 
 
 def test_recent_declared_activity_keeps_fresh_heartbeat_waitable(
@@ -109,7 +108,7 @@ def test_recent_declared_activity_keeps_fresh_heartbeat_waitable(
     assert status.activity_silence_seconds == 20
 
 
-def test_external_wait_wakes_when_activity_stalls_despite_fresh_heartbeat(
+def test_external_wait_keeps_waiting_when_activity_is_quiet_with_fresh_heartbeat(
     tmp_path: Path,
 ) -> None:
     path = _write_external(
@@ -141,8 +140,8 @@ def test_external_wait_wakes_when_activity_stalls_despite_fresh_heartbeat(
         now=lambda: clock[0],
     )
 
-    assert reason == ExternalWorkState.NEEDS_ATTENTION.value
-    assert waited == 15
+    assert reason == "cadence_elapsed"
+    assert waited == 30
 
 
 def test_paths_are_project_relative_and_lookup_uses_declared_id(tmp_path: Path) -> None:
@@ -175,7 +174,7 @@ def test_legacy_subagents_map_to_generic_states(tmp_path: Path) -> None:
     for work_id, over in {
         "healthy": {},
         "attention": {"state": "discussing"},
-        "stalled": {"heartbeat_at": 1},
+        "stalled": {"worker_pid": 999999},
         "terminal": {"state": "done"},
     }.items():
         payload = {"task_id": work_id, **base, **over}
@@ -265,6 +264,58 @@ def test_direct_subagent_stays_waitable_when_launcher_dies_but_child_lives(
     assert status.waitable is True
 
 
+def test_subagent_live_pid_with_mismatched_identity_is_stalled(tmp_path: Path) -> None:
+    from argus_skill.core.process_identity import capture_process_identity
+
+    registry = tmp_path / ".argus_subagents"
+    registry.mkdir()
+    identity = capture_process_identity(os.getpid())
+    assert "start_time_ticks" in identity
+    identity["start_time_ticks"] = f"{identity['start_time_ticks']}-reused"
+    (registry / "direct-job.json").write_text(
+        json.dumps({
+            "task_id": "direct-job",
+            "mode": "direct",
+            "state": "running",
+            "pid": os.getpid(),
+            "process_identity": identity,
+        }),
+        encoding="utf-8",
+    )
+
+    status = inspect_external_work(tmp_path, "direct-job")
+
+    assert status is not None
+    assert status.state is ExternalWorkState.STALLED
+
+
+def test_subagent_poll_uses_published_next_check_at(tmp_path: Path) -> None:
+    registry = tmp_path / ".argus_subagents"
+    registry.mkdir()
+    now = 10_000.0
+    (registry / "supervised-job.json").write_text(
+        json.dumps({
+            "task_id": "supervised-job",
+            "mode": "supervised",
+            "state": "running",
+            "worker_pid": os.getpid(),
+            "last_supervisor_health": "healthy",
+            "last_supervisor_decision": "continue",
+            "heartbeat_at": now,
+            "monitor_interval": 120,
+            "current_monitor_interval": 480,
+            "next_check_at": now + 475,
+        }),
+        encoding="utf-8",
+    )
+
+    status = inspect_external_work(tmp_path, "supervised-job", now=now)
+
+    assert status is not None
+    assert status.state is ExternalWorkState.RUNNING_HEALTHY
+    assert status.poll_after_seconds == 475
+
+
 def test_direct_subagent_exit_receipt_is_terminal(tmp_path: Path) -> None:
     registry = tmp_path / ".argus_subagents"
     registry.mkdir()
@@ -329,7 +380,7 @@ def test_advisory_and_sentinel_are_explicit_about_liveness_only(tmp_path: Path) 
     assert parse_external_wait_request("WAIT_FOR_EXTERNAL_WORK: job-1") is None
 
 
-def test_advisory_requires_diagnosis_for_stale_activity(tmp_path: Path) -> None:
+def test_advisory_keeps_quiet_live_activity_waitable(tmp_path: Path) -> None:
     progress = tmp_path / "experiments" / "progress.jsonl"
     progress.parent.mkdir()
     progress.write_text("", encoding="utf-8")
@@ -344,9 +395,8 @@ def test_advisory_requires_diagnosis_for_stale_activity(tmp_path: Path) -> None:
 
     advisory = render_external_work_advisory(tmp_path, now=1000)
 
-    assert "needs_attention" in advisory
-    assert "must not be waited on or foreground-polled" in advisory
-    assert "repair, cancel, or restart" in advisory
+    assert "running_healthy" in advisory
+    assert "needs_attention" not in advisory
 
 
 def test_a_job_that_declares_no_activity_paths_is_still_watched(tmp_path) -> None:

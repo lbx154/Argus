@@ -35,6 +35,7 @@ from ._helpers import (
     _planner_task_signature,
     _resolve_task_dep_ids,
     _sanitize_planner_task_text,
+    _unique_normalized_task_key_aliases,
 )
 from ._planner_rendering import _forward_progress
 from ._planning_cycle_helpers import _PlanCycleState, _revision_reason
@@ -171,13 +172,16 @@ class PlanningCycleEnqueueMixin:
 
     def _pc_build_dedupe_index(self, state: _PlanCycleState) -> Any | None:
         try:
-            state.existing_items = self.memory.backlog.all()
+            # Planner semantic dedup intentionally includes archived terminal
+            # node ids/keys; otherwise compaction would repurchase old work.
+            state.existing_items = self.memory.backlog.history()
         except Exception:  # noqa: BLE001
             log.exception("life supervisor: failed to inspect backlog before planning")
             state.existing_items = []
 
         seen_signatures: dict[tuple[str, ...], BacklogItem] = {}
         active_base_signatures: dict[tuple[str, ...], BacklogItem] = {}
+        active_node_keys: dict[str, BacklogItem] = {}
         terminal_blocker_fingerprints: dict[str, BacklogItem] = {}
         revision_active_ids = {item.id for item in state.revision_active_items}
         for existing in state.existing_items:
@@ -222,11 +226,15 @@ class PlanningCycleEnqueueMixin:
             if existing.status != "done" and not terminal_blocker:
                 active_base_signatures[base_signature] = existing
                 seen_signatures[signature] = existing
+                node_key = str(existing.node_key or "").strip()
+                if node_key:
+                    active_node_keys[node_key] = existing
             elif signature not in seen_signatures:
                 seen_signatures[signature] = existing
 
         state.seen_signatures = seen_signatures
         state.active_base_signatures = active_base_signatures
+        state.active_node_keys = active_node_keys
         state.terminal_blocker_fingerprints = terminal_blocker_fingerprints
         state.recent_failures = self._recent_no_progress_failures()
         state.new_plan_id = f"plan-{BacklogItem.new_id()}"
@@ -246,7 +254,7 @@ class PlanningCycleEnqueueMixin:
 
     def _stage_closing_reproposal_blocker(
         self, task: Any,
-    ) -> tuple[Any, str] | None:
+    ) -> tuple[Any, str, float] | None:
         """Reject certification churn until substantive repair intervenes.
 
         A completed independently reviewed stage-closing mission is one review
@@ -268,7 +276,7 @@ class PlanningCycleEnqueueMixin:
             return None
         try:
             current_stage = str(stage_reader() or "").strip().lower()
-            rows = list(self.memory.backlog.all())
+            rows = list(self.memory.backlog.history())
         except Exception:  # noqa: BLE001 - dedupe remains fail-open
             return None
         if not current_stage:
@@ -329,7 +337,7 @@ class PlanningCycleEnqueueMixin:
             "repair that changes the stage evidence before requesting another "
             "certification"
         )
-        return latest, reason
+        return latest, reason, cutoff
 
     def _gate_reproposal_is_not_a_duplicate(self, task: Any, duplicate_item: Any) -> bool:
         """Whether a stage-closing proposal escapes the duplicate filter.
@@ -358,7 +366,7 @@ class PlanningCycleEnqueueMixin:
         """
         stage_closing = bool(getattr(task, "stage_closing", False))
         requires_review = stage_closing or bool(
-            getattr(task, "require_independent_review", False)
+            getattr(task, "require_independent_review", True)
         )
         if not requires_review:
             return False
@@ -518,7 +526,7 @@ class PlanningCycleEnqueueMixin:
             canonical_require_review = bool(
                 canonical_stage_closing
                 or _independent_review_forced()
-                or getattr(task, "require_independent_review", False)
+                or getattr(task, "require_independent_review", True)
             )
             task = replace(
                 task,
@@ -541,7 +549,7 @@ class PlanningCycleEnqueueMixin:
             )
             from ...skills.stage_machine import current_stage
             from ...skills.vertical_select import resolve_vertical
-            from ...verticals._base import load_vertical, vertical_planner_task_issues
+            from ...verticals._base import load_vertical_contract
 
             policy_root = Path(context_root or self._project_workdir()).resolve()
             policy_stage = current_stage(state_root)
@@ -551,7 +559,7 @@ class PlanningCycleEnqueueMixin:
                 or campaign_vertical
             )
             try:
-                policy_definition = load_vertical(
+                policy_contract = load_vertical_contract(
                     policy_vertical,
                     project_root=state_root,
                 )
@@ -565,11 +573,10 @@ class PlanningCycleEnqueueMixin:
                     "reason": f"unknown Planner task vertical: {policy_vertical}",
                 })
                 continue
-            policy_issues = vertical_planner_task_issues(
-                policy_definition,
-                stage=policy_stage,
-                project_root=policy_root,
-                task=task,
+            policy_issues = policy_contract.planner_task_issues(
+                policy_stage,
+                policy_root,
+                task,
             )
             if policy_issues:
                 self._emit({
@@ -581,30 +588,8 @@ class PlanningCycleEnqueueMixin:
                     "reason": "; ".join(policy_issues),
                 })
                 continue
+
             certification_blocker = self._stage_closing_reproposal_blocker(task)
-            if certification_blocker is not None:
-                prior_item, blocker_reason = certification_blocker
-                state.skipped_certification_reproposal_titles.append(task.title)
-                state.skipped_certification_reproposal_reasons.append(blocker_reason)
-                self._emit(
-                    {
-                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
-                        "cycle": self._planning_cycles,
-                        "title": task.title,
-                        "objective": task.objective,
-                        "impact_score": task.impact_score,
-                        "impact_area": task.impact_area,
-                        "evidence": task.evidence,
-                        "matched_item_id": prior_item.id,
-                        "matched_status": prior_item.status,
-                        "matched_stage": self._item_pipeline_stage(prior_item),
-                        "skip_category": (
-                            "stage_closing_requires_intervening_repair"
-                        ),
-                        "reason": blocker_reason,
-                    }
-                )
-                continue
             signature = _planner_task_signature(
                 task.title,
                 task.objective,
@@ -626,12 +611,85 @@ class PlanningCycleEnqueueMixin:
                 terminal_duplicate = state.terminal_blocker_fingerprints.get(
                     task.blocker_fingerprint
                 )
-            duplicate_item = terminal_duplicate or state.active_base_signatures.get(
-                base_signature
-            ) or state.seen_signatures.get(signature)
+            planner_node_key = str(getattr(task, "key", "") or "").strip()
+            node_key_duplicate = (
+                state.active_node_keys.get(planner_node_key)
+                if planner_node_key
+                else None
+            )
+            duplicate_item = (
+                node_key_duplicate
+                or terminal_duplicate
+                or state.active_base_signatures.get(
+                    base_signature
+                )
+                or state.seen_signatures.get(signature)
+            )
             terminal_fingerprint_match = terminal_duplicate is not None
+            review_purchase = policy_contract.review_purchase(
+                project_root=policy_root,
+                task=task,
+                existing_items=state.existing_items,
+                semantic_duplicate=duplicate_item,
+                stage_reviewed_at=(
+                    certification_blocker[2]
+                    if certification_blocker is not None
+                    else None
+                ),
+            )
+            if certification_blocker is not None and not (
+                review_purchase is not None
+                and review_purchase.release_stage_closing_blocker
+            ):
+                prior_item, blocker_reason, _reviewed_at = certification_blocker
+                state.skipped_certification_reproposal_titles.append(task.title)
+                state.skipped_certification_reproposal_reasons.append(blocker_reason)
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                        "cycle": self._planning_cycles,
+                        "title": task.title,
+                        "objective": task.objective,
+                        "impact_score": task.impact_score,
+                        "impact_area": task.impact_area,
+                        "evidence": task.evidence,
+                        "matched_item_id": prior_item.id,
+                        "matched_status": prior_item.status,
+                        "matched_stage": self._item_pipeline_stage(prior_item),
+                        "skip_category": (
+                            "stage_closing_requires_intervening_repair"
+                        ),
+                        "reason": blocker_reason,
+                    }
+                )
+                continue
+            if (
+                review_purchase is not None
+                and review_purchase.discard_semantic_duplicate
+            ):
+                duplicate_item = None
+            review_purchase_reason = (
+                review_purchase.defer_reason if review_purchase is not None else ""
+            )
+            if review_purchase_reason:
+                state.skipped_certification_reproposal_titles.append(task.title)
+                state.skipped_certification_reproposal_reasons.append(
+                    review_purchase_reason
+                )
+                self._emit({
+                    "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                    "cycle": self._planning_cycles,
+                    "title": task.title,
+                    "objective": task.objective,
+                    "impact_score": task.impact_score,
+                    "impact_area": task.impact_area,
+                    "skip_category": "paper_review_purchase_deferred",
+                    "reason": review_purchase_reason,
+                })
+                continue
             if (
                 duplicate_item is not None
+                and node_key_duplicate is None
                 and not terminal_fingerprint_match
                 and self._gate_reproposal_is_not_a_duplicate(task, duplicate_item)
             ):
@@ -750,6 +808,33 @@ class PlanningCycleEnqueueMixin:
                 task_vertical=str(getattr(task, "vertical", "") or ""),
             )
             task_tags = self._planner_task_tags(task)
+            task_context_refs = list(getattr(task, "context_refs", []) or [])
+            if manager_decision.get("vertical") == "argus_maintenance":
+                task_tags.append("framework_maintenance")
+                if "review:waived" in task_tags:
+                    task_tags.remove("review:waived")
+                if "review:required" not in task_tags:
+                    task_tags.append("review:required")
+                evidence_reason = str(
+                    getattr(task, "evidence", "")
+                    or getattr(task, "hypothesis", "")
+                    or task.objective
+                ).strip()
+                memory_root = Path(
+                    getattr(getattr(self, "memory", None), "root", state_root)
+                )
+                task_context_refs.append({
+                    "ref": str(memory_root / "events.jsonl"),
+                    "kind": "runtime evidence",
+                    "why": evidence_reason,
+                })
+                operator_context = Path(state_root) / "operator_context.jsonl"
+                if operator_context.is_file():
+                    task_context_refs.append({
+                        "ref": str(operator_context),
+                        "kind": "operator steering",
+                        "why": evidence_reason,
+                    })
             from ...verticals._data_domain import list_formal_data_domain_purposes
 
             formal_domains = list_formal_data_domain_purposes(
@@ -761,7 +846,19 @@ class PlanningCycleEnqueueMixin:
                 and manager_decision.get("vertical") not in formal_domains
                 and "review:required" not in task_tags
             ):
+                if "review:waived" in task_tags:
+                    task_tags.remove("review:waived")
                 task_tags.append("review:required")
+            if "review:waived" in task_tags:
+                self._emit({
+                    "type": "life.review.waived",
+                    "text": (
+                        "independent review waived: Planner explicitly set "
+                        "require_independent_review=false"
+                    ),
+                    "title": task.title,
+                    "reason": str(state.verdict.reason or "Planner waiver"),
+                })
             item = BacklogItem.new(
                 item_id=item_id,
                 title=task.title,
@@ -773,11 +870,10 @@ class PlanningCycleEnqueueMixin:
                 plan_id=state.new_plan_id,
                 plan_version=state.new_plan_version,
                 node_key=str(getattr(task, "key", "") or item_id),
-                context_refs=list(getattr(task, "context_refs", []) or []),
+                context_refs=task_context_refs,
                 blocker_fingerprint=str(
                     getattr(task, "blocker_fingerprint", "") or ""
                 ),
-                work_kind=str(getattr(task, "work_kind", "") or ""),
                 acceptance_check=str(getattr(task, "acceptance_check", "") or ""),
                 plan_hypothesis=str(getattr(task, "hypothesis", "") or ""),
                 goal_contribution=str(
@@ -908,22 +1004,19 @@ class PlanningCycleEnqueueMixin:
         # node keys already persisted in the backlog. Unknown keys still reject
         # the whole batch; executing a child without its required parent is unsafe.
         known_key_map = {
-            str(item.node_key): item.id
+            str(item.id): str(item.id) for item in state.existing_items
+        }
+        historical_key_entries = [
+            (str(item.node_key), str(item.id))
             for item in state.existing_items
             if str(item.node_key or "").strip()
-        }
-        # Persisted DAG edges use backlog item ids after commit. A later
-        # Planner cycle may therefore name a completed parent by that canonical
-        # id instead of by its original node key. Treat both spellings as the
-        # same dependency while continuing to reject genuinely unknown ids.
-        known_key_map.update(
-            {
-                str(item.id): item.id
-                for item in state.existing_items
-                if str(item.id or "").strip()
-            }
-        )
+        ]
+        known_key_map.update(historical_key_entries)
         known_key_map.update(state.key_map)
+        normalized_key_map = _unique_normalized_task_key_aliases(
+            historical_key_entries
+            + [(str(key), str(item_id)) for key, item_id in state.key_map.items()]
+        )
         unresolved: list[tuple[str, list[str]]] = []
         for task, item in state.pending_items:
             task_deps = list(getattr(task, "deps", []) or [])
@@ -931,8 +1024,23 @@ class PlanningCycleEnqueueMixin:
                 resolved_ids, unresolved_keys = _resolve_task_dep_ids(
                     task_deps,
                     known_key_map,
+                    normalized_key_map,
                 )
                 item.deps = resolved_ids
+                normalized_deps = [
+                    dep
+                    for dep in task_deps
+                    if dep not in known_key_map
+                    and dep not in unresolved_keys
+                ]
+                if normalized_deps:
+                    log.info(
+                        "planner dependency keys normalized",
+                        extra={
+                            "task_title": item.title,
+                            "dependency_keys": normalized_deps,
+                        },
+                    )
                 if unresolved_keys:
                     unresolved.append((item.title, unresolved_keys))
         if unresolved:
@@ -1004,7 +1112,17 @@ class PlanningCycleEnqueueMixin:
                     expected_version=expected_plan_version,
                     new_plan_id=state.new_plan_id,
                     new_version=state.new_plan_version,
-                    supersede_item_ids=[item.id for item in state.revision_active_items],
+                    supersede_item_ids=[
+                        item.id for item in state.revision_active_items
+                    ],
+                    expected_active_item_ids=(
+                        state.revision_witness_active_item_ids or None
+                    ),
+                    terminalized_source_item_id=(
+                        str(revision_request.get("item_id") or "")
+                        if state.revision_witness_active_item_ids
+                        else ""
+                    ),
                     new_items=replacement_items,
                     reason=_revision_reason(revision_request),
                 )

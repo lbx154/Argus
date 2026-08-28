@@ -12,6 +12,7 @@ from argus_skill.life.router import (
     build_front_door_prompt,
     classify_front_door,
 )
+from argus_skill.roles.prompts.planner import build_continuous_prompt
 
 
 class _FakeResult:
@@ -20,13 +21,15 @@ class _FakeResult:
         msg: str,
         exit_code: int = 0,
         role_decisions: list[dict] | None = None,
+        fatal_error: str | None = None,
     ) -> None:
         self.exit_code = exit_code
         self.last_agent_message = msg
         self.role_decisions = list(role_decisions or [])
+        self.fatal_error = fatal_error
 
 
-def _exec(answer: str, exit_code: int = 0):
+def _exec(answer: str, exit_code: int = 0, fatal_error: str | None = None):
     def run_exec(prompt: str):
         assert all(
             field in prompt
@@ -36,7 +39,7 @@ def _exec(answer: str, exit_code: int = 0):
                 "LIFETIME:", "GREETING:", "NAME:",
             )
         )
-        return _FakeResult(answer, exit_code)
+        return _FakeResult(answer, exit_code, fatal_error=fatal_error)
 
     return run_exec
 
@@ -50,8 +53,18 @@ def _exec_sequence(*answers: str):
     return run_exec
 
 
-def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
+def test_front_door_prompt_has_a_strict_token_efficiency_budget(tmp_path) -> None:
     prompt = build_front_door_prompt("你好", active_mission=True)
+    standing = " ".join(
+        build_continuous_prompt(
+            continuous_objective="Keep improving the project.",
+            journal_tail="The prior round is materially complete.",
+            planning_cycle=1,
+            open_ended=True,
+            project_root=tmp_path,
+            state_root=tmp_path,
+        ).split()
+    )
 
     assert len(prompt) <= 3_000
     assert "live research" in prompt
@@ -86,6 +99,15 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget() -> None:
     assert "BOUNDED" in prompt
     assert "STANDING" in prompt
     assert "default BOUNDED" in prompt
+    assert all(
+        phrase in policy
+        for phrase, policy in (
+            ("casual unscoped work absent ongoing intent", prompt),
+            ("materially complete round", standing),
+            ("sentence stating its expected value and reason", standing),
+            ("behavior reachable through a real entry point", standing),
+        )
+    )
 
 
 def test_front_door_uses_process_decision_without_final_message() -> None:
@@ -602,14 +624,80 @@ def test_exec_error_is_safe_default() -> None:
 
 
 def test_nonzero_exit_is_safe_default() -> None:
+    failures: list[str] = []
     intent, control, route = classify_front_door(
         "y",
         run_exec=_exec(
             "CONFIG: SET backend ALL codex\nCONTROL: NONE\nROUTE: SELF",
             exit_code=1,
+            fatal_error="Forced restart after hard idle timeout (120s)",
         ),
+        failure_sink=failures.append,
     )
     assert (intent, control, route) == (None, None, "complex")
+    assert failures == ["Forced restart after hard idle timeout (120s)"]
+
+
+def test_oversized_fast_reply_emits_delivery_diagnostic() -> None:
+    replies: list[str] = []
+    diagnostics: list[str] = []
+    oversized = "x" * 1601
+
+    intent, control, route = classify_front_door(
+        "answer briefly",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
+            f"SELF_MODE: REPLY\nREPLY: {oversized}"
+        ),
+        reply_sink=replies.append,
+        failure_sink=diagnostics.append,
+    )
+
+    assert (intent, control, route) == (None, None, "simple")
+    assert replies == []
+    assert diagnostics == [
+        "reply exceeded 1600 chars; not delivered (length=1601)"
+    ]
+
+
+def test_oversized_steer_directive_emits_delivery_diagnostic() -> None:
+    directives: list[str] = []
+    diagnostics: list[str] = []
+    oversized = "x" * 1601
+
+    intent, control, route = classify_front_door(
+        "change the active mission",
+        run_exec=_exec_sequence(
+            "CONFIG: NONE\nCONTROL: STEER\nROUTE: SELF\n"
+            f"STEER_DIRECTIVE: {oversized}",
+            "STEER",
+        ),
+        steering_sink=directives.append,
+        failure_sink=diagnostics.append,
+        active_mission=True,
+    )
+
+    assert (intent, control, route) == (None, "steer", "simple")
+    assert directives == []
+    assert diagnostics == [
+        "steer_directive exceeded 1600 chars; not delivered (length=1601)"
+    ]
+
+
+def test_invalid_route_token_preserves_parsed_control() -> None:
+    diagnostics: list[str] = []
+
+    intent, control, route = classify_front_door(
+        "stop the active task",
+        run_exec=_exec("CONFIG: NONE\nCONTROL: ABORT\nROUTE: BANANA"),
+        failure_sink=diagnostics.append,
+        active_mission=True,
+    )
+
+    assert (intent, control, route) == (None, "abort", "simple")
+    assert diagnostics and diagnostics[0].startswith(
+        "route token invalid; control preserved"
+    )
 
 
 def test_prefixes_are_case_insensitive() -> None:

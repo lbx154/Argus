@@ -30,9 +30,8 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Self-audit the full-scale experiment-evidence requirement (completed raw scored rows under `experiments/**` for every required method/baseline condition) for any final EMNLP/ACL paper. Do not accept benchmark construction, `benchmarks/full/manifest.json`, or `status.json task_count` as execution evidence; final language must be grounded in raw completed scored `experiments/**` rows for every required method/baseline condition.
 
 2. Rebuild the paper story:
-   - Write one thesis sentence in the form: "X is better for Y in Z because W."
-   - State the contribution as: "We propose X. We show X improves Y by Z because W."
-   - If the current ablations do not isolate `W`, do not keep defending a mechanism claim. Reset the thesis to the measured comparison: "On benchmark/task slice Z, X reaches Y compared with baseline B under protocol P; which subcomponent causes the gain remains unresolved." Move the unresolved mechanism discussion to analysis or limitations.
+   - State clearly what is studied, what is claimed, under which conditions, and how the evidence supports it, using whatever sentence form fits the contribution.
+   - If the evidence does not isolate a proposed mechanism, narrow the claim to what was measured and name the unresolved mechanism in analysis or limitations.
    - Make every main section answer What, Why, and So What.
    - Use an inner/outer loop: check each experiment claim locally, then synthesize what pattern it supports globally.
 
@@ -52,6 +51,15 @@ Run the final narrative/prose gate for an EMNLP-style paper. This skill adapts w
    - Use only verified citations with full author metadata and ACL/EMNLP author-year natbib style. If a citation cannot be verified, mark it as blocked instead of inventing metadata; do not leave BibTeX `author={... and others}`/`et al.` placeholders that render as `and 1 others`, do not leave title-only entries from missing authors, and do not use starter keys whose titles point to unrelated papers.
 
 5. Calibrate claims:
+
+   Treat unsupported humility as the same defect as unsupported boasting: labels
+   such as “bounded,” “limited,” “preliminary,” “受限,” or similar must be tied to
+   a named, concrete limitation with evidence or be deleted. A limitations section
+   lists only
+   limitations that would change a reader's decision, each with its evidence;
+   flag virtue-signaling filler or integrity self-praise such as “we honestly
+   acknowledge…” for deletion.
+
    - Remove SOTA, novel, significant, robust, or generalization claims unless local evidence and citations support them.
    - Every numeric result in prose, table captions, and figure captions must trace to a local artifact.
    - Captions should state the takeaway, not only describe the figure.

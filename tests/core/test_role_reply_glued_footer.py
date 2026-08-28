@@ -129,6 +129,10 @@ def test_an_instruction_echo_mid_sentence_is_not_a_verdict(echo: str) -> None:
     assert read_key_values(echo, ["STATUS", "MILESTONE_STATUS"]) == {}
 
 
+def test_discussing_a_verdict_after_a_sentence_is_not_a_verdict() -> None:
+    assert read_key_values("Work continues. STATUS: done", ["STATUS"]) == {}
+
+
 def test_a_short_key_is_not_found_inside_a_longer_one() -> None:
     """``STATUS`` lives inside ``MILESTONE_STATUS``; an underscore is not a stop."""
     values = read_key_values(

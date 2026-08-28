@@ -120,7 +120,6 @@ def _target_for_action(context: DoctorContext, action_id: str) -> str:
         "remove_verified_stale_daemon_pid": str(context.project_root / "daemon.pid"),
         "remove_dead_daemon_control_files": str(context.project_root),
         "stop_owned_stuck_daemon": str(context.project_root),
-        "create_house_rules": str(context.global_root / "special_prompts" / "10-house-rules.md"),
         "install_editable": str(context.checkout or ""),
         "install_electron_binary": str((context.checkout / "desktop") if context.checkout else ""),
         "rebuild_release_assets": str(context.checkout or ""),
@@ -135,7 +134,6 @@ def _action_spec(context: DoctorContext, action_id: str) -> RepairAction:
         "remove_verified_stale_daemon_pid": ("daemon", "safe", ("ARGUS-STATE-001",)),
         "remove_dead_daemon_control_files": ("daemon", "safe", ("ARGUS-STATE-002",)),
         "stop_owned_stuck_daemon": ("daemon", "consent", ("ARGUS-DAEMON-001",)),
-        "create_house_rules": ("config", "consent", ("ARGUS-CONFIG-001",)),
         "install_editable": ("python", "consent", ("ARGUS-PYTHON-001",)),
         "install_electron_binary": ("desktop", "consent", ("ARGUS-DESKTOP-001",)),
         "rebuild_release_assets": ("release", "consent", ("ARGUS-ASSET-001",)),
@@ -255,7 +253,9 @@ def _safe_remove_control_files(context: DoctorContext) -> dict[str, Any]:
     return {"status": "applied" if removed else "not_needed", "removed": removed}
 
 
-def _run_registered_command(argv: list[str], *, cwd: Path, timeout: float) -> dict[str, Any]:
+def _run_registered_command(
+    argv: list[str], *, cwd: Path, timeout: float | None
+) -> dict[str, Any]:
     completed = subprocess.run(
         argv,
         cwd=str(cwd),
@@ -318,13 +318,6 @@ def _apply_registered_action(
             "returncode": rc,
             "detail": "owned daemon interrupted" if rc in {0, 1} else "daemon did not stop within 15 seconds",
         }
-    if action.id == "create_house_rules":
-        path = context.global_root / "special_prompts" / "10-house-rules.md"
-        if path.exists():
-            return {"status": "not_needed"}
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("Operational house rules for this machine.\n", encoding="utf-8")
-        return {"status": "applied", "path": str(path)}
     if context.checkout is None:
         return {"status": "failed", "detail": "source checkout is unavailable"}
     checkout = context.checkout.resolve()
@@ -332,7 +325,7 @@ def _apply_registered_action(
         return _run_registered_command(
             [str(context.python_executable), "-m", "pip", "install", "-e", str(checkout)],
             cwd=checkout,
-            timeout=300,
+            timeout=None,
         )
     if action.id == "install_electron_binary":
         desktop = checkout / "desktop"
@@ -342,7 +335,7 @@ def _apply_registered_action(
         return _run_registered_command(
             [node, "-e", "require('electron')"],
             cwd=desktop,
-            timeout=300,
+            timeout=None,
         )
     if action.id == "rebuild_release_assets":
         git = shutil_which("git")
@@ -350,7 +343,7 @@ def _apply_registered_action(
             return {"status": "failed", "detail": "Git is required to attribute rebuilt files"}
         before = subprocess.run(
             [git, "-C", str(checkout), "status", "--porcelain"],
-            check=False, capture_output=True, text=True, encoding="utf-8", timeout=5,
+            check=False, capture_output=True, text=True, encoding="utf-8",
         )
         if before.returncode != 0 or before.stdout.strip():
             return {
@@ -360,11 +353,11 @@ def _apply_registered_action(
         result = _run_registered_command(
             [str(context.python_executable), "-m", "argus_skill.release_tools.build_release"],
             cwd=checkout,
-            timeout=900,
+            timeout=None,
         )
         after = subprocess.run(
             [git, "-C", str(checkout), "status", "--porcelain"],
-            check=False, capture_output=True, text=True, encoding="utf-8", timeout=5,
+            check=False, capture_output=True, text=True, encoding="utf-8",
         )
         result["changed_paths"] = sorted(
             line[3:].strip().replace("\\", "/")
@@ -524,7 +517,7 @@ def submit_pr(
     def git_text(*args: str) -> str:
         completed = subprocess.run(
             [git, "-C", str(checkout), *args],
-            check=False, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
+            check=False, capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         if completed.returncode != 0:
             raise RuntimeError((completed.stderr or completed.stdout).strip())
@@ -555,7 +548,7 @@ def submit_pr(
             "--title", title, "--body-file", str(report),
         ],
         cwd=str(checkout), check=False, capture_output=True, text=True,
-        encoding="utf-8", errors="replace", timeout=60,
+        encoding="utf-8", errors="replace",
     )
     if created.returncode != 0:
         raise RuntimeError((created.stderr or created.stdout).strip())

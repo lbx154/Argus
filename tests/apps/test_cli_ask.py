@@ -69,7 +69,9 @@ def test_ask_prints_quick_reply_reply_and_queues_nothing(
     assert rc == 0
     assert "42, obviously." in out
     assert captured["run_label"] == "manager-ask"
-    assert captured["prompt"] == build_quick_reply_prompt(objective="what is 2+2?")
+    prompt = str(captured["prompt"])
+    assert prompt.startswith(build_quick_reply_prompt(objective="what is 2+2?"))
+    assert prompt.rfind("## OperatorContext") > prompt.index("what is 2+2?")
     assert captured["options_skip_git_repo_check"] is True
     assert _queued_rows(tmp_path / "life") == []
 

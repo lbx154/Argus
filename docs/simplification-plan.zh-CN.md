@@ -3,7 +3,8 @@
 一份把 Argus 变小的计划。**这是减重问题，不是重写**：系统是能用的，目标是删掉那些没有在承重
 的东西。
 
-配套文档：**[系统审计](system-audit.zh-CN.md)**（本计划所依据的实测数字）、
+本计划由 **[Argus 原则](PRINCIPLES.zh-CN.md)** 推出。配套文档：
+**[系统审计](system-audit.zh-CN.md)**（本计划所依据的实测数字）、
 **[失效模式](failure-modes-and-fixes.zh-CN.md)**（本计划想改变的行为）。
 
 English version: [simplification-plan.md](simplification-plan.md)
@@ -33,14 +34,12 @@ English version: [simplification-plan.md](simplification-plan.md)
 
 自上而下做。每一步在下一步开始前都可验证。
 
-### 1. 删掉那个空转的 Wiki 生命周期 API —— 可证明安全
+### 1. 删掉那个空转的 Wiki 生命周期 API —— 已完成
 
-`wiki/lifecycle.py:54` 的 `maintain_wikis_after_mission()` 接收七个参数、丢掉五个，而且自己
-就写着：`"""Do nothing: Agents maintain pages and INDEX.md during the mission."""`
-**它没有任何调用方。**
+未使用的任务后 Wiki 生命周期钩子已删除。Wiki 生命周期现在只导出
+`ensure_project_wiki()`；Agent 在任务期间维护页面和 `INDEX.md`。
 
-保留 `:22` 的 `ensure_project_wiki()`。
-**验证：** 全仓引用搜索；`pytest tests/test_wiki_bootstrap.py tests/test_minimal_skill_wiki.py`。
+**已验证：** 全仓引用搜索；`pytest tests/test_wiki_bootstrap.py tests/test_minimal_skill_wiki.py`。
 
 ### 2. 删掉 31 个未被引用的事件类型
 
@@ -111,14 +110,8 @@ Reviewer 管独立判断。
 
 ### 7. 把 daemon 自维护降格为普通 mission
 
-`ARGUS_SKILL_SELF_MAINTENANCE` 默认为 `"1"`（`daemon/_life_worker_run.py:46`），启用了一个
-3,186 行的 worktree/canary/发布子系统。**对 Argus 自身的修改，完全可以是走正常
-Engineer/Reviewer 回路的普通工程 mission。**
-
-先在关闭它的情况下跑。**这是按行数最大、按行为改善最小的一刀**——放在第 5 步之后做，不要提
-前。
-
-**风险：** 会失去无人值守的框架自更新。那是一项真实能力，请刻意决定。
+对 Argus 自身的修改是走正常 Engineer/Reviewer 回路的普通工程 mission。自治发现与修复继续
+保留；审查通过的变更经一次 operator 批准的部署边界发布，不再由常驻 promotion daemon 推进。
 
 ### 8. 最后才清理防御性处理与空转循环
 

@@ -38,6 +38,7 @@ class _MissionRunState:
         self.usage_ledger: Any = None
         self.cost_sink: Any = None
         self.item_tags: set[str] = set()
+        self.plan_revision_witness: dict[str, Any] = {}
         self.execution_workdir: Path | None = None
         self.configured_execution_workdir: str = ""
 

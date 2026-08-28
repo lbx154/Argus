@@ -136,7 +136,7 @@ def _git_remote_origin(cwd: Path) -> str | None:
 
     Uses ``git -C <cwd> config --get remote.origin.url``. Returns
     ``None`` for non-git dirs, missing remote, missing git binary,
-    timeouts, or any other error — fingerprint resolution always falls
+    or any other error — fingerprint resolution always falls
     back to cwd-hash in that case.
     """
     try:
@@ -145,10 +145,9 @@ def _git_remote_origin(cwd: Path) -> str | None:
             env=_git_env(),
             capture_output=True,
             text=True,
-            timeout=2.0,
             check=False,
         )
-    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, OSError):
         return None
     if completed.returncode != 0:
         return None

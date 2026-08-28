@@ -57,6 +57,8 @@ def _gate_item(status: str, *, review_required: bool = True) -> BacklogItem:
     tags = ["planner", "scope:bounded", "bounded_dag_node", "stage_closing"]
     if review_required:
         tags.append("review:required")
+    else:
+        tags.append("review:waived")
     return BacklogItem(
         id="015c2e7b0889",
         ts=time.time(),

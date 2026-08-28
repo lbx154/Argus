@@ -86,6 +86,7 @@ export function MissionCockpit({
   const mode = formatMissionRouting(view.routing);
   const round = view.round.max > 0 ? `${view.round.current} / ${view.round.max}` : view.round.current ? String(view.round.current) : '—';
   const outcome = outcomeDimensionSummary(view.outcome);
+  const teamLabel = view.routing.vertical === 'research' ? 'AI RESEARCH TEAM' : 'AI TEAM';
   const compactHeight = height != null && height < 36;
 
   // Ink clears and repaints the whole terminal whenever the live frame reaches
@@ -152,7 +153,7 @@ export function MissionCockpit({
           </Text>
         ) : null}
         <Box flexDirection="column">
-          <Text dimColor>AI RESEARCH TEAM</Text>
+          <Text dimColor>{teamLabel}</Text>
           {ROLE_ORDER.map((name) => {
             const role = roleByName.get(name);
             const status = role?.status ?? 'waiting';
@@ -244,7 +245,7 @@ export function MissionCockpit({
       ) : null}
 
       <Box flexDirection="column" marginTop={1}>
-        <Text dimColor>AI RESEARCH TEAM</Text>
+        <Text dimColor>{teamLabel}</Text>
         {handoff ? <Text dimColor>{`handoff · ${handoff}`}</Text> : null}
         {ROLE_ORDER.map((name) => {
           const role = roleByName.get(name);

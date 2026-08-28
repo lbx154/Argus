@@ -1,4 +1,4 @@
-"""Blue/green handoff for reviewed private framework canaries."""
+"""Blue/green daemon handoff with standby and per-run rollback."""
 
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ _HANDOFF_READY_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_READY"
 _HANDOFF_TOKEN_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_TOKEN"
 _HANDOFF_LOG_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_LOG"
 _HANDOFF_ROLLBACK_SOURCE_ENV = "ARGUS_SKILL_DAEMON_HANDOFF_ROLLBACK_SOURCE"
+_DEPLOYMENT_ROLL_FILE = "daemon-roll.json"
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +83,32 @@ def _handoff_ready_path(life_dir: Path) -> Path:
 
 def _handoff_config_path(life_dir: Path, token: str) -> Path:
     return life_dir / f"daemon.handoff.{token}.json"
+
+
+def request_deployment_handoff(receipt_dir: Path, candidate_source_root: Path) -> None:
+    """Offer one fully deployed runtime to the daemon at its next boundary."""
+    receipt_dir.mkdir(parents=True, exist_ok=True)
+    target = receipt_dir / _DEPLOYMENT_ROLL_FILE
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps({"candidate_source_root": str(candidate_source_root.resolve())}),
+        encoding="utf-8",
+    )
+    temporary.replace(target)
+
+
+def _consume_deployment_handoff(life_dir: Path) -> Path | None:
+    request = life_dir / "maintenance" / "receipts" / _DEPLOYMENT_ROLL_FILE
+    claimed = request.with_suffix(".consumed")
+    try:
+        request.replace(claimed)
+    except FileNotFoundError:
+        return None
+    try:
+        payload = json.loads(claimed.read_text(encoding="utf-8"))
+        return Path(payload["candidate_source_root"]).expanduser().resolve(strict=True)
+    finally:
+        claimed.unlink(missing_ok=True)
 
 
 def _spawn_handoff_candidate(
@@ -286,7 +313,7 @@ def run_handoff_child_process(
     rc = 2
     try:
         rc = int(worker.run_forever())
-    except Exception:  # noqa: BLE001 - a failed canary must release and roll back
+    except Exception:  # noqa: BLE001 - a failed candidate must release and roll back
         log.exception("handoff candidate crashed after takeover")
     finally:
         lock.release()
@@ -296,37 +323,13 @@ def run_handoff_child_process(
             pass
     rollback_root = os.environ.get(_HANDOFF_ROLLBACK_SOURCE_ENV, "").strip()
     if rc != 0 and rollback_root:
-        state_path = config.life_dir / "self-maintenance" / "state.json"
-        try:
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-            if isinstance(state, dict) and state.get("phase") in {
-                "handoff_requested",
-                "canary_running",
-                "publication_failed",
-                "local_active",
-                "pr_open",
-                "upstream_merged",
-                "adopted",
-            }:
-                from .self_maintenance import _atomic_json
-
-                _atomic_json(state_path, {
-                    **state,
-                    "phase": "canary_failed",
-                    "error": f"canary process exited with rc={rc}",
-                    "updated_at": time.time(),
-                })
-        except (OSError, json.JSONDecodeError, TypeError):
-            log.exception("failed to mark crashed self-maintenance canary")
         root = Path(rollback_root).expanduser().resolve()
         if not _spawn_handoff_candidate(
             config,
-            reason="self-maintenance canary failed; restore prior runtime",
+            reason="handoff candidate failed; restore prior runtime",
             candidate_source_root=root,
         ):
-            log.error(
-                "self-maintenance canary failed and rollback candidate did not start"
-            )
+            log.error("handoff rollback candidate did not start")
     return rc
 
 
@@ -340,9 +343,11 @@ __all__ = [
     "_HANDOFF_READY_ENV",
     "_HANDOFF_ROLLBACK_SOURCE_ENV",
     "_HANDOFF_TOKEN_ENV",
+    "_consume_deployment_handoff",
     "_acquire_daemon_lock_with_timeout",
     "_spawn_handoff_candidate",
     "_strip_git_config_injection",
     "_truthy_env",
+    "request_deployment_handoff",
     "run_handoff_child_process",
 ]

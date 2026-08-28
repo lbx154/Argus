@@ -100,7 +100,12 @@ def role_banner(role: str) -> str:
         "matched skills and project wiki, preserve unrelated work, and verify the "
         "result with task-native tests. A change that does not compile is not a "
         "candidate for `done` no matter how correct it reads: confirm the build "
-        "and the test run this round rather than trusting a self-report. "
+        "and the test run this round rather than trusting a self-report. For optimization "
+        "work, first measure a task-relevant performance or capability baseline and "
+        "report a like-for-like before/after result; measurable performance or capability "
+        "improvement is the objective and deletion is only a means. Delete the superseded "
+        "path instead of keeping old and new paths in parallel, and never change a "
+        "product interface solely for testability. "
         "Execution topology is Manager-owned and is not part of this capability "
         "classification."
     )

@@ -28,6 +28,8 @@ from ._planning_cycle_helpers import (
     _revision_reason,
 )
 
+_REVISION_TERMINAL_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
+
 
 class PlanningCycleIntakeMixin:
     """Gate checks + preflight short-circuits run before planner invocation."""
@@ -55,7 +57,7 @@ class PlanningCycleIntakeMixin:
             return None
         if any(
             item.status in {"pending", "running", "claimed"}
-            for item in self.memory.backlog.all()
+            for item in self.memory.backlog.active()
         ):
             return None
 
@@ -69,11 +71,13 @@ class PlanningCycleIntakeMixin:
         vertical = str(intent.get("vertical") or "").strip()
         from ...verticals._base import load_vertical_contract
 
-        requires_review = bool(intent.get("require_independent_review")) or (
-            load_vertical_contract(
-                vertical,
-                project_root=self._artifact_root(),
-            ).requires_independent_review
+        vertical_requires_review = load_vertical_contract(
+            vertical,
+            project_root=self._artifact_root(),
+        ).requires_independent_review
+        explicit_review_policy = intent.get("require_independent_review", True)
+        requires_review = bool(
+            explicit_review_policy is not False or vertical_requires_review
         )
         manager_decision = {**intent, "routed": True, "route_source": "manager"}
         item = BacklogItem.new(
@@ -85,6 +89,7 @@ class PlanningCycleIntakeMixin:
                 "scope:bounded",
                 "stage_closing",
                 *(["review:required"] if requires_review else []),
+                *(["review:waived"] if not requires_review else []),
                 *([f"stage:{stage}"] if stage else []),
             ],
             iterate=False,
@@ -93,6 +98,16 @@ class PlanningCycleIntakeMixin:
             manager_decision=manager_decision,
         )
         self.memory.backlog.add(item)
+        if not requires_review:
+            self._emit({
+                "type": "life.review.waived",
+                "item_id": item.id,
+                "text": (
+                    "independent review waived: Manager explicitly set "
+                    "require_independent_review=false"
+                ),
+                "reason": str(intent.get("reason") or "Manager waiver"),
+            })
         self._emit({
             "type": EventType.LIFE_PLANNER_TASK_ADDED,
             "item_id": item.id,
@@ -139,7 +154,7 @@ class PlanningCycleIntakeMixin:
         immediately; returns ``None`` to continue the cycle.
         """
         revision_request = state.revision_request
-        from ...manager.directive import active_manager_directive_message
+        from ...core.operator_context import build_operator_context_block
 
         transient_messages = (
             self._take_operator_guidance_carryover() + self._drain_user_inbox()
@@ -149,12 +164,17 @@ class PlanningCycleIntakeMixin:
         # Draining appends fresh messages to the durable ledger. Re-render after
         # the drain so this same planning turn sees the complete standing block
         # as well as the legacy one-shot operator note below.
-        active_directive = active_manager_directive_message(self.memory.root)
+        operator_context, _revision = build_operator_context_block(
+            "planner",
+            self.memory.root,
+            live_turn="\n".join(transient_messages),
+            consume_once=False,
+        )
+        state.operator_context_revision = _revision
         state.fresh_operator_messages = list(dict.fromkeys(transient_messages))
         state.operator_messages = list(
             dict.fromkeys(
-                ([active_directive] if active_directive else [])
-                + state.fresh_operator_messages
+                ([operator_context] if operator_context else [])
             )
         )
         if transient_messages:
@@ -228,23 +248,89 @@ class PlanningCycleIntakeMixin:
                 revision_request = None
         if revision_request is not None:
             try:
-                state.revision_active_items = [
-                    item
-                    for item in self.memory.backlog.all()
-                    if item.plan_id == state.expected_plan_id
-                    and item.plan_version == state.expected_plan_version
-                    and item.status not in {"done", "failed", "skipped", "superseded"}
-                ]
+                # A replan witness may already have terminalized its source;
+                # the source id/version lives in the append-only archive.
+                backlog_items = self.memory.backlog.history()
             except Exception as exc:  # noqa: BLE001
                 self._emit({
                     "type": EventType.LIFE_PLAN_REVISION_REJECTED,
                     "reason": f"cannot inspect active plan: {type(exc).__name__}: {exc}",
                 })
                 return PLAN_ERROR
+            state.revision_active_items = [
+                item
+                for item in backlog_items
+                if item.plan_id == state.expected_plan_id
+                and item.plan_version == state.expected_plan_version
+                and item.status not in {"done", "failed", "skipped", "superseded"}
+            ]
             requested_item_id = str(revision_request.get("item_id") or "")
-            if not state.revision_active_items or requested_item_id not in {
-                item.id for item in state.revision_active_items
-            }:
+            witness = revision_request.get("plan_revision_witness")
+            if isinstance(witness, dict):
+                try:
+                    witness_version = int(witness.get("plan_version") or 0)
+                except (TypeError, ValueError):
+                    witness_version = 0
+                witness_ids = [
+                    str(item_id)
+                    for item_id in (witness.get("active_item_ids") or [])
+                    if str(item_id)
+                ]
+                witness_ids = list(dict.fromkeys(witness_ids))
+                witness_matches_request = (
+                    str(witness.get("plan_id") or "") == state.expected_plan_id
+                    and witness_version == state.expected_plan_version
+                    and str(witness.get("source_item_id") or "") == requested_item_id
+                    and requested_item_id in witness_ids
+                )
+                if witness_matches_request:
+                    by_id = {item.id: item for item in backlog_items}
+                    witness_set = set(witness_ids)
+                    current_active_ids = {
+                        item.id for item in state.revision_active_items
+                    }
+                    missing_ids = [
+                        item_id for item_id in witness_ids if item_id not in by_id
+                    ]
+                    plan_mismatches = [
+                        item_id
+                        for item_id in witness_ids
+                        if item_id in by_id
+                        and (
+                            by_id[item_id].plan_id != state.expected_plan_id
+                            or by_id[item_id].plan_version != state.expected_plan_version
+                        )
+                    ]
+                    invalid_terminal = [
+                        item.id
+                        for item in (
+                            by_id[item_id]
+                            for item_id in witness_ids
+                            if item_id in by_id
+                        )
+                        if item.status in {"done", "aborted", "skipped", "superseded"}
+                        or (item.status == "failed" and item.id != requested_item_id)
+                    ]
+                    unexpected_active = sorted(current_active_ids - witness_set)
+                    if not (
+                        missing_ids
+                        or plan_mismatches
+                        or invalid_terminal
+                        or unexpected_active
+                    ):
+                        state.revision_active_items = [
+                            by_id[item_id] for item_id in witness_ids
+                        ]
+                        state.revision_witness_active_item_ids = witness_ids
+            requested_item = next(
+                (item for item in backlog_items if item.id == requested_item_id),
+                None,
+            )
+            if (
+                requested_item is None
+                or requested_item.plan_id != state.expected_plan_id
+                or requested_item.plan_version != state.expected_plan_version
+            ):
                 self._emit({
                     "type": EventType.LIFE_PLAN_REVISION_REJECTED,
                     "reason": "plan revision conflict: active revision changed",
@@ -252,11 +338,46 @@ class PlanningCycleIntakeMixin:
                     "expected_plan_version": state.expected_plan_version,
                 })
                 return PLAN_ERROR
+            if (
+                requested_item.status in _REVISION_TERMINAL_STATUSES
+                and not state.revision_active_items
+            ):
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": (
+                        "terminal replan trigger has no active same-plan siblings; "
+                        "planning fresh work instead"
+                    ),
+                    "expected_plan_id": state.expected_plan_id,
+                    "expected_plan_version": state.expected_plan_version,
+                    "item_id": requested_item.id,
+                    "trigger_status": requested_item.status,
+                })
+                state.revision_request = None
+                revision_request = None
+            elif (
+                requested_item.status not in _REVISION_TERMINAL_STATUSES
+                and requested_item.id not in {item.id for item in state.revision_active_items}
+            ):
+                self._emit({
+                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
+                    "reason": "plan revision conflict: active revision changed",
+                    "expected_plan_id": state.expected_plan_id,
+                    "expected_plan_version": state.expected_plan_version,
+                })
+                return PLAN_ERROR
+        if revision_request is not None:
             self._emit({
                 "type": EventType.LIFE_PLAN_REVISION_PROPOSED,
                 "expected_plan_id": state.expected_plan_id,
                 "expected_plan_version": state.expected_plan_version,
                 "active_item_ids": [item.id for item in state.revision_active_items],
+                "trigger_item_id": requested_item_id,
+                **(
+                    {"terminal_trigger_status": requested_item.status}
+                    if requested_item.status in _REVISION_TERMINAL_STATUSES
+                    else {}
+                ),
                 "reason": _revision_reason(revision_request),
             })
 

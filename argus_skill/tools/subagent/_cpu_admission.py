@@ -13,7 +13,9 @@ try:
 except ImportError:  # pragma: no cover - Windows has no detached subagent support
     fcntl = None  # type: ignore[assignment]
 
-_ACTIVE_CPU_LEASE_STATES = frozenset({"starting", "preflight", "running"})
+_ACTIVE_CPU_LEASE_STATES = frozenset({
+    "starting", "preflight", "waiting_resource", "running",
+})
 _STARTING_LEASE_GRACE_SECONDS = 60.0
 _PROCESS_LOCK = threading.Lock()
 

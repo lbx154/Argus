@@ -13,7 +13,7 @@ website):
   training, training is not redistribution).
 
 This module does NOT ingest anything. It (1) loads and validates a registry, and
-(2) answers the one question the runtime provenance gate needs:
+(2) answers the authorization question provenance callers need:
 :func:`assert_use_allowed` — *may source X be used for purpose P?* — so that a
 mission which uses a source for a purpose its rights do not permit fails loudly
 rather than silently laundering a query-only corpus into training data.
@@ -38,8 +38,8 @@ import yaml
 
 #: Uses that imply the content was actually taken in (a local copy / index / a
 #: verbatim quote / a training corpus). Merely querying a hosted corpus or a human
-#: reading it do NOT. The runtime gate uses this to reject "cite/index/train on a
-#: source we never ingested".
+#: reading it do NOT. Provenance validation uses this to reject
+#: "cite/index/train on a source we never ingested".
 USES_REQUIRING_INGESTION: frozenset[str] = frozenset({
     "evidence_citation", "local_indexing", "model_training", "redistribution",
 })

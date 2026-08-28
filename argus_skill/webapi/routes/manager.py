@@ -290,10 +290,8 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                     except Exception as exc:  # noqa: BLE001 — surface failure in done frame
                         result["daemon"] = {
                             "rc": 2,
-                            "error": (
-                                "background executor failed to start: "
-                                f"{type(exc).__name__}: {exc}"
-                            ),
+                            "error": "The background worker could not start.",
+                            "diagnostic": f"{type(exc).__name__}: {exc}",
                         }
                 # Persist truthful dispatch acknowledgement for task results
                 if result.get("kind") == "task":
@@ -304,10 +302,17 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                             on_fragment=_on_fragment,
                         )
                     except Exception as exc:  # noqa: BLE001 — surface in done frame
-                        result["ack_error"] = str(exc)
+                        result["ack_error"] = (
+                            "The task was queued, but its confirmation could not be saved."
+                        )
+                        result["ack_diagnostic"] = f"{type(exc).__name__}: {exc}"
                 q.put({"type": "done", "result": result})
             except Exception as exc:  # noqa: BLE001
-                q.put({"type": "error", "error": str(exc)})
+                q.put({
+                    "type": "error",
+                    "error": "I couldn't finish handling that request.",
+                    "diagnostic": f"{type(exc).__name__}: {exc}",
+                })
             finally:
                 q.put(None)  # sentinel: generator stops
 

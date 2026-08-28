@@ -12,8 +12,9 @@ import shlex
 from typing import Any, Callable
 
 from ..core.event_catalog import EventType, canonical_event_type
+from ..core.operator_messages import uses_cjk
 from ..core.secret_guard import redact_secrets_text
-from ..life.mission_outcome import outcome_dimension_summary
+from ..life.mission_outcome import mission_outcome_class
 
 # Canonical live events with dedicated presentation. Unknown/internal events
 # fall back to ``[event.type]`` so they remain grep-able. ``match.info`` is an
@@ -367,28 +368,64 @@ def _render_life_mission_started(event: dict[str, Any]) -> str:
 
 
 def _render_life_mission_completed(event: dict[str, Any]) -> str:
-    parts: list[str] = []
-    status = event.get("status")
-    if status:
-        parts.append(f"status={status}")
+    title = str(event.get("title") or event.get("objective") or "current task").strip()
+    summary = str(
+        event.get("summary")
+        or event.get("stop_reason")
+        or event.get("failure_reason")
+        or event.get("reason")
+        or ""
+    ).strip()
+    status = str(event.get("status") or "").strip().lower()
+    success = event.get("success") is True
+    outcome_class = str(event.get("outcome_class") or "").strip().lower()
+    if not outcome_class:
+        outcome_class = mission_outcome_class(status, success)
+    outcome = event.get("outcome")
+    resumable = bool(event.get("resumable") or event.get("recoverable"))
+    if isinstance(outcome, dict):
+        resumable = resumable or outcome.get("resumable") is True
+    chinese = uses_cjk(f"{title}\n{summary}")
+    if success or outcome_class == "completed":
+        headline = f"已完成：{title}。" if chinese else f"Completed: {title}."
+    elif status.startswith("paused_") or resumable:
+        headline = f"已暂停：{title}。" if chinese else f"Paused: {title}."
+    elif outcome_class == "failed":
+        headline = f"未能完成 {title}。" if chinese else f"Could not complete {title}."
+    else:
+        headline = (
+            f"仍有工作未完成：{title}。"
+            if chinese
+            else f"Work remains on {title}."
+        )
+    if summary:
+        headline += f" {summary}"
+
+    metrics: list[str] = []
     rounds = event.get("rounds")
     if rounds is not None:
-        parts.append(f"rounds={rounds}")
-    elapsed = event.get("elapsed_seconds") or event.get("elapsed_s")
+        metrics.append(
+            f"{rounds} 轮"
+            if chinese
+            else f"{rounds} round{'s' if rounds != 1 else ''}"
+        )
+    elapsed = event.get("elapsed_seconds")
+    if elapsed is None:
+        elapsed = event.get("elapsed_s")
     if elapsed is not None:
-        parts.append(f"elapsed={float(elapsed):.1f}s")
+        metrics.append(
+            f"{float(elapsed):.1f} 秒" if chinese else f"{float(elapsed):.1f}s"
+        )
     cost = event.get("cost_usd")
     pricing_status = str(event.get("pricing_status") or "")
     if cost is not None:
         suffix = "+" if pricing_status in {"partial", "unpriced"} else ""
-        parts.append(f"cost=${float(cost):.4f}{suffix}")
+        cost_text = f"${float(cost):.4f}{suffix}"
+        metrics.append(f"成本 {cost_text}" if chinese else f"cost {cost_text}")
     elif pricing_status in {"partial", "unpriced"}:
-        parts.append(f"cost={pricing_status}")
-    parts.extend(outcome_dimension_summary(event.get("outcome")))
-    if not parts:
-        text = _trunc(str(event.get("text") or ""), 200)
-        return text or "mission complete"
-    return "mission complete  ·  " + "  ·  ".join(parts)
+        cost_text = "部分可用" if chinese else pricing_status
+        metrics.append(f"成本 {cost_text}" if chinese else f"cost {cost_text}")
+    return headline + ("\n" + " · ".join(metrics) if metrics else "")
 
 
 _RICH_RENDERERS: dict[str, Callable[[dict[str, Any]], str]] = {

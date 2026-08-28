@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import itertools
 from pathlib import Path
 from typing import Callable
 
@@ -200,7 +201,12 @@ class SupervisedEngineer(
             ),
             mission_context_path=supervised_config.context_packet_path,
         )
-        for round_index in range(1, supervised_config.max_rounds + 1):
+        round_indices = (
+            itertools.count(1)
+            if supervised_config.max_rounds <= 0
+            else range(1, supervised_config.max_rounds + 1)
+        )
+        for round_index in round_indices:
             engineer_resume_id = state.engineer_session.prepare(
                 max_turns=supervised_config.role_session_max_turns,
                 max_input_tokens=supervised_config.role_session_max_input_tokens,
@@ -322,6 +328,7 @@ class SupervisedEngineer(
                 continue
             # else "proceed": fall through to the next round.
 
+        # Only an explicit positive max_rounds can exhaust the finite range.
         return enforce_terminal_question_policy(
             (
                 "max_rounds",

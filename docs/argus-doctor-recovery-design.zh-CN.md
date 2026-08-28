@@ -81,7 +81,7 @@ argus doctor --verify        # 修复后验收
 - `/api/projects/{sid}/doctor`：项目级 WebAPI Doctor。
 - `runtime_identity.py` / `release.py`：版本、源码和 Release 身份检查。
 - `daemon_upgrade.py`：在任务边界安全切换 daemon。
-- `daemon/self_maintenance.py`：框架代码故障的隔离修复与 canary。
+- 普通 `framework_maintenance` mission 与 deployment boundary：框架代码故障的隔离修复、审查与发布。
 - Windows Desktop 已具备 Electron host、bundled backend、ownership 检查和有限恢复能力。
 
 但现有 Doctor 默认要求：

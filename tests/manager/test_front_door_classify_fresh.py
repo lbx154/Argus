@@ -64,6 +64,7 @@ def test_front_door_runs_fresh_low_effort(tmp_path, monkeypatch) -> None:
     assert call["options"].reasoning_effort == "low"
     assert call["options"].model == "fast-manager"
     assert call["options"].disable_tools is True
+    assert call["options"].watchdog_hard_idle_seconds == 120
     assert call["options"].extra_args == [
         "--system-prompt",
         "Return only the requested Argus Manager classification decision.",

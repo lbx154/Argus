@@ -39,7 +39,9 @@ class BaselineWorkspace:
         )
 
 
-def _run(argv: list[str], *, cwd: Path, timeout: float = 30.0) -> subprocess.CompletedProcess[str]:
+def _run(
+    argv: list[str], *, cwd: Path, timeout: float | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         argv,
         cwd=cwd,
@@ -135,7 +137,7 @@ def prepare_baseline_workspace(
         result = _run(
             ["git", "worktree", "add", "--detach", str(reference), head],
             cwd=project,
-            timeout=120.0,
+            timeout=None,
         )
         if result.returncode != 0:
             raise RuntimeError(

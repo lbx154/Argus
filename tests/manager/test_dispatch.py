@@ -39,7 +39,7 @@ def manager_runner(monkeypatch):
     )
 
 
-def test_bounded_dispatch_persists_parsed_work_kind_and_nested_workdir(
+def test_bounded_dispatch_persists_nested_workdir(
     memory,
     monkeypatch,
 ):
@@ -61,7 +61,6 @@ def test_bounded_dispatch_persists_parsed_work_kind_and_nested_workdir(
                 "title": "`managed task`",
                 "objective": "managed: operator request",
                 "execution_workdir": "nested/target",
-                "work_kind": "validation",
             }],
         },
     }
@@ -98,7 +97,6 @@ def test_bounded_dispatch_persists_parsed_work_kind_and_nested_workdir(
     assert item.id == "root-task-1"
     assert item.title == "managed task"
     assert item.objective == "managed: operator request"
-    assert item.work_kind == "validation"
     assert item.execution_workdir == str(nested.resolve())
     assert item.priority < older.priority
     assert (alive, pid) == (False, None)
@@ -487,7 +485,10 @@ def test_continuous_dispatch_persists_operator_priority_item(memory):
     assert item.priority == -1
     assert "operator_priority" in item.tags
     assert "stage_transition:skip" in item.tags
-    assert item.manager_decision == {"routed": True}
+    assert item.manager_decision == {
+        "require_independent_review": True,
+        "routed": True,
+    }
     assert payload["enabled"] is True
     assert payload["objective"] == "managed: operator request"
     assert payload["open_ended"] is True

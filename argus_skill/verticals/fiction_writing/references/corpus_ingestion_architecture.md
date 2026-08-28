@@ -15,8 +15,8 @@ length-capped paraphrase note; it can never reconstruct a source passage.
 
 ## Rides existing argus infrastructure (no new store)
 
-- **Rights / provenance:** `sources.py` + `source_check.py` + `references/source_registry/`
-  already gate INPUT authorization (a source's `allowed_uses`). Ingestion consumes
+- **Rights / provenance:** `sources.py` + `references/source_registry/` define
+  input authorization (a source's `allowed_uses`). Ingestion consumes
   only rights-cleared sources; `plan_ingestion()` refuses when none are authorized.
 - **Distillation:** the `learning` vertical already turns material into
   evidence-backed skills/wiki — ingestion is a fiction-flavored use of it, not a

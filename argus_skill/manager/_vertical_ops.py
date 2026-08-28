@@ -166,9 +166,28 @@ def _render_active_route_contract(
     )
 
 
-def _task_excerpt(task: str, *, limit: int = 180) -> str:
-    compact = " ".join(str(task or "").split())
-    return compact if len(compact) <= limit else compact[: limit - 1].rstrip() + "…"
+def _backend_decision_error(
+    cause: object,
+    *,
+    task: str,
+    attempts: int,
+) -> VerticalDecisionError:
+    text = str(cause or "Manager backend failed").strip()
+    lower = text.casefold()
+    phase = (
+        "timeout"
+        if isinstance(cause, TimeoutError)
+        or "timed out" in lower
+        or "timeout" in lower
+        else "backend"
+    )
+    return VerticalDecisionError(
+        text,
+        phase=phase,
+        attempts=attempts,
+        backend_error=text,
+        task=task,
+    )
 
 
 def _decision_requires_agent_grounding(
@@ -284,11 +303,20 @@ class _VerticalDecisionMixin:
         try:
             override = research_target_env_override()
         except ValueError as exc:
-            raise VerticalDecisionError(str(exc)) from exc
+            raise VerticalDecisionError(
+                str(exc),
+                phase="contract",
+                contract_field="ARGUS_SKILL_RESEARCH_TARGET_LEVEL",
+                task=task,
+            ) from exc
         if override is not None:
             if override not in supported_levels:
                 raise VerticalDecisionError(
-                    f"research target {override!r} is not supported by this vertical"
+                    f"research_target_level got {override!r}, expected "
+                    + "|".join(supported_levels),
+                    phase="contract",
+                    contract_field="research_target_level",
+                    task=task,
                 )
             return override
         backend = self._session or self.runner
@@ -306,38 +334,52 @@ class _VerticalDecisionMixin:
         from .domain_author import parse_research_target_level
         from .stage_decider import extract_answer
 
-        with self._task_usage_scope(root_task_id):
-            result = gateway_run_exec(
-                backend,
-                prompt=build_research_target_prompt(
-                    task,
-                    supported_levels=supported_levels,
-                ),
-                options=RunnerOptions(
-                    model=_manager_model(),
-                    reasoning_effort=_manager_reasoning_effort(),
-                    working_dir=str(self.execution_workdir),
-                    dangerous_yolo=True,
-                    skip_git_repo_check=True,
-                ),
-                run_label="manager-research-target",
-            )
+        try:
+            with self._task_usage_scope(root_task_id):
+                result = gateway_run_exec(
+                    backend,
+                    prompt=build_research_target_prompt(
+                        task,
+                        supported_levels=supported_levels,
+                    ),
+                    options=RunnerOptions(
+                        model=_manager_model(),
+                        reasoning_effort=_manager_reasoning_effort(),
+                        working_dir=str(self.execution_workdir),
+                        dangerous_yolo=True,
+                        skip_git_repo_check=True,
+                    ),
+                    run_label="manager-research-target",
+                )
+        except Exception as exc:  # noqa: BLE001 - preserve provider cause
+            raise _backend_decision_error(exc, task=task, attempts=1) from exc
         failed, detail = _manager_backend_failure(result)
         if failed:
-            raise VerticalDecisionError(
-                "Manager research-target backend failed"
-                + (f": {detail}" if detail else "")
-            )
+            cause = detail or "Manager research-target backend failed"
+            raise _backend_decision_error(cause, task=task, attempts=1)
         process_decision = latest_role_decision(result, "manager")
-        target_level = parse_research_target_level(
+        raw_reply = (
             process_decision
             if process_decision is not None
-            else extract_answer(result),
+            else extract_answer(result)
+        )
+        target_level = parse_research_target_level(
+            raw_reply,
             supported_levels=supported_levels,
         )
         if target_level is None:
+            from .domain_author import research_target_contract_violation
+
+            violation = research_target_contract_violation(
+                raw_reply,
+                supported_levels=supported_levels,
+            )
             raise VerticalDecisionError(
-                "Manager did not produce a valid research_target_level"
+                violation.cause,
+                phase=violation.phase,
+                contract_field=violation.field,
+                model_reply_snippet=raw_reply,
+                task=task,
             )
         return target_level
 
@@ -426,8 +468,12 @@ class _VerticalDecisionMixin:
         backend = self.runner
         if backend is None:
             raise VerticalDecisionError(
-                "cannot decide the vertical: the Manager has no backend/runner"
+                "Manager has no backend/runner",
+                phase="backend",
+                backend_error="Manager has no backend/runner",
+                task=task,
             )
+        attempts_made = 0
         manager_model = resolved_model_id or _manager_model()
         from ..core.models import RunnerOptions
         from ..domains import BUILTIN_DOMAINS, DOMAIN_PURPOSES
@@ -543,7 +589,11 @@ class _VerticalDecisionMixin:
             ):
                 raise VerticalDecisionError(
                     "Manager execution_task copied bounded conversation context "
-                    "instead of producing a standalone handoff"
+                    "instead of producing a standalone handoff",
+                    phase="contract",
+                    contract_field="execution_task",
+                    attempts=attempts_made,
+                    task=task,
                 )
             return decision
 
@@ -570,25 +620,34 @@ class _VerticalDecisionMixin:
                 "ARGUS_SKILL_MANAGER_FAST_ROUTE_MAX_PROMPT_CHARS",
                 _DEFAULT_FAST_ROUTE_MAX_PROMPT_CHARS,
             ):
-                with self._task_usage_scope(root_task_id):
-                    fast_result = gateway_run_exec(
-                        backend,
-                        prompt=fast_prompt,
-                        options=RunnerOptions(
-                            model=manager_model,
-                            reasoning_effort=_manager_vertical_reasoning_effort(),
-                            working_dir=str(self.execution_workdir),
-                            sandbox_mode="read-only",
-                            force_safe_mode=True,
-                            skip_git_repo_check=True,
-                        ),
-                        run_label="manager-classify-fast",
-                    )
+                attempts_made += 1
+                try:
+                    with self._task_usage_scope(root_task_id):
+                        fast_result = gateway_run_exec(
+                            backend,
+                            prompt=fast_prompt,
+                            options=RunnerOptions(
+                                model=manager_model,
+                                reasoning_effort=_manager_vertical_reasoning_effort(),
+                                working_dir=str(self.execution_workdir),
+                                sandbox_mode="read-only",
+                                force_safe_mode=True,
+                                skip_git_repo_check=True,
+                            ),
+                            run_label="manager-classify-fast",
+                        )
+                except Exception as exc:  # noqa: BLE001 - preserve provider cause
+                    raise _backend_decision_error(
+                        exc,
+                        task=task,
+                        attempts=attempts_made,
+                    ) from exc
                 failed, detail = _manager_backend_failure(fast_result)
                 if failed:
-                    raise VerticalDecisionError(
-                        "Manager fast-route backend failed"
-                        + (f": {detail}" if detail else "")
+                    raise _backend_decision_error(
+                        detail or "Manager fast-route backend failed",
+                        task=task,
+                        attempts=attempts_made,
                     )
                 fast_payload = latest_role_decision(fast_result, "manager")
                 fast_route = parse_fast_vertical_decision(
@@ -646,7 +705,11 @@ class _VerticalDecisionMixin:
         if len(prompt) > grounded_prompt_limit:
             raise VerticalDecisionError(
                 "Manager grounded-route prompt exceeds configured context cap "
-                f"({len(prompt)} > {grounded_prompt_limit} characters)"
+                f"({len(prompt)} > {grounded_prompt_limit} characters)",
+                phase="contract",
+                contract_field="prompt_length",
+                attempts=attempts_made,
+                task=task,
             )
         grounded_extra_args = (
             [
@@ -673,24 +736,37 @@ class _VerticalDecisionMixin:
             *,
             run_label: str,
         ) -> tuple[Any, VerticalDecision]:
-            with self._task_usage_scope(root_task_id):
-                route_result = gateway_run_exec(
-                    backend,
-                    prompt=route_prompt,
-                    options=options,
-                    run_label=run_label,
-                )
+            nonlocal attempts_made
+            attempts_made += 1
+            try:
+                with self._task_usage_scope(root_task_id):
+                    route_result = gateway_run_exec(
+                        backend,
+                        prompt=route_prompt,
+                        options=options,
+                        run_label=run_label,
+                    )
+            except Exception as exc:  # noqa: BLE001 - preserve provider cause
+                raise _backend_decision_error(
+                    exc,
+                    task=task,
+                    attempts=attempts_made,
+                ) from exc
             failed, detail = _manager_backend_failure(route_result)
             if failed:
-                raise VerticalDecisionError(
-                    "Manager grounded-route backend failed"
-                    + (f": {detail}" if detail else "")
+                raise _backend_decision_error(
+                    detail or "Manager grounded-route backend failed",
+                    task=task,
+                    attempts=attempts_made,
                 )
             route_payload = latest_role_decision(route_result, "manager")
-            route_decision = parse_vertical_decision(
+            raw_reply = (
                 route_payload
                 if route_payload is not None
-                else extract_answer(route_result),
+                else extract_answer(route_result)
+            )
+            route_decision = parse_vertical_decision(
+                raw_reply,
                 known_verticals=known_verticals,
                 known_domains=list(BUILTIN_DOMAINS),
                 existing_data_domains=all_domain_names,
@@ -709,13 +785,35 @@ class _VerticalDecisionMixin:
             )
             if route_decision is None:
                 from .classification_contract import STRUCTURED_DECISION_CLAUSE
+                from .domain_author import vertical_decision_contract_violation
+
+                violation = vertical_decision_contract_violation(
+                    raw_reply,
+                    known_verticals=known_verticals,
+                    known_domains=list(BUILTIN_DOMAINS),
+                    existing_data_domains=all_domain_names,
+                    research_target_verticals=research_target_verticals,
+                    default_execution_task="" if contextual_task else task.strip(),
+                    persisted_vertical=persisted_vertical,
+                    persisted_workflow_mode=persisted_workflow_mode,
+                    persisted_domain=persisted_domain,
+                    persisted_research_target_level=(
+                        persisted_research_target_level
+                    ),
+                    persisted_research_direction_mode=(
+                        persisted_research_direction_mode
+                    ),
+                    allow_persisted_change=allow_route_contract_change,
+                )
 
                 raise ManagerClassificationContractError(
-                    "Manager could not decide a vertical: the model reply was "
-                    "missing, not a valid existing/new choice, or violated the "
-                    "persisted route contract. "
-                    f"Task excerpt: {_task_excerpt(task)!r}",
+                    violation.cause,
                     clause=STRUCTURED_DECISION_CLAUSE,
+                    phase=violation.phase,
+                    contract_field=violation.field,
+                    attempts=attempts_made,
+                    model_reply_snippet=raw_reply,
+                    task=task,
                 )
             return route_result, route_decision
 
@@ -725,7 +823,9 @@ class _VerticalDecisionMixin:
                 run_label="manager-classify-grounded",
             )
         except VerticalDecisionError as exc:
-            if contextual_task and "could not decide a vertical" in str(exc):
+            if contextual_task and isinstance(
+                exc, ManagerClassificationContractError
+            ):
                 result, decision = invoke_grounded_route(
                     prompt
                     + "\n\n## Context handoff correction\n"
@@ -740,7 +840,7 @@ class _VerticalDecisionMixin:
                     "persisted route contract policy above.",
                     run_label="manager-classify-context-retry",
                 )
-            elif "not a valid existing/new choice" in str(exc):
+            elif isinstance(exc, ManagerClassificationContractError):
                 result, decision = invoke_grounded_route(
                     prompt
                     + "\n\n## Decision-field correction\n"
@@ -784,7 +884,11 @@ class _VerticalDecisionMixin:
             retry_prompt = prompt + correction
             if len(retry_prompt) > grounded_prompt_limit:
                 raise VerticalDecisionError(
-                    "Manager grounded-route retry exceeds configured context cap"
+                    "Manager grounded-route retry exceeds configured context cap",
+                    phase="contract",
+                    contract_field="prompt_length",
+                    attempts=attempts_made,
+                    task=task,
                 )
             result, decision = invoke_grounded_route(
                 retry_prompt,
@@ -797,6 +901,10 @@ class _VerticalDecisionMixin:
                     "Manager grounded vertical decision did not inspect repository "
                     "tools after one automatic retry",
                     clause=REPOSITORY_TOOL_CLAUSE,
+                    phase="contract",
+                    contract_field="tool_activity_observed",
+                    attempts=attempts_made,
+                    task=task,
                 )
         return finalize(decision)
 

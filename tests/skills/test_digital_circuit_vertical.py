@@ -43,8 +43,6 @@ def test_digital_circuit_is_registered_and_loadable() -> None:
         "synthesis",
         "delivery",
     )
-    assert tuple(mod.STAGE_CHECKS) == mod.STAGE_ORDER
-    assert tuple(mod.REVIEWER_CHECKLISTS) == mod.STAGE_ORDER
     assert vertical_completion_gate(mod) == "none"
 
 
@@ -192,6 +190,33 @@ def test_digital_circuit_uses_custom_staged_kind() -> None:
     assert Manager._kind_for("digital_circuit") == "custom"
 
 
+def test_digital_circuit_structural_stage_gates(tmp_path) -> None:
+    mod = load_vertical("digital_circuit")
+
+    assert "SPEC.md" in " ".join(mod.stage_completion_issues("specification", tmp_path))
+    (tmp_path / "design").mkdir()
+    (tmp_path / "design" / "SPEC.md").write_text("contract\n", encoding="utf-8")
+    assert mod.stage_completion_issues("specification", tmp_path) == ()
+
+    assert mod.stage_completion_issues("rtl", tmp_path)
+    (tmp_path / "rtl").mkdir()
+    (tmp_path / "rtl" / "dut.sv").write_text("module dut; endmodule\n", encoding="utf-8")
+    assert mod.stage_completion_issues("rtl", tmp_path) == ()
+
+    assert mod.stage_completion_issues("synthesis", tmp_path)
+    (tmp_path / "synthesis").mkdir()
+    (tmp_path / "synthesis" / "NOT_APPLICABLE.md").write_text(
+        "Functional verification only.\n",
+        encoding="utf-8",
+    )
+    assert mod.stage_completion_issues("synthesis", tmp_path) == ()
+
+    assert len(mod.stage_completion_issues("delivery", tmp_path)) == 2
+    (tmp_path / "RESULTS.md").write_text("verified result\n", encoding="utf-8")
+    (tmp_path / "Makefile").write_text("verify:\n\t@true\n", encoding="utf-8")
+    assert mod.stage_completion_issues("delivery", tmp_path) == ()
+
+
 def test_verification_stage_rejects_failed_log_and_accepts_explicit_pass(tmp_path) -> None:
     (tmp_path / ".argus").mkdir()
     (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(
@@ -204,10 +229,15 @@ def test_verification_stage_rejects_failed_log_and_accepts_explicit_pass(tmp_pat
     log = tmp_path / "verification" / "simulation.log"
     log.write_text("0 passed, 1 failed\nFAIL: expected pass after reset\n", encoding="utf-8")
 
+    mod = load_vertical("digital_circuit")
+    assert "no verification" in " ".join(
+        mod.stage_completion_issues("verification", tmp_path)
+    )
     with pytest.raises(EvidenceError, match="no verification"):
         validate_verification_results(tmp_path)
 
     log.write_text("PASS: reset and boundary scenarios\n", encoding="utf-8")
+    assert mod.stage_completion_issues("verification", tmp_path) == ()
     assert validate_verification_results(tmp_path) == log
 
 

@@ -37,11 +37,12 @@ log = logging.getLogger(__name__)
 def _engineer_guidance(
     state_root: Path | None,
     workdir: Path,
+    manager: object | None = None,
 ) -> list[str]:
-    """Combine persistent Manager policy with one-shot live inbox messages."""
+    """Project the typed operator context after persisting fresh inbox input."""
     if state_root is None:
         return []
-    from ..manager.directive import active_manager_directive_message
+    from ..core.operator_context import build_operator_context_block
     from ..skills.stage_machine import current_stage
     from ._inbox import drain_inbox_messages
 
@@ -51,13 +52,13 @@ def _engineer_guidance(
     )
     from ..manager.directive import record_operator_messages
 
-    record_operator_messages(state_root, transient)
-    messages: list[str] = []
-    active_directive = active_manager_directive_message(state_root)
-    if active_directive:
-        messages.append(active_directive)
-    messages.extend(transient)
-    return list(dict.fromkeys(messages))
+    record_operator_messages(state_root, transient, manager=manager)
+    block, _revision = build_operator_context_block(
+        "engineer",
+        state_root,
+        live_turn="\n".join(transient),
+    )
+    return [block] if block else []
 
 
 class SkillLoopExecuteMixin:
@@ -367,7 +368,7 @@ class SkillLoopExecuteMixin:
         context_packet_path: str = "",
         max_rounds_override: int | None = None,
         workflow_mode_override: str = "",
-        require_independent_review: bool = False,
+        require_independent_review: bool = True,
         skip_stage_transition: bool = False,
         stage_closing: bool = False,
         holds_stage_authority: bool = True,
@@ -375,7 +376,6 @@ class SkillLoopExecuteMixin:
         maintenance_mission: bool = False,
         allow_skill_changes: bool = False,
         vertical_override: str = "",
-        work_kind: str = "",
     ) -> _Outcome:
         # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
         # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
@@ -421,7 +421,6 @@ class SkillLoopExecuteMixin:
             preplanned=preplanned,
             mission_id=mission_id,
             usage_mission_id=usage_mission_id,
-            work_kind=work_kind,
         )
         self._extract_execute_outcome_fields(ex_state)
         self._maybe_decide_stage_transition(
@@ -529,7 +528,7 @@ class SkillLoopExecuteMixin:
                 else _independent_review_required_for_project_root(_proot)
             )
         )
-        if not effective_require_independent_review and not maintenance_mission:
+        if not effective_require_independent_review:
             # Bug #42: 14 consecutive missions closed on the Engineer's own
             # say-so and the only trace of it was a reason string inside each
             # review record. Dropping the Reviewer is a policy decision; say so
@@ -538,9 +537,15 @@ class SkillLoopExecuteMixin:
             # source root whose math vertical predated the review requirement.
             from ..skills.stage_machine import framework_source_root
 
+            waiver_reason = (
+                "framework maintenance mission"
+                if maintenance_mission
+                else "explicit mission configuration with no stricter vertical policy"
+            )
             log.warning(
-                "independent review NOT required for this mission: "
+                "independent review waived: %s; "
                 "project_root=%s vertical=%s framework=%s",
+                waiver_reason,
                 _proot,
                 active_vertical or "<persisted>",
                 framework_source_root(),
@@ -632,9 +637,7 @@ class SkillLoopExecuteMixin:
         config_kwargs["open_ended"] = bool(getattr(args, "open_ended", False))
         config_kwargs["continuous_objective"] = str(getattr(args, "continuous_objective", "") or "")
         resolved_workflow_mode = (
-            "direct"
-            if maintenance_mission
-            else workflow_mode_override.strip().lower()
+            workflow_mode_override.strip().lower()
             or _workflow_mode_for_project_root(_proot)
             or (active_contract.workflow_mode if active_contract is not None else "")
         )
@@ -705,7 +708,7 @@ class SkillLoopExecuteMixin:
 
         def _inbox_guidance_provider() -> list[str]:
             try:
-                return _engineer_guidance(inbox_life_dir, workdir)
+                return _engineer_guidance(inbox_life_dir, workdir, self.manager)
             except Exception:  # noqa: BLE001 — never break a mission
                 return []
 
@@ -901,7 +904,6 @@ class SkillLoopExecuteMixin:
         preplanned: bool,
         mission_id: str | None,
         usage_mission_id: str | None,
-        work_kind: str,
     ) -> None:
         """Run the mission through ``SkillLoop.run``, sandwiched between the
         advisory bounded-planning pass and this call's sink/usage-context
@@ -1015,7 +1017,6 @@ class SkillLoopExecuteMixin:
                 review_objective=ex_state.review_objective,
                 original_objective=original_objective or objective,
                 scope=ex_state.mission_scope,
-                work_kind=work_kind,
             )
             skills_changed, skills_reason, skills_ok = (
                 self._restore_playground_skill_files(
@@ -1124,6 +1125,29 @@ class SkillLoopExecuteMixin:
         if rounds_list:
             _final_review = getattr(rounds_list[-1], "review", None)
             if _final_review is not None:
+                binding = getattr(_final_review, "manuscript_snapshot", None)
+                if isinstance(binding, dict):
+                    try:
+                        from ..core.manuscript_snapshot import (
+                            manuscript_review_status,
+                        )
+
+                        review_freshness = manuscript_review_status(
+                            {"manuscript_snapshot": binding},
+                            Path(getattr(self, "_artifact_root", ex_state.workdir)),
+                        )
+                    except Exception:  # noqa: BLE001 - certification fails closed
+                        review_freshness = {
+                            "status": "unbound",
+                            "message": "unbound (reviewed manuscript cannot be read)",
+                        }
+                    if review_freshness.get("status") != "current":
+                        setattr(_final_review, "status", "stale")
+                        setattr(
+                            _final_review,
+                            "reason",
+                            str(review_freshness.get("message") or "stale review"),
+                        )
                 final_review_status = (
                     str(getattr(_final_review, "status", "") or "").strip().lower()
                 )
@@ -1320,7 +1344,18 @@ class SkillLoopExecuteMixin:
         summary_lines = []
         visible_engineer_message = strip_named_lines(
             engineer_message,
-            ("MILESTONE_STATUS", "NEXT_OWNER", "OPERATOR_QUESTION", "OPERATOR_OPTIONS"),
+            (
+                "MILESTONE_STATUS",
+                "NEXT_OWNER",
+                "OPERATOR_QUESTION",
+                "OPERATOR_OPTIONS",
+                "ROLE_DECISION",
+            ),
+        )
+        from ..engineer.external_work import strip_external_wait_footer
+
+        visible_engineer_message = strip_external_wait_footer(
+            visible_engineer_message
         )
         for line in visible_engineer_message.splitlines():
             cleaned = line.strip()
@@ -1350,6 +1385,7 @@ class SkillLoopExecuteMixin:
                 getattr(outcome, "final_review_reason", "") or ""
             ),
             final_review_next_action=ex_state.final_review_next_action,
+            final_message=engineer_message,
             summary=summary,
             research_result=(
                 getattr(

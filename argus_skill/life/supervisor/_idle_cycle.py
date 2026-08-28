@@ -111,7 +111,17 @@ class IdleCycleMixin:
             try:
                 from ...manager.directive import record_operator_messages
 
-                record_operator_messages(self.memory.root, out)
+                # Persistence must not depend on routing: a message that cannot
+                # be classified right now is still recorded as plain steering.
+                try:
+                    manager = self._bound_manager()
+                except Exception:  # noqa: BLE001
+                    manager = None
+                record_operator_messages(
+                    self.memory.root,
+                    out,
+                    manager=manager,
+                )
             except Exception:  # noqa: BLE001 - inbox delivery remains fail-soft
                 log.exception("could not persist operator steering ledger")
             self._emit({
@@ -169,7 +179,7 @@ class IdleCycleMixin:
         # In continuous mode, max_missions is not a hard cap — the
         # planner generates new work indefinitely until it declares
         # the project done. Only the host-global daily budget is enforced.
-        if not self.config.continuous:
+        if not self.config.continuous and self.config.budget.max_missions > 0:
             if self._missions_started >= self.config.budget.max_missions:
                 # Suppress the cap message when there's no held-back work.
                 # Treats "you asked for one mission, you got one" as silent
@@ -303,7 +313,7 @@ class IdleCycleMixin:
                     str(getattr(item, "title", "")),
                     str(getattr(item, "status", "")),
                 )
-                for item in self.memory.backlog.all()
+                for item in self.memory.backlog.active()
             )
         except Exception:  # noqa: BLE001
             backlog = []

@@ -257,7 +257,7 @@ def test_manifest_drift_is_incompatible_when_strict_release_gate_is_on(
     )
 
 
-def test_clean_self_managed_canary_may_differ_from_webapi_release(
+def test_clean_handoff_candidate_may_differ_from_webapi_release(
     tmp_path: Path,
 ) -> None:
     status = DaemonStatus(

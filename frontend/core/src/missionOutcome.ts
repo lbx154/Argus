@@ -104,12 +104,19 @@ export function outcomeDimensionSummary(
   outcome: Partial<MissionOutcomeDimensions> | null | undefined,
 ): string[] {
   if (!outcome?.execution_status) return [];
+  const stageLabels: Record<string, string> = {
+    certified: 'Stage approved',
+    not_certified: 'Stage not approved',
+    revoked: 'Stage approval revoked',
+    intentionally_skipped: 'Stage decision not needed',
+    deferred: 'Stage decision pending',
+    not_assessed: '',
+  };
   return [
     `execution=${outcome.execution_status}`,
     outcome.review_status && outcome.review_status !== 'not_assessed'
       ? `review=${outcome.review_status}` : '',
-    outcome.stage_certification && outcome.stage_certification !== 'not_assessed'
-      ? `stage=${outcome.stage_certification}` : '',
+    outcome.stage_certification ? stageLabels[outcome.stage_certification] : '',
     outcome.interruption_kind && outcome.interruption_kind !== 'none'
       ? `interrupt=${outcome.interruption_kind}` : '',
     outcome.resumable ? 'resumable=yes' : '',

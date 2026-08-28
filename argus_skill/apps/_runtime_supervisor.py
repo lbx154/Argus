@@ -352,8 +352,8 @@ def _invoke_supervisor(
         ns.project_state_dir = None
     # Keep enough room for multi-round implementation and review without
     # allowing one mission to consume an effectively unbounded campaign.
-    # Override via ARGUS_SKILL_MAX_ROUNDS for exceptional long-horizon work.
-    ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "32"))
+    # A positive override remains available for explicitly bounded work.
+    ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", "0"))
 
     # Runtime context injected into every mission prelude so the agent
     # knows its own backend, models, and budget constraints at runtime.

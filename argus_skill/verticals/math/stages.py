@@ -50,28 +50,6 @@ completion_gate = "none"
 COMPLETION_CONTRACT_VERSION = 1
 PROTECTED_ITEM_IDS = frozenset({"review.goal-achieved"})
 
-# No ``STAGE_CHECKS`` and no ``REVIEWER_CHECKLISTS`` here, deliberately.
-#
-# Both are module-level names several verticals declare, and neither is
-# executed or read by anything in this repository. ``vertical_contract`` picks
-# ``STAGE_CHECKS`` up and stores it, but its only reader is the
-# ``assurance_level`` property, whose only readers are that property's own
-# tests; ``REVIEWER_CHECKLISTS`` is never read at all outside the verticals
-# that copy it from each other. Math's copies were a per-stage shell check that
-# tested for a file the framework had already required, and three paragraphs of
-# review guidance addressed to a Reviewer that never received them.
-#
-# They were removed rather than wired. A name that looks like a gate and is not
-# one is worse than no gate: it answers "is this stage checked?" with a
-# plausible yes, and the run-13 forgery is what happens downstream of a
-# plausible yes. Math's stage checking is ``stage_completion_issues`` below,
-# which core does call, and the Reviewer's per-stage guidance is in
-# ``skills/reviewer/math-research-review.md``, which the Reviewer does read.
-# The one instruction that existed only in the checklist -- establish the
-# problem's known status during ``scope`` rather than leaving each later worker
-# to rediscover it -- was moved into that file before this was deleted.
-
-
 def adopt_operator_objective(project_root: Path, request: str) -> object:
     """Vertical-contract hook: give the objective mode an in-product channel.
 

@@ -93,6 +93,15 @@ def test_manager_grounding_lifecycle_is_visible(tmp_path: Path) -> None:
         "open_ended": False,
     }
     assert roles["manager"]["status"] == "done"
+    view = emit(
+        tmp_path,
+        "life.planner.task_added",
+        3,
+        item_id="task-1",
+        title="Fix the CLI",
+    )
+    planner = next(role for role in view["roles"] if role["role"] == "planner")
+    assert planner["label"] == "Task added"
 
 
 def test_manager_intent_failure_is_not_labeled_as_grounding_failed(
@@ -118,9 +127,28 @@ def test_manager_intent_failure_is_not_labeled_as_grounding_failed(
     roles = {role["role"]: role for role in view["roles"]}
     assert view["mission"]["status"] == "failed"
     assert roles["manager"]["status"] == "error"
-    assert roles["manager"]["label"] == "Manager routing failed"
-    assert view["timeline"][-1]["title"] == "Manager routing failed"
-    assert view["role_work"][-1]["title"] == "Manager routing failed"
+    assert roles["manager"]["label"] == "I couldn't determine how to handle this request."
+    assert view["timeline"][-1]["title"] == roles["manager"]["label"]
+    assert view["role_work"][-1]["title"] == roles["manager"]["label"]
+    assert "VerticalDecisionError" not in view["timeline"][-1]["detail"]
+    assert "VerticalDecisionError" not in view["role_work"][-1]["detail"]
+
+
+def test_manager_stage_decision_uses_human_action_and_status(tmp_path: Path) -> None:
+    view = emit(
+        tmp_path,
+        "life.manager.stage_decision",
+        1,
+        action="rollback",
+        target_stage="paper_review",
+        reason="The submission evidence is stale.",
+    )
+
+    manager = next(role for role in view["roles"] if role["role"] == "manager")
+    assert manager["label"] == "Returning to paper review"
+    assert view["timeline"][-1]["title"] == "Returning to paper review"
+    assert view["role_work"][-1]["status"] == "done"
+    assert view["role_work"][-1]["detail"] == "The submission evidence is stale."
 
 
 def test_load_normalizes_persisted_legacy_manager_failure_label(

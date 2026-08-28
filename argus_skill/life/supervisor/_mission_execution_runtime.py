@@ -11,7 +11,11 @@ settlement, dynamic-plan stage guard, final status + journal) lives in
 
 from __future__ import annotations
 
+import json
 import logging
+import shlex
+import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -27,6 +31,38 @@ from ._mission_execution_helpers import _MissionRunState
 log = logging.getLogger(__name__)
 
 
+def _maintenance_sidecar_path(life_root: Path | str, item_id: str) -> Path:
+    return Path(life_root) / "maintenance" / "pending" / f"{item_id}.json"
+
+
+def dispose_maintenance_worktree(
+    life_root: Path | str,
+    item_id: str,
+    *,
+    keep_sidecar: bool = False,
+) -> None:
+    """Remove the authoring worktree recorded for one maintenance mission."""
+    sidecar = _maintenance_sidecar_path(life_root, item_id)
+    try:
+        metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return
+    repository = Path(metadata["repository"]).expanduser().resolve(strict=True)
+    worktree = Path(metadata["worktree"]).expanduser().resolve()
+    if worktree.exists():
+        result = subprocess.run(
+            ["git", "worktree", "remove", "--force", str(worktree)],
+            cwd=repository,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode:
+            raise RuntimeError("maintenance authoring worktree could not be removed")
+    if not keep_sidecar:
+        sidecar.unlink(missing_ok=True)
+
+
 class MissionExecutionRuntimeMixin:
     """Claim/context setup and runner invocation for one mission."""
 
@@ -40,11 +76,22 @@ class MissionExecutionRuntimeMixin:
         except TypeError:
             # Compatibility with narrow host-provided memory views.
             prelude = self.memory.render_prelude()
-        from ...manager.directive import render_active_steering
+        from ...core.operator_context import build_operator_context_block
 
-        steering = render_active_steering(self.memory.root)
-        if steering:
-            prelude = steering + "\n\n---\n\n" + prelude if prelude else steering
+        operator_context, _revision = build_operator_context_block(
+            "engineer",
+            self.memory.root,
+            mission_id=item.id,
+            consume_once=False,
+        )
+        if operator_context:
+            # Live facts belong at the tail for provider prefix caching and
+            # model recency; role/task policy above remains byte-stable.
+            prelude = (
+                prelude + "\n\n---\n\n" + operator_context
+                if prelude
+                else operator_context
+            )
         from ..research_plan import render_research_plan_for_mission
 
         research_plan = render_research_plan_for_mission(self.memory.root)
@@ -69,7 +116,87 @@ class MissionExecutionRuntimeMixin:
         requested = str(getattr(item, "execution_workdir", "") or "").strip()
         tags = {str(tag or "").strip().lower() for tag in item.tags}
         current = self._project_workdir().expanduser().resolve(strict=True)
-        if not requested or "framework_maintenance" in tags:
+        if "framework_maintenance" in tags:
+            from ...core.runtime_identity import source_root
+
+            repository = source_root().expanduser().resolve(strict=True)
+            maintenance_root = Path(self.memory.root) / "maintenance"
+            worktree = maintenance_root / "worktrees" / item.id
+            sidecar = _maintenance_sidecar_path(self.memory.root, item.id)
+            if sidecar.is_file():
+                metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+                recorded_repository = Path(metadata["repository"]).expanduser().resolve(
+                    strict=True
+                )
+                recorded_worktree = Path(metadata["worktree"]).expanduser().resolve()
+                requested_worktree = (
+                    Path(requested).expanduser().resolve() if requested else recorded_worktree
+                )
+                if (
+                    recorded_repository != repository
+                    or recorded_worktree != worktree.resolve()
+                    or requested_worktree != recorded_worktree
+                ):
+                    raise ValueError("framework maintenance worktree record is inconsistent")
+                if recorded_worktree.is_dir():
+                    self.memory.backlog.update(
+                        item.id,
+                        execution_workdir=str(recorded_worktree),
+                    )
+                    item.execution_workdir = str(recorded_worktree)
+                    return recorded_worktree
+            worktree.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                ["git", "fetch", "origin", "main"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            public_base = subprocess.run(
+                ["git", "rev-parse", "refs/remotes/origin/main"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            try:
+                subprocess.run(
+                    [
+                        "git", "worktree", "add", "--detach",
+                        str(worktree), public_base,
+                    ],
+                    cwd=repository,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                pending = maintenance_root / "pending"
+                pending.mkdir(parents=True, exist_ok=True)
+                (pending / f"{item.id}.json").write_text(
+                    json.dumps({
+                        "repository": str(repository),
+                        "public_base": public_base,
+                        "worktree": str(worktree),
+                    }, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            except (OSError, subprocess.CalledProcessError):
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(worktree)],
+                    cwd=repository,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                raise
+            self.memory.backlog.update(
+                item.id,
+                execution_workdir=str(worktree),
+            )
+            item.execution_workdir = str(worktree)
+            return worktree
+        if not requested:
             return current
         configured_reader = getattr(self, "_configured_worktree", None)
         base = configured_reader() if callable(configured_reader) else current
@@ -85,6 +212,92 @@ class MissionExecutionRuntimeMixin:
         if adopted != current:
             self._emit_status(f"campaign workdir adopted: {adopted}")
         return adopted
+
+    def _freeze_reviewed_maintenance_change(self, state: _MissionRunState) -> str:
+        item = state.item
+        sidecar = _maintenance_sidecar_path(self.memory.root, item.id)
+        metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+        repository = Path(metadata["repository"]).expanduser().resolve(strict=True)
+        worktree = Path(metadata["worktree"]).expanduser().resolve(strict=True)
+        if worktree != Path(state.execution_workdir).resolve(strict=True):
+            raise ValueError("maintenance worktree does not match its runtime record")
+
+        runtime_dir = worktree / ".argus-self-maintenance-runtime"
+        if runtime_dir.exists():
+            shutil.rmtree(runtime_dir)
+
+        if subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=worktree,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip():
+            subprocess.run(
+                ["git", "add", "--all"],
+                cwd=worktree,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-c", "user.name=Argus Runtime",
+                    "-c", "user.email=argus-runtime@localhost",
+                    "commit", "-m", "Reviewed maintenance change",
+                ],
+                cwd=worktree,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        candidate = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=worktree,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        acceptance_command = tuple(shlex.split(item.acceptance_check))
+        if not acceptance_command:
+            raise ValueError("maintenance mission requires an executable acceptance command")
+
+        from ...maintenance.deploy_boundary import (
+            ReviewedChange,
+            deployment_input_digest,
+        )
+
+        change = ReviewedChange(
+            repository=repository,
+            public_base=str(metadata["public_base"]),
+            reviewed_candidate=candidate,
+            reviewer_verdict="done",
+            acceptance_command=acceptance_command,
+            evidence_refs=tuple(
+                json.dumps(ref, sort_keys=True, separators=(",", ":"))
+                for ref in item.context_refs
+            ),
+            mission_id=item.id,
+            receipt_dir=Path(self.memory.root) / "maintenance" / "receipts",
+        )
+        input_digest = deployment_input_digest(change)
+        metadata.update({
+            "reviewed_candidate": change.reviewed_candidate,
+            "reviewer_verdict": change.reviewer_verdict,
+            "acceptance_command": list(change.acceptance_command),
+            "evidence_refs": list(change.evidence_refs),
+            "mission_id": change.mission_id,
+            "receipt_dir": str(change.receipt_dir),
+            "origin_remote": change.origin_remote,
+            "private_remote": change.private_remote,
+            "input_digest": input_digest,
+        })
+        sidecar.write_text(
+            json.dumps(metadata, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return input_digest
 
     def _mission_vertical_root(
         self,
@@ -145,6 +358,27 @@ class MissionExecutionRuntimeMixin:
         state.usage_attempt_id = f"{item.id}:attempt:{max(1, int(item.attempt or 1))}"
         self._missions_started += 1
         state.item_scope = self._planner_scope_from_item(item)
+        if item.plan_id and item.plan_version is not None:
+            try:
+                active_item_ids = [
+                    row.id
+                    for row in self.memory.backlog.active()
+                    if row.plan_id == item.plan_id
+                    and row.plan_version == item.plan_version
+                    and row.status
+                    not in {"done", "failed", "aborted", "skipped", "superseded"}
+                ]
+            except Exception:  # noqa: BLE001 - revision conflicts fail closed later
+                log.exception("life supervisor: failed to capture plan revision witness")
+                active_item_ids = []
+            if item.id in active_item_ids:
+                state.plan_revision_witness = {
+                    "plan_id": item.plan_id,
+                    "plan_version": item.plan_version,
+                    "source_item_id": item.id,
+                    "active_item_ids": active_item_ids,
+                    "captured_at": time.time(),
+                }
 
         self._emit({
             "type": EventType.LIFE_MISSION_STARTED,
@@ -188,7 +422,6 @@ class MissionExecutionRuntimeMixin:
                 mission_id=item.id,
                 stage=state.pipeline_stage_at_start,
                 scope=state.item_scope,
-                work_kind=item.work_kind,
                 objective=item.objective,
                 acceptance_check=getattr(item, "acceptance_check", ""),
                 plan_hypothesis=getattr(item, "plan_hypothesis", ""),
@@ -457,10 +690,6 @@ class MissionExecutionRuntimeMixin:
                     )
                 if "vertical_override" in params or _accepts_kw:
                     execute_kwargs["vertical_override"] = execution_vertical
-                if "work_kind" in params or _accepts_kw:
-                    execute_kwargs["work_kind"] = str(
-                        getattr(item, "work_kind", "") or ""
-                    ).strip()
                 if state.repair_capability is not None:
                     if "max_rounds_override" in params or _accepts_kw:
                         execute_kwargs["max_rounds_override"] = 1
@@ -487,9 +716,6 @@ class MissionExecutionRuntimeMixin:
                     str(state.context_packet_path) if state.context_packet_path else ""
                 )
                 execute_kwargs["vertical_override"] = execution_vertical
-                execute_kwargs["work_kind"] = str(
-                    getattr(item, "work_kind", "") or ""
-                ).strip()
                 if state.repair_capability is not None:
                     execute_kwargs["max_rounds_override"] = 1
                     execute_kwargs["workflow_mode_override"] = "direct"
@@ -799,4 +1025,4 @@ class MissionExecutionRuntimeMixin:
         }
 
 
-__all__ = ["MissionExecutionRuntimeMixin"]
+__all__ = ["MissionExecutionRuntimeMixin", "dispose_maintenance_worktree"]

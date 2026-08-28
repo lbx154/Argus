@@ -74,7 +74,7 @@ test('protocol contract accepts the current server and rejects missing capabilit
     },
   }));
   assert.equal(wrongCheckout.compatible, false);
-  assert.match(wrongCheckout.reason, /loaded source .*ARGUS_SKILL_SOURCE_ROOT/);
+  assert.equal(wrongCheckout.reason, 'backend is running from a different installation than configured');
   const wrongRelease = inspectApiMeta(meta({
     runtime: {
       ...(meta().runtime as Record<string, unknown>),
@@ -82,7 +82,10 @@ test('protocol contract accepts the current server and rejects missing capabilit
     },
   }));
   assert.equal(wrongRelease.compatible, false);
-  assert.match(wrongRelease.reason, /does not match client release/);
+  assert.equal(
+    wrongRelease.reason,
+    'backend and client installations are out of sync; restart or reinstall Argus',
+  );
   // A source/editable checkout whose working tree drifted from the last release
   // build reports release_matches_source=false but keeps a matching release_id;
   // this must remain compatible so `argus-skill --web` from source is not bricked.
@@ -94,7 +97,10 @@ test('protocol contract accepts the current server and rejects missing capabilit
     },
   }));
   assert.equal(driftedSource.compatible, true);
-  assert.match(driftedSource.warning ?? '', /source differs from its prebuilt release artifacts/);
+  assert.equal(
+    driftedSource.warning,
+    'python -m argus_skill.release_tools.build_release',
+  );
 });
 
 test('local source identity rejects a stale process even when release ids match', () => {
@@ -108,7 +114,10 @@ test('local source identity rejects a stale process even when release ids match'
     sourceDigest: RELEASE_SOURCE_DIGEST,
   });
   assert.equal(staleProcess.compatible, false);
-  assert.match(staleProcess.reason, /backend process source .* does not match local source/);
+  assert.equal(
+    staleProcess.reason,
+    'backend is running code from a different local installation; restart it',
+  );
 });
 
 test('snapshot contract fails closed when budget fields are absent', () => {
@@ -160,13 +169,16 @@ test('startup probe preserves stale Argus process identity for verified local re
     const probe = await probeApi('127.0.0.1', 8799);
     assert.equal(probe.state, 'incompatible');
     assert.equal(probe.meta?.runtime.pid, 123);
-    assert.match(probe.message, /does not match client release/);
+    assert.equal(
+      probe.message,
+      'backend and client installations are out of sync; restart or reinstall Argus',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test('startup probe reports the backend checkout and revision', async () => {
+test('startup probe reports generic backend status', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => new Response(JSON.stringify(meta()), {
     status: 200,
@@ -175,17 +187,15 @@ test('startup probe reports the backend checkout and revision', async () => {
   try {
     const probe = await probeApi('127.0.0.1', 8799);
     assert.equal(probe.state, 'compatible');
-    assert.equal(
-      probe.message,
-      `/home/dev/current/argus-skill @ abc123 · release ${RELEASE_ID} (pid 123)`,
-    );
+    assert.equal(probe.message, 'Argus backend is running (pid 123)');
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test('startup probe surfaces source drift without rejecting the backend', async () => {
+test('startup probe hides local source drift but warns packaged clients', async () => {
   const originalFetch = globalThis.fetch;
+  const originalDigest = process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
   const drifted = meta({
     runtime: {
       ...(meta().runtime as Record<string, unknown>),
@@ -198,11 +208,21 @@ test('startup probe surfaces source drift without rejecting the backend', async 
     headers: { 'Content-Type': 'application/json' },
   })) as typeof fetch;
   try {
-    const probe = await probeApi('127.0.0.1', 8799);
-    assert.equal(probe.state, 'compatible');
-    assert.match(probe.warning ?? '', /source differs from its prebuilt release artifacts/);
+    delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
+    const packagedProbe = await probeApi('127.0.0.1', 8799);
+    assert.equal(packagedProbe.state, 'compatible');
+    assert.equal(
+      packagedProbe.warning,
+      'python -m argus_skill.release_tools.build_release',
+    );
+    process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST = 'deadbeef';
+    const sourceProbe = await probeApi('127.0.0.1', 8799);
+    assert.equal(sourceProbe.state, 'compatible');
+    assert.equal(sourceProbe.warning, undefined);
   } finally {
     globalThis.fetch = originalFetch;
+    if (originalDigest === undefined) delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
+    else process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST = originalDigest;
   }
 });
 
@@ -223,7 +243,10 @@ test('startup probe uses the source identity exported by the Python launcher', a
   try {
     const probe = await probeApi('127.0.0.1', 8799);
     assert.equal(probe.state, 'incompatible');
-    assert.match(probe.message, /does not match local source/);
+    assert.equal(
+      probe.message,
+      'backend is running code from a different local installation; restart it',
+    );
   } finally {
     globalThis.fetch = originalFetch;
     if (originalDigest === undefined) delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
@@ -331,12 +354,12 @@ test('launcher does not claim a refused daemon upgrade was scheduled', async () 
 test('warning reporter emits each warning only once', () => {
   const warnings: string[] = [];
   const report = uniqueWarningReporter((warning) => warnings.push(warning));
-  report('backend source differs from its prebuilt release artifacts');
-  report('backend source differs from its prebuilt release artifacts');
-  report('  backend source differs from its prebuilt release artifacts  ');
+  report('backend code and installed artifacts differ');
+  report('backend code and installed artifacts differ');
+  report('  backend code and installed artifacts differ  ');
   report('another warning');
   assert.deepEqual(warnings, [
-    'backend source differs from its prebuilt release artifacts',
+    'backend code and installed artifacts differ',
     'another warning',
   ]);
 });
@@ -351,21 +374,21 @@ test('ensureApi preserves and emits a compatible source-drift warning', async ()
       probeApi: async () => ({
         state: 'compatible',
         message: 'current release',
-        warning: 'backend source differs from its prebuilt release artifacts',
+        warning: 'backend code and installed artifacts differ',
       }),
     },
   });
 
   assert.equal(result.reachable, true);
-  assert.equal(result.warning, 'backend source differs from its prebuilt release artifacts');
-  assert.deepEqual(warnings, ['backend source differs from its prebuilt release artifacts']);
+  assert.equal(result.warning, 'backend code and installed artifacts differ');
+  assert.deepEqual(warnings, ['backend code and installed artifacts differ']);
 });
 
 // ── Stale-release recovery ──────────────────────────────────────────────────
 
 const staleProbe: ApiProbeResult = {
   state: 'incompatible' as const,
-  message: 'backend release 0.1.0+stale does not match client release',
+  message: 'backend and client installations are out of sync; restart or reinstall Argus',
 };
 const downProbe: ApiProbeResult = {
   state: 'unreachable',
@@ -443,7 +466,7 @@ test('replaces an owned process whose source digest differs from local source', 
   const signals: Array<[number, NodeJS.Signals]> = [];
   const digestMismatch: ApiProbeResult = {
     state: 'incompatible',
-    message: 'backend process source old does not match local source new',
+    message: 'backend is running code from a different local installation; restart it',
   };
   const result = await ensureApi({
     host: '127.0.0.1',
@@ -1021,7 +1044,7 @@ test('ApiClient forwards compatible source-drift warnings', async () => {
     await api.listProjects();
 
     assert.deepEqual(warnings, [
-      'backend source differs from its prebuilt release artifacts; pull a complete published revision and reinstall',
+      'python -m argus_skill.release_tools.build_release',
     ]);
   } finally {
     globalThis.fetch = originalFetch;

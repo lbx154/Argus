@@ -65,16 +65,22 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 **Code Agent 插件：** 可通过打包的 MCP bridge 和宿主 Skills 使用 Argus，不修改
 核心 runtime。参见 **[插件快速入门](docs/plugin.md)**。
 
+**反例研究扩展：** Preview 分支增加了反例实验室、隔离的 Jacobian MCP bridge，
+以及工作台内安全更新源码的按钮。参见
+**[反例实验室与 Jacobian 配置](docs/counterexample-lab-jacobian.zh-CN.md)**。
+
 ## 微信群
 
 扫码加入 Argus 交流群；点击图片可以查看原图。二维码有效期以图片中的提示为准；
 如果已经过期，请在 Issue 中联系维护者更新。
 
 <p align="center">
-  <a href="docs/assets/argus-wechat-group.jpg">
-    <img src="docs/assets/argus-wechat-group.jpg" width="360" alt="Argus 微信交流群二维码">
+  <a href="docs/assets/argus-wechat-group-2.jpg">
+    <img src="docs/assets/argus-wechat-group-2.jpg" width="360" alt="Argus 微信交流 2 群二维码">
   </a>
 </p>
+
+<p align="center"><strong>交流1群已满，请进入2群。</strong></p>
 
 ## 快速安装
 

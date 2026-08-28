@@ -13,6 +13,7 @@ requests and the persisted research-target completion gate; they have no
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ..memory import BacklogItem
@@ -116,6 +117,20 @@ def _research_project_done_issue(
             str(extra.get("scope") or "").strip().lower() == "final_submission"
             and extra.get("final_submission_certified") is True
         ):
+            manuscript_binding = extra.get("manuscript_snapshot")
+            if (
+                (Path(str(project_root)) / "paper/main.tex").is_file()
+                and not isinstance(manuscript_binding, dict)
+            ):
+                continue
+            if isinstance(manuscript_binding, dict):
+                try:
+                    from ...core.manuscript_snapshot import manuscript_review_status
+
+                    if manuscript_review_status(extra, project_root).get("status") != "current":
+                        continue
+                except Exception:  # noqa: BLE001 - unreadable binding fails closed
+                    continue
             return ""
     if target_level is None:
         return ""
@@ -210,7 +225,9 @@ class _PlanCycleState:
         # Set by the intake/gate phase.
         self.operator_messages: list[str] = []
         self.fresh_operator_messages: list[str] = []
+        self.operator_context_revision: int = 0
         self.revision_active_items: list[BacklogItem] = []
+        self.revision_witness_active_item_ids: list[str] = []
         self.expected_plan_id: str = ""
         self.expected_plan_version: int = 0
         self.manager_intent: Any = None
@@ -223,6 +240,7 @@ class _PlanCycleState:
         self.existing_items: list[BacklogItem] = []
         self.seen_signatures: dict[tuple[str, ...], BacklogItem] = {}
         self.active_base_signatures: dict[tuple[str, ...], BacklogItem] = {}
+        self.active_node_keys: dict[str, BacklogItem] = {}
         self.terminal_blocker_fingerprints: dict[str, BacklogItem] = {}
         self.recent_failures: dict[Any, Any] = {}
         self.added_titles: list[str] = []

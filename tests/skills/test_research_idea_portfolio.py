@@ -3,17 +3,21 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from argus_skill.core.vertical_contract import VerticalLibraryContext
+from argus_skill.skills.loop_skill_library import SkillLibraryMixin
+from argus_skill.skills.loop_state import MissionContext
 from argus_skill.team import pool, task_board
 from argus_skill.verticals.research.idea_portfolio import (
-    QUORUM_COUNT,
     ensure_idea_portfolio,
     idea_portfolio_completion_issues,
     idea_portfolio_selection,
     late_selection_reviews,
+    portfolio_required,
+    portfolio_tasks,
     refresh_idea_portfolio,
 )
 from argus_skill.verticals.research.library_preparation import prepare_skill_libraries
@@ -35,6 +39,124 @@ def _pipeline(root: Path, *, direction: str = "broad") -> None:
         }),
         encoding="utf-8",
     )
+
+
+def test_vertical_state_root_drives_ambition_assertions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workdir = tmp_path / "worktree"
+    state_root = tmp_path / "state" / "projects" / "session"
+    workdir.mkdir(parents=True)
+    _pipeline(state_root)
+    state_path = state_root / ".argus" / "PIPELINE_STATE.json"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    payload["current_stage"] = "run"
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    seen: list[VerticalLibraryContext] = []
+
+    class _Contract:
+        def prepare_libraries(self, context: VerticalLibraryContext) -> None:
+            seen.append(context)
+
+    monkeypatch.setattr(
+        "argus_skill.verticals._base.load_vertical_contract",
+        lambda *_args, **_kwargs: _Contract(),
+    )
+
+    harness = SkillLibraryMixin()
+    harness.config = SimpleNamespace(
+        vertical_state_root=state_root,
+        continuous_objective="",
+        workflow_mode="staged",
+        paper_mission=True,
+        engineer_model=None,
+    )
+    harness.engineer_runner = None
+    harness._emit = lambda _event: None
+    mission = MissionContext(
+        workdir=workdir,
+        run_id="run",
+        task="task",
+        skill_task="discover a thesis",
+        request_anchor="broad research direction",
+        active_vertical="research",
+        engineer_role_banner="",
+        seed_thread_id=None,
+        scope="bounded",
+    )
+
+    assert harness._prepare_vertical_libraries(mission) == ()
+    assert len(seen) == 1
+    assert seen[0].workdir == workdir
+    assert seen[0].state_root == state_root
+    assert seen[0].stage == "run"
+    assert portfolio_required(workdir) is False
+    assert portfolio_required(state_root) is True
+    assert stage_completion_issues(
+        "research",
+        workdir,
+        state_root=state_root,
+    ) == ("research idea portfolio state is missing or invalid",)
+
+
+def test_missing_state_root_is_visible_and_fails_closed(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    state_root = tmp_path / "missing-state"
+
+    with caplog.at_level("WARNING"):
+        issues = stage_completion_issues(
+            "research",
+            tmp_path / "evidence",
+            state_root=state_root,
+        )
+
+    assert "cannot be determined" in " ".join(issues)
+    assert "PIPELINE_STATE.json is missing" in caplog.text
+    assert str(state_root) in caplog.text
+
+
+def test_library_policy_reads_state_root_but_writes_workdir(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workdir = tmp_path / "worktree"
+    state_root = tmp_path / "state" / "projects" / "session"
+    workdir.mkdir(parents=True)
+    _pipeline(state_root)
+    monkeypatch.setenv("ARGUS_SKILL_VENUE_RESEARCH", "0")
+    monkeypatch.setenv("ARGUS_SKILL_IDEA_SEARCH", "0")
+    events: list[dict] = []
+    required: list[str] = []
+
+    prepare_skill_libraries(
+        VerticalLibraryContext(
+            workdir=workdir,
+            state_root=state_root,
+            stage="research",
+            objective="discover a thesis",
+            direction="agent reliability",
+            workflow_mode="staged",
+            paper_mission=True,
+            team_task_id=None,
+            runner=None,
+            model=None,
+            emit=events.append,
+            required_skill_paths=required,
+        )
+    )
+
+    assert required == [
+        "engineer/idea-discovery.md",
+        "engineer/idea-creator.md",
+        "agent-team-lead.md",
+    ]
+    assert events[0]["type"] == "idea.portfolio.formed"
+    assert Path(events[0]["team_root"]).is_relative_to(workdir)
+    assert not (state_root / ".argus" / "teams").exists()
 
 
 def _route_text(task: dict) -> str:
@@ -62,7 +184,7 @@ def _review_payload(task: dict, *, verdict: str) -> dict:
         "generality": "high",
         "top_conference_case": "strong",
         "local_feasibility": "conditional",
-        "contribution_mode": "both",
+        "contribution_mode": "well-characterized boundary result",
         "frontier_freshness": "Date-sorted search covered the latest 12 months.",
         "novelty_delta": "Introduces a new training objective absent from closest work.",
         "publication_scale_plan": (
@@ -81,36 +203,6 @@ def _review_payload(task: dict, *, verdict: str) -> dict:
             "stop_rules": "record one bounded observation, then continue",
         }
     return payload
-
-
-def _probe_payload(
-    *,
-    idea_id: str,
-    idea_status: str,
-    decision: str = "continue",
-) -> dict:
-    if idea_status == "supported":
-        execution, failure = "completed", "none"
-    elif idea_status == "refuted":
-        execution, failure = "completed", "empirical"
-    elif idea_status == "inconclusive":
-        execution, failure = "completed", "statistical_power"
-    else:
-        execution, failure, idea_status = "blocked", "implementation", "untested"
-    return {
-        "schema_version": 1,
-        "idea_id": idea_id,
-        "premise_version": 1,
-        "premise": "The route's binding mechanism produces a measurable effect.",
-        "execution_status": execution,
-        "failure_class": failure,
-        "idea_status": idea_status,
-        "evaluator_identity": "tiny public slice revision 1",
-        "comparison_identity": "simple baseline revision 1",
-        "summary": f"{idea_status} smoke observation",
-        "evidence": "raw/results.jsonl and REPORT.md",
-        "decision": decision,
-    }
 
 
 def _write_shard(root: Path, owner: str, task: dict) -> str:
@@ -191,9 +283,7 @@ def _complete_selection(
     *,
     selected_route: dict,
     selected_review: dict,
-    probe_idea_status: str = "inconclusive",
-    probe_decision: str = "continue",
-) -> tuple[dict, dict]:
+) -> dict:
     root = _selection_root(project_root)
     selector = task_board.claim_top(root, "selector", now=time.time())
     assert selector is not None and selector["role"] == "idea-selector"
@@ -202,18 +292,18 @@ def _complete_selection(
     selection_path.write_text(
         json.dumps({
             "schema_version": 2,
-            "policy": "frontier_ambition_v2",
+            "policy": "evidence_judgment_v3",
             "route_id": selected_route["target"],
             "route_task_id": selected_route["task_id"],
             "review_task_id": selected_review["task_id"],
             "route_artifact": selected_route["owns_paths"][0],
             "review_artifact": selected_review["owns_paths"][0],
             "rationale": "Best qualitative theory, novelty, and generality.",
+            "evidence_considered": "All routes, reviews, and probes available at decision time.",
             "theory_strength": "high",
             "novelty": "high",
             "generality": "high",
             "top_conference_case": "strong",
-            "contribution_mode": "both",
             "frontier_freshness": "Latest 12 months and current venue cycle checked.",
             "novelty_delta": "A new training objective with a nontrivial mechanism.",
             "publication_scale_plan": (
@@ -230,36 +320,17 @@ def _complete_selection(
         shard=_write_shard(root, "selector", selector),
     )
 
-    probe = task_board.claim_top(root, "probe", now=time.time())
-    assert probe is not None and probe["role"] == "idea-probe"
-    probe_root = project_root / probe["owns_paths"][0]
-    probe_root.mkdir(parents=True, exist_ok=True)
-    (probe_root / "EVIDENCE.json").write_text(
-        json.dumps(
-            _probe_payload(
-                idea_id=selected_route["target"],
-                idea_status=probe_idea_status,
-                decision=probe_decision,
-            ),
-            indent=2,
-        ) + "\n",
-        encoding="utf-8",
-    )
-    task_board.complete(
-        root,
-        probe["task_id"],
-        shard=_write_shard(root, "probe", probe),
-    )
-    return selector, probe
+    return selector
 
 
-def _complete_quorum(
+def _complete_review_set(
     project_root: Path,
     root: Path,
     *,
+    count: int = 3,
     verdicts: list[str] | None = None,
 ) -> list[tuple[dict, dict]]:
-    verdicts = verdicts or ["qualified"] * QUORUM_COUNT
+    verdicts = verdicts or ["qualified"] * count
     return [
         _complete_reviewed_route(
             project_root,
@@ -271,24 +342,22 @@ def _complete_quorum(
     ]
 
 
-def test_selection_waits_for_eighty_percent_review_quorum(tmp_path: Path) -> None:
+def test_portfolio_size_is_an_operating_choice_not_a_selection_quota(tmp_path: Path) -> None:
     _pipeline(tmp_path)
     root = ensure_idea_portfolio(tmp_path, direction="agent reliability")
 
-    assert len(task_board.snapshot(root)) == 24
-    assert all(
-        task["timeout_s"] == (1200.0 if task["role"] == "idea-route" else 600.0)
-        for task in task_board.snapshot(root)
-    )
+    custom = portfolio_tasks(portfolio_size=4)
+    assert sum(task["role"] == "idea-route" for task in custom) == 4
+    assert sum(task["role"] == "idea-review" for task in custom) == 4
     route_task = next(
         task for task in task_board.snapshot(root) if task["role"] == "idea-route"
     )
     review_task = next(
         task for task in task_board.snapshot(root) if task["role"] == "idea-review"
     )
-    assert "ACL/EMNLP/NAACL" in route_task["objective"]
-    assert "date-sorted arXiv query" in route_task["objective"]
-    assert "latest 12 months/current major-venue cycle" in review_task["objective"]
+    assert "genuinely distinct" in route_task["objective"]
+    assert "theory, measurement, a dataset" in route_task["objective"]
+    assert "negative results" in review_task["objective"]
     assert "Do not award credit for no-training convenience" in review_task["objective"]
     assert "Do not create, ensure, launch, or delegate another Team" in (
         route_task["objective"]
@@ -296,40 +365,32 @@ def test_selection_waits_for_eighty_percent_review_quorum(tmp_path: Path) -> Non
     assert "Do not create, ensure, launch, or delegate another Team" in (
         review_task["objective"]
     )
-    for index in range(QUORUM_COUNT - 1):
-        _complete_reviewed_route(
-            tmp_path,
-            root,
-            prefix=f"candidate-{index:02d}",
-        )
+    _complete_reviewed_route(tmp_path, root, prefix="candidate", review_verdict="rejected")
     ensure_idea_portfolio(tmp_path, direction="agent reliability")
 
     assert not (tmp_path / "research" / "IDEA_SELECTION.json").exists()
-    assert "fewer than 10 completed" in " ".join(
+    assert "no qualified independent review" in " ".join(
         idea_portfolio_completion_issues(tmp_path)
     )
 
 
-def test_quorum_selector_can_choose_best_not_earliest(tmp_path: Path) -> None:
+def test_evidence_selector_can_choose_best_not_earliest(tmp_path: Path) -> None:
     _pipeline(tmp_path)
     root = ensure_idea_portfolio(tmp_path, direction="agent reliability")
-    reviewed = _complete_quorum(tmp_path, root)
+    reviewed = _complete_review_set(tmp_path, root)
     ensure_idea_portfolio(tmp_path, direction="agent reliability")
 
     selection_root = _selection_root(tmp_path)
-    assert len(task_board.snapshot(selection_root)) == 2
-    assert all(task["timeout_s"] == 600.0 for task in task_board.snapshot(selection_root))
+    assert len(task_board.snapshot(selection_root)) == 1
+    assert all(task["timeout_s"] == 0.0 for task in task_board.snapshot(selection_root))
     selector_task = next(
         task
         for task in task_board.snapshot(selection_root)
         if task["role"] == "idea-selector"
     )
-    assert "balanced AI-frontier and foundation grounding" in selector_task["objective"]
-    assert "Do not prefer no-training, shortest-evidence-path" in (
-        selector_task["objective"]
-    )
-    assert "publication-scale empirical contribution" in selector_task["objective"]
-    assert "latest-12-month arXiv" in selector_task["objective"]
+    assert "all other relevant evidence" in selector_task["objective"]
+    assert "including probes and later routes" in selector_task["objective"]
+    assert "important, credible, nontrivial new knowledge" in selector_task["objective"]
     assert "Do not create, ensure, launch, or delegate another Team" in (
         selector_task["objective"]
     )
@@ -350,9 +411,7 @@ def test_quorum_selector_can_choose_best_not_earliest(tmp_path: Path) -> None:
         for task in task_board.snapshot(root)
         if task["role"] == "idea-route" and task["state"] != "done"
     ]
-    assert len(unfinished_routes) == 2
-    # Selection starts at quorum; the two late routes keep running and never
-    # delay the selected programme.
+    assert unfinished_routes
     assert pool.read(root)["state"] == "running"
     assert pool.read(selection_root)["state"] == "draining"
 
@@ -362,7 +421,7 @@ def test_late_routes_remain_claimable_and_reach_reviewer_once_settled(
 ) -> None:
     _pipeline(tmp_path)
     root = ensure_idea_portfolio(tmp_path, direction="agent reliability")
-    reviewed = _complete_quorum(tmp_path, root)
+    reviewed = _complete_review_set(tmp_path, root)
     ensure_idea_portfolio(tmp_path, direction="agent reliability")
     _complete_selection(
         tmp_path,
@@ -370,7 +429,7 @@ def test_late_routes_remain_claimable_and_reach_reviewer_once_settled(
         selected_review=reviewed[0][1],
     )
 
-    # Research is already free to proceed while routes 11/12 remain claimable.
+    # Research is already free to proceed while other routes remain claimable.
     assert idea_portfolio_completion_issues(tmp_path) == ()
     assert pool.read(root)["state"] == "running"
     late = [
@@ -390,7 +449,7 @@ def test_late_routes_remain_claimable_and_reach_reviewer_once_settled(
     block = _late_selection_reviews_block(tmp_path)
     assert "settled after the original selector" in block
     assert "plan_signal=reconsider" in block
-    assert pool.read(root)["state"] == "draining"
+    assert pool.read(root)["state"] == "running"
 
     # Refresh is idempotent and never rewrites the original selection.
     before = (tmp_path / "research" / "IDEA_SELECTION.json").read_bytes()
@@ -398,45 +457,27 @@ def test_late_routes_remain_claimable_and_reach_reviewer_once_settled(
     assert (tmp_path / "research" / "IDEA_SELECTION.json").read_bytes() == before
 
 
-def test_default_resulting_critical_path_is_below_one_hour(tmp_path: Path) -> None:
+def test_selection_record_has_no_post_selection_probe_gate(tmp_path: Path) -> None:
     _pipeline(tmp_path)
     root = ensure_idea_portfolio(tmp_path, direction="agent reliability")
-    reviewed = _complete_quorum(tmp_path, root)
+    _complete_review_set(tmp_path, root)
     ensure_idea_portfolio(tmp_path, direction="agent reliability")
     selection_root = _selection_root(tmp_path)
-    base = task_board.snapshot(root)
     selection = task_board.snapshot(selection_root)
-
-    route_timeout = next(
-        task["timeout_s"] for task in base if task["role"] == "idea-route"
-    )
-    review_timeout = next(
-        task["timeout_s"] for task in base if task["role"] == "idea-review"
-    )
-    selector_timeout = next(
-        task["timeout_s"] for task in selection if task["role"] == "idea-selector"
-    )
-    probe_timeout = next(
-        task["timeout_s"] for task in selection if task["role"] == "idea-probe"
-    )
-
-    assert reviewed
-    assert route_timeout + review_timeout + selector_timeout + probe_timeout == 3000
-    assert 3000 < 3600
+    assert [task["role"] for task in selection] == ["idea-selector"]
 
 
-def test_refuted_smoke_cannot_block_quorum_selected_idea(tmp_path: Path) -> None:
+def test_unenumerated_contribution_form_can_be_selected(tmp_path: Path) -> None:
     _pipeline(tmp_path)
     root = ensure_idea_portfolio(tmp_path, direction="agent reliability")
-    reviewed = _complete_quorum(tmp_path, root)
+    reviewed = _complete_review_set(tmp_path, root)
     ensure_idea_portfolio(tmp_path, direction="agent reliability")
-    selected_route, selected_review = reviewed[4]
+    selected_route, selected_review = reviewed[-1]
 
     _complete_selection(
         tmp_path,
         selected_route=selected_route,
         selected_review=selected_review,
-        probe_idea_status="refuted",
     )
 
     selection = idea_portfolio_selection(tmp_path)
@@ -445,33 +486,31 @@ def test_refuted_smoke_cannot_block_quorum_selected_idea(tmp_path: Path) -> None
     assert idea_portfolio_completion_issues(tmp_path) == ()
 
 
-def test_skipped_probe_cannot_block_quorum_selected_idea(tmp_path: Path) -> None:
+def test_selector_may_choose_credible_late_evidence(tmp_path: Path) -> None:
     _pipeline(tmp_path)
     root = ensure_idea_portfolio(tmp_path, direction="agent reliability")
-    reviewed = _complete_quorum(tmp_path, root)
+    reviewed = _complete_review_set(tmp_path, root, count=1)
     ensure_idea_portfolio(tmp_path, direction="agent reliability")
-    selected_route, selected_review = reviewed[4]
+    late_route, late_review = _complete_reviewed_route(tmp_path, root, prefix="late")
 
     _complete_selection(
         tmp_path,
-        selected_route=selected_route,
-        selected_review=selected_review,
-        probe_idea_status="untested",
-        probe_decision="skipped",
+        selected_route=late_route,
+        selected_review=late_review,
     )
 
     selection = idea_portfolio_selection(tmp_path)
     assert selection is not None
-    assert selection["route_task_id"] == selected_route["task_id"]
+    assert selection["route_task_id"] == late_route["task_id"]
     assert idea_portfolio_completion_issues(tmp_path) == ()
 
 
-def test_quorum_waits_for_a_qualified_review(tmp_path: Path) -> None:
+def test_selection_waits_for_a_qualified_review(tmp_path: Path) -> None:
     _pipeline(tmp_path)
     root = ensure_idea_portfolio(tmp_path, direction="agent reliability")
-    _complete_quorum(tmp_path, root, verdicts=["rejected"] * QUORUM_COUNT)
+    _complete_review_set(tmp_path, root, verdicts=["rejected"] * 3)
     ensure_idea_portfolio(tmp_path, direction="agent reliability")
-    assert "no qualified candidate" in " ".join(
+    assert "no qualified independent review" in " ".join(
         idea_portfolio_completion_issues(tmp_path)
     )
 
@@ -485,14 +524,13 @@ def test_quorum_waits_for_a_qualified_review(tmp_path: Path) -> None:
     state = json.loads(
         (tmp_path / "research" / "IDEA_PORTFOLIO.json").read_text(encoding="utf-8")
     )
-    assert qualified[1]["task_id"] in state["quorum_review_task_ids"]
-    assert len(state["quorum_review_task_ids"]) == QUORUM_COUNT
+    assert qualified[1]["task_id"] in state["selection_review_task_ids"]
 
 
 def test_invalid_selection_provenance_blocks_stage(tmp_path: Path) -> None:
     _pipeline(tmp_path)
     root = ensure_idea_portfolio(tmp_path, direction="agent reliability")
-    reviewed = _complete_quorum(tmp_path, root)
+    reviewed = _complete_review_set(tmp_path, root)
     ensure_idea_portfolio(tmp_path, direction="agent reliability")
     selected_route, selected_review = reviewed[0]
     _complete_selection(
@@ -505,7 +543,7 @@ def test_invalid_selection_provenance_blocks_stage(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    assert "selection or its short advisory probe is still incomplete" in " ".join(
+    assert "adversarial selection is still incomplete" in " ".join(
         idea_portfolio_completion_issues(tmp_path)
     )
 
@@ -520,7 +558,7 @@ def test_new_direction_gets_new_pipeline_and_clears_selection(
 ) -> None:
     _pipeline(tmp_path)
     first = ensure_idea_portfolio(tmp_path, direction="agent reliability")
-    reviewed = _complete_quorum(tmp_path, first)
+    reviewed = _complete_review_set(tmp_path, first)
     ensure_idea_portfolio(tmp_path, direction="agent reliability")
     _complete_selection(
         tmp_path,
@@ -535,7 +573,7 @@ def test_new_direction_gets_new_pipeline_and_clears_selection(
     assert not (tmp_path / "research" / "IDEA_SELECTION.json").exists()
 
 
-def test_research_library_hook_forms_quorum_pipeline(
+def test_research_library_hook_forms_evidence_portfolio(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -548,6 +586,7 @@ def test_research_library_hook_forms_quorum_pipeline(
     prepare_skill_libraries(
         VerticalLibraryContext(
             workdir=tmp_path,
+            state_root=tmp_path,
             stage="research",
             objective="discover a thesis",
             direction="agent reliability",
@@ -567,10 +606,11 @@ def test_research_library_hook_forms_quorum_pipeline(
         "agent-team-lead.md",
     ]
     assert events[0]["type"] == "idea.portfolio.formed"
-    assert events[0]["policy"] == "frontier_ambition_v2"
-    assert events[0]["review_quorum"] == 10
-    assert events[0]["task_count"] == 24
-    assert len(task_board.snapshot(Path(events[0]["team_root"]))) == 24
+    assert events[0]["policy"] == "evidence_judgment_v3"
+    assert "review_quorum" not in events[0]
+    assert "breadth and selection sufficiency remain Agent judgments" in events[0]["text"]
+    roles = {task["role"] for task in task_board.snapshot(Path(events[0]["team_root"]))}
+    assert roles == {"idea-route", "idea-review"}
 
 
 def test_research_library_requires_training_guide_after_selection(
@@ -585,6 +625,7 @@ def test_research_library_requires_training_guide_after_selection(
     prepare_skill_libraries(
         VerticalLibraryContext(
             workdir=tmp_path,
+            state_root=tmp_path,
             stage="plan",
             objective="design current-model experiments",
             direction="locked",
@@ -614,6 +655,7 @@ def test_research_library_hook_never_recurses_inside_team_task(
     prepare_skill_libraries(
         VerticalLibraryContext(
             workdir=tmp_path,
+            state_root=tmp_path,
             stage="research",
             objective="investigate one assigned route",
             direction="route-01 mechanism",

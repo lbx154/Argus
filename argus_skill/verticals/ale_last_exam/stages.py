@@ -24,30 +24,10 @@ CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
 # paper-submission gate nor a metric-search campaign.
 completion_gate = "none"
 
-_PIPELINE_CHECK = (
-    "Pipeline state present",
-    "test -f .argus/PIPELINE_STATE.json",
-)
-
 # The required output locations are task-specific and live in the task prompt.
 # A generic shell command cannot validate them without re-parsing prose, so the
-# L2 reviewer performs the substantive checks against the actual instruction
-# and artifacts.  Keep the mechanical gate honest and minimal.
-STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
-    "execute": [_PIPELINE_CHECK],
-}
-
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    "execute": (
-        "reviewer/ale-last-exam-delivery-review.md",
-        "Audit the exact task contract and the produced artifacts. Check every "
-        "required output path, hard gate, file format, schema, native-tool state, "
-        "and cross-artifact consistency yourself. The hidden reference is not "
-        "available and must never be sought. Return continue with one prioritized "
-        "repair plan if any observable requirement is unverified.",
-        [],
-    ),
-}
+# stage checklist carries the substantive review against the actual instruction
+# and artifacts.
 
 CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
     "execute": (
@@ -176,8 +156,6 @@ def role_banner(role: str) -> str:
 __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
-    "REVIEWER_CHECKLISTS",
-    "STAGE_CHECKS",
     "STAGE_ORDER",
     "completion_gate",
     "role_banner",

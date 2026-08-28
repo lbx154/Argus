@@ -276,11 +276,13 @@ describe('shared frontend core', () => {
 
   it('renders a readable backend handshake before GSAP loads', () => {
     const html = renderToStaticMarkup(createElement(BackendHandshake));
-    expect(html).toContain('Connecting to Argus');
-    expect(html).toContain('API');
-    expect(html).toContain('Protocol');
-    expect(html).toContain('Workspace');
-    expect(html).toContain('aria-label="Connecting to Argus backend"');
+    expect(html).toContain('Getting Argus ready');
+    expect(html).toContain('Service');
+    expect(html).toContain('Project');
+    expect(html).toContain('Ready');
+    expect(html).toContain('Reopening your workspace');
+    expect(html).toContain('aria-label="Getting Argus ready"');
+    expect(html).not.toContain('Protocol');
     expect(motionQueries).toEqual({
       all: '(min-width: 0px)',
       reduceMotion: '(prefers-reduced-motion: reduce)',
@@ -303,6 +305,7 @@ describe('shared frontend core', () => {
       },
     }])).toEqual({
       tone: 'warn',
+      kind: 'validation',
       text: 'invalid event agent.io.error: missing required fields: error',
     });
   });

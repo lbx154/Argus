@@ -42,17 +42,13 @@ class MissionExecutionMixin(
             "coordinate_parallel_claims",
             False,
         )
-        claimed = (
-            self.memory.backlog.claim_next(
-                parallel_only=parallel_worker,
-                respect_running=coordinate_claims,
-                expected_id=item.id,
-                owner=str(
-                    getattr(self.config, "worker_id", "primary") or "primary"
-                ),
-            )
-            if parallel_worker or coordinate_claims
-            else self.memory.backlog.claim_next()
+        claimed = self.memory.backlog.claim_next(
+            parallel_only=parallel_worker,
+            respect_running=coordinate_claims,
+            expected_id=item.id,
+            owner=str(
+                getattr(self.config, "worker_id", "primary") or "primary"
+            ),
         )
         if claimed is None or claimed.id != item.id:
             if claimed is not None:

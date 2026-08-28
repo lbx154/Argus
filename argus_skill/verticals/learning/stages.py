@@ -13,75 +13,12 @@ from ...skills.stage_machine import ChecklistItem
 STAGE_ORDER = ["ingest", "study", "curate", "review"]
 completion_gate = "none"
 PROTECTED_SKILL_TAGS: frozenset[str] = frozenset()
-_PIPELINE_CHECK = ("Pipeline state present", "test -f .argus/PIPELINE_STATE.json")
-_CURATION_CHECK = (
-    "Learning curation contract validates",
-    "{python} -m argus_skill.verticals.learning.curation check --project-root .",
-)
-
-STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
-    "ingest": [
-        _PIPELINE_CHECK,
-        (_CURATION_CHECK[0], f"{_CURATION_CHECK[1]} --stage ingest"),
-        (
-            "Material staged as a minimal semantic Wiki page",
-            "{python} -m argus_skill.verticals.path_evidence --project-root . "
-            "--glob '.autors/*/wiki/pages/materials/*.md'",
-        ),
-    ],
-    "study": [
-        _PIPELINE_CHECK,
-        (_CURATION_CHECK[0], f"{_CURATION_CHECK[1]} --stage study"),
-        ("Study notes present", "test -s learning/STUDY.md || test -s learning/CHANGE_PLAN.md"),
-    ],
-    "curate": [
-        _PIPELINE_CHECK,
-        (_CURATION_CHECK[0], f"{_CURATION_CHECK[1]} --stage curate"),
-        (
-            "Semantic library edits or a justified no-op recorded",
-            "test -s learning/LIBRARY_DELTA.md || test -s learning/CHANGE_PLAN.md",
-        ),
-    ],
-    "review": [
-        _PIPELINE_CHECK,
-        (_CURATION_CHECK[0], f"{_CURATION_CHECK[1]} --stage review"),
-        (
-            "Wiki INDEX is present",
-            "{python} -m argus_skill.verticals.path_evidence --project-root . "
-            "--glob '.autors/*/wiki/INDEX.md'",
-        ),
-    ],
-}
 
 
 def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
     from .curation import validate_curation
 
     return tuple(validate_curation(project_root, stage))
-
-_GATE_SKILL = "reviewer/curation-review.md"
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    "ingest": (
-        _GATE_SKILL,
-        "Verify the material is represented honestly as data in a minimal Wiki page.",
-        ["learning/MATERIAL_MANIFEST.json", "learning/MATERIAL_MANIFEST.md"],
-    ),
-    "study": (
-        _GATE_SKILL,
-        "Verify the Agent read the material and existing semantic libraries before editing.",
-        ["learning/STUDY.md", "learning/CHANGE_PLAN.md"],
-    ),
-    "curate": (
-        _GATE_SKILL,
-        "Verify every edit has a meaningful semantic path and uses only the minimal formats.",
-        ["learning/LIBRARY_DELTA.md", "learning/CHANGE_PLAN.md"],
-    ),
-    "review": (
-        _GATE_SKILL,
-        "Verify Skill/Wiki content is faithful, non-redundant, and discoverable from INDEX.md.",
-        ["learning/LIBRARY_DELTA.md"],
-    ),
-}
 
 CHECKLIST_STAGE_ORDER = tuple(STAGE_ORDER)
 CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
@@ -152,8 +89,6 @@ __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
     "PROTECTED_SKILL_TAGS",
-    "REVIEWER_CHECKLISTS",
-    "STAGE_CHECKS",
     "STAGE_ORDER",
     "completion_gate",
     "role_banner",

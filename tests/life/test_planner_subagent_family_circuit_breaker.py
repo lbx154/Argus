@@ -379,7 +379,7 @@ def test_dedup_uses_canonical_scope_and_acceptance_metadata(
             "TASK_ACCEPTANCE_CHECK=validator exits zero",
             "TASK_SCOPE=final_submission",
             "TASK_STAGE_CLOSING=false",
-            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+            "TASK_REQUIRE_INDEPENDENT_REVIEW=true",
             "TASK_SKIP_STAGE_TRANSITION=false",
         ]
     )
@@ -421,7 +421,7 @@ def test_duplicate_prerequisite_key_maps_to_existing_backlog_item(
             "TASK_ACCEPTANCE_CHECK=input bundle exists",
             "TASK_SCOPE=bounded",
             "TASK_STAGE_CLOSING=false",
-            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+            "TASK_REQUIRE_INDEPENDENT_REVIEW=true",
             "TASK_SKIP_STAGE_TRANSITION=false",
             "TASK_KEY=child",
             "TASK_DEPS=parent",
@@ -431,7 +431,7 @@ def test_duplicate_prerequisite_key_maps_to_existing_backlog_item(
             "TASK_ACCEPTANCE_CHECK=analysis report exists",
             "TASK_SCOPE=bounded",
             "TASK_STAGE_CLOSING=false",
-            "TASK_REQUIRE_INDEPENDENT_REVIEW=false",
+            "TASK_REQUIRE_INDEPENDENT_REVIEW=true",
             "TASK_SKIP_STAGE_TRANSITION=false",
         ]
     )

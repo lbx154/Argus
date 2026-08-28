@@ -10,7 +10,7 @@ THIN machine layer (prose_state structure + declared hard constraints) and a
 LIVE-reviewer craft layer that is never mechanized — and that is where prose is
 actually judged.
 
-## 一 · 结构与硬约束（机检层 · BLOCKING · 由 `checks.py structure-check` 强制）
+## 一 · 结构与硬约束（机检层 · BLOCKING · 由阶段完成钩子调用 `structure` 校验器强制）
 
 - **structure**：prose_state 必须声明 narrative_center / observation_subject /
   factual_anchors / memory_boundary / paragraph_movement / ending_strategy。

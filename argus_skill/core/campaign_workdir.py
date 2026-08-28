@@ -81,10 +81,9 @@ def _git_toplevel(path: Path) -> Path | None:
             ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
-            timeout=5,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError:
         return None
     if result.returncode != 0 or not result.stdout.strip():
         return None

@@ -37,152 +37,20 @@ where there is nothing to write up.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from ...skills.stage_machine import ChecklistItem
-from ..optimization_base import OPTIMIZATION_STAGE_ORDER, PIPELINE_CHECK
+from ..optimization_base import OPTIMIZATION_STAGE_ORDER
 
 STAGE_ORDER = list(OPTIMIZATION_STAGE_ORDER)
 
-# Generic across verticals; kept here as a private copy for now and will
-# migrate to ``argus_skill.core.contracts`` once a third vertical lands.
-_PIPELINE_CHECK = PIPELINE_CHECK
-
-STAGE_CHECKS: dict[str, list[tuple[str, str]]] = {
-    # Each check accepts EITHER the canonical speedrun scaffold (MISSION.md,
-    # baseline/, reference/, mission/, attempts/) OR a flat task workspace
-    # (root train.py, TASK.md, experiments/). Flat workspaces persist reference
-    # metrics in research/REFERENCE_SCORES.json or research/GROUND_TRUTH.json;
-    # prose-only score mentions are deliberately not accepted as evidence.
-    "setup": [
-        _PIPELINE_CHECK,
-        ("Mission file present",
-         "test -f MISSION.md || test -f TASK.md"),
-        ("Baseline scripts present",
-         "{python} -m argus_skill.verticals.path_evidence --project-root . "
-         "--glob 'baseline/*.py' --glob 'train.py'"),
-        ("Reference scores present",
-         "{python} -m argus_skill.verticals.metric_evidence "
-         "speedrun-reference --project-root ."),
-        ("Setup notes present",
-         "{python} -m argus_skill.verticals.path_evidence --project-root . "
-         "--glob 'mission/SETUP.md' --glob 'SETUP.md' --glob '*SETUP*.md'"),
-        ("GROUND_TRUTH.md exists with content",
-         "test -s research/GROUND_TRUTH.md"),
-    ],
-    "optimize": [
-        _PIPELINE_CHECK,
-        ("At least one attempt scaffolded",
-         "{python} -m argus_skill.verticals.path_evidence --project-root . "
-         "--glob 'attempts/*/train.py' --glob 'experiments/*/train*.py'"),
-    ],
-    "measure": [
-        _PIPELINE_CHECK,
-        ("At least one attempt has scored seed rows",
-         "{python} -m argus_skill.verticals.metric_evidence speedrun --project-root ."),
-    ],
-    "report": [
-        _PIPELINE_CHECK,
-        ("Project-root RESULTS.md present",
-         "test -s RESULTS.md"),
-        ("Structured scored rows remain available",
-         "{python} -m argus_skill.verticals.metric_evidence speedrun --project-root ."),
-    ],
-}
-
-REVIEWER_CHECKLISTS: dict[str, tuple[str, str, list[str]]] = {
-    "setup": (
-        "engineer/speedrun-setup.md",
-        "Evaluate the setup AND the ground-truth diagnosis (this stage is a GATE):\n"
-        "1. Target script identified and present under baseline/.\n"
-        "2. Harness identified (single import contract, the agent does NOT\n"
-        "   rewrite the harness).\n"
-        "3. Reference baseline scores present and parsed into a known schema.\n"
-        "4. Hardware + wall budget pinned explicitly in mission/SETUP.md.\n"
-        "5. NO paper artifacts demanded; this is a code-optimization mission.\n"
-        "6. research/GROUND_TRUTH.md exists and contains a BINDING-CONSTRAINT\n"
-        "   DIAGNOSIS backed by MEASURED facts. The engineer must have run a\n"
-        "   real baseline / profiling pass and READ its ACTUAL telemetry\n"
-        "   (utilization, steps completed, tokens seen, the loss/metric\n"
-        "   trajectory — whatever the run actually emits, wherever it lives)\n"
-        "   and NAMED what actually limits the metric under the fixed budget\n"
-        "   (e.g. compute/throughput, model-capacity, undertraining/steps,\n"
-        "   or data), WITH the measured numbers that prove it. A guessed or\n"
-        "   assumed bottleneck, or a diagnosis with no measured numbers behind\n"
-        "   it, FAILS this check.\n"
-        "RE-VERIFY the diagnosis yourself: open the same telemetry and confirm\n"
-        "the binding constraint the engineer named is what the numbers show —\n"
-        "do NOT trust the engineer's summary. Do NOT let the mission advance\n"
-        "from 'setup' to 'optimize' while the binding-constraint diagnosis is\n"
-        "missing, assumed rather than measured, or unverifiable.\n"
-        "Pass: research/GROUND_TRUTH.md names the MEASURED binding constraint\n"
-        "      (re-verified) and the agent can start producing attempts/\n"
-        "      scripts without further setup work.",
-        ["MISSION.md", "mission/SETUP.md", "baseline/", "reference/",
-         "research/GROUND_TRUTH.md"],
-    ),
-    "optimize": (
-        "engineer/argus-engineer-role.md",
-        "Evaluate the latest attempt — this is a FAST optimization loop; keep it LEAN:\n"
-        "1. The change lives in the EDITABLE artifact the mission names (the recipe /\n"
-        "   solution file / kernel), self-contained and runnable.\n"
-        "2. It does NOT modify the frozen harness/scorer, the metric, the held-out eval,\n"
-        "   or the budget — only the editable artifact.\n"
-        "3. It fits the declared wall-clock budget, and the change has a stated, testable\n"
-        "   hypothesis (why it should move the metric the right way) — not random mutation.\n"
-        "4. A SHORT note (CHANGES.md) records the diff + the one-line hypothesis.\n"
-        "EFFICIENCY — do NOT slow the loop with bookkeeping:\n"
-        "- TRUST a clean run of the mission's frozen scorer and the metric it reports. Do\n"
-        "  NOT demand re-running, re-verifying, re-collecting evidence, or extra docs for a\n"
-        "  score that is already recorded. Once a candidate's score is in, it is DONE —\n"
-        "  advance to the NEXT idea, don't loop re-confirming the last one.\n"
-        "- A cheap single-trial screen is fine and preferred; only spend the full\n"
-        "  measurement to CONFIRM a candidate that clearly beats the current best.\n"
-        "- The ONLY non-negotiable rigor: the real, unmodified evaluation environment (no\n"
-        "  fallback/fake/shimmed-away contract), the frozen metric / budget / held-out\n"
-        "  eval, and never a fabricated or hardcoded-answer score. Verify THOSE; minimize\n"
-        "  everything else.\n"
-        "Pass: the attempt is runnable, its hypothesis testable, and (if already scored) the\n"
-        "score came from a clean run of the frozen scorer — then ADVANCE.",
-        ["attempts/", "MISSION.md"],
-    ),
-    "measure": (
-        "engineer/speedrun-measure.md",
-        "Evaluate the measurement:\n"
-        "1. N >= the repeat/seed count declared in MISSION.md (when the metric is noisy).\n"
-        "2. Each repeat produced a real (not NaN/inf) value of the mission metric.\n"
-        "3. Wall clock per run within the declared budget.\n"
-        "4. Results recorded as (label, repeat, metric, wall_seconds) rows\n"
-        "   matching the reference schema so they can be\n"
-        "   concatenated for plotting.\n"
-        "5. Honest mean + min + max + (if repeated) 95% CI; no cherry-picked run.\n"
-        "Pass: scored rows are sufficient to compare against the reference baseline.",
-        ["attempts/", "reference/", "MISSION.md"],
-    ),
-    "report": (
-        "engineer/speedrun-report.md",
-        "Evaluate the report:\n"
-        "1. RESULTS.md exists at project root.\n"
-        "2. Contains a single results table with one row per (attempt,\n"
-        "   reference) sorted by the mission metric.\n"
-        "3. States honestly which reference rows were beaten and which\n"
-        "   were not; no spin.\n"
-        "4. One-paragraph 'what changed' per attempt, cross-referencing\n"
-        "   attempts/<name>/CHANGES.md.\n"
-        "5. No prose beyond what's needed to read the table.\n"
-        "Pass: a reader can verify the headline number from the table\n"
-        "      + the CSVs in attempts/.",
-        ["RESULTS.md", "attempts/", "reference/"],
-    ),
-}
-
 __all__ = [
     "STAGE_ORDER",
-    "STAGE_CHECKS",
-    "REVIEWER_CHECKLISTS",
-    "_PIPELINE_CHECK",
     "CHECKLIST_STAGE_ORDER",
     "CHECKLIST_ITEMS",
     "role_banner",
     "completion_gate",
+    "stage_completion_issues",
 ]
 
 
@@ -321,6 +189,22 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
 #: Speedrun missions are done on a metric verdict, not a paper-submission gate.
 completion_gate = "metric"
 MISSION_KIND = "optimize"
+
+
+def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
+    from ..metric_evidence import EvidenceError, validate_speedrun_evidence
+
+    issues: list[str] = []
+    if stage in {"measure", "report"}:
+        try:
+            validate_speedrun_evidence(project_root)
+        except EvidenceError as exc:
+            issues.append(str(exc))
+    if stage == "report":
+        report = project_root / "RESULTS.md"
+        if not report.is_file() or report.stat().st_size <= 0:
+            issues.append("report requires non-empty RESULTS.md")
+    return tuple(issues)
 
 
 def role_banner(role: str = "engineer") -> str:

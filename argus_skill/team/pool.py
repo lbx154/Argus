@@ -19,6 +19,7 @@ from . import _store
 
 _DEFAULT: dict[str, Any] = {"state": "running"}
 _STATES = frozenset({"running", "draining", "dissolved"})
+# Width is an admission/resource ceiling, not a teammate work deadline.
 _MAX_WIDTH_ENV = "ARGUS_TEAM_MAX_WIDTH"
 
 

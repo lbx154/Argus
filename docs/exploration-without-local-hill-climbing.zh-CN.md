@@ -31,7 +31,7 @@ Argus 不能把工程纪律误解成思想保守。本文件记录一次真实�
 1. **研究被视为一次性阶段。** 即使 precision 目标和瓶颈已经变化，旧 grounding 仍被视为完成。
 2. **实现比探索更容易获得奖励。** 代码、benchmark，甚至一次具体 build failure 都算进展；纯研究报告却容易被认为“没有执行”。
 3. **防磨洋工规则矫枉过正。** `smallest relevant surface`、`cheapest falsification check`、每轮必须测量等要求压制了高上限调查。
-4. **联网能力受任务分类影响。** `algorithm_discovery` 有 live search，但含研究内容的任务经常被标成 `engineering_optimization`。
+4. **联网能力受狭窄路由影响。** 显式 discovery 工作有 live search，但含研究内容的工程任务可能没有。
 5. **最终认证要求泄漏到探索阶段。** 多 seed、多重复、可复现、置信区间和 safe fallback 在机制尚未证明值得投入前就成为默认门槛。
 6. **缓存 Skill 保留旧偏好。** 只改顶层 Prompt 不够，项目或 shared Skill 仍可能写着 `smallest unimplemented mechanism`、`smallest fail-closed repair`。
 
@@ -68,7 +68,7 @@ Argus 不能把工程纪律误解成思想保守。本文件记录一次真实�
 Kernel Planner 现在：
 
 - 不等待失败，主动读取当前 primary sources；
-- 可以安排只交报告的 `algorithm_discovery`；
+- 可以安排只交报告的 source analysis；
 - 维护多个真正不同的机制方向；
 - 长 benchmark 期间可以并行研究独立机制家族；
 - 按预期上限和信息增益，而不是低执行风险排序；
@@ -106,7 +106,7 @@ Kernel Reviewer 现在：
 - `argus_skill/verticals/kernel_engineering/references/idgl-loop.md`
 - `argus_skill/verticals/kernel_engineering/skills/engineer/kernel-benchmark-measurement-integrity.md`
 
-`algorithm_discovery` 和 `engineering_optimization` 两类 kernel mission 都可使用 live search。测试固定了角色契约、联网能力、纯报告研究、高上限偏好、单次筛选，以及探索与认证的分离。
+所有 kernel mission 都可使用 live search。测试固定了角色契约、联网能力、纯报告研究、高上限偏好、单次筛选，以及探索与认证的分离。
 
 公开实现历史：
 

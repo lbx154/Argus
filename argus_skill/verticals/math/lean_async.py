@@ -292,7 +292,7 @@ def submit_lean_run(
     artifact_dir: Path | str | None = None,
     project_root: Path | str | None = None,
     claim: str = "",
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float | None = None,
     lean_bin: str | None = None,
     lake_bin: str | None = None,
     use_lake: bool | None = None,
@@ -381,7 +381,9 @@ def submit_lean_run(
                 "statement_fidelity_sha256": fidelity_digest,
                 "use_lake": bool(through_lake),
                 "lake_workspace": str(workspace) if through_lake and workspace else "",
-                "timeout_seconds": float(timeout_seconds),
+                "timeout_seconds": (
+                    float(timeout_seconds) if timeout_seconds is not None else None
+                ),
                 "lean_bin": lean_bin,
                 "lake_bin": lake_bin,
                 "pid": 0,
@@ -485,7 +487,11 @@ def _worker(run_dir: Path) -> int:
             try:
                 result = run_lean_check(
                     Path(str(record["staged_source"])),
-                    timeout_seconds=float(record["timeout_seconds"]),
+                    timeout_seconds=(
+                        float(record["timeout_seconds"])
+                        if record.get("timeout_seconds") is not None
+                        else None
+                    ),
                     lean_bin=record.get("lean_bin"),
                     lake_bin=record.get("lake_bin"),
                     use_lake=bool(record["use_lake"]),

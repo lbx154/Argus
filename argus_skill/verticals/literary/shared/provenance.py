@@ -3,13 +3,12 @@ rules that make it honest.
 
 :mod:`.source_registry` is the catalog (what may be used, and how). This module
 is the LEDGER (what was actually used, and for what), plus the cross-check that
-ties the two together at run time. A literary vertical that consults an external
+ties the two together. A literary vertical that consults an external
 source — queries a corpus, reads a public-domain text, quotes a passage — records
 a ``source_usage`` entry; :func:`validate_usage` then rejects the whole log unless
 every entry is defensible against the registry.
 
-The rejections this enforces (each a real, observable runtime failure, not a
-lint):
+The rejections enforced by :func:`validate_usage` are:
 
 * the ``source_id`` is not registered — you cannot use a source that does not
   exist in the registry;

@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 from argus_skill.engineer.external_work import ExternalWorkState, ExternalWorkStatus
 from argus_skill.life.event_log import JsonlEventSink
 from argus_skill.life.memory import LifeMemory
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_AWAITING
+from argus_skill.life.supervisor._constants import (
+    IDLE_BACKOFF_CAP_SECONDS,
+    PLAN_AWAITING,
+)
 from argus_skill.life.supervisor._planning_cycle import PlanningCycleMixin
 from argus_skill.planner import PlannerVerdict, TaskSpec, WaitingContract
 from argus_skill.skills.vertical_select import persist_vertical
@@ -409,6 +413,74 @@ def test_unchanged_live_job_skips_planner_across_restart(
     assert calls == 3
 
 
+def test_repersisted_operator_event_wait_keeps_idle_turn_throttle(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    calls = 0
+
+    def _contract() -> WaitingContract:
+        return WaitingContract(
+            blocker_fingerprint=(
+                "submission_gate_closed_no_external_submission_authorized_8d2b840c"
+            ),
+            recheck_condition="operator authorizes venue submission",
+            recheck_token="token-v1",
+            wait_mode="event",
+            wake_on=("authorization",),
+            operator_action_required=True,
+        )
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return PlannerVerdict(
+            project_done=False,
+            reason="venue submission needs operator authorization",
+            waiting=True,
+            waiting_reason="venue submission needs operator authorization",
+            waiting_contract=_contract(),
+        )
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    supervisor = _supervisor(project, life)
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 1
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+
+    wait_path = next(life.glob("planner-waiting-contract-*.json"))
+    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
+    assert wait_state["idle_capacity_turn_used"] is True
+    assert "idle_capacity_turn_ts" in wait_state
+    assert "idle_capacity_backlog_revision" in wait_state
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+    events = [
+        json.loads(raw)
+        for raw in (life / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    planner_waiting = [
+        event for event in events if event.get("type") == "life.planner.waiting"
+    ]
+    assert planner_waiting[-1]["model_call_skipped"] is True
+
+    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
+    wait_state["idle_capacity_turn_ts"] = time.time() - IDLE_BACKOFF_CAP_SECONDS - 1
+    supervisor._write_planner_waiting_contract_state(wait_state)
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 3
+
+    monkeypatch.setattr(supervisor, "_waiting_backlog_revision", lambda: "changed")
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 4
+
+
 def test_wait_persistence_rejects_state_change_after_discovery(
     tmp_path: Path,
     monkeypatch,
@@ -435,7 +507,7 @@ def test_wait_persistence_rejects_state_change_after_discovery(
     assert list((tmp_path / "life").glob("planner-waiting-contract-*.json")) == []
 
 
-def test_subagent_event_wait_without_host_revision_is_not_persisted(
+def test_subagent_event_wait_without_host_revision_degrades_to_poll(
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "project"
@@ -449,11 +521,15 @@ def test_subagent_event_wait_without_host_revision_is_not_persisted(
         wake_on=("subagent_state",),
     )
 
-    assert supervisor._persist_planner_waiting_contract(contract) is None
-    assert list((tmp_path / "life").glob("planner-waiting-contract-*.json")) == []
+    state = supervisor._persist_planner_waiting_contract(contract)
+
+    assert state is not None
+    assert state["wait_mode"] == "poll"
+    assert state["wake_on"] == []
+    assert state["recheck_after_seconds"] == 300
 
 
-def test_event_wait_without_wake_source_is_not_persisted(tmp_path: Path) -> None:
+def test_event_wait_without_wake_source_degrades_to_poll(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
     supervisor = _supervisor(project, tmp_path / "life")
@@ -464,11 +540,14 @@ def test_event_wait_without_wake_source_is_not_persisted(tmp_path: Path) -> None
         wait_mode="event",
     )
 
-    assert supervisor._persist_planner_waiting_contract(contract) is None
-    assert list((tmp_path / "life").glob("planner-waiting-contract-*.json")) == []
+    state = supervisor._persist_planner_waiting_contract(contract)
+
+    assert state is not None
+    assert state["wait_mode"] == "poll"
+    assert state["recheck_after_seconds"] == 300
 
 
-def test_event_wait_with_unknown_wake_source_is_not_persisted(
+def test_event_wait_with_unknown_wake_source_degrades_without_planner_error(
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "project"
@@ -482,11 +561,25 @@ def test_event_wait_with_unknown_wake_source_is_not_persisted(
         wake_on=("unknown_source",),
     )
 
-    assert supervisor._persist_planner_waiting_contract(contract) is None
-    assert list((tmp_path / "life").glob("planner-waiting-contract-*.json")) == []
+    events: list[dict] = []
+    supervisor._emit = lambda event: events.append(event) or True
+
+    state = supervisor._persist_planner_waiting_contract(contract)
+
+    assert state is not None
+    assert state["wait_mode"] == "poll"
+    assert state["wake_on"] == []
+    assert state["recheck_after_seconds"] == 300
+    assert not [event for event in events if event["type"] == "life.planner.error"]
+    normalized = next(
+        event
+        for event in events
+        if event["type"] == "life.planner.waiting_contract.normalized"
+    )
+    assert normalized["degraded"] is True
 
 
-def test_artifact_event_wait_without_paths_is_not_persisted(tmp_path: Path) -> None:
+def test_artifact_event_wait_without_paths_degrades_to_poll(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
     supervisor = _supervisor(project, tmp_path / "life")
@@ -498,5 +591,105 @@ def test_artifact_event_wait_without_paths_is_not_persisted(tmp_path: Path) -> N
         wake_on=("artifact_revision",),
     )
 
+    state = supervisor._persist_planner_waiting_contract(contract)
+
+    assert state is not None
+    assert state["wait_mode"] == "poll"
+    assert state["wake_on"] == []
+
+
+def test_compound_synonym_wake_sources_persist_as_durable_event_wait(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life")
+    events: list[dict] = []
+    supervisor._emit = lambda event: events.append(event) or True
+    contract = WaitingContract(
+        blocker_fingerprint="operator-or-artifact:abc",
+        recheck_condition="operator answers or the artifact changes",
+        recheck_token="run-1",
+        wait_mode="EVENT",
+        wake_on=("operator_answer|artifact_revision",),
+    )
+
+    state = supervisor._persist_planner_waiting_contract(contract)
+
+    assert state is not None
+    assert state["wait_mode"] == "event"
+    assert state["wake_on"] == ["authorization"]
+    assert not [event for event in events if event["type"] == "life.planner.error"]
+    assert any(
+        event["type"] == "life.planner.waiting_contract.normalized"
+        for event in events
+    )
+
+
+def test_watched_paths_derive_artifact_revision_and_unknown_mode(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life")
+    contract = WaitingContract(
+        blocker_fingerprint="artifact:abc",
+        recheck_condition="the result artifact changes",
+        recheck_token="run-1",
+        wait_mode="on_change",
+        watched_paths=("results/output.json",),
+    )
+
+    state = supervisor._persist_planner_waiting_contract(contract)
+
+    assert state is not None
+    assert state["wait_mode"] == "event"
+    assert state["wake_on"] == ["artifact_revision"]
+    assert state["watched_paths"] == ["results/output.json"]
+
+
+def test_resolvable_wait_id_derives_host_observed_subagent_source(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _write_direct_job(project)
+    supervisor = _supervisor(project, tmp_path / "life")
+    contract = WaitingContract(
+        blocker_fingerprint="subagent:data-build",
+        recheck_condition="data-build changes state",
+        recheck_token="run-1",
+        wait_mode="poll",
+        wait_id="data-build",
+    )
+
+    state = supervisor._persist_planner_waiting_contract(contract)
+
+    assert state is not None
+    assert state["wait_mode"] == "event"
+    assert state["wake_on"] == ["subagent_state"]
+    assert state["source_wait_id"] == "data-build"
+    assert state["observed_revision"]
+
+
+def test_wake_normalization_does_not_relax_watched_path_confinement(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = _supervisor(project, tmp_path / "life")
+    events: list[dict] = []
+    supervisor._emit = lambda event: events.append(event) or True
+    contract = WaitingContract(
+        blocker_fingerprint="artifact:unsafe",
+        recheck_condition="an external artifact changes",
+        recheck_token="run-1",
+        wait_mode="event",
+        wake_on=("artifact_change",),
+        watched_paths=("../outside.json",),
+    )
+
     assert supervisor._persist_planner_waiting_contract(contract) is None
+    assert any(
+        event.get("error") == "planner wait has unsafe watched path"
+        for event in events
+    )
     assert list((tmp_path / "life").glob("planner-waiting-contract-*.json")) == []

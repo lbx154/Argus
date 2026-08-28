@@ -21,8 +21,8 @@ and never false-flagged; a character not in the table is reported ``?`` and does
 NOT count as an error. So a "compliant" verdict is a machine fact, and an
 "undecidable" character is stated, not hidden.
 
-``machine_findings`` / ``analyze`` are the structured API the runtime gate and the
-poetry review contract consume; ``main`` is a CLI for the STAGE_CHECK.
+``machine_findings`` / ``analyze`` are the structured API the stage-completion
+hook and poetry review contract consume; ``main`` is a standalone CLI.
 
 Adapted from: classical-poetry-prototype/classical-chinese-poetry/scripts/check_prosody.py
 """

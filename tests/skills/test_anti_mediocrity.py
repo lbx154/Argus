@@ -258,5 +258,5 @@ def test_old_verdict_api_is_gone() -> None:
     for name in forbidden_names:
         assert not hasattr(mod, name), (
             f"{name!r} is a verdict-style API and must stay deleted "
-            f"(see docs/VALUE_VS_HONESTY.md)"
+            f"(see docs/PRINCIPLES.md)"
         )

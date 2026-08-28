@@ -44,8 +44,6 @@ def test_physics_stage_contract_is_five_stages_ending_in_manuscript() -> None:
     assert mod.STAGE_ORDER == five
     assert vertical_checklist_stage_order(mod) == five
     assert tuple(mod.CHECKLIST_ITEMS) == mod.STAGE_ORDER
-    assert not hasattr(mod, "STAGE_CHECKS")
-    assert not hasattr(mod, "REVIEWER_CHECKLISTS")
 
 
 def test_physics_uses_reviewer_certified_non_paper_gate() -> None:

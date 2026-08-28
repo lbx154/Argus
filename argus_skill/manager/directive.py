@@ -10,7 +10,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 ACTIVE_MANAGER_DIRECTIVE_FILENAME = "active_manager_directive.json"
 ACTIVE_MANAGER_DIRECTIVE_PREFIX = (
@@ -209,8 +209,16 @@ def record_operator_messages(
     messages: list[str],
     *,
     source: str = "operator.inbox",
+    manager: Any = None,
+    mission_id: str = "",
 ) -> None:
-    """Make newly drained inbox messages durable standing steering."""
+    """Persist drained operator messages without promoting all of them to standing."""
+    from ..core.operator_context import (
+        OperatorContextStore,
+        append_directive,
+        standing_sounding,
+    )
+
     for message in messages:
         text = str(message or "").strip()
         # Manager steering is queued as the already-rendered standing block for
@@ -220,7 +228,44 @@ def record_operator_messages(
             ACTIVE_MANAGER_DIRECTIVE_PREFIX
         ):
             continue
-        append_steering_directive(state_root, text, source=source)
+        decisions: list[dict[str, Any]] = []
+        if manager is not None:
+            manager.classify_front_door(
+                text,
+                intake_sink=decisions.append,
+                active_mission=True,
+            )
+        if decisions:
+            from ..core.operator_context import IntakeDecision, persist_intake_decision
+
+            if (
+                decisions[-1].get("kind") == "credential_grant"
+                and "[stored in capability vault]" in text
+                and any(
+                    record.type == "capability" and record.available
+                    for record in OperatorContextStore(state_root).records()
+                )
+            ):
+                continue
+            persist_intake_decision(
+                state_root,
+                text,
+                IntakeDecision(**decisions[-1]),
+                source=source,
+                mission_id=mission_id,
+            )
+            continue
+        store = OperatorContextStore(state_root)
+        is_standing = standing_sounding(text)
+        append_directive(
+            state_root,
+            text,
+            scope="project" if is_standing else "mission",
+            lifetime="standing" if is_standing else "bounded_increment",
+            applies_to_roles="all",
+            source=source,
+            expected_revision=store.revision,
+        )
 
 
 def render_active_steering(state_root: Path | str | None) -> str:
@@ -235,19 +280,47 @@ def render_active_steering(state_root: Path | str | None) -> str:
         records = _read_steering_records(state_root)
     active = _active_steering_records(records)[-STEERING_MAX_ENTRIES:]
     if not active:
+        from ..core.operator_context import OperatorContextStore
+
+        projection = OperatorContextStore(state_root).project(
+            "engineer", consume_once=False
+        )
+        active = [
+            {"text": record.text, "timestamp": record.created_at}
+            for record in reversed(projection.directives[-STEERING_MAX_ENTRIES:])
+        ]
+    if not active:
         return ""
-    lines = [STEERING_HEADER]
-    for record in reversed(active):
+    directive_lines: list[str] = []
+    timestamp_lines: list[str] = []
+
+    def rendered() -> str:
+        return "\n".join(
+            [
+                STEERING_HEADER,
+                *directive_lines,
+                "## Steering record timestamps",
+                *timestamp_lines,
+            ]
+        )
+
+    for index, record in enumerate(reversed(active), start=1):
         timestamp = str(record.get("timestamp") or "unknown time")
         text = " ".join(str(record.get("text") or "").split())
-        line = f"- {timestamp}: {text}"
-        if len("\n".join((*lines, line))) > STEERING_MAX_CHARS:
-            remaining = STEERING_MAX_CHARS - len("\n".join(lines)) - 1
+        line = f"- {text}"
+        timestamp_line = f"- directive {index}: {timestamp}"
+        directive_lines.append(line)
+        timestamp_lines.append(timestamp_line)
+        if len(rendered()) > STEERING_MAX_CHARS:
+            directive_lines.pop()
+            timestamp_lines.pop()
+            fixed = len(rendered()) + len(timestamp_line) + 2
+            remaining = STEERING_MAX_CHARS - fixed
             if remaining > 20:
-                lines.append(line[: max(0, remaining - 1)].rstrip() + "…")
+                directive_lines.append(line[: remaining - 1].rstrip() + "…")
+                timestamp_lines.append(timestamp_line)
             break
-        lines.append(line)
-    return "\n".join(lines)
+    return rendered()
 
 
 def _current_objective_sha256(state_root: Path | str) -> str:

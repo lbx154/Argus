@@ -46,17 +46,14 @@ tasks — this is narrative-fiction request normalization only.
    - `forbidden_lexicon` — words that must NOT appear (a HARD contract: a hit is a
      BLOCKING finding). For a continuation this is where anachronisms live — e.g.
      a classical-register work forbids `手机`/`地铁`/`OK`;
-   - optional `sentence_targets` (mean length band, parallelism_ok),
-     `dialogue_conventions`, and `ai_tell_budget.max_hits_per_1000_chars`.
+   - optional `sentence_targets` and `dialogue_conventions` as drafting guidance.
    If the operator named an author, translate the *effect* into these features and
    note the translation — do not set a goal of mechanically reproducing that
    author. Write `fiction/style_profile.json`.
-   - **Start from the library, don't build from scratch.** Compose the card as
-     `base` ← domain preset ← your work/character overlay (see
-     `references/voice_cards/` and `style.compose_voice_card` /
-     `voice_card_from_brief`). `domain_for_brief` picks the domain preset from the
-     brief's genre (悬疑→suspense, 红楼/章回→classical_zhanghui, 网文→web_fiction, …)
-     — the DETERMINISTIC half of building the card from the prompt.
+   - If the operator did not declare a style, keep the initial card neutral and read
+     the whole brief before proposing a voice. Explain why its rhythm, register,
+     distance, imagery, and dialogue suit this work. Library presets are references
+     or explicit choices, never substring routing from genre words.
    - **Author the per-character voices** (`character_voices`): read the prompt's
      cast and give each one a register / verbal tics / diction / words-forbidden-
      from-this-mouth — '什么样的人物什么卡'. This is the half only you can do from

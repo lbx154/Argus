@@ -191,21 +191,15 @@ while credible fixes remain.
 - Do not lock an idea until the ambition standard survives independent
   prior-art attack and adversarial review.
 - Stream discovery into validation: each completed route receives a fresh
-  independent review immediately. At an 80% review quorum (10 of 12 by default),
-  a fresh selector Agent chooses a current-frontier high-novelty method or
-  publication-scale empirical contribution. No-training convenience, shortest
-  evidence path, cheapness, and single-GPU fit are not ranking advantages; require
-  a credible staged resource plan. Do not wait for the final two routes. Only the
-  selected idea receives one short advisory feasibility check only when a tiny
-  slice is representative; otherwise record it skipped/untested and advance.
-  Scientific success belongs to plan/benchmark/run. The final two routes and
-  weak or absent smoke results are not stage blockers.
-- For a broad publishable/doctoral Agent paper, at least four portfolio routes
-  must independently search for load-bearing mathematical or physical
-  foundations. Cover distinct relevant lenses rather than variants of one
-  analogy, and require each route to derive an algorithm, bound, impossibility
-  result, scaling law, threshold, or quantitative prediction tied to measurable
-  Agent behavior.
+  independent review immediately. A fresh selector judges when genuinely distinct
+  mechanism families cover the alternatives and key uncertainties well enough to
+  choose. It reads all evidence that has arrived, including probes and later routes,
+  and may update the choice when new evidence changes credibility. Judge important,
+  credible, nontrivial knowledge in any contribution form; local convenience is not
+  scientific value, and resource gaps belong in the staged plan.
+- Search mathematical, physical, statistical, or other foundations when they can
+  bear load for the claim. Prefer distinct relevant lenses over variants of one
+  analogy, and explain what each lens lets the work establish.
 - Reuse the active independent route pipeline; do not start another breadth
   sweep under new route names.
 - Validate each finalist in one decision-sized milestone, but preserve the

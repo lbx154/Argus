@@ -5,7 +5,7 @@ export type AlertTone = 'block' | 'warn';
 export interface GuardianAlert {
   tone: AlertTone;
   text: string;
-  kind?: 'budget';
+  kind?: 'budget' | 'validation';
 }
 
 const ALERT_TYPES: Record<string, AlertTone> = {
@@ -37,8 +37,10 @@ const BUDGET_RESOLVING_TYPES = new Set<string>([
 function alertOf(event: EventMsg): GuardianAlert | null {
   const type = canonicalEventType(event.canonical_type ?? event.type);
   if (event.event_validation?.status === 'invalid') {
+    if (type === EVENT_TYPES.ROLE_SESSION_TURN) return null;
     return {
       tone: 'warn',
+      kind: 'validation',
       text: `invalid event ${type || 'unknown'}: ${event.event_validation.errors.join('; ')}`,
     };
   }
@@ -64,6 +66,7 @@ export function activeGuardianAlert(events: EventMsg[]): GuardianAlert | null {
     const type = canonicalEventType(event.canonical_type ?? event.type);
     const next = alertOf(event);
     if (next) alert = next;
+    else if (alert?.kind === 'validation') alert = null;
     else if (
       alert?.kind === 'budget'
       && BUDGET_RESOLVING_TYPES.has(type)

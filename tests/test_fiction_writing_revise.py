@@ -1,8 +1,7 @@
 """Consumer-side closed-loop tests: fiction revise consumes the Review contract.
 
 Proves the shared review payload is consumed by fiction's revise adapter against
-fiction's own finding vocabulary; the runtime STAGE_CHECK wiring is covered
-separately in test_fiction_writing_revise_runtime.py.
+fiction's own finding vocabulary.
 """
 from __future__ import annotations
 

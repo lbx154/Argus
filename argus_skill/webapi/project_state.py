@@ -663,7 +663,9 @@ def build_snapshot(
     items: list[Any] = []
     try:
         memory = LifeMemory.open(life_dir)
-        items = list(memory.backlog.all())
+        # The project snapshot preserves the existing mission-history UI; live
+        # scheduling endpoints use active() instead.
+        items = list(memory.backlog.history())
         backlog = (
             [compact_backlog_item(item) for item in items]
             if compact

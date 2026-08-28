@@ -335,16 +335,15 @@ def _daemon_findings(context: DoctorContext) -> list[DoctorFinding]:
                     drain_age = max(0.0, time.time() - drain_path.stat().st_mtime)
                 except OSError:
                     drain_age = 0.0
-        drain_stuck = draining and drain_age >= 60.0
         semantic = (
-            "drain_stuck" if drain_stuck else "draining" if draining
+            "draining" if draining
             else "stalled" if stalled else state
         )
         return [_finding(
-            "ARGUS-DAEMON-001", "daemon", not stalled and not drain_stuck,
+            "ARGUS-DAEMON-001", "daemon", not stalled,
             semantic, f"daemon pid {status.pid} is alive; health={semantic}",
             severity="error",
-            actions=("stop_owned_stuck_daemon",) if drain_stuck else (),
+            actions=(),
             recommendation="interrupt the verified owned daemon after reviewing its latest boot log",
             evidence={
                 "pid": status.pid,
@@ -428,14 +427,6 @@ def run_full_doctor(
     ]
     findings.extend(_checkout_finding(context))
     findings.extend(_runtime_findings(context))
-
-    special_prompt = context.global_root / "special_prompts" / "10-house-rules.md"
-    findings.append(_finding(
-        "ARGUS-CONFIG-001", "install", special_prompt.is_file(),
-        "house_rules_ready" if special_prompt.is_file() else "house_rules_missing",
-        str(special_prompt), severity="error", actions=("create_house_rules",),
-        recommendation="review and create machine-specific operator house rules",
-    ))
 
     web_status, web_meta = _probe_web(context.web_host, context.web_port)
     web_ok = web_status in {"stopped", "compatible", "protected_argus"}

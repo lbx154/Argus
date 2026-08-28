@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core.event_catalog import EventType
 from ..life.event_log import JsonlEventSink
 
 INBOX_FILE = "inbox.jsonl"
@@ -163,13 +164,26 @@ def queue_inbox_message(
     source: str,
     stage: str = "",
 ) -> None:
+    root = Path(life_dir)
+    from ..core.operator_context import import_deterministic_credential
+
+    global_root = (
+        root.parent.parent
+        if root.parent.name == "projects"
+        else None
+    )
+    text, _credential = import_deterministic_credential(
+        root,
+        text,
+        global_root=global_root,
+    )
     inbox = inbox_path(life_dir, stage)
     inbox.parent.mkdir(parents=True, exist_ok=True)
     record = {"ts": time.time(), "text": text}
     with inbox.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
     JsonlEventSink(None, life_dir=Path(life_dir)).append({
-        "type": "life.inbox.queued",
+        "type": EventType.LIFE_INBOX_QUEUED,
         "text": text,
         "source": source,
         "stage": stage.strip().lower(),

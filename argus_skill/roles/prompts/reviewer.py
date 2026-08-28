@@ -61,14 +61,12 @@ _INCREMENTAL_REREVIEW_BOUNDARY = (
 # locally correct round without anything ever questioning the plan itself.
 # Keep these values in step with ``argus_skill.reviewer._parsing``.
 _PLAN_SIGNAL_VOCABULARY = (
-    "`plan_signal` is `continue`, or `reconsider` when the evidence says the "
-    "plan itself — not this round's execution — is what now stands between the "
-    "operator and the objective; rounds that each repair a different symptom of "
-    "one design are evidence for that. Then add `plan_challenge` (the assumption "
-    "you are challenging), `plan_alternative` (the better route), and "
-    "`authority_impact`: `technical` for a working choice the team may replace, "
-    "`manager_contract` or `operator` for a commitment only they can relax. A "
-    "plan the team authored for itself is a working choice.\n"
+    "`plan_signal` is `continue`, or `reconsider` when new evidence lowers the "
+    "current plan's expected value. With it, add evidence-backed `plan_challenge` "
+    "and `authority_impact`: `technical` for working choices; `manager_contract` "
+    "or `operator` only for their commitments. A plan the team authored for itself "
+    "is a working choice. Add `plan_alternative` only when you actually have one; "
+    "without it Manager uses ordinary `revise`.\n"
 )
 
 
@@ -263,10 +261,45 @@ def render_reviewer_prompt(
     )
     from .registry import resolve_role_prompt
 
-    error_text = main_error or "none"
+    error_text = sanitize_model_visible_text(main_error or "none")
+    engineer_account = sanitize_model_visible_text(main_summary)
+    if len(engineer_account) > 6000:
+        omitted_chars = len(engineer_account) - 5900
+        engineer_account = (
+            engineer_account[:4000]
+            + f"\n…[middle omitted {omitted_chars} characters]…\n"
+            + engineer_account[-1900:]
+        )
     # Reviewer receives Skill-library paths and searches independently; no
     # Skill body is selected or injected by the runtime.
     _proot = resolve_project_root(vertical_state_root or working_dir)
+    try:
+        from ...core.manuscript_snapshot import (
+            manuscript_review_artifact_statuses,
+        )
+
+        stale_review_facts = [
+            fact
+            for fact in manuscript_review_artifact_statuses(_proot)
+            if fact["status"] != "current"
+        ]
+        review_validity_block = ""
+        if stale_review_facts:
+            review_validity_block = (
+                "## Manuscript-bound review validity (mechanical facts)\n"
+                + "\n".join(
+                    f"- {fact['path']}: {fact['message']}"
+                    for fact in sorted(
+                        stale_review_facts,
+                        key=lambda item: (str(item["path"]), str(item["message"])),
+                    )
+                )
+                + "\nTreat these records as stale facts, never as passed/certified. "
+                "Do not request a new model review merely because they are stale; "
+                "judge the next action under the current plan.\n\n"
+            )
+    except Exception:  # noqa: BLE001 - optional paper facts never break review
+        review_validity_block = ""
     scope_normalized = (scope or "").strip().lower().replace("-", "_")
     _persisted = _persisted_vertical(_proot)
     explicit_vertical = str(vertical or "").strip()
@@ -394,12 +427,23 @@ def render_reviewer_prompt(
                 )
                 + "\n"
             )
+    surprise_judgment_block = (
+        "What observed result or pattern most changed your belief — including a "
+        "positive surprise — and what is the cheapest observation that would "
+        "distinguish a new scientific explanation from an artifact? `none` is valid "
+        "and produces no work; if the answer could change the claim or route, use "
+        "ordinary `reconsider` to hand it to Planner.\n"
+        if _research_target_level is not None
+        else ""
+    )
     # Live search-altitude facts (NO verdict) so the reviewer can SEE the
     # floor history when judging forward_progress — i.e. distinguish "this
     # round advanced a declared structural line" from "Nth single-knob
     # nibble at a floor that has not moved in N attempts". Empty for
     # verticals that do not surface it.
-    search_altitude_block = prompt_context.search_altitude
+    search_altitude_block = sanitize_model_visible_text(
+        prompt_context.search_altitude
+    )
     if _measured:
         stage_checklist = (
             "## MEASURED-BENCHMARK MODE — TRUST the scorer, judge the IDEA\n"
@@ -492,13 +536,18 @@ def render_reviewer_prompt(
         skill_used=active_skill_id,
         prev_review_summary=prev_review_summary,
     )
+    shared_context_block = sanitize_model_visible_text(shared_context_block)
     incremental_review_block = ""
     if round_index > 1 and prev_review_summary.strip():
         incremental_review_block = _INCREMENTAL_REREVIEW_BOUNDARY
     # Prefer direct runtime and verifier evidence over the Engineer's summary
     # when callers provide it. Omit the block when no such evidence exists.
     evidence_block = (
-        f"\nRaw verification evidence:\n{raw_evidence.rstrip()}\n" if raw_evidence.strip() else ""
+        "\nRaw verification evidence:\n"
+        + sanitize_model_visible_text(raw_evidence.rstrip())
+        + "\n"
+        if raw_evidence.strip()
+        else ""
     )
     # Background-subagent context (rendered by the engineer/runner from the
     # live ``.argus_subagents`` registry). Present only when this mission has
@@ -509,7 +558,9 @@ def render_reviewer_prompt(
     background_block = ""
     if background_context.strip():
         background_block = (
-            f"\n{background_context.strip()}\n\n"
+            "\n"
+            + sanitize_model_visible_text(background_context.strip())
+            + "\n\n"
             "Reviewer note on the above: these are SUPERVISED subagents with "
             "their own independent supervisor, so their autonomous progress is "
             "NOT by itself the engineer's forward progress. If the engineer only "
@@ -539,6 +590,9 @@ def render_reviewer_prompt(
         round_index=round_index,
         measured=_measured,
         compact=not bool((main_error or "").strip()),
+    )
+    engineer_log_audit_block = sanitize_model_visible_text(
+        engineer_log_audit_block
     )
     if direct_workflow:
         rollback_block = ""
@@ -579,32 +633,32 @@ def render_reviewer_prompt(
     # Reviewer is not asked to fill them in. The fields below each feed round
     # settlement, operator routing, research certification, or plan adjudication.
     static = (
-        verification_instruction
-        + EFFECTIVE_TASK_CONTRACT
+        EFFECTIVE_TASK_CONTRACT
         + "\n\n"
         + (shell_contract + "\n\n" if shell_contract else "")
         + MODEL_INTEGRITY_BOUNDARY
         + "\n\n"
         + _PRODUCT_ACCEPTANCE_DIRECTIVE
         + "\n\n## Reviewer role\n"
-        "Use `done` when the outcome works at the current verification profile; "
-        "polish is advisory. Inspect claim-critical uncertainty with proportional "
-        "tools. You do not change the work under review: not its sources, not its "
-        "artifacts, not its build. Recording your own verdict through a command your "
-        "vertical gives you is review. Use `continue` for one "
-        "concrete in-scope material gap, `replan_requested` for a wrong target or "
-        "real boundary change, and `blocked` only for an external blocker. Semantic "
-        "external claims need primary-source grounding; community implementations may "
+        "`done`: outcome works at the current verification profile. "
+        "Inspect claim-critical uncertainty with proportional tools. You do not change "
+        "the work under review: not its sources, not its artifacts, not its build. "
+        "Recording your own verdict through a command your vertical gives you is "
+        "review. Use `continue` for one concrete in-scope material gap, "
+        "`replan_requested` for a wrong target or real boundary change, and `blocked` "
+        "only externally. External claims need primary-source grounding; "
+        "community implementations may "
         "suffice for implementation details. Do not demand work outside the current "
-        "profile, defensive machinery, or future-proofing. In `explore`/`develop`, "
-        "require feedback-producing experiments or research instead of premature "
-        "certification.\n\n"
-        + ("" if _requires_engineering_audit else _verification_directive())
-        + audit_integrity_block
+        "profile or future-proofing. In `explore`/`develop`, require feedback-producing "
+        "experiments or research. Never reward virtue's form in negative results, "
+        "hedging, limitation lists, or repeat runs—only anchored, decision-changing "
+        "content; "
+        "positive and negative claims share one evidence standard.\n\n"
         + "## Decision\n"
-        "Conclude with status, reason, next action, forward progress, and plan "
-        "signal. Add an operator question only for a genuinely operator-owned "
-        "choice; write options as `id::label::description`, separated by semicolons."
+        "REASON, NEXT_ACTION, and OPERATOR_QUESTION are human-facing. Use the "
+        "operator's language. State evidence and consequence plainly; make any "
+        "question answerable in one sentence. Avoid enum and template names. "
+        "Write options as `id::label::description`, separated by semicolons."
         + (
             " Include the inspected `research_result` contract."
             if _research_target_level is not None
@@ -618,6 +672,10 @@ def render_reviewer_prompt(
             "FORWARD_PROGRESS=true\n"
             "PLAN_SIGNAL=continue"
         )
+        + "\nEqually ordinary:\n"
+        "PLAN_SIGNAL=reconsider\n"
+        "PLAN_CHALLENGE=challenged assumption\n"
+        "AUTHORITY_IMPACT=technical"
         + "\nFor a real operator-owned choice only, add "
         "`OPERATOR_QUESTION=...` and "
         "`OPERATOR_OPTIONS=a::Use A::What choosing A does; "
@@ -629,21 +687,24 @@ def render_reviewer_prompt(
         + "Put the next Engineer "
         "instruction only in next_action. Do not inspect or edit "
         "checkpoint/context-packet/handoff bookkeeping.\n\n"
+        + ("" if _requires_engineering_audit else _verification_directive())
+        + audit_integrity_block
+        + verification_instruction
         + wiki_curator_skill_block
         + direct_memory_edit_block
         + matched_review_skill_block
+        + review_validity_block
         + stage_checklist
         + "\n\n"
         + rollback_block
         + "\n\n"
+        + surprise_judgment_block
         + venv_skill_block
         + "\n\n## Handoff policy\n"
         + handoff_policy
         + "\n\n"
         + objective_block
-        + "Operator messages:\n"
-        f"{operator_text}\n\n"
-        "Planner guidance:\n"
+        + "Planner guidance:\n"
         f"{planner_review_instruction or 'none'}\n\n"
         + (optimize_banner + "\n\n" if optimize_banner else "")
     )
@@ -662,12 +723,15 @@ def render_reviewer_prompt(
         + f"{background_block}"
         + f"Main agent fatal error: {error_text}\n\n"
         + "## Engineer's account of this round\n"
-        + f"{main_summary[:6000]}\n\n"
+        + engineer_account
+        + "\n\n"
         + f"{evidence_block}"
+        # OperatorContext is intentionally the final live-facts block: this
+        # preserves the static cache prefix and improves steering recency.
+        + "Operator messages:\n"
+        + operator_text
     )
     objective_context = f"{objective_block}{operator_text}\n{planner_review_instruction or 'none'}"
-    static = sanitize_model_visible_text(static)
-    delta = sanitize_model_visible_text(delta)
     owner._last_prompt_block_stats = _prompt_block_stats(
         {
             "static_total": static,
@@ -677,6 +741,8 @@ def render_reviewer_prompt(
             "direct_memory": direct_memory_edit_block,
             "wiki_curator": wiki_curator_skill_block,
             "research_target": verification_instruction,
+            "surprise_judgment": surprise_judgment_block,
+            "manuscript_review_validity": review_validity_block,
             "objective_context": objective_context,
             "checkpoint": checkpoint_block,
             "execution_log_audit": engineer_log_audit_block,
@@ -691,7 +757,7 @@ def render_reviewer_prompt(
 
 def assemble_reviewer_prompt(static: str, delta: str) -> str:
     """Form the exact prompt sent to a fresh Reviewer session."""
-    return sanitize_model_visible_text(static + delta)
+    return static + delta
 
 
 __all__ = [

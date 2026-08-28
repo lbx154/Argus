@@ -28,6 +28,38 @@ from ._helpers import (
 
 _log = logging.getLogger(__name__)
 
+_MISSING_REVIEW_FIELD = object()
+_NEUTRAL_REVIEW_TEXT = {
+    "",
+    "-",
+    "n/a",
+    "na",
+    "no action",
+    "no further action",
+    "no further work",
+    "none",
+    "not applicable",
+    "nothing further",
+    "null",
+}
+_FRONTIER_CHANGES = {
+    "artifact_improved",
+    "risk_reduced",
+    "uncertainty_reduced",
+    "information_gain",
+    "bounded_regression",
+    "recovered",
+    "unchanged_failure",
+    "expanding_regression",
+    "unexplained_regression",
+}
+_FRONTIER_CONFLICTS = {
+    "bounded_regression",
+    "unchanged_failure",
+    "expanding_regression",
+    "unexplained_regression",
+}
+
 
 # ---------------------------------------------------------------------------
 # Mixin
@@ -39,6 +71,155 @@ class _StageDecisionMixin:
     # ------------------------------------------------------------------
     # Private helpers — each covers one logical phase of decide_stage_transition
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_clean_reviewer_acceptance(review: Any) -> bool:
+        """Whether ``review`` can be committed without another semantic vote.
+
+        Missing or malformed control fields are deliberately not normalized here:
+        the Reviewer parser normally supplies every one, so an incomplete object
+        is ambiguous evidence and must fall through to the Manager model.
+        """
+
+        def field(name: str) -> Any:
+            return getattr(review, name, _MISSING_REVIEW_FIELD)
+
+        status = field("status")
+        reason = field("reason")
+        next_action = field("next_action")
+        operator_question = field("operator_question")
+        operator_options = field("operator_options")
+        review_source = field("review_source")
+        backend_unavailable = field("backend_unavailable")
+        backend_fatal_error = field("backend_fatal_error")
+        planner_report = field("planner_report")
+        frontier_report = field("frontier_report")
+        session_signal = field("session_signal")
+
+        if not (
+            isinstance(status, str)
+            and status.strip().lower() == "done"
+            and isinstance(reason, str)
+            and bool(reason.strip())
+            and isinstance(next_action, str)
+            and next_action.strip().casefold() in _NEUTRAL_REVIEW_TEXT
+            and isinstance(operator_question, str)
+            and not operator_question.strip()
+            and isinstance(operator_options, (list, tuple))
+            and not operator_options
+            and isinstance(review_source, str)
+            and review_source.strip().lower() == "reviewer"
+            and isinstance(backend_unavailable, bool)
+            and not backend_unavailable
+            and isinstance(backend_fatal_error, str)
+            and not backend_fatal_error.strip()
+            and isinstance(planner_report, dict)
+            and isinstance(frontier_report, dict)
+            and isinstance(session_signal, dict)
+            and not session_signal
+        ):
+            return False
+
+        allowed_plan_fields = {
+            "forward_progress",
+            "plan_signal",
+            "challenge",
+            "alternative",
+            "authority_impact",
+        }
+        if not set(planner_report).issubset(allowed_plan_fields):
+            return False
+        if "forward_progress" in planner_report:
+            progress = planner_report["forward_progress"]
+            if not isinstance(progress, bool) or not progress:
+                return False
+        if "plan_signal" in planner_report:
+            signal = planner_report["plan_signal"]
+            if not isinstance(signal, str):
+                return False
+            signal = signal.strip().lower()
+            if signal not in {"", "continue", "reconsider"} or signal == "reconsider":
+                return False
+        for name in ("challenge", "alternative"):
+            if name in planner_report:
+                value = planner_report[name]
+                if not isinstance(value, str):
+                    return False
+                if value.strip().casefold() not in _NEUTRAL_REVIEW_TEXT:
+                    return False
+        if "authority_impact" in planner_report:
+            authority = planner_report["authority_impact"]
+            if not isinstance(authority, str):
+                return False
+            authority = authority.strip().lower()
+            if authority not in {"", "technical", "manager_contract", "operator"}:
+                return False
+            if authority in {"manager_contract", "operator"}:
+                return False
+
+        allowed_frontier_fields = {
+            "change",
+            "summary",
+            "resolved_obligations",
+            "new_obligations",
+            "regressed_obligations",
+            "remaining_work",
+            "proxy_changes",
+            "artifacts",
+            "evidence",
+            "hypothesis",
+            "uncertainty",
+            "next_decision_point",
+            "regression",
+        }
+        if not set(frontier_report).issubset(allowed_frontier_fields):
+            return False
+        if frontier_report:
+            change = frontier_report.get("change", _MISSING_REVIEW_FIELD)
+            if not isinstance(change, str):
+                return False
+            change = change.strip().lower()
+            if change not in _FRONTIER_CHANGES or change in _FRONTIER_CONFLICTS:
+                return False
+        for name in (
+            "resolved_obligations",
+            "new_obligations",
+            "regressed_obligations",
+            "remaining_work",
+            "proxy_changes",
+            "artifacts",
+            "evidence",
+        ):
+            if name in frontier_report:
+                values = frontier_report[name]
+                if not isinstance(values, list) or not all(
+                    isinstance(value, str) for value in values
+                ):
+                    return False
+        for name in (
+            "summary",
+            "hypothesis",
+            "uncertainty",
+            "next_decision_point",
+        ):
+            if name in frontier_report and not isinstance(frontier_report[name], str):
+                return False
+        if "regression" in frontier_report and not isinstance(
+            frontier_report["regression"], dict
+        ):
+            return False
+        if any(
+            frontier_report.get(name)
+            for name in (
+                "new_obligations",
+                "regressed_obligations",
+                "remaining_work",
+                "next_decision_point",
+                "regression",
+            )
+        ):
+            return False
+        return True
 
     def _gather_stage_context(
         self,
@@ -155,11 +336,11 @@ class _StageDecisionMixin:
             # "manager held (default)" — which, after a DONE reviewer verdict,
             # wedges current_stage FOREVER (research completes but never advances
             # to plan, because no later mission re-triggers a stage decision).
-            # Retry a couple of times on an empty response before accepting a
-            # hold, mirroring the planner's empty-output retry. A genuine,
+            # Replay once on an empty response before accepting a hold,
+            # matching the non-idempotent model-call retry discipline. A genuine,
             # non-empty hold verdict is never retried.
             _empty_retries = 0
-            while not str(raw or "").strip() and _empty_retries < 2:
+            while not str(raw or "").strip() and _empty_retries < 1:
                 _empty_retries += 1
                 time.sleep(1.0)
                 raw = self._extract_answer_safe(run_exec(prompt))
@@ -557,6 +738,19 @@ class _StageDecisionMixin:
             return ctx
         cur, order, checklist_contract = ctx
 
+        if (
+            getattr(review, "engineer_aborted_before_review", False) is True
+            and getattr(review, "backend_stop_kind", None) == "operator_abort"
+        ):
+            return StageTransition(
+                "hold",
+                cur,
+                "engineer was operator-aborted before review",
+                current_stage=cur,
+                source="operator_abort_hold",
+                diagnostic="engineer_aborted_before_review",
+            )
+
         # --- Phase 2: Compute reconciliation flags ---
         # An open-ended final-stage checkpoint may need a new solve cycle after
         # the Planner confirms the operator's objective is still unresolved.
@@ -611,93 +805,54 @@ class _StageDecisionMixin:
                     ),
                 )
 
-        # A Reviewer-certified, structurally unambiguous intermediate-stage
-        # completion needs no second semantic opinion.  Keep this deliberately
-        # narrow: any replan/regression signal, authority question, unusual
-        # scope, external completion gate, or failed vertical validator still
-        # falls through to the existing Manager model path below.
-        review_status = str(getattr(review, "status", "") or "").strip().lower()
-        review_source = str(
-            getattr(review, "review_source", "reviewer") or ""
-        ).strip().lower()
-        next_action = str(getattr(review, "next_action", "") or "").strip()
-        operator_question = str(
-            getattr(review, "operator_question", "") or ""
-        ).strip()
-        operator_options = list(getattr(review, "operator_options", []) or [])
-        planner_report = getattr(review, "planner_report", {}) or {}
-        if not isinstance(planner_report, dict):
-            planner_report = {}
-        frontier_report = getattr(review, "frontier_report", {}) or {}
-        if not isinstance(frontier_report, dict):
-            frontier_report = {}
-        frontier_change = str(
-            frontier_report.get("change") or ""
-        ).strip().lower()
-        conflict_changes = {
-            "bounded_regression",
-            "unchanged_failure",
-            "expanding_regression",
-            "unexplained_regression",
-        }
-        has_frontier_conflict = bool(
-            frontier_change in conflict_changes
-            or frontier_report.get("new_obligations")
-            or frontier_report.get("regressed_obligations")
-            or frontier_report.get("remaining_work")
-        )
-        plan_signal = str(planner_report.get("plan_signal") or "").strip().lower()
-        authority_impact = str(
-            planner_report.get("authority_impact") or ""
-        ).strip().lower()
-        normalized_scope = mission_scope.strip().lower().replace("-", "_")
+        manuscript_binding = getattr(review, "manuscript_snapshot", None)
+        if isinstance(manuscript_binding, dict):
+            try:
+                from ..core.manuscript_snapshot import (
+                    manuscript_review_status,
+                )
+
+                freshness = manuscript_review_status(
+                    {"manuscript_snapshot": manuscript_binding},
+                    self.execution_workdir,
+                )
+            except Exception:  # noqa: BLE001 - a bound review fails closed
+                freshness = {
+                    "status": "unbound",
+                    "message": "unbound (reviewed manuscript cannot be read)",
+                }
+            if freshness.get("status") != "current":
+                return StageTransition(
+                    "hold",
+                    cur,
+                    str(freshness.get("message") or "stale manuscript review"),
+                    current_stage=cur,
+                    source="stale_manuscript_review_hold",
+                    diagnostic="reviewed_manuscript_version_mismatch",
+                )
+
+        # A parsed, conflict-free Reviewer acceptance is already the semantic
+        # judgment for a stage. Manager still performs the exact stage-machine
+        # preflight and remains the sole writer; only its duplicate model vote is
+        # skipped. Every ambiguous signal continues through the model path below.
         next_stage = (
             order[order.index(cur) + 1]
             if cur in order and order.index(cur) + 1 < len(order)
             else ""
         )
-        from ..skills.vertical_select import resolve_workflow_mode
-
-        final_direct_stage = bool(
-            not next_stage
-            and not open_ended
-            and normalized_scope == "bounded"
-            and resolve_workflow_mode(root) == "direct"
-        )
+        terminal_stage = bool(order and cur == order[-1])
         external_gate_issue = ""
-        if next_stage or final_direct_stage:
+        if next_stage or terminal_stage:
             from ..core.external_completion_gate import external_completion_gate_issue
 
             external_gate_issue = external_completion_gate_issue(
                 self.execution_workdir
             )
-        review_source_is_authoritative = review_source == "reviewer"
-        if final_direct_stage and review_source == "engineer_self_review":
-            from ..skills.vertical_select import resolve_vertical
-            from ..verticals._base import load_vertical_contract
-
-            review_source_is_authoritative = not load_vertical_contract(
-                resolve_vertical(root),
-                project_root=root,
-            ).requires_independent_review
         deterministic_candidate = bool(
             stage_closing
-            and (next_stage or final_direct_stage)
-            and review_status == "done"
-            and review_source_is_authoritative
-            and not next_action
-            and not operator_question
-            and not operator_options
-            and not getattr(review, "backend_unavailable", False)
-            and not str(getattr(review, "backend_fatal_error", "") or "").strip()
-            and not getattr(review, "session_signal", {})
+            and (next_stage or terminal_stage)
+            and self._is_clean_reviewer_acceptance(review)
             and planner_verdict is None
-            and normalized_scope in {"bounded", "final_submission"}
-            and planner_report.get("forward_progress") is not False
-            and plan_signal != "reconsider"
-            and not planner_report.get("challenge")
-            and authority_impact not in {"manager_contract", "operator"}
-            and not has_frontier_conflict
             and not external_gate_issue
         )
         if deterministic_candidate:
@@ -710,18 +865,40 @@ class _StageDecisionMixin:
                     cur,
                     evidence_root=self.execution_workdir,
                 )
-                return self._apply_stage_decision_to_disk(
-                    StageDecision(
-                        "advance" if next_stage else "complete",
-                        next_stage or cur,
-                        "Reviewer certified the current-stage checklist and "
-                        "deterministic completion checks passed",
-                        "deterministic_reviewer_done",
-                    ),
-                    cur,
-                    root,
-                    source="manager_deterministic",
+                decision = StageDecision(
+                    "advance",
+                    next_stage,
+                    "Reviewer certified the current-stage checklist and "
+                    "deterministic completion checks passed",
+                    "deterministic_reviewer_done",
                 )
+                if terminal_stage:
+                    from ..core.research_contract import resolve_research_target_level
+                    from ..skills.vertical_select import resolve_vertical
+                    from .stage_decider import final_stage_completion_decision
+
+                    decision = final_stage_completion_decision(
+                        review,
+                        current_stage=cur,
+                        stage_order=order,
+                        vertical=resolve_vertical(root),
+                        mission_scope=mission_scope,
+                        project_root=root,
+                        research_target_level=resolve_research_target_level(root),
+                        checklist_contract=checklist_contract,
+                        trigger_diagnostic="deterministic_reviewer_done",
+                        trigger_reason=(
+                            "Reviewer certified the terminal-stage checklist and "
+                            "deterministic completion checks passed"
+                        ),
+                    )
+                if decision is not None:
+                    return self._apply_stage_decision_to_disk(
+                        decision,
+                        cur,
+                        root,
+                        source="manager_deterministic",
+                    )
             except Exception:  # noqa: BLE001 - ambiguity retains Manager semantics
                 log.debug(
                     "deterministic stage advance preflight failed; using Manager",

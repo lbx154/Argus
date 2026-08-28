@@ -8,8 +8,7 @@ fix-carrying list. The existing framework Reviewer ROLE is reused unchanged —
 this is ONLY the payload contract its literary output must satisfy, not a new
 reviewer agent.
 
-The full loop this module makes enforceable, at run time (via a vertical's
-STAGE_CHECKS) and in tests:
+The contract helpers model this loop:
 
     reviewer text -> extract_review (JSON, never silent) -> normalize_review
     (defaults + structural schema + semantic rules) -> revision_plan (ordered

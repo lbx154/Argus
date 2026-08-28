@@ -165,7 +165,10 @@ def test_nonzero_exit_fails_and_reports_stderr_diagnostic(tmp_path) -> None:
 def test_missing_required_output_still_fails(tmp_path) -> None:
     runner = _Runner(_Result(message=""))
 
-    with pytest.raises(VerticalDecisionError, match="could not decide"):
+    with pytest.raises(
+        VerticalDecisionError,
+        match=r"routing failed \[parse\].*expected named decision fields",
+    ):
         Manager(project_root=tmp_path, runner=runner).decide_vertical("fix it")
 
 

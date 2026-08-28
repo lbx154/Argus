@@ -25,8 +25,8 @@ _LIFE_BACKENDS = (
 
 
 def format_backlog_list(mem: Any, *, include_all: bool) -> str:
-    items = mem.backlog.all() if include_all else [
-        i for i in mem.backlog.all() if i.status == "pending"
+    items = mem.backlog.history() if include_all else [
+        i for i in mem.backlog.active() if i.status == "pending"
     ]
     if not items:
         return "(backlog is empty)"
@@ -73,7 +73,7 @@ def add_backlog_item(
     item_id: str | None = None,
     priority: int = 100,
     iterate: bool = True,
-    iteration_max_cycles: int = 6,
+    iteration_max_cycles: int = 0,
     manager_decision: dict[str, Any] | None = None,
 ) -> BacklogItem:
     text = text.strip()
@@ -176,7 +176,7 @@ def render_run_command(
     parser.add_argument(
         "--max-missions",
         type=int,
-        default=int(cfg.get("cycles", 6)),
+        default=int(cfg.get("cycles", 0)),
     )
     parser.add_argument(
         "--global-daily-cap-usd",
@@ -229,7 +229,7 @@ def render_run_command(
 
 DEFAULT_LIFE_CONFIG: dict[str, Any] = {
     "iterate": True,
-    "cycles": 6,
+    "cycles": 0,
     "continuous": False,
     "manager_effort": "xhigh",
     "planner_effort": "xhigh",
@@ -312,6 +312,18 @@ def render_config_cmd(
                 "the Planner/Engineer handoff"
             )
             continue
+        if life_dir is not None:
+            from ..core.operator_context import OperatorContextStore, append_preference
+
+            store = OperatorContextStore(life_dir)
+            append_preference(
+                life_dir,
+                kind="workflow",
+                value=f"{key}={parsed}",
+                scope="project",
+                applies_to_roles="all",
+                expected_revision=store.revision,
+            )
         if key in _ROLE_EFFORT_ENVS:
             # Persist too — an env-var-only switch used to only last for
             # THIS process; the daemon (a separate process) never saw it
@@ -353,7 +365,12 @@ def render_config_cmd(
     return "\n".join(lines)
 
 
-def render_backend_cmd(tokens: Sequence[str], chat_state: dict[str, Any]) -> str:
+def render_backend_cmd(
+    tokens: Sequence[str],
+    chat_state: dict[str, Any],
+    *,
+    life_dir: Path | None = None,
+) -> str:
     from ..daemon.life_worker import ContinuousConfigState
 
     if not tokens:
@@ -375,6 +392,18 @@ def render_backend_cmd(tokens: Sequence[str], chat_state: dict[str, Any]) -> str
         error = _continuous_session_error(new, continuous, objective)
         if error:
             return error
+        if life_dir is not None:
+            from ..core.operator_context import OperatorContextStore, append_preference
+
+            store = OperatorContextStore(life_dir)
+            append_preference(
+                life_dir,
+                kind="workflow",
+                value=f"backend={new}",
+                scope="project",
+                applies_to_roles="all",
+                expected_revision=store.revision,
+            )
         chat_state["backend"] = new
         return f"backend: {new}"
     return (

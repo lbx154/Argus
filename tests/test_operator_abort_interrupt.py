@@ -84,6 +84,7 @@ def test_operator_abort_review_decision_is_honest_daemon_keeps_running() -> None
     )
     assert decision.status == "blocked"
     assert decision.backend_stop_kind == "operator_abort"
+    assert decision.engineer_aborted_before_review is False
     assert decision.reason == "The operator requested this mission be aborted."
     assert "Manager decided" not in decision.reason
     # Must NOT claim the daemon itself is restarting/shutting down — only
@@ -198,6 +199,7 @@ def test_loop_stops_clean_on_operator_abort_without_calling_reviewer(
     assert engineer.calls == 1
     assert len(rounds) == 1
     assert rounds[0].review.backend_stop_kind == "operator_abort"
+    assert rounds[0].review.engineer_aborted_before_review is True
     assert "operator" in reason.lower() or "abort" in reason.lower()
 
     skipped = [
@@ -241,6 +243,7 @@ def test_loop_stops_without_backend_retry_when_reviewer_is_operator_aborted(
     assert reviewer.calls == 1
     assert len(rounds) == 1
     assert rounds[0].review.backend_stop_kind == "operator_abort"
+    assert rounds[0].review.engineer_aborted_before_review is False
     assert "operator" in reason.lower() or "abort" in reason.lower()
     assert not any(
         event.get("type") == "round.reviewer_backend_failure"
