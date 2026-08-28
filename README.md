@@ -79,9 +79,11 @@ maintainers for the latest code.
 
 <p align="center">
   <a href="docs/assets/argus-wechat-group.jpg">
-    <img src="docs/assets/argus-wechat-group.jpg" width="360" alt="Argus WeChat community QR code">
+    <img src="docs/assets/argus-wechat-group.jpg" width="360" alt="Argus WeChat Group 2 QR code">
   </a>
 </p>
+
+<p align="center"><strong>Community Group 1 is full. Please join Group 2.</strong></p>
 
 ## Quick Install
 

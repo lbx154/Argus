@@ -72,9 +72,11 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 
 <p align="center">
   <a href="docs/assets/argus-wechat-group.jpg">
-    <img src="docs/assets/argus-wechat-group.jpg" width="360" alt="Argus 微信交流群二维码">
+    <img src="docs/assets/argus-wechat-group.jpg" width="360" alt="Argus 微信交流 2 群二维码">
   </a>
 </p>
+
+<p align="center"><strong>交流1群已满，请进入2群。</strong></p>
 
 ## 快速安装
 
