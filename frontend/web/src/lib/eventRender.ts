@@ -239,7 +239,7 @@ export function renderEvent(ev: EventMsg, locale: Locale = 'en'): Rendered | nul
   if (t === 'plan.completed')
     return { role: 'planner', label: 'Planner', glyph: '📋', text: l('plan completed', '计划已完成'), tone: 'accent' };
   if (t === 'daemon.stopping')
-    return { role: 'system', label: l('Daemon', '守护进程'), glyph: '🛑', text: l('stopping', '正在停止'), tone: 'err' };
+    return { role: 'system', label: 'Argus', glyph: '🛑', text: l('stopping', '正在停止'), tone: 'err' };
 
   // ── Guardian (监视守护) — Argus Panoptes keeping watch: the signals that fire
   // when a mission stalls, blocks, escalates, or a role backend fails. These are

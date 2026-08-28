@@ -332,7 +332,7 @@ def test_manager_stream_announces_classification_before_model_call(
         assert fragments == [
             (
                 "phase",
-                {"role": "manager", "label": "Manager · classifying this message"},
+                {"role": "manager", "label": "Understanding your request…"},
             )
         ]
         return None, "simple"
@@ -433,6 +433,8 @@ def test_natural_language_abort_is_control_not_backlog_work(
     assert result["control"] == "abort"
     assert result["requested"] is True
     assert result["item_id"] == item.id
+    assert result["reply"] == "我已要求当前任务停止。"
+    assert item.id not in result["reply"]
     assert len(memory.backlog.all()) == 1
     request = json.loads(
         (life / "running_item_abort.json").read_text(encoding="utf-8")

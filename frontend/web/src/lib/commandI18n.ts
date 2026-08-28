@@ -43,13 +43,14 @@ const DESCRIPTIONS: Record<CommandId, string> = {
   reset: '清除 Manager 的热会话上下文',
   skills: '查看或提升运行时 Skill',
   clear: '清空事件动态视图',
-  reconnect: '重新连接实时事件流',
+  reconnect: '重新连接实时动态',
   help: '查看快捷键和完整命令参考',
   quit: '离开控制台（后台工作继续运行）',
 };
 
 export function commandDescription(command: SlashCommand, locale: Locale): string {
-  return locale === 'zh-CN' ? DESCRIPTIONS[command.id] : command.desc;
+  if (locale === 'zh-CN') return DESCRIPTIONS[command.id];
+  return command.id === 'reconnect' ? 'reconnect live activity' : command.desc;
 }
 
 export function commandGroup(command: SlashCommand, locale: Locale): string {

@@ -1896,9 +1896,7 @@ class LifeSupervisor(
     def _publish_budget_pause_message(self, event: dict[str, Any]) -> None:
         """Surface a durable, deduplicated budget pause in the Manager chat."""
         try:
-            import hashlib
-
-            from ...core.operator_messages import publish_operator_message
+            from ...core.operator_messages import publish_operator_message, uses_cjk
 
             project = getattr(self.memory, "project", None)
             life_dir = getattr(project, "root", None) or getattr(self.memory, "root", None)
@@ -1907,17 +1905,18 @@ class LifeSupervisor(
             item_id = str(event.get("item_id") or "")
             title = str(event.get("title") or "current task").strip()
             reason = str(event.get("reason") or "budget cap reached").strip()
-            signature = hashlib.sha256(f"{item_id}\0{reason}".encode("utf-8")).hexdigest()[:16]
+            chinese = uses_cjk(f"{title}\n{reason}")
             text = (
-                "Budget pause · 预算不足，任务已暂停。\n"
-                f"Task: {title}\n"
-                f"Reason: {reason}\n"
-                "任务状态与 CHECKPOINT.md 已保留；提高项目预算后可以继续。"
+                f"项目已达到预算上限，任务已暂停：{title}。\n"
+                "现有进度已保存；提高项目预算或缩小任务后即可继续。"
+                if chinese
+                else f"Paused because this project reached its budget limit: {title}.\n"
+                "Existing work is saved; raise the project budget or narrow the task to continue."
             )
             publish_operator_message(
                 life_dir,
                 text=text,
-                message_id=f"budget-pause-{signature}",
+                message_id=f"budget-pause-{item_id}-{reason}",
                 event_fields={
                     "budget_pause": True,
                     "item_id": item_id,

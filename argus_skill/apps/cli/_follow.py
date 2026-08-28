@@ -15,6 +15,7 @@ from typing import Any, Callable, Sequence
 from urllib.parse import urlencode
 
 from ...core import paths as core_paths
+from ...core.operator_messages import uses_cjk
 from ...core.role_reply import strip_named_lines
 from ...core.secret_guard import known_secret_values, redact_secrets_text
 from .._inbox import format_inbox_event
@@ -225,16 +226,12 @@ def _format_follow_mission_context(
     mission_context: dict[str, str] | None = None,
 ) -> list[str]:
     context = mission_context or {}
-    item_id = str(event.get("item_id") or context.get("item_id") or "")
     title = str(event.get("title") or context.get("title") or "")
     objective = str(event.get("objective") or context.get("objective") or "")
-    bits = [f"item_id={item_id or '-'}"]
-    bits.append(
-        f"title={_clean_follow_text(title, limit=None) if title else '-'}"
-    )
-    bits.append(
-        f"objective={_clean_follow_text(objective, limit=None) if objective else '-'}"
-    )
+    subject = title or objective or "current task"
+    bits = [_clean_follow_text(subject, limit=None)]
+    if objective and objective != title:
+        bits.append(_clean_follow_text(objective, limit=None))
     return bits
 
 
@@ -544,42 +541,31 @@ def _merge_recent_event_rows(
 
 
 def _format_follow_planner_task_added(event: dict) -> str:
-    bits = ["added"]
-    if event.get("item_id"):
-        bits.append(f"item_id={event['item_id']}")
-    if event.get("title"):
-        bits.append(f"title={_clean_follow_text(str(event['title']), limit=90)}")
-    if event.get("objective"):
-        bits.append(f"objective={_clean_follow_text(str(event['objective']), limit=120)}")
-    return f"📋 [{_follow_layer_label('planner')}] " + " · ".join(bits)
+    title = _clean_follow_text(str(event.get("title") or "new task"), limit=90)
+    objective = _clean_follow_text(str(event.get("objective") or ""), limit=120)
+    text = f"Planner added “{title}”"
+    if objective:
+        text += f": {objective}"
+    return f"📋 [{_follow_layer_label('planner')}] {text}"
 
 
 def _format_follow_planner_task_skipped(event: dict) -> str:
     skip_category = str(event.get("skip_category") or "")
-    if skip_category == "recent_no_progress_failure":
-        bits = ["quarantined recent no-progress failure"]
-    else:
-        bits = ["skipped duplicate"]
-    if event.get("title"):
-        bits.append(f"title={_clean_follow_text(str(event['title']), limit=90)}")
-    if event.get("objective"):
-        bits.append(f"objective={_clean_follow_text(str(event['objective']), limit=120)}")
-    if event.get("matched_item_id"):
-        bits.append(f"matched_item_id={event['matched_item_id']}")
-    if event.get("matched_title"):
-        bits.append(f"matched_title={_clean_follow_text(str(event['matched_title']), limit=90)}")
-    if event.get("matched_status"):
-        bits.append(f"matched_status={event['matched_status']}")
-    if event.get("matched_stop_reason"):
-        bits.append(
-            f"matched_stop_reason={_clean_follow_text(str(event['matched_stop_reason']), limit=120)}"
-        )
-    if event.get("skip_category"):
-        bits.append(f"skip_category={event['skip_category']}")
+    title = _clean_follow_text(str(event.get("title") or "proposed task"), limit=90)
     reason = _clean_follow_text(str(event.get("reason") or ""), limit=140)
+    if skip_category == "recent_no_progress_failure":
+        text = (
+            f"Planner held “{title}” because the same approach recently made no progress."
+        )
+    else:
+        matched_title = _clean_follow_text(
+            str(event.get("matched_title") or "an existing task"),
+            limit=90,
+        )
+        text = f"Planner skipped “{title}” because “{matched_title}” already covers it."
     if reason:
-        bits.append(f"reason={reason}")
-    return f"⏭️ [{_follow_layer_label('planner')}] " + " · ".join(bits)
+        text += f" {reason}"
+    return f"⏭️ [{_follow_layer_label('planner')}] {text}"
 
 
 def _command_failed(event: dict) -> bool:
@@ -678,94 +664,124 @@ def _format_follow_event_body(
     # Reviewer / Planner but never see what the Manager itself decided. All
     # four roles now show up in the same scrolling transcript.
     if etype == "life.manager.intent.started":
-        return f"🧭 [{_follow_layer_label('manager')}] 判断任务归属…"
+        objective = str(event.get("objective") or "")
+        text = "正在理解这项任务…" if uses_cjk(objective) else "Understanding the task…"
+        return f"🧭 [{_follow_layer_label('manager')}] {text}"
 
     if etype == "life.manager.intent.completed":
         vertical = str(event.get("vertical") or "")
-        domain = str(event.get("domain") or "")
-        kind = str(event.get("kind") or "")
-        bits = [f"→ {vertical}" if vertical else "分流完成"]
-        if domain:
-            bits.append(f"domain={domain}")
-        if kind:
-            bits.append(f"kind={kind}")
-        return f"🧭 [{_follow_layer_label('manager')}] " + " · ".join(bits)
+        label = vertical.replace("_", " ")
+        if uses_cjk(str(event.get("objective") or "")):
+            text = f"已将这项任务交给 {label} 工作流。" if label else "已为团队准备好这项任务。"
+        else:
+            text = f"Prepared this request for {label} work." if label else "Prepared this request for the team."
+        return f"🧭 [{_follow_layer_label('manager')}] {text}"
 
     if etype == "life.manager.intent.failed":
         phase = str(event.get("phase") or "").strip()
-        cause = _clean_follow_text(
-            str(event.get("cause") or event.get("backend_error") or ""),
-            limit=None,
+        chinese = uses_cjk(str(event.get("objective") or ""))
+        reasons = {
+            "backend": "the routing service did not return a usable answer",
+            "parse": "the routing answer could not be read",
+            "contract": "the routing answer was incomplete",
+            "timeout": "routing took too long",
+        }
+        zh_reasons = {
+            "backend": "分流服务没有返回可用答案",
+            "parse": "无法读取分流结果",
+            "contract": "分流结果缺少必要信息",
+            "timeout": "分流耗时过长",
+        }
+        concise_reason = (
+            zh_reasons.get(phase, "暂时没有可用的分流结果")
+            if chinese
+            else reasons.get(phase, "no usable routing decision was available")
         )
-        err = _clean_follow_text(str(event.get("error") or ""), limit=None)
-        if not phase or not cause:
-            return f"⚠️ [{_follow_layer_label('manager')}] 分流失败" + (
-                f" · {err}" if err else ""
+        if chinese:
+            text = f"暂时无法判断该如何处理这项请求：{concise_reason}。尚未创建任务。"
+        else:
+            text = (
+                "I couldn’t determine how to handle this request because "
+                f"{concise_reason}. Nothing was queued."
             )
-        phase_label = {
-            "backend": "后端",
-            "parse": "解析",
-            "contract": "契约：",
-            "timeout": "超时",
-        }.get(phase, phase)
-        attempts = int(event.get("attempts") or 0)
-        attempt = f" (第{attempts}次尝试)" if attempts > 1 else ""
-        rendered = (
-            f"⚠️ [{_follow_layer_label('manager')}] 分流失败 · "
-            f"{phase_label} {cause}{attempt}"
-        )
-        return rendered + (f" · 原始错误: {err}" if err else "")
+        return f"⚠️ [{_follow_layer_label('manager')}] {text}"
 
     if etype == "life.manager.stage_decision":
-        action = str(event.get("action") or "hold")
+        action = str(event.get("action") or "hold").strip().lower()
         stage = str(event.get("target_stage") or event.get("current_stage") or "")
         reason = _clean_follow_text(str(event.get("reason") or ""), limit=120)
-        if stage and action != "hold":
-            verdict = f"{action} → {stage}"
-        elif stage:
-            verdict = f"{action} @ {stage}"
+        stage_name = stage.replace("_", " ") or "this stage"
+        if uses_cjk(reason):
+            verdict = {
+                "advance": f"已推进到 {stage_name}",
+                "hold": f"保持在 {stage_name}",
+                "rollback": f"已返回 {stage_name}",
+                "complete": f"已完成 {stage_name}",
+            }.get(action, f"已审阅 {stage_name}")
         else:
-            verdict = action
-        return f"🧭 [{_follow_layer_label('manager')}] {verdict}" + (f" · {reason}" if reason else "")
+            verdict = {
+                "advance": f"Advanced to {stage_name}",
+                "hold": f"Staying in {stage_name}",
+                "rollback": f"Returning to {stage_name}",
+                "complete": f"Completed {stage_name}",
+            }.get(action, f"Reviewed {stage_name}")
+        return f"🧭 [{_follow_layer_label('manager')}] {verdict}" + (f": {reason}" if reason else ".")
 
     if etype == "life.mission.started":
-        bits = ["started", *_format_follow_mission_context(event, mission_context=mission_context)]
-        return f"\n🚀 [{_follow_layer_label('engineer')}] " + " · ".join(bits)
+        bits = _format_follow_mission_context(event, mission_context=mission_context)
+        text = f"Started: {bits[0]}."
+        if len(bits) > 1:
+            text += f" {bits[1]}"
+        return f"\n🚀 [{_follow_layer_label('engineer')}] {text}"
 
     if etype == "life.phase.started":
-        bits = [f"进入 [{label}]"]
+        text = f"[{label}] Starting"
         if event.get("round_index"):
-            bits.append(f"round={event['round_index']}")
+            text += f" round {event['round_index']}"
         if event.get("iteration_cycle"):
-            bits.append(
-                f"iteration={event['iteration_cycle']}/{event.get('iteration_max', '?')}"
+            text += (
+                f" (iteration {event['iteration_cycle']} of "
+                f"{event.get('iteration_max', '?')})"
             )
-        return "🔄 " + " · ".join(bits)
+        return f"🔄 {text}."
 
     if etype == "round.review.started":
-        return f"🔄 进入 [{_follow_layer_label('reviewer')}] · round={event.get('round_index', '?')}"
+        return f"🔄 [{_follow_layer_label('reviewer')}] Checking round {event.get('round_index', '?')}."
 
     if etype == "round.main.completed":
-        return f"✅ [{_follow_layer_label('engineer')}] completed · round={event.get('round_index', '?')}"
+        return f"✅ [{_follow_layer_label('engineer')}] Finished round {event.get('round_index', '?')}."
 
     if etype == "round.review.completed":
-        status = event.get("status", "?")
+        status = str(event.get("status") or "").strip().lower()
+        round_index = event.get("round_index", "?")
         reason = _clean_follow_text(str(event.get("reason") or ""), limit=None)
-        return f"✅ [{_follow_layer_label('reviewer')}] completed · status={status}" + (
-            f" · {reason}" if reason else ""
+        verdict = {
+            "done": f"Accepted round {round_index}.",
+            "continue": f"Requested another pass after round {round_index}.",
+            "blocked": f"Needs an external decision after round {round_index}.",
+        }.get(status, f"Finished checking round {round_index}.")
+        return f"✅ [{_follow_layer_label('reviewer')}] {verdict}" + (
+            f" {reason}" if reason else ""
         )
 
     if etype == "life.iteration.critic":
         stop = bool(event.get("stop"))
         count = int(event.get("improvement_count") or 0)
         reason = _clean_follow_text(str(event.get("reason") or ""), limit=None)
-        verdict = "stop" if stop else f"continue · {count} improvement(s)"
+        verdict = (
+            "The iteration review found no further changes."
+            if stop
+            else f"The iteration review queued {count} improvement(s)."
+        )
         return f"👔 [{_follow_layer_label('critic')}] {verdict}" + (
-            f" · {reason}" if reason else ""
+            f" {reason}" if reason else ""
         )
 
     if etype == "life.iteration.continued":
-        return f"🔁 [{_follow_layer_label('critic')}] queued next iteration · cycle={event.get('cycles_done', '?')}/{event.get('cycles_max', '?')}"
+        return (
+            f"🔁 [{_follow_layer_label('critic')}] Another iteration is queued "
+            f"after cycle {event.get('cycles_done', '?')} of {event.get('cycles_max', '?')}."
+        )
 
     if etype == "life.planner.start":
         obj = _clean_follow_text(str(event.get("objective") or ""), limit=None)
@@ -788,19 +804,45 @@ def _format_follow_event_body(
         return f"⚠️ [{_follow_layer_label('planner')}] planner error · {_clean_follow_text(str(event.get('error') or event.get('text') or ''), limit=None)}"
 
     if etype == "life.mission.completed":
-        status = event.get("status", "?")
         raw_iteration = event.get("iteration")
         iter_info = raw_iteration if isinstance(raw_iteration, dict) else {}
+        context = _format_follow_mission_context(event, mission_context=mission_context)
+        title = context[0]
+        summary = _clean_follow_text(
+            str(
+                event.get("summary")
+                or event.get("stop_reason")
+                or event.get("failure_reason")
+                or event.get("reason")
+                or ""
+            ),
+            limit=None,
+        )
+        chinese = uses_cjk(f"{title}\n{summary}")
         if iter_info.get("requeued"):
-            bits = ["mission round complete", "requeued by critic", f"status={status}"]
+            headline = (
+                f"{title} 的本轮已完成；下一轮已加入队列。"
+                if chinese
+                else f"Round complete for {title}; another iteration is queued."
+            )
+            icon = "🔁"
         else:
-            bits = [
-                "mission complete",
-                f"status={status}",
-                f"success={event.get('success')}",
-            ]
-        bits.extend(_format_follow_mission_context(event, mission_context=mission_context))
-        return "✅ " + " · ".join(bits)
+            status = str(event.get("status") or "").strip().lower()
+            paused = (
+                status.startswith("paused_")
+                or event.get("resumable") is True
+                or event.get("recoverable") is True
+            )
+            if event.get("success") is True or status in {"done", "success", "completed"}:
+                headline = f"已完成：{title}。" if chinese else f"Completed: {title}."
+                icon = "✅"
+            elif paused:
+                headline = f"已暂停：{title}。" if chinese else f"Paused: {title}."
+                icon = "⏸️"
+            else:
+                headline = f"未能完成 {title}。" if chinese else f"Could not complete {title}."
+                icon = "❌"
+        return f"{icon} {headline}" + (f" {summary}" if summary else "")
 
     if etype == "life.mission.failed":
         return f"❌ mission failed · {_clean_follow_text(str(event.get('reason') or event.get('error') or ''), limit=None)}"

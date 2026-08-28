@@ -157,11 +157,14 @@ def pending_question_message(
     *, project: str, title: str, question: str, options: Any = None
 ) -> str:
     """The message an operator should be able to act on from a phone."""
+    from ...core.operator_messages import uses_cjk
+
+    chinese = uses_cjk(question)
     lines = [
-        "🟡 <b>需要你决策</b>",
+        "🟡 <b>需要你决定</b>" if chinese else "🟡 <b>Your decision is needed</b>",
         "",
-        f"📁 项目：{project}",
-        f"🔧 任务：{title}",
+        f"项目：{project}" if chinese else f"Project: {project}",
+        f"任务：{title}" if chinese else f"Task: {title}",
         "",
         question.strip(),
     ]
@@ -172,8 +175,16 @@ def pending_question_message(
     ]
     choices = [choice for choice in choices if choice]
     if choices:
-        lines += ["", "可选：" + " / ".join(choices[:6])]
-    lines += ["", "直接回复即可，或在网页端处理。"]
+        lines += [
+            "",
+            ("可选：" if chinese else "Options: ") + " / ".join(choices[:6]),
+        ]
+    lines += [
+        "",
+        "直接回复，或在网页端处理。"
+        if chinese
+        else "Reply here or answer in the web app.",
+    ]
     return "\n".join(lines)
 
 

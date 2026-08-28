@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { ArgusMark } from '../components/Brand';
 import { Badge, EmptyState, Markdown } from '../components/Common';
+import { roleLabel, statusLabel } from '../enumLabels';
 import type { EventMsg, PromptRewrite, Role } from '../types';
 import { eventDetail, eventRole, eventTitle, formatClock } from '../utils';
 import { useManagerRun } from '../useManagerRun';
@@ -16,7 +17,7 @@ const SUGGESTIONS = [
 ] as const;
 
 function ToolTrace({ events, roles, connected }: { events: EventMsg[]; roles: Role[]; connected: boolean }) {
-  const { text } = useWorkbenchText();
+  const { locale, text } = useWorkbenchText();
   const rows = useMemo(() => events.filter((event) => {
     const type = String(event.type ?? '');
     return !['ui.operator', 'ui.argus'].includes(type) && String(event.kind ?? '') !== 'reasoning' && !type.startsWith('provider.');
@@ -36,20 +37,20 @@ function ToolTrace({ events, roles, connected }: { events: EventMsg[]; roles: Ro
   const iconOf = (event: EventMsg) => String(event.kind ?? '') === 'command_execution' ? TerminalSquare : eventRole(event) === 'reviewer' ? ShieldCheck : /^(read|write|edit):/i.test(eventDetail(event, 120)) ? FileCode2 : Wrench;
   return (
     <div className="copilot-trace copilot-trace-v2">
-      <div className="copilot-trace__header"><div><span>ARGUS TEAM</span><strong>{text('谁正在做什么', 'Who is doing what')}</strong></div><Badge tone={connected ? 'live' : 'warn'} dot>{connected ? 'Live' : 'Polling'}</Badge></div>
+      <div className="copilot-trace__header"><div><span>ARGUS TEAM</span><strong>{text('谁正在做什么', 'Who is doing what')}</strong></div><Badge tone={connected ? 'live' : 'warn'} dot>{connected ? text('实时', 'Live') : text('轮询中', 'Polling')}</Badge></div>
       <div className="team-pipeline">
         {roleNames.map((name, index) => {
           const role = roles.find((item) => item.role === name);
           const count = rows.filter((event) => eventRole(event) === name).length;
-          return <div className={role?.active ? 'is-active' : role?.status === 'done' ? 'is-done' : ''} key={name}><span className={`role-orb role-orb--${name}`} /> <strong>{name}</strong><small>{role?.active ? role.label : role?.status || 'waiting'} · {count}</small>{index < roleNames.length - 1 ? <b>↓</b> : null}</div>;
+          return <div className={role?.active ? 'is-active' : role?.status === 'done' ? 'is-done' : ''} key={name}><span className={`role-orb role-orb--${name}`} /> <strong>{roleLabel(name, text)}</strong><small>{role?.active ? role.label : statusLabel(role?.status || 'waiting', text)} · {count}</small>{index < roleNames.length - 1 ? <b>↓</b> : null}</div>;
         })}
       </div>
-      {current ? <section className="current-operation"><span><Activity size={15} /></span><div><small>{text('当前最新动作', 'Latest action')} · {formatClock(current.ts)}</small><strong>{eventTitle(current)}</strong><code>{eventDetail(current, 180)}</code></div></section> : null}
+      {current ? <section className="current-operation"><span><Activity size={15} /></span><div><small>{text('当前最新动作', 'Latest action')} · {formatClock(current.ts, locale)}</small><strong>{eventTitle(current)}</strong><code>{eventDetail(current, 180)}</code></div></section> : null}
       <div className="activity-filters"><ListFilter size={14} />{([['all', text('全部', 'All')], ['commands', text('命令', 'Commands')], ['files', text('文件', 'Files')], ['review', text('审稿', 'Review')]] as const).map(([id, label]) => <button type="button" className={filter === id ? 'is-active' : ''} key={id} onClick={() => setFilter(id)}>{label}</button>)}</div>
       <div className="visual-activity-timeline">
         {visible.slice(0, 40).map((event, index) => {
           const Icon = iconOf(event); const key = `${event.ts}-${index}`; const open = expanded === key;
-          return <button type="button" className={open ? 'is-open' : ''} key={key} onClick={() => setExpanded(open ? '' : key)}><span className={`activity-icon activity-icon--${eventRole(event)}`}><Icon size={13} /></span><div><div><strong>{eventTitle(event)}</strong><time>{formatClock(event.ts)}</time></div><p>{eventDetail(event, open ? 1_500 : 120) || String(event.type ?? '')}</p>{open ? <code>{JSON.stringify(event, null, 2)}</code> : null}</div></button>;
+          return <button type="button" className={open ? 'is-open' : ''} key={key} onClick={() => setExpanded(open ? '' : key)}><span className={`activity-icon activity-icon--${eventRole(event)}`}><Icon size={13} /></span><div><div><strong>{eventTitle(event)}</strong><time>{formatClock(event.ts, locale)}</time></div><p>{eventDetail(event, open ? 1_500 : 120) || eventTitle(event)}</p>{open ? <code>{eventDetail(event, 1_500) || eventTitle(event)}</code> : null}</div></button>;
         })}
         {!visible.length ? <p className="activity-empty">{text('当前筛选下没有事件', 'No events match this filter')}</p> : null}
       </div>
@@ -111,7 +112,7 @@ function PromptOptimizer({
 }
 
 export function CopilotPage(props: WorkspacePageProps) {
-  const { text } = useWorkbenchText();
+  const { locale, text } = useWorkbenchText();
   const [draft, setDraft] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [optimizerOpen, setOptimizerOpen] = useState(false);
@@ -155,9 +156,9 @@ export function CopilotPage(props: WorkspacePageProps) {
           <div ref={messagesRef} className="copilot-v2__messages">
             {!props.transcript.length ? <div className="copilot-empty"><ArgusMark size={48} /><h2>{text('从当前项目上下文开始', 'Start from the current project context')}</h2><p>{text('Argus 已经知道任务、代码、Reviewer 反馈和现有证据。', 'Argus already knows the task, code, reviewer feedback, and available evidence.')}</p><div>{SUGGESTIONS.map(([zh, en]) => { const item = text(zh, en); return <button key={item} type="button" onClick={() => setDraft(item)}>{item}</button>; })}</div></div> : null}
             {props.transcript.map((turn, index) => turn.role === 'operator' ? (
-              <article className="message message--user" key={`${turn.ts}-${index}`}><div><span>{text('你', 'You')}</span><time>{formatClock(turn.ts)}</time></div><Markdown>{turn.text}</Markdown></article>
+              <article className="message message--user" key={`${turn.ts}-${index}`}><div><span>{text('你', 'You')}</span><time>{formatClock(turn.ts, locale)}</time></div><Markdown>{turn.text}</Markdown></article>
             ) : (
-              <article className="message message--argus" key={`${turn.ts}-${index}`}><ArgusMark size={28} /><div><header><strong>Argus</strong><time>{formatClock(turn.ts)}</time></header><Markdown>{turn.text}</Markdown></div></article>
+              <article className="message message--argus" key={`${turn.ts}-${index}`}><ArgusMark size={28} /><div><header><strong>Argus</strong><time>{formatClock(turn.ts, locale)}</time></header><Markdown>{turn.text}</Markdown></div></article>
             ))}
             {(manager.busy || manager.output || manager.error) ? <article className="message message--argus message--stream"><ArgusMark size={28} /><div><header><strong>Argus</strong>{manager.busy ? <Badge tone="live" dot>{manager.phase || text('思考中', 'Thinking')}</Badge> : manager.result?.kind ? <Badge tone="info">{manager.result.kind}</Badge> : null}</header>{manager.phases.length ? <ol className="phase-trail">{manager.phases.map((item, index) => <li key={`${item.at}-${index}`} className={index === manager.phases.length - 1 && manager.busy ? 'is-active' : ''}><span>{index === manager.phases.length - 1 && manager.busy ? '●' : '✓'}</span>{item.label}</li>)}</ol> : null}{manager.output ? <Markdown>{manager.output}</Markdown> : null}{manager.error ? <div className="inline-error">{manager.error}</div> : null}</div></article> : null}
           </div>

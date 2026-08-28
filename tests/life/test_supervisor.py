@@ -435,6 +435,11 @@ def test_framework_maintenance_uses_private_worktree_and_review(
         option["id"] for option in settled.operator_decision["options"]
     ] == ["adopt", "decline"]
     assert settled.operator_decision["decision_kind"] == "framework_deployment"
+    assert settled.pending_question == (
+        "The change for “repair framework” passed review. Should I run repository CI "
+        "and the acceptance check (python -c \"from pathlib import Path; "
+        "raise SystemExit(not Path('reviewed-change.txt').is_file())\"), then apply it?"
+    )
     sidecar = json.loads(
         (memory.root / "maintenance" / "pending" / f"{item.id}.json").read_text(
             encoding="utf-8"
@@ -844,14 +849,38 @@ def test_budget_pause_is_published_once_in_operator_chat(tmp_path) -> None:
     assert sup._emit(event)
 
     (turn,) = read_turns(mem.root)
-    assert "预算不足" in turn["text"]
+    assert "Paused because this project reached its budget limit" in turn["text"]
     assert "Long experiment" in turn["text"]
+    assert "Existing work is saved" in turn["text"]
+    assert "CHECKPOINT.md" not in turn["text"]
     ui_events = [
         event
         for line in (mem.root / "events.jsonl").read_text(encoding="utf-8").splitlines()
         if (event := json.loads(line)).get("type") == "ui.argus"
     ]
     assert len(ui_events) == 1
+
+
+def test_budget_pause_uses_chinese_for_a_chinese_task(tmp_path) -> None:
+    mem = LifeMemory.open(tmp_path / "life")
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_ResearchBreakthroughRunner(),
+        sink=_RecordingSink(mem.root),
+    )
+
+    assert sup._emit({
+        "type": EventType.LIFE_BUDGET_PAUSE,
+        "item_id": "task-zh",
+        "title": "运行完整实验",
+        "reason": "项目预算已用完",
+    })
+
+    (turn,) = read_turns(mem.root)
+    assert turn["text"] == (
+        "项目已达到预算上限，任务已暂停：运行完整实验。\n"
+        "现有进度已保存；提高项目预算或缩小任务后即可继续。"
+    )
 
 
 def test_research_incomplete_mission_is_paused_and_resumable(tmp_path) -> None:

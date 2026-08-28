@@ -340,7 +340,11 @@ def start_project_daemon(
         return {
             "rc": 2,
             "already_alive": False,
-            "error": f"background executor failed to start: {type(exc).__name__}: {exc}",
+            "error": (
+                "The background worker could not start. "
+                "Check the startup diagnostic and try again."
+            ),
+            "startup_diagnostic": f"{type(exc).__name__}: {exc}",
             "daemon": _daemon_dict(_srv().read_daemon_status(life_dir)),
         }
     result = {
@@ -387,9 +391,10 @@ def start_project_daemon(
                 ),
                 "daemon": _daemon_dict(_srv().read_daemon_status(life_dir)),
             }
-        result["error"] = f"background executor failed to start (rc={rc})"
-        if startup_diagnostic:
-            result["error"] += f": {startup_diagnostic}"
+        result["error"] = (
+            "The background worker could not start. "
+            "Check the startup diagnostic and try again."
+        )
         log.error(
             "background executor failed to start for session %s (rc=%s): %s",
             sid,

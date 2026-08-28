@@ -232,7 +232,7 @@ def test_follow_renderer_uses_one_process_then_falls_back_after_its_exit(
     third = renderer.render({"type": "life.manager.intent.started"}, "manager")
 
     assert first == "🚀 [Engineer] Shared renderer"
-    assert second == third == "🧭 [Manager] 判断任务归属…"
+    assert second == third == "🧭 [Manager] Understanding the task…"
     assert len(spawns) == 1
     command, kwargs = spawns[0]
     assert command[-6:] == [
@@ -254,7 +254,7 @@ def test_follow_renderer_notices_when_bundle_is_unavailable(monkeypatch, capsys)
     renderer = _follow._FollowEventRenderer()
     rendered = renderer.render({"type": "life.manager.intent.started"}, "manager")
 
-    assert rendered == "🧭 [Manager] 判断任务归属…"
+    assert rendered == "🧭 [Manager] Understanding the task…"
     assert capsys.readouterr().err == (
         "argus-skill: semantic event renderer unavailable (TUI bundle not found); "
         "using Python fallback for this follow session\n"

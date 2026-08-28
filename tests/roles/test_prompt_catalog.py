@@ -27,6 +27,9 @@ from argus_skill.roles.prompts.engineer import (
 )
 from argus_skill.roles.prompts.manager import (
     FRONT_DOOR,
+    build_front_door_prompt,
+    build_pending_question_prompt,
+    build_stage_decision_prompt,
     build_vertical_decision_prompt,
     stage_decision_request,
 )
@@ -126,6 +129,76 @@ def _cache_probe_prompts(root, cycle: int, *, reverse_catalog: bool = False):
         "engineer": engineer,
         "reviewer": assemble_reviewer_prompt(static, delta),
     }
+
+
+def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None:
+    front = build_front_door_prompt("Explain the current status")
+    pending = build_pending_question_prompt(
+        SimpleNamespace(
+            pending_question="Which dataset should we use?",
+            id="task-1",
+            title="Choose a dataset",
+            objective="Select the benchmark data",
+        ),
+        "Use ImageNet",
+    )
+    stage = build_stage_decision_prompt(
+        current_stage="run",
+        next_stage="review",
+        earlier_stages=("plan",),
+        checklist_md="checks passed",
+        review=SimpleNamespace(status="done", reason="Evidence is current."),
+    )
+    continuous = build_continuous_prompt(
+        continuous_objective="Choose the next milestone",
+        journal_tail="",
+        planning_cycle=0,
+        project_root=tmp_path,
+        state_root=tmp_path,
+    )
+    bounded = build_bounded_dag_prompt("Plan this repair", project_root=tmp_path)
+    engineer = build_mission_prompt(
+        task="Repair the parser",
+        skill_text="",
+        next_action=None,
+        project_root=tmp_path,
+    )
+    continuation = build_mission_prompt(
+        task="Repair the parser",
+        skill_text="",
+        next_action="Handle empty input",
+        include_static=False,
+        project_root=tmp_path,
+    )
+    owner = SimpleNamespace(skill_store=None, mission=None, _last_prompt_block_stats={})
+    reviewer, _delta = render_reviewer_prompt(
+        owner,
+        objective="Repair the parser",
+        operator_messages=[],
+        planner_review_instruction="",
+        round_index=1,
+        session_id=None,
+        main_summary="Empty input is covered.",
+        main_error=None,
+        working_dir=tmp_path,
+        vertical_state_root=tmp_path,
+        preselected_skill_block="",
+    )
+
+    assert "complete human-facing answer" in front
+    assert "never expose route, control, lifetime, or role-protocol labels" in front
+    assert "operator's language and plain language" in pending
+    assert "one operator-language sentence stating the decisive evidence" in stage
+    for planner_prompt in (continuous, bounded):
+        assert "REASON and PLAN_REASON are operator-facing" in planner_prompt
+        assert "Do not emit" in planner_prompt
+        assert "field names or status tokens in their values" in planner_prompt
+    for engineer_prompt in (engineer, continuation):
+        assert "one or two operator-facing sentences in the operator's language" in engineer_prompt
+        assert "what changed, the decisive check, and any remaining blocker" in engineer_prompt
+        assert "do not repeat footer or status fields" in engineer_prompt
+    assert "REASON, NEXT_ACTION, and OPERATOR_QUESTION are human-facing" in reviewer
+    assert "Avoid enum and template names" in reviewer
 
 
 def test_role_prompts_are_byte_identical_for_identical_state(tmp_path) -> None:

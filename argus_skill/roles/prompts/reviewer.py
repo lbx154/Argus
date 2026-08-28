@@ -659,9 +659,10 @@ def render_reviewer_prompt(
         + ("" if _requires_engineering_audit else _verification_directive())
         + audit_integrity_block
         + "## Decision\n"
-        "Conclude with status, reason, next action, forward progress, and plan "
-        "signal. Add an operator question only for a genuinely operator-owned "
-        "choice; write options as `id::label::description`, separated by semicolons."
+        "REASON, NEXT_ACTION, and OPERATOR_QUESTION are human-facing. Use the "
+        "operator's language. State evidence and consequence plainly; make any "
+        "question answerable in one sentence. Avoid enum and template names. "
+        "Write options as `id::label::description`, separated by semicolons."
         + (
             " Include the inspected `research_result` contract."
             if _research_target_level is not None

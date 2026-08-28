@@ -28,14 +28,14 @@ OPERATIONS = frozenset(
 
 _PLANNER_DECISION_FOOTER = decision_footer_instruction(
     "PROJECT_DONE=false\n"
-    "REASON=why\n"
+    "REASON=one clear operator-language sentence with the decision and what happens next\n"
     "TASK_KEY=k1\n"
     "TASK_DEPS=\n"
     "TASK_TITLE=Launch the strongest untested attack on the core hypothesis\n"
     "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance"
 )
 _BOUNDED_DAG_FOOTER = decision_footer_instruction(
-    "PLAN_REASON=why this is a coherent executable DAG\n"
+    "PLAN_REASON=one clear operator-language sentence with the decision and what happens next\n"
     "TASK_KEY=k1\n"
     "TASK_DEPS=\n"
     "TASK_TITLE=Launch the strongest untested attack on the core hypothesis\n"
@@ -76,7 +76,9 @@ Do not edit project files; Engineer owns edits, commands, tests, iteration.
 - External waits: `blocker_fingerprint`, `recheck_condition`, `recheck_token`, semantically
   `wake_on` (synonyms/combined sources), and `watched_paths`; `operator_action_required`
   is operator-only. Host chooses an event or bounded poll.
-- Use the operator's language.
+- REASON and PLAN_REASON are operator-facing. In the operator's language, state
+  what was decided and its next consequence in one clear sentence. Do not emit
+  field names or status tokens in their values.
 """ + _PLANNER_DECISION_FOOTER + """
 
 The footer may optionally end with `PLAN_UPDATE=` followed by the complete
@@ -265,8 +267,11 @@ def build_bounded_dag_prompt(
         "(project-relative nested repository), and "
         "`require_independent_review` when useful. Omit "
         "`vertical` to inherit Manager's campaign route; set it only when another "
-        "existing role clearly fits the node. Use the operator objective's "
-        "language. Keys must be unique and the graph acyclic.\n\n"
+        "existing role clearly fits the node. REASON and PLAN_REASON are "
+        "operator-facing. In the operator objective's language, state what was "
+        "decided and its next consequence in one clear sentence. Do not emit field "
+        "names or status tokens in their values. Keys must be unique and the graph "
+        "acyclic.\n\n"
         + _BOUNDED_DAG_FOOTER
         + "\n\n"
         + _reviewed_facts_block()

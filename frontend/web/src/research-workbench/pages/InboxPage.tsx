@@ -18,22 +18,22 @@ const key = (sid: string) => `argus-v2-inbox:${sid}`;
 const load = (sid: string): InboxDraft[] => { try { const value = JSON.parse(localStorage.getItem(key(sid)) ?? '[]'); return Array.isArray(value) ? value : []; } catch { return []; } };
 const blank = (title: string, source: string): InboxDraft => ({ id: crypto.randomUUID(), title, source, raw: '', prompt: '', changes: [], questions: [], createdAt: Date.now(), updatedAt: Date.now() });
 
-function sectionsOf(prompt: string, questions: string[]): KnowledgeSection[] {
+function sectionsOf(prompt: string, questions: string[], text: (zh: string, en: string) => string): KnowledgeSection[] {
   const headingMatches = [...prompt.matchAll(/^#{1,3}\s+(.+)\n([\s\S]*?)(?=^#{1,3}\s+|$)/gm)];
   const iconFor = (title: string) => /目标|objective|question/i.test(title) ? Target : /约束|constraint|boundary|non-goal/i.test(title) ? ListChecks : /文献|evidence|source|paper/i.test(title) ? Link2 : Lightbulb;
   const parsed = headingMatches.map((match) => ({ title: match[1].trim(), body: match[2].trim(), icon: iconFor(match[1]) })).filter((item) => item.body);
   if (parsed.length) return parsed.slice(0, 8);
   const paragraphs = prompt.split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean);
   const fallback: KnowledgeSection[] = [];
-  if (paragraphs[0]) fallback.push({ title: '研究目标与背景', body: paragraphs[0], icon: Target });
+  if (paragraphs[0]) fallback.push({ title: text('研究目标与背景', 'Research goal and context'), body: paragraphs[0], icon: Target });
   const constraints = prompt.split('\n').filter((line) => /不得|不要|必须|约束|only|must|do not|without/i.test(line)).join('\n');
-  if (constraints) fallback.push({ title: '约束与边界', body: constraints, icon: ListChecks });
-  if (questions.length) fallback.push({ title: '仍需确认', body: questions.map((item) => `- ${item}`).join('\n'), icon: Lightbulb });
+  if (constraints) fallback.push({ title: text('约束与边界', 'Constraints and boundaries'), body: constraints, icon: ListChecks });
+  if (questions.length) fallback.push({ title: text('仍需确认', 'Questions to confirm'), body: questions.map((item) => `- ${item}`).join('\n'), icon: Lightbulb });
   return fallback;
 }
 
 export function InboxPage(props: WorkspacePageProps) {
-  const { text } = useWorkbenchText();
+  const { locale, text } = useWorkbenchText();
   const [drafts, setDrafts] = useState<InboxDraft[]>(() => load(props.sid));
   const [selectedId, setSelectedId] = useState(() => load(props.sid)[0]?.id ?? '');
   const [extracting, setExtracting] = useState(false);
@@ -46,30 +46,33 @@ export function InboxPage(props: WorkspacePageProps) {
   const [newWorkdir, setNewWorkdir] = useState('');
   const manager = useManagerRun(props.sid, props.refresh);
   useEffect(() => { const rows = load(props.sid); setDrafts(rows); setSelectedId(rows[0]?.id ?? ''); setFiles([]); setTextImportCount(0); }, [props.sid]);
-  useEffect(() => { try { localStorage.setItem(key(props.sid), JSON.stringify(drafts)); setStorageError(''); } catch { setStorageError('本机草稿存储空间不足；请缩短文本或删除旧草稿。'); } }, [drafts, props.sid]);
+  useEffect(() => { try { localStorage.setItem(key(props.sid), JSON.stringify(drafts)); setStorageError(''); } catch { setStorageError(text('本机草稿存储空间不足；请缩短文本或删除旧草稿。', 'Not enough local storage for this draft. Shorten the text or delete older drafts.')); } }, [drafts, props.sid, text]);
   const selected = drafts.find((item) => item.id === selectedId) ?? null;
-  const knowledge = useMemo(() => sectionsOf(selected?.prompt ?? '', selected?.questions ?? []), [selected?.prompt, selected?.questions]);
+  const knowledge = useMemo(() => sectionsOf(selected?.prompt ?? '', selected?.questions ?? [], text), [selected?.prompt, selected?.questions, text]);
   const update = (patch: Partial<InboxDraft>) => selected && setDrafts((rows) => rows.map((item) => item.id === selected.id ? { ...item, ...patch, updatedAt: Date.now() } : item));
   const create = () => { const item = blank(text('新的科研输入', 'New research input'), text('导师 / 组会 / 灵感', 'Advisor / meeting / idea')); setDrafts((rows) => [item, ...rows]); setSelectedId(item.id); };
   const remove = () => { if (!selected || !confirm(text(`删除“${selected.title}”？`, `Delete “${selected.title}”?`))) return; const next = drafts.filter((item) => item.id !== selected.id); setDrafts(next); setSelectedId(next[0]?.id ?? ''); };
-  const extractionPrompt = selected ? `这是科研收信箱的预处理步骤，只分析输入并回复，不创建后台任务、不修改项目。请读取下面的零散内容和附件，提取知识点并生成第一版可直接交给 Argus 的研究 Prompt。必须保留事实来源和不确定性，不得虚构论文、实验或结论；使用以下 Markdown 结构：\n## 研究目标\n## 已知背景与知识点\n## 约束与非目标\n## 文献与证据线索\n## 建议任务与验收方式\n## 待确认问题\n\n标题：${selected.title}\n来源：${selected.source}\n\n原始内容：\n${selected.raw}` : '';
+  const extractionPrompt = selected ? text(
+    `这是科研收信箱的预处理步骤，只分析输入并回复，不创建后台任务、不修改项目。请读取下面的零散内容和附件，提取知识点并生成第一版可直接交给 Argus 的研究 Prompt。必须保留事实来源和不确定性，不得虚构论文、实验或结论；使用以下 Markdown 结构：\n## 研究目标\n## 已知背景与知识点\n## 约束与非目标\n## 文献与证据线索\n## 建议任务与验收方式\n## 待确认问题\n\n标题：${selected.title}\n来源：${selected.source}\n\n原始内容：\n${selected.raw}`,
+    `This is a Research Inbox preprocessing step. Analyze and reply only; do not create background work or modify the project. Read the rough content and attachments, extract the useful knowledge, and produce a first research prompt ready for Argus. Preserve sources and uncertainty, and do not invent papers, experiments, or conclusions. Use this Markdown structure:\n## Research goal\n## Known context and knowledge\n## Constraints and non-goals\n## Literature and evidence leads\n## Suggested tasks and acceptance criteria\n## Questions to confirm\n\nTitle: ${selected.title}\nSource: ${selected.source}\n\nRaw content:\n${selected.raw}`,
+  ) : '';
   const addFiles = async (incoming: File[]) => {
     const textPattern = /\.(txt|md|markdown|json|csv|ya?ml|log|tex)$/i;
     const binaryPattern = /\.(pdf|png|jpe?g|webp|wav|mp3|m4a|ogg)$/i;
     const unsupported = incoming.filter((file) => !textPattern.test(file.name) && !binaryPattern.test(file.name));
-    if (unsupported.length) { setError(`不支持的附件：${unsupported.map((file) => file.name).join('、')}`); return; }
+    if (unsupported.length) { setError(text(`不支持的附件：${unsupported.map((file) => file.name).join('、')}`, `Unsupported attachments: ${unsupported.map((file) => file.name).join(', ')}`)); return; }
     const tooLarge = incoming.find((file) => file.size > 10 * 1024 * 1024);
-    if (tooLarge) { setError(`${tooLarge.name} 超过单文件 10 MB 限制`); return; }
-    if (files.length + textImportCount + incoming.length > MAX_FILES) { setError(`每次分析最多导入 ${MAX_FILES} 个文件`); return; }
+    if (tooLarge) { setError(text(`${tooLarge.name} 超过单文件 10 MB 限制`, `${tooLarge.name} exceeds the 10 MB per-file limit`)); return; }
+    if (files.length + textImportCount + incoming.length > MAX_FILES) { setError(text(`每次分析最多导入 ${MAX_FILES} 个文件`, `You can import up to ${MAX_FILES} files per analysis`)); return; }
     const textFiles = incoming.filter((file) => textPattern.test(file.name));
     const oversizedText = textFiles.find((file) => file.size > 1024 * 1024);
-    if (oversizedText) { setError(`${oversizedText.name} 超过本机文本导入 1 MB 限制；请改为摘要或拆分文件`); return; }
+    if (oversizedText) { setError(text(`${oversizedText.name} 超过本机文本导入 1 MB 限制；请改为摘要或拆分文件`, `${oversizedText.name} exceeds the 1 MB local text-import limit. Summarize or split the file.`)); return; }
     const binaryFiles = incoming.filter((file) => binaryPattern.test(file.name));
     const merged = [...files, ...binaryFiles];
-    if (merged.reduce((total, file) => total + file.size, 0) > 25 * 1024 * 1024) { setError('附件总大小超过 25 MB'); return; }
-    const blocks = await Promise.all(textFiles.map(async (file) => `\n\n--- 文件：${file.name} ---\n${await file.text()}`));
+    if (merged.reduce((total, file) => total + file.size, 0) > 25 * 1024 * 1024) { setError(text('附件总大小超过 25 MB', 'Attachments exceed the 25 MB total limit')); return; }
+    const blocks = await Promise.all(textFiles.map(async (file) => `\n\n--- ${text('文件', 'File')}: ${file.name} ---\n${await file.text()}`));
     const nextRaw = `${selected?.raw ?? ''}${blocks.join('')}`.trim();
-    if (nextRaw.length > MAX_RAW_CHARS) { setError(`原始输入超过 ${MAX_RAW_CHARS.toLocaleString()} 字符限制，请拆分或摘要`); return; }
+    if (nextRaw.length > MAX_RAW_CHARS) { setError(text(`原始输入超过 ${MAX_RAW_CHARS.toLocaleString(locale)} 字符限制，请拆分或摘要`, `Raw input exceeds the ${MAX_RAW_CHARS.toLocaleString(locale)}-character limit. Split or summarize it.`)); return; }
     if (blocks.length) { update({ raw: nextRaw }); setTextImportCount((count) => count + textFiles.length); }
     setFiles(merged); setError('');
   };
@@ -80,8 +83,8 @@ export function InboxPage(props: WorkspacePageProps) {
       if (files.length) {
         const result = await manager.run(extractionPrompt, files);
         const generated = String(result?.reply || manager.output || '').trim();
-        if (!generated) throw new Error('Argus 没有返回可用的知识提取结果');
-        update({ prompt: generated, changes: [`分析了 ${files.length} 个附件和原始输入`], questions: [] });
+        if (!generated) throw new Error(text('Argus 没有返回可用的知识提取结果', 'Argus did not return a usable knowledge extraction result'));
+        update({ prompt: generated, changes: [text(`分析了 ${files.length} 个附件和原始输入`, `Analyzed ${files.length} attachments and the raw input`)], questions: [] });
         setFiles([]);
       } else {
         const result = await api.rewritePrompt(props.sid, extractionPrompt);
@@ -111,14 +114,14 @@ export function InboxPage(props: WorkspacePageProps) {
       <div className="intake-steps">{([[text('收集原始内容', 'Collect input'), MessageSquareText], [text('AI 提取知识', 'Extract knowledge'), WandSparkles], [text('形成 Argus Prompt', 'Build Argus prompt'), FileText], [text('创建 / 发送项目', 'Create / send project'), Send]] as const).map(([label, Icon], index) => <div className={stage > index ? 'is-done' : stage === index + 1 ? 'is-active' : ''} key={String(label)}><span>{stage > index + 1 ? <Check size={14} /> : <Icon size={15} />}</span><strong>{String(label)}</strong>{index < 3 ? <ChevronRight size={14} /> : null}</div>)}</div>
 
       <div className="inbox-v2__layout">
-        <aside className="ros-card inbox-sources"><header><div><span>INBOX</span><h2>{text('科研输入', 'Research input')}</h2></div><button className="icon-button" type="button" onClick={create} aria-label={text('新增输入', 'Add input')}><Plus size={15} /></button></header><div>{drafts.length ? drafts.map((item) => <button type="button" className={selected?.id === item.id ? 'is-active' : ''} key={item.id} onClick={() => setSelectedId(item.id)}><span className="inbox-item-icon">{item.sentAt ? <Check size={14} /> : item.prompt ? <Sparkles size={14} /> : <Inbox size={14} />}</span><div><strong>{item.title}</strong><small>{item.source} · {formatDate(item.updatedAt / 1_000)}</small></div></button>) : <EmptyState icon={Inbox} title={text('暂无输入', 'No input yet')} description={text('新增一条导师消息、组会笔记或研究灵感。', 'Add an advisor message, meeting note, or research idea.')} />}</div></aside>
+        <aside className="ros-card inbox-sources"><header><div><span>INBOX</span><h2>{text('科研输入', 'Research input')}</h2></div><button className="icon-button" type="button" onClick={create} aria-label={text('新增输入', 'Add input')}><Plus size={15} /></button></header><div>{drafts.length ? drafts.map((item) => <button type="button" className={selected?.id === item.id ? 'is-active' : ''} key={item.id} onClick={() => setSelectedId(item.id)}><span className="inbox-item-icon">{item.sentAt ? <Check size={14} /> : item.prompt ? <Sparkles size={14} /> : <Inbox size={14} />}</span><div><strong>{item.title}</strong><small>{item.source} · {formatDate(item.updatedAt / 1_000, locale)}</small></div></button>) : <EmptyState icon={Inbox} title={text('暂无输入', 'No input yet')} description={text('新增一条导师消息、组会笔记或研究灵感。', 'Add an advisor message, meeting note, or research idea.')} />}</div></aside>
 
         <main className="ros-card inbox-input">
           <header><div><span>RAW MATERIAL</span><h2>{text('原始内容与附件', 'Raw content and attachments')}</h2></div>{selected ? <button className="icon-button" type="button" onClick={remove} aria-label={text('删除', 'Delete')}><Trash2 size={14} /></button> : null}</header>
           {selected ? <div className="inbox-input__form">
             <div className="form-grid"><label><span>{text('标题', 'Title')}</span><input value={selected.title} onChange={(event) => update({ title: event.target.value })} /></label><label><span>{text('来源', 'Source')}</span><input value={selected.source} onChange={(event) => update({ source: event.target.value })} /></label></div>
             <label className="field field--grow"><span>{text('零散消息、笔记或转写文本', 'Rough messages, notes, or transcripts')}</span><textarea maxLength={MAX_RAW_CHARS} value={selected.raw} onChange={(event) => update({ raw: event.target.value })} placeholder={text('不需要先整理，直接粘贴原始内容。AI 会区分目标、事实、约束、文献线索、待办和疑问…', 'Paste raw content directly. AI will separate goals, facts, constraints, evidence leads, tasks, and questions…')} /></label>
-            {files.length ? <div className="inbox-attachment-list">{files.map((file, index) => <span key={`${file.name}-${index}`}>{file.type.startsWith('audio/') ? <AudioLines size={14} /> : file.type.startsWith('image/') ? <Image size={14} /> : <FileText size={14} />}<div><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(1)} MB · 仅在本次分析上传</small></div><button type="button" onClick={() => setFiles((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}><X size={13} /></button></span>)}</div> : null}
+            {files.length ? <div className="inbox-attachment-list">{files.map((file, index) => <span key={`${file.name}-${index}`}>{file.type.startsWith('audio/') ? <AudioLines size={14} /> : file.type.startsWith('image/') ? <Image size={14} /> : <FileText size={14} />}<div><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(1)} MB · {text('仅在本次分析上传', 'Uploaded only for this analysis')}</small></div><button type="button" onClick={() => setFiles((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}><X size={13} /></button></span>)}</div> : null}
             <div className="inbox-upload-types"><span><FileText size={14} />PDF / {text('文本', 'text')}</span><span><Image size={14} />{text('图片', 'images')}</span><span><AudioLines size={14} />{text('语音', 'audio')}</span><p>{text('语音会交给 Argus 和已配置工具处理，不把“上传成功”冒充“已完成转写”。', 'Audio is handed to Argus and configured tools; an upload is never presented as a completed transcript.')}</p></div>
             <div className="inbox-input__actions">
               <label className="button button--secondary file-button"><Upload size={14} />{text('添加文件', 'Add files')}<input type="file" multiple accept=".txt,.md,.markdown,.json,.csv,.yaml,.yml,.log,.tex,.pdf,.png,.jpg,.jpeg,.webp,.wav,.mp3,.m4a,.ogg" onChange={(event) => void addFiles(Array.from(event.target.files ?? []))} /></label>

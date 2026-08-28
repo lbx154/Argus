@@ -15,6 +15,7 @@ from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.mission_outcome import (
     mission_outcome_class,
     mission_outcome_dimensions,
+    outcome_dimension_summary,
     review_keeps_mission_resumable,
 )
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
@@ -133,6 +134,25 @@ def test_review_only_outcome_marks_stage_transition_intentionally_skipped() -> N
     )
 
     assert outcome["stage_certification"] == "intentionally_skipped"
+
+
+def test_outcome_summary_uses_human_labels_instead_of_raw_dimensions() -> None:
+    summary = outcome_dimension_summary({
+        "execution_status": "paused",
+        "review_status": "continue",
+        "stage_certification": "not_certified",
+        "interruption_kind": "budget_exhausted",
+        "resumable": True,
+    })
+
+    assert summary == [
+        "Work paused",
+        "Review requested another pass",
+        "Stage remains open",
+        "Stopped at the budget limit",
+        "Can resume",
+    ]
+    assert not any("=" in part or "_" in part for part in summary)
 
 
 @pytest.mark.parametrize(

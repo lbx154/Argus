@@ -765,8 +765,8 @@ class MissionExecutionSettlementMixin:
             status = "paused_operator"
             resumable = True
             operator_question = (
-                f"Reviewer accepted the isolated change for {item.title!r}. "
-                f"Run repository CI and {item.acceptance_check!r}, then adopt it?"
+                f"The change for “{item.title}” passed review. Should I run repository CI "
+                f"and the acceptance check ({item.acceptance_check}), then apply it?"
             )
             decision_card = build_operator_decision(
                 item_id=item.id,

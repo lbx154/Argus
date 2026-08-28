@@ -293,7 +293,9 @@ def build_mission_prompt(
         "is required.\n\n"
         + decision_footer_instruction(
             "MILESTONE_STATUS=done\n"
-            "RESULT=what changed and the decisive check\n"
+            "RESULT=one or two operator-facing sentences in the operator's language: "
+            "what changed, the decisive check, and any remaining blocker; do not repeat "
+            "footer or status fields\n"
             "NEXT_OWNER=reviewer"
         )
     )
@@ -319,7 +321,9 @@ def build_mission_prompt(
         "decision.\n"
         + decision_footer_instruction(
             "MILESTONE_STATUS=done\n"
-            "RESULT=short result and decisive check\n"
+            "RESULT=one or two operator-facing sentences in the operator's language: "
+            "what changed, the decisive check, and any remaining blocker; do not repeat "
+            "footer or status fields\n"
             "NEXT_OWNER=reviewer"
         )
     )

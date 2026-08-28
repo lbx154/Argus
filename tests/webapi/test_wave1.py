@@ -1323,7 +1323,10 @@ _DISPATCH_ACK_CASES = [
     ({"rc": 0, "pid": 42}, "executor started"),
     (None, "executor already running"),
     ({"admission_required": True}, "waiting for an executor slot"),
-    ({"rc": 2, "error": "auth failed"}, "executor failed to start: auth failed"),
+    (
+        {"rc": 2, "error": "auth failed"},
+        "The background worker could not start. Check its startup details and try again.",
+    ),
 ]
 
 
@@ -1360,6 +1363,9 @@ def test_dispatch_ack_stream_persists_truthful_text(
 
     assert expected_substr in text
     assert result["reply"] == text
+    if isinstance(daemon_result, dict) and int(daemon_result.get("rc", 0)) != 0:
+        assert result["daemon"]["error"] == "The background worker could not start."
+        assert result["daemon"]["diagnostic"] == "auth failed"
 
     # Transcript persisted
     turns = read_turns(life_dir)
@@ -1509,8 +1515,16 @@ def test_dispatch_ack_surfaces_transcript_write_failure(
     assert result["kind"] == "task"
     assert result["ack_error"] == text
     assert result["reply"] == text
-    assert str(transcript) in text
-    assert f"[Errno {errno.ENOSPC}] {os.strerror(errno.ENOSPC)}" in text
+    assert text == (
+        "The mission is queued, but I couldn't save its confirmation. "
+        "It remains in the queue."
+    )
+    assert str(transcript) in result["ack_diagnostic"]
+    assert f"[Errno {errno.ENOSPC}] {os.strerror(errno.ENOSPC)}" in (
+        result["ack_diagnostic"]
+    )
+    assert str(transcript) not in text
+    assert "Errno" not in text
     assert any(
         kind == "delta" and payload.get("text") == text
         for kind, payload in fragments

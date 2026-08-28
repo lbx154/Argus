@@ -82,7 +82,7 @@ function WorkspaceFigure({ sid, workspaceId, entry }: { sid: string; workspaceId
 }
 
 export function PaperPage(props: WorkspacePageProps) {
-  const { text } = useWorkbenchText();
+  const { locale, text } = useWorkbenchText();
   const workspace = useWorkspaceProfile(props.sid, 'paper');
   const workspaceId = workspace.workspaceId;
   const root = workspace.active?.path || '';
@@ -113,7 +113,7 @@ export function PaperPage(props: WorkspacePageProps) {
         </aside>
 
         <main className="paper-v3__source ros-card">
-          <header><div><strong>{selected?.name || text('源文件编辑器', 'Source editor')}</strong><code>{selected?.path || root}</code></div>{selected ? <span>{text('更新于', 'Updated')} {formatDate(selected.mtime)}</span> : null}</header>
+          <header><div><strong>{selected?.name || text('源文件编辑器', 'Source editor')}</strong><code>{selected?.path || root}</code></div>{selected ? <span>{text('更新于', 'Updated')} {formatDate(selected.mtime, locale)}</span> : null}</header>
           <div><SourcePreview sid={props.sid} workspaceId={workspaceId} entry={selected} /></div>
           <footer><span>{selected?.extension.replace('.', '').toUpperCase() || 'WAITING'}</span><span>{selected ? formatBytes(selected.size) : text('Argus 写入后自动出现', 'Appears after Argus writes it')}</span></footer>
         </main>

@@ -63,7 +63,7 @@ describe('slash completion menu', () => {
     expect(html).toContain('accept=".png,.jpg,.jpeg,.webp,.pdf,.md,.markdown,.txt,.json,.csv"');
   });
 
-  it('renders rotating Argus heartbeat copy with honest quiet time', () => {
+  it('names Argus and explains quiet time while it works', () => {
     const html = renderToStaticMarkup(
       <ChatBox
         value=""
@@ -80,8 +80,8 @@ describe('slash completion menu', () => {
         onSlashSelectionChange={() => undefined}
       />,
     );
-    expect(html).toContain('Manager alive');
-    expect(html).toContain('10s quiet');
-    expect(html).toContain('turning it over');
+    expect(html).toContain('Argus is working on your message');
+    expect(html).toContain('Still working; no new update for 10s');
+    expect(html).not.toContain('Manager alive');
   });
 });

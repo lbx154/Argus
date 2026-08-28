@@ -721,8 +721,16 @@ def test_daemon_start_surfaces_clean_launcher_failure(ctx, monkeypatch) -> None:
     response = client.post(f"/api/projects/{sid}/daemon/start")
 
     assert response.status_code == 200
-    assert response.json()["rc"] == 2
-    assert "ModuleNotFoundError: No module named 'uvicorn'" in response.json()["error"]
+    body = response.json()
+    assert body["rc"] == 2
+    assert body["error"] == (
+        "The background worker could not start. "
+        "Check the startup diagnostic and try again."
+    )
+    assert body["startup_diagnostic"] == (
+        "RuntimeError: ModuleNotFoundError: No module named 'uvicorn'"
+    )
+    assert "ModuleNotFoundError" not in body["error"]
 
 
 def test_daemon_start_surfaces_captured_helper_stderr(ctx, monkeypatch, caplog) -> None:
@@ -743,7 +751,11 @@ def test_daemon_start_surfaces_captured_helper_stderr(ctx, monkeypatch, caplog) 
     body = response.json()
     assert body["rc"] == 1
     assert body["startup_diagnostic"] == diagnostic
-    assert body["error"] == f"background executor failed to start (rc=1): {diagnostic}"
+    assert body["error"] == (
+        "The background worker could not start. "
+        "Check the startup diagnostic and try again."
+    )
+    assert diagnostic not in body["error"]
     assert diagnostic in caplog.text
 
 

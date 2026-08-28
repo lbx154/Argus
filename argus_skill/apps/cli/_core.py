@@ -2263,7 +2263,10 @@ def _cmd_status(args: argparse.Namespace) -> int:
             question = _clean_follow_text(
                 str(getattr(item, "pending_question", "")), limit=160
             )
-            print(f"    - [{getattr(item, 'id', '')}] {question}")
+            title = _clean_follow_text(
+                str(getattr(item, "title", "current task")), limit=80
+            )
+            print(f"    - {title}: {question}")
         print("    answer with: argus (then just reply), or argus --notify '<answer>'")
     history_parts = [part for part in (
         f"{done} done" if done else "",
@@ -2282,7 +2285,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
         summary = outcome_dimension_summary(
             getattr(latest_outcome_item, "outcome", None)
         )
-        print(f"  outcome  : {' · '.join(summary)}")
+        print(f"  result   : {' · '.join(summary)}")
     latest_reply = _latest_user_visible_reply(Path(bundle.project.root))
     if latest_reply:
         print(f"  last reply: {latest_reply}")
