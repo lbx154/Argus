@@ -71,8 +71,8 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 如果已经过期，请在 Issue 中联系维护者更新。
 
 <p align="center">
-  <a href="docs/assets/argus-wechat-group.jpg">
-    <img src="docs/assets/argus-wechat-group.jpg" width="360" alt="Argus 微信交流 2 群二维码">
+  <a href="docs/assets/argus-wechat-group-2.jpg">
+    <img src="docs/assets/argus-wechat-group-2.jpg" width="360" alt="Argus 微信交流 2 群二维码">
   </a>
 </p>
 
