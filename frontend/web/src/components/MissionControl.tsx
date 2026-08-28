@@ -10,14 +10,14 @@ import { MarkdownContent } from './MarkdownContent';
 import { useI18n } from '../i18n';
 import { api, type Snapshot } from '../api';
 import {
-  frontierLabel,
+  outcomeLabels,
   roleLabel,
-  routingLabels,
-  stageLabel,
   statusLabel,
 } from '../lib/enumLabels';
 
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
+const ACTIVE_WORK_STATUSES = ['active', 'running', 'in_progress', 'claimed'];
+const TERMINAL_MISSION_STATUSES = ['complete', 'completed', 'done', 'success', 'incomplete', 'stalled', 'blocked', 'ended'];
 
 function orderedDag(view: MissionView) {
   const pending = [...view.dag];
@@ -100,9 +100,8 @@ export function MissionControl({
   const [selectedRole, setSelectedRole] = useState(view.active_role || 'planner');
   const [selectedTaskId, setSelectedTaskId] = useState(activeNode?.id || '');
   const [resumeBusy, setResumeBusy] = useState(false);
-  const routing = routingLabels(view.routing, t).join(' · ');
   const delivery = view.delivery;
-  const healthNeedsAttention = ['red', 'critical'].includes(view.health?.toLowerCase() ?? '');
+  const healthNeedsAttention = ['degraded', 'red', 'critical'].includes(view.health?.toLowerCase() ?? '');
   const missionFailed = ['failed', 'error'].includes(view.mission.status.toLowerCase());
   const stepFailed = view.dag.some((node) => node.status.toLowerCase() === 'failed');
   const missionPaused = ['hold', 'paused'].includes(view.stage.id.toLowerCase());
@@ -111,10 +110,39 @@ export function MissionControl({
     ? 'mission.attentionHealth'
     : missionFailed
       ? 'mission.attentionFailed'
-      : stepFailed
-        ? 'mission.attentionStepFailed'
-        : 'mission.attentionPaused';
-  const attentionIsError = healthNeedsAttention || missionFailed || stepFailed;
+        : stepFailed
+          ? 'mission.attentionStepFailed'
+          : 'mission.attentionPaused';
+  const activeWork = view.role_work
+    .filter((item) => ACTIVE_WORK_STATUSES.includes(item.status.toLowerCase()))
+    .sort((left, right) => right.ts - left.ts);
+  const currentWork = activeWork.find((item) => item.role === view.active_role) ?? activeWork[0];
+  const missionStatus = view.mission.status.toLowerCase();
+  const missionRunning = ['working', 'grounding', 'framed'].includes(missionStatus);
+  const missionDone = TERMINAL_MISSION_STATUSES.includes(missionStatus);
+  const outcome = outcomeLabels(view.outcome, t)[0] ?? statusLabel(view.mission.status, t);
+  const statusNarrative = needsAttention
+    ? t(attentionKey)
+    : missionDone
+      ? t('mission.statusDone', {
+          outcome,
+          elapsed: formatMissionElapsed(view.mission.elapsed_seconds),
+        })
+      : missionRunning && currentWork
+        ? t('mission.statusActive', {
+            role: roleLabel(view.active_role || currentWork.role, t),
+            work: currentWork.title,
+          })
+        : t('mission.statusWaiting');
+  const statusTone = healthNeedsAttention || missionFailed || stepFailed
+    ? 'error'
+    : missionPaused
+      ? 'waiting'
+      : missionDone
+        ? 'done'
+        : missionRunning && currentWork
+          ? 'active'
+          : 'waiting';
   useEffect(() => setReplayIndex(Math.max(0, view.timeline.length - 1)), [view.timeline.length]);
   useEffect(() => {
     if (activeNode?.id) setSelectedTaskId(activeNode.id);
@@ -155,11 +183,18 @@ export function MissionControl({
             <div className="mt-2 text-ink-dim"><MarkdownContent>{objective}</MarkdownContent></div>
           </details>
         ) : null}
-        <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-4">
-          <div><div className="text-ink-faint">{t('mission.stage')}</div><div className="mt-0.5 font-medium text-blue-sky">{stageLabel(view.stage.id, t)}</div></div>
-          <div><div className="text-ink-faint">{t(view.routing.open_ended ? 'mission.campaign' : 'mission.totalElapsed')}</div><div className="mt-0.5 font-mono text-ink">{formatMissionElapsed(view.mission.campaign_elapsed_seconds)}</div></div>
-          <div><div className="text-ink-faint">{t('mission.round')}</div><div className="mt-0.5 font-mono text-ink">{view.round.current || '—'}{view.round.max ? ` / ${view.round.max}` : ''}</div></div>
-          <div><div className="text-ink-faint">{t('mission.mode')}</div><div className="mt-0.5 font-medium text-ink">{routing || '—'}</div></div>
+        <div
+          className="mission-status-line"
+          data-tone={statusTone}
+          role={needsAttention ? 'alert' : 'status'}
+        >
+          <div className="mission-status-line__signal">
+            <span className="mission-status-line__marker" aria-hidden="true" />
+            <span>{statusNarrative}</span>
+          </div>
+          {view.frontier.change ? (
+            <div className="mission-status-line__subtitle">{view.frontier.change}</div>
+          ) : null}
         </div>
         {view.mission.summary ? (
           <div className="mt-3 rounded border border-ok/25 bg-ok/5 px-3 py-2">
@@ -192,24 +227,7 @@ export function MissionControl({
             ) : null}
           </div>
         ) : null}
-        {view.frontier.change ? (
-          <div className="mt-3 rounded border border-blue/25 bg-blue/5 px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-sky">
-              {t('mission.taskPlan')} · {frontierLabel(view.frontier.change, t)}
-            </div>
-            {view.frontier.summary ? <p className="mt-1 text-xs text-ink-dim">{view.frontier.summary}</p> : null}
-          </div>
-        ) : null}
       </header>
-
-      {needsAttention ? (
-        <div
-          role="alert"
-          className={`mx-5 my-3 truncate rounded border px-3 py-2.5 text-xs font-medium ${attentionIsError ? 'border-warn/30 bg-warn/10 text-err' : 'border-blue/30 bg-blue/10 text-blue-sky'}`}
-        >
-          {t(attentionKey)}
-        </div>
-      ) : null}
 
       {snapshot?.continuous?.done_at && (
         <div className="mb-3 flex items-center gap-3 rounded-lg border-l-2 border-blue bg-blue/5 px-3 py-2">

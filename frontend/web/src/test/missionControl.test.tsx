@@ -8,6 +8,8 @@ describe('MissionControl', () => {
   it('renders real DAG, capability, replay, and git state', () => {
     const view = emptyMissionView();
     view.mission.objective = 'Optimize FlashAttention on B200';
+    view.mission.status = 'working';
+    view.active_role = 'engineer';
     view.stage = { id: 'optimize', label: 'Optimize' };
     view.round = { current: 7, max: 24 };
     view.dag = [{
@@ -90,7 +92,10 @@ describe('MissionControl', () => {
       />,
     );
     expect(markup).toContain('Optimize FlashAttention on B200');
-    expect(markup).toContain('Total elapsed');
+    expect(markup).toContain('Engineer — Using a tool');
+    expect(markup).not.toContain('Total elapsed');
+    expect(markup).not.toContain('Round</div>');
+    expect(markup).not.toContain('Mode</div>');
     expect(markup).toContain('Task route');
     expect(markup).toContain('Official scorer passed');
     expect(markup).toContain('Capabilities unlocked');
@@ -118,9 +123,10 @@ describe('MissionControl', () => {
     expect(markup).not.toContain('+fused_epilogue');
   });
 
-  it('shows one plain-language attention banner only for actionable mission states', () => {
+  it('shows one plain-language status narrative for each mission state', () => {
     const healthy = emptyMissionView();
     expect(renderToStaticMarkup(<MissionControl view={healthy} />)).not.toContain('role="alert"');
+    expect(renderToStaticMarkup(<MissionControl view={healthy} />)).toContain('Ready when you are — assign a mission to begin.');
 
     const paused = emptyMissionView();
     paused.stage.id = 'HOLD';
@@ -134,8 +140,19 @@ describe('MissionControl', () => {
     expect(renderToStaticMarkup(<MissionControl view={failedStep} />)).toContain('A step failed — check the task below.');
 
     const critical = emptyMissionView();
-    critical.health = 'critical';
+    critical.health = 'degraded';
     expect(renderToStaticMarkup(<MissionControl view={critical} />)).toContain('System error — health is degraded.');
+
+    const complete = emptyMissionView();
+    complete.mission.status = 'complete';
+    complete.mission.elapsed_seconds = 125;
+    complete.outcome.execution_status = 'completed';
+    complete.frontier.change = 'The benchmark route is now stable.';
+
+    const markup = renderToStaticMarkup(<MissionControl view={complete} />);
+
+    expect(markup).toContain('Work completed — finished in 2m.');
+    expect(markup).toContain('The benchmark route is now stable.');
   });
 
   it('renders escaped objective Markdown without exposing transport slashes', () => {
