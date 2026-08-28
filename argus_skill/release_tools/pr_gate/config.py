@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 KNOWN_CRITERIA = {
     "scope_adequacy",
     "file_type_consistency",

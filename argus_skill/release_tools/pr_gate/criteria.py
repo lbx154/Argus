@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-
 FILE_KEYWORDS = {
     "tests": ("test", "tests", "unit", "integration", "coverage", "spec", "e2e"),
     "docs": ("doc", "docs", "readme", "documentation", "changelog"),

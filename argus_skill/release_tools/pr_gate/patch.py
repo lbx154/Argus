@@ -4,7 +4,6 @@ import re
 import subprocess
 from typing import Any
 
-
 TEST_RE = re.compile(r"(^|/)(__tests__|test|tests|spec|specs)(/|$)")
 DOCS_RE = re.compile(r"(^|/)(docs?|documentation)(/|$)")
 CONFIG_RE = re.compile(r"(^|/)(\.github/workflows|ci|config)(/|$)")
