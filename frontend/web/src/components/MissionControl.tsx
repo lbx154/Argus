@@ -5,6 +5,7 @@ import {
   formatMissionElapsed,
 } from '../../../core/src/missionView';
 import { theme } from '../lib/theme';
+import { formatRelativeTime } from '../lib/format';
 import { MarkdownContent } from './MarkdownContent';
 import { useI18n } from '../i18n';
 import {
@@ -13,7 +14,6 @@ import {
   routingLabels,
   stageLabel,
   statusLabel,
-  workKindLabel,
 } from '../lib/enumLabels';
 
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
@@ -243,17 +243,17 @@ export function MissionControl({
             const badgeLabel = done
               ? t('mission.done')
               : statusLabel(active ? 'active' : failed ? 'failed' : item.status, t);
-            const elapsed = formatMissionElapsed(Math.max(0, view.updated_at - item.ts));
+            const isoTimestamp = new Date(item.ts * 1000).toISOString();
             return (
               <article key={item.id} className="min-w-0 rounded border border-line/60 bg-bg/35 px-3 py-2">
                 <div className="flex items-center justify-between gap-3">
                   <span className="truncate text-xs font-medium text-ink">{item.title}</span>
                   <time
-                    dateTime={new Date(item.ts * 1000).toISOString()}
-                    title={new Date(item.ts * 1000).toLocaleString(locale)}
-                    className="shrink-0 text-[10px] text-ink-faint"
+                    dateTime={isoTimestamp}
+                    title={isoTimestamp}
+                    className="shrink-0 text-[11px] text-ink-dim"
                   >
-                    {t('mission.elapsedAgo', { elapsed })}
+                    {formatRelativeTime(item.ts, locale)}
                   </time>
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-ink-faint">

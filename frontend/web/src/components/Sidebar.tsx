@@ -3,7 +3,7 @@ import type { ProjectRow } from '../api';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
 import { ago, uptime } from '../lib/format';
-import { filterProjects } from '../../../core/src/projects';
+import { filterProjects, hasHumanProjectLabel } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { DaemonSpendBadge } from './DaemonSpendBadge';
@@ -19,6 +19,27 @@ import {
 import { useI18n } from '../i18n';
 
 type Scope = 'local' | 'all';
+
+type SidebarProjectRow = ProjectRow & {
+  created?: number;
+  created_at?: number;
+  health?: string;
+  status?: string;
+};
+
+function projectNeedsAttention(project: ProjectRow): boolean {
+  const { health, status } = project as SidebarProjectRow;
+  return status === 'failed' || status === 'error' || health === 'red' || health === 'critical';
+}
+
+function projectCost(project: ProjectRow): number {
+  return project.spend_usd ?? project.known_cost_usd ?? 0;
+}
+
+function projectCreatedAt(project: ProjectRow): number {
+  const { created, created_at: createdAt } = project as SidebarProjectRow;
+  return createdAt ?? created ?? 0;
+}
 
 export function recommendedSidebarScope(
   projects: ProjectRow[],
@@ -94,15 +115,13 @@ export function Sidebar({
   const scoped = scope === 'local' ? localProjects : projects;
   const rawVisible = query.trim() ? filterProjects(scoped, query) : scoped;
   const visible = [...rawVisible].sort((a, b) => {
-    if (a.daemon_alive !== b.daemon_alive) return a.daemon_alive ? -1 : 1;
-    const aCost = a.known_cost_usd ?? a.spend_usd ?? 0;
-    const bCost = b.known_cost_usd ?? b.spend_usd ?? 0;
+    const aNeedsAttention = projectNeedsAttention(a);
+    const bNeedsAttention = projectNeedsAttention(b);
+    if (aNeedsAttention !== bNeedsAttention) return aNeedsAttention ? -1 : 1;
+    const aCost = projectCost(a);
+    const bCost = projectCost(b);
     if (aCost !== bCost) return bCost - aCost;
-    const aLabel = a.label || '';
-    const bLabel = b.label || '';
-    if (!aLabel && bLabel) return 1;
-    if (aLabel && !bLabel) return -1;
-    return aLabel.localeCompare(bLabel);
+    return projectCreatedAt(b) - projectCreatedAt(a);
   });
   const grouped = useMemo(() => {
     if (scope === 'local') return visible.length > 0 ? [[normalizedLocalCwd || 'Local', visible] as const] : [];
@@ -202,7 +221,16 @@ export function Sidebar({
             ) : null}
             {!loading && !error && visible.length === 0 ? (
               <div className="px-1 py-4 text-xs text-ink-faint">
-                {query.trim() ? t('sidebar.noMatches', { query: query.trim() }) : t('sidebar.noSessions')}
+                <div>{query.trim() ? t('sidebar.noMatches', { query: query.trim() }) : t('sidebar.noSessions')}</div>
+                {query.trim() ? (
+                  <button
+                    type="button"
+                    onClick={() => setQuery('')}
+                    className="mt-2 text-xs text-ink-dim underline underline-offset-2 hover:text-ink"
+                  >
+                    {t('sidebar.clearSearch')}
+                  </button>
+                ) : null}
               </div>
             ) : null}
             {grouped.map(([path, rows]) => (
@@ -210,6 +238,10 @@ export function Sidebar({
                 <div className="mb-1 truncate px-1 font-mono text-xs text-ink-faint" title={path}>{path}</div>
                 {rows.map((project) => {
                   const active = project.id === activeId;
+                  const name = hasHumanProjectLabel(project)
+                    ? (project.label || project.display_name || '').trim()
+                    : project.objective.trim() || t('sidebar.unnamedSession');
+                  const cost = projectCost(project);
                   return (
                     <div
                       key={project.id}
@@ -229,31 +261,34 @@ export function Sidebar({
                           if (!active) onPrefetch?.(project.id);
                         }}
                         aria-current={active ? 'page' : undefined}
-                        title={`${project.label || project.id}${project.objective ? ` — ${project.objective}` : ''}`}
+                        title={`${name}${project.objective && project.objective !== name ? ` — ${project.objective}` : ''}`}
                         className="w-full min-w-0 px-3 py-2.5 pr-10 text-left"
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <StatusDot ok={project.daemon_alive} title={project.daemon_alive ? t('sidebar.daemonAlive') : t('sidebar.stopped')} />
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium">{project.label || project.id}</span>
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
                         </div>
+                        {project.objective ? <div className="mt-0.5 truncate pl-4 text-xs text-ink-faint">{project.objective}</div> : null}
                         <div className="mt-1 flex min-w-0 items-center justify-between gap-2 pl-4 text-xs text-ink-faint">
                           <span className="min-w-0 truncate">
                             {project.daemon_alive ? t('sidebar.runningFor', { uptime: uptime(project.uptime_seconds) }) : ago(project.last_active)}
                           </span>
-                          <DaemonSpendBadge
-                            settledUsd={project.spend_usd}
-                            knownUsd={project.known_cost_usd}
-                            status={project.spend_status}
-                            calls={project.usage_calls}
-                            premiumRequests={project.premium_requests}
-                            live={project.daemon_alive}
-                          />
+                          {cost ? (
+                            <DaemonSpendBadge
+                              settledUsd={project.spend_usd}
+                              knownUsd={project.known_cost_usd}
+                              status={project.spend_status}
+                              calls={project.usage_calls}
+                              premiumRequests={project.premium_requests}
+                              live={project.daemon_alive}
+                            />
+                          ) : null}
                         </div>
                       </button>
                       <button
                         type="button"
                         onClick={() => onManage(project.id)}
-                        aria-label={t('sidebar.manage', { name: project.label || project.id })}
+                        aria-label={t('sidebar.manage', { name })}
                         title={t('sidebar.manageHint')}
                         className="absolute right-1.5 top-1.5 flex h-8 w-8 items-center justify-center rounded-md text-ink-faint opacity-100 transition-opacity hover:bg-panel-raised hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
                       >

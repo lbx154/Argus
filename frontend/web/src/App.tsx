@@ -996,6 +996,7 @@ export default function App() {
       {snap && !kiosk ? (
         <MobileTabBar
           active={mobileView === 'preview' ? 'preview' : workspaceView}
+          sidebarOpen={sidebarOpen}
           onSelect={(tab) => {
             if (tab === 'preview') {
               setMobileView('preview');
