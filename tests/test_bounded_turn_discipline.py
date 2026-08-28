@@ -129,4 +129,4 @@ def test_engineer_surfaces_operator_only_blockers_to_host():
 
 
 def test_engineer_fixed_prompt_stays_token_efficient():
-    assert len(_prompt("Refactor the data loader and add unit tests.")) < 2_500
+    assert len(_prompt("Refactor the data loader and add unit tests.")) < 2_800

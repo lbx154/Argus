@@ -865,13 +865,6 @@ class _StageDecisionMixin:
                     cur,
                     evidence_root=self.execution_workdir,
                 )
-                decision = StageDecision(
-                    "advance",
-                    next_stage,
-                    "Reviewer certified the current-stage checklist and "
-                    "deterministic completion checks passed",
-                    "deterministic_reviewer_done",
-                )
                 if terminal_stage:
                     from ..core.research_contract import resolve_research_target_level
                     from ..skills.vertical_select import resolve_vertical
@@ -891,6 +884,14 @@ class _StageDecisionMixin:
                             "Reviewer certified the terminal-stage checklist and "
                             "deterministic completion checks passed"
                         ),
+                    )
+                else:
+                    decision = StageDecision(
+                        "advance",
+                        next_stage,
+                        "Reviewer certified the current-stage checklist and "
+                        "deterministic completion checks passed",
+                        "deterministic_reviewer_done",
                     )
                 if decision is not None:
                     return self._apply_stage_decision_to_disk(

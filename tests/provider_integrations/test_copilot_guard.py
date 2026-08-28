@@ -18,7 +18,7 @@ def test_default_guard_caps_are_10000() -> None:
 def _enable(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "1")
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_SLOT_WAIT_S", "0")
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_SLOT_WAIT_S", "0.01")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_CALL_CAP", "100")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_HOURLY_CALL_CAP", "100")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP", "100")

@@ -290,6 +290,7 @@ class _UncorrelatedEngineerRunner:
 
 
 def test_config_path_is_threaded_into_evaluate(tmp_path: Path) -> None:
+    log_path = str(tmp_path / "global" / "projects" / "deadbeef" / "events.jsonl")
     reviewer = _CapturingReviewer()
     engine = SupervisedEngineer(
         engineer_runner=_OneRoundEngineerRunner(),
@@ -300,7 +301,7 @@ def test_config_path_is_threaded_into_evaluate(tmp_path: Path) -> None:
     config = SupervisedConfig(
         max_rounds=1,
         background_subagent_advisory=False,
-        engineer_log_path=_LOG_PATH,
+        engineer_log_path=log_path,
     )
     engine.run(
         objective="implement the increment",
@@ -309,7 +310,7 @@ def test_config_path_is_threaded_into_evaluate(tmp_path: Path) -> None:
         workdir=tmp_path,
         on_event=lambda _e: None,
     )
-    assert reviewer.seen_log_path == _LOG_PATH
+    assert reviewer.seen_log_path == log_path
     assert reviewer.seen_call_id == _CALL_ID
     assert reviewer.seen_round_max == 1
 
@@ -317,6 +318,7 @@ def test_config_path_is_threaded_into_evaluate(tmp_path: Path) -> None:
 def test_gateway_synthesized_call_id_uses_legacy_unscoped_audit(
     tmp_path: Path,
 ) -> None:
+    log_path = str(tmp_path / "global" / "projects" / "deadbeef" / "events.jsonl")
     reviewer = _CapturingReviewer()
     engine = SupervisedEngineer(
         engineer_runner=_UncorrelatedEngineerRunner(),
@@ -327,7 +329,7 @@ def test_gateway_synthesized_call_id_uses_legacy_unscoped_audit(
     config = SupervisedConfig(
         max_rounds=1,
         background_subagent_advisory=False,
-        engineer_log_path=_LOG_PATH,
+        engineer_log_path=log_path,
     )
 
     engine.run(

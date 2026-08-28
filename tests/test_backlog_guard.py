@@ -273,7 +273,7 @@ def test_the_supervisor_routes_before_executing() -> None:
     from argus_skill.life.supervisor import _mission_execution
 
     source = inspect.getsource(_mission_execution)
-    claim_at = source.index("claim_next()")
+    claim_at = source.index("claim_next(")
     guard_at = source.index("ensure_manager_decision(")
     context_at = source.index("_prepare_mission_context(")
 
