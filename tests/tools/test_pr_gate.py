@@ -26,6 +26,21 @@ def test_file_type_consistency_reports_missing_test_and_config_mentions() -> Non
     assert evidence["config"]["mentioned"] is False
 
 
+def test_file_type_consistency_does_not_penalize_capability_descriptions() -> None:
+    score, evidence = file_type_consistency(
+        "Check whether documentation changes are reflected in the PR description.",
+        {
+            "files_test_count": 0,
+            "files_docs_count": 0,
+            "files_config_count": 0,
+        },
+    )
+
+    assert score == 1.0
+    assert evidence["docs"]["mentioned"] is True
+    assert evidence["docs"]["score"] == 1.0
+
+
 def test_disabled_llm_criterion_does_not_block_gate() -> None:
     result = evaluate(
         "A sufficiently detailed pull request description for a small patch.",

@@ -43,9 +43,7 @@ def _file_score(changed: bool, mentioned: bool) -> float:
         return 1.0
     if changed:
         return 0.6
-    if mentioned:
-        return 0.2
-    return 0.8
+    return 1.0
 
 
 def file_type_consistency(
