@@ -6,9 +6,14 @@ import os
 from pathlib import Path
 from typing import Sequence
 
-from .config import load_config
-from .criteria import evaluate
-from .patch import patch_stats
+if __package__:
+    from .config import load_config
+    from .criteria import evaluate
+    from .patch import patch_stats
+else:
+    from config import load_config
+    from criteria import evaluate
+    from patch import patch_stats
 
 
 def _annotation(message: str) -> str:

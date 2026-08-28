@@ -1,4 +1,4 @@
-from tools.pr_gate.criteria import (
+from argus_skill.release_tools.pr_gate.criteria import (
     evaluate,
     file_type_consistency,
     scope_adequacy,
