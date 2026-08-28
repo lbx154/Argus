@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { ProjectRow } from '../api';
-import { recommendedSidebarScope } from '../components/Sidebar';
+import { recommendedSidebarScope, Sidebar } from '../components/Sidebar';
 
 const rows: ProjectRow[] = [
   {
@@ -27,5 +29,54 @@ describe('recommendedSidebarScope', () => {
 
   it('shows all sessions instead of an empty local sidebar', () => {
     expect(recommendedSidebarScope(rows, null, '/workspace/missing')).toBe('all');
+  });
+});
+
+function sidebarMarkup(projects: ProjectRow[]): string {
+  return renderToStaticMarkup(
+    createElement(Sidebar, {
+      projects: projects.map((project) => ({ ...project, launch_cwd: '/workspace/test' })),
+      activeId: null,
+      localCwd: '/workspace/test',
+      onSelect: () => undefined,
+      onManage: () => undefined,
+      onOpenPanel: () => undefined,
+      onNew: () => undefined,
+      loading: false,
+      onToggleCollapse: () => undefined,
+      themeMode: 'dark',
+      onCycleTheme: () => undefined,
+    }),
+  );
+}
+
+describe('Sidebar session identity and health', () => {
+  it('shows stable identifiers when unnamed sessions would otherwise look identical', () => {
+    const unnamed = rows.map((project, index) => ({
+      ...project,
+      id: `session-${index + 1}`,
+      label: `session-${index + 1}`,
+      display_name: '',
+    }));
+
+    const markup = sidebarMarkup(unnamed);
+
+    expect(markup).toContain('title="Unnamed session · session-1"');
+    expect(markup).toContain('title="Unnamed session · session-2"');
+    expect(markup).toContain('>session-1</div>');
+    expect(markup).toContain('>session-2</div>');
+  });
+
+  it('flags a live incompatible daemon instead of presenting it as healthy', () => {
+    const markup = sidebarMarkup([{
+      ...rows[0],
+      daemon_alive: true,
+      daemon_protocol_compatible: false,
+      uptime_seconds: 120,
+    }]);
+
+    expect(markup).toContain('Update required');
+    expect(markup).not.toContain('title="Argus running"');
+    expect(markup).not.toContain('running · 2m');
   });
 });

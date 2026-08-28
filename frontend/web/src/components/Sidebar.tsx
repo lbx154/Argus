@@ -238,9 +238,11 @@ export function Sidebar({
                 <div className="mb-1 truncate px-1 font-mono text-xs text-ink-faint" title={path}>{path}</div>
                 {rows.map((project) => {
                   const active = project.id === activeId;
-                  const name = hasHumanProjectLabel(project)
+                  const hasHumanLabel = hasHumanProjectLabel(project);
+                  const name = hasHumanLabel
                     ? (project.label || project.display_name || '').trim()
                     : project.objective.trim() || t('sidebar.unnamedSession');
+                  const incompatible = project.daemon_alive && project.daemon_protocol_compatible === false;
                   const cost = projectCost(project);
                   return (
                     <div
@@ -261,17 +263,28 @@ export function Sidebar({
                           if (!active) onPrefetch?.(project.id);
                         }}
                         aria-current={active ? 'page' : undefined}
-                        title={`${name}${project.objective && project.objective !== name ? ` — ${project.objective}` : ''}`}
+                        title={`${name}${hasHumanLabel ? '' : ` · ${project.id}`}${project.objective && project.objective !== name ? ` — ${project.objective}` : ''}`}
                         className="w-full min-w-0 px-3 py-2.5 pr-10 text-left"
                       >
                         <div className="flex min-w-0 items-center gap-2">
-                          <StatusDot ok={project.daemon_alive} title={project.daemon_alive ? t('sidebar.daemonAlive') : t('sidebar.stopped')} />
+                          <StatusDot
+                            ok={project.daemon_alive && !incompatible}
+                            title={incompatible ? t('sidebar.updateRequired') : project.daemon_alive ? t('sidebar.daemonAlive') : t('sidebar.stopped')}
+                          />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
                         </div>
-                        {project.objective ? <div className="mt-0.5 truncate pl-4 text-xs text-ink-faint">{project.objective}</div> : null}
+                        {!hasHumanLabel ? (
+                          <div className="mt-0.5 truncate pl-4 font-mono text-[10px] text-ink-faint">{project.id}</div>
+                        ) : project.objective ? (
+                          <div className="mt-0.5 truncate pl-4 text-xs text-ink-faint">{project.objective}</div>
+                        ) : null}
                         <div className="mt-1 flex min-w-0 items-center justify-between gap-2 pl-4 text-xs text-ink-faint">
-                          <span className="min-w-0 truncate">
-                            {project.daemon_alive ? t('sidebar.runningFor', { uptime: uptime(project.uptime_seconds) }) : ago(project.last_active)}
+                          <span className={`min-w-0 truncate ${incompatible ? 'text-warn' : ''}`}>
+                            {incompatible
+                              ? t('sidebar.updateRequired')
+                              : project.daemon_alive
+                                ? t('sidebar.runningFor', { uptime: uptime(project.uptime_seconds) })
+                                : ago(project.last_active)}
                           </span>
                           {cost ? (
                             <DaemonSpendBadge
