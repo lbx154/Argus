@@ -897,7 +897,10 @@ def test_daemon_sink_counts_life_mission_completed() -> None:
     assert worker._missions_completed == 1
 
 
-def test_daemon_fails_running_item_after_roles_go_idle(tmp_path: Path) -> None:
+def test_daemon_fails_running_item_after_roles_go_idle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     memory = LifeMemory.open(tmp_path)
     memory.init()
     item = BacklogItem.new(title="stalled", objective="finish the task")
@@ -911,8 +914,16 @@ def test_daemon_fails_running_item_after_roles_go_idle(tmp_path: Path) -> None:
         runtime_root=tmp_path,
         sink=SimpleNamespace(handle_event=events.append),
     )
+    monkeypatch.setattr(
+        "argus_skill.daemon._life_worker_run._RUNNING_STALL_POLL_SECONDS",
+        0.01,
+    )
 
-    assert worker._fail_stalled_running_items(state) == [item.id]
+    worker._start_running_stall_watcher(state)
+    try:
+        _wait_for_backlog_item_status(memory, item.id, "failed", timeout=1.0)
+    finally:
+        worker._stop_running_stall_watcher()
 
     stored = next(row for row in memory.backlog.history() if row.id == item.id)
     assert stored.status == "failed"
