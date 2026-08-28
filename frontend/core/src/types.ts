@@ -315,6 +315,7 @@ export interface MissionStorageView {
 export interface MissionView {
   schema_version: 6;
   bootstrapped?: boolean;
+  health?: string;
   mission: {
     id: string;
     title: string;

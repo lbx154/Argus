@@ -112,10 +112,30 @@ describe('MissionControl', () => {
     expect(markup).not.toContain('/state/project/skills');
     expect(markup).not.toContain('/workspace/.autors/demo/wiki');
     expect(markup).toContain('Mission replay');
-    expect(markup).toContain('Work completed');
-    expect(markup).toContain('Stage not approved');
+    expect(markup).not.toContain('Work completed');
+    expect(markup).not.toContain('Stage not approved');
     expect(markup).toContain('Project files changed');
     expect(markup).not.toContain('+fused_epilogue');
+  });
+
+  it('shows one plain-language attention banner only for actionable mission states', () => {
+    const healthy = emptyMissionView();
+    expect(renderToStaticMarkup(<MissionControl view={healthy} />)).not.toContain('role="alert"');
+
+    const paused = emptyMissionView();
+    paused.stage.id = 'HOLD';
+    expect(renderToStaticMarkup(<MissionControl view={paused} />)).toContain('Mission is paused — waiting for your input.');
+
+    const failedStep = emptyMissionView();
+    failedStep.dag = [{
+      id: 'failed-step', title: 'Run checks', objective: '', status: 'failed', deps: [],
+      branch_id: 'failed-step', parent_branch_id: null,
+    }];
+    expect(renderToStaticMarkup(<MissionControl view={failedStep} />)).toContain('A step failed — check the task below.');
+
+    const critical = emptyMissionView();
+    critical.health = 'critical';
+    expect(renderToStaticMarkup(<MissionControl view={critical} />)).toContain('System error — health is degraded.');
   });
 
   it('renders escaped objective Markdown without exposing transport slashes', () => {
