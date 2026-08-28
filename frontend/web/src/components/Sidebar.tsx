@@ -92,7 +92,18 @@ export function Sidebar({
     setScope(recommendedSidebarScope(projects, activeId, normalizedLocalCwd));
   }, [activeId, loading, normalizedLocalCwd, projects]);
   const scoped = scope === 'local' ? localProjects : projects;
-  const visible = query.trim() ? filterProjects(scoped, query) : scoped;
+  const rawVisible = query.trim() ? filterProjects(scoped, query) : scoped;
+  const visible = [...rawVisible].sort((a, b) => {
+    if (a.daemon_alive !== b.daemon_alive) return a.daemon_alive ? -1 : 1;
+    const aCost = a.known_cost_usd ?? a.spend_usd ?? 0;
+    const bCost = b.known_cost_usd ?? b.spend_usd ?? 0;
+    if (aCost !== bCost) return bCost - aCost;
+    const aLabel = a.label || '';
+    const bLabel = b.label || '';
+    if (!aLabel && bLabel) return 1;
+    if (aLabel && !bLabel) return -1;
+    return aLabel.localeCompare(bLabel);
+  });
   const grouped = useMemo(() => {
     if (scope === 'local') return visible.length > 0 ? [[normalizedLocalCwd || 'Local', visible] as const] : [];
     const groups = new Map<string, ProjectRow[]>();
@@ -111,7 +122,7 @@ export function Sidebar({
     <aside
       data-state={slim ? 'collapsed' : 'expanded'}
       style={{ '--sidebar-width': `${expandedWidth}px` } as CSSProperties}
-      className={`glass-panel glass-panel--side fixed inset-y-0 left-0 z-40 flex h-full shrink-0 flex-col border-r transition-[width,transform,visibility] duration-panel ease-panel lg:visible lg:static lg:z-auto lg:translate-x-0 ${
+      className={`glass-panel glass-panel--side fixed inset-y-0 left-0 z-50 flex h-full shrink-0 flex-col border-r transition-[width,transform,visibility] duration-panel ease-panel lg:visible lg:static lg:z-auto lg:translate-x-0 ${
         slim ? 'w-14' : 'w-64 lg:w-[var(--sidebar-width)]'
       } ${mobileOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'}`}
     >
@@ -182,7 +193,7 @@ export function Sidebar({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-3 scroll-thin">
+          <div className="mobile-scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-3 scroll-thin">
             {loading && projects.length === 0 ? <div className="px-1 py-3 text-xs text-ink-faint">{t('common.loading')}</div> : null}
             {error ? (
               <button type="button" onClick={onRetry} className="mb-2 w-full rounded-md bg-err/5 px-3 py-2 text-left text-xs text-err">
