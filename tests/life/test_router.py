@@ -132,7 +132,7 @@ def test_build_quick_reply_prompt_never_points_operator_at_the_backend_cli() -> 
 
 def test_build_quick_reply_prompt_includes_identity_when_given() -> None:
     out = build_quick_reply_prompt(objective="who are you", identity_card="I am argus.")
-    assert out.startswith("I am argus.\n\n")
+    assert out.index("You are Argus Manager") < out.index("I am argus.\n\n")
     assert "who are you" in out
 
 

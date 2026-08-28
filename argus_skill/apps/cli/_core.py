@@ -297,23 +297,6 @@ def _resolve_project_bundle(
     )
 
 
-def _lifetime_entry_error(args: argparse.Namespace) -> str:
-    """Return an actionable error if the lifetime agent is under-configured.
-
-    The lifetime daemon / cockpit requires trusted machine house rules, but it
-    may start without an objective. The first substantive user prompt is routed
-    through the Manager, which decides BOUNDED versus STANDING and authors the
-    persisted execution objective for a standing campaign.
-    """
-    from ...life.special_prompts import describe_special_prompt_gate
-
-    ok, detail = describe_special_prompt_gate()
-    if not ok:
-        return detail
-    return ""
-
-
-
 _FOLLOW_HEARTBEAT_SECONDS = 20.0
 
 
@@ -444,14 +427,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     setup_only = (
         bool(getattr(args, "non_interactive", False))
-        or bool(getattr(args, "accept_house_rules", False))
         or bool(getattr(args, "set_git_global", False))
         or bool(getattr(args, "configure_codex", False))
     )
     if setup_only and not args.setup:
         sys.stderr.write(
-            "argus-skill: --non-interactive / --accept-house-rules / "
-            "--set-git-global / --configure-codex require --setup\n"
+            "argus-skill: --non-interactive / --set-git-global / "
+            "--configure-codex require --setup\n"
         )
         return 2
     readiness_modifier = (
@@ -561,10 +543,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     if getattr(args, "web", False):
-        entry_error = _lifetime_entry_error(args)
-        if entry_error:
-            sys.stderr.write(f"argus-skill: {entry_error}\n")
-            return 2
         # Nothing may promise a URL before the stack that serves it is known
         # to be present.
         missing = _missing_web_dependency()
@@ -608,7 +586,6 @@ def main(argv: list[str] | None = None) -> int:
             backend=getattr(args, "backend", None),
             auth_mode=getattr(args, "auth_mode", None),
             non_interactive=bool(getattr(args, "non_interactive", False)),
-            accept_house_rules=bool(getattr(args, "accept_house_rules", False)),
             allow_prerelease=bool(getattr(args, "allow_prerelease", False)),
             api_url=getattr(args, "api_url", None),
             api_key=getattr(args, "api_key", None),
@@ -651,10 +628,6 @@ def main(argv: list[str] | None = None) -> int:
 
     # All interactive use goes through the Ink cockpit; ``argus-skill`` remains
     # the daemon/admin CLI for explicit flags.
-    entry_error = _lifetime_entry_error(args)
-    if entry_error:
-        sys.stderr.write(f"argus-skill: {entry_error}\n")
-        return 2
     from ..tui_launcher import main as run_tui
 
     forwarded = list(sys.argv[1:] if argv is None else argv)
@@ -767,10 +740,6 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
     )
     if continuous_error:
         sys.stderr.write(f"argus-skill: {continuous_error}\n")
-        return 2
-    entry_error = _lifetime_entry_error(args)
-    if entry_error:
-        sys.stderr.write(f"argus-skill: {entry_error}\n")
         return 2
     if bool(getattr(args, "allow_prerelease", False)):
         os.environ["ARGUS_SKILL_ALLOW_BACKEND_PRERELEASE"] = "1"

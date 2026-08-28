@@ -120,7 +120,6 @@ def _target_for_action(context: DoctorContext, action_id: str) -> str:
         "remove_verified_stale_daemon_pid": str(context.project_root / "daemon.pid"),
         "remove_dead_daemon_control_files": str(context.project_root),
         "stop_owned_stuck_daemon": str(context.project_root),
-        "create_house_rules": str(context.global_root / "special_prompts" / "10-house-rules.md"),
         "install_editable": str(context.checkout or ""),
         "install_electron_binary": str((context.checkout / "desktop") if context.checkout else ""),
         "rebuild_release_assets": str(context.checkout or ""),
@@ -135,7 +134,6 @@ def _action_spec(context: DoctorContext, action_id: str) -> RepairAction:
         "remove_verified_stale_daemon_pid": ("daemon", "safe", ("ARGUS-STATE-001",)),
         "remove_dead_daemon_control_files": ("daemon", "safe", ("ARGUS-STATE-002",)),
         "stop_owned_stuck_daemon": ("daemon", "consent", ("ARGUS-DAEMON-001",)),
-        "create_house_rules": ("config", "consent", ("ARGUS-CONFIG-001",)),
         "install_editable": ("python", "consent", ("ARGUS-PYTHON-001",)),
         "install_electron_binary": ("desktop", "consent", ("ARGUS-DESKTOP-001",)),
         "rebuild_release_assets": ("release", "consent", ("ARGUS-ASSET-001",)),
@@ -320,13 +318,6 @@ def _apply_registered_action(
             "returncode": rc,
             "detail": "owned daemon interrupted" if rc in {0, 1} else "daemon did not stop within 15 seconds",
         }
-    if action.id == "create_house_rules":
-        path = context.global_root / "special_prompts" / "10-house-rules.md"
-        if path.exists():
-            return {"status": "not_needed"}
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("Operational house rules for this machine.\n", encoding="utf-8")
-        return {"status": "applied", "path": str(path)}
     if context.checkout is None:
         return {"status": "failed", "detail": "source checkout is unavailable"}
     checkout = context.checkout.resolve()

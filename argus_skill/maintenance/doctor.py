@@ -428,14 +428,6 @@ def run_full_doctor(
     findings.extend(_checkout_finding(context))
     findings.extend(_runtime_findings(context))
 
-    special_prompt = context.global_root / "special_prompts" / "10-house-rules.md"
-    findings.append(_finding(
-        "ARGUS-CONFIG-001", "install", special_prompt.is_file(),
-        "house_rules_ready" if special_prompt.is_file() else "house_rules_missing",
-        str(special_prompt), severity="error", actions=("create_house_rules",),
-        recommendation="review and create machine-specific operator house rules",
-    ))
-
     web_status, web_meta = _probe_web(context.web_host, context.web_port)
     web_ok = web_status in {"stopped", "compatible", "protected_argus"}
     findings.append(_finding(

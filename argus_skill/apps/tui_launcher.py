@@ -284,12 +284,6 @@ def main(argv: list[str] | None = None) -> int:
     if headless:
         sys.stderr.write(f"{headless}\n")
         return 2
-    from ..life.special_prompts import describe_special_prompt_gate
-
-    ok, detail = describe_special_prompt_gate()
-    if not ok:
-        sys.stderr.write(f"argus: {detail}\n")
-        return 2
     bundle = _bundle_path()
     if bundle is None:
         sys.stderr.write(

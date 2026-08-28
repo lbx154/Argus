@@ -49,14 +49,6 @@ def test_windows_console_streams_are_forced_to_utf8(monkeypatch) -> None:
     assert stderr.calls == expected
 
 
-@pytest.fixture(autouse=True)
-def _trusted_special_prompt(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "argus_skill.life.special_prompts.describe_special_prompt_gate",
-        lambda: (True, ""),
-    )
-
-
 def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path) -> None:
     bundle = tmp_path / "argus.mjs"
     bundle.write_text("// bundle", encoding="utf-8")
@@ -138,19 +130,16 @@ def test_binary_launcher_points_tui_at_real_frozen_backend(
     assert tui_launcher.os.environ["ARGUS_BINARY_MODE"] == "cli"
 
 
-def test_launcher_rejects_missing_special_prompt(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(
-        "argus_skill.life.special_prompts.describe_special_prompt_gate",
-        lambda: (False, "trusted special prompt required"),
+def test_launcher_without_special_prompt_proceeds_to_bundle_check(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    monkeypatch.setenv(
+        "ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(tmp_path / "empty_special")
     )
-    monkeypatch.setattr(
-        tui_launcher,
-        "_bundle_path",
-        lambda: (_ for _ in ()).throw(AssertionError("TUI must not launch")),
-    )
+    monkeypatch.setattr(tui_launcher, "_bundle_path", lambda: None)
 
     assert tui_launcher.main([]) == 2
-    assert "trusted special prompt required" in capsys.readouterr().err
+    assert "bundled Ink TUI is missing" in capsys.readouterr().err
 
 
 def test_launcher_fails_cleanly_without_bundle(monkeypatch, capsys) -> None:

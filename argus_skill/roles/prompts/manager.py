@@ -91,11 +91,12 @@ def build_quick_reply_prompt(
     identity = f"{identity_card.strip()}\n\n" if identity_card.strip() else ""
     runtime = f"{runtime_context.strip()}\n\n" if runtime_context.strip() else ""
     return (
-        f"{identity}You are Argus Manager, using one {runner_backend_label()} worker. "
+        f"You are Argus Manager, using one {runner_backend_label()} worker. "
         "Reply directly. No tools were used, so do not claim inspection "
         "or create persistent work.\n\n"
         f"{_IDENTITY_GUARD}"
         f"{_USER_FACING_STYLE}"
+        f"{identity}"
         f"{runtime}"
         f"Message:\n{objective.strip()}"
     )
@@ -193,7 +194,6 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
     cleaned = (text or "").strip()
     return (
         "Classify this message; do not choose a vertical or plan.\n"
-        f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
         "INTAKE_TYPE: EPHEMERAL=chat/status; OBJECTIVE_AMENDMENT=finite/task-local; "
         "else STANDING_DIRECTIVE|PREFERENCE|CREDENTIAL_GRANT|REVOCATION.\n\n"
         "CONFIG: SET only an explicit standing setting: role backend|model|effort "
@@ -252,6 +252,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
             "NAME: short title"
         )
         + "\n"
+        f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
         f"Message:\n{cleaned}\n\n"
         "Decide and record the event now.\n"
     )
@@ -263,7 +264,6 @@ def build_steer_confirmation_prompt(text: str, *, active_mission: bool) -> str:
         "Decide whether the current operator message explicitly commands changing "
         "the active mission. This is a mutation authorization gate, not general intent "
         "classification.\n\n"
-        f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
         "Return STEER only when ACTIVE_MISSION=YES and the message itself clearly "
         "orders a change to that mission's direction, priority, method, evidence, or "
         "constraints. Do not infer authorization from frustration, criticism, a feature "
@@ -273,6 +273,7 @@ def build_steer_confirmation_prompt(text: str, *, active_mission: bool) -> str:
         "approach might work. A separate new task is also SELF for this gate because it "
         "does not mutate the active mission.\n\n"
         "Reply with exactly one word: STEER or SELF.\n\n"
+        f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
         f"Message:\n{(text or '').strip()}\n"
     )
 
@@ -308,11 +309,6 @@ def build_fast_vertical_decision_prompt(
         "authority, scope, system risk, repository context, or a new capability is "
         "uncertain, choose grounded so you can investigate freely in the next call. "
         "Do not plan implementation.\n\n"
-        "## Built-in verticals\n"
-        f"{menu}\n\n"
-        "## Optional research domains\n"
-        f"{domain_menu}\n\n"
-        f"## Existing project domains\n{existing}\n\n"
         "Choose workflow_mode=direct for one coherent Engineer package; coupled output "
         "files that one Engineer produces and one Reviewer checks together are still one "
         "package. Use staged only for dependent phases or independently decided evidence "
@@ -320,16 +316,13 @@ def build_fast_vertical_decision_prompt(
         "optional research domain listed above. An existing project domain is itself "
         "a vertical: put its exact slug in `vertical` and leave `domain` empty. Never "
         "invent an alias for an existing capability.\n\n"
-        f"Research-target verticals: {targeted}. Use exploratory, publishable, or "
-        "doctoral only when the Task states that success bar; otherwise none. "
-        "For research_direction_mode, the only valid values are `broad` (the "
-        "direction is still being discovered) and `locked` (the operator fixed the "
-        "hypothesis/direction). Never invent another direction-mode value. Never "
-        "infer a publication venue. Independent review defaults on; set "
-        "`require_independent_review=false` only for an authorized deliberate waiver "
-        "and state the reason in `RATIONALE`.\n\n"
-        "## Task\n"
-        f"{(task or '').strip()}\n\n"
+        "Use exploratory, publishable, or doctoral only when the Task states that "
+        "success bar; otherwise none. For research_direction_mode, the only valid "
+        "values are `broad` (the direction is still being discovered) and `locked` "
+        "(the operator fixed the hypothesis/direction). Never invent another "
+        "direction-mode value. Never infer a publication venue. Independent review "
+        "defaults on; set `require_independent_review=false` only for an authorized "
+        "deliberate waiver and state the reason in `RATIONALE`.\n\n"
         + decision_footer_instruction(
             "CHOICE=existing\n"
             "VERTICAL=software\n"
@@ -340,7 +333,15 @@ def build_fast_vertical_decision_prompt(
             "RATIONALE=brief reason"
         )
         + "\nUse choice `grounded` with an empty vertical when repository inspection "
-        "is needed. Add research target fields only when the operator stated them.\n"
+        "is needed. Add research target fields only when the operator stated them.\n\n"
+        "## Built-in verticals\n"
+        f"{menu}\n\n"
+        "## Optional research domains\n"
+        f"{domain_menu}\n\n"
+        f"## Existing project domains\n{existing}\n\n"
+        f"Research-target verticals: {targeted}.\n\n"
+        "## Task\n"
+        f"{(task or '').strip()}\n\n"
     )
 
 
@@ -384,12 +385,6 @@ def build_vertical_decision_prompt(
         "A vertical is a stable reusable staged capability, not a Planner DAG.\n\n"
         "This is a read-only routing decision: inspect only when the fit is unclear; "
         "no task work or Live View.\n\n"
-        "## Built-in verticals\n"
-        f"{menu}\n\n"
-        "## Optional research domains\n"
-        f"{domain_menu}\n\n"
-        "## Existing project domains\n"
-        f"{existing}\n\n"
         "Pick the closest existing capability by the requested action, not incidental "
         "words in filenames or logs. Prefer a matching formal project domain, then a "
         "built-in, then a candidate project domain. Use `new` only when none fits; a "
@@ -408,16 +403,14 @@ def build_vertical_decision_prompt(
         "serving, communication, memory-movement, and kernel performance campaigns are "
         "`kernel_engineering`; Argus runtime changes are `argus_maintenance`; papers and "
         "surveys are `research`; original mathematical work is `math`.\n\n"
-        "## Task\n"
-        f"{(task or '').strip()}\n\n"
-        f"Research-target verticals: {target_verticals}. Use exploratory for a bounded "
-        "investigation, publishable only when publication-level original work is requested, "
-        "and doctoral only when explicit. For research_direction_mode, use only `broad` "
-        "when the direction is still being discovered or `locked` when the operator fixed "
-        "the hypothesis/direction; values such as `exploratory`, `publishable`, or "
-        "`experimental_validation` are invalid. Never infer a venue. Set "
-        "independent review on by default. Set `require_independent_review=false` "
-        "only for an authorized deliberate waiver and state why in `rationale`.\n\n"
+        "Use exploratory for a bounded investigation, publishable only when "
+        "publication-level original work is requested, and doctoral only when explicit. "
+        "For research_direction_mode, use only `broad` when the direction is still "
+        "being discovered or `locked` when the operator fixed the hypothesis/direction; "
+        "values such as `exploratory`, `publishable`, or `experimental_validation` are "
+        "invalid. Never infer a venue. Set independent review on by default. Set "
+        "`require_independent_review=false` only for an authorized deliberate waiver "
+        "and state why in `rationale`.\n\n"
         "State `choice`, `vertical`, `domain`, `workflow_mode`, and `rationale` "
         "at the end. Add `stages` only for a revised project domain or new vertical. "
         "Omit `execution_task` for a standalone existing route; include it only when "
@@ -437,7 +430,16 @@ def build_vertical_decision_prompt(
         )
         + "\n"
         "Never invent a constraint; a missing number is an ambiguity, not permission "
-        "to guess.\n"
+        "to guess.\n\n"
+        "## Built-in verticals\n"
+        f"{menu}\n\n"
+        "## Optional research domains\n"
+        f"{domain_menu}\n\n"
+        "## Existing project domains\n"
+        f"{existing}\n\n"
+        f"Research-target verticals: {target_verticals}.\n\n"
+        "## Task\n"
+        f"{(task or '').strip()}\n\n"
     )
 
 
@@ -685,14 +687,19 @@ def assemble_manager_prompt(
     role_banner: str = "",
     role_skill_block: str = "",
 ) -> str:
-    """Apply dynamic Manager policy with vertical authority last."""
+    """Apply dynamic Manager policy after the decision prompt."""
     context = sanitize_model_visible_text(str(role_banner or "").strip())
     with_vertical = (
         f"{prompt}\n\n## Active vertical Manager skill\n{context}"
         if context
         else prompt
     )
-    return MODEL_INTEGRITY_BOUNDARY + "\n\n" + str(role_skill_block or "") + with_vertical
+    with_skill = (
+        f"{with_vertical}\n\n{role_skill_block}"
+        if role_skill_block
+        else with_vertical
+    )
+    return MODEL_INTEGRITY_BOUNDARY + "\n\n" + with_skill
 
 
 def _advisory_planner(planner_verdict: Any) -> str:
@@ -823,22 +830,6 @@ def build_stage_decision_prompt(
     return (
         "Decide the pipeline stage from the evidence below. Reviewer and Planner "
         "advise; Manager chooses ADVANCE, HOLD, ROLLBACK, or COMPLETE.\n\n"
-        f"Current stage: `{current_stage}`\n"
-        f"Legal ADVANCE targets (later stages): {legal_advance}\n"
-        f"Legal ROLLBACK targets (earlier stages): {earlier}\n\n"
-        "## Current-stage checklist\n"
-        f"{checklist_md}\n\n"
-        "## Latest completion evidence\n"
-        f"source: {review_source}\n"
-        f"status: {status}\n"
-        f"reason: {reason}\n"
-        f"{source_instructions}\n"
-        "## Planner note (advisory)\n"
-        f"{_advisory_planner(planner_verdict)}\n\n"
-        f"{wait_resolution_block}"
-        f"{mission_scope_block}"
-        f"{objective_block}"
-        f"{open_ended_block}"
         "## Your decision\n"
         "- ADVANCE only when the checklist is supported by concrete evidence.\n"
         "- HOLD when work remains or evidence is unclear, including when Reviewer asks "
@@ -877,7 +868,23 @@ def build_stage_decision_prompt(
         # executed as a one-step advance, so neither the obedient nor the
         # improvising Manager loses its verdict; this line only keeps the trace
         # exact.
-        "For HOLD and for COMPLETE, set TARGET_STAGE to the current stage."
+        "For HOLD and for COMPLETE, set TARGET_STAGE to the current stage.\n\n"
+        f"{wait_resolution_block}"
+        f"{mission_scope_block}"
+        f"{objective_block}"
+        f"{open_ended_block}"
+        f"Current stage: `{current_stage}`\n"
+        f"Legal ADVANCE targets (later stages): {legal_advance}\n"
+        f"Legal ROLLBACK targets (earlier stages): {earlier}\n\n"
+        "## Current-stage checklist\n"
+        f"{checklist_md}\n\n"
+        "## Latest completion evidence\n"
+        f"source: {review_source}\n"
+        f"status: {status}\n"
+        f"reason: {reason}\n"
+        f"{source_instructions}\n"
+        "## Planner note (advisory)\n"
+        f"{_advisory_planner(planner_verdict)}\n\n"
     )
 
 

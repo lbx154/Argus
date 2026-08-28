@@ -26,12 +26,6 @@ from ..core.backend_readiness import (
     format_backend_readiness,
     persist_validated_profile,
 )
-from ..core.paths import (
-    resolve_runtime_path,
-    special_prompts_root,
-)
-
-
 def _color(text: str, code: str) -> str:
     if not sys.stdout.isatty():
         return text
@@ -402,7 +396,6 @@ def _run_noninteractive_setup(
     *,
     backend: str | None,
     auth_mode: str | None,
-    accept_house_rules: bool,
     allow_prerelease: bool,
     api_url: str | None,
     api_key: str | None,
@@ -417,7 +410,6 @@ def _run_noninteractive_setup(
     if selected not in _SUPPORTED_AGENT_BACKENDS:
         sys.stderr.write(f"argus: unsupported backend {selected!r}\n")
         return SETUP_EXIT_USAGE
-    _ = accept_house_rules
     if _configure_runner_backend(selected) is None:
         return SETUP_EXIT_NOT_READY
     mode = _configure_auth_mode(selected, auth_mode)
@@ -447,7 +439,6 @@ def _run_noninteractive_setup(
     adopted_model = default_model_for_backend(selected)
     if adopted_model:
         os.environ["ARGUS_SKILL_MODEL"] = adopted_model
-    _ensure_default_house_rules_prompt()
     report = check_backend_readiness(
         selected,
         mode,
@@ -484,56 +475,6 @@ def _run_noninteractive_setup(
 _KEEPALIVE_TOKEN = "argus-skill-gpu-keepalive"
 
 
-def _special_prompts_dir() -> Path:
-    env = os.environ.get("ARGUS_SKILL_SPECIAL_PROMPTS_DIR")
-    d = (
-        resolve_runtime_path(env, context="ARGUS_SKILL_SPECIAL_PROMPTS_DIR")
-        if env
-        else special_prompts_root()
-    )
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-_DEFAULT_HOUSE_RULES_PROMPT_NAME = "10-house-rules.md"
-_DEFAULT_HOUSE_RULES_PROMPT_BODY = (
-    "# Machine house rules\n\n"
-    "Work only within projects and resources explicitly assigned by the operator. "
-    "Do not modify unrelated jobs, processes, data, or credentials. Report failures "
-    "and measured results honestly; never fabricate evidence.\n"
-)
-
-
-def _write_special_prompt(name: str, body: str) -> Path:
-    """Write an operator special prompt (0644) that passes the trust check."""
-    directory = _special_prompts_dir()
-    path = directory / name
-    path.write_text(body, encoding="utf-8")
-    os.chmod(path, 0o644)
-    return path
-
-
-def _ensure_default_house_rules_prompt() -> Path | None:
-    """Create a trusted baseline directive when setup has no operator prompt.
-
-    Existing trusted directives already satisfy the launch gate and remain
-    untouched. If the preferred filename exists but is empty or untrusted, keep
-    that operator-owned file intact and choose a setup-specific fallback name.
-    """
-    from ..life.special_prompts import load_special_prompts
-
-    if load_special_prompts():
-        return None
-
-    directory = _special_prompts_dir()
-    candidate = directory / _DEFAULT_HOUSE_RULES_PROMPT_NAME
-    suffix = 0
-    while candidate.exists():
-        suffix += 1
-        candidate = directory / f"10-house-rules-setup-{suffix}.md"
-    return _write_special_prompt(candidate.name, _DEFAULT_HOUSE_RULES_PROMPT_BODY)
-
-
 # -- Experiment use of the configured model API ----------------------------
 
 _EXPERIMENT_API_PROMPT_NAME = "30-experiment-api.md"
@@ -547,7 +488,6 @@ def run_setup(
     backend: str | None = None,
     auth_mode: str | None = None,
     non_interactive: bool = False,
-    accept_house_rules: bool = False,
     allow_prerelease: bool = False,
     api_url: str | None = None,
     api_key: str | None = None,
@@ -558,7 +498,6 @@ def run_setup(
         return _run_noninteractive_setup(
             backend=backend,
             auth_mode=auth_mode,
-            accept_house_rules=accept_house_rules,
             allow_prerelease=allow_prerelease,
             api_url=api_url,
             api_key=api_key,
@@ -601,10 +540,6 @@ def run_setup(
         os.environ["ARGUS_SKILL_MODEL"] = adopted_model
         print(f"  {_green('✓')} Model selected → {adopted_model}")
         print()
-
-    house_rules_path = _ensure_default_house_rules_prompt()
-    if house_rules_path is not None:
-        print(f"  {_green('✓')} House rules created")
 
     report = check_backend_readiness(
         selected_backend,

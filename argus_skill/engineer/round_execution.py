@@ -316,6 +316,7 @@ class RoundExecutionMixin:
             review = operator_abort_review_decision(
                 fatal_error=fatal_error,
                 exit_code=engineer_result.exit_code,
+                engineer_aborted_before_review=True,
             )
             if on_event:
                 on_event(_review_event_payload(

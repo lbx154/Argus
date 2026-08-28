@@ -381,11 +381,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="with --setup: never prompt; requires --backend or --api-url",
     )
     capability_grp.add_argument(
-        "--accept-house-rules",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
-    capability_grp.add_argument(
         "--allow-prerelease",
         action="store_true",
         help="allow an explicitly selected prerelease backend CLI",

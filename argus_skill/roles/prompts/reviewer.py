@@ -633,9 +633,7 @@ def render_reviewer_prompt(
     # Reviewer is not asked to fill them in. The fields below each feed round
     # settlement, operator routing, research certification, or plan adjudication.
     static = (
-        verification_instruction
-        + surprise_judgment_block
-        + EFFECTIVE_TASK_CONTRACT
+        EFFECTIVE_TASK_CONTRACT
         + "\n\n"
         + (shell_contract + "\n\n" if shell_contract else "")
         + MODEL_INTEGRITY_BOUNDARY
@@ -656,8 +654,6 @@ def render_reviewer_prompt(
         "hedging, limitation lists, or repeat runs—only anchored, decision-changing "
         "content; "
         "positive and negative claims share one evidence standard.\n\n"
-        + ("" if _requires_engineering_audit else _verification_directive())
-        + audit_integrity_block
         + "## Decision\n"
         "REASON, NEXT_ACTION, and OPERATOR_QUESTION are human-facing. Use the "
         "operator's language. State evidence and consequence plainly; make any "
@@ -691,6 +687,9 @@ def render_reviewer_prompt(
         + "Put the next Engineer "
         "instruction only in next_action. Do not inspect or edit "
         "checkpoint/context-packet/handoff bookkeeping.\n\n"
+        + ("" if _requires_engineering_audit else _verification_directive())
+        + audit_integrity_block
+        + verification_instruction
         + wiki_curator_skill_block
         + direct_memory_edit_block
         + matched_review_skill_block
@@ -699,6 +698,7 @@ def render_reviewer_prompt(
         + "\n\n"
         + rollback_block
         + "\n\n"
+        + surprise_judgment_block
         + venv_skill_block
         + "\n\n## Handoff policy\n"
         + handoff_policy

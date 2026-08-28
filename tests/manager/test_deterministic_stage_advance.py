@@ -116,7 +116,7 @@ def test_ordinary_bounded_direct_done_keeps_manager_adjudication(tmp_path) -> No
     assert _state(state_root)["current_stage"] == "setup"
 
 
-def test_stage_closing_direct_final_done_still_uses_manager_model(
+def test_stage_closing_direct_final_done_completes_without_manager_model(
     tmp_path,
 ) -> None:
     state_root = tmp_path / "state"
@@ -132,12 +132,7 @@ def test_stage_closing_direct_final_done_still_uses_manager_model(
 
     def manager_model(prompt: str):
         calls.append(prompt)
-        return SimpleNamespace(
-            last_agent_message=(
-                '{"action":"hold","target_stage":"delivery",'
-                '"reason":"terminal completion remains a Manager decision"}'
-            )
-        )
+        raise AssertionError("clean terminal acceptance must not call Manager model")
 
     decision = manager.decide_stage_transition(
         review=_review(),
@@ -147,13 +142,72 @@ def test_stage_closing_direct_final_done_still_uses_manager_model(
         run_exec=manager_model,
     )
 
-    assert len(calls) == 1
-    assert decision.action == "hold"
+    assert calls == []
+    assert decision.action == "complete"
     assert decision.target_stage == "delivery"
-    assert decision.source == "manager_llm"
+    assert decision.source == "manager_deterministic"
+    assert decision.diagnostic == "deterministic_reviewer_done"
     state = _state(state_root)
     assert state["current_stage"] == "delivery"
-    assert not state.get("completed")
+    assert state["stages"]["delivery"]["status"] == "done"
+
+
+def test_engineer_operator_abort_before_review_holds_without_manager_model(
+    tmp_path,
+) -> None:
+    manager, state_root, _workdir = _manager(tmp_path)
+    review = _review(
+        status="blocked",
+        next_action="This item was intentionally aborted.",
+        backend_stop_kind="operator_abort",
+        engineer_aborted_before_review=True,
+    )
+
+    decision = manager.decide_stage_transition(
+        review=review,
+        project_root=state_root,
+        mission_scope="bounded",
+        stage_closing=True,
+        run_exec=lambda _prompt: (_ for _ in ()).throw(
+            AssertionError("operator abort before review must not call Manager model")
+        ),
+    )
+
+    assert decision.action == "hold"
+    assert decision.target_stage == "setup"
+    assert decision.source == "operator_abort_hold"
+    assert decision.diagnostic == "engineer_aborted_before_review"
+    assert _state(state_root)["current_stage"] == "setup"
+
+
+def test_reviewer_operator_abort_still_uses_manager_model(tmp_path) -> None:
+    manager, state_root, _workdir = _manager(tmp_path)
+    calls: list[str] = []
+
+    def manager_model(prompt: str):
+        calls.append(prompt)
+        return SimpleNamespace(
+            last_agent_message=(
+                '{"action":"hold","target_stage":"setup",'
+                '"reason":"the Reviewer was interrupted"}'
+            )
+        )
+
+    decision = manager.decide_stage_transition(
+        review=_review(
+            status="blocked",
+            next_action="Retry review.",
+            backend_stop_kind="operator_abort",
+        ),
+        project_root=state_root,
+        mission_scope="bounded",
+        stage_closing=True,
+        run_exec=manager_model,
+    )
+
+    assert len(calls) == 1
+    assert decision.action == "hold"
+    assert decision.source == "manager_llm"
 
 
 def test_direct_final_self_review_still_uses_manager(
