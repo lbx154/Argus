@@ -9,7 +9,6 @@ import { MarkdownContent } from './MarkdownContent';
 import { useI18n } from '../i18n';
 import {
   frontierLabel,
-  outcomeLabels,
   roleLabel,
   routingLabels,
   stageLabel,
@@ -95,9 +94,21 @@ export function MissionControl({
   const [replayIndex, setReplayIndex] = useState(Math.max(0, view.timeline.length - 1));
   const [selectedRole, setSelectedRole] = useState(view.active_role || 'planner');
   const [selectedTaskId, setSelectedTaskId] = useState(activeNode?.id || '');
-  const outcome = outcomeLabels(view.outcome, t);
   const routing = routingLabels(view.routing, t).join(' · ');
   const delivery = view.delivery;
+  const healthNeedsAttention = ['red', 'critical'].includes(view.health?.toLowerCase() ?? '');
+  const missionFailed = ['failed', 'error'].includes(view.mission.status.toLowerCase());
+  const stepFailed = view.dag.some((node) => node.status.toLowerCase() === 'failed');
+  const missionPaused = ['hold', 'paused'].includes(view.stage.id.toLowerCase());
+  const needsAttention = healthNeedsAttention || missionFailed || stepFailed || missionPaused;
+  const attentionKey = healthNeedsAttention
+    ? 'mission.attentionHealth'
+    : missionFailed
+      ? 'mission.attentionFailed'
+      : stepFailed
+        ? 'mission.attentionStepFailed'
+        : 'mission.attentionPaused';
+  const attentionIsError = healthNeedsAttention || missionFailed || stepFailed;
   useEffect(() => setReplayIndex(Math.max(0, view.timeline.length - 1)), [view.timeline.length]);
   useEffect(() => {
     if (activeNode?.id) setSelectedTaskId(activeNode.id);
@@ -128,16 +139,11 @@ export function MissionControl({
           </details>
         ) : null}
         <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-4">
-          <div><div className="text-ink-faint">{t('mission.stage')}</div><div className="mt-0.5 font-medium text-blue-sky">{view.stage.label || stageLabel(view.stage.id, t)}</div></div>
+          <div><div className="text-ink-faint">{t('mission.stage')}</div><div className="mt-0.5 font-medium text-blue-sky">{stageLabel(view.stage.id, t)}</div></div>
           <div><div className="text-ink-faint">{t(view.routing.open_ended ? 'mission.campaign' : 'mission.totalElapsed')}</div><div className="mt-0.5 font-mono text-ink">{formatMissionElapsed(view.mission.campaign_elapsed_seconds)}</div></div>
           <div><div className="text-ink-faint">{t('mission.round')}</div><div className="mt-0.5 font-mono text-ink">{view.round.current || '—'}{view.round.max ? ` / ${view.round.max}` : ''}</div></div>
-          <div><div className="text-ink-faint">{t('mission.mode')}</div><div className="mt-0.5 font-mono text-ink">{routing || '—'}</div></div>
+          <div><div className="text-ink-faint">{t('mission.mode')}</div><div className="mt-0.5 font-medium text-ink">{routing || '—'}</div></div>
         </div>
-        {outcome.length ? (
-          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-ink-dim">
-            {outcome.map((row) => <span key={row}>{row}</span>)}
-          </div>
-        ) : null}
         {view.mission.summary ? (
           <div className="mt-3 rounded border border-ok/25 bg-ok/5 px-3 py-2">
             <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ok">
@@ -178,6 +184,15 @@ export function MissionControl({
           </div>
         ) : null}
       </header>
+
+      {needsAttention ? (
+        <div
+          role="alert"
+          className={`mx-5 my-3 truncate rounded border px-3 py-2.5 text-xs font-medium ${attentionIsError ? 'border-warn/30 bg-warn/10 text-err' : 'border-blue/30 bg-blue/10 text-blue-sky'}`}
+        >
+          {t(attentionKey)}
+        </div>
+      ) : null}
 
       <Achievement view={view} />
 
@@ -220,22 +235,37 @@ export function MissionControl({
           ) : <span className="text-[10px] text-ink-faint">{t('mission.allVisible')}</span>}
         </div>
         <div className="mt-3 grid gap-2 lg:grid-cols-2">
-          {selectedRoleWork.map((item) => (
-            <article key={item.id} className="min-w-0 rounded border border-line/60 bg-bg/35 px-3 py-2">
-              <div className="flex items-center justify-between gap-3">
-                <span className="truncate text-xs font-medium text-ink">{item.title}</span>
-                <time className="shrink-0 font-mono text-[10px] text-ink-faint">
-                  {new Date(item.ts * 1000).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
-                </time>
-              </div>
-              <div className="mt-1 flex gap-2 font-mono text-[10px] text-ink-faint">
-                <span>{workKindLabel(item.kind, t)}</span>
-                {item.status ? <span>{statusLabel(item.status, t)}</span> : null}
-                {item.round_index != null ? <span>{t('mission.roundNumber', { count: item.round_index })}</span> : null}
-              </div>
-              {item.detail ? <p className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap text-[11px] leading-5 text-ink-dim scroll-thin">{item.detail}</p> : null}
-            </article>
-          ))}
+          {selectedRoleWork.map((item) => {
+            const status = item.status.toLowerCase();
+            const active = status === 'active';
+            const done = status === 'done';
+            const failed = ['failed', 'error'].includes(status);
+            const badgeLabel = done
+              ? t('mission.done')
+              : statusLabel(active ? 'active' : failed ? 'failed' : item.status, t);
+            const elapsed = formatMissionElapsed(Math.max(0, view.updated_at - item.ts));
+            return (
+              <article key={item.id} className="min-w-0 rounded border border-line/60 bg-bg/35 px-3 py-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate text-xs font-medium text-ink">{item.title}</span>
+                  <time
+                    dateTime={new Date(item.ts * 1000).toISOString()}
+                    title={new Date(item.ts * 1000).toLocaleString(locale)}
+                    className="shrink-0 text-[10px] text-ink-faint"
+                  >
+                    {t('mission.elapsedAgo', { elapsed })}
+                  </time>
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-ink-faint">
+                  <span className={`rounded-full border px-2 py-0.5 font-medium ${active ? 'border-blue/30 bg-blue/10 text-blue-sky' : done ? 'border-ok/30 bg-ok/10 text-ok' : failed ? 'border-err/30 bg-err/10 text-err' : 'border-line bg-white/[0.03] text-ink-dim'}`}>
+                    {badgeLabel}
+                  </span>
+                  {item.round_index != null ? <span>{t('mission.roundNumber', { count: item.round_index })}</span> : null}
+                </div>
+                {item.detail ? <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{item.detail}</p> : null}
+              </article>
+            );
+          })}
           {!selectedRoleWork.length ? (
             <div className="col-span-full py-8 text-center text-xs text-ink-faint">
               {t('mission.noRoleWork', { role: roleLabel(selectedRole, t) })}
