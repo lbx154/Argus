@@ -511,8 +511,18 @@ def manager_message(
             if _cancelled():
                 return _cancelled_result()
             log.warning("Manager could not safely prepare operator work: %s", exc)
+            from ..manager.dispatch import MissionPersistenceError
             from ..manager.front_door import ManagerModelCapabilityMismatchError
 
+            if isinstance(exc, MissionPersistenceError):
+                pending_item = chat_state["_pending_missions"][-1][0]
+                return emitter.respond(
+                    str(exc),
+                    {
+                        "kind": "error",
+                        "item": _item_to_dict(pending_item, operator_text or body),
+                    },
+                )
             if isinstance(exc, ManagerModelCapabilityMismatchError):
                 return emitter.respond(str(exc), {"kind": "error"})
             error_reply = (

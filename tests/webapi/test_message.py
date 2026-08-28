@@ -8,7 +8,9 @@ an unknown project 404s.
 """
 from __future__ import annotations
 
+import errno
 import json
+import os
 import queue
 import threading
 import time
@@ -23,7 +25,7 @@ from argus_skill.core.session import (
     read_session_meta,
     write_session_meta,
 )
-from argus_skill.life.memory import BacklogItem, LifeMemory
+from argus_skill.life.memory import Backlog, BacklogItem, LifeMemory
 from argus_skill.manager import Manager, config_intent, dispatch, front_door
 from argus_skill.manager.domain_author import VerticalDecision
 from argus_skill.webapi import (
@@ -1055,6 +1057,43 @@ def test_manager_handoff_failure_persists_and_streams_error_reply(
         event.get("type") == "ui.argus" and event.get("text") == result["reply"]
         for event in events
     )
+
+
+def test_mission_write_failure_is_visible_and_keeps_pending_item(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "s-mission-write-failure"
+    life = _make_project(tmp_path, sid)
+    target = life / "backlog.jsonl"
+    fragments: list[tuple[str, dict]] = []
+
+    def fail_save(backlog: Backlog, _items) -> None:
+        assert backlog.path == target
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), str(target))
+
+    monkeypatch.setattr(Backlog, "_save", fail_save)
+    result = manager_bridge.manager_message(
+        sid,
+        "preserve this mission",
+        global_root=tmp_path,
+        on_fragment=lambda kind, payload: fragments.append((kind, payload)),
+    )
+
+    assert result["kind"] == "error"
+    assert str(target) in result["reply"]
+    assert f"[Errno {errno.ENOSPC}] {os.strerror(errno.ENOSPC)}" in result["reply"]
+    assert any(
+        kind == "delta" and payload.get("text") == result["reply"]
+        for kind, payload in fragments
+    )
+    pending = manager_state._STATES[sid]["_pending_missions"][-1]
+    assert len(pending) == 1
+    assert pending[0].status == "pending"
+    assert pending[0].original_objective == "preserve this mission"
+    assert result["item"]["id"] == pending[0].id
+    assert result["item"]["status"] == "pending"
+    assert LifeMemory.open(life).backlog.all() == []
 
 
 def test_active_mission_team_message_uses_continuous_dispatch(

@@ -4,7 +4,9 @@ and /done /skip /rm /stop). Real temp project; no daemon needed."""
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 import subprocess
 import time
 from contextlib import contextmanager
@@ -1468,34 +1470,52 @@ def test_dispatch_ack_describes_queue_state(
     assert "executor already running" not in text
 
 
-def test_dispatch_ack_raises_on_transcript_write_failure(
+def test_dispatch_ack_surfaces_transcript_write_failure(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    """Transcript persistence failure must NOT be swallowed."""
-    life_dir = tmp_path / "projects" / "s-ack-fail"
-    life_dir.mkdir(parents=True)
+    """Transcript persistence failure is visible while the mission stays queued."""
+    sid = "s-ack-fail"
+    life_dir = _make_project(tmp_path, sid)
     transcript = life_dir / "transcript.jsonl"
-    transcript.write_text("")
     real_open = Path.open
 
     def deny_transcript_append(path: Path, *args, **kwargs):
         mode = args[0] if args else kwargs.get("mode", "r")
         if path == transcript and "a" in mode:
-            raise PermissionError("simulated transcript write failure")
+            raise OSError(
+                errno.ENOSPC,
+                os.strerror(errno.ENOSPC),
+                str(transcript),
+            )
         return real_open(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", deny_transcript_append)
+    fragments: list[tuple[str, dict]] = []
     result: dict = {
         "kind": "task",
         "daemon_alive": False,
         "daemon": {"rc": 0, "pid": 99},
+        "item": {"id": "item1", "status": "pending"},
         "reply": None,
     }
-    with pytest.raises(PermissionError):
-        manager_pending_question.record_task_dispatch_ack(
-            "s-ack-fail",
-            result,
-            global_root=tmp_path,
-            on_fragment=None,
-        )
+    text = manager_pending_question.record_task_dispatch_ack(
+        sid,
+        result,
+        global_root=tmp_path,
+        on_fragment=lambda kind, payload: fragments.append((kind, payload)),
+    )
+
+    assert result["kind"] == "task"
+    assert result["ack_error"] == text
+    assert result["reply"] == text
+    assert str(transcript) in text
+    assert f"[Errno {errno.ENOSPC}] {os.strerror(errno.ENOSPC)}" in text
+    assert any(
+        kind == "delta" and payload.get("text") == text
+        for kind, payload in fragments
+    )
+    queued = LifeMemory.open(life_dir).backlog.all()
+    assert len(queued) == 1
+    assert queued[0].id == result["item"]["id"]
+    assert queued[0].status == "pending"

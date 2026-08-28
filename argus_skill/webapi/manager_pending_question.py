@@ -1019,9 +1019,8 @@ def record_task_dispatch_ack(
     persist it durably, publish it on the caller's live UI channel, and set
     ``result["reply"]``.
 
-    Unlike chat turns, transcript write failures are NOT swallowed — the caller
-    must surface them (the operator deserves to know their dispatch was not
-    recorded).
+    Unlike chat turns, transcript write failures are surfaced through the same
+    live UI channel and result payload as the acknowledgement.
 
     Called after ``start_project_daemon`` in both blocking and streaming
     endpoints.
@@ -1073,15 +1072,23 @@ def record_task_dispatch_ack(
         root = core_paths.global_root()
     life_dir = core_paths.session_state_root(sid, root=root)
 
-    # Persist transcript — errors propagate (not swallowed).
+    # Persist transcript — write errors become the user-visible acknowledgement.
     # We inline the write because the public append_turn() swallows exceptions
     # by design for chat turns; here we intentionally let I/O errors surface.
     import json as _json
 
-    life_dir.mkdir(parents=True, exist_ok=True)
+    transcript_path = life_dir / "transcript.jsonl"
     rec = {"ts": time.time(), "role": "argus", "text": text}
-    with (life_dir / "transcript.jsonl").open("a", encoding="utf-8") as fh:
-        fh.write(_json.dumps(rec, ensure_ascii=False) + "\n")
+    try:
+        life_dir.mkdir(parents=True, exist_ok=True)
+        with transcript_path.open("a", encoding="utf-8") as fh:
+            fh.write(_json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        text = (
+            f"Could not persist session state to {transcript_path}: {exc}. "
+            "The mission remains in the backlog."
+        )
+        result["ack_error"] = text
 
     if callable(on_fragment):
         try:

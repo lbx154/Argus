@@ -13,6 +13,10 @@ from . import front_door
 DEFAULT_MANAGER_CONFIG = DEFAULT_LIFE_CONFIG
 
 
+class MissionPersistenceError(front_door.ManagerHandoffError):
+    """A Manager-authored mission could not be written to the backlog."""
+
+
 def _resolve_manager_workdir(mem: Any) -> Path:
     from ..core.session import read_session_meta, resolve_session_workdir
 
@@ -321,7 +325,14 @@ def enqueue_mission(
                 original_objective=execution_body,
                 manager_decision=decision_evidence(division) or {"routed": True},
             )
-            mem.backlog.add(item)
+            try:
+                mem.backlog.add(item)
+            except OSError as exc:
+                chat_state.setdefault("_pending_missions", []).append((item,))
+                raise MissionPersistenceError(
+                    f"Could not persist mission to {mem.backlog.path}: {exc}. "
+                    "The mission remains pending in memory and was not dispatched."
+                ) from exc
             persisted["item"] = item
             try:
                 from ..life.event_log import JsonlEventSink
@@ -615,7 +626,14 @@ def enqueue_mission(
             )
             item.original_objective = execution_body
             items.append(item)
-        mem.backlog.add_many(items)
+        try:
+            mem.backlog.add_many(items)
+        except OSError as exc:
+            chat_state.setdefault("_pending_missions", []).append(tuple(items))
+            raise MissionPersistenceError(
+                f"Could not persist mission to {mem.backlog.path}: {exc}. "
+                "The mission remains pending in memory and was not dispatched."
+            ) from exc
         item = items[0]
         try:
             from ..core.planner_verdict import (
@@ -757,6 +775,7 @@ def maybe_promote_to_continuous(
 
 __all__ = [
     "DEFAULT_MANAGER_CONFIG",
+    "MissionPersistenceError",
     "enqueue_mission",
     "maybe_promote_to_continuous",
     "resume_done_lifecycle_for_team_dispatch",
