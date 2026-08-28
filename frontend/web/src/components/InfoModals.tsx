@@ -30,7 +30,7 @@ export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean
   return (
     <Modal open={open} onClose={onClose} label={t('doctor.title')} width="max-w-3xl">
       <ModalHeader title={t('doctor.title')} sub={t('doctor.subtitle')} />
-      <div className="max-h-[64vh] overflow-y-auto scroll-thin p-4">
+      <div className="p-4">
         {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
         {data?.recommended && (
           <div className="mb-4 rounded-lg border border-gold/40 bg-gold/5 p-3">
@@ -129,7 +129,7 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
   return (
     <Modal open={open} onClose={onClose} label={t('common.settings')} width="max-w-4xl">
       <ModalHeader title={t('common.settings')} sub={t('settings.subtitle')} />
-      <div className="max-h-[64vh] overflow-y-auto scroll-thin p-4">
+      <div className="p-4">
         {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
         <section className="mb-4 rounded-lg border border-line bg-surface p-3">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('settings.connection')}</div>

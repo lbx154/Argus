@@ -200,7 +200,11 @@ export function Sidebar({
                 {t('sidebar.refreshFailed')}
               </button>
             ) : null}
-            {!loading && !error && visible.length === 0 ? <div className="px-1 py-4 text-xs text-ink-faint">{t('sidebar.noSessions')}</div> : null}
+            {!loading && !error && visible.length === 0 ? (
+              <div className="px-1 py-4 text-xs text-ink-faint">
+                {query.trim() ? t('sidebar.noMatches', { query: query.trim() }) : t('sidebar.noSessions')}
+              </div>
+            ) : null}
             {grouped.map(([path, rows]) => (
               <section key={path} className="mb-4 last:mb-0">
                 <div className="mb-1 truncate px-1 font-mono text-xs text-ink-faint" title={path}>{path}</div>
