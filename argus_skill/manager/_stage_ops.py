@@ -16,7 +16,7 @@ import logging
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Mapping
 
 from ..core.role_decision import latest_role_decision
 from ._helpers import (
@@ -357,6 +357,59 @@ class _StageDecisionMixin:
             return extract_answer(result) or ""
         except Exception:  # noqa: BLE001
             return ""
+
+    def report_project_completion(
+        self,
+        *,
+        completion_context: Mapping[str, Any],
+        continuous_objective: str = "",
+        completion_reason: str = "",
+        on_event: Any = None,
+        root_task_id: str | None = None,
+    ) -> str:
+        """Return a Manager-authored operator report for a completed stage ledger."""
+        from ..roles.prompts.manager import build_project_completion_report_prompt
+
+        prompt = build_project_completion_report_prompt(
+            objective=continuous_objective,
+            completion_reason=completion_reason,
+            completion_context=completion_context,
+        )
+        run_exec, hold = self._build_stage_run_exec(None, on_event)
+        if hold is not None or run_exec is None:
+            from ..core.operator_messages import uses_cjk
+
+            stages = completion_context.get("stages")
+            stage_names = list(stages) if isinstance(stages, dict) else []
+            route = " -> ".join(stage_names)
+            if uses_cjk(continuous_objective):
+                return (
+                    "项目已完成。Manager 已收到完整阶段记录"
+                    + (f"（{route}）。" if route else "。")
+                    + (
+                        f" 完成原因：{completion_reason.strip()}"
+                        if completion_reason.strip()
+                        else ""
+                    )
+                )
+            return (
+                "Project completed. Manager received the full stage ledger"
+                + (f" ({route})." if route else ".")
+                + (
+                    f" Completion reason: {completion_reason.strip()}"
+                    if completion_reason.strip()
+                    else ""
+                )
+            )
+        raw = self._run_stage_model(run_exec, prompt, root_task_id)
+        if not raw.strip():
+            return ""
+        from ..core.role_reply import strip_control_footer
+
+        return strip_control_footer(
+            raw,
+            ("ACTION", "TARGET_STAGE", "REASON", "RESOLVES_WAIT"),
+        ).strip()
 
     def _parse_and_finalize_stage_decision(
         self,

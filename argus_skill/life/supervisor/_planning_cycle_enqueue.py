@@ -43,6 +43,38 @@ from ._planning_cycle_helpers import _PlanCycleState, _revision_reason
 log = logging.getLogger(__name__)
 
 
+def _record_filtered_task(
+    state: _PlanCycleState,
+    *,
+    title: str,
+    category: str,
+    reason: str,
+) -> None:
+    state.skipped_task_feedback.append({
+        "title": str(title or "proposed task").strip(),
+        "category": str(category or "filtered").strip(),
+        "reason": str(reason or "filtered by Supervisor policy").strip(),
+    })
+
+
+def _render_filtered_task_feedback(state: _PlanCycleState) -> str:
+    rows = state.skipped_task_feedback
+    if not rows:
+        return ""
+    lines = ["Supervisor filtered every task in the previous Planner proposal:"]
+    for row in rows[:8]:
+        lines.append(
+            f"- [{row['category']}] {row['title']}: {row['reason']}"
+        )
+    if len(rows) > 8:
+        lines.append(f"- ... and {len(rows) - 8} additional filtered task(s)")
+    lines.append(
+        "Return a materially different executable plan that addresses these "
+        "reasons; do not repeat an unchanged filtered proposal."
+    )
+    return "\n".join(lines)
+
+
 def _latest_planner_forward_progress(
     memory: Any,
     revision_request: dict[str, Any] | None,
@@ -644,6 +676,12 @@ class PlanningCycleEnqueueMixin:
                 prior_item, blocker_reason, _reviewed_at = certification_blocker
                 state.skipped_certification_reproposal_titles.append(task.title)
                 state.skipped_certification_reproposal_reasons.append(blocker_reason)
+                _record_filtered_task(
+                    state,
+                    title=task.title,
+                    category="stage_closing_requires_intervening_repair",
+                    reason=blocker_reason,
+                )
                 self._emit(
                     {
                         "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
@@ -676,6 +714,12 @@ class PlanningCycleEnqueueMixin:
                 state.skipped_certification_reproposal_reasons.append(
                     review_purchase_reason
                 )
+                _record_filtered_task(
+                    state,
+                    title=task.title,
+                    category="paper_review_purchase_deferred",
+                    reason=review_purchase_reason,
+                )
                 self._emit({
                     "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
                     "cycle": self._planning_cycles,
@@ -705,6 +749,12 @@ class PlanningCycleEnqueueMixin:
                     if self._terminal_blocker_is_dedupable(duplicate_item)
                     else "duplicate pending/running task"
                 )
+                _record_filtered_task(
+                    state,
+                    title=task.title,
+                    category="duplicate_task",
+                    reason=duplicate_reason,
+                )
                 self._emit(
                     {
                         "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
@@ -725,6 +775,12 @@ class PlanningCycleEnqueueMixin:
                 state.skipped_recent_failure_titles.append(task.title)
                 failure_extra = getattr(recent_failure, "extra", {}) or {}
                 failure_signature = _entry_task_signature(recent_failure)
+                _record_filtered_task(
+                    state,
+                    title=task.title,
+                    category="recent_no_progress_failure",
+                    reason="recent no_progress failure",
+                )
                 self._emit(
                     {
                         "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
@@ -763,6 +819,16 @@ class PlanningCycleEnqueueMixin:
             )
             if family_failure is not None:
                 state.skipped_subagent_family_failure_titles.append(task.title)
+                family_reason = (
+                    f"subagent family {family_failure.family!r} has failed "
+                    f"{family_failure.streak} times in a row unresolved"
+                )
+                _record_filtered_task(
+                    state,
+                    title=task.title,
+                    category="recent_subagent_family_failure",
+                    reason=family_reason,
+                )
                 self._emit(
                     {
                         "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
@@ -778,10 +844,7 @@ class PlanningCycleEnqueueMixin:
                         "matched_last_state": family_failure.last_state,
                         "matched_last_reason": family_failure.last_reason,
                         "skip_category": "recent_subagent_family_failure",
-                        "reason": (
-                            f"subagent family {family_failure.family!r} has failed "
-                            f"{family_failure.streak} times in a row unresolved"
-                        ),
+                        "reason": family_reason,
                     }
                 )
                 continue
@@ -789,6 +852,12 @@ class PlanningCycleEnqueueMixin:
             try:
                 authorization_id, authorization_action = self._validated_task_authorization(task)
             except (OSError, TypeError, ValueError) as exc:
+                _record_filtered_task(
+                    state,
+                    title=task.title,
+                    category="invalid_authorization",
+                    reason=str(exc),
+                )
                 self._emit(
                     {
                         "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
@@ -1234,6 +1303,18 @@ class PlanningCycleEnqueueMixin:
         if not delivered:
             return PLAN_RETRY
         if not state.added_titles:
+            filter_feedback = _render_filtered_task_feedback(state)
+            if filter_feedback and state.revision_request is None:
+                stage = str(self._current_pipeline_stage() or "")
+                if not self._persist_manager_planner_feedback(
+                    stage=stage,
+                    reason=filter_feedback,
+                    diagnostic="planner_tasks_filtered",
+                ):
+                    self._emit_status(
+                        "failed to persist filtered-task feedback; retry later"
+                    )
+                    return PLAN_ERROR
             self._enter_idle_backoff()
             if state.skipped_certification_reproposal_reasons:
                 self._emit_status(

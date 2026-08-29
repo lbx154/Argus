@@ -968,7 +968,23 @@ class PlanningCycleMixin(
         if state.revision_request is not None:
             return None
         action = self._reconcile_reviewed_stage_empty_plan(None)
-        return PLAN_RETRY if action in {"advance", "complete", "rollback"} else None
+        if action in {"advance", "complete", "rollback"}:
+            return PLAN_RETRY
+        if (
+            not state.had_operator_messages
+            and self._effective_final_certification_gate(self._artifact_root())
+            and self._journal_has_final_certification()
+        ):
+            from ...planner import PlannerVerdict
+
+            state.verdict = PlannerVerdict(
+                project_done=True,
+                waiting=False,
+                new_tasks=[],
+                reason="independent final certification is current",
+            )
+            return self._pc_normalize_project_done(state)
+        return None
 
 
 __all__ = [
