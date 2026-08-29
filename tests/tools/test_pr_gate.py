@@ -1,3 +1,4 @@
+import subprocess
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
@@ -6,7 +7,11 @@ from argus_skill.release_tools.pr_gate.criteria import (
     file_type_consistency,
     scope_adequacy,
 )
-from argus_skill.release_tools.pr_gate.patch import is_config_path, patch_stats
+from argus_skill.release_tools.pr_gate.patch import (
+    is_config_path,
+    is_docs_path,
+    patch_stats,
+)
 
 
 def test_scope_adequacy_flags_short_description_for_large_patch() -> None:
@@ -33,20 +38,96 @@ def test_json_config_detection_is_narrow() -> None:
     assert not is_config_path("tests/domains/fixtures/example.json")
 
 
+def test_docs_detection_excludes_runtime_markdown_assets() -> None:
+    assert is_docs_path("docs/guide.md")
+    assert is_docs_path("plugins/argus/README.md")
+    assert is_docs_path("CHANGELOG.md")
+    assert not is_docs_path("argus_skill/builtin_skills/agent-team-lead.md")
+    assert not is_docs_path("plugins/argus/skills/argus-run/SKILL.md")
+
+
 @patch("argus_skill.release_tools.pr_gate.patch.subprocess.run")
 def test_patch_stats_keeps_git_rename_detection(run) -> None:
-    run.return_value = CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout="0\t0\ttests/{old_test.py => new_test.py}\n",
-        stderr="",
-    )
+    run.side_effect = [
+        CompletedProcess(args=[], returncode=0, stdout="merge-base\n", stderr=""),
+        CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=b"0\t0\t\0src/guide.py\0tests/test_guide.py\0",
+            stderr=b"",
+        ),
+    ]
 
     stats = patch_stats("base", "head")
 
-    assert "--no-renames" not in run.call_args.args[0]
+    assert run.call_args_list[0].args[0] == ["git", "merge-base", "base", "head"]
+    assert run.call_args_list[1].args[0] == [
+        "git",
+        "diff",
+        "--numstat",
+        "-z",
+        "--find-renames",
+        "merge-base",
+        "head",
+    ]
     assert stats["total_churn"] == 0
     assert stats["files_test_count"] == 1
+    assert stats["files"] == ["tests/test_guide.py"]
+    assert stats["renames"] == [
+        {
+            "old_path": "src/guide.py",
+            "new_path": "tests/test_guide.py",
+        }
+    ]
+    assert stats["merge_base_sha"] == "merge-base"
+
+
+def test_patch_stats_excludes_changes_from_an_advanced_base(tmp_path) -> None:
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", *args],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    git("init", "-b", "main")
+    git("config", "user.name", "PR Gate Test")
+    git("config", "user.email", "pr-gate@example.com")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "feature.py").write_text("VALUE = 1\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-m", "base")
+    branch_point = git("rev-parse", "HEAD")
+
+    git("switch", "-c", "feature")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_feature.py").write_text(
+        "def test_feature():\n    assert True\n",
+        encoding="utf-8",
+    )
+    git("add", ".")
+    git("commit", "-m", "add feature test")
+    head = git("rev-parse", "HEAD")
+
+    git("switch", "main")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "base-update.md").write_text(
+        "Base-only documentation update.\n",
+        encoding="utf-8",
+    )
+    git("add", ".")
+    git("commit", "-m", "advance base")
+    advanced_base = git("rev-parse", "HEAD")
+
+    stats = patch_stats(advanced_base, head, repo=tmp_path)
+
+    assert stats["merge_base_sha"] == branch_point
+    assert stats["comparison"] == "merge_base_to_head"
+    assert stats["files"] == ["tests/test_feature.py"]
+    assert stats["files_test_count"] == 1
+    assert stats["files_docs_count"] == 0
 
 
 def test_file_type_consistency_reports_missing_test_and_config_mentions() -> None:

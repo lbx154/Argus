@@ -22,9 +22,16 @@ jobs:
       - name: Fetch matching public tree
         env:
           EVENT_NAME: ${{ github.event_name }}
+          PRIVATE_HEAD: ${{ github.event.pull_request.head.sha }}
           PUBLIC_BRANCH: ${{ github.head_ref }}
         run: |
           git remote add public https://github.com/lbx154/Argus.git
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -n "$PRIVATE_HEAD" ]
+          then
+            echo "PRIVATE_REF=$PRIVATE_HEAD" >> "$GITHUB_ENV"
+          else
+            echo "PRIVATE_REF=HEAD" >> "$GITHUB_ENV"
+          fi
           if [ "$EVENT_NAME" = "pull_request" ] &&
              [ -n "$PUBLIC_BRANCH" ] &&
              git check-ref-format --branch "$PUBLIC_BRANCH" >/dev/null &&
@@ -40,5 +47,5 @@ jobs:
       - name: Verify product tree parity
         run: |
           python argus_skill/release_tools/check_repository_parity.py \
-            --private-ref HEAD \
+            --private-ref "$PRIVATE_REF" \
             --public-ref "$PUBLIC_REF"
