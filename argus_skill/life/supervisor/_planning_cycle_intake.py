@@ -157,6 +157,7 @@ class PlanningCycleIntakeMixin:
         from ...core.external_completion_gate import external_completion_gate_issue
         from ...skills.vertical_select import (
             resolve_vertical,
+            resolve_workflow_mode,
             vertical_has_current_completion_certificate,
         )
 
@@ -165,12 +166,15 @@ class PlanningCycleIntakeMixin:
             return ""
         if external_completion_gate_issue(artifact_root):
             return ""
-        if _research_project_done_issue(
+        if (
+            resolve_workflow_mode(artifact_root) != "direct"
+            and _research_project_done_issue(
             artifact_root,
             self.memory.journal.all(),
+            )
         ):
             return ""
-        return f"bounded {vertical} vertical reached terminal stage"
+        return f"bounded {vertical} vertical has a current completion certificate"
 
     def _pc_intake_gate(self, state: _PlanCycleState) -> Any | None:
         """Drain operator input and reject/idle before touching the planner.

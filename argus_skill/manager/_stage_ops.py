@@ -138,14 +138,12 @@ class _StageDecisionMixin:
             if not isinstance(signal, str):
                 return False
             signal = signal.strip().lower()
-            if signal not in {"", "continue", "reconsider"} or signal == "reconsider":
+            if signal not in {"", "continue", "reconsider"}:
                 return False
         for name in ("challenge", "alternative"):
             if name in planner_report:
                 value = planner_report[name]
                 if not isinstance(value, str):
-                    return False
-                if value.strip().casefold() not in _NEUTRAL_REVIEW_TEXT:
                     return False
         if "authority_impact" in planner_report:
             authority = planner_report["authority_impact"]
@@ -911,6 +909,7 @@ class _StageDecisionMixin:
         if deterministic_candidate:
             try:
                 from ..skills.stage_machine import _ensure_stage_completion
+                from ..skills.vertical_select import resolve_workflow_mode
                 from .stage_decider import StageDecision
 
                 _ensure_stage_completion(
@@ -918,7 +917,10 @@ class _StageDecisionMixin:
                     cur,
                     evidence_root=self.execution_workdir,
                 )
-                if terminal_stage:
+                allow_early_completion = (
+                    not open_ended and resolve_workflow_mode(root) == "direct"
+                )
+                if terminal_stage or allow_early_completion:
                     from ..core.research_contract import resolve_research_target_level
                     from ..skills.vertical_select import resolve_vertical
                     from .stage_decider import final_stage_completion_decision
@@ -934,9 +936,10 @@ class _StageDecisionMixin:
                         checklist_contract=checklist_contract,
                         trigger_diagnostic="deterministic_reviewer_done",
                         trigger_reason=(
-                            "Reviewer certified the terminal-stage checklist and "
+                            "Reviewer certified the current-stage checklist and "
                             "deterministic completion checks passed"
                         ),
+                        allow_early_completion=allow_early_completion,
                     )
                 else:
                     decision = StageDecision(
