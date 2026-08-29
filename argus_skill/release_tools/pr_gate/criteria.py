@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 FILE_KEYWORDS = {
@@ -7,6 +8,7 @@ FILE_KEYWORDS = {
     "docs": ("doc", "docs", "readme", "documentation", "changelog"),
     "config": (
         "config",
+        "configuration",
         "ci",
         "cd",
         "workflow",
@@ -19,6 +21,7 @@ FILE_KEYWORDS = {
         "dependencies",
     ),
 }
+TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
 def scope_adequacy(message: str, patch: dict[str, Any]) -> tuple[float, dict[str, Any]]:
@@ -41,37 +44,49 @@ def scope_adequacy(message: str, patch: dict[str, Any]) -> tuple[float, dict[str
     }
 
 
-def _file_score(changed: bool, mentioned: bool) -> float:
-    if changed and mentioned:
-        return 1.0
-    if changed:
-        return 0.6
-    return 1.0
-
-
 def file_type_consistency(
     message: str,
     patch: dict[str, Any],
 ) -> tuple[float, dict[str, Any]]:
-    message = message.lower()
     counts = {
         "tests": patch["files_test_count"],
         "docs": patch["files_docs_count"],
         "config": patch["files_config_count"],
     }
-    evidence: dict[str, Any] = {}
-    scores: list[float] = []
-    for category, count in counts.items():
-        matched = [keyword for keyword in FILE_KEYWORDS[category] if keyword in message]
-        score = _file_score(count > 0, bool(matched))
-        scores.append(score)
-        evidence[category] = {
-            "actual_file_count": count,
-            "mentioned": bool(matched),
-            "matched_keywords": matched,
-            "score": score,
+    changed = {category: count for category, count in counts.items() if count > 0}
+    if not changed:
+        return 1.0, {
+            "not_applicable": "no_tracked_file_category_changed",
+            "changed_categories": [],
+            "mentioned_categories": [],
+            "missing_categories": [],
+            "categories": {},
         }
-    return sum(scores) / len(scores), evidence
+
+    tokens = set(TOKEN_RE.findall(message.lower()))
+    categories: dict[str, Any] = {}
+    mentioned_categories: list[str] = []
+    missing_categories: list[str] = []
+    for category, count in changed.items():
+        matched = [keyword for keyword in FILE_KEYWORDS[category] if keyword in tokens]
+        mentioned = bool(matched)
+        if mentioned:
+            mentioned_categories.append(category)
+        else:
+            missing_categories.append(category)
+        categories[category] = {
+            "actual_file_count": count,
+            "mentioned": mentioned,
+            "matched_keywords": matched,
+        }
+
+    score = len(mentioned_categories) / len(changed)
+    return score, {
+        "changed_categories": list(changed),
+        "mentioned_categories": mentioned_categories,
+        "missing_categories": missing_categories,
+        "categories": categories,
+    }
 
 
 LOCAL_CHECKS: dict[
