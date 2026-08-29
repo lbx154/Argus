@@ -152,6 +152,41 @@ def test_standalone_route_retries_project_domain_in_domain_field(
     assert "project domain" in runner.calls[1]["prompt"]
 
 
+def test_standalone_route_retry_names_the_failed_contract_field(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
+    runner = _SequenceDecisionRunner([
+        {
+            "choice": "existing",
+            "vertical": "research",
+            "domain": "",
+            "workflow_mode": "direct",
+        },
+        {
+            "choice": "existing",
+            "vertical": "research",
+            "domain": "",
+            "workflow_mode": "direct",
+            "research_target_level": "exploratory",
+            "research_direction_mode": "broad",
+        },
+    ])
+
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
+        "Produce a compact bounded paper from supplied evidence."
+    )
+
+    assert decision.research_target_level == "exploratory"
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-classify-grounded",
+        "manager-classify-field-retry",
+    ]
+    assert "research_target_level" in runner.calls[1]["prompt"]
+    assert "exploratory|publishable|doctoral" in runner.calls[1]["prompt"]
+
+
 def test_direct_software_handoff_skips_duplicate_manager_grounding(
     tmp_path,
 ) -> None:

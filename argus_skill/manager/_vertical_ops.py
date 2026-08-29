@@ -844,8 +844,10 @@ class _VerticalDecisionMixin:
                 result, decision = invoke_grounded_route(
                     prompt
                     + "\n\n## Decision-field correction\n"
-                    "The prior decision event used an invalid capability identity. "
-                    "Record one complete Manager decision event again. If choosing an "
+                    "The prior decision event violated this exact contract field: "
+                    f"{exc.contract_field or 'decision'} — {exc.cause}. "
+                    "Correct it and record one complete Manager decision event again. "
+                    "If choosing an "
                     "existing project domain, put its exact slug in `vertical` and "
                     "leave `domain` empty. `domain` may only name an optional research "
                     "domain listed above.",

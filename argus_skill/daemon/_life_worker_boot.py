@@ -93,8 +93,14 @@ class LifeWorkerBootMixin:
         self._rf_manager_divide_on_boot(rf_state)
         self._rf_build_supervisor(rf_state)
         self._rf_start_services(rf_state)
+        bounded_handoff_failure = bool(
+            rf_state.handoff_failure and not rf_state.cfg.continuous_open_ended
+        )
+        if bounded_handoff_failure:
+            self._stop.set()
         self._rf_main_loop(rf_state)
-        return self._rf_shutdown(rf_state)
+        shutdown_result = self._rf_shutdown(rf_state)
+        return 2 if bounded_handoff_failure else shutdown_result
 
     def _rf_bootstrap_environment(self) -> None:
         """Set up process env vars (PATH/PYTHONPATH/CUDA/git-config) before
@@ -630,8 +636,14 @@ class LifeWorkerBootMixin:
                                 "type": "life.manager.intent.failed",
                                 "agent_layer": "manager",
                                 "intent_id": intent_id,
+                                "item_id": intent_id,
                                 "source": "daemon_boot",
+                                "objective": source_objective,
                                 "error": "failed to persist Manager execution handoff",
+                                "phase": "contract",
+                                "cause": "failed to persist Manager execution handoff",
+                                "contract_field": "continuous_config",
+                                "attempts": 1,
                                 "text": "manager daemon objective handoff was not persisted",
                             }
                         )
@@ -676,14 +688,31 @@ class LifeWorkerBootMixin:
                 rf_state.cfg.continuous_objective = rf_state.init_objective
                 log.error("daemon Manager handoff failed; objective not dispatched: %s", exc)
                 rf_state.handoff_failure = f"{type(exc).__name__}: {exc}"
+                phase = str(getattr(exc, "phase", "") or "unknown")
                 rf_state.sink.append(
                     {
                         "type": "life.manager.intent.failed",
                         "agent_layer": "manager",
                         "intent_id": intent_id,
+                        "item_id": intent_id,
                         "source": "daemon_boot",
                         "objective": source_objective,
                         "error": f"{type(exc).__name__}: {exc}",
+                        "phase": phase,
+                        "cause": str(getattr(exc, "cause", "") or str(exc)),
+                        "contract_field": str(
+                            getattr(exc, "contract_field", "") or ""
+                        ),
+                        "attempts": max(
+                            1,
+                            int(getattr(exc, "attempts", 1) or 1),
+                        ),
+                        "model_reply_snippet": str(
+                            getattr(exc, "model_reply_snippet", "") or ""
+                        )[:300],
+                        "backend_error": str(
+                            getattr(exc, "backend_error", "") or ""
+                        ),
                         "text": "manager daemon objective handoff failed",
                     }
                 )

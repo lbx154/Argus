@@ -552,7 +552,7 @@
         "item_id": {"type": ["string", "null"]},
         "objective": {"type": "string"},
         "error": {"type": "string", "minLength": 1},
-        "phase": {"type": "string", "enum": ["backend", "parse", "contract", "timeout"]},
+        "phase": {"type": "string", "enum": ["backend", "parse", "contract", "timeout", "unknown"]},
         "cause": {"type": "string", "minLength": 1},
         "contract_field": {"type": "string"},
         "attempts": {"type": "integer", "minimum": 1},
