@@ -34,7 +34,6 @@ def adjudicate_plan_challenge(
 ) -> PlanChallengeDecision:
     """Route a Reviewer challenge without promoting Planner prose to authority."""
     report = planner_report if isinstance(planner_report, Mapping) else {}
-    signal = str(report.get("plan_signal") or "").strip().lower()
     status = str(reviewer_status or "").strip().lower()
     challenge = str(report.get("challenge") or review_reason or "").strip()
     alternative = str(report.get("alternative") or next_action or "").strip()
@@ -42,8 +41,7 @@ def adjudicate_plan_challenge(
     if authority not in _AUTHORITY_IMPACTS:
         authority = "technical"
 
-    challenged = signal == "reconsider" or status == "replan_requested"
-    if not challenged:
+    if status != "replan_requested":
         return PlanChallengeDecision(
             action="keep",
             reason="Reviewer did not challenge the current plan",

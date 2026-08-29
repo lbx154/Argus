@@ -3,7 +3,7 @@ from __future__ import annotations
 from argus_skill.manager.plan_challenge import adjudicate_plan_challenge
 
 
-def test_no_gap_alternative_replaces_skip_zero_working_plan() -> None:
+def test_done_verdict_keeps_plan_signal_advisory() -> None:
     decision = adjudicate_plan_challenge(
         {
             "plan_signal": "reconsider",
@@ -15,8 +15,23 @@ def test_no_gap_alternative_replaces_skip_zero_working_plan() -> None:
         review_reason="The local candidate is complete but no longer preferred.",
     )
 
-    assert decision.action == "replace"
+    assert decision.action == "keep"
     assert decision.authority_impact == "technical"
+    assert "no-gap" in decision.alternative
+
+
+def test_explicit_replan_with_alternative_replaces_working_plan() -> None:
+    decision = adjudicate_plan_challenge(
+        {
+            "plan_signal": "reconsider",
+            "challenge": "The preselected skip-zero candidate is not required.",
+            "alternative": "Use the no-gap validator alternative.",
+            "authority_impact": "technical",
+        },
+        reviewer_status="replan_requested",
+    )
+
+    assert decision.action == "replace"
     assert "no-gap" in decision.alternative
 
 

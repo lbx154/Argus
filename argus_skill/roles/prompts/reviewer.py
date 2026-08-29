@@ -610,9 +610,10 @@ def render_reviewer_prompt(
     )
     handoff_policy = (
         "`done` closes a bounded direct task when its mission contract and decisive "
-        "check pass at the current verification profile. It does not certify the "
-        "project or suppress a programme-level `plan_signal=reconsider`. Use "
-        "`continue` for a concrete material gap and give the next work package; "
+        "check pass at the current verification profile. Use `replan_requested` "
+        "when the plan itself must change; `plan_signal` is advisory and never "
+        "overrides `status`. Use `continue` for a concrete material gap and give "
+        "the next work package; "
         "leave optional hardening advisory."
         if direct_workflow
         else (
@@ -672,7 +673,8 @@ def render_reviewer_prompt(
             "FORWARD_PROGRESS=true\n"
             "PLAN_SIGNAL=continue"
         )
-        + "\nEqually ordinary:\n"
+        + "\nTo request a plan change, make it the verdict:\n"
+        "STATUS=replan_requested\n"
         "PLAN_SIGNAL=reconsider\n"
         "PLAN_CHALLENGE=challenged assumption\n"
         "AUTHORITY_IMPACT=technical"

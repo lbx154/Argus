@@ -97,7 +97,7 @@ def test_explicit_reviewer_replan_verdict_is_authoritative(tmp_path) -> None:
     assert "invalidated" in reason
 
 
-def test_locally_done_result_stops_for_later_better_plan(tmp_path) -> None:
+def test_locally_done_result_is_not_overridden_by_plan_advice(tmp_path) -> None:
     backend = MemoryBackend()
     backend.queue("engineer-r1", CannedResponse(message="implemented skip-zero"))
     backend.queue("reviewer", CannedResponse(message=json.dumps({
@@ -120,7 +120,7 @@ def test_locally_done_result_stops_for_later_better_plan(tmp_path) -> None:
         workdir=tmp_path,
     )
 
-    assert status == "replan_requested"
+    assert status == "done"
     assert len(rounds) == 1
     assert "skip-zero" in reason
 
