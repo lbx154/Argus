@@ -8,6 +8,7 @@ maintainability line-count target. ``LifeWorkerRunMixin`` is mixed into
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -29,8 +30,34 @@ from .state import (
 log = logging.getLogger(__name__)
 
 _RUNNING_STALL_SECONDS = 30.0
+_RUNNING_HANDOFF_STALL_SECONDS = 300.0
 _RUNNING_STALL_ERROR = "executor exited without completing the task"
 _RUNNING_STALL_POLL_SECONDS = 1.0
+
+
+def _persisted_engineer_handoff_age(
+    runtime_root: Path,
+    item_id: str,
+    *,
+    now: float,
+) -> float | None:
+    """Return the age of a completed Engineer capsule for one running item.
+
+    A provider can finish its final answer before secret-guard, handoff, and
+    Reviewer preparation finish.  During that interval role activity is quiet,
+    but the persisted capsule proves the mission executor is settling a valid
+    Engineer result rather than having vanished.
+    """
+    path = runtime_root / "handoffs" / item_id / "role-sessions" / "engineer.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        decisive_output = str(payload.get("decisive_output") or "").strip()
+        updated_at = float(payload.get("updated_at") or 0.0)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not decisive_output or updated_at <= 0:
+        return None
+    return max(0.0, now - updated_at)
 
 
 class LifeWorkerRunMixin:
@@ -60,6 +87,16 @@ class LifeWorkerRunMixin:
             if role_ages:
                 quiet_seconds = min(quiet_seconds, min(role_ages))
             if quiet_seconds <= _RUNNING_STALL_SECONDS:
+                continue
+            handoff_age = _persisted_engineer_handoff_age(
+                rf_state.runtime_root,
+                item.id,
+                now=now,
+            )
+            if (
+                handoff_age is not None
+                and handoff_age <= _RUNNING_HANDOFF_STALL_SECONDS
+            ):
                 continue
             if rf_state.mem.backlog.mark_failed(
                 item.id,

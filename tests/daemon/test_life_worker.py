@@ -934,6 +934,55 @@ def test_daemon_fails_running_item_after_roles_go_idle(
     assert events[0]["status"] == "failed"
 
 
+def test_daemon_preserves_running_item_during_persisted_engineer_handoff(
+    tmp_path: Path,
+) -> None:
+    memory = LifeMemory.open(tmp_path)
+    memory.init()
+    item = BacklogItem.new(title="handoff", objective="review the completed result")
+    memory.backlog.add(item)
+    memory.backlog.mark_running(item.id)
+    memory.backlog.update(item.id, started_ts=time.time() - 31.0)
+    capsule = (
+        tmp_path
+        / "handoffs"
+        / item.id
+        / "role-sessions"
+        / "engineer.json"
+    )
+    capsule.parent.mkdir(parents=True)
+    capsule.write_text(
+        json.dumps({
+            "decisive_output": (
+                "Decision:\nMILESTONE_STATUS=done\nNEXT_OWNER=reviewer"
+            ),
+            "updated_at": time.time() - 31.0,
+        }),
+        encoding="utf-8",
+    )
+    events: list[dict[str, Any]] = []
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
+    state = SimpleNamespace(
+        mem=memory,
+        runtime_root=tmp_path,
+        sink=SimpleNamespace(handle_event=events.append),
+    )
+
+    assert worker._fail_stalled_running_items(state) == []
+    stored = next(row for row in memory.backlog.active() if row.id == item.id)
+    assert stored.status == "running"
+    assert events == []
+
+    payload = json.loads(capsule.read_text(encoding="utf-8"))
+    payload["updated_at"] = time.time() - 301.0
+    capsule.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert worker._fail_stalled_running_items(state) == [item.id]
+    stored = next(row for row in memory.backlog.history() if row.id == item.id)
+    assert stored.status == "failed"
+    assert len(events) == 1
+
+
 def test_life_worker_continues_when_telegram_poller_start_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
