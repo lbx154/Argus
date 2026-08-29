@@ -914,7 +914,7 @@ class BacklogItem:
             status = "pending"
         objective = str(row.get("objective", ""))
         return cls(
-            id=str(row.get("id", uuid.uuid4().hex[:12])),
+            id=str(row["id"] if "id" in row else cls.new_id()),
             ts=float(row.get("ts", time.time())),
             title=str(row.get("title", "")),
             objective=objective,
