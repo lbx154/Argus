@@ -73,18 +73,6 @@ def _isolate_argus_state_roots(
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
 
-    special = root / "special_prompts"
-    special.mkdir(parents=True, exist_ok=True)
-    # Seed one trusted directive so the lifetime entry gate passes and tests
-    # exercise what they actually target. 0644 is required: the trust check
-    # rejects group/world-writable files (the default umask yields 0664). A
-    # test that specifically exercises the missing-prompt gate points
-    # ARGUS_SKILL_SPECIAL_PROMPTS_DIR somewhere empty itself.
-    house_rules = special / "10-house-rules.md"
-    house_rules.write_text("Operational house rules for this box.\n", encoding="utf-8")
-    house_rules.chmod(0o644)
-    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(special))
-
     # A test must never mistake the developer's checkout for its loaded source.
     source = root / "source"
     source.mkdir(parents=True, exist_ok=True)

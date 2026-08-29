@@ -49,4 +49,4 @@ def test_retired_semantic_progress_compatibility_fields_are_removed() -> None:
 
     assert not hasattr(config, "effective_progress_timeout_seconds")
     assert not hasattr(config, "round_compaction_limit")
-    assert config.runner_hard_idle_seconds == 2700
+    assert config.runner_hard_idle_seconds == 0

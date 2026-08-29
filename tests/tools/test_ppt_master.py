@@ -114,7 +114,7 @@ def test_failed_dependency_install_keeps_previous_revision(tmp_path: Path) -> No
     _git(upstream, "commit", "-m", "v2")
     second_revision = _git(upstream, "rev-parse", "HEAD")
 
-    with pytest.raises(RuntimeError, match="PPT Master command failed"):
+    with pytest.raises(RuntimeError, match="dependency installation requires pip"):
         install_ppt_master(
             global_root=home,
             repository=str(upstream),
