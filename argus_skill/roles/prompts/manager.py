@@ -106,6 +106,7 @@ def build_simple_prompt(
     *,
     objective: str,
     identity_card: str = "",
+    skill_library: str = "",
     mission_status: str = "",
     runtime_context: str = "",
     operator_workspace: str = "",
@@ -113,7 +114,8 @@ def build_simple_prompt(
     from ...core.role_config import runner_backend_label
 
     identity = f"{identity_card.strip()}\n\n" if identity_card.strip() else ""
-    prefix = f"{mission_status.strip()}\n\n" if mission_status.strip() else ""
+    skills = f"{skill_library.strip()}\n\n" if skill_library.strip() else ""
+    status = f"\n\n{mission_status.strip()}" if mission_status.strip() else ""
     runtime = f"{runtime_context.strip()}\n\n" if runtime_context.strip() else ""
     workspace = ""
     knowledge = ""
@@ -135,8 +137,6 @@ def build_simple_prompt(
             role="Manager",
         )
     return (
-        f"{prefix}"
-        f"{identity}"
         f"You are Argus Manager, using one {runner_backend_label()} worker. "
         "Answer the request yourself and use tools only when needed. You may inspect "
         "or change state, but do not invent extra tasks or artifacts. For tutoring, "
@@ -150,10 +150,13 @@ def build_simple_prompt(
         "dramatized action.\n\n"
         f"{_IDENTITY_GUARD}"
         f"{_USER_FACING_STYLE}"
+        f"{skills}"
+        f"{identity}"
         f"{runtime}"
         f"{workspace}"
         f"{knowledge}"
         f"Task:\n{objective.strip()}"
+        f"{status}"
     )
 
 

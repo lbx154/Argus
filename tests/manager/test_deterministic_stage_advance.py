@@ -116,13 +116,15 @@ def test_ordinary_bounded_direct_done_keeps_manager_adjudication(tmp_path) -> No
     assert _state(state_root)["current_stage"] == "setup"
 
 
-def test_stage_closing_direct_final_done_completes_without_manager_model(
+@pytest.mark.parametrize("workflow_mode", ["direct", "staged"])
+def test_stage_closing_final_done_completes_without_manager_model(
     tmp_path,
+    workflow_mode: str,
 ) -> None:
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir()
-    persist_vertical(state_root, "software", workflow_mode="direct")
+    persist_vertical(state_root, "software", workflow_mode=workflow_mode)
     manager = Manager(
         project_root=state_root,
         execution_workdir=workdir,

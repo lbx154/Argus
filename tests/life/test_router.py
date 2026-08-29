@@ -156,7 +156,7 @@ def test_build_simple_prompt_includes_identity_when_given() -> None:
         objective="are you supervising the daemon?",
         identity_card="Manager operating contract.",
     )
-    assert out.startswith("Manager operating contract.\n\n")
+    assert out.index("You are Argus Manager") < out.index("Manager operating contract.\n\n")
     assert "are you supervising the daemon?" in out
 
 
@@ -179,9 +179,29 @@ def test_build_simple_prompt_omits_mission_status_block_when_empty() -> None:
 def test_build_simple_prompt_includes_mission_status_when_given() -> None:
     status = '## Live mission status\n- item: "demo" (id=abc)'
     out = build_simple_prompt(objective="how's it going?", mission_status=status)
-    assert out.startswith(status + "\n\n")
+    assert out.endswith(status)
     assert "how's it going?" in out
     assert "Argus Manager" in out
+
+
+def test_build_simple_prompt_orders_stable_contract_before_live_context() -> None:
+    status = '## Live mission status\n- item: "demo" (id=abc)'
+    out = build_simple_prompt(
+        objective="how's it going?",
+        identity_card="Manager operating contract.",
+        skill_library="## Manager Skills\nStable library index.",
+        mission_status=status,
+        runtime_context="Runtime fact: warm session.",
+    )
+
+    assert out.index("Answer the request yourself") < out.index(
+        "Lead with the answer in plain language"
+    )
+    assert out.index("Lead with the answer in plain language") < out.index(
+        "## Manager Skills"
+    )
+    assert out.index("## Manager Skills") < out.index("Manager operating contract.")
+    assert out.index("Task:\nhow's it going?") < out.index(status)
 
 
 def test_build_simple_prompt_includes_grounding_workspace_when_given() -> None:
