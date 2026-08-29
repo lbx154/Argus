@@ -34,6 +34,31 @@ _REVISION_TERMINAL_STATUSES = {"done", "failed", "aborted", "skipped", "supersed
 class PlanningCycleIntakeMixin:
     """Gate checks + preflight short-circuits run before planner invocation."""
 
+    def _emit_bounded_project_completion(self, reason: str) -> bool | str:
+        """Record bounded completion, then deliver the Manager project report."""
+        delivered = self._emit_planner_verdict(
+            status=PlannerVerdictStatus.COMPLETED,
+            completion_kind="project_completed",
+            resume_outcome=False,
+            terminal_signature=self._open_ended_terminal_idle_signature(),
+            cycle=self._planning_cycles,
+            project_done=True,
+            reason=reason,
+            task_count=0,
+            enqueued_tasks=0,
+            skipped_duplicate_tasks=0,
+            enqueued_titles=[],
+            skipped_duplicate_titles=[],
+            input_tokens=0,
+            cached_input_tokens=0,
+            output_tokens=0,
+            cost_usd=0.0,
+        )
+        if not delivered:
+            return PLAN_RETRY
+        self._emit_status(f"planner: project done — {reason}")
+        return False
+
     def _enqueue_bounded_manager_direct(
         self,
         state: _PlanCycleState,
@@ -161,6 +186,7 @@ class PlanningCycleIntakeMixin:
             if revision_request is None
             else []
         )
+        state.had_operator_messages = bool(transient_messages)
         # Draining appends fresh messages to the durable ledger. Re-render after
         # the drain so this same planning turn sees the complete standing block
         # as well as the legacy one-shot operator note below.
@@ -476,28 +502,7 @@ class PlanningCycleIntakeMixin:
 
         reason = "" if revision_request is not None else self._bounded_completion_reason()
         if reason:
-            delivered = self._emit_planner_verdict(
-                status=PlannerVerdictStatus.COMPLETED,
-                completion_kind="project_completed",
-                resume_outcome=False,
-                terminal_signature=self._open_ended_terminal_idle_signature(),
-                cycle=self._planning_cycles,
-                project_done=True,
-                reason=reason,
-                task_count=0,
-                enqueued_tasks=0,
-                skipped_duplicate_tasks=0,
-                enqueued_titles=[],
-                skipped_duplicate_titles=[],
-                input_tokens=0,
-                cached_input_tokens=0,
-                output_tokens=0,
-                cost_usd=0.0,
-            )
-            if not delivered:
-                return PLAN_RETRY
-            self._emit_status(f"planner: project done — {reason}")
-            return False
+            return self._emit_bounded_project_completion(reason)
         direct = self._enqueue_bounded_manager_direct(state)
         if direct is not None:
             return direct

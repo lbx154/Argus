@@ -908,6 +908,39 @@ def stage_decision_request(
     )
 
 
+def build_project_completion_report_prompt(
+    *,
+    objective: str,
+    completion_reason: str,
+    completion_context: Mapping[str, Any],
+) -> str:
+    """Ask Manager to report an already-completed project to the operator."""
+    ledger = sanitize_model_visible_text(
+        json.dumps(
+            dict(completion_context),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return (
+        "You are Argus Manager reporting an already-completed project to the "
+        "operator. This is a completion report, not another review or approval "
+        "decision. Do not reopen, hold, advance, or roll back any stage.\n\n"
+        f"{_IDENTITY_GUARD}"
+        f"{_USER_FACING_STYLE}"
+        "Use the operator's language. Lead with whether the requested project "
+        "completed. Then summarize the complete stage progression, including the "
+        "purpose and outcome of every stage, important rollbacks or repeated work, "
+        "the final deliverables/evidence, and any remaining limitations the operator "
+        "should know. Do not omit an earlier stage merely because the final stage "
+        "passed. Do not expose internal protocol field names or raw JSON.\n\n"
+        f"## Operator objective\n{objective.strip() or '(not recorded)'}\n\n"
+        f"## Completion trigger\n{completion_reason.strip() or '(not recorded)'}\n\n"
+        f"## Complete project stage ledger\n{ledger}\n"
+    )
+
+
 __all__ = [
     "FRONT_DOOR",
     "GROUNDED_VERTICAL_DECISION",
@@ -925,6 +958,7 @@ __all__ = [
     "build_front_door_prompt",
     "build_pending_question_prompt",
     "build_plan_prompt",
+    "build_project_completion_report_prompt",
     "build_prompt_rewrite_prompt",
     "build_research_target_prompt",
     "build_route_prompt",

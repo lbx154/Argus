@@ -111,30 +111,41 @@ def record_stage_review(
 
 
 def latest_stage_review(state_root: Path | str, stage: str) -> dict[str, Any] | None:
-    payload = _read(certificate_path(state_root))
-    record = (payload.get("stages") or {}).get(str(stage or "").strip().lower())
-    if not isinstance(record, dict):
-        return None
-    result = dict(record)
-    snapshot = result.get("manuscript_snapshot")
-    project_root = str(result.get("project_root") or "").strip()
-    if isinstance(snapshot, dict) and snapshot.get("sha256") and project_root:
-        try:
-            from .manuscript_snapshot import manuscript_review_status
+    return all_stage_reviews(state_root).get(str(stage or "").strip().lower())
 
-            freshness = manuscript_review_status(result, project_root)
-        except Exception:  # noqa: BLE001 - an unreadable binding never certifies
-            freshness = {"status": "unbound", "message": "unbound manuscript review"}
-        if freshness.get("status") != "current":
-            result["certified"] = False
-            result["review_status"] = "stale"
-            result["freshness_status"] = freshness.get("status")
-            result["stale_reason"] = freshness.get("message")
-    return result
+
+def all_stage_reviews(state_root: Path | str) -> dict[str, dict[str, Any]]:
+    """Return every stage review with current manuscript freshness applied."""
+    payload = _read(certificate_path(state_root))
+    reviews: dict[str, dict[str, Any]] = {}
+    for stage, record in (payload.get("stages") or {}).items():
+        if not isinstance(record, dict):
+            continue
+        result = dict(record)
+        snapshot = result.get("manuscript_snapshot")
+        project_root = str(result.get("project_root") or "").strip()
+        if isinstance(snapshot, dict) and snapshot.get("sha256") and project_root:
+            try:
+                from .manuscript_snapshot import manuscript_review_status
+
+                freshness = manuscript_review_status(result, project_root)
+            except Exception:  # noqa: BLE001 - an unreadable binding never certifies
+                freshness = {
+                    "status": "unbound",
+                    "message": "unbound manuscript review",
+                }
+            if freshness.get("status") != "current":
+                result["certified"] = False
+                result["review_status"] = "stale"
+                result["freshness_status"] = freshness.get("status")
+                result["stale_reason"] = freshness.get("message")
+        reviews[str(stage)] = result
+    return reviews
 
 
 __all__ = [
     "FILENAME",
+    "all_stage_reviews",
     "certificate_path",
     "latest_stage_review",
     "record_stage_review",

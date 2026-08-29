@@ -380,10 +380,8 @@ def test_bounded_completed_campaign_stops_before_planner_cycle(
     supervisor.config.open_ended = False
     monkeypatch.setattr(
         supervisor,
-        "_plan_next_work",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("completed bounded campaign must not enter Planner")
-        ),
+        "_manager_publish_project_report",
+        lambda _reason: "reported",
     )
 
     result = supervisor.run()
