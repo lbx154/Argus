@@ -33,6 +33,117 @@ from ._planning_cycle_helpers import (
 class PlanningCycleCompletionMixin:
     """Waiting handling + project_done normalization + no-tasks rejection."""
 
+    def _manager_project_completion_context(self) -> dict[str, Any]:
+        """Collect every stage and transition for Manager's completion report."""
+        from ...core.pipeline_state import read_pipeline_state
+        from ...core.stage_certificate import all_stage_reviews
+
+        pipeline = read_pipeline_state(self._artifact_root())
+        stages = pipeline.get("stages")
+        stage_history = pipeline.get("stage_history")
+        rollback_history = pipeline.get("rollback_history")
+        return {
+            "current_stage": str(pipeline.get("current_stage") or ""),
+            "stages": dict(stages) if isinstance(stages, dict) else {},
+            "stage_history": (
+                [dict(row) for row in stage_history if isinstance(row, dict)]
+                if isinstance(stage_history, list)
+                else []
+            ),
+            "rollback_history": (
+                [dict(row) for row in rollback_history if isinstance(row, dict)]
+                if isinstance(rollback_history, list)
+                else []
+            ),
+            "stage_reviews": all_stage_reviews(self.memory.root),
+        }
+
+    def _manager_publish_project_report(self, completion_reason: str) -> str:
+        """Have Manager summarize the completed full stage ledger to the operator."""
+        import hashlib
+        import json
+
+        stage = str(self._current_pipeline_stage() or "")
+        context = self._manager_project_completion_context()
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "objective": self.config.continuous_objective,
+                    "reason": completion_reason,
+                    "context": context,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()[:20]
+        message_id = f"manager-project-report-{fingerprint}"
+        from ...core.transcript import read_turns
+
+        if any(
+            turn.get("message_id") == message_id
+            for turn in read_turns(self.memory.root)
+        ):
+            return "reported"
+
+        report = self._bound_manager().report_project_completion(
+            completion_context=context,
+            continuous_objective=self.config.continuous_objective,
+            completion_reason=completion_reason,
+            on_event=getattr(self.sink, "handle_event", None),
+        )
+        if not str(report or "").strip():
+            self._emit_status("Manager could not produce the project completion report")
+            return PLAN_ERROR
+        try:
+            from ...core.operator_messages import publish_operator_message
+
+            published = publish_operator_message(
+                self.memory.root,
+                text=str(report).strip(),
+                message_id=message_id,
+                event_fields={
+                    "manager_project_report": True,
+                    "current_stage": stage,
+                },
+            )
+            if not published and not any(
+                turn.get("message_id") == message_id
+                for turn in read_turns(self.memory.root)
+            ):
+                self._emit_status("Manager project report could not be published")
+                return PLAN_ERROR
+        except Exception as exc:  # noqa: BLE001 - notification cannot own the verdict
+            self._emit({
+                "type": "life.manager.project_report.failed",
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            return PLAN_ERROR
+        self._emit({
+            "type": "life.manager.project_report",
+            "stage": stage,
+            "report": str(report).strip(),
+            "stage_count": len(context["stages"]),
+            "transition_count": len(context["stage_history"]),
+            "rollback_count": len(context["rollback_history"]),
+            "message_id": message_id,
+        })
+        self._clear_manager_planner_feedback()
+        return "reported"
+
+    def _manager_final_stage_is_completed(self) -> bool:
+        """Whether Manager has already persisted the terminal stage completion."""
+        from ...skills.vertical_select import (
+            resolve_vertical,
+            vertical_has_current_completion_certificate,
+        )
+
+        root = self._artifact_root()
+        return vertical_has_current_completion_certificate(
+            root,
+            resolve_vertical(root),
+        )
+
     def _pc_complete_terminal_empty_plan(self, state: _PlanCycleState) -> Any:
         verdict = state.verdict
         terminal_signature = self._open_ended_terminal_idle_signature()
@@ -264,6 +375,20 @@ class PlanningCycleCompletionMixin:
             return PLAN_RETRY
 
         if verdict.project_done:
+            if not self._manager_final_stage_is_completed():
+                stage = str(self._current_pipeline_stage() or "")
+                reason = (
+                    f"Project completion cannot be recorded yet: final stage "
+                    f"{stage!r} has not been completed by Manager."
+                )
+                if not self._persist_manager_planner_feedback(
+                    stage=stage,
+                    reason=reason,
+                    diagnostic="manager_final_stage_not_completed",
+                ):
+                    return PLAN_ERROR
+                self._emit_status(reason)
+                return PLAN_RETRY
             delivered = self._emit_planner_verdict(
                 status=PlannerVerdictStatus.COMPLETED,
                 completion_kind="project_completed",

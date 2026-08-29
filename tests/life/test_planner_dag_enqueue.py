@@ -391,3 +391,60 @@ def test_enqueued_task_resets_idle_backoff_only_after_forward_progress(
     harness = Harness()
     assert harness._pc_emit_final_verdict(state) is True
     assert harness.resets == expected_resets
+
+
+def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
+    feedback: list[dict[str, str]] = []
+
+    class Harness(PlanningCycleEnqueueMixin):
+        _planning_cycles = 3
+
+        @staticmethod
+        def _current_pipeline_stage() -> str:
+            return "analysis"
+
+        @staticmethod
+        def _emit_planner_verdict(**_kwargs: object) -> bool:
+            return True
+
+        @staticmethod
+        def _enter_idle_backoff() -> float:
+            return 5.0
+
+        @staticmethod
+        def _emit_status(_text: str) -> None:
+            return None
+
+        @staticmethod
+        def _persist_manager_planner_feedback(**kwargs: str) -> bool:
+            feedback.append(kwargs)
+            return True
+
+    state = _PlanCycleState(None)
+    state.verdict = SimpleNamespace(
+        new_tasks=[SimpleNamespace(title="Refresh paper review")],
+        project_done=False,
+        reason="the existing review is stale",
+    )
+    state.skipped_certification_reproposal_titles = ["Refresh paper review"]
+    state.skipped_certification_reproposal_reasons = [
+        "manuscript is unfrozen; staleness is a planning fact"
+    ]
+    state.skipped_task_feedback = [{
+        "title": "Refresh paper review",
+        "category": "stage_closing_requires_intervening_repair",
+        "reason": "manuscript is unfrozen; staleness is a planning fact",
+    }]
+
+    assert Harness()._pc_emit_final_verdict(state) == PLAN_RETRY
+    assert feedback == [{
+        "stage": "analysis",
+        "reason": (
+            "Supervisor filtered every task in the previous Planner proposal:\n"
+            "- [stage_closing_requires_intervening_repair] Refresh paper review: "
+            "manuscript is unfrozen; staleness is a planning fact\n"
+            "Return a materially different executable plan that addresses these "
+            "reasons; do not repeat an unchanged filtered proposal."
+        ),
+        "diagnostic": "planner_tasks_filtered",
+    }]
