@@ -73,6 +73,21 @@ class LifeWorkerRunMixin:
         activities = role_activity(rf_state.runtime_root, now=now)
         if any(activity.active for activity in activities.values()):
             return []
+        project_workdir = getattr(getattr(rf_state, "cfg", None), "project_workdir", None)
+        if project_workdir:
+            try:
+                from ..engineer.external_work import scan_external_work
+
+                if any(
+                    status.waitable
+                    for status in scan_external_work(Path(project_workdir), now=now)
+                ):
+                    return []
+            except Exception:  # noqa: BLE001 - uncertainty must not kill live work
+                log.exception(
+                    "daemon: could not inspect external work before stall decision"
+                )
+                return []
         role_ages = [
             float(activity.age_s)
             for activity in activities.values()

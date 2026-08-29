@@ -983,6 +983,35 @@ def test_daemon_preserves_running_item_during_persisted_engineer_handoff(
     assert len(events) == 1
 
 
+def test_daemon_preserves_running_item_while_external_work_is_waitable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = LifeMemory.open(tmp_path)
+    memory.init()
+    item = BacklogItem.new(title="external", objective="wait for durable work")
+    memory.backlog.add(item)
+    memory.backlog.mark_running(item.id)
+    memory.backlog.update(item.id, started_ts=time.time() - 31.0)
+    events: list[dict[str, Any]] = []
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
+    state = SimpleNamespace(
+        mem=memory,
+        runtime_root=tmp_path,
+        cfg=SimpleNamespace(project_workdir=tmp_path / "workdir"),
+        sink=SimpleNamespace(handle_event=events.append),
+    )
+    monkeypatch.setattr(
+        "argus_skill.engineer.external_work.scan_external_work",
+        lambda *_args, **_kwargs: [SimpleNamespace(waitable=True)],
+    )
+
+    assert worker._fail_stalled_running_items(state) == []
+    stored = next(row for row in memory.backlog.active() if row.id == item.id)
+    assert stored.status == "running"
+    assert events == []
+
+
 def test_life_worker_continues_when_telegram_poller_start_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
