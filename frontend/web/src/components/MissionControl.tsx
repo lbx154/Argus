@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { DeliveryReceipt, GitDiffView, MissionView } from '../../../core/src/types';
 import {
   displayObjective,
@@ -18,6 +18,76 @@ import {
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
 const ACTIVE_WORK_STATUSES = ['active', 'running', 'in_progress', 'claimed'];
 const TERMINAL_MISSION_STATUSES = ['complete', 'completed', 'done', 'success', 'incomplete', 'stalled', 'blocked', 'ended'];
+const MILLISECONDS_PER_DAY = 86_400_000;
+
+function missionRoleLabel(role: string, t: (key: string) => string) {
+  return ROLE_ORDER.includes(role) ? t(`role.${role}`) : roleLabel(role, t);
+}
+
+export function formatMissionEventTime(ts: number, locale: string, now = new Date()) {
+  const date = new Date(ts * 1000);
+  const time = date.toLocaleTimeString(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const eventDay = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  if (eventDay === today) return time;
+
+  const firstWeekday = locale === 'zh-CN' ? 1 : 0;
+  const daysSinceWeekStart = (now.getDay() - firstWeekday + 7) % 7;
+  const weekStart = today - daysSinceWeekStart * MILLISECONDS_PER_DAY;
+  if (eventDay >= weekStart && eventDay < today) {
+    const weekday = date.toLocaleDateString(locale, { weekday: 'short' });
+    return `${weekday} ${time}`;
+  }
+
+  const calendarDate = date.toLocaleDateString(locale, {
+    month: 'short',
+    day: 'numeric',
+  });
+  return `${calendarDate} ${time}`;
+}
+
+function RoleWorkDetail({ detail }: { detail: string }) {
+  const { t } = useI18n();
+  const detailRef = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [canExpand, setCanExpand] = useState(false);
+
+  useEffect(() => {
+    if (expanded) return;
+    const element = detailRef.current;
+    if (!element) return;
+    const measure = () => setCanExpand(element.scrollHeight > element.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [detail, expanded]);
+
+  return (
+    <div className="mt-2">
+      <p
+        ref={detailRef}
+        className={`${expanded ? '' : 'line-clamp-3'} whitespace-pre-wrap break-words text-[11px] leading-5 text-ink-dim`}
+      >
+        {detail}
+      </p>
+      {canExpand ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          className="mt-1 text-[11px] text-blue-sky hover:text-ink"
+        >
+          {t(expanded ? 'mission.showLess' : 'mission.showMore')}
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 function orderedDag(view: MissionView) {
   const pending = [...view.dag];
@@ -315,7 +385,7 @@ export function MissionControl({
                   </span>
                   {item.round_index != null ? <span>{t('mission.roundNumber', { count: item.round_index })}</span> : null}
                 </div>
-                {item.detail ? <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-[11px] leading-5 text-ink-dim">{item.detail}</p> : null}
+                {item.detail ? <RoleWorkDetail detail={item.detail} /> : null}
               </article>
             );
           })}
@@ -451,28 +521,54 @@ export function MissionControl({
         <div className="flex flex-wrap items-center gap-3">
           <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">{t('mission.replay')}</div>
           {view.timeline.length > 1 ? (
-            <>
-              <input
-                type="range"
-                min={0}
-                max={view.timeline.length - 1}
-                value={replayIndex}
-                onChange={(event) => setReplayIndex(Number(event.target.value))}
-                aria-label={t('mission.replayTimeline')}
-                className="h-1 min-w-32 flex-1 accent-blue"
-              />
-              <span className="font-mono text-[10px] text-ink-faint">{replayIndex + 1}/{view.timeline.length}</span>
-            </>
+            <input
+              type="range"
+              min={0}
+              max={view.timeline.length - 1}
+              value={replayIndex}
+              onChange={(event) => setReplayIndex(Number(event.target.value))}
+              aria-label={t('mission.replayTimeline')}
+              className="h-1 min-w-32 flex-1 accent-blue"
+            />
+          ) : null}
+          {replayRows.length ? (
+            <span className="text-[10px] text-ink-faint">
+              {t(replayRows.length === 1 ? 'mission.showingLatestEvent' : 'mission.showingLastEvents', { count: replayRows.length })}
+            </span>
           ) : null}
         </div>
         <div className="mt-3 space-y-3">
-          {replayRows.map((item) => (
-            <div key={item.id} className="grid grid-cols-[44px_10px_minmax(0,1fr)] gap-2 text-xs">
-              <time className="font-mono text-[10px] text-ink-faint">{new Date(item.ts * 1000).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false })}</time>
-              <span className={`mt-1 h-2 w-2 rounded-full ${item.tone === 'error' ? 'bg-err' : item.tone === 'success' || item.tone === 'metric' || item.tone === 'skill' ? 'bg-ok' : 'bg-blue'}`} />
-              <div className="min-w-0"><span className="font-medium text-ink">{item.title}</span>{item.detail ? <span className="text-ink-dim"> · {item.detail}</span> : null}</div>
-            </div>
-          ))}
+          {replayRows.map((item) => {
+            const date = new Date(item.ts * 1000);
+            const color = theme.role[item.role] ?? theme.inkFaint;
+            return (
+              <article key={item.id} className="rounded border border-line/60 bg-bg/35 px-3 py-2.5 text-xs">
+                <div className="flex items-start gap-2">
+                  <span
+                    aria-hidden="true"
+                    className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.tone === 'error' ? 'bg-err' : item.tone === 'success' || item.tone === 'metric' || item.tone === 'skill' ? 'bg-ok' : 'bg-blue'}`}
+                  />
+                  <span
+                    className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium"
+                    style={{ borderColor: color, color }}
+                  >
+                    {missionRoleLabel(item.role, t)}
+                  </span>
+                  <span className="min-w-0 flex-1 break-words font-medium leading-5 text-ink">{item.title}</span>
+                  <time
+                    dateTime={date.toISOString()}
+                    title={date.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
+                    className="shrink-0 font-mono text-[10px] text-ink-faint"
+                  >
+                    {formatMissionEventTime(item.ts, locale)}
+                  </time>
+                </div>
+                {item.detail ? (
+                  <p className="mt-2 whitespace-pre-wrap break-words leading-5 text-ink-dim">{item.detail}</p>
+                ) : null}
+              </article>
+            );
+          })}
           {!view.timeline.length ? <div className="py-10 text-center text-xs text-ink-faint">{t('mission.waitingEvents')}</div> : null}
         </div>
         {view.artifacts.length ? (
