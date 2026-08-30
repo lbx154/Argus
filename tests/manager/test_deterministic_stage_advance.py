@@ -101,6 +101,38 @@ def test_stage_closing_bounded_direct_done_with_advice_completes_current_stage(
     assert state["stages"]["setup"]["status"] == "done"
 
 
+def test_bounded_direct_done_does_not_require_staged_learning_bundle(
+    tmp_path,
+) -> None:
+    state_root = tmp_path / "state"
+    workdir = tmp_path / "worktree"
+    workdir.mkdir()
+    persist_vertical(state_root, "learning", workflow_mode="direct")
+    manager = Manager(
+        project_root=state_root,
+        execution_workdir=workdir,
+        runner=object(),
+    )
+
+    decision = manager.decide_stage_transition(
+        review=_review(),
+        project_root=state_root,
+        mission_scope="bounded",
+        stage_closing=True,
+        run_exec=lambda _prompt: pytest.fail(
+            "direct Reviewer done must not require staged learning artifacts"
+        ),
+    )
+
+    assert decision.action == "complete"
+    assert decision.target_stage == "ingest"
+    state = _state(state_root)
+    assert state["stages"]["ingest"]["status"] == "done"
+    assert state["stages"]["study"]["status"] == "skipped"
+    assert state["stages"]["curate"]["status"] == "skipped"
+    assert state["stages"]["review"]["status"] == "skipped"
+
+
 def test_stage_closing_open_ended_direct_done_advances(tmp_path) -> None:
     manager, state_root, _workdir = _manager(tmp_path, workflow_mode="direct")
 

@@ -912,14 +912,15 @@ class _StageDecisionMixin:
                 from ..skills.vertical_select import resolve_workflow_mode
                 from .stage_decider import StageDecision
 
-                _ensure_stage_completion(
-                    root,
-                    cur,
-                    evidence_root=self.execution_workdir,
-                )
                 allow_early_completion = (
                     not open_ended and resolve_workflow_mode(root) == "direct"
                 )
+                if not (allow_early_completion and not terminal_stage):
+                    _ensure_stage_completion(
+                        root,
+                        cur,
+                        evidence_root=self.execution_workdir,
+                    )
                 if terminal_stage or allow_early_completion:
                     from ..core.research_contract import resolve_research_target_level
                     from ..skills.vertical_select import resolve_vertical
