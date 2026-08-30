@@ -1300,8 +1300,6 @@ class PlanningCycleEnqueueMixin:
             },
             manager_intent=state.manager_intent,
         )
-        if not delivered:
-            return PLAN_RETRY
         if not state.added_titles:
             filter_feedback = _render_filtered_task_feedback(state)
             if filter_feedback and state.revision_request is None:
@@ -1315,6 +1313,8 @@ class PlanningCycleEnqueueMixin:
                         "failed to persist filtered-task feedback; retry later"
                     )
                     return PLAN_ERROR
+            if not delivered:
+                return PLAN_RETRY
             self._enter_idle_backoff()
             if state.skipped_certification_reproposal_reasons:
                 self._emit_status(
@@ -1325,6 +1325,8 @@ class PlanningCycleEnqueueMixin:
                 self._emit_status(
                     "planner: all proposed tasks were filtered; retrying after backoff"
                 )
+            return PLAN_RETRY
+        if not delivered:
             return PLAN_RETRY
         self._clear_manager_planner_feedback()
         # A queued task is not itself evidence that the objective moved. Preserve

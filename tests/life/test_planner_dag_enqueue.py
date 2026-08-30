@@ -393,7 +393,10 @@ def test_enqueued_task_resets_idle_backoff_only_after_forward_progress(
     assert harness.resets == expected_resets
 
 
-def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
+@pytest.mark.parametrize("verdict_delivered", [True, False])
+def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle(
+    verdict_delivered: bool,
+) -> None:
     feedback: list[dict[str, str]] = []
 
     class Harness(PlanningCycleEnqueueMixin):
@@ -405,7 +408,7 @@ def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:
 
         @staticmethod
         def _emit_planner_verdict(**_kwargs: object) -> bool:
-            return True
+            return verdict_delivered
 
         @staticmethod
         def _enter_idle_backoff() -> float:
