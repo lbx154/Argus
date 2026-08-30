@@ -352,6 +352,13 @@ def _build_report(task_id: str, event: str, task_data: dict[str, Any]) -> str:
         lines.append("**Next action**: collect results from the paths above, update PIPELINE_STATE, and continue pipeline.")
     elif event == "EARLY-STOPPED":
         lines.append("**Next action**: the run is STOPPED and the supervisor is waiting on the discussion thread. Inspect the supervisor log / concern above, decide the fix (revise the idea or hyperparameters, or relaunch), and reply your rationale so the two-way discussion can resolve.")
+    elif event == "TIMEOUT":
+        lines.append(
+            "**Next action**: treat the result as inconclusive. Inspect partial "
+            "outputs and run artifacts for usable progress; resume from a checkpoint "
+            "when supported, otherwise re-submit only with a justified command or "
+            "timeout change. Do not infer a workload failure from the timeout alone."
+        )
     else:
         lines.append("**Next action**: inspect stderr for root cause, fix, and re-submit if needed.")
 
