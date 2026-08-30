@@ -262,18 +262,9 @@ class PlanningCycleIntakeMixin:
                 # resolves. Exactly one such item is live on this host.
                 #
                 # With nothing to replace, the honest degradation is an ordinary
-                # planning cycle. The Planner still sees the Reviewer's reason
-                # through the revision note; it simply cannot supersede a plan
-                # that never existed.
-                self._emit({
-                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                    "reason": (
-                        "unversioned backlog item has no plan to replace; "
-                        "planning fresh work instead"
-                    ),
-                    "expected_plan_id": "",
-                    "expected_plan_version": state.expected_plan_version,
-                })
+                # planning cycle. There is no revision rejection to record:
+                # version zero is valid for this legacy/direct item, but not for
+                # the versioned plan-revision event family.
                 state.revision_request = None
                 revision_request = None
         if revision_request is not None:

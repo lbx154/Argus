@@ -1421,5 +1421,6 @@ def test_unversioned_item_replan_degrades_to_planning_not_a_dead_end(
         for event in sink.events
         if event.get("type") == "life.plan.revision.rejected"
     ]
-    assert rejected, "the degradation must stay on the record"
-    assert "planning fresh work instead" in rejected[0]["reason"]
+    assert rejected == [], (
+        "an unversioned item has no versioned plan revision to reject"
+    )
