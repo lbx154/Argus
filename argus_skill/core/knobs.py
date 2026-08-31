@@ -775,11 +775,25 @@ def resolve_manager_reply_model(
 ) -> str:
     """Resolve the high-quality operator-facing Manager SELF model."""
     env_map = env if env is not None else os.environ
-    configured = resolve_knob(
+    resolved = resolve_knob(
         "ARGUS_SKILL_MANAGER_REPLY_MODEL",
         "inherit",
         env=env_map,
-    ).value.strip()
+    )
+    configured = resolved.value.strip()
+    if (
+        resolved.source == "persisted"
+        and any(
+            str(env_map.get(name, "") or "").strip()
+            for name in ("ARGUS_SKILL_MANAGER_MODEL", "ARGUS_SKILL_MODEL")
+        )
+    ):
+        return resolve_role_model(
+            "manager",
+            role_env="ARGUS_SKILL_MANAGER_MODEL",
+            backend=backend,
+            env=env_map,
+        )
     if configured.lower() not in {"", "auto", "inherit", "default"}:
         return configured
     return resolve_role_model(
@@ -864,7 +878,22 @@ def resolve_cheap_route_model(
     OpenAI 目录后端；此处统一规则，非 OpenAI 目录的后端回落到角色 model。
     """
     env_map = env if env is not None else os.environ
-    configured = resolve_knob(knob, "auto", env=env_map).value.strip()
+    resolved = resolve_knob(knob, "auto", env=env_map)
+    configured = resolved.value.strip()
+    if (
+        resolved.source == "persisted"
+        and any(
+            str(env_map.get(name, "") or "").strip()
+            for name in (role_env, "ARGUS_SKILL_MODEL")
+            if name
+        )
+    ):
+        return resolve_role_model(
+            role,
+            role_env=role_env,
+            backend=backend,
+            env=env_map,
+        )
     if configured.lower() not in _AUTO_MODEL_SENTINELS:
         return configured
     from ..agent_cli.runner_backend import BACKEND_MEMORY, normalize_runner_backend

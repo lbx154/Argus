@@ -130,6 +130,29 @@ def test_manager_routes_use_the_actual_runtime_backend() -> None:
     assert resolve_manager_reply_model(backend="claude", env=env) == ""
 
 
+def test_explicit_shared_model_beats_persisted_manager_route_models(
+    monkeypatch,
+) -> None:
+    from argus_skill.core import knob_store
+    from argus_skill.core.knobs import (
+        resolve_manager_classify_model,
+        resolve_manager_reply_model,
+    )
+
+    monkeypatch.setattr(
+        knob_store,
+        "read_persisted_knobs",
+        lambda: {
+            "ARGUS_SKILL_FRONTDOOR_MODEL": "deepseek-official/deepseek-v4-flash",
+            "ARGUS_SKILL_MANAGER_REPLY_MODEL": "deepseek-official/deepseek-v4-flash",
+        },
+    )
+    env = _env("copilot", ARGUS_SKILL_MODEL="gpt-5.6-sol")
+
+    assert resolve_manager_classify_model(backend="copilot", env=env) == "gpt-5.6-sol"
+    assert resolve_manager_reply_model(backend="copilot", env=env) == "gpt-5.6-sol"
+
+
 def test_claude_command_omits_openai_model_when_unconfigured() -> None:
     from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
     from argus_skill.agent_cli.runner_backend import BACKEND_CLAUDE
