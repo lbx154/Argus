@@ -12,26 +12,26 @@ from argus_skill.manager.domain_author import (
     parse_vertical_decision,
 )
 from argus_skill.skills.vertical_select import VERTICAL_PURPOSES, VERTICALS
+from argus_skill.verticals._data_domain import CANDIDATE_DOMAIN_STAGES
 
 
-def test_parse_happy_path():
+def test_parse_domain_proposal_uses_runtime_owned_stages():
     raw = json.dumps({
         "name": "robotics_sim",
-        "stages": ["scope", "simulate", "measure", "report"],
         "rationale": "novel control domain",
         "confidence": 0.8,
     })
     p = parse_domain_proposal(raw, known_verticals=VERTICALS)
     assert isinstance(p, DomainProposal)
     assert p.name == "robotics_sim"
-    assert p.stages == ["scope", "simulate", "measure", "report"]
+    assert p.stages == list(CANDIDATE_DOMAIN_STAGES)
 
 
-def test_parse_accepts_an_already_structured_manager_payload():
+def test_parse_ignores_legacy_stages_in_structured_manager_payload():
     proposal = parse_domain_proposal(
         {
             "name": "robotics_sim",
-            "stages": ["scope", "simulate"],
+            "stages": ["scope", "simulate", "review"],
             "rationale": "structured process decision",
         },
         known_verticals=VERTICALS,
@@ -39,14 +39,13 @@ def test_parse_accepts_an_already_structured_manager_payload():
 
     assert proposal is not None
     assert proposal.name == "robotics_sim"
-    assert proposal.stages == ["scope", "simulate"]
+    assert proposal.stages == list(CANDIDATE_DOMAIN_STAGES)
 
 
-def test_parse_sluggifies_name_and_stages():
-    raw = json.dumps({"name": "Robotics Sim!", "stages": ["Scope Phase", "Sim-Run"]})
+def test_parse_sluggifies_name():
+    raw = json.dumps({"name": "Robotics Sim!"})
     p = parse_domain_proposal(raw, known_verticals=VERTICALS)
     assert p.name == "robotics_sim"
-    assert p.stages == ["scope_phase", "sim_run"]
 
 
 def test_parse_fail_closed_on_bad_json():
@@ -54,16 +53,9 @@ def test_parse_fail_closed_on_bad_json():
     assert parse_domain_proposal("{}", known_verticals=VERTICALS) is None
 
 
-def test_parse_rejects_too_few_or_too_many_stages():
-    assert parse_domain_proposal(json.dumps({"name": "x", "stages": ["only_one"]}),
-                                 known_verticals=VERTICALS) is None
-    big = {"name": "x", "stages": [f"s{i}" for i in range(20)]}
-    assert parse_domain_proposal(json.dumps(big), known_verticals=VERTICALS) is None
-
-
 def test_parse_dedupes_name_against_known_and_existing():
     # Collision with a preset vertical → suffixed, not rejected.
-    raw = json.dumps({"name": "research", "stages": ["a", "b"]})
+    raw = json.dumps({"name": "research"})
     p = parse_domain_proposal(raw, known_verticals=VERTICALS, existing_data_domains=["research_2"])
     assert p is not None and p.name not in ("research", "research_2")
 
@@ -159,8 +151,9 @@ def test_new_domain_starts_with_real_work_not_process_ceremony() -> None:
         verticals_with_purpose=VERTICAL_PURPOSES,
     )
 
-    assert "not a one-off task list" in prompt
-    assert "action stages" in prompt
+    assert "The Host owns its generic candidate lifecycle" in prompt
+    assert "do not propose or revise stage names" in prompt
+    assert "STAGES" not in prompt
 
 
 def test_vertical_prompt_preserves_explicit_operator_actions() -> None:
@@ -515,7 +508,7 @@ def test_fast_vertical_parser_rejects_explicit_workflow_conflict_with_persisted(
     assert route is None
 
 
-def test_vertical_parser_accepts_in_place_data_domain_adaptation() -> None:
+def test_vertical_parser_ignores_existing_domain_stage_adaptation() -> None:
     decision = parse_vertical_decision(
         json.dumps({
             "choice": "existing",
@@ -539,14 +532,7 @@ def test_vertical_parser_accepts_in_place_data_domain_adaptation() -> None:
     assert decision is not None
     assert decision.choice == "existing"
     assert decision.vertical == "regulated_localization"
-    assert decision.adapted_stages == (
-        "terminology_lock",
-        "translation",
-        "regulatory_review",
-        "layout_qa",
-        "linguistic_qa",
-        "release",
-    )
+    assert decision.adapted_stages == ()
 
 
 def test_fast_vertical_parser_sends_new_or_uncertain_work_to_grounding() -> None:

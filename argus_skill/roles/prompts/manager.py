@@ -24,9 +24,6 @@ SKILL_PLACEMENT_BATCH = "skill_placement_batch"
 LIVE_VIEW = "live_view"
 PENDING_QUESTION = "pending_question"
 
-_MIN_DOMAIN_STAGES = 2
-# These bound one structured Manager response for parsing/UI, not execution time.
-_MAX_DOMAIN_STAGES = 10
 _MIN_PLAN_STEPS = 3
 _MAX_PLAN_STEPS = 8
 
@@ -397,8 +394,8 @@ def build_vertical_decision_prompt(
         "Pick the closest existing capability by the requested action, not incidental "
         "words in filenames or logs. Prefer a matching formal project domain, then a "
         "built-in, then a candidate project domain. Use `new` only when none fits; a "
-        "new vertical needs a reusable slug and "
-        f"{_MIN_DOMAIN_STAGES}-{_MAX_DOMAIN_STAGES} action stages, not a one-off task list.\n\n"
+        "new vertical needs only a reusable slug. The Host owns its generic candidate "
+        "lifecycle; do not propose or revise stage names.\n\n"
         "`domain` may only name an optional research domain listed above. An existing "
         "project domain is itself a vertical: put its exact slug in `vertical` and "
         "leave `domain` empty. Do not combine `vertical=research` with a project-domain "
@@ -421,8 +418,7 @@ def build_vertical_decision_prompt(
         "`require_independent_review=false` only for an authorized deliberate waiver "
         "and state why in `rationale`.\n\n"
         "State `choice`, `vertical`, `domain`, `workflow_mode`, and `rationale` "
-        "at the end. Add `stages` only for a revised project domain or new vertical. "
-        "Omit `execution_task` for a standalone existing route; include it only when "
+        "at the end. Omit `execution_task` for a standalone existing route; include it only when "
         "bounded context must be rewritten as a standalone handoff or for a new "
         "vertical. Preserve stated paths, commands, order, and stopping conditions. "
         "For a research-target vertical, always add `research_target_level` and "
