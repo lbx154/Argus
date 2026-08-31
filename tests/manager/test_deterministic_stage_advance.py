@@ -21,11 +21,11 @@ def _review(**changes) -> ReviewDecision:
     return ReviewDecision(**values)
 
 
-def _manager(tmp_path):
+def _manager(tmp_path, *, workflow_mode: str = "staged"):
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir(parents=True)
-    persist_vertical(state_root, "speedrun", workflow_mode="staged")
+    persist_vertical(state_root, "speedrun", workflow_mode=workflow_mode)
     return (
         Manager(
             project_root=state_root,
@@ -58,6 +58,95 @@ def test_stage_closing_reviewer_done_advances_without_manager_model(tmp_path) ->
     )
 
     assert calls == []
+    assert decision.action == "advance"
+    assert decision.target_stage == "optimize"
+    assert decision.source == "manager_deterministic"
+    assert decision.diagnostic == "deterministic_reviewer_done"
+    assert _state(state_root)["current_stage"] == "optimize"
+
+
+def test_stage_closing_bounded_direct_done_with_advice_completes_current_stage(
+    tmp_path,
+) -> None:
+    manager, state_root, _workdir = _manager(tmp_path, workflow_mode="direct")
+    calls: list[str] = []
+
+    def manager_model(prompt: str):
+        calls.append(prompt)
+        raise AssertionError("direct Reviewer done must not call Manager model")
+
+    decision = manager.decide_stage_transition(
+        review=_review(
+            planner_report={
+                "forward_progress": True,
+                "plan_signal": "reconsider",
+                "challenge": "A broader causal claim needs implementation evidence.",
+                "alternative": "Compare executed configurations before expanding it.",
+                "authority_impact": "technical",
+            }
+        ),
+        project_root=state_root,
+        mission_scope="bounded",
+        stage_closing=True,
+        run_exec=manager_model,
+    )
+
+    assert calls == []
+    assert decision.action == "complete"
+    assert decision.target_stage == "setup"
+    assert decision.source == "manager_deterministic"
+    assert decision.diagnostic == "deterministic_reviewer_done"
+    state = _state(state_root)
+    assert state["current_stage"] == "setup"
+    assert state["stages"]["setup"]["status"] == "done"
+
+
+def test_bounded_direct_done_does_not_require_staged_learning_bundle(
+    tmp_path,
+) -> None:
+    state_root = tmp_path / "state"
+    workdir = tmp_path / "worktree"
+    workdir.mkdir()
+    persist_vertical(state_root, "learning", workflow_mode="direct")
+    manager = Manager(
+        project_root=state_root,
+        execution_workdir=workdir,
+        runner=object(),
+    )
+
+    decision = manager.decide_stage_transition(
+        review=_review(),
+        project_root=state_root,
+        mission_scope="bounded",
+        stage_closing=True,
+        run_exec=lambda _prompt: pytest.fail(
+            "direct Reviewer done must not require staged learning artifacts"
+        ),
+    )
+
+    assert decision.action == "complete"
+    assert decision.target_stage == "ingest"
+    state = _state(state_root)
+    assert state["stages"]["ingest"]["status"] == "done"
+    assert state["stages"]["study"]["status"] == "skipped"
+    assert state["stages"]["curate"]["status"] == "skipped"
+    assert state["stages"]["review"]["status"] == "skipped"
+
+
+def test_stage_closing_open_ended_direct_done_advances(tmp_path) -> None:
+    manager, state_root, _workdir = _manager(tmp_path, workflow_mode="direct")
+
+    decision = manager.decide_stage_transition(
+        review=_review(),
+        project_root=state_root,
+        mission_scope="bounded",
+        stage_closing=True,
+        open_ended=True,
+        run_exec=lambda _prompt: pytest.fail(
+            "unambiguous Reviewer done must not call Manager model"
+        ),
+    )
+
     assert decision.action == "advance"
     assert decision.target_stage == "optimize"
     assert decision.source == "manager_deterministic"
@@ -321,7 +410,6 @@ def test_unparseable_or_absent_review_fields_use_manager(tmp_path, review) -> No
         ({"status": "replan_requested", "next_action": "Choose a new route."}, "bounded"),
         ({"next_action": "Implement the remaining stage work."}, "bounded"),
         ({"planner_report": {"authority_impact": "operator"}}, "bounded"),
-        ({"planner_report": {"plan_signal": "reconsider"}}, "bounded"),
         ({"frontier_report": {"change": "unexplained_regression"}}, "bounded"),
         ({"review_source": "engineer_self_review"}, "bounded"),
     ],

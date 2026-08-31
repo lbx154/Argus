@@ -96,6 +96,51 @@ def test_completed_event_carries_existing_engineer_summary(tmp_path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("open_ended", "expected_complete"),
+    [(False, True), (True, False)],
+)
+def test_manager_complete_is_project_complete_only_for_bounded_campaign(
+    tmp_path,
+    open_ended: bool,
+    expected_complete: bool,
+) -> None:
+    outcome = _Outcome(
+        success=True,
+        status="done",
+        final_review_status="done",
+        final_review_source="reviewer",
+    )
+    outcome.stage_transition = {
+        "action": "complete",
+        "target_stage": "setup",
+    }
+    supervisor, sink = _make_supervisor(tmp_path, outcome)
+    supervisor.config.continuous = True
+    supervisor.config.open_ended = open_ended
+    supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Complete the direct objective",
+            objective="Finish one reviewed direct task.",
+            tags=["manager_direct", "scope:bounded", "stage_closing"],
+            manager_decision={
+                "routed": True,
+                "vertical": "software",
+                "workflow_mode": "direct",
+            },
+        )
+    )
+
+    result = supervisor.tick()
+
+    assert result is not None
+    assert result["overall_complete"] is expected_complete
+    assert result["campaign_continues"] is not expected_complete
+    event = _completed_event(sink)
+    assert event["overall_complete"] is expected_complete
+    assert event["campaign_continues"] is not expected_complete
+
+
+@pytest.mark.parametrize(
     ("status", "success", "expected"),
     [
         ("done", True, "completed"),

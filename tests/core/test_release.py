@@ -361,22 +361,29 @@ def test_deployment_boundary_rejects_regression_mismatch_and_restart(
     assert public_main == base
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="bare-repository partial-publication hook semantics are covered on POSIX",
+)
 def test_deployment_boundary_publishes_both_routes_before_roll(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo, public, private, base, candidate = _deployment_repo(tmp_path)
     change = _reviewed_change(repo, base, candidate, tmp_path / "receipts")
-    update_hook = private / "hooks" / "update"
-    update_hook.write_text(
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"refs/heads/main\" ]; then\n"
-        "  exit 1\n"
-        "fi\n"
-        "exit 0\n",
-        encoding="utf-8",
-    )
-    update_hook.chmod(0o755)
+    real_git = deploy_boundary._git
 
+    def reject_private_main(repo_path, *args, check=True):
+        if (
+            len(args) >= 3
+            and args[0] == "push"
+            and Path(args[1]).resolve() == private.resolve()
+            and str(args[-1]).endswith(":refs/heads/main")
+        ):
+            raise subprocess.CalledProcessError(1, ["git", *args])
+        return real_git(repo_path, *args, check=check)
+
+    monkeypatch.setattr(deploy_boundary, "_git", reject_private_main)
     partial = deploy_reviewed_change(change, _approval(change))
 
     assert partial["verdict"] == "REJECT"
@@ -388,7 +395,7 @@ def test_deployment_boundary_publishes_both_routes_before_roll(
     assert partial["daemon_roll_permitted"] is False
     assert partial["runtime_source_root"] == ""
 
-    update_hook.unlink()
+    monkeypatch.setattr(deploy_boundary, "_git", real_git)
     # Date-scoped sync branches from the partial run are absent the next day.
     for bare, branch in (
         (public, partial["public_sync_branch"]),

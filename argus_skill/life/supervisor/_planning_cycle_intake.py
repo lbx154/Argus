@@ -157,6 +157,7 @@ class PlanningCycleIntakeMixin:
         from ...core.external_completion_gate import external_completion_gate_issue
         from ...skills.vertical_select import (
             resolve_vertical,
+            resolve_workflow_mode,
             vertical_has_current_completion_certificate,
         )
 
@@ -165,12 +166,15 @@ class PlanningCycleIntakeMixin:
             return ""
         if external_completion_gate_issue(artifact_root):
             return ""
-        if _research_project_done_issue(
+        if (
+            resolve_workflow_mode(artifact_root) != "direct"
+            and _research_project_done_issue(
             artifact_root,
             self.memory.journal.all(),
+            )
         ):
             return ""
-        return f"bounded {vertical} vertical reached terminal stage"
+        return f"bounded {vertical} vertical has a current completion certificate"
 
     def _pc_intake_gate(self, state: _PlanCycleState) -> Any | None:
         """Drain operator input and reject/idle before touching the planner.
@@ -258,18 +262,9 @@ class PlanningCycleIntakeMixin:
                 # resolves. Exactly one such item is live on this host.
                 #
                 # With nothing to replace, the honest degradation is an ordinary
-                # planning cycle. The Planner still sees the Reviewer's reason
-                # through the revision note; it simply cannot supersede a plan
-                # that never existed.
-                self._emit({
-                    "type": EventType.LIFE_PLAN_REVISION_REJECTED,
-                    "reason": (
-                        "unversioned backlog item has no plan to replace; "
-                        "planning fresh work instead"
-                    ),
-                    "expected_plan_id": "",
-                    "expected_plan_version": state.expected_plan_version,
-                })
+                # planning cycle. There is no revision rejection to record:
+                # version zero is valid for this legacy/direct item, but not for
+                # the versioned plan-revision event family.
                 state.revision_request = None
                 revision_request = None
         if revision_request is not None:

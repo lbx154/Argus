@@ -13,7 +13,6 @@ from argus_skill.manager.live_view import (
     load_live_view_decision,
     normalize_live_view_path,
     parse_live_view_response,
-    parse_manager_presentations,
 )
 
 

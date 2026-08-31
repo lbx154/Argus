@@ -304,7 +304,7 @@ class PromptDeliveryMixin:
                 Path(tempfile.gettempdir()) / "argus-no-gh-auth"
             )
         repaired = runner_child_environment(
-            executable or self.agent_bin,
+            executable or getattr(self, "agent_bin", ""),
             env=env,
         )
         return repaired if repaired is not None else env

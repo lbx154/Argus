@@ -394,6 +394,86 @@ def test_bounded_completed_campaign_stops_before_planner_cycle(
     )
 
 
+def test_bounded_direct_research_completion_stops_without_submission_journal(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    supervisor, backend, _sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+    )
+    supervisor.config.open_ended = False
+    project = Path(supervisor.config.artifact_root)
+    from argus_skill.skills import stage_machine
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(
+        project,
+        "research",
+        research_target_level="exploratory",
+        workflow_mode="direct",
+    )
+    monkeypatch.setattr(
+        stage_machine,
+        "_ensure_stage_completion",
+        lambda *_args, **_kwargs: None,
+    )
+    stage_machine.complete_final_stage(
+        project,
+        reason="The reviewed direct objective is complete.",
+        allow_early_completion=True,
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_manager_publish_project_report",
+        lambda _reason: "reported",
+    )
+
+    result = supervisor.run()
+
+    assert result["stopped_by"] == "project_done"
+    assert result["planning_cycles"] == 0
+    assert backend.planner_calls == 0
+
+
+def test_bounded_staged_research_still_requires_submission_journal(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    supervisor, _backend, _sink = _make_supervisor(
+        tmp_path,
+        monkeypatch,
+        terminal_stage_done=False,
+    )
+    supervisor.config.open_ended = False
+    project = Path(supervisor.config.artifact_root)
+    from argus_skill.skills import stage_machine
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(
+        project,
+        "research",
+        research_target_level="exploratory",
+        workflow_mode="staged",
+    )
+    state_path = project / ".argus" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["current_stage"] = "submission"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    monkeypatch.setattr(
+        stage_machine,
+        "_ensure_stage_completion",
+        lambda *_args, **_kwargs: None,
+    )
+    stage_machine.complete_final_stage(
+        project,
+        reason="The staged final stage is complete.",
+    )
+
+    assert supervisor._bounded_completion_reason() == ""
+
+
 def test_standing_campaign_is_not_stopped_by_bounded_completion_certificate(
     tmp_path: Path,
     monkeypatch,
@@ -1341,5 +1421,6 @@ def test_unversioned_item_replan_degrades_to_planning_not_a_dead_end(
         for event in sink.events
         if event.get("type") == "life.plan.revision.rejected"
     ]
-    assert rejected, "the degradation must stay on the record"
-    assert "planning fresh work instead" in rejected[0]["reason"]
+    assert rejected == [], (
+        "an unversioned item has no versioned plan revision to reject"
+    )
