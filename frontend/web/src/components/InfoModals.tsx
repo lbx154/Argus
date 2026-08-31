@@ -14,20 +14,19 @@ import {
 } from '../lib/configSurface';
 import { roleLabel } from '../lib/enumLabels';
 import { useI18n } from '../i18n';
+import {
+  BACKEND_OPTIONS,
+  backendLabel,
+  backendOption,
+  configuredBackend,
+  type BackendOption,
+} from '../lib/backend';
 
 const BUDGET_FIELDS = [
   { alias: 'global_daily_cap', env: 'ARGUS_SKILL_GLOBAL_DAILY_CAP_USD', label: 'settings.budget.global', unit: 'settings.unit.usd', step: '0.1' },
   { alias: 'codex_daily_requests', env: 'ARGUS_SKILL_CODEX_DAILY_CALL_CAP', label: 'settings.budget.codex', unit: 'settings.unit.calls', step: '1' },
   { alias: 'copilot_daily_requests', env: 'ARGUS_SKILL_COPILOT_DAILY_CALL_CAP', label: 'settings.budget.copilot', unit: 'settings.unit.calls', step: '1' },
   { alias: 'copilot_daily_premium', env: 'ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP', label: 'settings.budget.premium', unit: 'settings.unit.requests', step: '1' },
-] as const;
-
-const BACKENDS = [
-  { value: 'copilot', label: 'settings.backend.copilot' },
-  { value: 'codex', label: 'settings.backend.codex' },
-  { value: 'claude', label: 'settings.backend.claude' },
-  { value: 'cursor', label: 'settings.backend.cursor' },
-  { value: 'opencode', label: 'settings.backend.opencode' },
 ] as const;
 
 const KNOB_TEXT: Record<string, { label: string; doc: string }> = {
@@ -171,16 +170,15 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
       BUDGET_FIELDS.map((field) => [field.alias, byName.get(field.env) ?? '']),
     ));
   }, [data, open]);
-  const currentBackend = data?.operator_knobs?.find((knob) => knob.name === 'ARGUS_SKILL_RUNNER_BACKEND')?.value
-    ?? data?.roles?.[0]?.backend
-    ?? '';
-  const setBackend = async (backend: string) => {
+  const currentBackend = configuredBackend(data);
+  const setBackend = async (backend: BackendOption) => {
     if (quickConfigBusy) return;
     setQuickConfigBusy(true);
     setQuickConfigMsg('');
     try {
       await api.setConfig(sid, 'ARGUS_SKILL_RUNNER_BACKEND', backend);
       await refetch();
+      setQuickConfigMsg(t('settings.backendSwitched', { backend: backendLabel(backend, t) }));
     } catch (error) {
       setQuickConfigMsg(error instanceof Error ? error.message : String(error));
     } finally {
@@ -255,26 +253,19 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
           <div className="space-y-4">
             <section className="rounded-lg border border-line glass-card p-3">
               <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('settings.quickConfig')}</div>
-              <div className="flex flex-wrap items-center gap-2">
+              <label className="flex flex-wrap items-center gap-2">
                 <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.backend')}</span>
-                <div className="flex flex-wrap gap-1">
-                  {BACKENDS.map((backend) => (
-                    <button
-                      key={backend.value}
-                      type="button"
-                      disabled={quickConfigBusy}
-                      onClick={() => void setBackend(backend.value)}
-                      className={`h-7 rounded-md px-2.5 text-xs font-medium transition-colors disabled:opacity-40 ${
-                        currentBackend === backend.value
-                          ? 'bg-blue-deep text-white'
-                          : 'border border-line/70 text-ink-dim hover:border-blue/50'
-                      }`}
-                    >
-                      {t(backend.label)}
-                    </button>
+                <select
+                  value={backendOption(currentBackend)}
+                  disabled={quickConfigBusy}
+                  onChange={(event) => void setBackend(event.target.value as BackendOption)}
+                  className="h-8 min-w-44 rounded border border-line bg-bg px-2 text-xs text-ink outline-none focus:border-blue disabled:opacity-40"
+                >
+                  {BACKEND_OPTIONS.map((backend) => (
+                    <option key={backend.value} value={backend.value}>{t(backend.label)}</option>
                   ))}
-                </div>
-              </div>
+                </select>
+              </label>
               <div className="mt-2 flex items-center gap-2">
                 <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.model')}</span>
                 <input

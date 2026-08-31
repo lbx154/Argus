@@ -17,6 +17,7 @@ import {
   faSun,
 } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
+import { backendLabel } from '../lib/backend';
 
 type Scope = 'local' | 'all';
 
@@ -63,6 +64,10 @@ export function Sidebar({
   onSelect,
   onPrefetch,
   onManage,
+  onResume,
+  resumingId,
+  activeBackend,
+  activeModel,
   onOpenPanel,
   onNew,
   loading,
@@ -82,6 +87,10 @@ export function Sidebar({
   onSelect: (id: string) => void;
   onPrefetch?: (id: string) => void;
   onManage: (id: string) => void;
+  onResume?: (id: string) => void;
+  resumingId?: string | null;
+  activeBackend?: string;
+  activeModel?: string;
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
   onNew: () => void;
   loading: boolean;
@@ -243,6 +252,7 @@ export function Sidebar({
                     ? (project.label || project.display_name || '').trim()
                     : project.objective.trim() || t('sidebar.unnamedSession');
                   const incompatible = project.daemon_alive && project.daemon_protocol_compatible === false;
+                  const resumable = !project.daemon_alive && project.last_active > 0 && Boolean(project.workdir?.trim());
                   const cost = projectCost(project);
                   return (
                     <div
@@ -278,6 +288,11 @@ export function Sidebar({
                         ) : project.objective ? (
                           <div className="mt-0.5 truncate pl-4 text-xs text-ink-faint">{project.objective}</div>
                         ) : null}
+                        {active && activeBackend ? (
+                          <div className="mt-1 truncate pl-4 text-[10px] text-blue-sky">
+                            {backendLabel(activeBackend, t)}{activeModel ? ` · ${activeModel}` : ''}
+                          </div>
+                        ) : null}
                         <div className="mt-1 flex min-w-0 items-center justify-between gap-2 pl-4 text-xs text-ink-faint">
                           <span className={`min-w-0 truncate ${incompatible ? 'text-warn' : ''}`}>
                             {incompatible
@@ -298,6 +313,19 @@ export function Sidebar({
                           ) : null}
                         </div>
                       </button>
+                      {resumable && onResume ? (
+                        <div className="px-3 pb-2 pl-7">
+                          <button
+                            type="button"
+                            disabled={resumingId === project.id}
+                            onClick={() => onResume(project.id)}
+                            title={t('sidebar.resumeHint', { workdir: project.workdir ?? '' })}
+                            className="rounded border border-blue/40 px-2 py-1 text-[10px] font-medium text-blue-sky hover:bg-blue/10 disabled:opacity-40"
+                          >
+                            {resumingId === project.id ? '…' : t('sidebar.resume')}
+                          </button>
+                        </div>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => onManage(project.id)}

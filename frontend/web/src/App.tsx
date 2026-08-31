@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
+import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff, useConfig } from './hooks';
 import { api, isConnectionError, type EventMsg, type MessageRouteOverride } from './api';
 import { TopBar } from './components/TopBar';
 import { EventStream } from './components/EventStream';
@@ -62,6 +62,7 @@ import { useI18n } from './i18n';
 import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
 import { DeliveryNotice } from './components/DeliveryNotice';
 import type { ArtifactInfo, DeliveryReceipt, MissionView } from '../../core/src/types';
+import { configuredBackend, configuredModel } from './lib/backend';
 import {
   completionNotificationPayload,
   installDesktopExternalLinkBridge,
@@ -170,6 +171,7 @@ export default function App() {
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [newDaemonOpen, setNewDaemonOpen] = useState(false);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
+  const [resumingSid, setResumingSid] = useState<string | null>(null);
   const messageSubmitLockRef = useRef(false);
   const messageRequestRef = useRef<ActiveMessageRequest | null>(null);
   const messageEpochRef = useRef(0);
@@ -285,6 +287,7 @@ export default function App() {
 
 
   const snapQ = useSnapshot(activeSid);
+  const activeConfigQ = useConfig(activeSid, Boolean(activeSid));
   const snap = snapQ.data;
   const loadedSid = snap?.session.id === activeSid ? activeSid : null;
   const continuous = snap?.continuous;
@@ -442,6 +445,17 @@ export default function App() {
     dispatchEventView({ kind: 'reset' });
   }, [loadedSid]);
   const actions = useProjectActions(activeSid, snap?.daemon_commands?.revision);
+  const resumeSession = useCallback(async (sid: string) => {
+    setResumingSid(sid);
+    try {
+      await api.startDaemon(sid);
+      await projectsQ.refetch();
+    } catch (error) {
+      notify('error', errorText(error));
+    } finally {
+      setResumingSid(null);
+    }
+  }, [notify, projectsQ]);
   const {
     daemonBusy,
     manageDeleteProject,
@@ -810,6 +824,10 @@ export default function App() {
           }}
           onPrefetch={prefetchProject}
           onManage={requestManageSession}
+          onResume={(sid) => void resumeSession(sid)}
+          resumingId={resumingSid}
+          activeBackend={configuredBackend(activeConfigQ.data)}
+          activeModel={configuredModel(activeConfigQ.data)}
           onOpenPanel={(panel) => setOverlay(panel)}
           onNew={() => setNewDaemonOpen(true)}
           loading={projectsQ.isLoading}
