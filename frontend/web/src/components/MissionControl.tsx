@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DeliveryReceipt, GitDiffView, MissionView } from '../../../core/src/types';
+import type {
+  DeliveryReceipt,
+  GitDiffView,
+  MissionTimelineItem,
+  MissionView,
+} from '../../../core/src/types';
 import {
   displayObjective,
   formatMissionElapsed,
@@ -19,9 +24,16 @@ const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
 const ACTIVE_WORK_STATUSES = ['active', 'running', 'in_progress', 'claimed'];
 const TERMINAL_MISSION_STATUSES = ['complete', 'completed', 'done', 'success', 'incomplete', 'stalled', 'blocked', 'ended'];
 const MILLISECONDS_PER_DAY = 86_400_000;
+const EVENT_DETAIL_PREVIEW_LENGTH = 300;
 
 function missionRoleLabel(role: string, t: (key: string) => string) {
   return ROLE_ORDER.includes(role) ? t(`role.${role}`) : roleLabel(role, t);
+}
+
+function isFailedMissionEvent(item: MissionTimelineItem) {
+  const finalTypePart = item.type.toLowerCase().split(/[._-]/).at(-1);
+  return ['failed', 'failure', 'error'].includes(finalTypePart ?? '')
+    || (item.tone === 'error' && /\bfailed\b/i.test(item.title));
 }
 
 export function formatMissionEventTime(ts: number, locale: string, now = new Date()) {
@@ -50,30 +62,45 @@ export function formatMissionEventTime(ts: number, locale: string, now = new Dat
   return `${calendarDate} ${time}`;
 }
 
-function RoleWorkDetail({ detail }: { detail: string }) {
+function DetailDisclosure({
+  detail,
+  previewLength,
+  textClassName,
+}: {
+  detail: string;
+  previewLength?: number;
+  textClassName: string;
+}) {
   const { t } = useI18n();
   const detailRef = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false);
-  const [canExpand, setCanExpand] = useState(false);
+  const [measuredOverflow, setMeasuredOverflow] = useState(false);
+  const canExpand = previewLength == null
+    ? measuredOverflow
+    : detail.length > previewLength;
 
   useEffect(() => {
-    if (expanded) return;
+    if (previewLength != null || expanded) return;
     const element = detailRef.current;
     if (!element) return;
-    const measure = () => setCanExpand(element.scrollHeight > element.clientHeight);
+    const measure = () => setMeasuredOverflow(element.scrollHeight > element.clientHeight);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [detail, expanded]);
+  }, [detail, expanded, previewLength]);
+
+  const visibleDetail = !expanded && previewLength != null && canExpand
+    ? `${detail.slice(0, previewLength)}…`
+    : detail;
 
   return (
     <div className="mt-2">
       <p
         ref={detailRef}
-        className={`${expanded ? '' : 'line-clamp-3'} whitespace-pre-wrap break-words text-[11px] leading-5 text-ink-dim`}
+        className={`${previewLength == null && !expanded ? 'line-clamp-3' : ''} whitespace-pre-wrap break-words ${textClassName}`}
       >
-        {detail}
+        {visibleDetail}
       </p>
       {canExpand ? (
         <button
@@ -174,6 +201,16 @@ export function MissionControl({
   const [resumeBusy, setResumeBusy] = useState(false);
   const delivery = view.delivery;
   const artifactByPath = new Map(artifacts.map((artifact) => [artifact.path, artifact]));
+  const activeSkills = view.learned_skills.filter((skill) => skill.status === 'active');
+  const retainedWikiPages = view.learned_wiki_pages.filter((page) => page.status !== 'retired');
+  const hasSavedKnowledge = Boolean(
+    view.storage.project_skill_dir
+    || view.storage.global_skill_dir
+    || view.storage.wiki_paths.length
+    || view.storage.skill_history_compressed
+    || view.storage.wiki_retired_compressed,
+  );
+  const hasCapabilities = Boolean(activeSkills.length || retainedWikiPages.length || hasSavedKnowledge);
   const healthNeedsAttention = ['degraded', 'red', 'critical'].includes(view.health?.toLowerCase() ?? '');
   const missionFailed = ['failed', 'error'].includes(view.mission.status.toLowerCase());
   const stepFailed = view.dag.some((node) => node.status.toLowerCase() === 'failed');
@@ -393,7 +430,12 @@ export function MissionControl({
                   </span>
                   {item.round_index != null ? <span>{t('mission.roundNumber', { count: item.round_index })}</span> : null}
                 </div>
-                {item.detail ? <RoleWorkDetail detail={item.detail} /> : null}
+                {item.detail ? (
+                  <DetailDisclosure
+                    detail={item.detail}
+                    textClassName="text-[11px] leading-5 text-ink-dim"
+                  />
+                ) : null}
               </article>
             );
           })}
@@ -490,17 +532,17 @@ export function MissionControl({
 
         <section className="min-w-0 px-5 py-4">
           <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">{t('mission.capabilities')}</div>
-          {view.learned_skills.length ? (
+          {activeSkills.length ? (
             <div className="mt-3">
               <div className="text-[10px] uppercase tracking-[0.12em] text-ok">{t('mission.capabilitiesUnlocked')}</div>
               <div className="mt-2 space-y-2">
-                {view.learned_skills.filter((skill) => skill.status === 'active').slice(-8).map((skill) => (
+                {activeSkills.slice(-8).map((skill) => (
                   <details key={String(skill.id)} className="rounded border border-ok/35 bg-ok/5 px-2 py-1.5">
                     <summary className="cursor-pointer text-[10px] text-ok">{String(skill.name || t('mission.learnedCapability'))}</summary>
                     {skill.mission_title ? <div className="mt-2 text-[9px] text-ink-faint">{t('mission.learnedDuring', { mission: skill.mission_title })}</div> : null}
                     {skill.content ? (
                       <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border-t border-ok/20 pt-2 font-mono text-[10px] leading-5 text-ink-dim scroll-thin">
-                        {skill.content}{skill.content_truncated ? '\n… content truncated' : ''}
+                        {skill.content}{skill.content_truncated ? `\n… ${t('mission.contentTruncated')}` : ''}
                       </pre>
                     ) : <div className="mt-2 text-[10px] text-ink-faint">{t('mission.skillUnavailable')}</div>}
                   </details>
@@ -508,19 +550,22 @@ export function MissionControl({
               </div>
             </div>
           ) : null}
-          {view.learned_wiki_pages.some((page) => page.status !== 'retired') ? (
+          {retainedWikiPages.length ? (
             <div className="mt-4 border-t border-line/50 pt-3">
               <div className="text-[10px] uppercase tracking-[0.12em] text-blue-sky">{t('mission.knowledgeRetained')}</div>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {view.learned_wiki_pages.filter((page) => page.status !== 'retired').slice(-6).map((page) => <span key={String(page.id)} className="rounded border border-blue/35 bg-blue/5 px-2 py-1 text-[10px] text-blue-sky">{String(page.title || page.id)}</span>)}
+                {retainedWikiPages.slice(-6).map((page) => <span key={String(page.id)} className="rounded border border-blue/35 bg-blue/5 px-2 py-1 text-[10px] text-blue-sky">{String(page.title || page.id)}</span>)}
               </div>
             </div>
           ) : null}
-          {(view.storage.project_skill_dir || view.storage.global_skill_dir || view.storage.wiki_paths.length || view.storage.skill_history_compressed || view.storage.wiki_retired_compressed) ? (
+          {hasSavedKnowledge ? (
             <div className="mt-4 border-t border-line/50 pt-3">
               <div className="text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t('mission.selfEvolution')}</div>
               <div className="mt-2 text-[10px] text-ink-dim">{t('mission.knowledgeSaved')}</div>
             </div>
+          ) : null}
+          {!hasCapabilities ? (
+            <div className="py-10 text-center text-xs text-ink-faint">{t('mission.noCapabilities')}</div>
           ) : null}
         </section>
       </div>
@@ -549,6 +594,9 @@ export function MissionControl({
           {replayRows.map((item) => {
             const date = new Date(item.ts * 1000);
             const color = theme.role[item.role] ?? theme.inkFaint;
+            const title = isFailedMissionEvent(item)
+              ? t('mission.roleFailed', { role: missionRoleLabel(item.role, t) })
+              : item.title;
             return (
               <article key={item.id} className="rounded border border-line/60 bg-bg/35 px-3 py-2.5 text-xs">
                 <div className="flex items-start gap-2">
@@ -562,7 +610,7 @@ export function MissionControl({
                   >
                     {missionRoleLabel(item.role, t)}
                   </span>
-                  <span className="min-w-0 flex-1 break-words font-medium leading-5 text-ink">{item.title}</span>
+                  <span className="min-w-0 flex-1 break-words font-medium leading-5 text-ink">{title}</span>
                   <time
                     dateTime={date.toISOString()}
                     title={date.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })}
@@ -572,7 +620,11 @@ export function MissionControl({
                   </time>
                 </div>
                 {item.detail ? (
-                  <p className="mt-2 whitespace-pre-wrap break-words leading-5 text-ink-dim">{item.detail}</p>
+                  <DetailDisclosure
+                    detail={item.detail}
+                    previewLength={EVENT_DETAIL_PREVIEW_LENGTH}
+                    textClassName="leading-5 text-ink-dim"
+                  />
                 ) : null}
               </article>
             );

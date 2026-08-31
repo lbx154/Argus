@@ -33,6 +33,7 @@ describe('MissionControl', () => {
       mission_id: 'task-1',
       mission_title: 'Profile kernel v7',
       content: '# Fused epilogue\n\nKeep the measured evidence.',
+      content_truncated: true,
     }];
     view.role_work = [
       {
@@ -111,6 +112,7 @@ describe('MissionControl', () => {
     expect(markup).toContain('Do not change the benchmark.');
     expect(markup).toContain('Learned during Profile kernel v7');
     expect(markup).toContain('# Fused epilogue');
+    expect(markup).toContain('Content preview truncated');
     expect(markup).toContain('Saved project knowledge');
     expect(markup).toContain('Knowledge retained');
     expect(markup).toContain('Fused epilogue evidence');
@@ -125,8 +127,10 @@ describe('MissionControl', () => {
 
   it('shows one plain-language status narrative for each mission state', () => {
     const healthy = emptyMissionView();
-    expect(renderToStaticMarkup(<MissionControl view={healthy} />)).not.toContain('role="alert"');
-    expect(renderToStaticMarkup(<MissionControl view={healthy} />)).toContain('Ready when you are — assign a mission to begin.');
+    const healthyMarkup = renderToStaticMarkup(<MissionControl view={healthy} />);
+    expect(healthyMarkup).not.toContain('role="alert"');
+    expect(healthyMarkup).toContain('Ready when you are — assign a mission to begin.');
+    expect(healthyMarkup).toContain('No capabilities learned yet.');
 
     const paused = emptyMissionView();
     paused.stage.id = 'HOLD';
@@ -137,7 +141,19 @@ describe('MissionControl', () => {
       id: 'failed-step', title: 'Run checks', objective: '', status: 'failed', deps: [],
       branch_id: 'failed-step', parent_branch_id: null,
     }];
-    expect(renderToStaticMarkup(<MissionControl view={failedStep} />)).toContain('A step failed — check the task below.');
+    const diagnostics = `${'D'.repeat(305)}RAW_TAIL`;
+    failedStep.timeline = [{
+      id: 'planner-error', ts: 1, type: 'life.planner.error', role: 'planner',
+      title: 'life.planner.error', detail: diagnostics, tone: 'error',
+    }];
+    const failureMarkup = renderToStaticMarkup(<MissionControl view={failedStep} />);
+    expect(failureMarkup).toContain('A step failed — check the task below.');
+    expect(failureMarkup).toContain('Planner failed');
+    expect(failureMarkup).not.toContain('life.planner.error');
+    expect(failureMarkup).toContain(`${'D'.repeat(300)}…`);
+    expect(failureMarkup).not.toContain('RAW_TAIL');
+    expect(failureMarkup).toContain('aria-expanded="false"');
+    expect(failureMarkup).toContain('Show more');
 
     const critical = emptyMissionView();
     critical.health = 'degraded';
