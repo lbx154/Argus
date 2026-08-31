@@ -158,6 +158,19 @@ def test_valid_paper_and_code_organization_map_passes(tmp_path: Path) -> None:
     assert argument_organization_issues(tmp_path) == ()
 
 
+def test_publishable_paper_still_requires_two_accepted_exemplars(
+    tmp_path: Path,
+) -> None:
+    _target(tmp_path)
+    payload = _payload(tmp_path)
+    payload["exemplars"] = payload["exemplars"][:1]
+    _write(tmp_path, payload)
+
+    issues = argument_organization_issues(tmp_path)
+
+    assert any("at least 2 accepted same-area papers" in issue for issue in issues)
+
+
 def test_available_code_requires_real_checkout_and_inspected_files(
     tmp_path: Path,
 ) -> None:

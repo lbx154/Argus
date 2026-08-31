@@ -1002,8 +1002,14 @@ def stage_completion_issues(
             for issue in artifact_freshness_issues(project_root)
         )
     if normalized in {"draft", "review", "submission"}:
+        from .integrity_check import check_citations
         from .paper_structural_minimums import validate_paper_structural_minimums
 
+        issues.extend(
+            f"[citation_integrity:{issue.code}] {issue.message}"
+            for issue in check_citations(project_root)
+            if issue.blocking
+        )
         report = validate_paper_structural_minimums(project_root)
         issues.extend(f"[{issue.code}] {issue.detail}" for issue in report.issues)
     if issues:

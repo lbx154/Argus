@@ -242,6 +242,37 @@ def _seed_frozen_paper_context(root: Path) -> dict[str, Any]:
     return figure_tool.freeze_paper_figure_context(project_root=root)
 
 
+def test_freeze_accepts_canonical_claim_evidence_without_removing_blueprint(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "research").mkdir(parents=True)
+    (tmp_path / "research" / "RESEARCH_BRIEF.md").write_text(
+        "# Brief\n\nStable thesis.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "research" / "NARRATIVE_REPORT.md").write_text(
+        "# Narrative\n\nThe evidence supports the bounded claim.\n",
+        encoding="utf-8",
+    )
+    style = tmp_path / "paper" / "style_ref"
+    style.mkdir(parents=True)
+    (style / "PAPER_STRUCTURE_BLUEPRINT.md").write_text(
+        "# Blueprint\n\nFigure 1 explains the method and result.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "paper" / "claims_to_evidence.tsv").write_text(
+        "claim_id\tevidence\nc1\tresult.json\n",
+        encoding="utf-8",
+    )
+
+    frozen = figure_tool.freeze_paper_figure_context(project_root=tmp_path)
+    paths = {row["path"] for row in frozen["inputs"]}
+
+    assert "paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md" in paths
+    assert "paper/claims_to_evidence.tsv" in paths
+    assert "research/NARRATIVE_REPORT.md" in paths
+
+
 def _sync_reviewed_candidate(root: Path, index: int) -> dict[str, Any]:
     figures = root / "paper" / "figures"
     figures.mkdir(parents=True, exist_ok=True)

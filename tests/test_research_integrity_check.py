@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from argus_skill.verticals.research import integrity_check as mod
+from argus_skill.verticals.research.stages import stage_completion_issues
 
 GOOD_BIB = (
     "@article{smith2024, author={Smith, Jane and Doe, John}, "
@@ -84,6 +85,90 @@ def test_tex_and_bib_outside_a_paper_dir_are_still_checked(tmp_path: Path) -> No
     (tmp_path / "refs.bib").write_text(GOOD_BIB, encoding="utf-8")
 
     assert mod.main(["citations", "--project-root", str(tmp_path)]) == 2
+
+
+def test_only_main_reachable_tex_is_checked(tmp_path: Path) -> None:
+    root = _paper(
+        tmp_path,
+        r"\cite{smith2024}\bibliography{references}",
+        GOOD_BIB,
+    )
+    build = root / "paper" / "pdf_build"
+    build.mkdir()
+    (build / "stale.tex").write_text(r"\cite{ghost2025}", encoding="utf-8")
+
+    assert mod.main(["citations", "--project-root", str(root)]) == 0
+
+
+def test_reachable_input_is_checked(tmp_path: Path, capsys) -> None:
+    root = _paper(
+        tmp_path,
+        r"\input{sections/body}\bibliography{references}",
+        GOOD_BIB,
+    )
+    sections = root / "paper" / "sections"
+    sections.mkdir()
+    (sections / "body.tex").write_text(r"\cite{ghost2025}", encoding="utf-8")
+
+    assert mod.main(["citations", "--project-root", str(root)]) == 2
+    assert "unresolved_citation" in capsys.readouterr().err
+
+
+def test_addbibresource_selects_the_declared_bibliography(tmp_path: Path) -> None:
+    root = _paper(
+        tmp_path,
+        r"\cite{smith2024}\addbibresource[location=local]{sources.bib}",
+        "@article{unused, author={A}, title={Unused}, year={2024}}",
+    )
+    (root / "paper" / "sources.bib").write_text(GOOD_BIB, encoding="utf-8")
+
+    assert mod.main(["citations", "--project-root", str(root)]) == 0
+
+
+def test_missing_declared_bibliography_fails_even_when_other_bib_exists(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    root = _paper(
+        tmp_path,
+        r"\cite{smith2024}\bibliography{missing}",
+        GOOD_BIB,
+    )
+
+    assert mod.main(["citations", "--project-root", str(root)]) == 2
+    assert "missing_bibliography" in capsys.readouterr().err
+
+
+def test_declared_bibliography_cannot_escape_paper_root(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    root = _paper(tmp_path, r"\bibliography{../outside}", GOOD_BIB)
+    (root / "outside.bib").write_text(GOOD_BIB, encoding="utf-8")
+
+    assert mod.main(["citations", "--project-root", str(root)]) == 2
+    assert "bibliography_path_escape" in capsys.readouterr().err
+
+
+def test_commented_bibliography_declaration_is_ignored(tmp_path: Path) -> None:
+    root = _paper(
+        tmp_path,
+        "\\cite{smith2024}\n% \\bibliography{missing}\n",
+        GOOD_BIB,
+    )
+
+    assert mod.main(["citations", "--project-root", str(root)]) == 0
+
+
+def test_late_stages_enforce_citation_integrity(tmp_path: Path) -> None:
+    root = _paper(tmp_path, r"\cite{ghost2025}", GOOD_BIB)
+
+    for stage in ("draft", "review", "submission"):
+        issues = stage_completion_issues(stage, root)
+        assert any(
+            "[citation_integrity:unresolved_citation]" in issue
+            for issue in issues
+        ), (stage, issues)
 
 
 # -- scores -----------------------------------------------------------------
