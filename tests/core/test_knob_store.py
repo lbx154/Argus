@@ -55,6 +55,28 @@ def test_write_persisted_knob_overwrites_only_that_key() -> None:
     }
 
 
+def test_backend_switch_clears_its_persisted_runner_bin() -> None:
+    knob_store.write_persisted_knobs(
+        {
+            "ARGUS_SKILL_RUNNER_BACKEND": "dsh",
+            "ARGUS_SKILL_RUNNER_BIN": "/opt/bin/dsh",
+            "ARGUS_SKILL_REVIEWER_BACKEND": "dsh",
+            "ARGUS_SKILL_REVIEWER_RUNNER_BIN": "/opt/bin/reviewer-dsh",
+        }
+    )
+
+    knob_store.write_persisted_knobs(
+        {
+            "ARGUS_SKILL_RUNNER_BACKEND": "copilot",
+            "ARGUS_SKILL_REVIEWER_BACKEND": "copilot",
+        }
+    )
+
+    persisted = knob_store.read_persisted_knobs()
+    assert persisted["ARGUS_SKILL_RUNNER_BIN"] == ""
+    assert persisted["ARGUS_SKILL_REVIEWER_RUNNER_BIN"] == ""
+
+
 def test_concurrent_writes_serialize_the_full_read_modify_write(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

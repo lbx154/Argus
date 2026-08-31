@@ -130,7 +130,7 @@ class _RunnerConstructionMixin:
         # ``/backend`` knob). Env-only reads here silently fell back to codex for
         # the in-process Manager front-door — see ``_resolve_runner_backend_name``.
         backend_name = _resolve_runner_backend_name(args)
-        runner_bin = resolve_runner_bin_setting() or None
+        runner_bin = resolve_runner_bin_setting(backend=backend_name) or None
         from ..agent_cli.runner_backend import (
             normalize_runner_backend,
             resolve_available_runner,
@@ -228,7 +228,10 @@ class _RunnerConstructionMixin:
                 role,
                 backend_name,
             )
-            bin_env = resolve_runner_bin_setting(role)
+            bin_env = resolve_runner_bin_setting(
+                role,
+                backend=role_backend_name,
+            )
             from ..agent_cli.runner_backend import (
                 normalize_runner_backend,
                 resolve_available_runner,

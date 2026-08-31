@@ -77,6 +77,37 @@ def test_setup_defaults_to_only_installed_opencode(
     assert "ARGUS_SKILL_RUNNER_BACKEND" not in read_persisted_knobs()
 
 
+def test_setup_preserves_runner_bound_to_opencod_alias(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
+    from argus_skill.core.knob_store import write_persisted_knobs
+
+    assert write_persisted_knobs(
+        {
+            "ARGUS_SKILL_RUNNER_BACKEND": "opencod",
+            "ARGUS_SKILL_RUNNER_BIN": "/custom/opencode",
+        }
+    )
+    calls = []
+
+    def resolve(backend: str, configured: str | None = None):
+        calls.append((backend, configured))
+        return configured or "/path/opencode"
+
+    monkeypatch.setattr(
+        "argus_skill.agent_cli.runner_backend.resolve_runner_bin",
+        resolve,
+    )
+
+    assert _wizard._resolve_setup_runner_bin("opencode") == "/custom/opencode"
+    assert calls == [("opencode", "/custom/opencode")]
+
+
 def test_setup_rejects_selected_backend_missing_from_path(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -112,4 +143,3 @@ def test_setup_does_not_replace_persisted_backend_before_readiness(
 
     assert _wizard._configure_runner_backend() == "copilot"
     assert read_persisted_knobs()["ARGUS_SKILL_RUNNER_BACKEND"] == "codex"
-

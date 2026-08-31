@@ -16,6 +16,7 @@ from argus_skill.agent_cli.runner_backend import (
     resolve_available_runner,
     resolve_runner_bin,
 )
+from argus_skill.core.knobs import resolve_runner_bin_setting
 
 
 def _write_runner_executable(path: Path, *, exit_code: int = 0) -> Path:
@@ -32,6 +33,48 @@ def _assert_same_path(actual: str | None, expected: Path) -> None:
     assert actual is not None
     assert os.path.normcase(str(Path(actual).resolve())) == os.path.normcase(
         str(expected.resolve())
+    )
+
+
+def test_persisted_runner_bin_stays_bound_to_its_backend() -> None:
+    persisted = {
+        "ARGUS_SKILL_RUNNER_BACKEND": "dsh",
+        "ARGUS_SKILL_RUNNER_BIN": "/opt/bin/dsh",
+    }
+
+    assert (
+        resolve_runner_bin_setting(
+            backend="copilot",
+            env={},
+            persisted=persisted,
+        )
+        == ""
+    )
+    assert (
+        resolve_runner_bin_setting(
+            backend="dsh",
+            env={},
+            persisted=persisted,
+        )
+        == "/opt/bin/dsh"
+    )
+    assert (
+        resolve_runner_bin_setting(
+            env={"ARGUS_SKILL_RUNNER_BACKEND": "copilot"},
+            persisted=persisted,
+        )
+        == ""
+    )
+    assert (
+        resolve_runner_bin_setting(
+            backend="opencode",
+            env={},
+            persisted={
+                "ARGUS_SKILL_RUNNER_BACKEND": "opencod",
+                "ARGUS_SKILL_RUNNER_BIN": "/opt/bin/opencode",
+            },
+        )
+        == "/opt/bin/opencode"
     )
 
 

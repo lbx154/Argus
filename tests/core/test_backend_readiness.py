@@ -79,6 +79,40 @@ def test_default_timeout_allows_slow_cli_cold_start(monkeypatch) -> None:
     assert readiness.DEFAULT_READINESS_TIMEOUT_S == 30.0
 
 
+def test_explicit_backend_ignores_another_backends_persisted_runner(
+    monkeypatch,
+) -> None:
+    resolved: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        readiness,
+        "read_persisted_knobs",
+        lambda: {
+            "ARGUS_SKILL_RUNNER_BACKEND": "dsh",
+            "ARGUS_SKILL_RUNNER_BIN": "/opt/bin/dsh",
+        },
+    )
+
+    def resolve(backend: str, configured: str | None = None) -> str:
+        resolved.append((backend, configured))
+        return "/opt/bin/copilot"
+
+    monkeypatch.setattr(readiness, "resolve_runner_bin", resolve)
+    monkeypatch.setattr(
+        readiness,
+        "_run_text",
+        lambda *_args, **_kwargs: _completed("GitHub Copilot CLI 1.0.82\n"),
+    )
+
+    report = readiness.check_backend_readiness(
+        "copilot",
+        probe_auth=False,
+        env={},
+    )
+
+    assert report.ok
+    assert resolved == [("copilot", None)]
+
+
 def test_version_timeout_retries_once(monkeypatch) -> None:
     calls = 0
     monkeypatch.setattr(readiness, "resolve_runner_bin", lambda *_args: "/bin/copilot")

@@ -977,8 +977,11 @@ def test_backend_turn_uses_accounted_agent_backend(monkeypatch, tmp_path) -> Non
     assert run_call["options"].working_dir == str(tmp_path)
 
 
-def test_supervisor_backend_inherits_configured_runner(monkeypatch) -> None:
+def test_supervisor_role_backend_does_not_inherit_shared_runner(monkeypatch) -> None:
+    from argus_skill.core import knob_store
+
     constructed: dict[str, object] = {}
+    resolved: list[tuple[str, str | None]] = []
 
     class _Backend:
         def __init__(self, **kwargs) -> None:
@@ -986,20 +989,28 @@ def test_supervisor_backend_inherits_configured_runner(monkeypatch) -> None:
 
     monkeypatch.setattr(_sub._llm, "_SUPERVISOR_BACKENDS", {})
     monkeypatch.setattr(_sub._llm, "AgentCliBackend", _Backend)
+    monkeypatch.setenv("ARGUS_SKILL_SUPERVISOR_BACKEND", "copilot")
+    monkeypatch.delenv("ARGUS_SKILL_SUPERVISOR_RUNNER_BIN", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_LIFE_BACKEND", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
     monkeypatch.setattr(
-        _sub._llm,
-        "resolve_role_backend",
-        lambda role: "copilot" if role == "supervisor" else "codex",
+        knob_store,
+        "read_persisted_knobs",
+        lambda: {
+            "ARGUS_SKILL_RUNNER_BACKEND": "dsh",
+            "ARGUS_SKILL_RUNNER_BIN": "/opt/dsh",
+        },
     )
-    monkeypatch.setattr(
-        _sub._llm,
-        "resolve_runner_bin_setting",
-        lambda role: "/opt/copilot" if role == "supervisor" else "",
-    )
+
+    def resolve(backend: str, configured: str | None):
+        resolved.append((backend, configured))
+        return backend, configured or "/opt/copilot"
+
     monkeypatch.setattr(
         _sub._llm,
         "resolve_available_runner",
-        lambda backend, configured: (backend, configured),
+        resolve,
     )
 
     backend = _sub._llm._supervisor_backend()
@@ -1007,6 +1018,7 @@ def test_supervisor_backend_inherits_configured_runner(monkeypatch) -> None:
     assert isinstance(backend, _Backend)
     assert constructed["backend"] == "copilot"
     assert constructed["runner_bin"] == "/opt/copilot"
+    assert resolved == [("copilot", None)]
 
 
 def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) -> None:
