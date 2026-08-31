@@ -361,6 +361,10 @@ def test_deployment_boundary_rejects_regression_mismatch_and_restart(
     assert public_main == base
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="bare-repository partial-publication hook semantics are covered on POSIX",
+)
 def test_deployment_boundary_publishes_both_routes_before_roll(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
