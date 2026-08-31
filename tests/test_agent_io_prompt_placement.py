@@ -117,14 +117,16 @@ def test_the_history_record_stays_small(tmp_path: Path) -> None:
 def test_no_consumer_reads_the_prompt_off_an_event_row() -> None:
     # Reverse assertion. Moving the field is only safe while nothing reads it;
     # if a reader appears, this fails and the split has to be revisited.
-    import subprocess
-
     repo = Path(__file__).resolve().parents[1]
-    hits = subprocess.run(
-        ["grep", "-rn", '--include=*.py', 'get("prompt")', str(repo / "argus_skill")],
-        capture_output=True,
-        text=True,
-    ).stdout.splitlines()
+    hits = [
+        f"{path}:{line_number}:{line}"
+        for path in (repo / "argus_skill").rglob("*.py")
+        for line_number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(),
+            start=1,
+        )
+        if 'get("prompt")' in line
+    ]
     offenders = [
         line
         for line in hits

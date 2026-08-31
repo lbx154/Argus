@@ -5,6 +5,7 @@ export type RunnerKind =
   | 'codex'
   | 'claude'
   | 'copilot'
+  | 'cursor'
   | 'pi'
   | 'opencode'
   | 'grok'

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -18,6 +19,8 @@ from argus_skill.core.knobs import (
     resolve_budget_caps,
     resolve_role_model,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(autouse=True)
@@ -167,6 +170,7 @@ def test_cockpit_value_normalization_is_typed() -> None:
         "ARGUS_SKILL_AUTONOMY_MODE", "PRAGMATIC"
     ) == "pragmatic"
     assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "COPILOT") == "copilot"
+    assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "CURSOR") == "cursor"
     assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "opencod") == "opencode"
     assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "PI") == "pi"
     assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "GROK") == "grok"
@@ -174,7 +178,7 @@ def test_cockpit_value_normalization_is_typed() -> None:
     assert normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "DSH") == "dsh"
     with pytest.raises(
         ValueError,
-        match="codex, claude, copilot, opencode, pi, grok, qoder, or dsh",
+        match="codex, claude, copilot, cursor, opencode, pi, grok, qoder, dsh",
     ):
         normalize_cockpit_knob_value("ARGUS_SKILL_ENGINEER_BACKEND", "magic")
     with pytest.raises(ValueError, match="non-negative integer"):
@@ -257,6 +261,8 @@ def test_cli_config_help_exits_zero_and_prints_knobs() -> None:
         [sys.executable, "-m", "argus_skill", "--config-help"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        cwd=ROOT,
     )
     assert proc.returncode == 0, proc.stderr
     assert "ARGUS_SKILL_LIFE_BACKEND" in proc.stdout
@@ -269,6 +275,8 @@ def test_cli_config_snapshot_writes_file(tmp_path) -> None:
         [sys.executable, "-m", "argus_skill", "--config-snapshot", str(out)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        cwd=ROOT,
     )
 
     assert proc.returncode == 0, proc.stderr

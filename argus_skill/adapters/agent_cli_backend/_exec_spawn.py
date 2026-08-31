@@ -145,9 +145,16 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
         )
         raise
     except FileNotFoundError as exc:
+        runner_name = str(
+            getattr(backend._runner, "agent_bin", "")
+            or getattr(backend._runner, "backend", "")
+            or getattr(exc, "filename", "")
+            or "runner"
+        )
+        failure = f"runner binary not found: {runner_name}: {exc}"
         log.error(
-            "runner binary not found: %s",
-            getattr(exc, "filename", None) or exc,
+            "%s",
+            failure,
         )
         finish_quota(ctx, error_text=str(exc), success=False)
         backend._log_agent_io(ctx.log_path, {
@@ -156,14 +163,14 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             "call_id": ctx.call_id,
             "run_label": ctx.run_label,
             "backend": getattr(backend._runner, "backend", ""),
-            "error": f"runner binary not found: {exc}",
+            "error": failure,
             "ts": time.time(),
         })
         return finalize_result(
             ctx,
             RunnerResult(
                 exit_code=127,
-                fatal_error=f"runner binary not found: {exc}",
+                fatal_error=failure,
                 stop_kind="permanent_error",
             ),
             status="denied",

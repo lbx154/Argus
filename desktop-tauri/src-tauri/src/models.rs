@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const RUNNER_KINDS: [&str; 8] = [
-    "codex", "claude", "copilot", "pi", "opencode", "grok", "qoder", "dsh",
+pub const RUNNER_KINDS: [&str; 9] = [
+    "codex", "claude", "copilot", "cursor", "pi", "opencode", "grok", "qoder", "dsh",
 ];
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -12,6 +12,7 @@ pub enum RunnerKind {
     Codex,
     Claude,
     Copilot,
+    Cursor,
     Pi,
     Opencode,
     Grok,
@@ -25,6 +26,7 @@ impl RunnerKind {
             Self::Codex => "codex",
             Self::Claude => "claude",
             Self::Copilot => "copilot",
+            Self::Cursor => "cursor",
             Self::Pi => "pi",
             Self::Opencode => "opencode",
             Self::Grok => "grok",
@@ -38,6 +40,7 @@ impl RunnerKind {
             Self::Codex => "Codex CLI",
             Self::Claude => "Claude Code",
             Self::Copilot => "GitHub Copilot CLI",
+            Self::Cursor => "Cursor CLI",
             Self::Pi => "Pi (follows your Pi model)",
             Self::Opencode => "OpenCode",
             Self::Grok => "Grok Build",

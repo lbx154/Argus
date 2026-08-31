@@ -17,10 +17,10 @@ Use when a task benefits from durable state, artifacts, experiments, background 
 
 There are exactly two operational parties:
 
-1. The **outer operator**: OpenClaw, Hermes Agent, Claude Code, Codex CLI, Copilot CLI, or another shell-capable agent following this skill. It stages the mission, launches and observes Argus, handles operator questions within delegated authority, verifies artifacts, and reports compactly.
+1. The **outer operator**: OpenClaw, Hermes Agent, Claude Code, Codex CLI, Copilot CLI, Cursor CLI, or another shell-capable agent following this skill. It stages the mission, launches and observes Argus, handles operator questions within delegated authority, verifies artifacts, and reports compactly.
 2. **Argus**: the durable supervised system that plans, executes, reviews, persists state, surfaces questions, and produces evidence and artifacts.
 
-Any model/provider CLI Argus uses internally—such as `codex`, `copilot`, `claude`, `pi`, `opencode`, or `grok`—is Argus configuration and an implementation detail, not a third role, peer actor, or separate party in this procedure. The outer operator may select or verify Argus's configured internal model/provider during preflight when operationally necessary and authorized; otherwise it treats Argus as one durable supervised system. Do not infer Argus configuration from the outer operator's identity, even when names happen to match.
+Any model/provider CLI Argus uses internally—such as `codex`, `copilot`, `claude`, `cursor`, `pi`, `opencode`, or `grok`—is Argus configuration and an implementation detail, not a third role, peer actor, or separate party in this procedure. The outer operator may select or verify Argus's configured internal model/provider during preflight when operationally necessary and authorized; otherwise it treats Argus as one durable supervised system. Do not infer Argus configuration from the outer operator's identity, even when names happen to match.
 
 Resolve the executable explicitly; do not assume one universal install path. POSIX shell:
 

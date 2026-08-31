@@ -8,6 +8,7 @@ branch, not an event consumer.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -172,8 +173,8 @@ def test_dsh_env_maps_model_and_permission_mode() -> None:
     assert env["ARGUS_DSH_MODEL"] == "deepseek-v4-pro"
     assert "ARGUS_DSH_PROVIDER" not in env
     assert env["DSH_PERMISSION_MODE"] == "danger-full-access"
-    assert env["PATH"].startswith("/tools/node/bin" + ":")
-    assert env["PATH"].endswith(":/usr/bin")
+    agent_dir = str(Path("/tools/node/bin/dsh").expanduser().resolve().parent)
+    assert env["PATH"].split(os.pathsep) == [agent_dir, "/usr/bin"]
 
 
 def test_dsh_env_splits_qualified_model_and_read_only() -> None:
@@ -204,6 +205,7 @@ def test_dsh_env_disables_tools_for_tool_free_calls() -> None:
 def test_dsh_resolves_beside_real_node_when_only_node_shim_is_on_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    require_symlink_support,
 ) -> None:
     from argus_skill.agent_cli import runner_backend
 

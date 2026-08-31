@@ -485,6 +485,79 @@ def make_stream_progress_callback(
                     )
             return
 
+        # Cursor CLI dialect: top-level tool lifecycle events carry one typed
+        # payload (for example ``readToolCall`` or ``shellToolCall``).
+        if et == "tool_call":
+            subtype = str(event.get("subtype") or "").strip().lower()
+            payload = event.get("tool_call")
+            payload = payload if isinstance(payload, dict) else {}
+            raw_name, details = next(iter(payload.items()), ("toolCall", {}))
+            details = details if isinstance(details, dict) else {}
+            name = str(raw_name or "toolCall")
+            if name.lower().endswith("toolcall"):
+                name = name[:-8] or "tool"
+            args = details.get("args", details.get("arguments", {}))
+            command = ""
+            if isinstance(args, dict):
+                command = str(args.get("command") or args.get("cmd") or "").strip()
+            rendered = _render_tool_arguments(args)
+            is_shell = bool(command) or name.lower() in _SHELL_TOOL_NAMES
+            kind = "command_execution" if is_shell else "tool_use"
+            text = command or (name + (f": {rendered}" if rendered else ""))
+            call_id = str(event.get("call_id") or "").strip()
+            if subtype in {"started", "start"}:
+                if call_id:
+                    tool_calls[call_id] = (name, kind, text)
+                _emit_progress(
+                    kind=kind,
+                    text=text or name,
+                    actor=actor,
+                    extra={
+                        "status": "running",
+                        "action_summary": _action_summary(kind, text or name, {
+                            "type": kind, "name": name, "command": command,
+                        }),
+                        "tool_name": name,
+                    },
+                )
+                return
+            old_name, old_kind, old_text = tool_calls.pop(
+                call_id, (name, kind, text),
+            )
+            result = details.get("result")
+            result = result if isinstance(result, dict) else {}
+            exit_code = result.get("exitCode", result.get("exit_code"))
+            failed = (
+                subtype in {"failed", "error"}
+                or details.get("success") is False
+                or bool(details.get("isError", False))
+                or (isinstance(exit_code, int) and exit_code != 0)
+            )
+            if not failed:
+                return
+            item = {
+                "type": old_kind,
+                "name": old_name,
+                "status": "failed",
+                "exit_code": exit_code,
+                "aggregated_output": result.get("output") or result.get("content") or "",
+            }
+            if ledger is not None:
+                _record_failure_if_any(ledger, old_kind, item)
+            _emit_progress(
+                kind=old_kind,
+                text=old_text or old_name,
+                actor=actor,
+                extra={
+                    "status": "failed",
+                    "exit_code": exit_code,
+                    "output_excerpt": _extract_output_excerpt(item),
+                    "action_summary": _action_summary(old_kind, old_text or old_name, item),
+                    "tool_name": old_name,
+                },
+            )
+            return
+
         # OpenCode dialect: text and completed tool parts are emitted as
         # top-level events with the provider payload under ``part``.
         if et in {"text", "reasoning"}:

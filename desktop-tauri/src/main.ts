@@ -16,6 +16,7 @@ const RUNNER_LABELS: Record<RunnerKind, string> = {
   codex: 'Codex CLI',
   claude: 'Claude Code',
   copilot: 'Copilot CLI',
+  cursor: 'Cursor CLI',
   pi: 'Pi（跟随用户模型）',
   opencode: 'OpenCode',
   grok: 'Grok Build',

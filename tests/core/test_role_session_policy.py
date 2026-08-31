@@ -10,7 +10,7 @@ def test_auto_policy_uses_bounded_rolling_sessions_for_resumable_clis(monkeypatc
     monkeypatch.delenv("ARGUS_SKILL_ROLE_SESSION_POLICY", raising=False)
 
     assert configured_role_session_policy() == "auto"
-    for backend in ("pi", "codex", "claude", "copilot", "opencode", "grok", "qoder"):
+    for backend in ("pi", "codex", "claude", "copilot", "cursor", "opencode", "grok", "qoder"):
         assert effective_role_session_policy("auto", backend) == "rolling"
 
 

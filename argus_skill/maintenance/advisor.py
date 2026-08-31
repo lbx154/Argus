@@ -14,6 +14,7 @@ _SUPPORTED_ADVISORS = (
     "copilot",
     "codex",
     "claude",
+    "cursor",
     "opencode",
     "pi",
     "grok",

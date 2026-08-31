@@ -30,6 +30,14 @@ fn names(kind: &RunnerKind) -> &'static [&'static str] {
         RunnerKind::Codex => &["codex.cmd", "codex.exe", "codex"],
         RunnerKind::Claude => &["claude.cmd", "claude.exe", "claude"],
         RunnerKind::Copilot => &["copilot.cmd", "copilot.exe", "copilot"],
+        RunnerKind::Cursor => &[
+            "agent.cmd",
+            "agent.exe",
+            "agent",
+            "cursor-agent.cmd",
+            "cursor-agent.exe",
+            "cursor-agent",
+        ],
         RunnerKind::Pi => &["pi.cmd", "pi.exe", "pi"],
         RunnerKind::Opencode => &["opencode.cmd", "opencode.exe", "opencode"],
         RunnerKind::Grok => &["grok.cmd", "grok.exe", "grok"],
@@ -156,6 +164,7 @@ pub fn resolve_runner_binary(kind: &RunnerKind) -> Option<String> {
         RunnerKind::Copilot => {
             candidates.push(local_app_data.join("Programs").join("github-copilot-cli"))
         }
+        RunnerKind::Cursor => candidates.push(local_app_data.join("cursor-agent")),
         RunnerKind::Opencode => {
             candidates.push(home.join(".opencode").join("bin"));
             candidates.push(local_app_data.join("Programs").join("opencode"));
@@ -187,6 +196,7 @@ pub fn detect_runners() -> BTreeMap<String, String> {
                 "codex" => RunnerKind::Codex,
                 "claude" => RunnerKind::Claude,
                 "copilot" => RunnerKind::Copilot,
+                "cursor" => RunnerKind::Cursor,
                 "pi" => RunnerKind::Pi,
                 "opencode" => RunnerKind::Opencode,
                 "grok" => RunnerKind::Grok,
@@ -267,6 +277,7 @@ mod tests {
 
     #[test]
     fn all_supported_runner_labels_are_stable() {
+        assert_eq!(RunnerKind::Cursor.label(), "Cursor CLI");
         assert_eq!(RunnerKind::Opencode.label(), "OpenCode");
         assert_eq!(RunnerKind::Grok.label(), "Grok Build");
         assert_eq!(RunnerKind::Qoder.label(), "Qoder CLI");

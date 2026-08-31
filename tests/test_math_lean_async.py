@@ -141,8 +141,8 @@ def _stub_lean(tmp_path: Path, name: str, body: str) -> str:
     Written with this interpreter's own path rather than ``env python3``, so the
     stub runs wherever the suite does.
     """
-    path = tmp_path / name
-    path.write_text(
+    script = tmp_path / (f"{name}.py" if os.name == "nt" else name)
+    script.write_text(
         f"#!{sys.executable}\n"
         "import sys, time, pathlib\n"
         "if '--version' in sys.argv:\n"
@@ -151,8 +151,15 @@ def _stub_lean(tmp_path: Path, name: str, body: str) -> str:
         + body,
         encoding="utf-8",
     )
-    path.chmod(0o755)
-    return str(path)
+    script.chmod(0o755)
+    if os.name != "nt":
+        return str(script)
+    wrapper = tmp_path / f"{name}.cmd"
+    wrapper.write_text(
+        f'@"{sys.executable}" "{script}" %*\r\n',
+        encoding="utf-8",
+    )
+    return str(wrapper)
 
 
 def _instant_lean(tmp_path: Path) -> str:
@@ -507,6 +514,7 @@ def test_the_compiler_reads_the_snapshot_not_the_file_being_edited(
     """
     root = _project(tmp_path / "p")
     source, fidelity = _formalized(root)
+    submitted_digest = hashlib.sha256(source.read_bytes()).hexdigest()
     gate = tmp_path / "gate"
     lean_bin = _stub_lean(
         tmp_path,
@@ -529,6 +537,7 @@ def test_the_compiler_reads_the_snapshot_not_the_file_being_edited(
     )["handle"]
 
     source.write_text(SWAPPED_THEOREM, encoding="utf-8")
+    edited_digest = hashlib.sha256(source.read_bytes()).hexdigest()
     gate.write_text("go", encoding="utf-8")
     _settle(handle)
 
@@ -536,8 +545,6 @@ def test_the_compiler_reads_the_snapshot_not_the_file_being_edited(
         (_run_dir(handle) / "outcome.json").read_text(encoding="utf-8")
     )
     assert outcome["ok"] is True
-    submitted_digest = hashlib.sha256(CORE_THEOREM.encode("utf-8")).hexdigest()
-    edited_digest = hashlib.sha256(SWAPPED_THEOREM.encode("utf-8")).hexdigest()
     assert f"READ:{submitted_digest}" in outcome["result"]["stdout"]
     assert edited_digest not in outcome["result"]["stdout"]
 
@@ -566,7 +573,7 @@ def test_a_lost_run_is_reported_as_lost_and_never_as_a_verdict(
     record = json.loads((_run_dir(handle) / "run.json").read_text(encoding="utf-8"))
 
     _wait_until(lambda: _lock_is_held(handle))
-    os.kill(int(record["pid"]), signal.SIGKILL)
+    os.kill(int(record["pid"]), getattr(signal, "SIGKILL", signal.SIGTERM))
     _wait_until(lambda: [run["state"] for run in outstanding_runs()] == ["lost"])
 
     with pytest.raises(LeanRunLost) as raised:

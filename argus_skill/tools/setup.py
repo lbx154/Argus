@@ -86,6 +86,7 @@ _SUPPORTED_AGENT_BACKENDS = (
     "copilot",
     "codex",
     "claude",
+    "cursor",
     "opencode",
     "pi",
     "grok",
@@ -188,14 +189,14 @@ def _configure_runner_backend(requested: str | None = None) -> str | None:
         str(requested).strip().lower()
         if requested is not None
         else _prompt(
-            "Backend (copilot/codex/claude/opencode/pi/grok/qoder/dsh)", default
+            "Backend (copilot/codex/claude/cursor/opencode/pi/grok/qoder/dsh)", default
         ).lower()
     )
     if selected not in _SUPPORTED_AGENT_BACKENDS:
         print(_yellow(f"  Unknown backend '{selected}'."))
         print(
             _dim(
-                "    Choose one of: copilot, codex, claude, opencode, pi, grok, "
+                "    Choose one of: copilot, codex, claude, cursor, opencode, pi, grok, "
                 "qoder, dsh"
             )
         )
@@ -210,6 +211,8 @@ def _configure_runner_backend(requested: str | None = None) -> str | None:
         print(_dim(f"    Install it with: {_backend_install_hint(selected)}"))
         if selected == "copilot":
             print(_dim("    Then authenticate with: copilot login"))
+        elif selected == "cursor":
+            print(_dim("    Then authenticate with: agent login"))
         elif selected == "opencode":
             print(_dim("    Then authenticate with: opencode auth login"))
         elif selected == "pi":

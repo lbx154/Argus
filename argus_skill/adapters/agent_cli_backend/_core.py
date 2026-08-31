@@ -58,6 +58,23 @@ class _RepeatedToolCallGuard:
             event = json.loads(line)
         except json.JSONDecodeError:
             return
+        if event.get("type") == "tool_call" and event.get("subtype") in {"started", "start"}:
+            payload = event.get("tool_call")
+            if not isinstance(payload, dict):
+                return
+            signature = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+            with self._lock:
+                if signature == self._last_signature:
+                    self._repeat_count += 1
+                else:
+                    self._last_signature = signature
+                    self._repeat_count = 1
+                if self._repeat_count >= self.limit:
+                    self._reason = (
+                        "repeated tool call detected: the same tool and arguments "
+                        f"were requested {self._repeat_count} consecutive times"
+                    )
+            return
         message = event.get("message")
         if not isinstance(message, dict):
             return
@@ -100,7 +117,7 @@ class AgentCliBackend:
     """``RunnerBackend`` implementation that shells out to a real CLI.
 
     Construct once with the runner backend choice ("codex" / "claude" /
-    "copilot" / "opencode" / "pi" / "grok" / "qoder" / "dsh") and any cross-call defaults
+    "copilot" / "cursor" / "opencode" / "pi" / "grok" / "qoder" / "dsh") and any cross-call defaults
     (e.g. ``default_extra_args``
     for ``-c "config_profile=..."``), then pass the same instance to
     every ``SkillLoop`` actor (author / engineer / reviewer). Each
@@ -115,11 +132,12 @@ class AgentCliBackend:
 
     Args:
         backend: which CLI to drive ("codex" / "claude" / "copilot" /
-            "opencode" / "pi" / "grok" / "qoder" / "dsh").
+            "cursor" / "opencode" / "pi" / "grok" / "qoder" / "dsh").
             Defaults to the bundled runner's default (codex).
         runner_bin: explicit path to the CLI binary. Default: resolve
             from ``$PATH`` (e.g. ``codex`` / ``claude`` / ``copilot`` /
-            ``opencode`` / ``pi`` / ``grok`` / ``qodercli`` / ``dsh``).
+            ``agent`` / ``opencode`` / ``pi`` / ``grok`` / ``qodercli`` /
+            ``dsh``).
         default_extra_args: appended to every command (after
             ``options.extra_args``). Useful for global ``-c`` flags.
         before_exec: called before each subprocess spawn — used to reset
@@ -519,7 +537,7 @@ def build_agent_cli_backend_from_env() -> AgentCliBackend:
     Honours:
 
       * ``ARGUS_SKILL_RUNNER_BACKEND`` — "codex" / "claude" / "copilot" /
-        "opencode" / "pi" / "grok" / "qoder" / "dsh"
+        "cursor" / "opencode" / "pi" / "grok" / "qoder" / "dsh"
         (default: codex)
       * ``ARGUS_SKILL_RUNNER_BIN``     — path to the CLI binary
       * ``ARGUS_SKILL_RUNNER_EXTRA_ARGS`` — space-separated default args

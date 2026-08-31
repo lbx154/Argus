@@ -9,6 +9,7 @@ import json
 
 from .runner_backend import (
     BACKEND_COPILOT,
+    BACKEND_CURSOR,
     BACKEND_GROK,
     BACKEND_OPENCODE,
     BACKEND_PI,
@@ -139,6 +140,18 @@ class EventConsumerMixin:
                 turn_failed=turn_failed,
                 fatal_error=fatal_error,
             )
+        if self.backend == BACKEND_CURSOR:
+            state = self._consume_claude_event(
+                event=event,
+                thread_id=thread_id,
+                agent_messages=agent_messages,
+                turn_completed=turn_completed,
+                turn_failed=turn_failed,
+                fatal_error=fatal_error,
+            )
+            if isinstance(state[3], str) and state[3].startswith("Claude runner reported "):
+                state = (*state[:3], state[3].replace("Claude runner", "Cursor CLI", 1))
+            return state
         if self.backend == BACKEND_COPILOT:
             return self._consume_copilot_event(
                 event=event,

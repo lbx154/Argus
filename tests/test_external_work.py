@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from argus_skill.engineer.external_work import (
     EXTERNAL_WORK_PROTOCOL_VERSION,
     ExternalWorkState,
@@ -270,7 +272,8 @@ def test_subagent_live_pid_with_mismatched_identity_is_stalled(tmp_path: Path) -
     registry = tmp_path / ".argus_subagents"
     registry.mkdir()
     identity = capture_process_identity(os.getpid())
-    assert "start_time_ticks" in identity
+    if "start_time_ticks" not in identity:
+        pytest.skip("requires /proc process start-time identity")
     identity["start_time_ticks"] = f"{identity['start_time_ticks']}-reused"
     (registry / "direct-job.json").write_text(
         json.dumps({
