@@ -3,12 +3,65 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CopyButton } from './CopyButton';
 import { useI18n } from '../i18n';
+import type { ArtifactInfo } from '../api';
 
 function nodeText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map(nodeText).join('');
   if (isValidElement<{ children?: ReactNode }>(node)) return nodeText(node.props.children);
   return '';
+}
+
+function normalizedArtifactReference(value: string): string {
+  let raw = String(value || '').trim();
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    // Keep the literal path when it contains a malformed percent escape.
+  }
+  if (/^file:/i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      if (url.hostname && url.hostname !== 'localhost') return '';
+      raw = url.pathname;
+    } catch {
+      return '';
+    }
+  } else if (/^[a-z][a-z0-9+.-]*:/i.test(raw) && !/^[a-z]:[\\/]/i.test(raw)) {
+    return '';
+  }
+  raw = raw.split('#', 1)[0].split('?', 1)[0].replaceAll('\\', '/');
+  if (/^\/[a-z]:\//i.test(raw)) raw = raw.slice(1);
+  while (raw.startsWith('./')) raw = raw.slice(2);
+  return raw.replace(/\/{2,}/g, '/');
+}
+
+function sameArtifactReference(left: string, right: string): boolean {
+  if (!left || !right) return false;
+  if (/^[a-z]:\//i.test(left) || /^[a-z]:\//i.test(right)) {
+    return left.toLowerCase() === right.toLowerCase();
+  }
+  return left === right;
+}
+
+export function artifactPathFromHref(
+  href: string | undefined,
+  artifacts: ArtifactInfo[] = [],
+): string | null {
+  const requested = normalizedArtifactReference(href || '');
+  if (!requested) return null;
+  for (const artifact of artifacts) {
+    const relative = normalizedArtifactReference(artifact.path);
+    const storage = normalizedArtifactReference(artifact.storage_path || '');
+    if (
+      sameArtifactReference(requested, relative)
+      || sameArtifactReference(requested.replace(/^\//, ''), relative)
+      || sameArtifactReference(requested, storage)
+    ) {
+      return artifact.path;
+    }
+  }
+  return null;
 }
 
 function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
@@ -28,7 +81,15 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
   );
 }
 
-export function MarkdownContent({ children }: { children: string }) {
+export function MarkdownContent({
+  children,
+  artifacts = [],
+  onOpenArtifact,
+}: {
+  children: string;
+  artifacts?: ArtifactInfo[];
+  onOpenArtifact?: (path: string) => void;
+}) {
   const { t } = useI18n();
   return (
     <ReactMarkdown
@@ -43,11 +104,33 @@ export function MarkdownContent({ children }: { children: string }) {
         li: ({ children: value }) => <li className="pl-0.5">{value}</li>,
         blockquote: ({ children: value }) => <blockquote className="my-2 border-l border-blue/50 pl-3 text-ink-dim">{value}</blockquote>,
         hr: () => <hr className="my-3 border-line/60" />,
-        a: ({ href, children: value }) => (
-          <a href={href} target="_blank" rel="noreferrer" className="text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
-            {value}
-          </a>
-        ),
+        a: ({ href, children: value }) => {
+          const artifactPath = artifactPathFromHref(href, artifacts);
+          const artifact = artifactPath
+            ? artifacts.find((item) => item.path === artifactPath)
+            : undefined;
+          if (artifactPath && onOpenArtifact) {
+            return (
+              <a
+                href={href}
+                data-artifact-path={artifactPath}
+                title={artifact?.storage_path || artifactPath}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onOpenArtifact(artifactPath);
+                }}
+                className="cursor-pointer text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue"
+              >
+                {value}
+              </a>
+            );
+          }
+          return (
+            <a href={href} target="_blank" rel="noreferrer" className="text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
+              {value}
+            </a>
+          );
+        },
         code: ({ className, children: value, ...props }) => {
           const block = Boolean(className) || String(value).includes('\n');
           return (

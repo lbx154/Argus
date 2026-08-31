@@ -558,6 +558,9 @@ class FastVerticalRoute:
     research_direction_mode: str = ""
     target_venue: str = ""
     require_independent_review: bool = True
+    precise_constraints: tuple[str, ...] = ()
+    exclusions: tuple[str, ...] = ()
+    ambiguities: tuple[str, ...] = ()
 
 
 def parse_fast_vertical_decision(
@@ -649,6 +652,7 @@ def parse_fast_vertical_decision(
     )[:100]
     if name != "research":
         target_venue = ""
+    stated, exclusions, ambiguities = _stated_requirements(obj)
     return FastVerticalRoute(
         needs_grounding=False,
         vertical=name,
@@ -662,6 +666,9 @@ def parse_fast_vertical_decision(
         require_independent_review=(
             obj.get("require_independent_review", True) is not False
         ),
+        precise_constraints=stated,
+        exclusions=exclusions,
+        ambiguities=ambiguities,
     )
 
 

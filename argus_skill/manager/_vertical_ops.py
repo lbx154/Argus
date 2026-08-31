@@ -402,13 +402,18 @@ class _VerticalDecisionMixin:
             reset_contract_failures,
         )
 
-        resolved_model_id = _manager_model() or "<backend default>"
+        # Keep the diagnostic streak label separate from the runner option.
+        # For a custom Codex provider an empty model means "use that provider's
+        # configured default"; the human-readable placeholder must never be
+        # passed as a literal model id.
+        manager_model_id = _manager_model()
+        resolved_model_id = manager_model_id or "<backend default>"
         try:
             decision = self._decide_vertical_once(
                 task,
                 root_task_id=root_task_id,
                 allow_route_contract_change=allow_route_contract_change,
-                resolved_model_id=resolved_model_id,
+                resolved_model_id=manager_model_id,
             )
         except ManagerClassificationContractError as exc:
             try:
@@ -633,6 +638,12 @@ class _VerticalDecisionMixin:
                                 sandbox_mode="read-only",
                                 force_safe_mode=True,
                                 skip_git_repo_check=True,
+                                disable_tools=True,
+                                extra_args=(
+                                    ["--ephemeral"]
+                                    if backend_name == "codex"
+                                    else None
+                                ),
                             ),
                             run_label="manager-classify-fast",
                         )
@@ -686,6 +697,12 @@ class _VerticalDecisionMixin:
                             fast_route.research_direction_mode
                         ),
                         target_venue=fast_route.target_venue,
+                        require_independent_review=(
+                            fast_route.require_independent_review
+                        ),
+                        precise_constraints=fast_route.precise_constraints,
+                        exclusions=fast_route.exclusions,
+                        ambiguities=fast_route.ambiguities,
                     ))
 
         prompt = build_vertical_decision_prompt(
@@ -719,7 +736,7 @@ class _VerticalDecisionMixin:
                 "default",
             ]
             if backend_name == "copilot"
-            else None
+            else (["--ephemeral"] if backend_name == "codex" else None)
         )
         options = RunnerOptions(
             model=manager_model,

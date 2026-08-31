@@ -41,10 +41,15 @@ def test_release_digest_covers_runtime_and_frontend_build_inputs() -> None:
         "frontend/web/package-lock.json",
         "frontend/web/vite.config.ts",
         "frontend/web/index.html",
-        "desktop/src/main/index.ts",
-        "desktop/src/renderer/style.css",
-        "desktop/backend_entry.py",
-        "desktop/package-lock.json",
+        "argus_skill/desktop_backend_entry.py",
+        "desktop-tauri/argus_backend.spec",
+        "desktop-tauri/src-tauri/src/backend.rs",
+        "desktop-tauri/src-tauri/tauri.conf.json",
+        "desktop-tauri/src-tauri/installer-hooks.nsh",
+        "desktop-tauri/scripts/stage-release.ps1",
+        "desktop-tauri/scripts/smoke-host.py",
+        "desktop-tauri/resources/argus-backend/.gitkeep",
+        "desktop-tauri/package-lock.json",
         "argus_doctor.py",
         ".agents/plugins/marketplace.json",
         ".claude-plugin/marketplace.json",
@@ -177,6 +182,18 @@ def test_release_preflight_is_permissive_unless_enabled(monkeypatch) -> None:
     )
 
     assert runtime_identity_module.release_match_preflight_error() == ""
+
+
+def test_deployment_boundary_uses_tauri_desktop_verification() -> None:
+    commands = deploy_boundary._commands(("desktop-tauri/src/main.ts",))
+    rendered = [" ".join(command) for command in commands]
+
+    assert any("--prefix desktop-tauri ci" in command for command in rendered)
+    assert any("cargo check --manifest-path desktop-tauri" in command for command in rendered)
+    assert any("desktop-tauri/scripts/build-backend.ps1" in command for command in rendered)
+    assert any("--prefix desktop-tauri run build:unsigned" in command for command in rendered)
+    assert not any("electron-builder" in command for command in rendered)
+    assert not any("--prefix desktop ci" in command for command in rendered)
 
 
 def _deployment_repo(root: Path) -> tuple[Path, Path, Path, str, str]:

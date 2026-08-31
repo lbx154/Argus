@@ -1,7 +1,6 @@
 """Atomic, host-visible resource grants with TTL orphan recovery."""
 from __future__ import annotations
 
-import fcntl
 import getpass
 import hashlib
 import json
@@ -16,6 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from ...core.file_lock import exclusive_file_lock
 from ...core.paths import global_root
 from ...core.process_identity import (
     capture_process_identity,
@@ -175,11 +175,11 @@ class ResourceLedger:
     @contextmanager
     def _locked(self) -> Iterator[None]:
         with self.lock_path.open("a+b") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
+            with exclusive_file_lock(
+                handle,
+                lock_name=f"resource ledger {self.lock_path}",
+            ):
                 yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     @staticmethod
     def _read(path: Path) -> dict[str, Any] | None:
@@ -204,7 +204,8 @@ class ResourceLedger:
         descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
         temporary = Path(name)
         try:
-            os.fchmod(descriptor, 0o666)
+            if hasattr(os, "fchmod"):
+                os.fchmod(descriptor, 0o666)
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
                 json.dump(value, handle, ensure_ascii=False, indent=2, sort_keys=True)
                 handle.write("\n")

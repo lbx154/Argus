@@ -107,6 +107,11 @@ def test_windows_background_worker_forces_utf8_environment(
     assert rc == 0
     assert captured["env"]["PYTHONUTF8"] == "1"
     assert captured["env"]["PYTHONIOENCODING"] == "utf-8"
+    if os.name == "nt":
+        assert captured["creationflags"] & process.subprocess.CREATE_NO_WINDOW
+        startup = captured["startupinfo"]
+        assert startup.dwFlags & process.subprocess.STARTF_USESHOWWINDOW
+        assert startup.wShowWindow == process.subprocess.SW_HIDE
     assert released == [7]
 
 

@@ -35,7 +35,7 @@ def test_version_reports_package_version(capsys) -> None:
     with pytest.raises(SystemExit, match="0"):
         build_parser().parse_args(["--version"])
     rendered = capsys.readouterr().out
-    assert rendered == "argus-skill 0.1.2\n"
+    assert rendered == "argus-skill 0.1.1\n"
 
 
 def test_debug_help_still_exposes_internal_flags(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -57,6 +57,7 @@ def test_parser_exposes_doctor_and_repair_subcommands() -> None:
     for backend in ("qoder", "dsh"):
         parsed = build_parser().parse_args(["doctor", "--advisor", backend])
         assert parsed.advisor == backend
+    assert build_parser().parse_args(["doctor"]).advisor == "none"
 
     repair = build_parser().parse_args(["repair", "--safe", "--json"])
     assert repair.command == "repair"

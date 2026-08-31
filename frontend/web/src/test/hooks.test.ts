@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ACTIVE_DAEMON_POLL_MS,
   ARTIFACTS_POLL_MS,
   GIT_DIFF_POLL_MS,
   PROJECT_COST_POLL_MS,
   PROJECT_POLL_MS,
   SNAPSHOT_POLL_MS,
+  STREAM_RENDER_BATCH_MS,
   artifactRefreshEventKey,
+  projectPollInterval,
+  snapshotPollInterval,
   snapshotRefreshEventKey,
   streamReducer,
 } from '../hooks';
@@ -17,9 +21,24 @@ describe('project-scoped event stream', () => {
     expect(PROJECT_COST_POLL_MS).toBeGreaterThanOrEqual(4_000);
     expect(PROJECT_COST_POLL_MS).toBeLessThan(PROJECT_POLL_MS);
     expect(SNAPSHOT_POLL_MS).toBeGreaterThanOrEqual(8_000);
+    expect(ACTIVE_DAEMON_POLL_MS).toBeLessThanOrEqual(2_000);
     expect(ARTIFACTS_POLL_MS).toBeGreaterThanOrEqual(10_000);
     expect(GIT_DIFF_POLL_MS).toBeGreaterThanOrEqual(10_000);
+    expect(STREAM_RENDER_BATCH_MS).toBeGreaterThanOrEqual(16);
+    expect(STREAM_RENDER_BATCH_MS).toBeLessThanOrEqual(100);
   });
+  it('polls live daemons quickly enough to show their automatic exit', () => {
+    expect(projectPollInterval({ projects: [], local_cwd: '' })).toBe(PROJECT_POLL_MS);
+    expect(projectPollInterval({
+      projects: [{ daemon_alive: true } as never],
+      local_cwd: '',
+    })).toBe(ACTIVE_DAEMON_POLL_MS);
+    expect(snapshotPollInterval()).toBe(SNAPSHOT_POLL_MS);
+    expect(snapshotPollInterval({ daemon: { alive: true } } as never)).toBe(
+      ACTIVE_DAEMON_POLL_MS,
+    );
+  });
+
   it('ignores events from a stale project generation', () => {
     const initial = {
       sid: 's-current',
@@ -70,6 +89,24 @@ describe('project-scoped event stream', () => {
     expect(replayedOldEvent.seen.size).toBe(2_000);
   });
 
+  it('deduplicates a live batch with one reducer clone boundary', () => {
+    const initial = {
+      sid: 's-current',
+      events: [] as EventMsg[],
+      seen: new Set<string>(),
+    };
+    const first = { type: 'round.start', event_id: 'first' } as EventMsg;
+    const second = { type: 'engineer.progress', event_id: 'second' } as EventMsg;
+    const batched = streamReducer(initial, {
+      kind: 'push-many',
+      sid: 's-current',
+      events: [first, first, second],
+    });
+
+    expect(batched.events).toEqual([first, second]);
+    expect(batched.seen.size).toBe(2);
+  });
+
   it('preserves live events received before the REST seed resolves', () => {
     const initial = {
       sid: 's-current',
@@ -116,6 +153,9 @@ describe('project-scoped event stream', () => {
     ])).not.toBe('');
     expect(snapshotRefreshEventKey([
       { type: 'life.operator_question.answered', item_id: 'blocked', ts: 5 } as EventMsg,
+    ])).not.toBe('');
+    expect(snapshotRefreshEventKey([
+      { type: 'life.mission.completed', item_id: 'done', ts: 5.5 } as EventMsg,
     ])).not.toBe('');
     expect(snapshotRefreshEventKey([
       { type: 'engineer.progress', kind: 'assistant_message', ts: 6 } as EventMsg,

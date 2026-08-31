@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { PdfPreview } from '../../components/PdfPreview';
 import { api } from '../api';
 import { roleLabel } from '../enumLabels';
 import type { ArtifactInfo, EventMsg } from '../types';
@@ -286,7 +287,7 @@ export function ArtifactViewer({
           <pre className="code-preview">{detail.data.preview || text('（空文件）', '(empty file)')}{detail.data.truncated ? text('\n\n… 预览已截断', '\n\n… preview truncated') : ''}</pre>
         ) : null}
         {artifact.kind === 'image' && mediaUrl ? <img className="media-preview" src={mediaUrl} alt={artifact.why || artifact.name} /> : null}
-        {artifact.kind === 'pdf' && mediaUrl ? <embed className="pdf-preview" src={`${mediaUrl}#toolbar=0&view=FitH`} type="application/pdf" /> : null}
+        {artifact.kind === 'pdf' && mediaUrl ? <PdfPreview src={mediaUrl} name={artifact.name} className="pdf-preview" /> : null}
         {artifact.kind === 'audio' && mediaUrl ? <audio controls src={mediaUrl} /> : null}
         {artifact.kind === 'video' && mediaUrl ? <video className="video-preview" controls src={mediaUrl} /> : null}
         {artifact.kind === 'binary' ? <EmptyState title={text('该二进制文件仅支持下载', 'This binary file can only be downloaded')} /> : null}

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
-import type { EventMsg } from '../api';
+import type { ArtifactInfo, EventMsg } from '../api';
 import type { DeliveryReceipt } from '../../../core/src/types';
 import { renderEvent, toneColor, isReasoning, eventKey, mergeFragment, type Rendered } from '../lib/eventRender';
 import { eventMatchesView, fragmentMode, type EventViewFilter } from '../../../core/src/events';
@@ -39,7 +39,7 @@ function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: bo
   const color = toneColor(r.tone);
   return (
     <div
-      className={`group relative grid grid-cols-[16px_minmax(0,1fr)] gap-3 px-4 py-3 transition-colors hover:bg-bg/70 ${last ? 'animate-appear' : ''} ${r.reasoning ? 'opacity-60' : ''}`}
+      className={`event-activity-row group relative grid grid-cols-[16px_minmax(0,1fr)] gap-3 px-4 py-3 transition-colors hover:bg-bg/70 ${last ? 'animate-appear' : ''} ${r.reasoning ? 'opacity-60' : ''}`}
       style={r.rule ? { marginTop: 4 } : undefined}
     >
       <div className="relative flex justify-center">
@@ -72,7 +72,17 @@ function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: bo
   );
 }
 
-function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
+function ConversationRow({
+  ev,
+  r,
+  artifacts,
+  onOpenArtifact,
+}: {
+  ev: EventMsg;
+  r: Rendered;
+  artifacts?: ArtifactInfo[];
+  onOpenArtifact?: (path: string) => void;
+}) {
   const { t } = useI18n();
   const operator = String(ev.type) === 'ui.operator';
   const responseLatencyMs = Number(ev.response_latency_ms ?? 0);
@@ -97,7 +107,7 @@ function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
     );
   });
   return (
-    <article ref={rowRef} className="group mx-auto w-full max-w-full px-4 py-3 sm:px-6 lg:max-w-[61.8vw]">
+    <article ref={rowRef} className="conversation-row group mx-auto w-full max-w-full px-4 py-3 sm:px-6 lg:max-w-[61.8vw]">
       {operator ? (
         <div className="flex items-end justify-end gap-2">
           <CopyButton
@@ -108,7 +118,7 @@ function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
           />
           <time className="shrink-0 pb-1 font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}</time>
           <div className="max-w-[calc(100%_-_3rem)] rounded-[18px] bg-conversation-user px-4 py-2.5 text-[15px] leading-relaxed text-ink ring-1 ring-line/35 sm:max-w-[82%]">
-            <MarkdownContent>{r.text}</MarkdownContent>
+            <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{r.text}</MarkdownContent>
           </div>
         </div>
       ) : (
@@ -127,7 +137,7 @@ function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
               />
               <time className="font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}{responseLatency}</time>
             </div>
-            <MarkdownContent>{r.text}</MarkdownContent>
+            <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{r.text}</MarkdownContent>
           </div>
         </div>
       )}
@@ -311,10 +321,14 @@ function DeliveryCard({
 function ConversationThread({
   group,
   latest,
+  artifacts,
+  onOpenArtifact,
   onOpenDelivery,
 }: {
   group: ConversationGroup;
   latest: boolean;
+  artifacts?: ArtifactInfo[];
+  onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
 }) {
   const isSystemMessage = (row: ActivityRow) =>
@@ -343,9 +357,22 @@ function ConversationThread({
   })();
 
   return (
-    <section className="border-b border-line/60">
-      <ConversationRow ev={group.operator.ev} r={group.operator.r} />
-      {replies.map((row) => <ConversationRow key={row.key} ev={row.ev} r={row.r} />)}
+    <section className="conversation-thread border-b border-line/60">
+      <ConversationRow
+        ev={group.operator.ev}
+        r={group.operator.r}
+        artifacts={artifacts}
+        onOpenArtifact={onOpenArtifact}
+      />
+      {replies.map((row) => (
+        <ConversationRow
+          key={row.key}
+          ev={row.ev}
+          r={row.r}
+          artifacts={artifacts}
+          onOpenArtifact={onOpenArtifact}
+        />
+      ))}
       {systemMessages.map((message, index) => (
         <div key={`${group.key}-system-${index}`} className="mx-auto w-full max-w-full px-6 py-1.5 text-center text-xs text-ink-faint lg:max-w-[61.8vw]">
           {message}
@@ -379,6 +406,8 @@ export function EventStream({
   filter = 'all',
   query = '',
   skipFirst = 0,
+  artifacts,
+  onOpenArtifact,
   onOpenDelivery,
 }: {
   events: EventMsg[];
@@ -389,13 +418,21 @@ export function EventStream({
   filter?: EventViewFilter;
   query?: string;
   skipFirst?: number;
+  artifacts?: ArtifactInfo[];
+  onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
 }) {
   const { locale, t } = useI18n();
   const [following, setFollowing] = useState(true);
   const [activityTick, setActivityTick] = useState(() => Date.now());
   const scroller = useRef<HTMLDivElement>(null);
-  const activeProvider = useMemo(() => activeProviderRequest(events), [events]);
+  // Rendering a long Markdown/event history is interruptible, so incoming
+  // provider fragments never take priority over typing or scrolling.
+  const deferredEvents = useDeferredValue(events);
+  const activeProvider = useMemo(
+    () => activeProviderRequest(deferredEvents),
+    [deferredEvents],
+  );
   useEffect(() => {
     if (!activeProvider) return;
     setActivityTick(Date.now());
@@ -415,7 +452,9 @@ export function EventStream({
     const out: { ev: EventMsg; r: Rendered; key: string }[] = [];
     const msgRow = new Map<string, number>(); // message_id → index in out
     let hiddenReasoning = 0;
-    const displayEvents = skipFirst > 0 ? events.slice(skipFirst) : events;
+    const displayEvents = skipFirst > 0
+      ? deferredEvents.slice(skipFirst)
+      : deferredEvents;
     displayEvents.forEach((ev, i) => {
       const r = renderEvent(ev, locale);
       if (!r) return; // non-whitelisted → hidden
@@ -450,7 +489,7 @@ export function EventStream({
       out.push(entry);
     });
     return { list: out, hiddenReasoning };
-  }, [events, showReasoning, filter, query, skipFirst, locale]);
+  }, [deferredEvents, showReasoning, filter, query, skipFirst, locale]);
 
   const rows = baseRows;
   const conversations = useMemo(() => {
@@ -470,14 +509,21 @@ export function EventStream({
     return { groups, earlier };
   }, [rows.list]);
 
-  const reasoningTotal = useMemo(() => events.filter(isReasoning).length, [events]);
+  const reasoningTotal = useMemo(
+    () => deferredEvents.filter(isReasoning).length,
+    [deferredEvents],
+  );
   const tailContentLength = useMemo(
     () => rows.list.slice(-20).reduce((total, row) => total + row.r.text.length, 0),
     [rows.list],
   );
 
   useEffect(() => {
-    if (following && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+    if (!following) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [rows.list.length, tailContentLength, following]);
 
   useEffect(() => {
@@ -549,6 +595,8 @@ export function EventStream({
                 key={group.key}
                 group={group}
                 latest={index === conversations.groups.length - 1}
+                artifacts={artifacts}
+                onOpenArtifact={onOpenArtifact}
                 onOpenDelivery={onOpenDelivery}
               />
             ))}

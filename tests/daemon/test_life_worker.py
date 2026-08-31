@@ -462,6 +462,10 @@ def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
     assert captured["errors"] == "replace"
     if os.name == "nt":
         assert captured["timeout"] > 180.0
+        assert captured["creationflags"] & life_worker_mod.subprocess.CREATE_NO_WINDOW
+        startup = captured["startupinfo"]
+        assert startup.dwFlags & life_worker_mod.subprocess.STARTF_USESHOWWINDOW
+        assert startup.wShowWindow == life_worker_mod.subprocess.SW_HIDE
     else:
         assert captured["timeout"] == 15.0
     payload = json.loads(captured["input"])
@@ -2841,6 +2845,43 @@ def test_bounded_daemon_exits_after_project_done(
             nonlocal calls
             calls += 1
             return {"stopped_by": "project_done"}
+
+    rf_state = SimpleNamespace(
+        runtime_root=tmp_path,
+        cfg=worker.config,
+        runner=SimpleNamespace(manager=None),
+        sup=FakeSupervisor(),
+    )
+
+    worker._rf_main_loop(rf_state)
+
+    assert calls == 1
+
+
+def test_bounded_daemon_exits_after_plain_backlog_is_drained(
+    tmp_path: Path,
+) -> None:
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            project_workdir=tmp_path,
+            poll_interval=0.0,
+            continuous_open_ended=False,
+        )
+    )
+    worker._curator = None
+    calls = 0
+
+    class FakeSupervisor:
+        config = SimpleNamespace(budget=SimpleNamespace(can_start=lambda **_kwargs: (True, "")))
+        _missions_started = 0
+        _planning_cycles = 0
+
+        def run(self):
+            nonlocal calls
+            calls += 1
+            return {"stopped_by": "backlog_empty"}
 
     rf_state = SimpleNamespace(
         runtime_root=tmp_path,

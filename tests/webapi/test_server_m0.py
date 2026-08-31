@@ -33,6 +33,22 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 
+def test_static_module_workers_use_a_javascript_mime_on_windows(
+    tmp_path: Path,
+) -> None:
+    dist = Path(server.__file__).resolve().parents[2] / "frontend" / "web" / "dist"
+    workers = list((dist / "assets").glob("pdf.worker*.mjs"))
+    if not workers:
+        pytest.skip("built PDF worker is not present")
+
+    response = TestClient(server.create_app(global_root=tmp_path)).get(
+        f"/assets/{workers[0].name}"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/javascript")
+
+
 def test_project_label_does_not_use_raw_operator_transcript(tmp_path: Path) -> None:
     sid = "s-rawlabel"
     life_dir = tmp_path / "projects" / sid
@@ -530,7 +546,7 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout(
     assert meta["runtime"]["pid"] > 0
     assert meta["runtime"]["desktop_launch_nonce"] == "desktop-launch-test"
     runtime = meta["runtime"]
-    assert runtime["release_id"].startswith("0.1.2+")
+    assert runtime["release_id"].startswith("0.1.1+")
     assert runtime["release_matches_source"] is (
         runtime["manifest_source_digest"] == runtime["runtime_source_digest"]
     )
@@ -925,7 +941,7 @@ def test_get_meta_is_public_versioned_and_uncached(
     assert r.headers["x-argus-protocol"] == (
         f"argus.webapi/{API_PROTOCOL_MAJOR}.{API_PROTOCOL_MINOR}"
     )
-    assert r.headers["x-argus-release"].startswith("0.1.2+")
+    assert r.headers["x-argus-release"].startswith("0.1.1+")
     assert r.json()["protocol"]["major"] == API_PROTOCOL_MAJOR
     assert r.json()["authentication"] == {
         "required": True,

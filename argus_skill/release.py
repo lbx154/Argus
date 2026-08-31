@@ -59,19 +59,33 @@ def _source_files(root: Path) -> Iterable[Path]:
         "plugins/argus/bin/*",
         "plugins/argus/install.sh",
         "plugins/argus/install.ps1",
-        # Desktop and frozen-backend sources are part of the Windows release
-        # unit. Including them prevents an Electron-only change from claiming
-        # the same identity as a prior bundled backend/cockpit pair.
-        "desktop/src/**/*",
-        "desktop/resources/**/*",
-        "desktop/scripts/**/*",
-        "desktop/backend_entry.py",
-        "desktop/argus_backend.spec",
-        "desktop/electron-builder.yml",
-        "desktop/electron.vite.config.ts",
-        "desktop/package.json",
-        "desktop/package-lock.json",
-        "desktop/tsconfig.json",
+        # Tauri is the sole Windows release host. Keep its Rust supervisor,
+        # frozen-backend specification, local shell, updater configuration,
+        # installer hook and packaging scripts in the same backend/cockpit
+        # release identity.
+        "desktop-tauri/src/**/*",
+        "desktop-tauri/src-tauri/src/**/*",
+        "desktop-tauri/src-tauri/capabilities/**/*",
+        "desktop-tauri/src-tauri/icons/**/*",
+        "desktop-tauri/resources/.gitignore",
+        "desktop-tauri/resources/argus-backend/.gitkeep",
+        "desktop-tauri/argus_backend.spec",
+        "desktop-tauri/src-tauri/Cargo.toml",
+        "desktop-tauri/src-tauri/Cargo.lock",
+        "desktop-tauri/src-tauri/build.rs",
+        "desktop-tauri/src-tauri/installer-hooks.nsh",
+        "desktop-tauri/src-tauri/tauri.conf.json",
+        # Only source scripts belong to the release. A broad glob would include
+        # ignored __pycache__ bytecode produced by the packaged-host smoke test
+        # and make the manifest change merely by running verification.
+        "desktop-tauri/scripts/*.js",
+        "desktop-tauri/scripts/*.mjs",
+        "desktop-tauri/scripts/*.ps1",
+        "desktop-tauri/scripts/*.py",
+        "desktop-tauri/package.json",
+        "desktop-tauri/package-lock.json",
+        "desktop-tauri/tsconfig.json",
+        "desktop-tauri/vite.config.ts",
         "argus_doctor.py",
         "pyproject.toml",
     )

@@ -158,39 +158,71 @@ def registered_delivery_artifacts(
     sid: str,
     *,
     global_root: Path | str | None = None,
+    workspace: Path | None = None,
 ) -> list[dict[str, str]]:
-    """Expose only the successful mission's receipt-selected outputs.
+    """Expose safe outputs selected by a receipt or accepted completion text.
 
-    ``delivery`` was derived from existing safe workspace files at settlement,
-    but this read path still feeds every item through ``artifact_metadata`` so
-    a later delete/rename never becomes a stale or unsafe download link.
+    Older and third-party Reviewer backends can certify an Engineer handoff
+    without copying its file links into ``frontier.artifacts``. Recover only
+    those explicitly named files (never a workspace scan), then feed every row
+    through ``artifact_metadata`` so confinement remains authoritative.
     """
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return []
     view = load_mission_view(life_dir)
     delivery = view.get("delivery")
-    if not isinstance(delivery, dict):
-        return []
-    title = str(delivery.get("title") or "Delivered results").strip()
-    rows = delivery.get("targets")
-    if not isinstance(rows, list):
-        return []
+    mission = view.get("mission") if isinstance(view.get("mission"), dict) else {}
+    title = "Delivered results"
+    targets: list[Any] = []
+    if isinstance(delivery, dict):
+        title = str(delivery.get("title") or title).strip() or title
+        raw_targets = delivery.get("targets")
+        if isinstance(raw_targets, list):
+            targets = raw_targets
+    elif str(mission.get("title") or "").strip():
+        title = str(mission.get("title") or title).strip()
+
     results: list[dict[str, str]] = []
-    for target in rows:
+    seen: set[str] = set()
+    for target in targets:
         if not isinstance(target, dict):
             continue
         path = str(target.get("path") or "").strip()
-        if not path:
+        if not path or path in seen:
             continue
         label = str(target.get("label") or "").strip()
         why = str(target.get("why") or label or "Reviewed delivery output.").strip()
+        seen.add(path)
         results.append({
             "path": path,
             "why": why,
             "source": "delivery",
-            "group_title": title or "Delivered results",
+            "group_title": title,
         })
+
+    terminal = str(mission.get("status") or "").strip().lower()
+    resolved_workspace = workspace or artifact_workspace(
+        sid,
+        global_root=global_root,
+    )
+    if terminal in {"complete", "completed", "done", "success"} and resolved_workspace:
+        from ..life.delivery import referenced_delivery_paths
+
+        for path in referenced_delivery_paths(
+            resolved_workspace,
+            [mission.get("summary")],
+            limit=12,
+        ):
+            if path in seen:
+                continue
+            seen.add(path)
+            results.append({
+                "path": path,
+                "why": "File linked by the reviewer-accepted completion summary.",
+                "source": "delivery",
+                "group_title": title,
+            })
     return results
 
 
@@ -255,6 +287,9 @@ def artifact_metadata(
         "mime": mime,
         "size": int(stat.st_size) if stat is not None else 0,
         "mtime": float(stat.st_mtime) if stat is not None else None,
+        # Authenticated local clients may show the real storage address on
+        # hover; all reads still go through the protected relative-path API.
+        "storage_path": str(resolved),
     }
     if preview_bytes > 0 and exists and kind in {
         "text", "html", "markdown", "json", "table",
@@ -283,7 +318,11 @@ def list_project_artifacts(
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     evidence_rows = [
-        *registered_delivery_artifacts(sid, global_root=global_root),
+        *registered_delivery_artifacts(
+            sid,
+            global_root=global_root,
+            workspace=workspace,
+        ),
         *manager_live_view_files(sid, workspace, global_root=global_root),
         *registered_research_artifacts(sid, global_root=global_root),
     ]

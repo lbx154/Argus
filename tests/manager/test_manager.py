@@ -16,6 +16,10 @@ from argus_skill.manager.domain_author import (
     VerticalDecisionError,
     parse_vertical_decision,
 )
+from argus_skill.roles.prompts.manager import (
+    build_fast_vertical_decision_prompt,
+    build_vertical_decision_prompt,
+)
 from argus_skill.skills.stage_machine import ChecklistItem
 from argus_skill.skills.vertical_select import persist_vertical
 from argus_skill.verticals.research.stages import STAGE_ORDER as RESEARCH_STAGES
@@ -816,6 +820,40 @@ def test_vertical_decision_pins_manager_model(tmp_path, monkeypatch) -> None:
     assert "fast, tool-free front-door judgment" in runner.calls[0]["prompt"]
 
 
+def test_custom_codex_provider_does_not_send_diagnostic_model_placeholder(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """`<backend default>` is a streak label, never a provider model id."""
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        """
+model_provider = "deepseek"
+model = "deepseek-v4-flash"
+
+[model_providers.deepseek]
+base_url = "https://api.deepseek.invalid/"
+wire_api = "responses"
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "codex")
+    monkeypatch.delenv("ARGUS_SKILL_MANAGER_MODEL", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_MODEL", raising=False)
+    runner = _existing("research")
+
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
+        "Write a short Chinese survey with a compiled PDF deliverable."
+    )
+
+    assert decision.vertical == "research"
+    assert runner.last_options.model == ""
+    assert runner.last_options.model != "<backend default>"
+
+
 def test_software_planner_requirement_overrides_direct_route(
     tmp_path,
     monkeypatch,
@@ -899,6 +937,56 @@ def test_vertical_decision_always_uses_repository_grounded_route(
         runner.calls[0]["prompt"]
     )
     assert "at most one targeted" not in runner.calls[0]["prompt"]
+
+
+def test_fast_route_carries_contract_fields_without_bypassing_planner(
+    tmp_path,
+) -> None:
+    runner = _DecisionRunner({
+        "choice": "existing",
+        "vertical": "software",
+        "workflow_mode": "direct",
+        "confidence": 0.99,
+        "rationale": "one bounded parser repair",
+        "require_independent_review": True,
+        "precise_constraints": ["pytest -q tests/test_parser.py exits zero"],
+        "exclusions": ["do not change the public API"],
+        "ambiguities": [],
+    })
+    runner._backend_name = "codex"
+
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
+        "Repair the parser and run its focused test."
+    )
+
+    assert decision.workflow_mode == "direct"
+    assert decision.require_independent_review is True
+    assert decision.precise_constraints == (
+        "pytest -q tests/test_parser.py exits zero",
+    )
+    assert decision.exclusions == ("do not change the public API",)
+    assert decision.ambiguities == ()
+    assert runner.calls[0]["run_label"] == "manager-classify-fast"
+    assert runner.calls[0]["options"].disable_tools is True
+    assert runner.calls[0]["options"].extra_args == ["--ephemeral"]
+
+
+def test_research_route_prompts_require_the_fields_the_parser_requires() -> None:
+    shared = {
+        "task": "Write a finite technical survey.",
+        "verticals_with_purpose": {"research": "research and surveys"},
+        "research_target_verticals": ("research",),
+    }
+    fast = build_fast_vertical_decision_prompt(**shared)
+    grounded = build_vertical_decision_prompt(**shared)
+
+    assert "always choose and output `research_target_level`" in fast
+    assert "Always output `research_direction_mode`" in fast
+    assert "For a research-target vertical, always add `research_target_level`" in (
+        grounded
+    )
+    assert "Add research target fields only when the operator stated them" not in fast
+    assert "`target_venue` only when the operator stated one" in grounded
 
 
 def test_fast_route_environment_cannot_restore_tool_free_shortcut(

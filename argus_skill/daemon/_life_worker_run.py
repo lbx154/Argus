@@ -326,16 +326,23 @@ class LifeWorkerRunMixin:
                                 )
                             ):
                                 self._adopted_continuous_generation = None
-                    # A bounded campaign owns exactly one terminal objective.
-                    # The supervisor has already persisted project_done and the
-                    # so another drain pass can only re-open a
-                    # completed project and waste tokens. Open-ended daemons keep
-                    # their resident behavior unchanged.
+                    # A bounded worker owns one finite queue. Plain bounded DAGs
+                    # finish with ``backlog_empty``; finite staged campaigns end
+                    # with ``project_done``. Both must release the process slot.
+                    # A standing campaign that was enabled while this worker was
+                    # alive remains resident even if the launch itself was bounded.
+                    terminal_bounded_stop = summary.get("stopped_by") in {
+                        "backlog_empty",
+                        "project_done",
+                    }
+                    standing = read_continuous_state(rf_state.runtime_root)
+                    standing_enabled = standing.enabled and standing.open_ended
                     if (
-                        summary.get("stopped_by") == "project_done"
+                        terminal_bounded_stop
                         and not rf_state.cfg.continuous_open_ended
+                        and not standing_enabled
                     ):
-                        log.info("daemon: bounded project completed; exiting cleanly")
+                        log.info("daemon: bounded work completed; exiting cleanly")
                         break
                     # Idle auto-exit: the supervisor judged the project idle past
                     # the cap. Exit the loop so the process shuts down cleanly

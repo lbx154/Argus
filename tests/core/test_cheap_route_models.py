@@ -17,6 +17,9 @@ explicit knob always wins.
 """
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
 
 from argus_skill.core.knobs import resolve_cheap_route_model, resolve_role_model
@@ -24,12 +27,18 @@ from argus_skill.core.knobs import resolve_cheap_route_model, resolve_role_model
 
 @pytest.fixture(autouse=True)
 def _no_persisted_knobs(monkeypatch, tmp_path) -> None:
-    """Keep the operator's real ``~/.argus-skill`` switches out of these."""
+    """Keep the operator's real runtime and Codex provider out of these."""
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    monkeypatch.delenv("ARGUS_SKILL_CODEX_CONFIG", raising=False)
 
 
 def _env(backend: str, **extra: str) -> dict[str, str]:
-    return {"ARGUS_SKILL_LIFE_BACKEND": backend, **extra}
+    return {
+        "ARGUS_SKILL_LIFE_BACKEND": backend,
+        "CODEX_HOME": os.environ["CODEX_HOME"],
+        **extra,
+    }
 
 
 @pytest.mark.parametrize("backend", ["pi", "claude", "opencode", "grok"])
@@ -54,6 +63,37 @@ def test_openai_backend_without_model_keeps_argus_default(backend: str) -> None:
         )
         == "gpt-5.5"
     )
+
+
+def test_custom_codex_provider_uses_its_configured_default_model() -> None:
+    """A Codex CLI pointed at DeepSeek must not receive an OpenAI-only id."""
+    codex_home = Path(os.environ["CODEX_HOME"])
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        """
+model_provider = "deepseek"
+model = "deepseek-v4-flash"
+
+[model_providers.deepseek]
+base_url = "https://api.deepseek.invalid/"
+wire_api = "responses"
+""".strip(),
+        encoding="utf-8",
+    )
+    env = _env("codex")
+
+    assert resolve_role_model(
+        "manager",
+        role_env="ARGUS_SKILL_MANAGER_MODEL",
+        env=env,
+    ) == ""
+    assert resolve_cheap_route_model(
+        knob="ARGUS_SKILL_FRONTDOOR_MODEL",
+        catalog_default="gpt-5.4-mini",
+        role="manager",
+        role_env="ARGUS_SKILL_MANAGER_MODEL",
+        env=env,
+    ) == ""
 
 
 def test_auto_model_override_uses_backend_default() -> None:

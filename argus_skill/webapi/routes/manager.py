@@ -183,6 +183,8 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
         kwargs = {"global_root": project_root}
         if attachments:
             kwargs["attachments"] = attachments
+        if body.route_override != "auto":
+            kwargs["route_override"] = body.route_override
 
         result = await run_in_threadpool(
             manager_message, sid, body.text, **kwargs,
@@ -258,6 +260,8 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                 }
                 if attachments:
                     kwargs["attachments"] = attachments
+                if body.route_override != "auto":
+                    kwargs["route_override"] = body.route_override
                 result = manager_message(
                     sid,
                     body.text,

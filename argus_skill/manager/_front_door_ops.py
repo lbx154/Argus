@@ -65,7 +65,11 @@ class _FrontDoorMixin:
                 "ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT",
                 "low",
             ).value.strip() or "low"
-            _pi = str(getattr(_backend, "backend", "")) == "pi"
+            _backend_name = str(
+                getattr(_backend, "backend", "")
+                or getattr(_backend, "_backend_name", "")
+            ).strip().lower()
+            _pi = _backend_name == "pi"
 
             def run_exec(prompt: str) -> Any:  # noqa: ANN401
                 from ..core.operator_context import append_operator_context
@@ -88,7 +92,7 @@ class _FrontDoorMixin:
                                 "classification decision.",
                             ]
                             if _pi
-                            else None
+                            else (["--ephemeral"] if _backend_name == "codex" else None)
                         ),
                     ),
                     run_label="manager-frontdoor-classify",

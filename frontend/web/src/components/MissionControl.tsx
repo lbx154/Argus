@@ -8,7 +8,7 @@ import { theme } from '../lib/theme';
 import { formatRelativeTime } from '../lib/format';
 import { MarkdownContent } from './MarkdownContent';
 import { useI18n } from '../i18n';
-import { api, type Snapshot } from '../api';
+import { api, type ArtifactInfo, type Snapshot } from '../api';
 import {
   outcomeLabels,
   roleLabel,
@@ -147,6 +147,7 @@ export function MissionControl({
   view,
   sid = '',
   snapshot,
+  artifacts = [],
   onOpenArtifact,
   onOpenDelivery,
   gitDiff,
@@ -154,6 +155,7 @@ export function MissionControl({
   view: MissionView;
   sid?: string;
   snapshot?: Snapshot;
+  artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
   gitDiff?: GitDiffView;
@@ -171,6 +173,7 @@ export function MissionControl({
   const [selectedTaskId, setSelectedTaskId] = useState(activeNode?.id || '');
   const [resumeBusy, setResumeBusy] = useState(false);
   const delivery = view.delivery;
+  const artifactByPath = new Map(artifacts.map((artifact) => [artifact.path, artifact]));
   const healthNeedsAttention = ['degraded', 'red', 'critical'].includes(view.health?.toLowerCase() ?? '');
   const missionFailed = ['failed', 'error'].includes(view.mission.status.toLowerCase());
   const stepFailed = view.dag.some((node) => node.status.toLowerCase() === 'failed');
@@ -245,12 +248,12 @@ export function MissionControl({
           className="mt-1 line-clamp-4 max-w-4xl text-lg font-semibold leading-snug text-ink"
           title={objective}
         >
-          <MarkdownContent>{objective}</MarkdownContent>
+          <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{objective}</MarkdownContent>
         </div>
         {objective.length > 600 ? (
           <details className="mt-2 text-xs text-ink-faint">
             <summary className="cursor-pointer hover:text-ink">{t('mission.showObjective')}</summary>
-            <div className="mt-2 text-ink-dim"><MarkdownContent>{objective}</MarkdownContent></div>
+            <div className="mt-2 text-ink-dim"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{objective}</MarkdownContent></div>
           </details>
         ) : null}
         <div
@@ -271,9 +274,11 @@ export function MissionControl({
             <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ok">
               {t('mission.summary')}
             </div>
-            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-ink-dim">
-              {view.mission.summary}
-            </p>
+            <div className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-ink-dim">
+              <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>
+                {view.mission.summary}
+              </MarkdownContent>
+            </div>
           </div>
         ) : null}
         {delivery ? (
@@ -290,6 +295,9 @@ export function MissionControl({
               <button
                 type="button"
                 onClick={() => onOpenDelivery(delivery)}
+                title={delivery.primary_target
+                  ? artifactByPath.get(delivery.primary_target.path)?.storage_path || delivery.primary_target.path
+                  : delivery.title}
                 className="shrink-0 rounded border border-ok/40 px-2 py-1 font-mono text-[10px] text-ok hover:border-ok"
               >
                 {t(delivery.primary_target ? 'mission.openResult' : 'mission.viewTask')}
@@ -575,8 +583,16 @@ export function MissionControl({
           <div className="mt-5 flex flex-wrap gap-2 border-t border-line/50 pt-4">
             {view.artifacts.slice(-8).map((artifact) => {
               const path = String(artifact.path || '');
+              const info = artifactByPath.get(path);
               return (
-                <button key={String(artifact.id || path)} type="button" disabled={!path || !onOpenArtifact} onClick={() => path && onOpenArtifact?.(path)} className="rounded border border-line px-2 py-1 font-mono text-[10px] text-blue-sky hover:border-blue-sky/50 disabled:text-ink-faint">
+                <button
+                  key={String(artifact.id || path)}
+                  type="button"
+                  disabled={!path || !onOpenArtifact || info?.exists === false}
+                  onClick={() => path && onOpenArtifact?.(path)}
+                  title={info?.storage_path || path}
+                  className="rounded border border-line px-2 py-1 font-mono text-[10px] text-blue-sky hover:border-blue-sky/50 disabled:text-ink-faint"
+                >
                   {String(artifact.title || t('research.artifact'))}
                 </button>
               );

@@ -412,6 +412,36 @@ def test_manager_required_review_is_explicit_in_bounded_prompt(tmp_path) -> None
     assert plan.tasks[0].require_independent_review is True
 
 
+def test_manager_direct_workflow_uses_compact_real_planner_signoff(tmp_path) -> None:
+    runner = _Runner({
+        "reason": "one signed package",
+        "tasks": [{
+            "key": "k1",
+            "deps": [],
+            "title": "Implement one package",
+            "objective": "implement and check the requested package",
+            "acceptance_check": "the focused check exits zero",
+            "require_independent_review": True,
+        }],
+    })
+
+    plan = plan_bounded_dag(
+        runner,
+        "implement one coherent package",
+        workdir=tmp_path,
+        require_independent_review=True,
+        single_package=True,
+    )
+
+    assert not plan.error
+    assert len(plan.tasks) == 1
+    prompt = runner.calls[0]["prompt"]
+    assert "Planner signing one Manager-approved coherent work package" in prompt
+    assert "Issue exactly one executable DAG node" in prompt
+    assert "A long job holds its slot" not in prompt
+    assert "TASK_REQUIRE_INDEPENDENT_REVIEW=true" in prompt
+
+
 def test_bounded_planner_resolves_casefolded_dep_to_canonical_key(tmp_path) -> None:
     runner = _Runner(
         {

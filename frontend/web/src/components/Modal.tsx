@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { useGsapMotion } from '../lib/motion';
 
 /**
@@ -13,6 +13,8 @@ export function Modal({
   label,
   width = 'max-w-2xl',
   align = 'center',
+  viewport = false,
+  style,
 }: {
   open: boolean;
   onClose: () => void;
@@ -20,6 +22,8 @@ export function Modal({
   label: string;
   width?: string;
   align?: 'center' | 'top';
+  viewport?: boolean;
+  style?: CSSProperties;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -98,7 +102,7 @@ export function Modal({
   if (!open) return null;
   return (
     <div
-      className={`fixed inset-0 z-50 flex ${align === 'top' ? 'items-start pt-4 sm:pt-16' : 'items-center'} justify-center p-4`}
+      className={`fixed inset-0 z-50 flex ${align === 'top' ? 'items-start pt-4 sm:pt-16' : 'items-center'} justify-center ${viewport ? 'p-0' : 'p-4'}`}
       onMouseDown={onClose}
     >
       <div ref={backdropRef} className="absolute inset-0 bg-[rgb(4_11_24_/_0.58)] backdrop-blur-md" />
@@ -108,7 +112,11 @@ export function Modal({
         aria-modal="true"
         aria-label={label}
         tabIndex={-1}
-        className={`brand-modal glass-panel glass-panel--raised relative z-10 w-full ${width} max-h-[calc(100dvh-2rem)] overflow-x-hidden overflow-y-auto rounded-xl border shadow-glow scroll-thin sm:max-h-[88dvh]`}
+        style={style}
+        className={`brand-modal glass-panel glass-panel--raised relative z-10 w-full ${width} border shadow-glow scroll-thin ${viewport
+          ? 'flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden rounded-none'
+          : 'max-h-[calc(100dvh-2rem)] overflow-x-hidden overflow-y-auto rounded-xl sm:max-h-[88dvh]'
+        }`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {children}

@@ -473,6 +473,9 @@ def test_claude_readiness_fails_on_the_openai_shared_default(
     reported ready with model=gpt-5.5, and every message then came back as
     "[not dispatched] Manager could not classify this message"."""
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "argus-home"))
+    # The shared default under test is Argus's OpenAI fallback, not the
+    # developer machine's personal Codex custom-provider configuration.
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
     monkeypatch.delenv("ARGUS_SKILL_MODEL", raising=False)
     _fake_claude(monkeypatch)
 
