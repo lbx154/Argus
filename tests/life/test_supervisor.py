@@ -1274,13 +1274,46 @@ class _TechnicalQuestionRunner:
         return outcome
 
 
-def test_pragmatic_autonomy_replans_technical_question_without_pausing(
+def test_pragmatic_autonomy_parks_explicit_operator_question_by_default(
     tmp_path,
     monkeypatch,
 ) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_AUTONOMY_MODE", "pragmatic")
+    mem = LifeMemory.open(tmp_path / "life")
+    sink = _RecordingSink(mem.root)
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_TechnicalQuestionRunner(),
+        sink=sink,
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+            poll_interval_seconds=0.01,
+        ),
+    )
+    item = mem.backlog.add(BacklogItem.new(
+        title="Choose the scope",
+        objective="deliver the operator-selected scope",
+    ))
+
+    result = sup.tick()
+
+    assert result is not None and result["status"] == "blocked"
+    stored = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert stored.status == "paused_operator"
+    assert stored.pending_question == (
+        "Should the benchmark use a smaller diagnostic shape?"
+    )
+
+
+@pytest.mark.parametrize("mode", ["pragmatic", "cautious"])
+def test_forbid_policy_replans_technical_question_without_pausing(
+    tmp_path,
+    monkeypatch,
+    mode,
+) -> None:
     from argus_skill.manager.directive import set_active_manager_directive
 
-    monkeypatch.setenv("ARGUS_SKILL_AUTONOMY_MODE", "pragmatic")
+    monkeypatch.setenv("ARGUS_SKILL_AUTONOMY_MODE", mode)
     mem = LifeMemory.open(tmp_path / "life")
     set_active_manager_directive(
         mem.root,
