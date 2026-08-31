@@ -152,6 +152,7 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
   const [quickModelValue, setQuickModelValue] = useState('');
   const [quickConfigBusy, setQuickConfigBusy] = useState(false);
   const [quickConfigMsg, setQuickConfigMsg] = useState('');
+  const [quickConfigError, setQuickConfigError] = useState(false);
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
@@ -175,11 +176,13 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
     if (quickConfigBusy) return;
     setQuickConfigBusy(true);
     setQuickConfigMsg('');
+    setQuickConfigError(false);
     try {
       await api.setConfig(sid, 'ARGUS_SKILL_RUNNER_BACKEND', backend);
       await refetch();
       setQuickConfigMsg(t('settings.backendSwitched', { backend: backendLabel(backend, t) }));
     } catch (error) {
+      setQuickConfigError(true);
       setQuickConfigMsg(error instanceof Error ? error.message : String(error));
     } finally {
       setQuickConfigBusy(false);
@@ -189,11 +192,13 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
     if (quickConfigBusy) return;
     setQuickConfigBusy(true);
     setQuickConfigMsg('');
+    setQuickConfigError(false);
     try {
       await api.setConfig(sid, 'ARGUS_SKILL_MODEL', quickModelValue.trim() || 'auto');
       await refetch();
       setQuickConfigMsg(t('settings.applied'));
     } catch (error) {
+      setQuickConfigError(true);
       setQuickConfigMsg(error instanceof Error ? error.message : String(error));
     } finally {
       setQuickConfigBusy(false);
@@ -261,6 +266,13 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
                   onChange={(event) => void setBackend(event.target.value as BackendOption)}
                   className="h-8 min-w-44 rounded border border-line bg-bg px-2 text-xs text-ink outline-none focus:border-blue disabled:opacity-40"
                 >
+                  {!backendOption(currentBackend) ? (
+                    <option value="" disabled>
+                      {currentBackend
+                        ? t('settings.backendUnsupported', { backend: currentBackend })
+                        : t('settings.backendUnavailable')}
+                    </option>
+                  ) : null}
                   {BACKEND_OPTIONS.map((backend) => (
                     <option key={backend.value} value={backend.value}>{t(backend.label)}</option>
                   ))}
@@ -278,7 +290,14 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
                   {t('settings.applyModel')}
                 </button>
               </div>
-              {quickConfigMsg && <div className="mt-1.5 text-[10px] text-ink-dim">{quickConfigMsg}</div>}
+              {quickConfigMsg && (
+                <div
+                  role={quickConfigError ? 'alert' : 'status'}
+                  className={`mt-1.5 text-[10px] ${quickConfigError ? 'text-err' : 'text-ink-dim'}`}
+                >
+                  {quickConfigMsg}
+                </div>
+              )}
             </section>
 
             <section className="rounded-lg border border-gold/40 bg-gold/5 p-3">

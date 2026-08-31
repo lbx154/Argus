@@ -450,12 +450,13 @@ export default function App() {
     try {
       await api.startDaemon(sid);
       await projectsQ.refetch();
+      notify('success', t('sidebar.resumeSuccess'));
     } catch (error) {
-      notify('error', errorText(error));
+      notify('error', t('sidebar.resumeFailed', { error: errorText(error) }));
     } finally {
       setResumingSid(null);
     }
-  }, [notify, projectsQ]);
+  }, [notify, projectsQ, t]);
   const {
     daemonBusy,
     manageDeleteProject,
@@ -828,6 +829,8 @@ export default function App() {
           resumingId={resumingSid}
           activeBackend={configuredBackend(activeConfigQ.data)}
           activeModel={configuredModel(activeConfigQ.data)}
+          activeConfigLoading={activeConfigQ.isLoading}
+          activeConfigError={activeConfigQ.isError}
           onOpenPanel={(panel) => setOverlay(panel)}
           onNew={() => setNewDaemonOpen(true)}
           loading={projectsQ.isLoading}

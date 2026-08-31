@@ -215,11 +215,15 @@ export function MissionControl({
   const missionFailed = ['failed', 'error'].includes(view.mission.status.toLowerCase());
   const stepFailed = view.dag.some((node) => node.status.toLowerCase() === 'failed');
   const missionPaused = ['hold', 'paused'].includes(view.stage.id.toLowerCase());
-  const needsAttention = healthNeedsAttention || missionFailed || stepFailed || missionPaused;
+  const deliveryFailed = view.outcome.execution_status?.toLowerCase() === 'failed'
+    && view.stage.id.toLowerCase() === 'delivery';
+  const needsAttention = healthNeedsAttention || deliveryFailed || missionFailed || stepFailed || missionPaused;
   const attentionKey = healthNeedsAttention
     ? 'mission.attentionHealth'
-    : missionFailed
-      ? 'mission.attentionFailed'
+    : deliveryFailed
+      ? 'mission.deliveryFailed'
+      : missionFailed
+        ? 'mission.attentionFailed'
         : stepFailed
           ? 'mission.attentionStepFailed'
           : 'mission.attentionPaused';
@@ -244,7 +248,7 @@ export function MissionControl({
             work: currentWork.title,
           })
         : t('mission.statusWaiting');
-  const statusTone = healthNeedsAttention || missionFailed || stepFailed
+  const statusTone = healthNeedsAttention || deliveryFailed || missionFailed || stepFailed
     ? 'error'
     : missionPaused
       ? 'waiting'

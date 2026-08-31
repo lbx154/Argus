@@ -2,18 +2,28 @@ import type { ConfigSnapshot } from '../api';
 
 export const BACKEND_OPTIONS = [
   { value: 'copilot', label: 'settings.backendLabel.copilot' },
-  { value: 'openai', label: 'settings.backendLabel.openai' },
-  { value: 'anthropic', label: 'settings.backendLabel.anthropic' },
+  { value: 'codex', label: 'settings.backendLabel.codex' },
+  { value: 'claude', label: 'settings.backendLabel.claude' },
+  { value: 'cursor', label: 'settings.backendLabel.cursor' },
+  { value: 'opencode', label: 'settings.backendLabel.opencode' },
+  { value: 'pi', label: 'settings.backendLabel.pi' },
+  { value: 'grok', label: 'settings.backendLabel.grok' },
+  { value: 'qoder', label: 'settings.backendLabel.qoder' },
+  { value: 'dsh', label: 'settings.backendLabel.dsh' },
 ] as const;
 
 export type BackendOption = (typeof BACKEND_OPTIONS)[number]['value'];
 
 const BACKEND_ALIASES: Record<string, BackendOption> = {
   copilot: 'copilot',
-  openai: 'openai',
-  anthropic: 'anthropic',
-  codex: 'openai',
-  claude: 'anthropic',
+  codex: 'codex',
+  claude: 'claude',
+  cursor: 'cursor',
+  opencode: 'opencode',
+  pi: 'pi',
+  grok: 'grok',
+  qoder: 'qoder',
+  dsh: 'dsh',
 };
 
 export function backendOption(value: string): BackendOption | '' {

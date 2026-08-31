@@ -155,6 +155,14 @@ describe('MissionControl', () => {
     expect(failureMarkup).toContain('aria-expanded="false"');
     expect(failureMarkup).toContain('Show more');
 
+    const deliveryFailure = emptyMissionView();
+    deliveryFailure.mission.status = 'failed';
+    deliveryFailure.stage.id = 'delivery';
+    deliveryFailure.outcome.execution_status = 'failed';
+    expect(renderToStaticMarkup(<MissionControl view={deliveryFailure} />)).toContain(
+      'Task failed at delivery — execution could not start or finish.',
+    );
+
     const critical = emptyMissionView();
     critical.health = 'degraded';
     expect(renderToStaticMarkup(<MissionControl view={critical} />)).toContain('System error — health is degraded.');

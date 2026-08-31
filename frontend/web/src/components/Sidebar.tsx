@@ -68,6 +68,8 @@ export function Sidebar({
   resumingId,
   activeBackend,
   activeModel,
+  activeConfigLoading,
+  activeConfigError,
   onOpenPanel,
   onNew,
   loading,
@@ -91,6 +93,8 @@ export function Sidebar({
   resumingId?: string | null;
   activeBackend?: string;
   activeModel?: string;
+  activeConfigLoading?: boolean;
+  activeConfigError?: boolean;
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
   onNew: () => void;
   loading: boolean;
@@ -288,9 +292,13 @@ export function Sidebar({
                         ) : project.objective ? (
                           <div className="mt-0.5 truncate pl-4 text-xs text-ink-faint">{project.objective}</div>
                         ) : null}
-                        {active && activeBackend ? (
+                        {active ? (
                           <div className="mt-1 truncate pl-4 text-[10px] text-blue-sky">
-                            {backendLabel(activeBackend, t)}{activeModel ? ` · ${activeModel}` : ''}
+                            {activeConfigLoading
+                              ? t('sidebar.modelLoading')
+                              : activeConfigError || !activeBackend
+                                ? t('sidebar.modelUnavailable')
+                                : `${backendLabel(activeBackend, t)} · ${activeModel || t('sidebar.defaultModel')}`}
                           </div>
                         ) : null}
                         <div className="mt-1 flex min-w-0 items-center justify-between gap-2 pl-4 text-xs text-ink-faint">
@@ -317,7 +325,7 @@ export function Sidebar({
                         <div className="px-3 pb-2 pl-7">
                           <button
                             type="button"
-                            disabled={resumingId === project.id}
+                            disabled={resumingId != null}
                             onClick={() => onResume(project.id)}
                             title={t('sidebar.resumeHint', { workdir: project.workdir ?? '' })}
                             className="rounded border border-blue/40 px-2 py-1 text-[10px] font-medium text-blue-sky hover:bg-blue/10 disabled:opacity-40"
