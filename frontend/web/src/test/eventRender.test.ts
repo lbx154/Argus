@@ -292,6 +292,36 @@ describe('EventStream role grouping', () => {
     expect(html).toContain('data-role="reviewer"');
     expect(html).toContain('aria-expanded="true"');
   });
+
+  it('does not mount details for collapsed role and system groups', () => {
+    const html = renderToStaticMarkup(createElement(EventStream, {
+      events: [
+        {
+          type: 'life.manager.intent.started', agent_layer: 'manager',
+          text: 'collapsed manager history sentinel', ts: 1,
+        },
+        {
+          type: 'life.manager.intent.completed', agent_layer: 'manager',
+          text: 'manager latest summary', ts: 2,
+        },
+        {
+          type: 'life.planner.task_added', agent_layer: 'planner',
+          title: 'active planner detail sentinel', ts: 3,
+        },
+        {
+          type: 'mission.idle',
+          text: 'collapsed system detail sentinel', ts: 4,
+        },
+      ] as EventMsg[],
+      connected: true,
+      showReasoning: true,
+      onToggleReasoning: () => undefined,
+    }));
+
+    expect(html).toContain('active planner detail sentinel');
+    expect(html).not.toContain('collapsed manager history sentinel');
+    expect(html).not.toContain('collapsed system detail sentinel');
+  });
 });
 
 describe('isReasoning', () => {

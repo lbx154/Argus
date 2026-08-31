@@ -14,8 +14,11 @@ from argus_skill.daemon._life_worker_identity import (
     _write_manager_handoff_identity,
 )
 from argus_skill.daemon.life_worker import (
+    LifeWorker,
+    LifeWorkerConfig,
     _apply_continuous_suppression,
     _rearm_operator_drain_for_resume,
+    _RunForeverState,
 )
 from argus_skill.daemon.state import (
     GRACEFUL_STOP_REASON,
@@ -158,6 +161,35 @@ def test_a_finished_campaign_is_not_restarted_by_a_restart(tmp_path: Path) -> No
     )
 
     assert state.enabled is False
+
+
+def test_disabled_open_ended_campaign_does_not_keep_bounded_worker_resident(
+    tmp_path: Path,
+) -> None:
+    write_continuous_config(
+        tmp_path,
+        enabled=False,
+        objective="finished campaign",
+        open_ended=True,
+        done_reason="planner declared project done",
+    )
+    worker = LifeWorker(
+        LifeWorkerConfig(
+            life_dir=tmp_path,
+            backend="memory",
+            continuous_open_ended=False,
+        )
+    )
+    state = _RunForeverState()
+    state.cfg = worker.config
+    state.runtime_root = tmp_path
+
+    worker._rf_resolve_continuous_boot_state(state)
+
+    assert state.init_continuous is False
+    assert state.init_objective == ""
+    assert state.cfg.continuous_open_ended is False
+    assert state.continuous_provider() == (False, "", False)
 
 
 def test_resume_continuous_preserves_operator_authority_hold(

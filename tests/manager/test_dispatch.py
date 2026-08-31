@@ -102,34 +102,87 @@ def test_bounded_dispatch_persists_nested_workdir(
     assert (alive, pid) == (False, None)
 
 
-def test_direct_workflow_requests_one_real_planner_signed_package(
+def test_direct_workflow_persists_manager_package_without_planner(
     memory,
     monkeypatch,
 ) -> None:
-    captured: dict[str, object] = {}
-    planner_backend = object()
+    class Manager:
+        def decide_vertical(self, body, **kwargs):
+            return SimpleNamespace(
+                execution_task=f"managed: {body}",
+                vertical="software",
+                workflow_mode="direct",
+                require_independent_review=True,
+            )
+
+        def commit_vertical_decision(self, body, decision, **kwargs):
+            return decision
+
     monkeypatch.setattr(
         front_door,
         "_ensure_manager_runner",
-        lambda *_args, **_kwargs: SimpleNamespace(planner_backend=planner_backend),
+        lambda *_args, **_kwargs: SimpleNamespace(manager=Manager()),
+    )
+    monkeypatch.setattr(
+        dispatch,
+        "_plan_bounded_execution",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("direct Manager package must not call Planner")
+        ),
     )
 
-    def plan(backend, objective, **kwargs):
-        captured.update({"backend": backend, "objective": objective, **kwargs})
-        return SimpleNamespace(error="", tasks=(SimpleNamespace(key="k1"),))
-
-    monkeypatch.setattr("argus_skill.planner.bounded_dag.plan_bounded_dag", plan)
-
-    dispatch._plan_bounded_execution(
+    item, alive, pid = dispatch.enqueue_mission(
         memory,
         "one coherent package",
-        {"backend": "memory"},
-        single_package=True,
+        {"backend": "codex"},
+        root_task_id="root-direct-1",
+        context_refs=[{
+            "kind": "attachment",
+            "ref": "brief.md",
+            "why": "operator input",
+        }],
     )
 
-    assert captured["backend"] is planner_backend
-    assert captured["objective"] == "one coherent package"
-    assert captured["single_package"] is True
+    assert item.id == "root-direct-1"
+    assert item.objective == "managed: one coherent package"
+    assert item.original_objective == item.objective
+    assert item.iterate is False
+    assert item.iteration_max_cycles == 1
+    assert item.deps == []
+    assert item.context_refs == [{
+        "kind": "attachment",
+        "ref": "brief.md",
+        "why": "operator input",
+    }]
+    assert "manager_direct" in item.tags
+    assert "planner" not in item.tags
+    assert "review:required" in item.tags
+    assert item.manager_decision == {
+        "vertical": "software",
+        "workflow_mode": "direct",
+        "require_independent_review": True,
+        "routed": True,
+        "route_source": "manager",
+    }
+    assert (alive, pid) == (False, None)
+
+    events = [
+        json.loads(line)
+        for line in (memory.project.root / "events.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    queued = next(
+        event
+        for event in events
+        if event.get("type") == "life.planner.task_added"
+    )
+    assert queued["source"] == "manager_direct"
+    assert not any(
+        event.get("type") == "life.planner.verdict"
+        and event.get("status") == "planned"
+        for event in events
+    )
 
 
 def test_bounded_dispatch_fails_closed_without_planner_backend(memory) -> None:
