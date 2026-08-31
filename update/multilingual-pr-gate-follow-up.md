@@ -7,9 +7,10 @@ descriptions. Common English word forms are matched as complete tokens so that
 phrases such as `testing`, `documented`, and `configured` are recognized
 without reintroducing substring false positives such as `contest`.
 
-## Future multilingual flow
+## Next-version multilingual flow
 
-For a non-English pull request description:
+The next PR gate version will handle a non-English pull request description as
+follows:
 
 1. Use an explicitly configured LLM step to translate the description into
    English.
@@ -23,3 +24,7 @@ For a non-English pull request description:
 Translation should remain a separate, auditable preprocessing stage. The local
 criteria should not attempt to infer multilingual semantics through character
 counts, unrestricted substrings, or incomplete per-language keyword lists.
+
+Semantic consistency checking will also be left to an LLM-based criterion in
+the next version rather than being inferred from lexical length or category
+keywords.

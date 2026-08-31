@@ -11,22 +11,26 @@ Read-only workflow permissions and `persist-credentials: false` reduce token
 exposure, but they do not make the result trustworthy when the checked code
 controls the checker.
 
-## Planned update
+## Two-step migration
 
-After the initial PR gate has been merged into `main`:
+PR #69 bootstraps the gate implementation. It must be merged first because a
+`pull_request_target` workflow is loaded from the trusted base branch, and the
+current `main` branch does not yet contain the gate implementation or
+configuration.
 
-1. Change the workflow trigger to `pull_request_target`.
-2. Load the workflow, gate implementation, and configuration from the trusted
-   base revision.
-3. Fetch the pull request head only as diff input.
-4. Calculate patch statistics from the merge base to the PR head without
+The migration is therefore:
+
+1. Merge PR #69 so that `main` contains the reviewed gate implementation and
+   configuration.
+2. In an immediate follow-up change, switch the workflow trigger to
+   `pull_request_target`.
+3. For every later pull request, load and execute the workflow, gate
+   implementation, and configuration from the trusted base revision.
+4. Fetch the pull request head only as diff input.
+5. Calculate patch statistics from the merge base to the PR head without
    checking out or executing PR-provided code.
-5. Set `persist-credentials: false` and retain read-only permissions.
-6. Fail closed if required criteria are absent, invalid, or all disabled.
+6. Keep `persist-credentials: false`, retain read-only permissions, and fail
+   closed if the trusted gate cannot run.
 
-## Timing
-
-This should be implemented after PR #69 is merged because the current `main`
-branch does not yet contain the gate. A `pull_request_target` workflow is loaded
-from the base branch, so switching the initial PR prematurely would prevent it
-from exercising the new trusted implementation.
+After the follow-up is merged, future pull requests will not be able to modify
+the checker or configuration used to evaluate themselves.

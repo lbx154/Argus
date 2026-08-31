@@ -6,8 +6,13 @@ and mention any changed test, documentation, or configuration categories.
 
 These local checks do not establish semantic consistency. A sufficiently long
 but irrelevant message can satisfy lexical scope scoring, and category checks
-only establish that recognized category words are present. Stronger semantic
-and multilingual evaluation is reserved for future LLM-based criteria.
+only establish that recognized category words are present. The next PR gate
+version will leave semantic consistency checking to an LLM-based criterion.
+
+The current version is calibrated for English descriptions. In the next
+version, an LLM will translate non-English descriptions into English, preserve
+both the original and translated text as evidence, and run the translation
+through the same criteria used for English descriptions.
 
 Scope scoring uses a continuous description-length ratio relative to text
 churn. File-category scoring includes only recognized changed categories;
