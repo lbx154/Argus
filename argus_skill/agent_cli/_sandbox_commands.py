@@ -36,6 +36,7 @@ log = logging.getLogger(__name__)
 _OPENCODE_READ_ONLY_AGENT = "argus-read-only"
 _OPENCODE_FULL_ACCESS_AGENT = "argus-full-access"
 _OPENCODE_NO_TOOLS_AGENT = "argus-no-tools"
+_COPILOT_NO_TOOLS_SENTINEL = "__argus_no_tools__"
 _OPENCODE_OX_ALPHA_MODEL = "opencode/x-preview-f-free"
 _OPENCODE_OX_ALPHA_WARNED = False
 
@@ -541,7 +542,7 @@ class CommandBuilderMixin:
                 "--disable-builtin-mcps",
             ])
         if options.disable_tools:
-            command.extend(["--available-tools=", "--deny-tool=*"])
+            command.append(f"--available-tools={_COPILOT_NO_TOOLS_SENTINEL}")
         elif options.sandbox_mode == "read-only":
             command.extend([
                 "--available-tools", "view,rg,glob",

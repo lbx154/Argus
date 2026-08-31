@@ -232,7 +232,7 @@ def test_agent_repair_prompt_requires_real_tool_activity(
     ("backend", "expected"),
     [
         ("claude", ("--tools", "")),
-        ("copilot", ("--available-tools=", "--deny-tool=*")),
+        ("copilot", ("--available-tools=__argus_no_tools__",)),
         ("opencode", ("--agent", "argus-no-tools")),
         ("pi", ("--no-tools",)),
         ("grok", ("--tools", "")),
