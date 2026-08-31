@@ -72,6 +72,11 @@ def _isolate_argus_state_roots(
     monkeypatch.delenv("COPILOT_HOME", raising=False)
 
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    # Model resolution inspects Codex's provider config to decide whether an
+    # OpenAI model id is valid. Never let a developer's ~/.codex/config.toml
+    # change default-model assertions. CODEX_HOME remains overridable by tests
+    # that deliberately exercise a custom provider.
+    monkeypatch.setenv("CODEX_HOME", str(root / "codex-home"))
 
     # A test must never mistake the developer's checkout for its loaded source.
     source = root / "source"

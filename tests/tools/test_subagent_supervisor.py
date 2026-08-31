@@ -1046,7 +1046,7 @@ def test_run_supervised_persists_supervisor_usage_totals(monkeypatch, tmp_path) 
 
     _sub._run_supervised(
         "train-1",
-        "python -c pass",
+        f"{shlex.quote(sys.executable)} -c pass",
         "demo",
         timeout=999,
         monitor_interval=1,

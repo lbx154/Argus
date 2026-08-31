@@ -51,6 +51,11 @@ def _hermetic_capability_vault(monkeypatch, tmp_path):
         "default_vault_path",
         lambda env=None: tmp_path / "no-such-vault.json",
     )
+    monkeypatch.setattr(
+        capability_vault,
+        "default_codex_config_path",
+        lambda env=None: tmp_path / "no-such-codex-config.toml",
+    )
 
 
 # ── backend resolution + fallback chain ───────────────────────────────────
