@@ -394,6 +394,17 @@ def enqueue_mission(
             root_task_id=root_task_id,
         )
 
+    direct_workflow = (
+        str(
+            getattr(
+                getattr(prepared_handoff, "decision", None),
+                "workflow_mode",
+                "",
+            )
+            or ""
+        ).strip().lower()
+        == "direct"
+    )
     planned: dict[str, Any] = {}
 
     def _hydrate_context_refs(nodes: list[Any]) -> dict[str, list[dict[str, Any]]]:
@@ -435,6 +446,22 @@ def enqueue_mission(
             raise front_door.ManagerHandoffError(
                 "Manager request cancelled before bounded DAG planning"
             )
+        if direct_workflow:
+            from types import SimpleNamespace
+
+            compact = " ".join(execution_body.split()).replace("`", "")
+            node = SimpleNamespace(
+                key="manager_direct",
+                deps=(),
+                title=compact if len(compact) <= 96 else compact[:93] + "...",
+                objective=execution_body,
+                stage_closing=True,
+                require_independent_review=True,
+            )
+            planned["plan"] = None
+            planned["nodes"] = [node]
+            planned["hydrated_refs"] = {node.key: []}
+            return
         plan = _plan_bounded_execution(
             mem,
             execution_body,
@@ -500,10 +527,12 @@ def enqueue_mission(
         hydrated_refs = dict(planned.get("hydrated_refs") or {})
         from ..life.memory import BacklogItem
 
-        plan_id = f"bounded-{uuid.uuid4().hex[:12]}"
+        plan_id = "" if direct_workflow else f"bounded-{uuid.uuid4().hex[:12]}"
         from ..life.supervisor.backlog_guard import decision_evidence
 
         manager_decision = decision_evidence(_division) or {"routed": True}
+        if direct_workflow:
+            manager_decision["route_source"] = "manager"
         learned_candidate = (
             manager_decision.get("learned_vertical_status") == "candidate"
         )
@@ -587,8 +616,11 @@ def enqueue_mission(
                 priority=priority + index,
                 tags=[
                     "manager",
-                    "planner",
-                    "bounded_dag_node",
+                    *(
+                        ["manager_direct"]
+                        if direct_workflow
+                        else ["planner", "bounded_dag_node"]
+                    ),
                     "scope:bounded",
                     *(
                         ["stage_closing"]
@@ -617,12 +649,12 @@ def enqueue_mission(
                     ),
                     *([f"stage:{stage}"] if stage else []),
                 ],
-                iterate=True,
-                iteration_max_cycles=3,
+                iterate=not direct_workflow,
+                iteration_max_cycles=1 if direct_workflow else 3,
                 deps=[ids[dep] for dep in node.deps],
                 plan_id=plan_id,
-                plan_version=1,
-                node_key=node.key,
+                plan_version=0 if direct_workflow else 1,
+                node_key="" if direct_workflow else node.key,
                 context_refs=item_context_refs,
                 acceptance_check=str(getattr(node, "acceptance_check", "") or ""),
                 plan_hypothesis=hypothesis,
@@ -656,26 +688,35 @@ def enqueue_mission(
             from ..life.event_log import JsonlEventSink
 
             sink = JsonlEventSink(None, life_dir=Path(life_dir))
-            reason = str(getattr(plan, "reason", "") or "bounded DAG")
-            sink.append(build_planner_verdict_event(
-                status=PlannerVerdictStatus.PLANNED,
-                reason=reason,
-                project_id=Path(life_dir).name,
-                mission_id=plan_id,
-                plan_id=plan_id,
-                enqueued_tasks=len(items),
-                new_tasks=len(items),
-                text=f"bounded Planner created {len(items)} DAG node(s)",
-            ))
+            reason = str(
+                getattr(plan, "reason", "")
+                or ("Manager direct package" if direct_workflow else "bounded DAG")
+            )
+            if not direct_workflow:
+                sink.append(build_planner_verdict_event(
+                    status=PlannerVerdictStatus.PLANNED,
+                    reason=reason,
+                    project_id=Path(life_dir).name,
+                    mission_id=plan_id,
+                    plan_id=plan_id,
+                    enqueued_tasks=len(items),
+                    new_tasks=len(items),
+                    text=f"bounded Planner created {len(items)} DAG node(s)",
+                ))
             for node_item in items:
-                sink.append({
+                task_added = {
                     "type": "life.planner.task_added",
                     "item_id": node_item.id,
                     "title": node_item.title,
                     "deps": list(node_item.deps),
                     "plan_id": plan_id,
                     "node_key": node_item.node_key,
-                })
+                }
+                if direct_workflow:
+                    task_added["source"] = "manager_direct"
+                    task_added["objective"] = node_item.objective
+                    task_added["priority"] = node_item.priority
+                sink.append(task_added)
                 if "review:waived" in node_item.tags:
                     sink.append({
                         "type": "life.review.waived",

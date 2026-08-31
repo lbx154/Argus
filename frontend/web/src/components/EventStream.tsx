@@ -195,15 +195,17 @@ function RoleLogGroup({
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>
       </button>
-      <div className={`grid transition-[grid-template-rows] duration-panel ease-panel ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
-        <div className="min-h-0 overflow-hidden">
-          <div ref={logScroller} className="max-h-72 overflow-x-hidden overflow-y-auto border-t border-line/40 scroll-thin">
-            {rows.length > 0 ? rows.map(({ ev, r, key }, index) => (
-              <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === rows.length - 1} />
-            )) : <div className="px-4 py-3 text-xs text-ink-faint">{t('stream.noLogs')}</div>}
+      {open ? (
+        <div className="grid grid-rows-[1fr]">
+          <div className="min-h-0 overflow-hidden">
+            <div ref={logScroller} className="max-h-72 overflow-x-hidden overflow-y-auto border-t border-line/40 scroll-thin">
+              {rows.length > 0 ? rows.map(({ ev, r, key }, index) => (
+                <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === rows.length - 1} />
+              )) : <div className="px-4 py-3 text-xs text-ink-faint">{t('stream.noLogs')}</div>}
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
     </section>
   );
 }
@@ -229,8 +231,36 @@ function partitionRoleRows(rows: ActivityRow[]) {
   return { roleRows, systemRows, lastRole };
 }
 
-function RoleLogCollection({ rows, live }: { rows: ActivityRow[]; live: boolean }) {
+function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
   const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="border-b border-line/50" data-system-open={open ? 'true' : 'false'}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="flex h-10 w-full items-center gap-2 px-4 text-left text-xs text-ink-faint hover:bg-bg/60"
+      >
+        <span>{t('stream.system')}</span>
+        <span className="font-mono">{rows.length}</span>
+        <span className="flex-1" />
+        <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <path d="m6 3.5 4.5 4.5L6 12.5" />
+        </svg>
+      </button>
+      {open ? (
+        <div className="border-t border-line/40">
+          {rows.map(({ ev, r, key }, index) => (
+            <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === rows.length - 1} />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function RoleLogCollection({ rows, live }: { rows: ActivityRow[]; live: boolean }) {
   const { roleRows, systemRows, lastRole } = useMemo(() => partitionRoleRows(rows), [rows]);
   const [openRoles, setOpenRoles] = useState<Set<string>>(
     () => new Set(live && lastRole ? [lastRole] : []),
@@ -261,19 +291,7 @@ function RoleLogCollection({ rows, live }: { rows: ActivityRow[]; live: boolean 
           }}
         />
       ))}
-      {systemRows.length > 0 ? (
-        <details className="border-b border-line/50">
-          <summary className="flex h-10 cursor-pointer list-none items-center gap-2 px-4 text-xs text-ink-faint hover:bg-bg/60">
-            <span>{t('stream.system')}</span>
-            <span className="font-mono">{systemRows.length}</span>
-          </summary>
-          <div className="border-t border-line/40">
-            {systemRows.map(({ ev, r, key }, index) => (
-              <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === systemRows.length - 1} />
-            ))}
-          </div>
-        </details>
-      ) : null}
+      {systemRows.length > 0 ? <SystemLogGroup rows={systemRows} /> : null}
     </div>
   );
 }
