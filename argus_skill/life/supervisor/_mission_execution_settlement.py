@@ -540,7 +540,7 @@ class MissionExecutionSettlementMixin:
             from ...manager.directive import active_operator_question_policy
 
             operator_question_policy = active_operator_question_policy(
-                self.memory.root
+                self._artifact_root()
             )
             from ...core.autonomy import (
                 assess_operator_intervention,
