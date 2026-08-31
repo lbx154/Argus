@@ -30,7 +30,7 @@ export function LiveViewPanel({
             type="button"
             disabled={!item.exists}
             onClick={() => item.exists && onOpenArtifact(item.path)}
-            title={item.exists ? `Preview ${item.path}` : `${item.path} is not available yet`}
+            title={item.storage_path || (item.exists ? `Preview ${item.path}` : `${item.path} is not available yet`)}
             className={`rounded border px-2 py-1 font-mono text-[10px] transition-colors ${
               item.exists
                 ? 'border-blue-deep/50 bg-blue-deep/10 text-blue-sky hover:border-blue-sky/60 hover:bg-blue-deep/20'

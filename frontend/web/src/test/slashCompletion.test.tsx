@@ -63,7 +63,28 @@ describe('slash completion menu', () => {
     expect(html).toContain('accept=".png,.jpg,.jpeg,.webp,.pdf,.md,.markdown,.txt,.json,.csv"');
   });
 
-  it('names Argus and explains quiet time while it works', () => {
+  it('shows the operator-owned Task/Auto/Chat category selector', () => {
+    const html = renderToStaticMarkup(
+      <ChatBox
+        value="ship it"
+        onChange={() => undefined}
+        onSend={() => false}
+        onCancel={() => undefined}
+        disabled={false}
+        pending={false}
+        slashSelection={0}
+        onSlashSelectionChange={() => undefined}
+        routeOverride="task"
+        onRouteOverrideChange={() => undefined}
+      />,
+    );
+    expect(html).toContain('message category');
+    expect(html).toContain('<option value="task" selected="">Task</option>');
+    expect(html).toContain('<option value="auto">Auto</option>');
+    expect(html).toContain('<option value="chat">Chat</option>');
+  });
+
+  it('keeps stop control but omits the synthetic quiet-progress row', () => {
     const html = renderToStaticMarkup(
       <ChatBox
         value=""
@@ -72,16 +93,12 @@ describe('slash completion menu', () => {
         onCancel={() => undefined}
         disabled={false}
         pending
-        phase="Manager · waiting for the next model event · 10s quiet"
-        heartbeat
-        quietS={10}
-        startedAt={Date.now() - 10_000}
         slashSelection={0}
         onSlashSelectionChange={() => undefined}
       />,
     );
-    expect(html).toContain('Argus is working on your message');
-    expect(html).toContain('Still working; no new update for 10s');
-    expect(html).not.toContain('Manager alive');
+    expect(html).toContain('Esc stop waiting');
+    expect(html).not.toContain('Argus is working on your message');
+    expect(html).not.toContain('Still working; no new update');
   });
 });

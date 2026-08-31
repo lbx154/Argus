@@ -25,6 +25,7 @@ try:
 except ImportError:  # pragma: no cover - detached daemon is POSIX-only
     _fcntl = None
 
+from ..agent_cli._process_control import windows_hidden_subprocess_kwargs
 from ..core import paths as core_paths
 from .config import LifeWorkerConfig
 from .config import config_payload as _config_payload
@@ -460,6 +461,10 @@ def spawn_detached_daemon_clean(
             cwd=str(import_root),
             env=env,
             close_fds=True,
+            # The source-runtime fallback can be launched from Tauri dev mode;
+            # its short-lived spawn helper must be as invisible as the frozen
+            # daemon worker.
+            **windows_hidden_subprocess_kwargs(),
             timeout=timeout_s,
             check=False,
         )

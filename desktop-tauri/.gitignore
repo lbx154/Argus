@@ -1,0 +1,8 @@
+node_modules/
+dist/
+build/
+.keys/
+src-tauri/target/
+src-tauri/.tauri-unsigned.conf.json
+release/
+*.log

@@ -5,9 +5,9 @@ import { type NoticeTone } from './components/ActionNotice';
 import { type useProjectActions } from './hooks';
 import { type ProjectHistoryMode } from './useProjectSelection';
 
-// The visible Pause control must interrupt the current operation. Graceful
-// draining remains available to upgrade/restart flows that explicitly ask for it.
-export const PAUSE_DAEMON_DRAIN = false;
+// Manual Stop follows Codex-style immediate interruption. Graceful draining
+// remains available to upgrade/lifecycle flows that explicitly request it.
+export const MANUAL_STOP_FORCE = true;
 
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error || 'Unknown error');
@@ -45,6 +45,7 @@ export function useProjectDaemonActions({
 
   const daemonBusy = actions.startDaemon.isPending
     || actions.stopDaemon.isPending
+    || actions.forceStopDaemon.isPending
     || actions.updateProject.isPending
     || actions.deleteProject.isPending;
 
@@ -58,11 +59,11 @@ export function useProjectDaemonActions({
   [actionFeedback, actions.startDaemon]);
 
   const requestStopDaemon = useCallback(() =>
-    actions.stopDaemon.mutate(
-      PAUSE_DAEMON_DRAIN,
-      actionFeedback('Pause requested; the current operation is being interrupted.'),
+    actions.forceStopDaemon.mutate(
+      undefined,
+      actionFeedback('Stop requested; the verified daemon process is being interrupted.'),
     ),
-  [actionFeedback, actions.stopDaemon]);
+  [actionFeedback, actions.forceStopDaemon]);
 
   const manageStartDaemon = useCallback(async (): Promise<boolean> => {
     try {
@@ -75,16 +76,17 @@ export function useProjectDaemonActions({
     }
   }, [actions.startDaemon, notify]);
 
-  const managePauseDaemon = useCallback(async (): Promise<boolean> => {
+  const manageStopDaemon = useCallback(async (): Promise<boolean> => {
     try {
-      await actions.stopDaemon.mutateAsync(PAUSE_DAEMON_DRAIN);
-      notify('success', 'Daemon paused. Progress remains resumable.');
+      await actions.forceStopDaemon.mutateAsync();
+      await refetchProjects();
+      notify('success', 'Daemon stopped. This session can now be deleted.');
       return true;
     } catch (error) {
       notify('error', errorText(error));
       return false;
     }
-  }, [actions.stopDaemon, notify]);
+  }, [actions.forceStopDaemon, notify, refetchProjects]);
 
   const manageRenameProject = useCallback(async (name: string): Promise<boolean> => {
     if (!activeSid) return false;
@@ -166,7 +168,7 @@ export function useProjectDaemonActions({
   return {
     daemonBusy,
     manageDeleteProject,
-    managePauseDaemon,
+    manageStopDaemon,
     manageRenameProject,
     manageStartDaemon,
     requestDispose,

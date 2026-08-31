@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
-from argus_skill.life.delivery import build_delivery_receipt
+from argus_skill.life.delivery import (
+    build_delivery_receipt,
+    referenced_delivery_paths,
+)
 
 
 def test_delivery_receipt_prefers_reviewer_evidence_and_rejects_unsafe_paths(
@@ -44,6 +48,34 @@ def test_delivery_receipt_prefers_reviewer_evidence_and_rejects_unsafe_paths(
     assert receipt["delivery_id"] == "delivery:task-1:task_completed"
     assert receipt["primary_target"]["path"] == "final.md"
     assert [target["path"] for target in receipt["targets"]] == ["final.md"]
+
+
+def test_completion_links_resolve_to_safe_workspace_relative_files(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    report = workspace / "final report.pdf"
+    source = workspace / "source.tex"
+    secret = workspace / ".env"
+    outside = tmp_path / "outside.pdf"
+    report.write_bytes(b"pdf")
+    source.write_text("source", encoding="utf-8")
+    secret.write_text("TOKEN=no", encoding="utf-8")
+    outside.write_bytes(b"outside")
+    report_link = report.resolve().as_posix()
+    if os.name == "nt":
+        report_link = f"/{report_link}"
+
+    paths = referenced_delivery_paths(
+        workspace,
+        [
+            f"[PDF](<{report_link}>) and `source.tex`",
+            f"[outside]({outside.resolve().as_uri()}) [secret](.env)",
+        ],
+    )
+
+    assert paths == ["final report.pdf", "source.tex"]
 
 
 def test_intermediate_success_has_no_delivery_even_with_an_artifact(tmp_path: Path) -> None:

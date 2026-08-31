@@ -10,8 +10,45 @@ import shutil
 import signal
 import subprocess
 import time
+from typing import Any
 
 from ..core.daemon_lock import is_process_group_running
+
+
+def windows_hidden_subprocess_kwargs() -> dict[str, Any]:
+    """Return Windows-only options for a non-interactive child process.
+
+    A GUI host has no console to inherit.  Console-subsystem executables and
+    npm ``.cmd`` wrappers otherwise create a visible black window even when all
+    stdio handles are redirected.  This helper deliberately returns no POSIX
+    session option so daemon maintenance commands can reuse it unchanged.
+    """
+    if os.name != "nt":
+        return {}
+    options: dict[str, Any] = {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+    startup_factory = getattr(subprocess, "STARTUPINFO", None)
+    if callable(startup_factory):
+        startup = startup_factory()
+        startup.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+        startup.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+        options["startupinfo"] = startup
+    return options
+
+
+def background_subprocess_kwargs() -> dict[str, Any]:
+    """Return non-interactive spawn options without a Windows console flash.
+
+    Agent CLIs are invoked through pipes, never an interactive terminal.  npm
+    `.cmd` launchers and console-subsystem CLIs otherwise create a brief black
+    window for every Manager call or CLI switch.  Keep POSIX's private session
+    behavior unchanged, and combine `CREATE_NO_WINDOW` with STARTUPINFO on
+    Windows for both native executables and batch wrappers.
+    """
+    if os.name != "nt":
+        return {"start_new_session": True}
+    return windows_hidden_subprocess_kwargs()
 
 
 class ProcessControlMixin:

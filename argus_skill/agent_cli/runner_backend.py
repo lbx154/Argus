@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from pathlib import Path
-from typing import Literal, get_args
+from typing import Literal, Mapping, get_args
 
 RunnerBackend = Literal["codex", "claude", "copilot", "opencode", "pi", "grok", "qoder", "dsh"]
 
@@ -47,6 +48,181 @@ CLAUDE_FAMILY: frozenset[str] = frozenset({BACKEND_CLAUDE, BACKEND_QODER})
 _BACKEND_ALIASES: dict[str, RunnerBackend] = {"opencod": BACKEND_OPENCODE}
 
 _SUPPORTED_BACKEND_SET: frozenset[str] = frozenset(SUPPORTED_BACKENDS)
+
+# npm installs Windows command wrappers such as ``codex.cmd`` under
+# ``%APPDATA%\\npm``.  Those wrappers do not contain Node themselves: they invoke
+# a bare ``node`` and therefore fail when a GUI host inherited an old/stunted
+# PATH (common after an nvm-windows install until Explorer is restarted).  Keep
+# the repair at the runner boundary so every host, including frozen Desktop,
+# gets the same launch environment.
+_NODE_WRAPPER_SUFFIXES = frozenset({".cmd", ".bat"})
+_NODE_FILENAMES = ("node.exe", "node")
+_PERCENT_ENV_RE = re.compile(r"%([^%]+)%")
+
+
+def _environment_value(env: Mapping[str, str], name: str) -> str:
+    """Read an environment variable case-insensitively for Windows maps."""
+    direct = env.get(name)
+    if direct is not None:
+        return str(direct)
+    wanted = name.casefold()
+    for key, value in env.items():
+        if str(key).casefold() == wanted:
+            return str(value)
+    return ""
+
+
+def _expand_percent_environment(value: str, env: Mapping[str, str]) -> str:
+    """Expand only ``%NAME%`` entries using the supplied child environment."""
+    return _PERCENT_ENV_RE.sub(
+        lambda match: _environment_value(env, match.group(1)) or match.group(0),
+        value,
+    )
+
+
+def _node_in_directory(directory: Path) -> Path | None:
+    for name in _NODE_FILENAMES:
+        candidate = directory / name
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def _path_entries(value: str, env: Mapping[str, str]) -> list[Path]:
+    return [
+        Path(_expand_percent_environment(entry.strip().strip('"'), env))
+        for entry in value.split(os.pathsep)
+        if entry.strip()
+    ]
+
+
+def _nvm_settings_paths(env: Mapping[str, str]) -> list[Path]:
+    """Known nvm-windows settings locations, without scanning user directories."""
+    home = Path(_environment_value(env, "USERPROFILE") or Path.home())
+    local_app_data = Path(
+        _environment_value(env, "LOCALAPPDATA")
+        or home / "AppData" / "Local"
+    )
+    app_data = Path(
+        _environment_value(env, "APPDATA")
+        or home / "AppData" / "Roaming"
+    )
+    paths = [
+        Path(_environment_value(env, "NVM_HOME")) / "settings.txt"
+        if _environment_value(env, "NVM_HOME")
+        else None,
+        local_app_data / "nvm" / "settings.txt",
+        app_data / "nvm" / "settings.txt",
+    ]
+    seen: set[str] = set()
+    out: list[Path] = []
+    for path in paths:
+        if path is None:
+            continue
+        key = str(path).casefold()
+        if key not in seen:
+            seen.add(key)
+            out.append(path)
+    return out
+
+
+def _nvm_node_dirs(env: Mapping[str, str]) -> list[Path]:
+    candidates: list[Path] = []
+    for settings in _nvm_settings_paths(env):
+        try:
+            lines = settings.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            key, separator, value = line.partition(":")
+            if not separator or key.strip().casefold() not in {"path", "symlink"}:
+                continue
+            text = _expand_percent_environment(value.strip().strip('"'), env)
+            if text:
+                candidates.append(Path(text))
+    return candidates
+
+
+def _node_runtime_candidates(agent_bin: str, env: Mapping[str, str]) -> list[Path]:
+    """Return ordered, bounded directories where a batch runner may find Node."""
+    runner = Path(agent_bin).expanduser()
+    home = Path(_environment_value(env, "USERPROFILE") or Path.home())
+    local_app_data = Path(
+        _environment_value(env, "LOCALAPPDATA")
+        or home / "AppData" / "Local"
+    )
+    candidates: list[Path] = []
+    if runner.parent != Path("."):
+        candidates.append(runner.parent)
+    candidates.extend(_path_entries(_environment_value(env, "PATH"), env))
+    for name in ("NVM_SYMLINK", "NVM_HOME"):
+        value = _environment_value(env, name).strip()
+        if value:
+            candidates.append(Path(_expand_percent_environment(value, env)))
+    candidates.extend(_nvm_node_dirs(env))
+    for name in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"):
+        value = _environment_value(env, name).strip()
+        if value:
+            candidates.append(Path(value) / "nodejs")
+    candidates.extend([
+        local_app_data / "Volta" / "bin",
+        local_app_data / "nvs" / "default",
+        home / "scoop" / "apps" / "nodejs" / "current",
+    ])
+    seen: set[str] = set()
+    ordered: list[Path] = []
+    for candidate in candidates:
+        key = str(candidate).casefold()
+        if key and key not in seen:
+            seen.add(key)
+            ordered.append(candidate)
+    return ordered
+
+
+def runner_child_environment(
+    agent_bin: str,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> dict[str, str] | None:
+    """Return an environment that makes a Node-backed batch runner runnable.
+
+    ``None`` means the inherited environment is already sufficient (or the
+    runner is not a Windows batch wrapper).  The helper never writes settings
+    or invokes Node; it merely prepends a verified ``node.exe`` directory when
+    a non-interactive host discovered an npm ``.cmd`` launcher independently
+    of its inherited PATH.
+    """
+    runner = Path(str(agent_bin or "")).expanduser()
+    if runner.suffix.casefold() not in _NODE_WRAPPER_SUFFIXES:
+        return None
+    source = dict(os.environ if env is None else env)
+    current_path = _environment_value(source, "PATH")
+    if any(_node_in_directory(directory) for directory in _path_entries(current_path, source)):
+        return None
+    node_dir = next(
+        (
+            directory
+            for directory in _node_runtime_candidates(str(runner), source)
+            if _node_in_directory(directory) is not None
+        ),
+        None,
+    )
+    if node_dir is None:
+        return None
+    # Windows treats environment variable names case-insensitively.  Passing
+    # both ``Path`` and ``PATH`` lets the child observe an arbitrary one, so
+    # normalize to a single explicit entry before spawning it.
+    for key in tuple(source):
+        if key.casefold() == "path":
+            source.pop(key)
+    source["PATH"] = os.pathsep.join(
+        str(entry)
+        for entry in (node_dir, *_path_entries(current_path, source))
+    )
+    return source
 
 
 def normalize_runner_backend(raw: str | None) -> RunnerBackend:

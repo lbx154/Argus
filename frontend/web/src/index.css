@@ -28,6 +28,7 @@
   --glass: 255 255 255;
   --glass-raised: 255 255 255;
   --glass-edge: 179 192 214;
+  --chrome-surface: 234 242 255;
 }
 
 :root[data-theme='dark'] {
@@ -56,6 +57,7 @@
   --glass: 15 27 45;
   --glass-raised: 20 35 57;
   --glass-edge: 65 88 122;
+  --chrome-surface: 17 29 48;
   font-synthesis: none;
 }
 
@@ -82,6 +84,7 @@ body {
 .workbench-shell {
   isolation: isolate;
   background:
+    linear-gradient(rgb(var(--chrome-surface)), rgb(var(--chrome-surface))) top / 100% 48px no-repeat,
     radial-gradient(circle at 8% 0%, rgb(var(--spectral-blue) / 18%), transparent 36rem),
     radial-gradient(circle at 52% 48%, rgb(var(--spectral-violet) / 12%), transparent 42rem),
     radial-gradient(circle at 92% 100%, rgb(var(--spectral-gold) / 16%), transparent 34rem),
@@ -90,6 +93,7 @@ body {
 
 :root[data-theme='dark'] .workbench-shell {
   background:
+    linear-gradient(rgb(var(--chrome-surface)), rgb(var(--chrome-surface))) top / 100% 48px no-repeat,
     radial-gradient(circle at 8% 0%, rgb(var(--spectral-blue) / 22%), transparent 38rem),
     radial-gradient(circle at 52% 48%, rgb(var(--spectral-violet) / 16%), transparent 44rem),
     radial-gradient(circle at 92% 100%, rgb(var(--spectral-gold) / 20%), transparent 36rem),
@@ -170,6 +174,13 @@ body {
     inset 0 1px 0 rgb(255 255 255 / 58%),
     0 30px 90px -42px rgb(var(--spectral-violet) / 55%),
     0 14px 42px -34px rgb(var(--spectral-gold) / 45%);
+}
+
+/* Exact continuation of the native title/menu surface inside the iframe. */
+.chrome-seam-surface {
+  background: rgb(var(--chrome-surface));
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .glass-card {
@@ -756,6 +767,40 @@ button {
   max-height: min(22rem, 42dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+/* WebView2 shares a native compositor with the Tauri shell. Preserve the
+   remote cockpit's gradients and panel hierarchy while avoiding the two most
+   expensive embedded-only costs: a permanently animated blurred viewport and
+   full-panel backdrop blur. Direct browser/PWA rendering is unchanged. */
+:root[data-argus-embedded='true'] .ambient-canvas::before {
+  animation: none;
+  transform: translate3d(0, 0, 0) scale(1.04);
+  will-change: auto;
+}
+
+:root[data-argus-embedded='true'] :is(
+  .glass-panel,
+  .glass-panel--side,
+  .glass-panel--main,
+  .glass-panel--raised
+) {
+  backdrop-filter: blur(8px) saturate(1.06);
+}
+
+/* Keep long conversation histories in the DOM (search, accessibility and
+   exact remote UI semantics stay intact), but let WebView2 skip layout/paint
+   for rows outside the scroll viewport. */
+@supports (content-visibility: auto) {
+  :root[data-argus-embedded='true'] .conversation-thread {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 180px;
+  }
+
+  :root[data-argus-embedded='true'] .event-activity-row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 56px;
+  }
 }
 
 @layer components {

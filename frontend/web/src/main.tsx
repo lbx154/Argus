@@ -14,6 +14,9 @@ import './index.css';
 // every later load, not just the one carrying `?token=`.
 adoptTokenFromUrl();
 
+const embeddedDesktop = window.parent !== window;
+document.documentElement.dataset.argusEmbedded = String(embeddedDesktop);
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { staleTime: 3_000, retry: queryRetryPolicy, refetchOnWindowFocus: false },
@@ -21,7 +24,10 @@ const queryClient = new QueryClient({
 });
 
 function WebApp() {
-  const [booting, setBooting] = useState(true);
+  // Tauri already keeps its native launcher visible until this document has
+  // loaded. Avoid a second full-screen splash in the embedded cockpit; direct
+  // browser/PWA launches retain the remote UI's normal branded transition.
+  const [booting, setBooting] = useState(!embeddedDesktop);
   return (
     <>
       <App />

@@ -875,7 +875,10 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     advisor = run_doctor_advisor(
         report,
         context,
-        requested=str(getattr(args, "advisor", "auto") or "auto"),
+        # Diagnostics must remain read-only unless the operator explicitly
+        # selects an advisor.  The top-level `--doctor` compatibility flag has
+        # no --advisor argument, so its missing attribute must mean `none`.
+        requested=str(getattr(args, "advisor", "none") or "none"),
         # A backend whose CLI is installed but not logged in is the first
         # thing a new user needs told. Reporting "ready" and hiding the
         # login behind --deep sends them off to fail on their first task.

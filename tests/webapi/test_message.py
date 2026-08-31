@@ -844,7 +844,15 @@ def test_frontdoor_classifier_failure_never_dispatches_unclassified_message(
         return None, None, "complex"
 
     monkeypatch.setattr(config_intent, "_front_door_classify", failed_classify)
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError(
+                "a failed classifier must not start another Manager turn"
+            )
+        ),
+    )
 
     result = manager_bridge.manager_message(
         sid,
@@ -1797,6 +1805,29 @@ def _parse_sse(text: str) -> list[dict]:
     return out
 
 
+def test_turn_emitter_reports_the_role_that_owns_a_phase(tmp_path: Path) -> None:
+    from argus_skill.webapi.manager_dispatch import _TurnEmitter
+
+    frames: list[tuple[str, dict]] = []
+    emitter = _TurnEmitter(
+        life_dir=tmp_path,
+        turn_id="turn-phase",
+        fragment=lambda kind, payload: frames.append((kind, payload)),
+    )
+
+    emitter.phase("Planner is decomposing and signing off the task…", role="planner")
+
+    assert frames == [
+        (
+            "phase",
+            {
+                "role": "planner",
+                "label": "Planner is decomposing and signing off the task…",
+            },
+        )
+    ]
+
+
 def test_turn_emitter_schedules_learning_only_for_chat(tmp_path: Path) -> None:
     from argus_skill.webapi.manager_dispatch import _TurnEmitter
 
@@ -1838,6 +1869,40 @@ def test_manager_stream_heartbeat_uses_real_silence_and_stops_on_done() -> None:
     assert [frame["type"] for frame in frames] == ["phase", "delta", "phase"]
     assert frames[0]["heartbeat"] is True and frames[0]["quiet_s"] == 10
     assert frames[2]["quiet_s"] == 10  # reset by the genuine delta at t=111
+
+
+def test_manager_stream_heartbeat_preserves_the_active_phase_role() -> None:
+    class _FakeQueue:
+        def __init__(self) -> None:
+            self.values = [
+                {
+                    "type": "phase",
+                    "role": "planner",
+                    "label": "Planner is decomposing and signing off the task…",
+                },
+                queue.Empty,
+                None,
+            ]
+
+        def get(self, timeout=None):
+            value = self.values.pop(0)
+            if value is queue.Empty:
+                raise queue.Empty
+            return value
+
+    ticks = iter([100.0, 101.0, 111.0])
+    frames = list(
+        server._iter_manager_stream_items(
+            _FakeQueue(),
+            heartbeat_s=10.0,
+            clock=lambda: next(ticks),
+        )
+    )
+
+    assert frames[1]["heartbeat"] is True
+    assert frames[1]["role"] == "planner"
+    assert frames[1]["label"].startswith("Planner · waiting")
+    assert frames[1]["quiet_s"] == 10
 
 
 def test_manager_stream_heartbeat_defaults_to_five_seconds(monkeypatch) -> None:

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Check, CheckCircle2, ChevronDown, ChevronRight, Code2, File, FileCode2, Files, Folder, GitBranch, Github, LockKeyhole, RefreshCw, Server, TerminalSquare, UserRound, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { PdfPreview } from '../../components/PdfPreview';
 import { Badge, EmptyState } from '../components/Common';
 import { eventDetail, eventRole, eventTitle, formatClock } from '../utils';
 import { buildFileTree, workspaceApi, type FileTreeNode } from '../workspaceApi';
@@ -25,7 +26,7 @@ function WorkspacePreview({ sid, workspaceId, path }: { sid: string; workspaceId
   if (media) {
     if (blob.error) return <EmptyState icon={LockKeyhole} title="Preview unavailable" description={blob.error} />;
     if (!blob.url) return <div className="editor-loading">Loading preview…</div>;
-    return extension === '.pdf' ? <embed className="workspace-pdf" src={blob.url} type="application/pdf" /> : <img className="workspace-image" src={blob.url} alt={path} />;
+    return extension === '.pdf' ? <PdfPreview src={blob.url} name={path.split('/').at(-1) || path} className="workspace-pdf" /> : <img className="workspace-image" src={blob.url} alt={path} />;
   }
   if (file.isLoading) return <div className="editor-loading">Opening {path}…</div>;
   if (file.isError) return <EmptyState icon={LockKeyhole} title="Preview unavailable" description={file.error.message} />;

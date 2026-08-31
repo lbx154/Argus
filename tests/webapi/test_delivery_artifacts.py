@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from argus_skill.core.mission_view import update_mission_view_event
@@ -65,3 +66,42 @@ def test_delivery_receipt_makes_only_its_safe_targets_openable(tmp_path: Path) -
     assert [(row["path"], row["source"]) for row in rows] == [
         ("final.md", "delivery"),
     ]
+    assert rows[0]["storage_path"] == str((workspace / "final.md").resolve())
+
+
+def test_completed_legacy_summary_links_become_openable_delivery_files(
+    tmp_path: Path,
+) -> None:
+    sid = "s-summary-delivery"
+    life = tmp_path / "projects" / sid
+    workspace = tmp_path / "workspace"
+    life.mkdir(parents=True)
+    workspace.mkdir()
+    source = workspace / "survey.tex"
+    pdf = workspace / "survey.pdf"
+    source.write_text("source", encoding="utf-8")
+    pdf.write_bytes(b"pdf")
+    write_session_meta(
+        tmp_path,
+        SessionMeta(id=sid, cwd=str(life), workdir=str(workspace)),
+    )
+    pdf_link = pdf.resolve().as_posix()
+    if os.name == "nt":
+        pdf_link = f"/{pdf_link}"
+    update_mission_view_event(life, {
+        "type": "life.mission.completed",
+        "item_id": "task-legacy",
+        "title": "Create survey",
+        "success": True,
+        "status": "done",
+        "summary": f"Delivered [survey PDF]({pdf_link}) and `survey.tex`.",
+    })
+
+    rows = list_project_artifacts(sid, global_root=tmp_path)
+
+    assert rows is not None
+    assert [(row["path"], row["source"]) for row in rows] == [
+        ("survey.pdf", "delivery"),
+        ("survey.tex", "delivery"),
+    ]
+    assert all(row["storage_path"] == str(workspace / row["path"]) for row in rows)

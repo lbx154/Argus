@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -24,6 +26,9 @@ class AttachmentRefIn(BaseModel):
 class MessageIn(BaseModel):
     text: str
     attachments: list[AttachmentRefIn] = Field(default_factory=list)
+    # Explicit Task/Chat is operator authority and skips only the category
+    # classifier. Task still follows Manager -> Planner -> Engineer -> Reviewer.
+    route_override: Literal["auto", "chat", "task"] = "auto"
 
 
 class AnswerIn(BaseModel):

@@ -9,10 +9,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
+from ..agent_cli._process_control import background_subprocess_kwargs
 from ..agent_cli.runner_backend import (
     SUPPORTED_BACKENDS,
     normalize_runner_backend,
     resolve_runner_bin,
+    runner_child_environment,
 )
 from .knob_store import read_persisted_knobs, write_persisted_knobs
 from .knobs import resolve_runner_bin_setting
@@ -199,6 +201,7 @@ def _run_text(
     timeout_s: float,
     input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    executable = str(command[0]) if command else ""
     return subprocess.run(
         list(command),
         input=input_text,
@@ -208,6 +211,12 @@ def _run_text(
         errors="replace",
         timeout=timeout_s,
         check=False,
+        # Validate npm .cmd runners in the same repaired environment that
+        # AgentCliRunner will use for real turns.  A frozen desktop otherwise
+        # reported its Python runtime healthy while every Codex turn died
+        # before reaching the provider because the GUI PATH lacked node.exe.
+        env=runner_child_environment(executable),
+        **background_subprocess_kwargs(),
     )
 
 
@@ -406,6 +415,15 @@ def _check_backend_model_catalog(
     if expected is None:
         return
     env_map = env if env is not None else os.environ
+    if report.profile.backend == "codex":
+        from .knobs import backend_uses_openai_catalog
+
+        if not backend_uses_openai_catalog("codex", env=env_map):
+            # Codex can be configured as a generic client for an operator's
+            # own provider.  In that case Argus deliberately omits its OpenAI
+            # defaults and Codex owns model selection, so an OpenAI catalog
+            # mismatch warning would be false.
+            return
     persisted_map = read_persisted_knobs()
     # Roles usually share one model id; speak once per distinct selector.
     seen: set[str] = set()

@@ -88,16 +88,16 @@ def test_doctor_is_read_only(tmp_path: Path) -> None:
 
 def test_doctor_classifies_missing_desktop_runtime_as_repairable(tmp_path: Path) -> None:
     context = _context(tmp_path)
-    desktop = context.checkout / "desktop"
+    desktop = context.checkout / "desktop-tauri"
     desktop.mkdir()
     (desktop / "package.json").write_text("{}", encoding="utf-8")
 
     report = run_full_doctor(context, include_backend=False)
     finding = next(item for item in report.findings if item.code == "ARGUS-DESKTOP-001")
 
-    assert finding.status == "electron_binary_missing"
+    assert finding.status == "tauri_dependencies_missing"
     assert finding.severity == "warning"
-    assert finding.repair_action_ids == ("install_electron_binary",)
+    assert finding.repair_action_ids == ("install_tauri_dependencies",)
 
 
 def test_doctor_surfaces_unresolved_desktop_startup_error(tmp_path: Path) -> None:
@@ -106,7 +106,7 @@ def test_doctor_surfaces_unresolved_desktop_startup_error(tmp_path: Path) -> Non
     log = user_data / "logs" / "desktop.log"
     log.parent.mkdir(parents=True)
     log.write_text(
-        "backend ready: Argus Desktop ready\nbackend failed to start: Electron uninstall\n",
+        "backend ready: Argus Desktop ready\nbackend failed to start: Tauri host replacement\n",
         encoding="utf-8",
     )
 

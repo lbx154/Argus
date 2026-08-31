@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from ..agent_cli._process_control import windows_hidden_subprocess_kwargs
 from ..core.daemon_lock import DaemonAlreadyRunning, acquire_global_daemon_lock
 from .config import LifeWorkerConfig
 from .config import config_from_payload as _config_from_payload
@@ -180,8 +181,10 @@ def _spawn_handoff_candidate(
                 stderr=subprocess.STDOUT,
                 cwd=None if os.name == "nt" else "/",
                 env=env,
-                start_new_session=os.name != "nt",
                 close_fds=True,
+                # This recovery candidate can be launched by a GUI-hosted
+                # daemon. Keep its non-interactive bootstrap off-screen.
+                **windows_hidden_subprocess_kwargs(),
             )
     except OSError:
         log.exception("daemon handoff: failed to spawn candidate")

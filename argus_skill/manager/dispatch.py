@@ -109,6 +109,7 @@ def _plan_bounded_execution(
     *,
     root_task_id: str | None = None,
     require_independent_review: bool = True,
+    single_package: bool = False,
 ) -> Any:
     runner = front_door._ensure_manager_runner(chat_state, mem)
     backend = getattr(runner, "planner_backend", None) if runner is not None else None
@@ -131,6 +132,7 @@ def _plan_bounded_execution(
             workdir=workdir,
             state_root=getattr(mem, "project_root", None),
             require_independent_review=require_independent_review,
+            single_package=single_package,
             model=model,
             reasoning_effort=resolve_role_reasoning_effort(
                 "ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT",
@@ -444,6 +446,17 @@ def enqueue_mission(
                     "require_independent_review",
                     True,
                 )
+            ),
+            single_package=(
+                str(
+                    getattr(
+                        getattr(prepared_handoff, "decision", None),
+                        "workflow_mode",
+                        "",
+                    )
+                    or ""
+                ).strip().lower()
+                == "direct"
             ),
         )
         nodes = _stable_topological_nodes(tuple(plan.tasks))

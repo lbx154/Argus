@@ -10,7 +10,7 @@
 
 Long-running agent work that can plan, execute, verify, pause, and continue beyond a single model turn.
 
-**Preview v0.1.2 · Preview channel for upcoming Argus updates.**
+**Preview v0.1.1 · Preview channel for upcoming Argus updates.**
 
 [![GitHub Stars](https://img.shields.io/github/stars/lbx154/Argus?style=flat-square)](https://github.com/lbx154/Argus/stargazers)
 [![License](https://img.shields.io/github/license/lbx154/Argus?style=flat-square)](LICENSE)
@@ -154,12 +154,12 @@ Calling `$Argus` proves setup is not accidentally using another stale
 installation. `$env:Path` also makes plain `argus` available in the current
 PowerShell. The troubleshooting section covers persistent PATH repair.
 
-`argus doctor` is an active repair command. By default it launches an installed
-Agent CLI in the real Argus directories with tools enabled, lets the Agent
-inspect and fix the machine, then reruns deterministic checks. Use
-`argus doctor --advisor none --verify` for a no-model verification.
-The active repair may take several minutes because it performs a real Agent
-turn; it is not a quick version check.
+`argus doctor` is read-only by default. To explicitly authorize an installed
+Agent CLI to inspect and repair Argus-scoped files, configuration, runtime
+state, or dependencies, use `argus doctor --advisor auto` (or name a specific
+advisor). Use `argus doctor --advisor none --verify` for deterministic,
+no-model verification. An explicitly requested active repair may take several
+minutes because it performs a real Agent turn; it is not a quick version check.
 
 Windows currently supports installation, Manager chat, pairing, Web/TUI,
 terminal-scoped daemon control, and native durable subagents. On native Windows,
@@ -291,7 +291,8 @@ argus
 ```
 
 ```bash
-argus doctor                         # Agent-driven inspection and repair
+argus doctor                         # deterministic, read-only diagnostics
+argus doctor --advisor auto          # explicitly request Agent-driven inspection and repair
 argus doctor --advisor none --verify # deterministic verification, no model call
 argus --status                       # inspect the current runtime
 ```
@@ -300,10 +301,11 @@ argus --status                       # inspect the current runtime
 
 ### Windows Desktop
 
-The Windows x64 source tree includes an Electron host that supervises a frozen
+The Windows x64 source tree includes a Tauri/Rust host that supervises a frozen
 copy of the same Argus runtime and opens the existing Web cockpit—there is no
-separate Desktop fork of Manager, Workbench, or the WebAPI. Source setup,
-security boundaries, verification, and packaging commands are documented in
+separate Desktop fork of Manager, Workbench, or the WebAPI. It also provides
+signed update discovery and user-confirmed installation. Source setup, security
+boundaries, verification, and packaging commands are documented in
 **[Windows Desktop](docs/windows-desktop.md)**.
 
 ### Terminal cockpit
@@ -531,8 +533,8 @@ logs.
 - On Linux, use `$HOME/Argus/.venv/bin/argus`; a global `argus` may be an older
   installation. Install `python3-venv` if `python3 -m venv` lacks `ensurepip`.
 - Use `argus doctor --advisor none --verify` for deterministic diagnostics.
-  Use `argus doctor` when you want an installed Agent to inspect and repair
-  Argus directly.
+  Use `argus doctor --advisor auto` when you explicitly want an installed
+  Agent to inspect and repair Argus directly.
 - Use `argus --config-help` to check the effective backend/model before blaming
   setup or authentication.
 

@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from ..agent_cli._process_control import windows_hidden_subprocess_kwargs
 from ..core.daemon_lock import DaemonAlreadyRunning, acquire_global_daemon_lock
 from .state import (
     _daemon_log_path,
@@ -157,10 +158,10 @@ def _spawn_windows_background_process(
     # Unicode status glyphs and must not crash before publishing daemon status.
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
-    creationflags = (
-        getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    )
+    spawn_options = windows_hidden_subprocess_kwargs()
+    spawn_options["creationflags"] = int(
+        spawn_options.get("creationflags", 0)
+    ) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with log_path.open("ab") as log_handle:
@@ -172,7 +173,7 @@ def _spawn_windows_background_process(
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
                 close_fds=True,
-                creationflags=creationflags,
+                **spawn_options,
             )
         deadline = time.monotonic() + _WINDOWS_DAEMON_PUBLISH_TIMEOUT_SECONDS
         exit_rc: int | None = None

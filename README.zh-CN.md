@@ -10,7 +10,7 @@
 
 让长期 Agent 能够规划、执行、验证、暂停，并在一次模型调用之后继续推进。
 
-**当前为 Preview v0.1.2 · 用于提前发布 Argus 的后续更新。**
+**当前为 Preview v0.1.1 · 用于提前发布 Argus 的后续更新。**
 
 [![GitHub Stars](https://img.shields.io/github/stars/lbx154/Argus?style=flat-square)](https://github.com/lbx154/Argus/stargazers)
 [![License](https://img.shields.io/github/license/lbx154/Argus?style=flat-square)](LICENSE)
@@ -142,11 +142,11 @@ $env:Path = "$Scripts;$env:Path"
 使用 `$Argus` 绝对路径可以证明 setup 没有误调用旧安装。`$env:Path` 会让当前
 PowerShell 同时支持普通 `argus` 命令；新窗口的持久 PATH 修复见后面的排障章节。
 
-`argus doctor` 是主动修复命令：默认会在真实 Argus 目录中启动用户电脑上已安装的
-Agent CLI，开放工具让 Agent 直接检查并修复机器，然后重新运行确定性检查验收。
-只有需要“不调用模型的确定性验证”时才使用
-`argus doctor --advisor none --verify`。
-主动修复会执行一次真实 Agent turn，可能需要几分钟；它不是快速版本检查。
+`argus doctor` 默认只做只读诊断。只有明确执行
+`argus doctor --advisor auto`（或指定某个 advisor）时，才授权已安装的 Agent CLI
+在 Argus 范围内检查和修复文件、配置、运行时状态或依赖。需要不调用模型的确定性验收时，
+使用 `argus doctor --advisor none --verify`。明确请求的主动修复会执行真实 Agent turn，
+可能需要几分钟；它不是快速版本检查。
 
 Windows 当前支持安装、Manager 对话、配对、Web/TUI、终端作用域 daemon 控制和
 原生 durable subagent。Native Windows 使用独立 worker 承载 direct 或 supervised
@@ -267,7 +267,8 @@ argus
 ```
 
 ```bash
-argus doctor                         # 调用 Agent 检查并修复
+argus doctor                         # 确定性、只读诊断
+argus doctor --advisor auto          # 明确请求 Agent 检查并修复
 argus doctor --advisor none --verify # 不调用模型的确定性验证
 argus --status                       # 查看当前运行状态
 ```
@@ -276,10 +277,10 @@ argus --status                       # 查看当前运行状态
 
 ### Windows Desktop
 
-Windows x64 源码包含一个 Electron 桌面宿主：它监管由同一套 Argus 运行时冻结得到的
+Windows x64 源码包含一个 Tauri/Rust 桌面宿主：它监管由同一套 Argus 运行时冻结得到的
 本地后端，并直接打开现有 Web Cockpit；Manager、Workbench 与 WebAPI 不存在单独的
-Desktop 分叉。源码运行、安全边界、验收和打包命令见
-**[Windows Desktop 文档](docs/windows-desktop.md)**。
+Desktop 分叉。它还提供签名更新发现和经用户确认后的安装。源码运行、安全边界、验收和
+打包命令见 **[Windows Desktop 文档](docs/windows-desktop.md)**。
 
 ### Terminal Cockpit
 
@@ -486,7 +487,7 @@ Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout
 - Linux 使用 `$HOME/Argus/.venv/bin/argus`；全局 `argus` 可能属于旧安装。
   `python3 -m venv` 缺少 `ensurepip` 时先安装 `python3-venv`。
 - `argus doctor --advisor none --verify` 只做确定性诊断；需要本机 Agent 直接检查和
-  修复 Argus 时使用 `argus doctor`。
+  修复 Argus 时，明确使用 `argus doctor --advisor auto`。
 - 用 `argus --config-help` 检查实际 backend/model，再判断 setup 或鉴权是否失败。
 
 ## Argus 目前取得的成果

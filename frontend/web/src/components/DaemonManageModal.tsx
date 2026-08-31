@@ -12,7 +12,7 @@ export function DaemonManageModal({
   onClose,
   onRename,
   onStart,
-  onPause,
+  onStop,
   onDelete,
 }: {
   open: boolean;
@@ -24,23 +24,33 @@ export function DaemonManageModal({
   onClose: () => void;
   onRename: (name: string) => Promise<boolean>;
   onStart: () => Promise<boolean>;
-  onPause: () => Promise<boolean>;
+  onStop: () => Promise<boolean>;
   onDelete: () => Promise<boolean>;
 }) {
   const { t } = useI18n();
   const [draftName, setDraftName] = useState(name);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [stoppedLocally, setStoppedLocally] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDraftName(name);
       setConfirmDelete(false);
+      setStoppedLocally(false);
     }
   }, [open, name, sid]);
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
     await onRename(draftName.trim());
+  };
+  const effectiveAlive = alive && !stoppedLocally;
+  const toggleExecutor = async () => {
+    if (effectiveAlive) {
+      if (await onStop()) setStoppedLocally(true);
+      return;
+    }
+    if (await onStart()) setStoppedLocally(false);
   };
 
   return (
@@ -76,11 +86,11 @@ export function DaemonManageModal({
         <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{t('manage.executor')}</div>
         <div className="mt-2 flex items-center justify-between rounded border border-line bg-bg/30 p-3">
           <div>
-            <div className="text-sm text-ink">{alive ? (controlAvailable ? t('manage.running') : t('manage.runningExternally')) : t('manage.paused')}</div>
+            <div className="text-sm text-ink">{effectiveAlive ? (controlAvailable ? t('manage.running') : t('manage.runningExternally')) : t('manage.paused')}</div>
             <p className="mt-0.5 text-[11px] text-ink-faint">
-              {alive
+              {effectiveAlive
                 ? controlAvailable
-                  ? t('manage.pauseHint')
+                  ? t('manage.stopNowHint')
                   : t('manage.externalHint')
                 : t('manage.resumeHint')}
             </p>
@@ -88,12 +98,12 @@ export function DaemonManageModal({
           <button
             type="button"
             disabled={busy || !controlAvailable}
-            onClick={() => void (alive ? onPause() : onStart())}
+            onClick={() => void toggleExecutor()}
             className={`rounded border px-3 py-1.5 text-xs disabled:cursor-wait disabled:opacity-50 ${
-              alive ? 'border-warn/50 text-warn hover:bg-warn/10' : 'border-blue-deep bg-blue-deep text-white hover:bg-blue-deep/80'
+              effectiveAlive ? 'border-warn/50 text-warn hover:bg-warn/10' : 'border-blue-deep bg-blue-deep text-white hover:bg-blue-deep/80'
             }`}
           >
-            {busy ? t('manage.working') : !controlAvailable ? t('common.external') : alive ? t('common.pause') : t('manage.resume')}
+            {busy ? t('manage.working') : !controlAvailable ? t('common.external') : effectiveAlive ? t('manage.stopNow') : t('manage.resume')}
           </button>
         </div>
       </div>
@@ -106,7 +116,7 @@ export function DaemonManageModal({
         {!confirmDelete ? (
           <button
             type="button"
-            disabled={busy || alive}
+            disabled={busy || effectiveAlive}
             onClick={() => setConfirmDelete(true)}
             className="mt-3 rounded border border-err/40 px-3 py-1.5 text-xs text-err hover:bg-err/10 disabled:cursor-not-allowed disabled:opacity-40"
           >

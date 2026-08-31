@@ -700,6 +700,30 @@ def test_invalid_route_token_preserves_parsed_control() -> None:
     )
 
 
+def test_nonzero_exit_preserves_redacted_runner_diagnostic(monkeypatch) -> None:
+    result = _FakeResult("", exit_code=1)
+    result.fatal_error = ""
+    result.stderr_lines = [
+        '"node" is not recognized as an internal or external command.',
+        "OPENAI_API_KEY=super-secret-value",
+    ]
+    failures: list[str] = []
+    monkeypatch.setenv("OPENAI_API_KEY", "super-secret-value")
+
+    decision = classify_front_door(
+        "hello",
+        run_exec=lambda _prompt: result,
+        failure_sink=failures.append,
+    )
+
+    assert decision == (None, None, "complex")
+    assert len(failures) == 1
+    assert "exit 1" in failures[0]
+    assert "node" in failures[0]
+    assert "super-secret-value" not in failures[0]
+    assert "<REDACTED" in failures[0]
+
+
 def test_prefixes_are_case_insensitive() -> None:
     intent, control, route = classify_front_door(
         "x",

@@ -461,6 +461,8 @@ export interface ArtifactInfo {
   mime: string;
   size: number;
   mtime: number | null;
+  /** Absolute local location shown on hover; reads still use the protected path. */
+  storage_path?: string;
   source?: 'manager_live' | 'reviewer_evidence' | 'research_registered' | 'delivery';
   group_title?: string;
   /** Included by the single-artifact endpoint for text/HTML files only. */

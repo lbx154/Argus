@@ -89,7 +89,8 @@ def test_install_guides_cover_updates_paths_models_and_doctor_semantics() -> Non
     assert "uv tool upgrade argus-skill" not in update
     assert "\npip install " not in update
 
-    assert "If the Releases page has no matching installer asset" in desktop
+    assert "GitHub Release" in desktop
+    assert "只产生 NSIS installer" in desktop
 
 
 def test_readmes_surface_the_wechat_qr_before_installation() -> None:

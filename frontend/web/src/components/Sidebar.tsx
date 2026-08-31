@@ -145,7 +145,7 @@ export function Sidebar({
         slim ? 'w-14' : 'w-64 lg:w-[var(--sidebar-width)]'
       } ${mobileOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'}`}
     >
-      <div className={`flex h-12 shrink-0 items-center border-b border-line/50 ${slim ? 'justify-center' : 'justify-between px-4'}`}>
+      <div className={`chrome-seam-surface flex h-12 shrink-0 items-center border-b border-line/50 ${slim ? 'justify-center' : 'justify-between px-4'}`}>
         {slim ? (
           <Wordmark size={22} compact />
         ) : (

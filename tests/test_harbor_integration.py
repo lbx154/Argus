@@ -299,7 +299,7 @@ def test_harbor_uploads_current_source_wheel_by_default(
 
     def fake_build(_source_root: Path, output_dir: Path) -> Path:
         assert _source_root == source_root
-        wheel = output_dir / "argus_skill-0.1.2-py3-none-any.whl"
+        wheel = output_dir / "argus_skill-0.1.1-py3-none-any.whl"
         wheel.write_bytes(b"wheel")
         return wheel
 
@@ -315,7 +315,7 @@ def test_harbor_uploads_current_source_wheel_by_default(
 
     assert any(target.endswith(".whl") for _source, target in environment.uploads)
     assert any(
-        "pip install /tmp/argus_skill-0.1.2-py3-none-any.whl" in entry["command"]
+        "pip install /tmp/argus_skill-0.1.1-py3-none-any.whl" in entry["command"]
         for entry in environment.commands
     )
 

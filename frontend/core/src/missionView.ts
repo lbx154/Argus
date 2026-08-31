@@ -658,6 +658,7 @@ function mergeSnapshot(view: MissionView, snapshot: Snapshot, artifacts: Artifac
       kind: artifact.kind,
       why: artifact.why,
       exists: artifact.exists,
+      storage_path: artifact.storage_path,
       source: artifact.source,
     });
   });

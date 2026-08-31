@@ -15,6 +15,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from ...agent_cli._process_control import windows_hidden_subprocess_kwargs
+
 RunCommand = Callable[[Sequence[str]], str]
 WhichCommand = Callable[[str], str | None]
 
@@ -27,6 +29,7 @@ def _run(command: Sequence[str]) -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=15,
+        **windows_hidden_subprocess_kwargs(),
     ).stdout
 
 

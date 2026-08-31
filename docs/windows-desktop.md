@@ -1,208 +1,214 @@
-# Windows Desktop
+# Windows Desktop（Tauri / Rust）
 
-Argus includes an Electron host for Windows x64. The desktop application does
-not fork the Argus product or maintain a separate Web UI: it starts the same
-Python runtime, serves the checked-in Web cockpit on loopback, and displays that
-cockpit in a hardened Electron window.
+Argus 的 Windows 桌面端由 **Tauri 2 + Rust** 实现。它不分叉 Argus 的
+Manager、Planner、Engineer、Reviewer、WebAPI 或 Web UI：桌面宿主启动同一份
+冻结 Python 运行时，并把检查入库的 Web cockpit 显示在本地受限容器中。
 
-The desktop package version follows the repository version. Prebuilt installers
-and unpacked applications are build artifacts and are intentionally not stored
-in Git.
+当前 Windows 桌面端只保留 `desktop-tauri/` 这一套实现。它继续使用产品标识
+`cn.argusbot.desktop`、`Argus.exe`、既有 Python 后端协议和兼容的 per-user 数据根，
+因此迁移不会丢失已选 CLI、Web token 或可验证的后端 ownership record。
 
-## Scope
+## 安装与使用
 
-The Desktop integration adds:
+当 GitHub Release 提供 `Argus-<version>-setup.exe` 时，下载并运行该 NSIS 安装包。
+它包含冻结的 Argus backend；终端用户不需要为桌面端另行安装 Python、Node.js 或
+virtual environment。若 Release 页面没有匹配的安装包，请使用主 README 中的 Windows
+pip 安装方式，不要把贡献者构建目录当作发布物。
 
-- an Electron main process, preload bridge, launcher, and first-run settings UI;
-- a PyInstaller build of the existing `argus_skill` runtime;
-- strict ownership checks between Electron and its local Python backend;
-- automatic recovery with a bounded restart circuit;
-- completion receipts that link chat, the right-side result view, and native
-  Windows notifications when the app is backgrounded;
-- native Windows caption controls kept outside the cockpit hit area;
-- supported Agent CLI discovery and explicit binary selection;
-- redacted diagnostic export;
-- NSIS installer and portable-package definitions, including the original
-  tray/window icon as a packaged runtime resource.
+首次启动会在后台启动本地后端，后端就绪后直接打开 cockpit；不会强制弹出配置向导。
+需要修改 Agent CLI、可执行文件、端口或桌面外观时，使用 **文件 → 设置**。普通关闭和
+菜单中的 **隐藏窗口并在后台继续** 是同一个行为：隐藏到系统托盘并保留正在进行的工作；
+只有 **停止本地后端并退出** 会终止已验证的后端。
 
-It does **not** replace Manager, Planner, Engineer, Reviewer, WebAPI, Workbench,
-or Vertical behavior. Those remain owned by the main Argus runtime. It also does
-not expand the Windows portability claims of the underlying runtime; see the
-main README for the currently supported Windows surface. The frozen
-`resources/argus-backend/_internal` tree is a release payload, not a Git source
-checkout. Repairs are built and reviewed in a separate source repository and
-delivered through the reviewed deployment boundary as a new Desktop release.
+## 功能范围
 
-## End-user installation
+Tauri 桌面端提供完整的原生宿主功能：
 
-When a GitHub Release includes `Argus-<version>-setup.exe`, download that asset
-and run it. The installer contains the frozen Argus backend; end users do not
-install Python, Node.js, or a virtual environment for the Desktop application.
-If the Releases page has no matching installer asset, use the Windows pip
-instructions in the main README. Do not treat contributor build commands or CI
-artifacts as an available end-user release.
+- 首次运行时选择 Codex、Claude、Copilot、Pi、OpenCode、Grok Build、Qoder 或
+  DeepSeek Harness，并支持显式选择可执行文件；
+- 启动、认证、接管和安全停止冻结的 `argus-backend.exe`；
+- 对 PID、启动时间、可执行文件、release manifest digest、端口和 Web-token hash
+  做严格 ownership 验证；
+- 有界的健康检测和自动恢复，避免无限 crash loop；
+- 原生 Windows 标题栏、单实例、托盘、隐藏到后台、菜单和显式“停止后端并退出”；
+- 后端失败时仍可操作的启动/恢复页，和脱敏诊断 ZIP 导出；
+- 完成交付时的去重通知、工作台定位和右侧成果视图；
+- 完整的 Web cockpit，而非维护第二套桌面 UI；
+- **签名自动更新**：启动后异步检查、发现新版本时桌面通知和页面提示、用户确认后
+  下载、验证 minisign 签名、交给 NSIS 安装器并重启。
 
-The first-run screen selects an installed Agent CLI and starts the bundled
-backend. Installation is usable only after the backend reaches the ready screen.
-During an upgrade, NSIS terminates old `Argus.exe` and frozen-backend process
-trees before its running-app check; it does not rely on WM_CLOSE because normal
-close intentionally hides Argus to the tray. A previously launched backend can
-be a separate process;
-the first launch of the new Desktop release safely replaces a proven prior
-backend after installation. If startup fails, use **Export sanitized
-diagnostics** from the error screen; the report includes the failed stage and
-backend log without credentials.
+它不会接管无法证明属于当前桌面安装的监听进程，也不会从未经签名或 HTTP 更新源
+下载/执行内容。
 
-`Argus-<version>-portable.exe` is the no-install alternative. The source
-development instructions later in this document are for contributors building
-the package, not for end users.
+Desktop 不改变 Manager、Planner、Engineer、Reviewer、Workbench 或 Vertical 的职责；
+这些行为始终由远端主线的 Argus Python 运行时拥有。冻结包中的
+`resources/argus-backend/_internal` 是 release payload，不是源码 checkout。框架修复必须在
+独立源码工作区中完成并经过审查，再通过唯一的 reviewed deployment boundary 进入新的
+Desktop release，不能直接修改安装目录中的冻结文件。
 
-## Architecture
+首次启动不再强制显示配置向导：Argus 会在后台无控制台窗口地启动本地后端，并在就绪后
+直接打开 cockpit。Agent CLI、端口和外观只从 **文件 → 设置** 修改；cockpit 左下角设置
+按钮保留为当前项目的预算、角色与模型等运行时配置入口。文件/帮助菜单由可信 Tauri shell
+渲染为随浅色/深色主题变化的渐变栏，不再使用与上下内容割裂的 Windows 原生菜单色块。
+
+## 架构
 
 ```text
 Windows native non-client frame
-  └─ Minimize / Maximize-or-Restore / Close
-
-Argus.exe (Electron)
-  ├─ local launcher and settings renderer
-  ├─ hardened BrowserWindow / WebContentsView
-  └─ supervised resources/argus-backend/argus-backend.exe
-       └─ existing Argus WebAPI + checked-in Web cockpit
+  └─ Argus.exe (Tauri/Rust)
+       ├─ 本地 launcher / settings / update shell
+       ├─ 隔离 iframe：认证后的 127.0.0.1 Web cockpit
+       ├─ 受控托盘、菜单、通知和诊断
+       └─ resources/argus-backend/argus-backend.exe
+            └─ 既有 Argus WebAPI + checked-in Web cockpit
 ```
 
-The native caption buttons are deliberately outside renderer coordinates. The
-right-side file picker, download, expand, and collapse controls therefore never
-share a hit area with Windows window controls.
+工作台 iframe 和 Tauri shell 是两个安全域。Tauri IPC 只存在于本地 shell；iframe
+只可通过 `postMessage` 发送长度受限的交付通知数据。父窗口同时验证消息来源必须是
+当前 iframe，且 origin 必须等于配置的 `http://127.0.0.1:<port>`。因此 loopback
+cockpit 不会获得文件系统、Shell、更新器或任意 Tauri command 的权限。
 
-### Close, hide, and explicit stop
+Windows 包会把 Microsoft 的 `WebView2Loader.dll` 显式放在 `Argus.exe` 同目录；这和
+WebView2 Runtime 是两件事。安装器仍会按 Tauri 的 `downloadBootstrapper` 策略处理
+缺失或过旧的 Runtime，但启动不再依赖构建机 PATH 中碰巧存在的 Loader DLL。原生
+Windows 标题栏会随 launcher 设置和 cockpit 当前的浅色/深色主题同步，不使用覆盖
+Windows caption controls 的黑色自绘条。
 
-On Windows, clicking the native **Close** button hides the Desktop shell to the
-system tray; it does not stop the authenticated backend, project daemon, or an
-in-progress Argus mission. Launching Argus again or clicking the tray icon
-restores the same window. The File menu distinguishes:
+Desktop ready 路径只取得已认证 cockpit URL，不在首屏前扫描 Agent CLI 或 Pi 配置；这些
+设置数据只在操作员打开“文件 → 设置”时读取。同一 URL 的后端重连保留现有 React cockpit，
+不会整页重载。WebSocket 事件按短帧批处理，长会话的离屏事件行由 WebView2 跳过 layout/paint；
+嵌入模式还避免第二层启动 splash 和持续全屏模糊动画。以上只减少宿主与渲染开销，不改变
+Manager、Planner、Engineer、Reviewer、轮询安全网或任务状态语义。
 
-- **关闭窗口并在后台继续** — hide the shell and keep Argus running;
-- **退出桌面界面（后台继续）** — exit Electron while leaving the owned backend
-  available for a later Desktop instance to authenticate and adopt;
-- **停止本地后端并退出** — the explicit destructive shutdown path; it stops only
-  the backend proven to be owned by this Desktop instance before exiting.
+Desktop 输入框默认显示 **任务** 模式，像 Codex 一样把操作员明确提交的工作直接交给 Manager
+路由，省去一次容易误判且耗时的消息类别模型调用；Planner 签发、Engineer 执行和 Reviewer
+审查仍全部保留。可切换为 **自动**（由 front-door 判断）或 **对话**（保证不入队）。Codex
+无工具控制调用继续读取用户的 provider/auth，但临时关闭 plugins、MCP、JS REPL 和 rules
+加载；`workflow_mode=direct` 使用精简但真实的单节点 Planner 签发提示。隔离真实性能探针中，
+严格 Planner-owned dispatch 从 141.160 秒降到 28.025 秒（Manager 10.550 秒、Planner
+16.465 秒）。实际网络/provider 负载仍会造成波动。
 
-This is intentionally different from treating a window close as a request to
-end 7×24 work.
+## 关闭、后台运行和单实例
 
-To verify the behavior, start a mission, click **Close**, then either click the
-tray icon or launch Argus again. The same backend and project state should be
-reused. Use **停止本地后端并退出** only when you intentionally want to stop
-that Desktop-owned local service; do not use Task Manager against an arbitrary
-PID as a normal shutdown path.
+- Windows 的普通 **关闭** 按钮会隐藏窗口到托盘，后端、daemon 和进行中的任务继续；
+- 托盘左键、菜单“显示 Argus”或再次启动 `Argus.exe` 会恢复同一窗口；
+- 过去两个近似的“关闭/退出但保留后端”入口已合并为一个 **隐藏窗口并在后台继续**；
+- **停止本地后端并退出** 是唯一会终止后台进程树的路径，且只对已验证 ownership 的
+  PID/root PID 使用 `taskkill /t /f`；
+- NSIS 安装器在显式升级事务中会结束 `Argus.exe` 和 `argus-backend.exe`，避免旧版
+  “关闭即入托盘”阻塞替换文件；
+- 项目管理中的 **立即停止** 使用 PID/start identity 已验证的 force-stop：先给 daemon 1 秒
+  响应控制请求，再只终止该进程树。状态刷新为“未运行”后，删除按钮立即可用；删除仍只是
+  移入可恢复 trash，workspace 默认保留。
 
-In a packaged application, `argus-backend.exe` is a one-folder PyInstaller
-bundle. Its entry point also implements the small Python invocation subset used
-by Argus-owned tools:
+## 完成交付
 
-- `argus-backend.exe -m argus_skill...`
-- `argus-backend.exe -c "..."`
-- `argus-backend.exe path/to/script.py ...`
+成功任务只产生一份 durable delivery receipt。稳定的 `delivery_id` 关联生命周期事件、
+Manager 对话、transcript replay、Mission View 和右侧成果面板；receipt 包含经验证的摘要、
+审查状态及最多六个安全的 workspace-relative target。
 
-Non-Argus `-m` modules are rejected. The build gate imports every registered
-Vertical and Domain so a package cannot look healthy while dynamic providers
-are missing.
+目标只来自 Reviewer 明确给出的 evidence、当前 Vertical 声明的主交付物，或 Manager Live
+View 的展示回退；Desktop 不扫描 workspace 猜测成果。每个 target 在打开或下载前仍需通过
+受保护 artifact API 校验。窗口隐藏或失焦时 Tauri 发送原生通知；点击通知恢复已认证的
+cockpit，并在存在目标时定位到对应成果。没有可展示文件时仍显示可信摘要和 Mission View，
+不会虚构产物。
 
-## Runtime ownership and safety
+## 后端身份与恢复
 
-On first run, the Electron supervisor mints a random Web token and persists it
-in per-user Desktop settings. It writes a per-user ownership record for every
-backend it launches. During ordinary startup, a backend is accepted only when
-an authenticated `/api/meta` response agrees with that record on all relevant
-fields:
+首次启动会生成 32-byte URL-safe Web token，保存在当前用户的
+`%APPDATA%\argus-desktop\settings.json`。原 token 从不会写进 ownership record、
+日志或诊断包。每次启动或健康检查均需认证 `/api/meta`，并验证：
 
-- PID and process start identity;
-- executable path;
-- release-manifest source digest;
-- loopback host and port;
-- SHA-256 of the Web token.
+1. listener PID 与启动时间；
+2. 精确后端 executable path；
+3. 当前 release manifest 的 `source_digest`；
+4. loopback host/port；
+5. Web token 的 SHA-256；
+6. 本次 spawn 的随机 `ARGUS_DESKTOP_LAUNCH_NONCE`。
 
-An in-place Desktop update has one narrow compatibility path. When the new
-Desktop can authenticate an older listener with that same token and the listener
-reports the exact bundled `argus-backend.exe` path, a real PID, start identity,
-and prior release digest, it may terminate that listener tree and start the new
-bundled backend. This handles a running previous Desktop release without
-adopting an arbitrary service. A non-local, unauthenticated, path-mismatched,
-or malformed listener remains fail-closed.
+新版本只能替换两类旧 listener：完整旧 ownership record 精确匹配的后端，或经过
+当前 token 认证且路径精确等于 bundled backend 的兼容旧版 listener。其他端口占用、
+远程地址、身份缺字段或 digest 不一致均 fail closed。
 
-The Desktop application never adopts, restarts, or terminates a process whose
-ownership or bounded legacy-upgrade identity cannot be proven. It also:
+健康检测每 5 秒一次；短暂网络故障最多重试两次，确认失效后按 0.5 s、1.5 s、4 s
+最多自动恢复三次，稳定 60 秒才重置熔断计数。
 
-- binds the managed service to `127.0.0.1` by default;
-- uses Electron context isolation and renderer sandboxing;
-- disables Node integration in renderers;
-- denies renderer permission requests;
-- sends non-local links to the system browser;
-- keeps Minimize, Maximize/Restore, and Close in Windows' native non-client
-  frame rather than overlaying right-side file controls;
-- redacts tokens, authorization headers, and credential-bearing URLs from logs
-  and exported diagnostics;
-- bounds automatic restart attempts and surfaces crash-loop failures.
+## 自动更新与签名信任
 
-## Completion delivery
+更新配置在 `desktop-tauri/src-tauri/tauri.conf.json`：
 
-A successful mission produces one durable **delivery receipt**. Its stable
-`delivery_id` binds the lifecycle completion event, Manager chat message,
-transcript replay, Mission View, and the right-side result surface. The receipt
-contains the verified summary, review status, and up to six safe
-workspace-relative targets.
+```text
+https://github.com/lbx154/Argus/releases/latest/download/latest.json
+```
 
-Targets are selected only from already authoritative sources, in order:
+Tauri updater 只接受 HTTPS，读取 `latest.json` 中与当前 Windows/NSIS target 对应的
+资产 URL 和 minisign signature。它在安装前对下载字节进行验证；仅篡改 manifest URL、
+镜像、DNS 或下载文件都不能绕过嵌入应用的公钥。配置没有
+`dangerousInsecureTransportProtocol`，也不允许证书绕过。
 
-1. Reviewer-named evidence files from the terminal verdict;
-2. primary deliverables declared by the active Vertical contract;
-3. the current Manager Live View as a presentation fallback.
+已安装版本会先恢复有效的本地更新缓存，并在应用启动 30 秒后才进行后台网络检查，避免与
+cockpit 首屏竞争。成功检查按 6 小时节流；临时网络失败使用 15 分钟起、最长 2 小时的有界
+指数退避，而不会错误地沉默 6 小时。manifest 请求有 15 秒超时；用户明确批准的安装包下载
+拥有独立的较长超时，下载进度最多每 200 ms 推送一次，避免大量 IPC/UI 重绘。
 
-Argus does not scan a workspace or infer arbitrary files as a deliverable.
-Every target is revalidated by the protected artifact API before it can be
-opened or downloaded. When a receipt arrives, the cockpit shows an explicit
-completion card with **Open result**, expands the right-side panel, and selects
-the primary target. Receipt IDs deduplicate WebSocket replay and page reloads.
+只有检测到**严格高于当前版本**、且未被用户忽略的新版本时，才会触发一次 Windows 原生通知
+和 shell 中的更新卡片。卡片显示版本、release notes 和签名验证说明，等待用户选择“查看并
+安装”；它不会自动下载或执行任何更新包。若后台复核发现缓存候选已撤回或不再更新，会及时
+撤下旧卡片。
 
-If the Desktop window is minimized or unfocused, Electron displays a native
-Windows notification. Clicking it restores the window and opens the delivery
-target when one exists. A completion with no renderable artifact still presents
-its verified summary and opens the Mission view rather than inventing a file.
+手动菜单“检查更新”可绕过 6 小时缓存，并显示“已是最新版本”或具体错误。后台检查中的
+“检查中”、当前已是最新版本、网络失败和暂时无法取得 manifest 都只写入脱敏日志，不打断
+cockpit 工作流。确认安装后，NSIS 会按既有升级语义结束受管理后端；请在任务边界操作。发布物
+只提供签名的 NSIS 安装包，不再生成或维护便携版。
 
-## Requirements
+### 发布者一次性密钥设置
 
-For source development and packaging:
+仓库只保存 updater **公钥**。私钥绝不能加入 Git、release asset、日志或诊断包。
+本地初始化时可生成一对密钥：
 
-- Windows 10 or 11, x64;
-- Python 3.11+;
-- Node.js 22.12+;
-- PowerShell;
-- one supported Agent CLI installed and authenticated if agent work will run.
+```powershell
+npm --prefix desktop-tauri run update:generate-key
+```
 
-The first-run UI supports Codex CLI, Claude Code, GitHub Copilot CLI, Pi,
-OpenCode, Grok Build, Qoder CLI, and DeepSeek Harness. Auto-detection is only a
-convenience; the operator can select the executable explicitly.
+私钥写入被忽略的 `desktop-tauri/.keys/argus-updater.key`。发布负责人必须把同一私钥
+的**内容**作为 GitHub Actions secret `TAURI_SIGNING_PRIVATE_KEY`；若使用带密码私钥，
+还需设置 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。私钥丢失意味着不能继续为该公钥签发
+更新，需通过新的完整安装包轮换公钥。
 
-### Role-session reuse
+### 国内/镜像双通道（可选）
 
-Desktop does not need a machine-specific Pi setting to reuse role context. The
-shared Argus runtime defaults to `ARGUS_SKILL_ROLE_SESSION_POLICY=auto`: Pi,
-Codex, Claude/Qoder, Copilot, OpenCode, and Grok use bounded role-isolated
-rolling sessions when the backend supports resume; fresh-only backends such as
-DeepSeek Harness remain fresh. Planner, Engineer, and Reviewer each retain a
-separate durable capsule and never share a provider thread across roles or
-unrelated missions. Rotation occurs at the configured turn/token limit or when
-identity-relevant context changes. See
-[Role sessions and on-demand Skills](ROLE_SESSIONS_AND_SKILLS.md) for the full
-contract and rollback controls.
+借鉴 Tianshu-harness 的模式，`desktop-tauri/scripts/update-mirror-worker.js` 提供了
+Cloudflare Worker 模板：它仅代理 `lbx154/Argus` 的允许 release 资产，并将
+`latest.json` 内 GitHub URL 改写为自己的受限资产路由。它不重签、不改字节，因此
+客户端签名验证仍是唯一完整性锚点。
 
-## Contributor-only development setup
+`desktop-tauri/scripts/upload-update-to-oss.ps1` 是显式 `-Apply` 才会写 OSS 的发布
+操作脚本。它下载 GitHub Release、重写镜像 manifest URL、上传安装器和 `.sig`。
+在配置 OSS/Worker 前，主 GitHub endpoint 仍是可用且安全的默认通道。部署镜像后，
+将 HTTPS mirror endpoint 放到下一次 Tauri release 的 updater endpoint 列表首位，
+并保留 GitHub 作为回退。每次发布都应比对 OSS 与 GitHub 的 SHA-256。
 
-This section builds the frozen backend and installer and therefore uses an
-isolated build environment. End users do not run these commands and do not
-create a venv.
+这些脚本不会在本地 build、测试或应用启动时写入任何远程服务。
 
-From the repository root in PowerShell:
+## 开发要求
+
+- Windows 10/11 x64；
+- Python 3.11+ 与 PyInstaller；
+- Node.js 22.12+；
+- Rust stable 的 `x86_64-pc-windows-msvc` toolchain；
+- Visual Studio 2022 Build Tools（Desktop development with C++ / MSVC）；
+- 一个已登录的支持 Agent CLI（如需实际运行任务）。
+
+### Role session 复用
+
+Desktop 不需要机器专用的 Pi 设置来复用角色上下文。共享运行时默认使用
+`ARGUS_SKILL_ROLE_SESSION_POLICY=auto`：支持 resume 的 Pi、Codex、Claude/Qoder、
+Copilot、OpenCode 和 Grok 使用有界、按角色隔离的 rolling session；DeepSeek Harness 等
+fresh-only backend 保持 fresh。Planner、Engineer、Reviewer 各自维护独立 capsule，不会跨角色
+或无关任务共享 provider thread；达到 turn/token 上限或身份相关上下文变化时自动轮换。完整
+契约见 [Role sessions and on-demand Skills](ROLE_SESSIONS_AND_SKILLS.md)。
+
+安装依赖：
 
 ```powershell
 uv venv --python 3.12 --seed .venv
@@ -210,190 +216,86 @@ uv venv --python 3.12 --seed .venv
 .\.venv\Scripts\python.exe -m pip install -e . pytest ruff "pyinstaller>=6.11,<7"
 
 npm --prefix frontend/web ci
-npm --prefix desktop ci
+npm --prefix desktop-tauri ci
+rustup toolchain install stable-x86_64-pc-windows-msvc
 ```
 
-`py -3.11 -m venv .venv` is also valid when the Python Launcher is installed.
-The `uv` form above works on machines (including this tested setup) where
-`py.exe` is absent. Always run Argus through this repository's `.venv`; a bare
-global Python can appear to start the WebAPI from the source directory and then
-fail to import `argus_skill` after an executor changes into the project
-workdir.
-
-For direct CLI use in a legacy CP936/GBK PowerShell, the launcher now switches
-its streams to UTF-8. For older builds, set these two variables before launch:
-
-```powershell
-$env:PYTHONUTF8 = "1"
-$env:PYTHONIOENCODING = "utf-8"
-```
-
-Run the Desktop host against the source runtime:
+开发模式使用源码 Python runtime，不需要构建冻结后端：
 
 ```powershell
 $env:ARGUS_DESKTOP_DEV = "1"
 $env:ARGUS_DESKTOP_REPO_ROOT = (Get-Location).Path
 $env:ARGUS_SKILL_BIN = "$PWD\.venv\Scripts\python.exe"
-npm --prefix desktop run dev
+npm --prefix desktop-tauri run dev
 ```
 
-The development host reads the repository release manifest and starts
-`python -m argus_skill --web` from the selected repository root.
+只允许一个受管理 API 占用同一端口。桌面端可以替换其已验证的前一版本 listener，
+但不会接管手工启动、未认证、非本地或路径不一致的 `argus --web`。
 
-Only one managed Argus API should own a host/port. Stop a manually started
-`argus --web` on port 8799 before starting Desktop: Desktop can replace its own
-proven prior bundled backend during an update, but correctly refuses a manually
-started, non-local, unauthenticated, or path-mismatched listener. Also keep
-separate checkouts in separate virtual environments: the public and private
-repositories share a default state root and port but can carry different release
-identities.
+### 终端退出与后台任务
 
-### What exits when the terminal closes
+`argus` TUI、loopback WebAPI 和每个项目 daemon 是不同进程。默认交互退出策略为 `detach`：
+关闭终端只结束 TUI，WebAPI 和任务可继续；再次进入同一目录会重连现有 session。需要清理时
+应显式使用 `argus --exit-policy stop-api` 或 `argus --exit-policy stop-all`。这些路径按
+ownership、PID/start identity 和 daemon 控制协议 fail closed，不应以 Task Manager 杀任意 PID
+代替正常停止。
 
-`argus`, the local WebAPI on `127.0.0.1:8799`, and each session's background
-executor are separate processes. The default interactive exit policy is
-`detach`: Ctrl-D (or Ctrl-C twice in the live view) closes only the terminal UI,
-so Web and an in-progress executor remain available. A later plain `argus` in
-the same folder now detects that live session and reattaches instead of trying
-to create a competing executor for the leased workspace.
+## 启动排查
 
-Choose cleanup explicitly when that is what you want:
+- **本地后端启动超时**：检查 Desktop log 和认证后的 `/api/meta`；ownership 同时记录
+  Windows launcher/root PID 与真实 listener PID。
+- **安装更新后提示端口版本不一致**：正常关闭旧 Desktop，完成新安装后启动一次。只有完整旧
+  ownership record 匹配，或当前 token 可认证且 executable 精确等于 bundled backend 时，
+  Tauri 才能替换旧 listener；其余端口占用保持 fail closed。
+- **项目列表已出现但仍显示 Connecting**：API handshake 和项目索引已经成功，当前 snapshot
+  仍在有界读取中；这不代表 CLI 与 Web 使用了不同状态。
+- **`snapshot refresh failed · fetch failed`**：表示针对共享本地 WebAPI 的新 REST 请求失败，
+  应查看 socket 原因和后端日志。
+- **`background executor failed to start (rc=...)`**：检查 UI 诊断和最新
+  `daemons/boot-*.log`；当前运行时保留 helper stderr、workdir/interpreter 校验及 Windows exit code。
+- **角色 turn 成功后出现可选 CHECKPOINT 文件错误**：checkpoint 只承载 role-session metadata，
+  不是 mission authority；capsule 持久化失败不能覆盖 provider/Reviewer 的权威结果。
+- **冻结 backend 需要框架更新**：`_internal` 不是源码 checkout，应安装新构建的 release，
+  不要原地编辑冻结文件。
 
-```powershell
-argus --exit-policy stop-api  # stop only an API spawned and still owned by this invocation
-argus --exit-policy stop-all  # gracefully stop the current executor, then that owned API
-$env:ARGUS_TUI_EXIT_POLICY = "stop-all"  # optional persistent shell policy
-```
-
-`stop-api` is fail-closed: it checks the loopback endpoint, ownership record,
-runtime PID/start identity, and both Windows launcher/listener PIDs before
-signalling anything. It never stops a pre-existing, remote, unowned, or
-PID-reused service. `stop-all` uses the daemon's graceful stop endpoint; it does
-not recommend or issue `Stop-Process` against a raw PID. Workspace lease errors
-name the safe session command, for example
-`argus --daemon-stop --resume s-12345678`.
-
-## Troubleshooting startup
-
-- **Local backend startup timed out**: inspect the Desktop log and authenticated
-  `/api/meta`. Older source builds confused the `.venv` launcher PID with the
-  actual Python listener PID on Windows; current ownership records both.
-- **`端口上的 Argus 版本为 ...，当前桌面版为 ...` after an installer update**:
-  close the old Desktop window, install the new package, then start it once.
-  Current builds first use the full prior ownership record (PID, start
-  identity, executable, token hash, and prior manifest digest). For older
-  Desktop releases that lack a compatible record, they also accept an
-  authenticated loopback `/api/meta` response only when it reports the exact
-  bundled `argus-backend.exe` path plus a real PID, start identity, and release
-  digest. In either case Desktop terminates that proven old listener tree and
-  starts the bundled release. A non-local, unauthenticated, path-mismatched, or
-  malformed listener remains fail-closed; close that unrelated process normally
-  or choose another port instead of killing a raw PID.
-- **Connecting to Argus** after the project list appears: the API handshake and
-  project index already succeeded; the selected snapshot is still pending.
-  Current builds bound that read and no longer let Manager prewarm hold it.
-- **`snapshot refresh failed · fetch failed`**: this is a new REST request that
-  could not reach or finish against the shared local WebAPI, not evidence that
-  CLI and Web maintain separate state. Current TUI output includes the socket
-  cause and retries bounded requests.
-- **`background executor failed to start (rc=...)`**: inspect the diagnostic
-  appended to the UI and the newest `daemons/boot-*.log`. Current builds retain
-  helper stderr, validate the workdir/interpreter, and preserve the Windows
-  child exit code instead of reducing every failure to a bare integer.
-- **Repeated `handoffs/<id>/CHECKPOINT.md` `FileNotFoundError` after a successful
-  Agent turn**: the checkpoint is optional role-session metadata, not mission
-  authority. Current builds initialize an empty placeholder and independently
-  tolerate missing/delete-raced/unreadable metadata; capsule persistence failure
-  is a warning and cannot overwrite the provider/reviewer outcome. An uncaught
-  runtime exception also opens a durable circuit so rephrased retries do not run
-  again under the same release identity.
-- **A packaged backend needs a framework update**: `_internal` is a release
-  payload, not a source checkout. Install a newly built release rather than
-  editing frozen files in place.
-
-## Verification
-
-Run the fast source checks:
+## 验证
 
 ```powershell
-.\.venv\Scripts\python.exe -m ruff check desktop tests/desktop
+.\.venv\Scripts\python.exe -m ruff check argus_skill desktop-tauri/scripts tests/desktop
 .\.venv\Scripts\python.exe -m pytest -q tests/desktop
-npm --prefix desktop run typecheck
-npm --prefix desktop run test:identity
-npm --prefix desktop run build
-npm --prefix desktop audit
+npm --prefix frontend/web test
+npm --prefix desktop-tauri run ui:typecheck
+npm --prefix desktop-tauri run test:rust
+# 在已完成 Tauri build 后，以临时 AppData/端口验证真实宿主启动；不会触碰用户数据
+npm --prefix desktop-tauri run smoke:host
 ```
 
-Build and verify the frozen backend:
+构建冻结后端与 Tauri NSIS 包：
 
 ```powershell
-.\desktop\scripts\build-backend.ps1 -SkipInstall
+npm --prefix frontend/web run build
+.\desktop-tauri\scripts\build-backend.ps1 -SkipInstall
+$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content "$PWD\desktop-tauri\.keys\argus-updater.key" -Raw
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""  # 无密码私钥；带密码时设置实际密码
+npm --prefix desktop-tauri run dist
 ```
 
-The script verifies provider collection and the frozen `-m`, `-c`, and script
-entry points before reporting success.
+`dist` 只产生 NSIS installer、其 detached signature 和 `latest.json`（有 signing key 时），
+均位于 `desktop-tauri/release/`。本地 build 不会发布 GitHub Release、上传 OSS、创建 PR
+或推送 Git。
 
-For an unsigned CI-style package-layout check:
+## 本地数据与诊断
 
-```powershell
-Set-Location desktop
-npx electron-builder --win --dir --publish never -c.win.signExecutable=false
+桌面设置、ownership record、日志、更新检查缓存均保留在
+`%APPDATA%\argus-desktop\`：
+
+```text
+settings.json
+runtime/backend.json
+logs/desktop.log
+update-check.json
 ```
 
-This validates the Electron application and bundled backend without signing the
-executables while still applying the checked-in Windows icon and version
-resources.
-
-## Building distributable packages
-
-Activate the intended Python environment, then run:
-
-```powershell
-npm --prefix desktop run dist
-```
-
-This command:
-
-1. validates and builds the existing Web cockpit;
-2. builds and verifies the frozen Python backend;
-3. builds Electron main, preload, and launcher bundles;
-4. applies the checked-in Windows icon and version resources;
-5. produces NSIS and portable artifacts under `desktop/release/`.
-
-For unsigned local or CI builds, disable only signing with
-`--config.win.signExecutable=false`. Do **not** use
-`signAndEditExecutable=false`: that also skips the original icon and Windows
-version-resource edits.
-
-`desktop/build/`, `desktop/out/`, and `desktop/release/` are reproducible local
-outputs and are ignored by Git.
-
-The repository does not contain signing credentials. Release owners should
-provide the normal electron-builder signing configuration in the release
-environment. On Windows machines where electron-builder cannot unpack its code
-signing helper, enable Windows Developer Mode or run the release build in an
-environment allowed to create symbolic links.
-
-## Local data and diagnostics
-
-Desktop settings, ownership metadata, and Desktop logs live under Electron's
-per-user `userData` directory. The ownership record is
-`runtime/backend.json`; it contains only process identity and a token hash,
-never the raw Web token. Argus project state continues to use
-`ARGUS_SKILL_HOME`, defaulting to the normal `~/.argus-skill` location.
-
-The application menu and settings screen can:
-
-- restart the owned backend;
-- open logs and local data;
-- select the Agent CLI and executable;
-- change the loopback port and appearance;
-- export a redacted diagnostic ZIP.
-
-When a verified mission completes, Desktop shows the same durable delivery
-receipt in chat and in the right-side result surface. If the window is
-minimized or unfocused, it also sends a native Windows notification; clicking
-it restores Argus and opens the delivery target when one exists.
-
-Diagnostic export is intended for troubleshooting, but operators should still
-review any archive before sharing it.
+`Export diagnostics` 只包含脱敏后的 settings、ownership、最后 500 KB desktop log
+和平台元数据；它会遮蔽 JSON token、URL token 和 bearer authorization。仍应在分享前
+由操作员审阅 ZIP 内容。

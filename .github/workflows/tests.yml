@@ -15,8 +15,8 @@ name: tests
 #   * macOS + Windows — the portable surface that must work everywhere:
 #                       the chat bridges, the pairing/QR path, and the core
 #                       helpers behind them.
-#   * Windows Desktop — the Electron host, frozen backend, and unsigned package
-#                       layout used before release signing.
+#   * Windows Desktop — the Tauri/Rust host, frozen backend, and unsigned
+#                       package layout used before release signing.
 #
 # Widen PORTABLE_TESTS as modules become platform-clean.
 
@@ -196,7 +196,7 @@ jobs:
         run: npm --prefix frontend/tui test
 
   desktop:
-    name: windows · desktop package
+    name: windows · Tauri desktop package
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -204,29 +204,35 @@ jobs:
         with:
           node-version: '22.12.0'
           cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          cache-dependency-path: |
+            frontend/web/package-lock.json
+            desktop-tauri/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-pc-windows-msvc
       - name: Install
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e . pytest ruff "httpx2>=2.9,<3" "pyinstaller>=6.11,<7"
-          npm --prefix desktop ci
+          npm --prefix frontend/web ci
+          npm --prefix desktop-tauri ci
       - name: Lint and test desktop sources
         run: |
-          python -m ruff check desktop tests/desktop
+          python -m ruff check argus_skill desktop-tauri/scripts tests/desktop
           python -m pytest -q tests/desktop/test_frozen_runtime.py
+          python -m pytest -q tests/desktop/test_native_window_chrome.py
           python -m pytest --collect-only -q ${{ env.WINDOWS_COLLECTION_TESTS }}
           python -m pytest -q ${{ env.WINDOWS_CORE_TESTS }}
-          npm --prefix desktop run typecheck
-          npm --prefix desktop run test:identity
-      - name: Build frozen backend and Electron bundles
+          npm --prefix desktop-tauri run ui:typecheck
+          cargo check --manifest-path desktop-tauri/src-tauri/Cargo.toml
+          cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --test core_tests
+      - name: Build frozen backend and unsigned Tauri package layout
         shell: pwsh
         run: |
-          ./desktop/scripts/build-backend.ps1 -SkipInstall
-          npm --prefix desktop run build
-      - name: Validate unsigned Windows package layout
-        working-directory: desktop
-        run: npx electron-builder --win --dir --publish never --config.win.signAndEditExecutable=false
+          ./desktop-tauri/scripts/build-backend.ps1 -SkipInstall
+          npm --prefix frontend/web run build
+          npm --prefix desktop-tauri run build:unsigned

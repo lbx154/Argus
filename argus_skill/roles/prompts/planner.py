@@ -171,6 +171,64 @@ def preview_request(project_root: Path | str) -> RolePromptRequest:
     )
 
 
+def build_bounded_single_task_prompt(
+    objective: str,
+    *,
+    project_root: Path | str | None = None,
+    state_root: Path | str | None = None,
+    require_independent_review: bool = True,
+) -> str:
+    """Planner sign-off for a Manager-decided single coherent work package.
+
+    This is still a real Planner decision and produces the same validated DAG
+    contract. It removes only multi-track deliberation that the Manager already
+    ruled out with ``workflow_mode=direct``.
+    """
+    shell_contract = native_shell_contract()
+    shell_block = "\n\n" + shell_contract if shell_contract else ""
+    review_policy = (
+        " Independent review is required after Engineer; set "
+        "TASK_REQUIRE_INDEPENDENT_REVIEW=true."
+        if require_independent_review
+        else " Independent review was explicitly waived."
+    )
+    prompt = (
+        "You are the Planner signing one Manager-approved coherent work package. "
+        "Do not do the work and do not create multiple nodes. Issue exactly one "
+        "executable DAG node whose owner is Engineer; Reviewer remains Host-invoked."
+        + review_policy
+        + shell_block
+        + "\n\nRules:\n"
+        "- Preserve the Manager handoff exactly: paths, requested outputs, order, "
+        "constraints, exclusions, and stopping conditions.\n"
+        "- Name the concrete work and one decisive acceptance check that fails when "
+        "the requested result is wrong.\n"
+        "- Do not add planning documents, Git ceremony, cleanup, a review-only node, "
+        "or unrelated research.\n"
+        "- End immediately with PLAN_REASON and one TASK_* block. Use TASK_KEY=k1, "
+        "an empty TASK_DEPS, a concise TASK_TITLE, the complete TASK_OBJECTIVE, "
+        "TASK_ACCEPTANCE_CHECK, TASK_NON_GOALS when present, and "
+        "TASK_REQUIRE_INDEPENDENT_REVIEW.\n\n"
+        + _BOUNDED_DAG_FOOTER
+        + "\n\n"
+        + _reviewed_facts_block()
+        + "\n\nManager execution handoff:\n"
+        + objective.strip()
+    )
+    policy_root = state_root if state_root is not None else project_root
+    if policy_root is not None:
+        from ...core.operator_context import build_operator_context_block
+
+        operator_context, _revision = build_operator_context_block(
+            "planner", policy_root
+        )
+        if operator_context:
+            from ...core.operator_context import append_operator_context
+
+            prompt = append_operator_context(prompt, operator_context)
+    return prompt
+
+
 def build_bounded_dag_prompt(
     objective: str,
     *,
@@ -299,12 +357,18 @@ def build_bounded_dag_repair_prompt(
     project_root: Path | str | None = None,
     state_root: Path | str | None = None,
     require_independent_review: bool = True,
+    single_package: bool = False,
 ) -> str:
     """Request one complete replacement after a mechanically invalid DAG."""
     prior = sanitize_model_visible_text(str(previous_output or "")[-40_000:])
     error = sanitize_model_visible_text(str(validation_error or ""))
+    builder = (
+        build_bounded_single_task_prompt
+        if single_package
+        else build_bounded_dag_prompt
+    )
     return (
-        build_bounded_dag_prompt(
+        builder(
             objective,
             project_root=project_root,
             state_root=state_root,
@@ -696,6 +760,7 @@ __all__ = [
     "PARALLEL_DRAFT",
     "PLAN_PREVIEW",
     "build_bounded_dag_prompt",
+    "build_bounded_single_task_prompt",
     "build_continuous_prompt",
     "build_continuous_resume_prompt",
     "continuous_request",

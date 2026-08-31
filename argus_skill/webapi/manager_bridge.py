@@ -151,6 +151,7 @@ def manager_message(
     cancelled: Any = None,
     source_channel: str = "web",
     source_message_id: str = "",
+    route_override: str = "",
 ) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
@@ -164,6 +165,10 @@ def manager_message(
     ``manager_triage``: ``("delta", {...})`` per reply block, ``("phase", {...})``
     per phase transition. ``None`` (the default, used by the blocking POST
     ``/message``) keeps the whole exchange synchronous.
+
+    ``route_override`` lets the operator explicitly mark Chat or Task. It skips
+    only the front-door category call; formal Task work still requires Manager
+    routing and a Planner-authored DAG before Engineer execution.
 
     The pipeline below is a sequence of typed phase helpers (pending-question,
     classify, greeting shortcut, authorization/steer/pause/abort control, config
@@ -410,6 +415,7 @@ def manager_message(
             startup_handoff,
             emitter,
             _cancelled,
+            route_override=route_override,
         )
         if isinstance(classify, dict):
             return classify
