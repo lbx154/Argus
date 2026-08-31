@@ -6,32 +6,60 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-TEST_RE = re.compile(r"(^|/)(__tests__|test|tests|spec|specs)(/|$)")
+TEST_DIR_RE = re.compile(r"(^|/)(__tests__|test|tests|spec|specs)(/|$)")
+TEST_BASENAME_RE = re.compile(
+    r"^(?:"
+    r"test_.+\.py|"
+    r".+_tests?\.py|"
+    r".+_test\.go|"
+    r".+\.(?:test|spec)\.(?:[cm]?js|jsx|ts|tsx)"
+    r")$"
+)
 DOCS_RE = re.compile(r"(^|/)(docs?|documentation)(/|$)")
-CONFIG_RE = re.compile(r"(^|/)(\.github/workflows|ci|config)(/|$)")
-DOCS_BASENAME_PREFIXES = (
-    "changelog",
-    "code_of_conduct",
-    "contributing",
-    "readme",
-    "security",
+DOCS_BASENAME_RE = re.compile(
+    r"^(?:readme|changelog|contributing|security|code[_-]of[_-]conduct)"
+    r"(?:[._-][a-z0-9]+(?:-[a-z0-9]+)*)*"
+    r"\.(?:md|rst|adoc|txt)$"
+)
+CONFIG_DIR_RE = re.compile(
+    r"(^|/)(\.github/workflows|\.circleci|ci|config|configs)(/|$)"
+)
+CONFIG_BASENAME_RE = re.compile(
+    r"^(?:"
+    r"tsconfig(?:\.[a-z0-9_-]+)*\.json|"
+    r".+\.config\.(?:[cm]?js|ts|json|ya?ml)|"
+    r"(?:docker-)?compose(?:\.[a-z0-9_-]+)?\.ya?ml|"
+    r"dockerfile(?:\.[a-z0-9_-]+)?"
+    r")$"
 )
 CONFIG_BASENAMES = {
+    ".editorconfig",
     ".gitattributes",
     ".gitignore",
     ".mcp.json",
+    ".pre-commit-config.yaml",
     "build.gradle",
+    "cargo.lock",
+    "cargo.toml",
     "composer.json",
     "config.json",
+    "dependabot.yml",
+    "dependabot.yaml",
     "environment.yml",
+    "go.mod",
+    "go.sum",
     "gradle.properties",
+    "mkdocs.yml",
+    "mkdocs.yaml",
     "package-lock.json",
     "package.json",
     "plugin.json",
+    "pnpm-lock.yaml",
     "pom.xml",
     "pyproject.toml",
     "release_manifest.json",
     "requirements.txt",
+    "ruff.toml",
     "setup.cfg",
     "tox.ini",
     "yarn.lock",
@@ -40,34 +68,23 @@ CONFIG_BASENAMES = {
 
 def is_test_path(path: str) -> bool:
     value = path.lower()
-    return bool(
-        TEST_RE.search(value)
-        or value.endswith(
-            ("_test.py", "_tests.py", ".spec.js", ".spec.ts", ".test.js", ".test.ts")
-        )
-    )
+    basename = value.rsplit("/", 1)[-1]
+    return bool(TEST_DIR_RE.search(value) or TEST_BASENAME_RE.fullmatch(basename))
 
 
 def is_docs_path(path: str) -> bool:
     value = path.lower()
     basename = value.rsplit("/", 1)[-1]
-    return bool(
-        DOCS_RE.search(value)
-        or basename.startswith(DOCS_BASENAME_PREFIXES)
-    )
+    return bool(DOCS_RE.search(value) or DOCS_BASENAME_RE.fullmatch(basename))
 
 
 def is_config_path(path: str) -> bool:
     value = path.lower()
     basename = value.rsplit("/", 1)[-1]
     return bool(
-        CONFIG_RE.search(value)
+        CONFIG_DIR_RE.search(value)
         or basename in CONFIG_BASENAMES
-        or (basename.startswith("tsconfig") and basename.endswith(".json"))
-        or basename.endswith(".config.json")
-        or value.endswith(
-            (".yml", ".yaml", ".toml", ".ini", ".cfg", ".conf", ".lock")
-        )
+        or CONFIG_BASENAME_RE.fullmatch(basename)
     )
 
 
@@ -144,6 +161,15 @@ def patch_stats(
         classification_paths.append((old_path, new_path))
         index += 3
 
+    classifications = [
+        (
+            any(is_test_path(path) for path in paths),
+            any(is_docs_path(path) for path in paths),
+            any(is_config_path(path) for path in paths),
+        )
+        for paths in classification_paths
+    ]
+
     return {
         "base_sha": base_sha,
         "head_sha": head_sha,
@@ -154,16 +180,8 @@ def patch_stats(
         "total_churn": additions + deletions,
         "files": files,
         "renames": renames,
-        "files_test_count": sum(
-            any(is_test_path(path) for path in paths)
-            for paths in classification_paths
-        ),
-        "files_docs_count": sum(
-            any(is_docs_path(path) for path in paths)
-            for paths in classification_paths
-        ),
-        "files_config_count": sum(
-            any(is_config_path(path) for path in paths)
-            for paths in classification_paths
-        ),
+        "files_test_count": sum(item[0] for item in classifications),
+        "files_docs_count": sum(item[1] for item in classifications),
+        "files_config_count": sum(item[2] for item in classifications),
+        "files_unknown_count": sum(not any(item) for item in classifications),
     }

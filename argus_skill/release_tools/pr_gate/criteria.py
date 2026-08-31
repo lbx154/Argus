@@ -4,10 +4,34 @@ import re
 from typing import Any, Callable
 
 FILE_KEYWORDS = {
-    "tests": ("test", "tests", "unit", "integration", "coverage", "spec", "e2e"),
-    "docs": ("doc", "docs", "readme", "documentation", "changelog"),
+    "tests": (
+        "test",
+        "tests",
+        "tested",
+        "testing",
+        "pytest",
+        "unittest",
+        "unit",
+        "integration",
+        "coverage",
+        "spec",
+        "e2e",
+    ),
+    "docs": (
+        "doc",
+        "docs",
+        "document",
+        "documented",
+        "documenting",
+        "readme",
+        "documentation",
+        "changelog",
+    ),
     "config": (
         "config",
+        "configure",
+        "configured",
+        "configuring",
         "configuration",
         "ci",
         "cd",
@@ -34,10 +58,9 @@ def scope_adequacy(message: str, patch: dict[str, Any]) -> tuple[float, dict[str
             "not_applicable": "no_text_churn",
         }
 
-    expected_words = int(min(50, max(10, churn / 20)))
+    expected_words = min(50.0, max(10.0, churn / 20))
     ratio = min(1.0, word_count / expected_words)
-    score = 0.2 if word_count < 10 and churn > 100 else ratio
-    return score, {
+    return ratio, {
         "message_word_count": word_count,
         "code_churn": churn,
         "expected_words": expected_words,
@@ -57,6 +80,7 @@ def file_type_consistency(
     if not changed:
         return 1.0, {
             "not_applicable": "no_tracked_file_category_changed",
+            "unknown_file_count": patch.get("files_unknown_count", 0),
             "changed_categories": [],
             "mentioned_categories": [],
             "missing_categories": [],
@@ -82,6 +106,7 @@ def file_type_consistency(
 
     score = len(mentioned_categories) / len(changed)
     return score, {
+        "unknown_file_count": patch.get("files_unknown_count", 0),
         "changed_categories": list(changed),
         "mentioned_categories": mentioned_categories,
         "missing_categories": missing_categories,

@@ -4,13 +4,13 @@
       "enabled": true,
       "uses_llm": false,
       "threshold": 0.6,
-      "error_message": "The PR description is too brief for the size of the patch. Describe the main changes and affected behavior."
+      "error_message": "The combined PR title and body are too brief for the size of the patch. Describe the main changes and affected behavior."
     },
     "file_type_consistency": {
       "enabled": true,
       "uses_llm": false,
       "threshold": 0.8,
-      "error_message": "The PR description does not match the patch's test, documentation, or configuration file changes. Update the description or patch."
+      "error_message": "The combined PR title and body do not mention the test, documentation, or configuration categories changed by the patch."
     },
     "task_type_alignment": {
       "enabled": false,

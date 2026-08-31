@@ -13,10 +13,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from ..release_tools.check_repository_parity import (
+from ..release_tools.repository_parity import (
     changed_paths as parity_changed_paths,
 )
-from ..release_tools.check_repository_parity import unexpected_differences
+from ..release_tools.repository_parity import unexpected_differences
 
 _PROCESS = object()
 _NPM = "npm.cmd" if os.name == "nt" else "npm"
