@@ -389,6 +389,23 @@ def test_direct_report_never_calls_llm(monkeypatch) -> None:
     assert "plain background command" in report
 
 
+def test_timeout_report_does_not_misclassify_timeout_as_failure() -> None:
+    report = _build_report(
+        "bounded-search",
+        "TIMEOUT",
+        {
+            "description": "bounded solver run",
+            "command": "solver problem.cnf",
+            "mode": "direct",
+            "elapsed_seconds": 3600,
+        },
+    )
+
+    assert "treat the result as inconclusive" in report
+    assert "Do not infer a workload failure from the timeout alone" in report
+    assert "inspect stderr for root cause" not in report
+
+
 def test_supervisor_authors_report_grounded_in_diagnosis(monkeypatch) -> None:
     # The summary + next step must be authored from the supervisor's own
     # diagnosis, not a signal-blind summarizer that only sees stdout.

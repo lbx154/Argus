@@ -1514,7 +1514,7 @@ def test_altitude_facts_are_read_from_the_worktree_not_the_state_root(tmp_path) 
     campaign. Seventeen planning cycles produced no trace of any of them.
     """
     from argus_skill.roles.prompts.registry import resolve_role_prompt
-    from argus_skill.roles.prompts.types import RolePromptRequest, RoleName
+    from argus_skill.roles.prompts.types import RoleName, RolePromptRequest
 
     worktree = tmp_path / "campaign"
     state = worktree / "state" / "projects" / "s-1"

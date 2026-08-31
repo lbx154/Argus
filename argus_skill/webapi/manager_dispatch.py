@@ -270,8 +270,8 @@ class _TurnEmitter:
     fragment: Callable[[str, dict[str, Any]], None]
     after_reply: Callable[[str], None] | None = None
 
-    def phase(self, label: str) -> None:
-        self.fragment("phase", {"role": "manager", "label": label})
+    def phase(self, label: str, *, role: str = "manager") -> None:
+        self.fragment("phase", {"role": role, "label": label})
 
     def reply_fragment(self, text: str, *, message_id: str | None = None) -> None:
         payload: dict[str, Any] = {"text": text, "fragment_mode": "snapshot"}
@@ -383,6 +383,11 @@ class _ClassifyResult:
     frontdoor_failure: str
 
 
+# Explicit message categories are operator authority. ``task`` skips only the
+# category model; the normal Manager + Planner ownership chain remains intact.
+_FORCED_ROUTES = {"chat": "simple", "task": "complex"}
+
+
 def _self_skill_context_available(chat_state: dict[str, Any]) -> bool:
     runner = chat_state.get("manager_runner")
     manager = getattr(runner, "manager", None)
@@ -412,27 +417,47 @@ def _classify_operator_turn(
     startup_handoff: str,
     emitter: _TurnEmitter,
     cancelled: Callable[[], bool],
+    route_override: str = "",
 ) -> "_ClassifyResult | dict[str, Any]":
     """Run rotation bookkeeping + the merged front-door classify call.
 
     Returns a ``_ClassifyResult`` normally, or a terminal ``{"kind":
     "cancelled", ...}`` dict if the request was cancelled mid-classify — the
     caller must check ``isinstance(result, dict)`` before reading fields.
+
+    An explicit ``chat``/``task`` category skips this classifier call. This is
+    the same operator-authority pattern as Codex execution mode selection and
+    avoids paying for a model to second-guess a category the operator supplied.
     """
+    from ..core.operator_messages import uses_cjk
     from ..life.memory import BacklogItem
     from ..manager.config_intent import _front_door_classify
     from ..manager.front_door import _accepts_parameter
 
+    forced_route = _FORCED_ROUTES.get(str(route_override or "").strip().lower())
+
     # Emit the stage BEFORE the classifier call. Copilot ACP may produce no
     # protocol events while the model is reasoning, so without this real
     # transition the TUI can only show its generic rotating slogan.
-    from ..core.operator_messages import uses_cjk
 
-    emitter.phase(
-        "正在理解你的请求…"
-        if uses_cjk(body)
-        else "Understanding your request…"
-    )
+    if forced_route == "complex":
+        emitter.phase(
+            "任务模式：正在准备 Manager 路由…"
+            if uses_cjk(body)
+            else "Task mode: preparing Manager routing…"
+        )
+    elif forced_route == "simple":
+        emitter.phase(
+            "对话模式：Manager 正在准备回复…"
+            if uses_cjk(body)
+            else "Chat mode: preparing the Manager reply…"
+        )
+    else:
+        emitter.phase(
+            "正在理解你的请求…"
+            if uses_cjk(body)
+            else "Understanding your request…"
+        )
 
     # Persistent Manager session with context-rotation: it stays alive (the
     # codex/copilot thread is resumed via last_thread_id each turn) and is
@@ -482,6 +507,38 @@ def _classify_operator_turn(
     )
     if _accepts_parameter(_front_door_classify, "active_mission"):
         classify_kwargs["active_mission"] = active_mission
+    if forced_route:
+        # No classifier ran, so clear every classifier-owned transient before
+        # constructing the authoritative route. A prior turn must never leak a
+        # greeting, control, lifetime or failure into this one.
+        for stale in (
+            "_frontdoor_lifetime",
+            "_frontdoor_self_mode",
+            "_frontdoor_fast_reply",
+            "_frontdoor_greeting_reply",
+            "_frontdoor_failure",
+            "_frontdoor_steering_directive",
+            "_frontdoor_operator_question_policy",
+            "_frontdoor_authorization",
+            "_frontdoor_intake",
+        ):
+            chat_state.pop(stale, None)
+        if forced_route == "simple":
+            chat_state["_frontdoor_self_mode"] = "inspect"
+        selected_body = dispatch_body if forced_route == "complex" else body
+        return _ClassifyResult(
+            intent=None,
+            control=None,
+            route=forced_route,
+            send_body=(
+                f"{handoff}\n\n{selected_body}" if handoff else selected_body
+            ),
+            root_task_id=root_task_id,
+            self_mode="inspect",
+            fast_reply="",
+            greeting_reply="",
+            frontdoor_failure="",
+        )
     decision = _front_door_classify(
         mem,
         body,
@@ -978,6 +1035,19 @@ def _run_triage_and_fallbacks(
     from ..manager.front_door import manager_triage
 
     self_mode = str(chat_state.pop("_frontdoor_self_mode", "inspect") or "inspect")
+    if frontdoor_failure:
+        # A failed classifier did not produce a trustworthy route. Reporting
+        # that failure must precede triage: otherwise a timed-out front-door
+        # call can start a second long Manager turn before the operator learns
+        # that no safe dispatch decision exists.
+        reply = (
+            "[not dispatched] Manager could not classify this message "
+            f"({frontdoor_failure}). The configured Manager backend is "
+            "unavailable or failed during classification. No task was queued. "
+            "Run `argus doctor --deep` to check backend readiness, then retry."
+        )
+        return emitter.respond(reply, {"kind": "chat"})
+
     # 1) Manager triage — chat/SELF returns a reply; TEAM returns None. The
     # route was already decided in the merged call above, so triage skips its
     # own route classify (``route=route``).
@@ -1009,19 +1079,6 @@ def _run_triage_and_fallbacks(
     if control == "no_dispatch":
         reply = _NO_DISPATCH_FALLBACK
         return emitter.respond(reply, {"kind": "chat"})
-    if frontdoor_failure:
-        # The reason is carried, not summarized away: the classifier is
-        # unavailable for both transient causes (a backend hiccup, where
-        # retrying is the right advice) and permanent ones (unresolvable
-        # project state, where retrying can only fail again), and the operator
-        # cannot tell which without being told.
-        reply = (
-            "[not dispatched] Manager could not classify this message "
-            f"({frontdoor_failure}). The configured Manager backend is "
-            "unavailable or failed during classification. No task was queued. "
-            "Run `argus doctor --deep` to check backend readiness, then retry."
-        )
-        return emitter.respond(reply, {"kind": "chat"})
     return None
 
 
@@ -1038,6 +1095,7 @@ def _dispatch_team_mission(
     """Apply the Manager's lifetime decision, resume a done lifecycle, and
     enqueue the operator's TEAM mission. Raises on failure — the caller
     catches it and turns it into a structured ``{"kind": "error"}`` reply."""
+    from ..core.operator_messages import uses_cjk
     from ..manager.dispatch import (
         enqueue_mission,
         maybe_promote_to_continuous,
@@ -1051,7 +1109,6 @@ def _dispatch_team_mission(
     # A publication campaign has a finite finish line, but Manager may still
     # require staged progression. Run the normal workflow decision once, use it
     # to choose topology, then reuse the sealed handoff during commit.
-    from ..core.operator_messages import uses_cjk
 
     chinese = uses_cjk(body)
     emitter.phase(
@@ -1098,6 +1155,22 @@ def _dispatch_team_mission(
     except Exception as exc:
         prepared.failed(exc)
         raise
+    if prepared.continuous:
+        emitter.phase(
+            "正在将长期工作写入待办…"
+            if chinese
+            else "Adding standing work to the backlog…"
+        )
+    else:
+        # Bounded dispatch now enters a real Planner call before persistence.
+        # Keep the stream on the role that is actually working instead of
+        # making that model latency look like a stalled Manager turn.
+        emitter.phase(
+            "Planner 正在拆分并签发任务…"
+            if chinese
+            else "Planner is decomposing and signing off the task…",
+            role="planner",
+        )
     return enqueue_mission(
         mem,
         body,

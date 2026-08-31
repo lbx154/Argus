@@ -9,13 +9,13 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from argus_skill.daemon.life_worker import (
-    _apply_continuous_suppression,
-    _rearm_operator_drain_for_resume,
-)
 from argus_skill.daemon._life_worker_identity import (
     _refresh_file_backed_objective_for_resume,
     _write_manager_handoff_identity,
+)
+from argus_skill.daemon.life_worker import (
+    _apply_continuous_suppression,
+    _rearm_operator_drain_for_resume,
 )
 from argus_skill.daemon.state import (
     GRACEFUL_STOP_REASON,

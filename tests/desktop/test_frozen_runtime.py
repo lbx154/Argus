@@ -7,17 +7,17 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.domains import BUILTIN_DOMAINS, load_domain
-from argus_skill.skills.vertical_select import VERTICALS
-from argus_skill.verticals._base import load_vertical
-from desktop.backend_entry import (
+from argus_skill.desktop_backend_entry import (
     _install_windows_signal_zero_guard,
     _python_compat_entrypoint,
     verify_runtime_providers,
 )
+from argus_skill.domains import BUILTIN_DOMAINS, load_domain
+from argus_skill.skills.vertical_select import VERTICALS
+from argus_skill.verticals._base import load_vertical
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC_PATH = ROOT / "desktop" / "argus_backend.spec"
+SPEC_PATH = ROOT / "desktop-tauri" / "argus_backend.spec"
 
 
 def _execute_spec_collection(tree: ast.Module) -> tuple[dict, list[tuple[str, str]]]:
@@ -51,7 +51,7 @@ def _execute_spec_collection(tree: ast.Module) -> tuple[dict, list[tuple[str, st
         return [name for name in candidates if filter(name)]
 
     namespace = {
-        "SPECPATH": str(ROOT / "desktop"),
+        "SPECPATH": str(ROOT / "desktop-tauri"),
         "collect_data_files": lambda package, **kwargs: [
             (f"{package}-python-sources", str(bool(kwargs.get("include_py_files"))))
         ],
@@ -127,7 +127,7 @@ def test_frozen_python_compat_runs_scripts_with_python_argv_semantics(
 def test_frozen_python_compat_dispatches_daemon_spawn_helper(monkeypatch) -> None:
     calls: list[tuple[str, str, bool]] = []
     monkeypatch.setattr(
-        "desktop.backend_entry.runpy.run_module",
+        "argus_skill.desktop_backend_entry.runpy.run_module",
         lambda module, *, run_name, alter_sys: calls.append(
             (module, run_name, alter_sys)
         ),

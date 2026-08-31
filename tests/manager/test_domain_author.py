@@ -105,6 +105,8 @@ def test_serious_survey_is_staged_without_implied_publication() -> None:
 
     assert "papers and surveys are `research`" in prompt
     assert "publishable only when publication-level original work is requested" in prompt
+    assert "always add `research_target_level`" in prompt
+    assert "`research_direction_mode`" in prompt
     assert "Never infer a venue" in prompt
 
 
@@ -204,6 +206,29 @@ def test_fast_vertical_parser_accepts_confident_existing_route() -> None:
     assert route.vertical == "software"
     assert route.workflow_mode == "direct"
     assert route.confidence == 0.94
+    assert route.require_independent_review is True
+
+
+def test_fast_vertical_parser_preserves_manager_contract_details() -> None:
+    route = parse_fast_vertical_decision(
+        {
+            "choice": "existing",
+            "vertical": "software",
+            "workflow_mode": "direct",
+            "confidence": 0.96,
+            "require_independent_review": False,
+            "precise_constraints": ["pytest -q exits zero"],
+            "exclusions": ["do not change the public API"],
+            "ambiguities": ["which optional backend is available"],
+        },
+        known_verticals=VERTICALS,
+    )
+
+    assert route is not None
+    assert route.require_independent_review is False
+    assert route.precise_constraints == ("pytest -q exits zero",)
+    assert route.exclusions == ("do not change the public API",)
+    assert route.ambiguities == ("which optional backend is available",)
 
 
 def test_fast_vertical_parser_rejects_legacy_direct_alias_with_staged_workflow() -> None:

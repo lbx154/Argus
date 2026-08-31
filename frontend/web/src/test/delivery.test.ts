@@ -1,11 +1,19 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { emptyMissionView } from '../../../core/src/missionView';
 import type { ArtifactInfo, DeliveryReceipt } from '../../../core/src/types';
 import {
+  LIVE_PROGRESS_PATH,
   defaultPreviewPath,
   selectPreviewArtifacts,
 } from '../components/ResearchCanvas';
-import { deliveryNotificationPayload } from '../lib/desktopBridge';
+import { artifactPathFromHref, MarkdownContent } from '../components/MarkdownContent';
+import { pdfContainScale, PdfPreview } from '../components/PdfPreview';
+import {
+  completionNotificationPayload,
+  deliveryNotificationPayload,
+} from '../lib/desktopBridge';
 
 const delivery: DeliveryReceipt = {
   schema_version: 1,
@@ -41,6 +49,7 @@ const artifact = (path: string, source: ArtifactInfo['source']): ArtifactInfo =>
   size: 1,
   mtime: 1,
   source,
+  storage_path: `C:\\Users\\operator\\workspace\\${path.replaceAll('/', '\\')}`,
 });
 
 describe('completed delivery presentation', () => {
@@ -57,6 +66,68 @@ describe('completed delivery presentation', () => {
       'out/final.md',
       '.argus/live/status.md',
     ]);
+  });
+
+  it('keeps live progress selected until work completes', () => {
+    const view = emptyMissionView();
+    view.mission.status = 'working';
+    const files = [artifact('out/final.md', 'delivery')];
+
+    expect(defaultPreviewPath(view, files)).toBe(LIVE_PROGRESS_PATH);
+
+    view.mission.status = 'complete';
+    expect(defaultPreviewPath(view, files)).toBe('out/final.md');
+  });
+
+  it('resolves relative and absolute completion links to an allowlisted file', () => {
+    const file = artifact('out/final.md', 'delivery');
+
+    expect(artifactPathFromHref('out/final.md', [file])).toBe('out/final.md');
+    expect(artifactPathFromHref('/C:/Users/operator/workspace/out/final.md', [file])).toBe('out/final.md');
+    expect(artifactPathFromHref('https://example.com/final.md', [file])).toBeNull();
+
+    const markup = renderToStaticMarkup(createElement(
+      MarkdownContent,
+      {
+        artifacts: [file],
+        onOpenArtifact: () => undefined,
+        children: '[final](/C:/Users/operator/workspace/out/final.md)',
+      },
+    ));
+    expect(markup).toContain('data-artifact-path="out/final.md"');
+    expect(markup).toContain('title="C:\\Users\\operator\\workspace\\out\\final.md"');
+  });
+
+  it('fits portrait pages by height and landscape pages proportionally', () => {
+    expect(pdfContainScale(600, 900, 1600, 1000)).toBeCloseTo(968 / 900);
+    expect(pdfContainScale(1200, 700, 1600, 1000)).toBeCloseTo(1568 / 1200);
+  });
+
+  it('uses a plugin-free PDF.js canvas in the sandboxed preview', () => {
+    const markup = renderToStaticMarkup(createElement(PdfPreview, {
+      src: 'blob:pdf-test',
+      name: 'final.pdf',
+    }));
+
+    expect(markup).toContain('<canvas');
+    expect(markup).not.toContain('由 PDF.js 安全渲染');
+    expect(markup).not.toContain('browser PDF plugin');
+    expect(markup).not.toContain('<embed');
+    expect(markup).not.toContain('<object');
+  });
+
+  it('builds a concise native completion toast even without a receipt', () => {
+    expect(completionNotificationPayload({
+      completionId: 'completion:s:item-1',
+      title: '**Create report**',
+      summary: 'Ready: [final.pdf](/C:/workspace/final.pdf)',
+      path: 'final.pdf',
+    })).toEqual({
+      deliveryId: 'completion:s:item-1',
+      title: 'Create report',
+      summary: 'Ready: final.pdf',
+      path: 'final.pdf',
+    });
   });
 
   it('keeps a delivery notification display-only and bounded', () => {

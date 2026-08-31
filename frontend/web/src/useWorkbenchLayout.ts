@@ -68,6 +68,11 @@ export function useWorkbenchLayout() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
+    // The Tauri shell validates iframe source/origin before accepting this
+    // presentation-only signal, then updates the native Windows title bar.
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: 'argus:theme-changed', payload: themeMode }, '*');
+    }
   }, [themeMode]);
 
   useEffect(() => {

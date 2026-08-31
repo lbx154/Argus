@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window",
+  "description": "Only the local Tauri shell may invoke Argus desktop commands.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

@@ -759,6 +759,32 @@ def test_daemon_start_surfaces_captured_helper_stderr(ctx, monkeypatch, caplog) 
     assert diagnostic in caplog.text
 
 
+@pytest.mark.parametrize("resume_continuous", [False, True])
+def test_web_start_without_an_open_ended_campaign_launches_a_bounded_worker(
+    ctx,
+    monkeypatch,
+    resume_continuous: bool,
+) -> None:
+    root, sid, _life = ctx
+    spawned: dict[str, object] = {}
+
+    def fake_spawn(config, *, quiet=False):
+        spawned["open_ended"] = config.continuous_open_ended
+        spawned["quiet"] = quiet
+        return 0
+
+    monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
+
+    result = server.start_project_daemon(
+        sid,
+        global_root=root,
+        resume_continuous=resume_continuous,
+    )
+
+    assert result is not None and result["rc"] == 0
+    assert spawned == {"open_ended": False, "quiet": True}
+
+
 def test_daemon_start_retries_one_transient_windows_sharing_failure(
     ctx,
     monkeypatch,
@@ -1396,6 +1422,34 @@ def test_daemon_upgrade_schedules_restart_when_active_mission_is_still_running(
     assert request is not None
     assert request["expected_pid"] == 321
     assert request["resume_continuous"] is True
+
+
+def test_manual_force_stop_uses_short_verified_interrupt_timeout(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    calls: list[tuple[object, dict]] = []
+
+    def stop_daemon(target, **kwargs):
+        calls.append((target, kwargs))
+        return 0
+
+    monkeypatch.setattr(server, "stop_daemon", stop_daemon)
+
+    result = server.stop_project_daemon(
+        sid,
+        force=True,
+        global_root=root,
+    )
+
+    assert result == {"rc": 0, "forced": True}
+    assert calls == [
+        (
+            life,
+            {"timeout": 1.0, "drain": False, "force": True},
+        )
+    ]
 
 
 def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> None:

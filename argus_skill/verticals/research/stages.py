@@ -1753,7 +1753,7 @@ def _manuscript_scale_block(project_root: object) -> str:
         import re
         from pathlib import Path as _Path
 
-        from .academic_language_review import _latex_to_plain_text, _word_count
+        from .academic_language_review import _word_count
         from .argument_organization import ARGUMENT_ORGANIZATION_PATH
 
         root = _Path(str(project_root)).resolve()

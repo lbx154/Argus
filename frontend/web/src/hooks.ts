@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer, useRef, useState } from 'react';
-import { api, isAuthenticationError, openStream, type EventMsg } from './api';
+import { api, isAuthenticationError, openStream, type EventMsg, type ProjectIndex, type Snapshot } from './api';
 import { eventKey } from './lib/eventRender';
 import { cacheProjectName } from './lib/projectName';
 
@@ -9,6 +9,7 @@ import { cacheProjectName } from './lib/projectName';
 export const PROJECT_POLL_MS = 15_000;
 export const PROJECT_COST_POLL_MS = 5_000;
 export const SNAPSHOT_POLL_MS = 8_000;
+export const ACTIVE_DAEMON_POLL_MS = 2_000;
 export const ARTIFACTS_POLL_MS = 10_000;
 export const GIT_DIFF_POLL_MS = 10_000;
 
@@ -20,8 +21,22 @@ export function projectCostPollInterval(error: unknown): number | false {
   return isAuthenticationError(error) ? false : PROJECT_COST_POLL_MS;
 }
 
+export function projectPollInterval(index?: ProjectIndex): number {
+  return index?.projects.some((project) => project.daemon_alive)
+    ? ACTIVE_DAEMON_POLL_MS
+    : PROJECT_POLL_MS;
+}
+
+export function snapshotPollInterval(snapshot?: Snapshot): number {
+  return snapshot?.daemon.alive ? ACTIVE_DAEMON_POLL_MS : SNAPSHOT_POLL_MS;
+}
+
 export const useProjects = () =>
-  useQuery({ queryKey: ['projects'], queryFn: api.projectIndex, refetchInterval: PROJECT_POLL_MS });
+  useQuery({
+    queryKey: ['projects'],
+    queryFn: api.projectIndex,
+    refetchInterval: (query) => projectPollInterval(query.state.data),
+  });
 
 export const useProjectCosts = () =>
   useQuery({
@@ -37,7 +52,7 @@ export const useSnapshot = (sid: string | null) =>
     queryKey: ['snapshot', sid],
     queryFn: ({ signal }) => api.activeSnapshot(sid!, signal),
     enabled: !!sid,
-    refetchInterval: SNAPSHOT_POLL_MS,
+    refetchInterval: (query) => snapshotPollInterval(query.state.data),
   });
 
 export const useStatus = (sid: string | null, enabled = true) =>
@@ -119,6 +134,7 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
     note: useMutation({ mutationFn: (text: string) => api.note(sid!, text) }),
     startDaemon: useMutation({ mutationFn: () => api.startDaemon(sid!, commandRevision), onSuccess: invalidate }),
     stopDaemon: useMutation({ mutationFn: (drain: boolean) => api.stopDaemon(sid!, drain, commandRevision), onSuccess: invalidate }),
+    forceStopDaemon: useMutation({ mutationFn: () => api.stopDaemon(sid!, false, commandRevision, true), onSuccess: invalidate }),
     updateProject: useMutation({
       mutationFn: (input: { sid: string; name: string }) =>
         api.updateProject(input.sid, input.name),
@@ -164,6 +180,7 @@ type StreamState = { sid: string | null; events: EventMsg[]; seen: Set<string> }
 type StreamAction =
   | { kind: 'seed'; sid: string; events: EventMsg[] }
   | { kind: 'push'; sid: string; ev: EventMsg }
+  | { kind: 'push-many'; sid: string; events: EventMsg[] }
   | { kind: 'reset'; sid: string | null };
 
 export function streamReducer(state: StreamState, action: StreamAction): StreamState {
@@ -188,12 +205,25 @@ export function streamReducer(state: StreamState, action: StreamAction): StreamS
       seen: new Set(retained.map((ev, i) => eventKey(ev, i))),
     };
   }
-  // push
-  const k = eventKey(action.ev, state.events.length);
-  if (state.seen.has(k)) return state;
-  const seen = new Set(state.seen);
-  seen.add(k);
-  const events = [...state.events, action.ev];
+  // Live provider streams may deliver many fragments in one display frame.
+  // Clone the retained window once per batch rather than once per event so the
+  // whole React cockpit does not rerender for every protocol fragment.
+  const incoming = action.kind === 'push' ? [action.ev] : action.events;
+  let events: EventMsg[] | null = null;
+  let seen: Set<string> | null = null;
+  for (const ev of incoming) {
+    const currentEvents = events ?? state.events;
+    const currentSeen = seen ?? state.seen;
+    const k = eventKey(ev, currentEvents.length);
+    if (currentSeen.has(k)) continue;
+    if (!events || !seen) {
+      events = [...state.events];
+      seen = new Set(state.seen);
+    }
+    seen.add(k);
+    events.push(ev);
+  }
+  if (!events || !seen) return state;
   if (events.length > MAX_EVENTS) {
     const removed = events.splice(0, events.length - MAX_EVENTS);
     removed.forEach((ev, i) => seen.delete(eventKey(ev, i)));
@@ -205,6 +235,10 @@ export interface StreamHandle {
   events: EventMsg[];
   connected: boolean;
 }
+
+// Twenty-five visual updates per second is ample for a readable event stream
+// and leaves WebView2 time for typing, scrolling, layout and native chrome.
+export const STREAM_RENDER_BATCH_MS = 40;
 
 const ARTIFACT_REFRESH_EVENT_TYPES = new Set([
   'manager.live_view.updated',
@@ -232,6 +266,12 @@ export function artifactRefreshEventKey(events: EventMsg[]): string {
 const SNAPSHOT_REFRESH_EVENT_TYPES = new Set([
   'life.operator_question.pending',
   'life.operator_question.answered',
+  'life.planner.task_added',
+  'life.planner.verdict',
+  'life.mission.started',
+  'life.mission.completed',
+  'life.mission.failed',
+  'round.review.completed',
 ]);
 
 /** Return a stable key when live state changed in a way the snapshot owns. */
@@ -266,6 +306,18 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
     if (!sid) return;
     let cancelled = false;
     const controller = new AbortController();
+    let pendingEvents: EventMsg[] = [];
+    let flushTimer: number | undefined;
+    const flushEvents = () => {
+      flushTimer = undefined;
+      if (cancelled || sidRef.current !== sid || pendingEvents.length === 0) {
+        pendingEvents = [];
+        return;
+      }
+      const events = pendingEvents;
+      pendingEvents = [];
+      dispatch({ kind: 'push-many', sid, events });
+    };
 
     // seed the last window over REST so the feed is populated instantly
     api
@@ -279,7 +331,10 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
 
     const close = openStream(sid, (ev) => {
       if (!cancelled && sidRef.current === sid) {
-        dispatch({ kind: 'push', sid, ev });
+        pendingEvents.push(ev);
+        if (flushTimer === undefined) {
+          flushTimer = window.setTimeout(flushEvents, STREAM_RENDER_BATCH_MS);
+        }
       }
     }, {
       replay: 40,
@@ -297,6 +352,8 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
     return () => {
       cancelled = true;
       controller.abort();
+      if (flushTimer !== undefined) window.clearTimeout(flushTimer);
+      pendingEvents = [];
       close();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

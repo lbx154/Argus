@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..agent_cli._process_control import windows_hidden_subprocess_kwargs
 from .doctor import DoctorContext, run_full_doctor
 from .models import DoctorFinding, RepairAction, RepairPlanRef, RepairResult
 
@@ -22,6 +23,13 @@ _SECRET_PATTERNS = (
     re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+"),
     re.compile(r"(?i)(?:api[_-]?key|password|secret)\s*[:=]\s*[^\s,;]+"),
 )
+
+
+def _run_hidden(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+    """Run a registered non-interactive repair command without console flash."""
+    for key, value in windows_hidden_subprocess_kwargs().items():
+        kwargs.setdefault(key, value)
+    return subprocess.run(*args, **kwargs)
 
 
 def _redact(value: str) -> str:
@@ -121,7 +129,7 @@ def _target_for_action(context: DoctorContext, action_id: str) -> str:
         "remove_dead_daemon_control_files": str(context.project_root),
         "stop_owned_stuck_daemon": str(context.project_root),
         "install_editable": str(context.checkout or ""),
-        "install_electron_binary": str((context.checkout / "desktop") if context.checkout else ""),
+        "install_tauri_dependencies": str((context.checkout / "desktop-tauri") if context.checkout else ""),
         "rebuild_release_assets": str(context.checkout or ""),
     }
     return targets.get(action_id, action_id)
@@ -135,7 +143,7 @@ def _action_spec(context: DoctorContext, action_id: str) -> RepairAction:
         "remove_dead_daemon_control_files": ("daemon", "safe", ("ARGUS-STATE-002",)),
         "stop_owned_stuck_daemon": ("daemon", "consent", ("ARGUS-DAEMON-001",)),
         "install_editable": ("python", "consent", ("ARGUS-PYTHON-001",)),
-        "install_electron_binary": ("desktop", "consent", ("ARGUS-DESKTOP-001",)),
+        "install_tauri_dependencies": ("desktop", "consent", ("ARGUS-DESKTOP-001",)),
         "rebuild_release_assets": ("release", "consent", ("ARGUS-ASSET-001",)),
     }
     provider, risk, verify = specs.get(action_id, ("manual", "manual", ()))
@@ -256,7 +264,7 @@ def _safe_remove_control_files(context: DoctorContext) -> dict[str, Any]:
 def _run_registered_command(
     argv: list[str], *, cwd: Path, timeout: float | None
 ) -> dict[str, Any]:
-    completed = subprocess.run(
+    completed = _run_hidden(
         argv,
         cwd=str(cwd),
         check=False,
@@ -327,13 +335,13 @@ def _apply_registered_action(
             cwd=checkout,
             timeout=None,
         )
-    if action.id == "install_electron_binary":
-        desktop = checkout / "desktop"
-        node = shutil_which("node")
-        if not node or not (desktop / "package.json").is_file():
-            return {"status": "failed", "detail": "Node or desktop/package.json is unavailable"}
+    if action.id == "install_tauri_dependencies":
+        desktop = checkout / "desktop-tauri"
+        npm = shutil_which("npm.cmd") or shutil_which("npm")
+        if not npm or not (desktop / "package.json").is_file():
+            return {"status": "failed", "detail": "npm or desktop-tauri/package.json is unavailable"}
         return _run_registered_command(
-            [node, "-e", "require('electron')"],
+            [npm, "ci"],
             cwd=desktop,
             timeout=None,
         )
@@ -341,7 +349,7 @@ def _apply_registered_action(
         git = shutil_which("git")
         if not git:
             return {"status": "failed", "detail": "Git is required to attribute rebuilt files"}
-        before = subprocess.run(
+        before = _run_hidden(
             [git, "-C", str(checkout), "status", "--porcelain"],
             check=False, capture_output=True, text=True, encoding="utf-8",
         )
@@ -355,7 +363,7 @@ def _apply_registered_action(
             cwd=checkout,
             timeout=None,
         )
-        after = subprocess.run(
+        after = _run_hidden(
             [git, "-C", str(checkout), "status", "--porcelain"],
             check=False, capture_output=True, text=True, encoding="utf-8",
         )
@@ -515,7 +523,7 @@ def submit_pr(
         raise RuntimeError("git and authenticated GitHub CLI are required")
 
     def git_text(*args: str) -> str:
-        completed = subprocess.run(
+        completed = _run_hidden(
             [git, "-C", str(checkout), *args],
             check=False, capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
@@ -534,7 +542,7 @@ def submit_pr(
         ahead = 0
     if ahead <= 0:
         raise RuntimeError("repair branch has no committed changes ahead of origin/main")
-    auth = subprocess.run(
+    auth = _run_hidden(
         [gh, "auth", "status"], check=False, capture_output=True, text=True,
         encoding="utf-8", errors="replace", timeout=10,
     )
@@ -542,7 +550,7 @@ def submit_pr(
         raise RuntimeError("GitHub CLI is not authenticated")
     report = prepare_pr_report(context, plan_id)
     title = f"fix(doctor): apply verified repair {plan_id}"
-    created = subprocess.run(
+    created = _run_hidden(
         [
             gh, "pr", "create", "--base", "main", "--head", branch,
             "--title", title, "--body-file", str(report),

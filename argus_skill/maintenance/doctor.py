@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import platform
 import re
 import shutil
@@ -240,24 +239,27 @@ def _desktop_finding(context: DoctorContext) -> DoctorFinding:
             "ARGUS-DESKTOP-001", "desktop", True, "not_inspectable",
             "no source checkout was selected; Desktop source dependencies were not inspected",
         )
-    desktop = context.checkout / "desktop"
+    desktop = context.checkout / "desktop-tauri"
     package = desktop / "package.json"
     if not package.is_file():
         return _finding(
             "ARGUS-DESKTOP-001", "desktop", True, "not_present",
-            "this checkout has no Desktop source package",
+            "this checkout has no Tauri Desktop source package",
         )
     candidates = [
-        desktop / "node_modules" / "electron" / "path.txt",
-        desktop / "node_modules" / "electron" / "dist" / "electron.exe",
+        desktop / "src-tauri" / "Cargo.toml",
+        desktop / "src-tauri" / "tauri.conf.json",
+        desktop / "node_modules" / "@tauri-apps" / "cli" / "tauri.js",
     ]
-    ready = all(path.is_file() for path in candidates) if os.name == "nt" else candidates[0].is_file()
+    ready = all(path.is_file() for path in candidates)
     return _finding(
         "ARGUS-DESKTOP-001", "desktop", ready,
-        "electron_ready" if ready else "electron_binary_missing",
-        "Electron development runtime is installed" if ready else "Electron package exists without an installed runtime binary",
-        severity="warning", actions=("install_electron_binary",),
-        recommendation="run the registered Electron install action from desktop/",
+        "tauri_ready" if ready else "tauri_dependencies_missing",
+        "Tauri Desktop development runtime is installed"
+        if ready
+        else "Tauri Desktop sources exist but npm/Rust build dependencies are incomplete",
+        severity="warning", actions=("install_tauri_dependencies",),
+        recommendation="run `npm --prefix desktop-tauri ci` and install the Rust Windows toolchain",
         evidence={"desktop": str(desktop)},
     )
 
@@ -285,7 +287,7 @@ def _desktop_log_finding(context: DoctorContext) -> DoctorFinding:
         )
     error_markers = (
         "backend error:", "backend failed", "failed to start", "startup timed out",
-        "electron uninstall", "uncaught main-process error",
+        "tauri host error", "uncaught desktop-host error",
     )
     last_error = max(
         (index for index, line in enumerate(lines) if any(marker in line.casefold() for marker in error_markers)),

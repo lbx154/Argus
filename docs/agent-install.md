@@ -14,9 +14,11 @@ Complete the installation; do not merely print commands.
 - Prefer the Agent CLI already running this conversation.
 - Do not replace a dirty checkout or silently switch providers after a failure.
 - Use only the section for the detected operating system.
-- Running `argus doctor` authorizes the selected installed Agent to inspect and
-  repair Argus files, configuration, runtime state, and required dependencies.
-  Login or administrator blockers must be reported rather than guessed.
+- Running `argus doctor` is read-only. Only an explicit
+  `argus doctor --advisor <auto|backend>` authorizes the selected installed
+  Agent to inspect and repair Argus files, configuration, runtime state, and
+  required dependencies. Login or administrator blockers must be reported
+  rather than guessed.
 
 Supported backend values:
 
@@ -126,11 +128,12 @@ Setup is complete only after the real Agent-turn smoke succeeds. Keep using
 `$ARGUS_BIN` in the current shell. With approval, run `uv tool update-shell` to
 make plain `argus` available in new terminals.
 
-Doctor is not advisory-only: it runs the installed Agent with tools enabled,
-applies Argus-scoped repairs, and then reruns deterministic verification. Use
-`--advisor none --verify` only for a non-Agent verification run.
-Allow several minutes for the active repair because it performs a real Agent
-turn and may repair dependencies.
+With the explicit `--advisor auto` shown above, Doctor runs the installed
+Agent with tools enabled, applies Argus-scoped repairs, and then reruns
+deterministic verification. `argus doctor` without an advisor remains
+read-only; use `--advisor none --verify` for an explicit non-Agent verification
+run. Allow several minutes for an active repair because it performs a real
+Agent turn and may repair dependencies.
 
 ## Linux
 

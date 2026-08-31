@@ -66,7 +66,7 @@ describe('session rename', () => {
         onClose={() => undefined}
         onRename={async () => true}
         onStart={async () => true}
-        onPause={async () => true}
+        onStop={async () => true}
         onDelete={async () => true}
       />,
     );
@@ -74,6 +74,31 @@ describe('session rename', () => {
     expect(markup).toContain('Display name');
     expect(markup).toContain('value="Original name"');
     expect(markup).toContain('type="submit"');
+  });
+
+  it('offers immediate verified stop and enables deletion once stopped', () => {
+    const props = {
+      open: true,
+      sid,
+      name: 'Original name',
+      busy: false,
+      onClose: () => undefined,
+      onRename: async () => true,
+      onStart: async () => true,
+      onStop: async () => true,
+      onDelete: async () => true,
+    };
+    const running = renderToStaticMarkup(
+      <DaemonManageModal {...props} alive />,
+    );
+    const stopped = renderToStaticMarkup(
+      <DaemonManageModal {...props} alive={false} />,
+    );
+
+    expect(running).toContain('Stop now');
+    expect(running).toContain('Immediately interrupt this verified daemon');
+    expect(stopped).toContain('Stopped');
+    expect(stopped).toContain('Delete…');
   });
 
   it('updates the cached session list and header from the persisted server name', () => {

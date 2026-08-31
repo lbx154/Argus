@@ -524,6 +524,20 @@ describe('web API protocol handshake', () => {
     );
   });
 
+  it('sends an explicit force flag for immediate manual daemon stop', async () => {
+    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => Response.json({
+      rc: 0,
+      command_status: 'applied',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('../api');
+
+    await api.stopDaemon('s-test', false, 7, true);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body).toMatchObject({ drain: false, force: true, expected_revision: 7 });
+  });
+
   it('message endpoint returns dispatch ack reply for task results', async () => {
     const taskResult = {
       kind: 'task',
@@ -542,6 +556,22 @@ describe('web API protocol handshake', () => {
     const result = await api.message('s-test', 'do something');
     expect(result.reply).toBe('executor started');
     expect(result.kind).toBe('task');
+  });
+
+  it('forwards operator Task mode without running category auto-detection', async () => {
+    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response(
+      'data: {"type":"done","result":{"kind":"task"}}\n\n',
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('../api');
+
+    await api.messageStream('s-test', 'do something', {}, { routeOverride: 'task' });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      text: 'do something',
+      route_override: 'task',
+    });
   });
 
   it('rejects a stream that closes after a delta without a terminal event', async () => {

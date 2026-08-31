@@ -8,6 +8,8 @@ import { MarkdownContent } from './MarkdownContent';
 import { Modal } from './Modal';
 import { Spinner } from './primitives';
 import { useI18n } from '../i18n';
+import { PdfPreview } from './PdfPreview';
+import { setDesktopLargePreview } from '../lib/desktopBridge';
 
 /** Authenticated preview/download for one reviewer-approved result file. */
 export function ArtifactModal({
@@ -25,8 +27,17 @@ export function ArtifactModal({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [downloading, setDownloading] = useState(false);
+  const [pdfOrientation, setPdfOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const pdfPreview = info?.kind === 'pdf' || path?.toLowerCase().endsWith('.pdf') === true;
 
   useEffect(() => {
+    if (!path || !pdfPreview) return;
+    setDesktopLargePreview(true);
+    return () => setDesktopLargePreview(false);
+  }, [path, pdfPreview]);
+
+  useEffect(() => {
+    setPdfOrientation('portrait');
     setPreviewUrl(null);
     setPreviewError('');
     if (!sid || !path || !info || !['image', 'pdf', 'audio', 'video'].includes(info.kind)) return;
@@ -70,10 +81,19 @@ export function ArtifactModal({
   };
 
   return (
-    <Modal open={Boolean(path)} onClose={onClose} label={t('artifact.preview')} width="max-w-5xl">
-      <div className="flex items-start gap-3 border-b border-line px-4 py-3 sm:px-5">
+    <Modal
+      open={Boolean(path)}
+      onClose={onClose}
+      label={t('artifact.preview')}
+      width={pdfPreview ? 'max-w-none' : 'max-w-5xl'}
+      viewport={pdfPreview}
+      style={pdfPreview ? {
+        maxWidth: pdfOrientation === 'portrait' ? 'min(96vw, 76dvh)' : 'min(96vw, 145dvh)',
+      } : undefined}
+    >
+      <div className="flex shrink-0 items-start gap-3 border-b border-line px-4 py-3 sm:px-5">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate font-mono text-sm font-semibold text-ink" title={info?.path ?? path ?? ''}>
+          <h2 className="truncate font-mono text-sm font-semibold text-ink" title={info?.storage_path ?? info?.path ?? path ?? ''}>
             {info?.name ?? path ?? t('artifact.title')}
           </h2>
           <p className="mt-0.5 truncate text-[11px] text-ink-faint">
@@ -88,16 +108,6 @@ export function ArtifactModal({
         >
           {downloading ? t('artifact.downloading') : t('artifact.download')}
         </button>
-        {info?.kind === 'pdf' && previewUrl ? (
-          <a
-            href={previewUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-md border border-line px-3 py-1.5 text-xs text-ink-dim transition-colors hover:border-ink-faint hover:bg-surface hover:text-ink"
-          >
-            {t('artifact.open')}
-          </a>
-        ) : null}
         <button
           type="button"
           aria-label={t('artifact.close')}
@@ -108,12 +118,15 @@ export function ArtifactModal({
         </button>
       </div>
 
-      <div className="flex min-h-64 max-h-[72vh] flex-col overflow-x-hidden overflow-y-auto bg-bg/40 p-3 scroll-thin sm:p-4">
+      <div className={pdfPreview
+        ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-bg/40'
+        : 'flex min-h-64 max-h-[72vh] flex-col overflow-x-hidden overflow-y-auto bg-bg/40 p-3 scroll-thin sm:p-4'
+      }>
         {artifactQ.isLoading ? <div className="m-auto"><Spinner /></div> : null}
         {artifactQ.isError ? (
           <div className="m-auto text-sm text-err">{t('artifact.unavailable')} · {(artifactQ.error as Error).message}</div>
         ) : null}
-        {info?.why ? (
+        {info?.why && !pdfPreview ? (
           <div className="mb-3 rounded-md border border-line bg-surface px-3 py-2 text-xs text-ink-dim">
             <span className="mr-1 text-ink-faint">Reviewer:</span>{info.why}
           </div>
@@ -149,17 +162,12 @@ export function ArtifactModal({
           </div>
         ) : null}
         {info?.kind === 'pdf' && previewUrl ? (
-          <object
-            data={`${previewUrl}#toolbar=1&navpanes=0&view=FitH`}
-            type="application/pdf"
-            aria-label={`PDF preview: ${info.name}`}
-            className="h-[62vh] w-full rounded-lg border border-line bg-white"
-          >
-            <div className="flex h-full min-h-64 flex-col items-center justify-center gap-2 text-center text-sm text-ink-dim">
-              <span>{t('artifact.pdfDisabled')}</span>
-              <a href={previewUrl} target="_blank" rel="noreferrer" className="text-blue underline underline-offset-2">{t('artifact.openPdf')}</a>
-            </div>
-          </object>
+          <PdfPreview
+            src={previewUrl}
+            name={info.name}
+            className="min-h-0 overflow-hidden"
+            onPageOrientation={setPdfOrientation}
+          />
         ) : null}
         {info?.kind === 'audio' && previewUrl ? (
           <div className="m-auto w-full max-w-xl">

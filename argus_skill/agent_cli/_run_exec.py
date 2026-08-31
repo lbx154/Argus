@@ -38,6 +38,7 @@ from ._idle_watchdog import (
     WARNING_STAGE,
     IdleEscalation,
 )
+from ._process_control import background_subprocess_kwargs
 from .models import AgentRunResult, InactivitySnapshot
 from .runner_backend import BACKEND_DSH, BACKEND_OPENCODE
 
@@ -243,8 +244,8 @@ class RunExecMixin:
                 errors="replace",
                 bufsize=1,
                 cwd=options.working_dir or None,
-                env=self._child_env(options),
-                start_new_session=os.name != "nt",
+                env=self._child_env(options, executable=command[0]),
+                **background_subprocess_kwargs(),
             )
         except BaseException:
             if prompt_path is not None:

@@ -8,8 +8,16 @@ from argus_skill.life.memory import LifeMemory
 from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 
 
+class _Manager:
+    def bind_execution_workdir(self, _workdir):
+        return self
+
+    def report_project_completion(self, **_kwargs):
+        return "Manager reviewed the full stage ledger and confirmed completion."
+
+
 class _Runner:
-    pass
+    manager = _Manager()
 
 
 def test_completion_message_carries_one_structured_delivery_receipt(tmp_path) -> None:
@@ -132,5 +140,6 @@ def test_continuous_mission_only_delivers_after_project_done(tmp_path) -> None:
         json.loads(line)
         for line in (memory.root / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
     ]
-    assert "Task completed" in turns[-1]["text"]
-    assert turns[-1]["delivery"]["primary_target"]["path"] == "final.md"
+    completion_turn = next(turn for turn in reversed(turns) if turn.get("delivery"))
+    assert "Task completed" in completion_turn["text"]
+    assert completion_turn["delivery"]["primary_target"]["path"] == "final.md"

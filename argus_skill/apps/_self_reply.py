@@ -425,7 +425,7 @@ class SelfReplyMixin:
                 lean=mode == "reply",
                 execute_mode=mode if mode in _SELF_EXECUTION_CONTRACTS else "",
             )
-        _phase("Handing off to Planner / Engineer / Reviewer…")
+        _phase("Handing off to the Argus execution pipeline…")
         return None
 
 

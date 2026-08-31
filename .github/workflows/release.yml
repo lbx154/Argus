@@ -1,5 +1,8 @@
 name: release
 
+# Release version changes are operator-controlled. Do not bump package versions
+# for a bug fix unless the operator explicitly authorizes that release change.
+
 on:
   push:
     tags:
@@ -41,17 +44,28 @@ jobs:
           python_version = tomllib.loads(
               Path("pyproject.toml").read_text(encoding="utf-8")
           )["project"]["version"]
-          desktop_version = json.loads(
-              Path("desktop/package.json").read_text(encoding="utf-8")
+          tauri_desktop_version = json.loads(
+              Path("desktop-tauri/package.json").read_text(encoding="utf-8")
+          )["version"]
+          cargo_version = tomllib.loads(
+              Path("desktop-tauri/src-tauri/Cargo.toml").read_text(encoding="utf-8")
+          )["package"]["version"]
+          tauri_config_version = json.loads(
+              Path("desktop-tauri/src-tauri/tauri.conf.json").read_text(encoding="utf-8")
           )["version"]
           tag = os.environ["GITHUB_REF_NAME"]
           assert tag == f"v{python_version}", (
               f"tag {tag!r} does not match Python package version {python_version!r}"
           )
-          assert desktop_version == python_version, (
-              f"Desktop version {desktop_version!r} does not match "
-              f"Python package version {python_version!r}"
-          )
+          for name, version in {
+              "Tauri desktop": tauri_desktop_version,
+              "Tauri Cargo": cargo_version,
+              "Tauri config": tauri_config_version,
+          }.items():
+              assert version == python_version, (
+                  f"{name} version {version!r} does not match Python package version "
+                  f"{python_version!r}"
+              )
           PY
       - name: Build distributions
         run: python -m build
@@ -73,7 +87,7 @@ jobs:
           path: dist/*
 
   windows:
-    name: build · Windows installers
+    name: build · Windows Tauri installers
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,33 +98,44 @@ jobs:
           cache-dependency-path: |
             frontend/web/package-lock.json
             frontend/tui/package-lock.json
-            desktop/package-lock.json
+            desktop-tauri/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-pc-windows-msvc
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e . "pyinstaller>=6.11,<7"
           npm --prefix frontend/web ci
           npm --prefix frontend/tui ci
-          npm --prefix desktop ci
-      - name: Build release sources
-        run: python -m argus_skill.release_tools.build_release
-      - name: Build frozen backend
+          npm --prefix desktop-tauri ci
+      - name: Build release sources and frozen backend
         shell: pwsh
-        run: ./desktop/scripts/build-backend.ps1 -SkipInstall
-      - name: Build Desktop
-        run: npm --prefix desktop run build
-      - name: Build unsigned installer and portable executable
-        working-directory: desktop
-        run: >-
-          npx electron-builder --win nsis portable --publish never
-          --config.win.signExecutable=false
+        run: |
+          python -m argus_skill.release_tools.build_release
+          npm --prefix frontend/web run build
+          ./desktop-tauri/scripts/build-backend.ps1 -SkipInstall
+      - name: Build signed Tauri Desktop and stage release artifacts
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            throw "TAURI_SIGNING_PRIVATE_KEY is required: unsigned desktop updates must never be published."
+          }
+          npm --prefix desktop-tauri run build
+          ./desktop-tauri/scripts/stage-release.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installers
-          path: desktop/release/*.exe
+          path: |
+            desktop-tauri/release/*.exe
+            desktop-tauri/release/*.sig
+            desktop-tauri/release/latest.json
 
   pypi:
     name: publish · PyPI
@@ -146,6 +171,10 @@ jobs:
         with:
           name: windows-installers
           path: release-assets
+      - name: Require signed updater manifest
+        run: |
+          test -s release-assets/latest.json
+          test -n "$(find release-assets -name '*.sig' -print -quit)"
       - uses: softprops/action-gh-release@v2
         with:
           files: release-assets/**/*

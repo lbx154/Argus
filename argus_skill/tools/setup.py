@@ -26,6 +26,8 @@ from ..core.backend_readiness import (
     format_backend_readiness,
     persist_validated_profile,
 )
+
+
 def _color(text: str, code: str) -> str:
     if not sys.stdout.isatty():
         return text

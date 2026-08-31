@@ -1,0 +1,2 @@
+This directory is populated from desktop-tauri/build/argus-backend immediately before a Tauri package build.
+It remains tracked so cargo check/test can validate the Rust host without requiring a PyInstaller payload.

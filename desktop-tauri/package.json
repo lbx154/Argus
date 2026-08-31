@@ -1,0 +1,37 @@
+{
+  "name": "argus-desktop-tauri",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Tauri/Rust Windows desktop host for the Argus autonomous research runtime",
+  "author": "lbx154",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "ui:dev": "vite --config vite.config.ts",
+    "ui:build": "vite build --config vite.config.ts",
+    "ui:typecheck": "tsc --noEmit",
+    "dev": "tauri dev --config src-tauri/tauri.conf.json",
+    "build": "npm run prepare:backend && tauri build --config src-tauri/tauri.conf.json --bundles nsis",
+    "build:unsigned": "npm run prepare:backend && node scripts/build-unsigned.mjs",
+    "build:debug": "npm run prepare:backend && tauri build --debug --config src-tauri/tauri.conf.json --bundles nsis",
+    "build:web": "npm --prefix ../frontend/web run build",
+    "build:backend": "powershell -ExecutionPolicy Bypass -File scripts/build-backend.ps1",
+    "prepare:backend": "powershell -ExecutionPolicy Bypass -File scripts/prepare-backend.ps1",
+    "test:rust": "cargo check --manifest-path src-tauri/Cargo.toml && cargo test --manifest-path src-tauri/Cargo.toml --test core_tests",
+    "smoke:host": "python scripts/smoke-host.py",
+    "test": "npm run ui:typecheck && npm run test:rust",
+    "dist": "npm run build:web && npm run build:backend && npm run build && powershell -ExecutionPolicy Bypass -File scripts/stage-release.ps1",
+    "update:generate-key": "tauri signer generate -w .keys/argus-updater.key"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3",
+    "vite": "^7.3.6"
+  }
+}

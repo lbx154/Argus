@@ -102,6 +102,36 @@ def test_bounded_dispatch_persists_nested_workdir(
     assert (alive, pid) == (False, None)
 
 
+def test_direct_workflow_requests_one_real_planner_signed_package(
+    memory,
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+    planner_backend = object()
+    monkeypatch.setattr(
+        front_door,
+        "_ensure_manager_runner",
+        lambda *_args, **_kwargs: SimpleNamespace(planner_backend=planner_backend),
+    )
+
+    def plan(backend, objective, **kwargs):
+        captured.update({"backend": backend, "objective": objective, **kwargs})
+        return SimpleNamespace(error="", tasks=(SimpleNamespace(key="k1"),))
+
+    monkeypatch.setattr("argus_skill.planner.bounded_dag.plan_bounded_dag", plan)
+
+    dispatch._plan_bounded_execution(
+        memory,
+        "one coherent package",
+        {"backend": "memory"},
+        single_package=True,
+    )
+
+    assert captured["backend"] is planner_backend
+    assert captured["objective"] == "one coherent package"
+    assert captured["single_package"] is True
+
+
 def test_bounded_dispatch_fails_closed_without_planner_backend(memory) -> None:
     with pytest.raises(
         front_door.ManagerHandoffError,
@@ -284,6 +314,7 @@ def test_bounded_dispatch_persists_real_dependency_dag(memory, monkeypatch):
     assert {item.plan_id for item in items.values()} == {items["a"].plan_id}
     assert items["a"].plan_id.startswith("bounded-")
     assert all("bounded_dag_node" in item.tags for item in items.values())
+    assert all("planner" in item.tags for item in items.values())
     assert all(item.iterate for item in items.values())
     assert all(item.iteration_max_cycles == 3 for item in items.values())
     assert items["c"].plan_hypothesis.startswith("The integrated route")

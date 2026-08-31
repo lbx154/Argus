@@ -41,10 +41,15 @@ def test_release_digest_covers_runtime_and_frontend_build_inputs() -> None:
         "frontend/web/package-lock.json",
         "frontend/web/vite.config.ts",
         "frontend/web/index.html",
-        "desktop/src/main/index.ts",
-        "desktop/src/renderer/style.css",
-        "desktop/backend_entry.py",
-        "desktop/package-lock.json",
+        "argus_skill/desktop_backend_entry.py",
+        "desktop-tauri/argus_backend.spec",
+        "desktop-tauri/src-tauri/src/backend.rs",
+        "desktop-tauri/src-tauri/tauri.conf.json",
+        "desktop-tauri/src-tauri/installer-hooks.nsh",
+        "desktop-tauri/scripts/stage-release.ps1",
+        "desktop-tauri/scripts/smoke-host.py",
+        "desktop-tauri/resources/argus-backend/.gitkeep",
+        "desktop-tauri/package-lock.json",
         "argus_doctor.py",
         ".agents/plugins/marketplace.json",
         ".claude-plugin/marketplace.json",
@@ -177,6 +182,18 @@ def test_release_preflight_is_permissive_unless_enabled(monkeypatch) -> None:
     )
 
     assert runtime_identity_module.release_match_preflight_error() == ""
+
+
+def test_deployment_boundary_uses_tauri_desktop_verification() -> None:
+    commands = deploy_boundary._commands(("desktop-tauri/src/main.ts",))
+    rendered = [" ".join(command) for command in commands]
+
+    assert any("--prefix desktop-tauri ci" in command for command in rendered)
+    assert any("cargo check --manifest-path desktop-tauri" in command for command in rendered)
+    assert any("desktop-tauri/scripts/build-backend.ps1" in command for command in rendered)
+    assert any("--prefix desktop-tauri run build:unsigned" in command for command in rendered)
+    assert not any("electron-builder" in command for command in rendered)
+    assert not any("--prefix desktop ci" in command for command in rendered)
 
 
 def _deployment_repo(root: Path) -> tuple[Path, Path, Path, str, str]:
@@ -344,22 +361,29 @@ def test_deployment_boundary_rejects_regression_mismatch_and_restart(
     assert public_main == base
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="bare-repository partial-publication hook semantics are covered on POSIX",
+)
 def test_deployment_boundary_publishes_both_routes_before_roll(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo, public, private, base, candidate = _deployment_repo(tmp_path)
     change = _reviewed_change(repo, base, candidate, tmp_path / "receipts")
-    update_hook = private / "hooks" / "update"
-    update_hook.write_text(
-        "#!/bin/sh\n"
-        "if [ \"$1\" = \"refs/heads/main\" ]; then\n"
-        "  exit 1\n"
-        "fi\n"
-        "exit 0\n",
-        encoding="utf-8",
-    )
-    update_hook.chmod(0o755)
+    real_git = deploy_boundary._git
 
+    def reject_private_main(repo_path, *args, check=True):
+        if (
+            len(args) >= 3
+            and args[0] == "push"
+            and Path(args[1]).resolve() == private.resolve()
+            and str(args[-1]).endswith(":refs/heads/main")
+        ):
+            raise subprocess.CalledProcessError(1, ["git", *args])
+        return real_git(repo_path, *args, check=check)
+
+    monkeypatch.setattr(deploy_boundary, "_git", reject_private_main)
     partial = deploy_reviewed_change(change, _approval(change))
 
     assert partial["verdict"] == "REJECT"
@@ -371,7 +395,7 @@ def test_deployment_boundary_publishes_both_routes_before_roll(
     assert partial["daemon_roll_permitted"] is False
     assert partial["runtime_source_root"] == ""
 
-    update_hook.unlink()
+    monkeypatch.setattr(deploy_boundary, "_git", real_git)
     # Date-scoped sync branches from the partial run are absent the next day.
     for bare, branch in (
         (public, partial["public_sync_branch"]),

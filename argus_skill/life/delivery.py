@@ -8,12 +8,101 @@ become completion receipts.
 
 from __future__ import annotations
 
+import html
+import re
 import time
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import unquote, urlsplit
 
 DELIVERY_SCHEMA_VERSION = 1
 MAX_DELIVERY_TARGETS = 6
+
+_MARKDOWN_TARGET_RE = re.compile(
+    r"!?\[[^\]\r\n]*\]\(\s*(?:<(?P<angled>[^>\r\n]+)>|(?P<plain>[^\s)\r\n]+))",
+)
+_INLINE_CODE_RE = re.compile(r"(?<!`)`([^`\r\n]{1,2048})`(?!`)")
+_WINDOWS_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9_])/?[A-Za-z]:[\\/][^\s<>\[\]()`\"']+",
+)
+_TERMINAL_PUNCTUATION = " \t\r\n\"'<>[](){}.,;，。；："
+
+
+def _referenced_path_candidates(text: object) -> list[str]:
+    body = str(text or "")
+    candidates: list[str] = []
+    for match in _MARKDOWN_TARGET_RE.finditer(body):
+        candidates.append(match.group("angled") or match.group("plain") or "")
+    candidates.extend(match.group(1) for match in _INLINE_CODE_RE.finditer(body))
+    candidates.extend(match.group(0) for match in _WINDOWS_PATH_RE.finditer(body))
+    return candidates
+
+
+def _workspace_relative_reference(workspace: Path, value: object) -> str | None:
+    """Resolve one explicit completion-message path inside ``workspace``."""
+    raw = html.unescape(str(value or "")).strip(_TERMINAL_PUNCTUATION)
+    if not raw or "\x00" in raw:
+        return None
+    lowered = raw.casefold()
+    if lowered.startswith(("http://", "https://", "data:", "javascript:")):
+        return None
+    if lowered.startswith("file:"):
+        try:
+            parsed = urlsplit(raw)
+        except ValueError:
+            return None
+        if parsed.netloc not in {"", "localhost"}:
+            return None
+        raw = unquote(parsed.path)
+    else:
+        raw = unquote(raw).split("#", 1)[0].split("?", 1)[0]
+    raw = raw.strip(_TERMINAL_PUNCTUATION)
+    # Markdown commonly serializes a Windows file URL as /C:/path/file.pdf.
+    if re.match(r"^/[A-Za-z]:[\\/]", raw):
+        raw = raw[1:]
+    if not raw:
+        return None
+
+    try:
+        root = workspace.expanduser().resolve(strict=True)
+        candidate = Path(raw).expanduser()
+        if candidate.is_absolute():
+            resolved = candidate.resolve(strict=True)
+            relative = resolved.relative_to(root).as_posix()
+        else:
+            relative = raw.replace("\\", "/")
+            resolved = (root / relative).resolve(strict=True)
+            relative = resolved.relative_to(root).as_posix()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return _safe_existing_path(root, relative)
+
+
+def referenced_delivery_paths(
+    workspace: Path | str,
+    texts: Iterable[object],
+    *,
+    limit: int = MAX_DELIVERY_TARGETS,
+) -> list[str]:
+    """Return safe files explicitly linked by an accepted completion summary.
+
+    This is deliberately not a workspace scan. Only paths named in the terminal
+    message are considered, and every candidate still passes the same confined,
+    credential-aware policy as Manager live-view and artifact downloads.
+    """
+    root = Path(workspace)
+    max_paths = max(0, int(limit))
+    if max_paths == 0:
+        return []
+    paths: list[str] = []
+    for text in texts:
+        for candidate in _referenced_path_candidates(text):
+            path = _workspace_relative_reference(root, candidate)
+            if path and path not in paths:
+                paths.append(path)
+            if len(paths) >= max_paths:
+                return paths
+    return paths
 
 
 def _safe_existing_path(workspace: Path, value: object) -> str | None:
@@ -185,4 +274,5 @@ __all__ = [
     "DELIVERY_SCHEMA_VERSION",
     "MAX_DELIVERY_TARGETS",
     "build_delivery_receipt",
+    "referenced_delivery_paths",
 ]

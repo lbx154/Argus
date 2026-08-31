@@ -611,7 +611,7 @@ def resolve_role_model(
         # agent-CLI backend, so normalize_runner_backend rejects it.
         return ""
     backend_name = normalize_runner_backend(requested)
-    if backend_name not in _OPENAI_CATALOG_BACKENDS:
+    if not backend_uses_openai_catalog(backend_name, env=env_map):
         return ""
     from ..tools.capability_vault import resolve_route_model
 
@@ -757,11 +757,45 @@ def resolve_manager_reply_model(
 
 #: Backends whose model catalog IS the OpenAI catalog, so Argus may name a
 #: specific OpenAI id for its cheap control-plane routes without asking the
-#: operator. ``codex`` and ``copilot`` qualify by construction. ``pi`` /
-#: ``opencode`` / ``claude`` deliberately do NOT: they are provider-agnostic
-#: fronts whose catalog is whatever the operator authenticated (DeepSeek,
-#: Anthropic, a local vLLM), so naming an OpenAI id there misses on every call.
+#: operator. ``copilot`` qualifies by construction.  Codex normally does too,
+#: except when its own config selects a non-OpenAI custom provider such as
+#: DeepSeek; :func:`backend_uses_openai_catalog` handles that exception.
 _OPENAI_CATALOG_BACKENDS = frozenset({"codex", "copilot"})
+
+
+def backend_uses_openai_catalog(
+    backend: str,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> bool:
+    """Whether Argus may safely force an OpenAI model id for ``backend``.
+
+    Codex CLI is also a generic OpenAI-compatible client.  A user can point it
+    at a named custom provider in ``~/.codex/config.toml`` (for example
+    ``model_provider = \"deepseek\"``).  In that mode forcing Argus's
+    ``gpt-5.4-mini``/``gpt-5.5`` defaults makes every turn fail before the
+    Manager can classify it.  Leave the model unset instead, allowing Codex to
+    use its own configured default.  Explicit Argus model knobs still win in
+    the callers above.
+    """
+    normalized = str(backend or "").strip().casefold()
+    if normalized not in _OPENAI_CATALOG_BACKENDS:
+        return False
+    if normalized != "codex":
+        return True
+    try:
+        from ..tools.capability_vault import read_codex_provider_config
+
+        provider = read_codex_provider_config(env)
+    except Exception:  # noqa: BLE001 — preserve legacy Codex behavior on unreadable config
+        return True
+    if provider is None:
+        return True
+    # ``codex`` is Codex's built-in OpenAI provider; ``openai`` is a common
+    # equivalent spelling.  Any other named table has an operator-defined
+    # catalog and must retain its configured default model.
+    return provider.name.strip().casefold() in {"codex", "openai"}
+
 
 #: Knob values that mean "decide for me" rather than naming a model.
 _AUTO_MODEL_SENTINELS = frozenset({"", "auto", "inherit", "default"})
@@ -810,7 +844,7 @@ def resolve_cheap_route_model(
         if str(requested).strip().lower() == BACKEND_MEMORY
         else normalize_runner_backend(requested)
     )
-    if backend_name in _OPENAI_CATALOG_BACKENDS:
+    if backend_uses_openai_catalog(backend_name, env=env_map):
         return catalog_default
     return resolve_role_model(
         role,
