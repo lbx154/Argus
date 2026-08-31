@@ -15,6 +15,8 @@ from argus_skill.webapi.manager_pending_question import (
 
 
 def _relay_backend(tmp_path, monkeypatch) -> AgentCliBackend:
+    from argus_skill.provider_integrations import authorization_retry
+
     codex_home = tmp_path / "codex"
     codex_home.mkdir()
     (codex_home / "config.toml").write_text(
@@ -31,6 +33,11 @@ def _relay_backend(tmp_path, monkeypatch) -> AgentCliBackend:
         encoding="utf-8",
     )
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(
+        authorization_retry.Path,
+        "home",
+        classmethod(lambda cls: tmp_path),
+    )
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
     monkeypatch.setenv("COPILOT_RELAY_TOKEN", "rejected-relay-token")
     return AgentCliBackend(backend="codex")

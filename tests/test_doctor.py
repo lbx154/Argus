@@ -384,7 +384,7 @@ def test_backend_preflight_defaults_to_codex_with_original_install_hint(
     check = _check_backend_preflight()
     assert check.ok is False
     assert "codex" in check.detail
-    assert "npm install -g @openai/codex" in check.fix
+    assert "@openai/codex" in check.fix
 
 
 def test_backend_preflight_uses_persisted_copilot_selection(

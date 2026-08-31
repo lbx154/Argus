@@ -26,6 +26,7 @@ const BACKENDS = [
   { value: 'copilot', label: 'settings.backend.copilot' },
   { value: 'codex', label: 'settings.backend.codex' },
   { value: 'claude', label: 'settings.backend.claude' },
+  { value: 'cursor', label: 'settings.backend.cursor' },
   { value: 'opencode', label: 'settings.backend.opencode' },
 ] as const;
 

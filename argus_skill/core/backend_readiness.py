@@ -41,6 +41,7 @@ _VERSION_RE = re.compile(
 _AUTH_COMMANDS: dict[str, tuple[str, ...]] = {
     "codex": ("login", "status"),
     "claude": ("auth", "status"),
+    "cursor": ("status",),
     "opencode": ("auth", "list"),
     # qodercli exits non-zero from --list-models when unauthenticated, so it
     # doubles as a read-only auth probe.
@@ -53,6 +54,7 @@ _INSTALL_COMMANDS = {
     "codex": "npm install -g @openai/codex@latest",
     "copilot": "npm install -g @github/copilot",
     "claude": "npm install -g @anthropic-ai/claude-code",
+    "cursor": "curl https://cursor.com/install -fsS | bash",
     "opencode": "curl -fsSL https://opencode.ai/install | bash",
     "pi": "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
     "grok": "curl -fsSL https://x.ai/cli/install.sh | bash",
@@ -63,6 +65,7 @@ _LOGIN_COMMANDS = {
     "codex": "codex login",
     "copilot": "copilot login",
     "claude": "claude auth login",
+    "cursor": "agent login",
     "opencode": "opencode auth login",
     "pi": "pi, then /login",
     "grok": "grok login",
@@ -84,6 +87,7 @@ def backend_install_command(
         "copilot": "npm.cmd install -g @github/copilot",
         "codex": "npm.cmd install -g @openai/codex@latest",
         "claude": "npm.cmd install -g @anthropic-ai/claude-code",
+        "cursor": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm 'https://cursor.com/install?win32=true' | iex\"",
         "pi": "npm.cmd install -g --ignore-scripts @earendil-works/pi-coding-agent",
         "opencode": "choose a Windows installer at https://opencode.ai/docs/#windows",
         "grok": "use the official Windows instructions at https://x.ai/cli",
@@ -590,17 +594,21 @@ def _probe_cli_auth(
     executable: str,
     *,
     timeout_s: float,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[bool, str]:
+    env_map = env if env is not None else os.environ
     if backend == "copilot":
         return _probe_copilot_auth(executable, timeout_s)
+    if backend == "cursor" and str(env_map.get("CURSOR_API_KEY") or "").strip():
+        return True, ""
     if backend == "pi":
         _catalog, detail = _probe_pi_catalog(executable, timeout_s)
         return (bool(_catalog), detail)
     if backend == "grok":
-        if str(os.environ.get("XAI_API_KEY") or "").strip():
+        if str(env_map.get("XAI_API_KEY") or "").strip():
             return True, ""
         grok_home = Path(
-            str(os.environ.get("GROK_HOME") or Path.home() / ".grok")
+            str(env_map.get("GROK_HOME") or Path.home() / ".grok")
         ).expanduser()
         auth_file = grok_home / "auth.json"
         try:
@@ -615,7 +623,7 @@ def _probe_cli_auth(
     if backend == "qoder":
         # A PAT is the headless path; otherwise fall through to the generic
         # `qodercli --list-models` probe below, which reports login state.
-        if str(os.environ.get("QODER_PERSONAL_ACCESS_TOKEN") or "").strip():
+        if str(env_map.get("QODER_PERSONAL_ACCESS_TOKEN") or "").strip():
             return True, ""
     if backend == "dsh":
         # dsh has no read-only auth probe: the headless profile rejects an
@@ -624,10 +632,10 @@ def _probe_cli_auth(
         # layered env loader (process > cwd .env > $DSH_HOME/.env) also
         # admits DEEPSEEK_API_KEY from $DSH_HOME/.env, so scan that file too
         # rather than misreporting a working deployment as unauthenticated.
-        if str(os.environ.get("DEEPSEEK_API_KEY") or "").strip():
+        if str(env_map.get("DEEPSEEK_API_KEY") or "").strip():
             return True, ""
         dsh_home = Path(
-            str(os.environ.get("DSH_HOME") or Path.home() / ".dsh")
+            str(env_map.get("DSH_HOME") or Path.home() / ".dsh")
         ).expanduser()
         env_file = dsh_home / ".env"
         try:
@@ -650,6 +658,12 @@ def _probe_cli_auth(
         result = _run_text((executable, *suffix), timeout_s=timeout_s)
     except (OSError, subprocess.SubprocessError) as exc:
         return False, f"{type(exc).__name__}: {exc}"
+    combined = "\n".join(filter(None, (result.stdout, result.stderr))).strip()
+    if backend == "cursor" and any(
+        marker in combined.casefold()
+        for marker in ("not logged in", "not authenticated", "authentication required")
+    ):
+        return False, combined[:300]
     if result.returncode == 0:
         return True, ""
     detail = (result.stderr or result.stdout or f"exit {result.returncode}").strip()
@@ -744,7 +758,7 @@ def check_backend_readiness(
             ReadinessProblem(
                 "backend",
                 f"unsupported backend {profile.backend!r}",
-                "choose one of: codex, copilot, claude, opencode, pi, grok, qoder, dsh",
+                "choose one of: " + ", ".join(SUPPORTED_BACKENDS),
             )
         )
         return report
@@ -892,6 +906,7 @@ def check_backend_readiness(
                     profile.backend,
                     executable,
                     timeout_s=timeout_s,
+                    env=env_map,
                 )
             if not ok:
                 report.problems.append(

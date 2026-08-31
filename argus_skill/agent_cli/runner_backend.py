@@ -6,7 +6,9 @@ import shutil
 from pathlib import Path
 from typing import Literal, Mapping, get_args
 
-RunnerBackend = Literal["codex", "claude", "copilot", "opencode", "pi", "grok", "qoder", "dsh"]
+RunnerBackend = Literal[
+    "codex", "claude", "copilot", "cursor", "opencode", "pi", "grok", "qoder", "dsh"
+]
 
 #: Every backend the runtime can drive, derived from the type above so the two
 #: can never disagree. The CLI's `--backend` choices, the readiness check and
@@ -18,6 +20,7 @@ SUPPORTED_BACKENDS: tuple[str, ...] = get_args(RunnerBackend)
 BACKEND_CODEX: RunnerBackend = "codex"
 BACKEND_CLAUDE: RunnerBackend = "claude"
 BACKEND_COPILOT: RunnerBackend = "copilot"
+BACKEND_CURSOR: RunnerBackend = "cursor"
 BACKEND_OPENCODE: RunnerBackend = "opencode"
 BACKEND_PI: RunnerBackend = "pi"
 BACKEND_GROK: RunnerBackend = "grok"
@@ -263,6 +266,10 @@ def default_runner_bin(backend: RunnerBackend) -> str:
         return "claude"
     if backend == BACKEND_COPILOT:
         return "copilot"
+    if backend == BACKEND_CURSOR:
+        # ``agent`` is the current official command; old builds used
+        # ``cursor-agent`` and are discovered below for compatibility.
+        return "agent"
     if backend == BACKEND_OPENCODE:
         return "opencode"
     if backend == BACKEND_PI:
@@ -312,6 +319,7 @@ def resolve_runner_bin(
 ) -> str | None:
     """Resolve a CLI independently of service-manager PATH omissions."""
     chosen = normalize_runner_backend(backend)
+    explicit = bool(str(configured or "").strip())
     requested = str(configured or default_runner_bin(chosen)).strip()
     if not requested:
         return None
@@ -359,6 +367,28 @@ def resolve_runner_bin(
     resolved = _resolve_explicit_candidate(user_local)
     if resolved:
         return resolved
+    if chosen == BACKEND_CURSOR and not explicit:
+        for alias in ("cursor-agent",):
+            resolved = shutil.which(alias)
+            if resolved:
+                return resolved
+            for entry in os.environ.get("PATH", "").split(os.pathsep):
+                if not entry:
+                    continue
+                resolved = _resolve_explicit_candidate(Path(entry) / alias)
+                if resolved:
+                    return resolved
+            resolved = _resolve_explicit_candidate(Path.home() / ".local" / "bin" / alias)
+            if resolved:
+                return resolved
+        if os.name == "nt":
+            local_app_data = str(os.environ.get("LOCALAPPDATA") or "").strip()
+            if local_app_data:
+                install_root = Path(local_app_data) / "cursor-agent"
+                for name in ("agent.cmd", "agent.exe", "cursor-agent.cmd", "cursor-agent.exe"):
+                    resolved = _resolve_explicit_candidate(install_root / name)
+                    if resolved:
+                        return resolved
     return None
 
 

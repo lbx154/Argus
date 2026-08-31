@@ -271,9 +271,9 @@ def test_doctor_repair_prompt_contains_actual_machine_locations(tmp_path) -> Non
 
     prompt = advisor._advisor_prompt(_report(), context)
 
-    assert str(context.global_root) in prompt
-    assert str(context.project_root) in prompt
-    assert str(context.checkout) in prompt
+    assert json.dumps(str(context.global_root))[1:-1] in prompt
+    assert json.dumps(str(context.project_root))[1:-1] in prompt
+    assert json.dumps(str(context.checkout))[1:-1] in prompt
     assert '"install_mode": "source"' in prompt
 
 

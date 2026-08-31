@@ -68,7 +68,7 @@ clear fit. A wrong Skill is worse than no Skill. Current task authority and fres
 evidence always override Skill text.
 
 Pi receives the role-owned paths through its explicit `--skill` loader while
-ambient Pi Skills stay disabled. Codex, Claude, Copilot, and OpenCode receive the
+ambient Pi Skills stay disabled. Codex, Claude, Copilot, Cursor, and OpenCode receive the
 same portable path contract in the role prompt because their native discovery
 locations/APIs are not interchangeable with Argus state roots. Newly written
 Markdown is therefore discoverable from the stable root immediately, without a

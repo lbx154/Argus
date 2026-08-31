@@ -62,7 +62,7 @@ and 1,548 hours it needed a human research decision about **once every 310 hours
 **95–99%** duty cycle. Everything else is in the
 **[technical report](https://arxiv.org/pdf/2608.05144)**.
 
-**Native backends:** `GitHub Copilot CLI` · `Pi` · `OpenAI Codex CLI` · `Claude Code` · `OpenCode` · `Grok Build` · `Qoder` · `DeepSeek Harness`
+**Native backends:** `GitHub Copilot CLI` · `Pi` · `OpenAI Codex CLI` · `Claude Code` · `Cursor CLI` · `OpenCode` · `Grok Build` · `Qoder` · `DeepSeek Harness`
 
 **Harbor evaluation:** Harbor Framework can invoke the complete bounded Argus
 Manager/Planner/Engineer/Reviewer runtime as a custom agent. See
@@ -104,6 +104,7 @@ prerequisite for the separate Harbor evaluation integration.
 | GitHub Copilot CLI | `copilot` | `npm install -g @github/copilot` | `copilot login` |
 | OpenAI Codex CLI | `codex` | `npm install -g @openai/codex@latest` | `codex login` |
 | Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | Run `claude`, then `/login` |
+| Cursor CLI | `cursor` | `curl https://cursor.com/install -fsS | bash` ([Windows](https://cursor.com/install?win32=true)) | `agent login` or `CURSOR_API_KEY` |
 | Pi | `pi` | `npm install -g --ignore-scripts @earendil-works/pi-coding-agent` | Run `pi`, then `/login` |
 | OpenCode | `opencode` | [Official install](https://opencode.ai/docs/) | `opencode auth login` |
 | Grok Build | `grok` | [Official install](https://x.ai/cli) | `grok login` |
@@ -224,10 +225,10 @@ creation reports that `ensurepip` is unavailable, install the distribution's
 
 ### Backend notes
 
-Use `copilot`, `pi`, `codex`, `claude`, `opencode`, `grok`, `qoder`, or `dsh`
+Use `copilot`, `pi`, `codex`, `claude`, `cursor`, `opencode`, `grok`, `qoder`, or `dsh`
 for `--backend`. Setup adopts a model from the selected CLI's own catalog when
 one is available; otherwise it keeps that CLI's native default. It does not
-inject an OpenAI model id into Claude Code, Pi, OpenCode, Grok, Qoder, or dsh.
+inject an OpenAI model id into Claude Code, Cursor CLI, Pi, OpenCode, Grok, Qoder, or dsh.
 If you have an OpenAI-compatible endpoint, setup installs Pi when needed and
 configures it directly:
 
@@ -446,9 +447,9 @@ which kind of check is allowed to settle which kind of question. See
 
 ### Use another agent as the outer layer
 
-GitHub Copilot, Pi, Codex, Claude Code, OpenCode, Grok Build, OpenClaw, or Hermes can be the environment from which you invoke Argus, inspect its state, operate its local CLI or Web/API surface, and continue improving the deployment.
+GitHub Copilot, Pi, Codex, Claude Code, Cursor CLI, OpenCode, Grok Build, OpenClaw, or Hermes can be the environment from which you invoke Argus, inspect its state, operate its local CLI or Web/API surface, and continue improving the deployment.
 
-- **Native Argus backends:** GitHub Copilot CLI, Pi, Codex CLI, Claude Code, OpenCode, Grok Build, Qoder, DeepSeek Harness
+- **Native Argus backends:** GitHub Copilot CLI, Pi, Codex CLI, Claude Code, Cursor CLI, OpenCode, Grok Build, Qoder, DeepSeek Harness
 - **External agent operators:** OpenClaw, Hermes, or any agent that can use a shell or HTTP API
 
 For durable missions, install or adapt the portable

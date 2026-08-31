@@ -1,4 +1,4 @@
-"""Low-level codex/claude/copilot/opencode/pi/grok/dsh CLI driver.
+"""Low-level codex/claude/copilot/cursor/opencode/pi/grok/dsh CLI driver.
 
 The stable public surface is :mod:`agent_cli_runner`, :mod:`runner_backend`,
 and :mod:`models`. Private modules split command construction, process

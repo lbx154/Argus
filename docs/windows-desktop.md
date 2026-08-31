@@ -24,7 +24,7 @@ pip 安装方式，不要把贡献者构建目录当作发布物。
 
 Tauri 桌面端提供完整的原生宿主功能：
 
-- 首次运行时选择 Codex、Claude、Copilot、Pi、OpenCode、Grok Build、Qoder 或
+- 首次运行时选择 Codex、Claude、Copilot、Cursor、Pi、OpenCode、Grok Build、Qoder 或
   DeepSeek Harness，并支持显式选择可执行文件；
 - 启动、认证、接管和安全停止冻结的 `argus-backend.exe`；
 - 对 PID、启动时间、可执行文件、release manifest digest、端口和 Web-token hash

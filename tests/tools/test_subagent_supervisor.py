@@ -1503,7 +1503,8 @@ def test_submit_without_timeout_survives_past_old_default(
     running = next(row for row in writes if row.get("state") == "running")
     assert running["timeout_seconds"] is None
     assert running["timeout_defaulted"] is False
-    assert "start_time_ticks" in running["process_identity"]
+    if os.name == "posix":
+        assert "start_time_ticks" in running["process_identity"]
     assert record is not None and record["state"] == "done"
     assert record["elapsed_seconds"] == 7201.0
     assert alerts == ["COMPLETED"]

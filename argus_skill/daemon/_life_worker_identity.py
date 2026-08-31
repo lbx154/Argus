@@ -406,6 +406,7 @@ def _preflight_route_on_codex(route: str) -> bool:
         "codex",
         "copilot",
         "claude",
+        "cursor",
         "opencode",
         "pi",
         "grok",

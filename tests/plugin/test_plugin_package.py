@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -82,6 +83,9 @@ def test_node_launcher_resolves_explicit_python_cross_platform() -> None:
             **os.environ,
             "ARGUS_PLUGIN_PYTHON": sys.executable,
             "ARGUS_PLUGIN_LAUNCHER_DRY_RUN": "1",
+            "PYTHONPATH": os.pathsep.join(
+                filter(None, (str(ROOT), os.environ.get("PYTHONPATH")))
+            ),
         },
     )
 
@@ -204,7 +208,8 @@ def test_one_command_installer_and_short_guide() -> None:
     assert installer.is_file()
     assert windows_installer.is_file()
     assert os.access(installer, os.X_OK)
-    subprocess.run(["sh", "-n", str(installer)], check=True)
+    if shutil.which("sh"):
+        subprocess.run(["sh", "-n", str(installer)], check=True)
 
     installer_text = installer.read_text(encoding="utf-8")
     windows_installer_text = windows_installer.read_text(encoding="utf-8")

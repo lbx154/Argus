@@ -15,6 +15,7 @@ _LIFE_BACKENDS = (
     "codex",
     "claude",
     "copilot",
+    "cursor",
     "opencode",
     "pi",
     "grok",

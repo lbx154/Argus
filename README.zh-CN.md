@@ -56,7 +56,7 @@
 310 小时**才需要人做一次研究判断，占空比 **95–99%**。其余内容都在
 **[技术报告](https://arxiv.org/pdf/2608.05144)**里。
 
-**原生 Backend：** `GitHub Copilot CLI` · `Pi` · `OpenAI Codex CLI` · `Claude Code` · `OpenCode` · `Grok Build` · `Qoder` · `DeepSeek Harness`
+**原生 Backend：** `GitHub Copilot CLI` · `Pi` · `OpenAI Codex CLI` · `Claude Code` · `Cursor CLI` · `OpenCode` · `Grok Build` · `Qoder` · `DeepSeek Harness`
 
 **Harbor 评测：** Harbor Framework 可以把完整的有界 Argus
 Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。配置和边界见
@@ -96,6 +96,7 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 | GitHub Copilot CLI | `copilot` | `npm install -g @github/copilot` | `copilot login` |
 | OpenAI Codex CLI | `codex` | `npm install -g @openai/codex@latest` | `codex login` |
 | Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | 运行 `claude`，再执行 `/login` |
+| Cursor CLI | `cursor` | `curl https://cursor.com/install -fsS | bash`（[Windows](https://cursor.com/install?win32=true)） | `agent login` 或 `CURSOR_API_KEY` |
 | Pi | `pi` | `npm install -g --ignore-scripts @earendil-works/pi-coding-agent` | 运行 `pi`，再执行 `/login` |
 | OpenCode | `opencode` | [官方安装说明](https://opencode.ai/docs/) | `opencode auth login` |
 | Grok Build | `grok` | [官方安装说明](https://x.ai/cli) | `grok login` |
@@ -205,9 +206,9 @@ Linux 新终端不要依赖全局 `argus`；请使用
 
 ### Backend 说明
 
-`--backend` 可使用 `copilot`、`pi`、`codex`、`claude`、`opencode`、`grok`、
+`--backend` 可使用 `copilot`、`pi`、`codex`、`claude`、`cursor`、`opencode`、`grok`、
 `qoder` 或 `dsh`。setup 会优先采用所选 CLI 自己目录中的模型；无法确定时保留
-该 CLI 的原生默认值，不会把 OpenAI 模型 id 注入 Claude Code、Pi、OpenCode、
+该 CLI 的原生默认值，不会把 OpenAI 模型 id 注入 Claude Code、Cursor CLI、Pi、OpenCode、
 Grok、Qoder 或 dsh。
 如果已有 OpenAI-compatible URL，setup 会在需要时自动安装 Pi 并完成配置：
 
@@ -404,9 +405,9 @@ Vertical 可以为你的领域提供专属阶段、Skill、数据集、工具、
 
 ### 让其他 Agent 成为外层入口
 
-你可以通过 GitHub Copilot、Pi、Codex、Claude Code、OpenCode、Grok Build、OpenClaw 或 Hermes 调用 Argus、检查状态、操作本地 CLI 或 Web/API，并继续迭代自己的部署。
+你可以通过 GitHub Copilot、Pi、Codex、Claude Code、Cursor CLI、OpenCode、Grok Build、OpenClaw 或 Hermes 调用 Argus、检查状态、操作本地 CLI 或 Web/API，并继续迭代自己的部署。
 
-- **Argus 原生 Backend：** GitHub Copilot CLI、Pi、Codex CLI、Claude Code、OpenCode、Grok Build、Qoder、DeepSeek Harness
+- **Argus 原生 Backend：** GitHub Copilot CLI、Pi、Codex CLI、Claude Code、Cursor CLI、OpenCode、Grok Build、Qoder、DeepSeek Harness
 - **外层 Agent：** OpenClaw、Hermes，或任何能够使用 Shell / HTTP API 的 Agent
 
 如需运行持久任务，可安装或适配可移植的

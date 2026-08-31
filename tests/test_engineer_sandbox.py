@@ -34,7 +34,7 @@ def gate_on(monkeypatch):
 # ── gate ───────────────────────────────────────────────────────────────────
 def test_default_policy_grants_every_backend_full_access(monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_SAFE_MODE", raising=False)
-    for backend in ("codex", "claude", "copilot", "opencode", "pi"):
+    for backend in ("codex", "claude", "copilot", "cursor", "opencode", "pi"):
         runner = AgentCliRunner(agent_bin=backend, backend=backend)
         options = runner._apply_sandbox_policy(
             RunnerOptions(sandbox_mode="read-only", isolate_workdir=True)

@@ -93,15 +93,21 @@ def test_ask_runs_the_real_quick_reply_path_against_a_scripted_cli(
     work.mkdir()
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    dsh = bin_dir / "dsh"
-    dsh.write_text(
-        "#!/bin/sh\n"
-        'task=""\n'
-        'for arg in "$@"; do task="$arg"; done\n'
-        'printf "canned answer from scripted dsh (asked: %s)\\n" "$task"\n'
-        "exit 0\n",
-        encoding="utf-8",
+    dsh = bin_dir / ("dsh.cmd" if os.name == "nt" else "dsh")
+    script = (
+        "@echo off\r\n"
+        "echo canned answer from scripted dsh (asked: what is 2+2?)\r\n"
+        "exit /b 0\r\n"
+        if os.name == "nt"
+        else (
+            "#!/bin/sh\n"
+            'task=""\n'
+            'for arg in "$@"; do task="$arg"; done\n'
+            'printf "canned answer from scripted dsh (asked: %s)\\n" "$task"\n'
+            "exit 0\n"
+        )
     )
+    dsh.write_text(script, encoding="utf-8")
     dsh.chmod(0o755)
 
     monkeypatch.setenv(

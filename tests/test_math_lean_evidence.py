@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -58,6 +59,17 @@ MATHLIB_THEOREM = (
     "theorem argus_dvd_add (a b c : Int) (h : a ∣ b) (k : a ∣ c) : "
     "a ∣ (b + c) := dvd_add h k\n"
 )
+
+
+def _symlink_or_skip(
+    link: Path, target: Path, *, target_is_directory: bool = False
+) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=target_is_directory)
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is unavailable")
+        raise
 FIDELITY = (
     "# Statement fidelity\n\n"
     "`argus_add_comm` formalizes: for all natural numbers a and b, a + b = b + a.\n"
@@ -792,7 +804,7 @@ def test_a_symlinked_directory_is_reported_rather_than_silently_skipped(
     (outside / "Sneaky.lean").write_text(
         "theorem argus_sneaky : True := by\n  sorry\n", encoding="utf-8"
     )
-    (root / "linked").symlink_to(outside, target_is_directory=True)
+    _symlink_or_skip(root / "linked", outside, target_is_directory=True)
 
     codes = _codes(root)
     assert "lean_discovery_incomplete" in codes
@@ -806,7 +818,7 @@ def test_a_symlinked_source_outside_the_project_is_reported(tmp_path: Path) -> N
     outside.mkdir(exist_ok=True)
     external = outside / "External.lean"
     external.write_text("theorem argus_ext : True := trivial\n", encoding="utf-8")
-    (_lean_dir(root) / "Linked.lean").symlink_to(external)
+    _symlink_or_skip(_lean_dir(root) / "Linked.lean", external)
 
     assert "lean_source_external" in _codes(root)
 
@@ -816,7 +828,7 @@ def test_a_symlinked_source_inside_the_project_is_followed_once(
 ) -> None:
     root = _project(tmp_path)
     source = _sound(root)
-    (_lean_dir(root) / "Alias.lean").symlink_to(source)
+    _symlink_or_skip(_lean_dir(root) / "Alias.lean", source)
 
     # Same file twice is one proof, not two, and it still passes.
     assert discover_lean_sources(root) == (source,)
@@ -1063,7 +1075,7 @@ def test_a_host_without_lean_records_unavailable_and_still_blocks(
     """The toolchain-absent path, forced so it runs on any host."""
     monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
     monkeypatch.setenv("ELAN_HOME", str(tmp_path / "no-elan"))
-    monkeypatch.setenv("HOME", str(tmp_path / "no-home"))
+    _set_home(monkeypatch, tmp_path / "no-home")
 
     root = _project(tmp_path)
     source = _write_source(root)
@@ -1094,6 +1106,12 @@ def test_a_host_without_lean_records_unavailable_and_still_blocks(
 
 def _fake_lake(tmp_path: Path) -> str:
     """Answers `--version`, `env lean ...`, and the axiom audit with success."""
+    if os.name == "nt":
+        script = tmp_path / "fake-lake.py"
+        script.write_text("raise SystemExit(0)\n", encoding="utf-8")
+        path = tmp_path / "fake-lake.cmd"
+        path.write_text(f'@"{sys.executable}" "{script}" %*\n', encoding="utf-8")
+        return str(path)
     path = tmp_path / "fake-lake"
     path.write_text(
         "#!/usr/bin/env python3\nraise SystemExit(0)\n",
@@ -1101,6 +1119,11 @@ def _fake_lake(tmp_path: Path) -> str:
     )
     path.chmod(0o755)
     return str(path)
+
+
+def _set_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
 
 
 def _mathlib_workspace(home: Path) -> Path:
@@ -1116,7 +1139,7 @@ def test_verify_reaches_for_an_installed_mathlib_without_being_asked(
 ) -> None:
     home = tmp_path / "home"
     workspace = _mathlib_workspace(home)
-    monkeypatch.setenv("HOME", str(home))
+    _set_home(monkeypatch, home)
     monkeypatch.delenv("ARGUS_SKILL_MATHLIB_WORKSPACE", raising=False)
     root = _project(tmp_path)
     source = _write_source(root, MATHLIB_THEOREM)
@@ -1142,7 +1165,7 @@ def test_verify_stays_on_bare_lean_when_no_workspace_applies(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path / "no-home"))
+    _set_home(monkeypatch, tmp_path / "no-home")
     monkeypatch.delenv("ARGUS_SKILL_MATHLIB_WORKSPACE", raising=False)
     root = _project(tmp_path)
     source = _write_source(root)
@@ -1164,7 +1187,7 @@ def test_verify_honours_an_explicit_refusal_to_use_lake(
 ) -> None:
     home = tmp_path / "home"
     _mathlib_workspace(home)
-    monkeypatch.setenv("HOME", str(home))
+    _set_home(monkeypatch, home)
     monkeypatch.delenv("ARGUS_SKILL_MATHLIB_WORKSPACE", raising=False)
     root = _project(tmp_path)
     source = _write_source(root)
@@ -1188,7 +1211,7 @@ def test_verify_cli_defaults_to_lake_and_takes_no_lake_back(
 ) -> None:
     home = tmp_path / "home"
     workspace = _mathlib_workspace(home)
-    monkeypatch.setenv("HOME", str(home))
+    _set_home(monkeypatch, home)
     monkeypatch.delenv("ARGUS_SKILL_MATHLIB_WORKSPACE", raising=False)
     root = _project(tmp_path)
     source = _write_source(root, MATHLIB_THEOREM)
@@ -1219,7 +1242,7 @@ def test_a_missing_library_message_says_where_it_was_looked_for(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """"Provide the library" is advice only to someone who knows the three places."""
-    monkeypatch.setenv("HOME", str(tmp_path / "no-home"))
+    _set_home(monkeypatch, tmp_path / "no-home")
     monkeypatch.delenv("ARGUS_SKILL_MATHLIB_WORKSPACE", raising=False)
     root = _project(tmp_path)
     _write_source(root, MATHLIB_THEOREM)
@@ -1251,7 +1274,7 @@ def test_a_present_but_unused_library_is_named_as_the_flags_doing(
     """The same failure with Mathlib installed is a different problem entirely."""
     home = tmp_path / "home"
     workspace = _mathlib_workspace(home)
-    monkeypatch.setenv("HOME", str(home))
+    _set_home(monkeypatch, home)
     monkeypatch.delenv("ARGUS_SKILL_MATHLIB_WORKSPACE", raising=False)
     root = _project(tmp_path)
     _write_source(root, MATHLIB_THEOREM)
@@ -1284,7 +1307,7 @@ def test_audit_answers_whether_import_mathlib_would_resolve(
 ) -> None:
     home = tmp_path / "home"
     workspace = _mathlib_workspace(home)
-    monkeypatch.setenv("HOME", str(home))
+    _set_home(monkeypatch, home)
     monkeypatch.delenv("ARGUS_SKILL_MATHLIB_WORKSPACE", raising=False)
     monkeypatch.chdir(tmp_path)
 
@@ -1342,7 +1365,7 @@ def _compiler_that_edits(path: Path, text: str):
 
 def _bare_lean(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     """A compiler that succeeds on any host, with no Mathlib in reach."""
-    monkeypatch.setenv("HOME", str(tmp_path / "no-home"))
+    _set_home(monkeypatch, tmp_path / "no-home")
     monkeypatch.delenv("ARGUS_SKILL_MATHLIB_WORKSPACE", raising=False)
     return _fake_lake(tmp_path)
 

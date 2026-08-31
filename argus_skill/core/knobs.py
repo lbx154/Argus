@@ -452,6 +452,7 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
             "codex",
             "claude",
             "copilot",
+            "cursor",
             "opencode",
             "pi",
             "grok",
@@ -459,7 +460,7 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
             "dsh",
         }:
             raise ValueError(
-                f"{name} must be codex, claude, copilot, opencode, pi, grok, qoder, or dsh"
+                f"{name} must be " + ", ".join(SUPPORTED_BACKENDS)
             )
         return backend
     if name in _EFFORT_KNOBS:
@@ -722,7 +723,7 @@ def resolve_role_backend(
     default: str | None = None,
 ) -> str:
     """Resolve a role's agent-CLI backend
-    (codex / claude / copilot / opencode / pi / grok / memory)
+    (codex / claude / copilot / cursor / opencode / pi / grok / memory)
     using Argus's runtime precedence.
 
     Thin wrapper over :func:`resolve_role_backend_with_source` for the callers

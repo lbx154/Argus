@@ -21,6 +21,7 @@ def load_agent_cli_runtime() -> dict[str, Any]:
     ``default_runner_bin`` / ``normalize_runner_backend`` helpers.
     """
     try:
+        from argus_skill.agent_cli import runner_backend as runner_backend_module
         from argus_skill.agent_cli.agent_cli_runner import (
             AgentCliRunner,
         )
@@ -38,6 +39,10 @@ def load_agent_cli_runtime() -> dict[str, Any]:
             default_runner_bin,
             normalize_runner_backend,
         )
+        # Some embedders/tests provide a minimal compatibility module containing
+        # the pre-Cursor constants.  Keep that interface loadable while exposing
+        # Cursor whenever the real bundled runtime is present.
+        BACKEND_CURSOR = getattr(runner_backend_module, "BACKEND_CURSOR", "cursor")
     except ImportError as exc:  # pragma: no cover - environmental
         raise ImportError(
             "AgentCliBackend requires the bundled argus_skill.agent_cli "
@@ -49,6 +54,7 @@ def load_agent_cli_runtime() -> dict[str, Any]:
         "BACKEND_CLAUDE": BACKEND_CLAUDE,
         "BACKEND_CODEX": BACKEND_CODEX,
         "BACKEND_COPILOT": BACKEND_COPILOT,
+        "BACKEND_CURSOR": BACKEND_CURSOR,
         "BACKEND_GROK": BACKEND_GROK,
         "BACKEND_OPENCODE": BACKEND_OPENCODE,
         "BACKEND_PI": BACKEND_PI,
