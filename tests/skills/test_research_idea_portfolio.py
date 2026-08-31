@@ -489,7 +489,7 @@ def test_unenumerated_contribution_form_can_be_selected(tmp_path: Path) -> None:
 def test_selector_may_choose_credible_late_evidence(tmp_path: Path) -> None:
     _pipeline(tmp_path)
     root = ensure_idea_portfolio(tmp_path, direction="agent reliability")
-    reviewed = _complete_review_set(tmp_path, root, count=1)
+    _complete_review_set(tmp_path, root, count=1)
     ensure_idea_portfolio(tmp_path, direction="agent reliability")
     late_route, late_review = _complete_reviewed_route(tmp_path, root, prefix="late")
 

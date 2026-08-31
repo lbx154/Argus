@@ -1,8 +1,8 @@
 """Reviewer-gated Engineer round orchestration."""
 from __future__ import annotations
 
-import logging
 import itertools
+import logging
 from pathlib import Path
 from typing import Callable
 

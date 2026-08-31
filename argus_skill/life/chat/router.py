@@ -695,7 +695,6 @@ class CommandRouter:
             self._reply("用法: /nudge <指令文本>\n会注入到当前任务的下一轮执行中")
             return
         from ...apps._inbox import queue_inbox_message
-
         from ...core.operator_context import import_deterministic_credential
 
         text, _credential = import_deterministic_credential(
