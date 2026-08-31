@@ -41,10 +41,7 @@ def test_setup_banner_uses_bold_yellow_highlight_on_tty(monkeypatch) -> None:
 
 
 def test_noninteractive_setup_requires_explicit_backend(capsys) -> None:
-    rc = setup.run_setup(
-        non_interactive=True,
-        accept_house_rules=True,
-    )
+    rc = setup.run_setup(non_interactive=True)
 
     assert rc == SETUP_EXIT_USAGE
     assert "requires --backend" in capsys.readouterr().err
@@ -86,14 +83,9 @@ def test_noninteractive_setup_validates_then_persists_without_global_mutation(
         auth_checked=True,
     )
     calls: list[str] = []
-    monkeypatch.setenv(
-        "ARGUS_SKILL_SPECIAL_PROMPTS_DIR",
-        str(tmp_path / "special-prompts"),
-    )
-    existing_house_rules = setup._write_special_prompt(
-        "10-house-rules.md",
-        "Keep operator-authored policy unchanged.\n",
-    )
+    special_prompts_dir = tmp_path / "special-prompts"
+    monkeypatch.setenv("ARGUS_SKILL_SPECIAL_PROMPTS_DIR", str(special_prompts_dir))
+
     def check(*_args, **kwargs):
         assert kwargs["runner_bin"] == "/usr/bin/copilot"
         calls.append("check")
@@ -118,14 +110,11 @@ def test_noninteractive_setup_validates_then_persists_without_global_mutation(
     rc = setup.run_setup(
         backend="copilot",
         non_interactive=True,
-        accept_house_rules=True,
     )
 
     assert rc == 0
     assert calls == ["check", "smoke:copilot", "persist"]
-    assert existing_house_rules.read_text(encoding="utf-8") == (
-        "Keep operator-authored policy unchanged.\n"
-    )
+    assert not special_prompts_dir.exists()
     assert "Setup complete. Run `argus`." in capsys.readouterr().out
 
 
@@ -329,7 +318,6 @@ def test_cli_forwards_noninteractive_setup_contract(monkeypatch) -> None:
             "codex",
             "--auth-mode",
             "subscription_cli",
-            "--accept-house-rules",
             "--allow-prerelease",
         ]
     )
@@ -338,7 +326,6 @@ def test_cli_forwards_noninteractive_setup_contract(monkeypatch) -> None:
     assert captured["backend"] == "codex"
     assert captured["auth_mode"] == "subscription_cli"
     assert captured["non_interactive"] is True
-    assert captured["accept_house_rules"] is True
     assert captured["allow_prerelease"] is True
     assert captured["api_url"] is None
     assert captured["api_key"] is None
@@ -361,7 +348,6 @@ def test_daemon_readiness_failure_prevents_spawn(monkeypatch, capsys) -> None:
             )
         ],
     )
-    monkeypatch.setattr(cli_core, "_lifetime_entry_error", lambda _args: None)
     monkeypatch.setattr(
         "argus_skill.core.backend_readiness.check_backend_readiness",
         lambda *_args, **_kwargs: report,

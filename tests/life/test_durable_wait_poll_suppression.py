@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 from argus_skill.engineer.external_work import ExternalWorkState, ExternalWorkStatus
 from argus_skill.life.event_log import JsonlEventSink
 from argus_skill.life.memory import LifeMemory
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
-from argus_skill.life.supervisor._constants import PLAN_AWAITING
+from argus_skill.life.supervisor._constants import (
+    IDLE_BACKOFF_CAP_SECONDS,
+    PLAN_AWAITING,
+)
 from argus_skill.life.supervisor._planning_cycle import PlanningCycleMixin
 from argus_skill.planner import PlannerVerdict, TaskSpec, WaitingContract
 from argus_skill.skills.vertical_select import persist_vertical
@@ -407,6 +411,74 @@ def test_unchanged_live_job_skips_planner_across_restart(
 
     assert restarted._plan_next_work() is True
     assert calls == 3
+
+
+def test_repersisted_operator_event_wait_keeps_idle_turn_throttle(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    calls = 0
+
+    def _contract() -> WaitingContract:
+        return WaitingContract(
+            blocker_fingerprint=(
+                "submission_gate_closed_no_external_submission_authorized_8d2b840c"
+            ),
+            recheck_condition="operator authorizes venue submission",
+            recheck_token="token-v1",
+            wait_mode="event",
+            wake_on=("authorization",),
+            operator_action_required=True,
+        )
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return PlannerVerdict(
+            project_done=False,
+            reason="venue submission needs operator authorization",
+            waiting=True,
+            waiting_reason="venue submission needs operator authorization",
+            waiting_contract=_contract(),
+        )
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    supervisor = _supervisor(project, life)
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 1
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+
+    wait_path = next(life.glob("planner-waiting-contract-*.json"))
+    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
+    assert wait_state["idle_capacity_turn_used"] is True
+    assert "idle_capacity_turn_ts" in wait_state
+    assert "idle_capacity_backlog_revision" in wait_state
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+    events = [
+        json.loads(raw)
+        for raw in (life / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    planner_waiting = [
+        event for event in events if event.get("type") == "life.planner.waiting"
+    ]
+    assert planner_waiting[-1]["model_call_skipped"] is True
+
+    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
+    wait_state["idle_capacity_turn_ts"] = time.time() - IDLE_BACKOFF_CAP_SECONDS - 1
+    supervisor._write_planner_waiting_contract_state(wait_state)
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 3
+
+    monkeypatch.setattr(supervisor, "_waiting_backlog_revision", lambda: "changed")
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 4
 
 
 def test_wait_persistence_rejects_state_change_after_discovery(

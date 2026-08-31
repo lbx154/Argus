@@ -589,11 +589,11 @@ def complete_final_stage(
     appears nowhere in this codebase.
 
     So: completion is refused off the final stage unless the caller says, in
-    this argument, that it has the standing to complete early. The Manager
-    passes it when ``direct`` workflow mode is resolved, which is the one
-    legitimate early-completion path and matches the flag
-    ``final_stage_completion_decision`` already takes. Everyone else — every
-    agent that can ``import argus_skill`` — now gets a ``ValueError``.
+    this argument, that it has the standing to complete early *and* the Manager
+    persisted ``direct`` workflow mode. Direct work has no staged artifact
+    contract to validate; its independent Reviewer verdict is the evidence
+    checked by the Manager before this primitive. Final-stage and staged writes
+    continue through the vertical completion validator.
 
     This is a lock, not a signature. ``completed_by`` remains free text and the
     contract fingerprint remains recomputable by anyone who can read the
@@ -606,19 +606,26 @@ def complete_final_stage(
     cur = _normalize_stage(current_stage(project_root))
     if cur not in order:
         raise ValueError(f"current stage {cur!r} is not in the active vertical")
-    if cur != order[-1] and not allow_early_completion:
+    early_completion = cur != order[-1] and allow_early_completion
+    if early_completion:
+        from .vertical_select import resolve_workflow_mode
+
+        early_completion = resolve_workflow_mode(project_root) == "direct"
+    if cur != order[-1] and not early_completion:
         raise ValueError(
             f"cannot complete at {cur!r}: it is not the final stage of the "
             f"active vertical ({order[-1]!r}), and early completion was not "
-            f"authorized. Remaining: {', '.join(order[order.index(cur) + 1:])}. "
+            f"authorized by direct workflow. Remaining: "
+            f"{', '.join(order[order.index(cur) + 1:])}. "
             "Advance through them, or pass allow_early_completion=True if the "
             "workflow mode genuinely permits stopping here."
         )
-    _ensure_stage_completion(
-        project_root,
-        cur,
-        evidence_root=evidence_root,
-    )
+    if not early_completion:
+        _ensure_stage_completion(
+            project_root,
+            cur,
+            evidence_root=evidence_root,
+        )
     from ..verticals._base import (
         load_vertical,
         vertical_completion_contract_version,

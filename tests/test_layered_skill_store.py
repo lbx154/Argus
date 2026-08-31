@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -88,7 +89,12 @@ def test_native_project_root_symlink_cannot_escape_execution_project(
     external.mkdir()
     native_root = repo / ".agents" / "skills"
     native_root.parent.mkdir(parents=True)
-    native_root.symlink_to(external, target_is_directory=True)
+    try:
+        native_root.symlink_to(external, target_is_directory=True)
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is unavailable")
+        raise
 
     store = LayeredSkillStore(
         project_dir=tmp_path / "managed",
@@ -108,7 +114,14 @@ def test_native_project_child_symlink_cannot_escape_execution_project(
     native_root.mkdir(parents=True)
     external_skill = tmp_path / "external-skill"
     external_skill.mkdir()
-    (native_root / "escape").symlink_to(external_skill, target_is_directory=True)
+    try:
+        (native_root / "escape").symlink_to(
+            external_skill, target_is_directory=True
+        )
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is unavailable")
+        raise
 
     store = LayeredSkillStore(
         project_dir=tmp_path / "managed",

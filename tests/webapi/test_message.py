@@ -449,6 +449,11 @@ def test_explicit_authorization_persists_current_blocker_and_never_dispatches(
         "validator_repair",
         "acceptance_retry",
     ]
+    assert result["reply"] == (
+        "Authorization saved for the current blocker. "
+        "The team can use it when the task resumes."
+    )
+    assert result["authorization_id"] not in result["reply"]
     event = store.get_authorization(result["authorization_id"])
     assert event is not None
     assert event["source_channel"] == "vscode"
@@ -686,6 +691,9 @@ def test_natural_pause_is_frontdoor_control_after_pending_question_manager_check
     assert result["control"] == "pause"
     assert result["pause_persisted"] is True
     assert result["item_id"] == running.id
+    assert "已暂停" in result["reply"]
+    assert "后台工作进程" in result["reply"]
+    assert "daemon" not in result["reply"]
     assert read_continuous_state(life).enabled is False
     assert (life / "running_item_abort.json").exists()
     stored = LifeMemory.open(life).backlog.all()
@@ -836,7 +844,15 @@ def test_frontdoor_classifier_failure_never_dispatches_unclassified_message(
         return None, None, "complex"
 
     monkeypatch.setattr(config_intent, "_front_door_classify", failed_classify)
-    monkeypatch.setattr(front_door, "manager_triage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        front_door,
+        "manager_triage",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError(
+                "a failed classifier must not start another Manager turn"
+            )
+        ),
+    )
 
     result = manager_bridge.manager_message(
         sid,
@@ -1684,7 +1700,7 @@ def test_manager_message_resolves_single_pending_question(
 ) -> None:
     life = _make_project(tmp_path)
     blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
-    blocked.status = "failed"
+    blocked.status = "paused_operator"
     blocked.pending_question = "Which GPU may I use?"
     LifeMemory.open(life).backlog.add(blocked)
     monkeypatch.setattr(
@@ -1718,7 +1734,7 @@ def test_non_answer_message_falls_through_without_clearing_pending_question(
 ) -> None:
     life = _make_project(tmp_path)
     blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
-    blocked.status = "failed"
+    blocked.status = "paused_operator"
     blocked.pending_question = "Which GPU may I use?"
     LifeMemory.open(life).backlog.add(blocked)
     monkeypatch.setattr(
@@ -1750,7 +1766,7 @@ def test_manager_keeps_pending_question_when_answer_is_insufficient(
 ) -> None:
     life = _make_project(tmp_path)
     blocked = BacklogItem.new(title="Choose GPU", objective="Run the matrix")
-    blocked.status = "failed"
+    blocked.status = "paused_operator"
     blocked.pending_question = "Which GPU may I use?"
     LifeMemory.open(life).backlog.add(blocked)
     monkeypatch.setattr(
@@ -1787,6 +1803,29 @@ def _parse_sse(text: str) -> list[dict]:
         if line.startswith("data:"):
             out.append(json.loads(line[len("data:"):].strip()))
     return out
+
+
+def test_turn_emitter_reports_the_role_that_owns_a_phase(tmp_path: Path) -> None:
+    from argus_skill.webapi.manager_dispatch import _TurnEmitter
+
+    frames: list[tuple[str, dict]] = []
+    emitter = _TurnEmitter(
+        life_dir=tmp_path,
+        turn_id="turn-phase",
+        fragment=lambda kind, payload: frames.append((kind, payload)),
+    )
+
+    emitter.phase("Planner is decomposing and signing off the task…", role="planner")
+
+    assert frames == [
+        (
+            "phase",
+            {
+                "role": "planner",
+                "label": "Planner is decomposing and signing off the task…",
+            },
+        )
+    ]
 
 
 def test_turn_emitter_schedules_learning_only_for_chat(tmp_path: Path) -> None:
@@ -1830,6 +1869,40 @@ def test_manager_stream_heartbeat_uses_real_silence_and_stops_on_done() -> None:
     assert [frame["type"] for frame in frames] == ["phase", "delta", "phase"]
     assert frames[0]["heartbeat"] is True and frames[0]["quiet_s"] == 10
     assert frames[2]["quiet_s"] == 10  # reset by the genuine delta at t=111
+
+
+def test_manager_stream_heartbeat_preserves_the_active_phase_role() -> None:
+    class _FakeQueue:
+        def __init__(self) -> None:
+            self.values = [
+                {
+                    "type": "phase",
+                    "role": "planner",
+                    "label": "Planner is decomposing and signing off the task…",
+                },
+                queue.Empty,
+                None,
+            ]
+
+        def get(self, timeout=None):
+            value = self.values.pop(0)
+            if value is queue.Empty:
+                raise queue.Empty
+            return value
+
+    ticks = iter([100.0, 101.0, 111.0])
+    frames = list(
+        server._iter_manager_stream_items(
+            _FakeQueue(),
+            heartbeat_s=10.0,
+            clock=lambda: next(ticks),
+        )
+    )
+
+    assert frames[1]["heartbeat"] is True
+    assert frames[1]["role"] == "planner"
+    assert frames[1]["label"].startswith("Planner · waiting")
+    assert frames[1]["quiet_s"] == 10
 
 
 def test_manager_stream_heartbeat_defaults_to_five_seconds(monkeypatch) -> None:
@@ -1941,6 +2014,71 @@ def test_message_stream_standing_task_starts_continuous_executor(
     assert spawned == {"sid": "s-msgtest0", "resume_continuous": True}
 
 
+def test_message_stream_keeps_startup_exception_in_diagnostic(
+    client: TestClient, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "argus_skill.webapi.manager_bridge.manager_message",
+        lambda sid, text, *, global_root=None, on_fragment=None, **kwargs: {
+            "kind": "task",
+            "reply": None,
+            "item": {"id": "x1", "title": "repair parser"},
+            "daemon_alive": False,
+        },
+    )
+    monkeypatch.setattr(
+        server,
+        "start_project_daemon",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("private startup traceback")
+        ),
+    )
+
+    response = client.post(
+        "/api/projects/s-msgtest0/message/stream",
+        json={"text": "repair the parser"},
+    )
+
+    result = _parse_sse(response.text)[-1]["result"]
+    assert result["daemon"]["error"] == "The background worker could not start."
+    assert result["daemon"]["diagnostic"] == (
+        "RuntimeError: private startup traceback"
+    )
+    assert "traceback" not in result["reply"]
+
+
+def test_message_stream_keeps_ack_exception_in_diagnostic(
+    client: TestClient, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "argus_skill.webapi.manager_bridge.manager_message",
+        lambda sid, text, *, global_root=None, on_fragment=None, **kwargs: {
+            "kind": "task",
+            "reply": None,
+            "item": {"id": "x1", "title": "repair parser"},
+            "daemon_alive": True,
+        },
+    )
+    monkeypatch.setattr(
+        "argus_skill.webapi.manager_pending_question.record_task_dispatch_ack",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("private transcript path")
+        ),
+    )
+
+    response = client.post(
+        "/api/projects/s-msgtest0/message/stream",
+        json={"text": "repair the parser"},
+    )
+
+    result = _parse_sse(response.text)[-1]["result"]
+    assert result["ack_error"] == (
+        "The task was queued, but its confirmation could not be saved."
+    )
+    assert result["ack_diagnostic"] == "RuntimeError: private transcript path"
+    assert "private transcript path" not in result["ack_error"]
+
+
 def test_message_stream_error_frame(client: TestClient, monkeypatch) -> None:
     """A triage crash surfaces as an ``error`` frame, not a wedged stream."""
     def _boom(sid, text, *, global_root=None, on_fragment=None, cancelled=None):
@@ -1951,7 +2089,9 @@ def test_message_stream_error_frame(client: TestClient, monkeypatch) -> None:
     assert r.status_code == 200
     frames = _parse_sse(r.text)
     assert frames[-1]["type"] == "error"
-    assert "kaboom" in frames[-1]["error"]
+    assert frames[-1]["error"] == "I couldn't finish handling that request."
+    assert frames[-1]["diagnostic"] == "RuntimeError: kaboom"
+    assert "kaboom" not in frames[-1]["error"]
 
 
 def test_message_stream_empty_400(client: TestClient) -> None:

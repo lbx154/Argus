@@ -1,4 +1,5 @@
 import type { BacklogItem, EventMsg, Snapshot } from './types';
+import { statusLabel } from './enumLabels';
 import { eventDetail, eventRole, eventTitle } from './utils';
 
 const DONE = new Set(['done', 'completed', 'accepted', 'success']);
@@ -106,12 +107,12 @@ export function deriveProgressEstimate(snapshot: Snapshot, events: EventMsg[], n
   const typicalDuration = median(durations);
   let eta: ProgressEstimate['eta'] = null;
   let etaUnavailableReason = '';
-  if (missionComplete) etaUnavailableReason = text('项目已完成，ETA 不适用', 'Project complete; ETA does not apply');
-  else if (daemonStopped) etaUnavailableReason = text('Daemon 已停止，ETA 暂停更新', 'Daemon stopped; ETA updates are paused');
-  else if (!hasActiveTask) etaUnavailableReason = text('当前没有执行中的任务，ETA 暂不可用', 'No active task; ETA is unavailable');
-  else if (replan) etaUnavailableReason = text('Reviewer 正在改变任务范围，ETA 暂不可用', 'Reviewer is changing scope; ETA is unavailable');
-  else if (!typicalDuration) etaUnavailableReason = text('同类已完成任务不足，正在建立 ETA 基线', 'Not enough completed tasks to establish an ETA baseline');
-  else if (!total || estimate == null) etaUnavailableReason = text('任务图尚未稳定，暂不估算 ETA', 'Task graph is not stable enough for an ETA');
+  if (missionComplete) etaUnavailableReason = text('项目已完成，无需预计完成时间', 'Project complete; no finish-time estimate is needed');
+  else if (daemonStopped) etaUnavailableReason = text('Argus 已停止，预计完成时间暂停更新', 'Argus stopped; the expected finish time is paused');
+  else if (!hasActiveTask) etaUnavailableReason = text('当前没有执行中的任务，暂时无法预计完成时间', 'No active task; the expected finish time is unavailable');
+  else if (replan) etaUnavailableReason = text('Reviewer 正在改变任务范围，暂时无法预计完成时间', 'The Reviewer is changing scope, so the expected finish time is unavailable');
+  else if (!typicalDuration) etaUnavailableReason = text('同类已完成任务不足，正在建立时间基线', 'Not enough completed tasks to establish a time baseline');
+  else if (!total || estimate == null) etaUnavailableReason = text('任务路线尚未稳定，暂不预计完成时间', 'The task route is not stable enough to estimate a finish time');
   else {
     const remainingEquivalent = Math.max(0, total - completed - (activeInDag ? fraction : 0));
     const center = remainingEquivalent * typicalDuration;
@@ -133,17 +134,17 @@ export function deriveProgressEstimate(snapshot: Snapshot, events: EventMsg[], n
   ];
   if (missionComplete) checkpoints = checkpoints.map((checkpoint) => ({ ...checkpoint, status: 'done' as const, detail: checkpoint.status === 'done' ? checkpoint.detail : text('项目已完成', 'Project complete') }));
   else if (replan) checkpoints = checkpoints.map((checkpoint) => checkpoint.status === 'done' ? checkpoint : { ...checkpoint, status: 'blocked' as const, detail: text('等待 Reviewer 重新规划任务范围', 'Waiting for Reviewer to replan scope') });
-  else if (daemonStopped) checkpoints = checkpoints.map((checkpoint) => checkpoint.status === 'active' ? { ...checkpoint, status: 'blocked' as const, detail: text('Daemon 已停止', 'Daemon stopped') } : checkpoint);
+  else if (daemonStopped) checkpoints = checkpoints.map((checkpoint) => checkpoint.status === 'active' ? { ...checkpoint, status: 'blocked' as const, detail: text('Argus 已停止', 'Argus stopped') } : checkpoint);
 
   return {
     confirmed,
     estimate,
     range,
     confidence,
-    basis: replan ? text('Reviewer 正在重新规划，仅显示确定完成部分', 'Reviewer is replanning; only confirmed completion is shown') : total ? text('任务状态 + 事件里程碑（试验估算）', 'Task state + event milestones (experimental estimate)') : text('任务图尚未建立', 'Task graph not established'),
+    basis: replan ? text('Reviewer 正在重新规划，仅显示确定完成部分', 'Reviewer is replanning; only confirmed completion is shown') : total ? text('根据任务状态和事件里程碑估算', 'Estimated from task status and event milestones') : text('任务路线尚未建立', 'Task route not established'),
     currentTask: current?.title || view?.mission.title || text('等待新任务', 'Waiting for a new task'),
     currentRole: daemonStopped ? 'stopped' : activeRole || eventRole(latest ?? {}) || 'idle',
-    currentStep: missionComplete ? text('项目已完成', 'Project complete') : replan ? text(`Reviewer 要求重新规划 · ${view?.review?.status || 'replan'}`, `Reviewer requested replanning · ${view?.review?.status || 'replan'}`) : daemonStopped ? text(`已停止 · 最后执行到 ${latest ? eventTitle(latest) : current?.status || '未知步骤'}`, `Stopped · last step: ${latest ? eventTitle(latest) : current?.status || 'unknown'}`) : latest ? eventTitle(latest) : current?.status || text('等待事件', 'Waiting for events'),
+    currentStep: missionComplete ? text('项目已完成', 'Project complete') : replan ? text(`Reviewer 要求重新规划 · ${statusLabel(view?.review?.status || 'replan', text)}`, `Reviewer requested replanning · ${statusLabel(view?.review?.status || 'replan', text)}`) : daemonStopped ? text(`已停止 · 最后执行到 ${latest ? eventTitle(latest) : statusLabel(current?.status, text)}`, `Stopped · last step: ${latest ? eventTitle(latest) : statusLabel(current?.status, text)}`) : latest ? eventTitle(latest) : current?.status ? statusLabel(current.status, text) : text('等待动态', 'Waiting for activity'),
     currentDetail: latest ? eventDetail(latest, 700) : current?.objective || '',
     elapsedSeconds: elapsed,
     eta,

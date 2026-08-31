@@ -1059,8 +1059,18 @@ def record_task_dispatch_ack(
         if daemon.get("admission_required"):
             text = "waiting for an executor slot"
         elif int(daemon.get("rc", 0)) != 0:
-            error = daemon.get("error", "unknown error")
-            text = f"executor failed to start: {error}"
+            diagnostic = str(
+                daemon.get("startup_diagnostic")
+                or daemon.get("diagnostic")
+                or daemon.get("error")
+                or "unknown error"
+            )
+            daemon["diagnostic"] = diagnostic
+            daemon["error"] = "The background worker could not start."
+            text = (
+                "The background worker could not start. "
+                "Check its startup details and try again."
+            )
         else:
             text = "executor started"
     else:
@@ -1085,10 +1095,11 @@ def record_task_dispatch_ack(
             fh.write(_json.dumps(rec, ensure_ascii=False) + "\n")
     except OSError as exc:
         text = (
-            f"Could not persist session state to {transcript_path}: {exc}. "
-            "The mission remains in the backlog."
+            "The mission is queued, but I couldn't save its confirmation. "
+            "It remains in the queue."
         )
         result["ack_error"] = text
+        result["ack_diagnostic"] = f"{transcript_path}: {exc}"
 
     if callable(on_fragment):
         try:

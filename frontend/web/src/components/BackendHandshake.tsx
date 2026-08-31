@@ -3,7 +3,7 @@ import { useI18n } from '../i18n';
 import { useGsapMotion } from '../lib/motion';
 import { ArgusMark } from './Wordmark';
 
-const STEPS = ['API', 'Protocol', 'Workspace'];
+const STEPS = ['handshake.service', 'handshake.project', 'handshake.ready'];
 
 export function BackendHandshake() {
   const { t } = useI18n();
@@ -64,13 +64,13 @@ export function BackendHandshake() {
               <span data-handshake-node className="handshake-node h-6 w-6 rounded-full border ring-4 ring-bg">
                 <span className="m-auto mt-[7px] block h-2 w-2 rounded-full bg-blue" />
               </span>
-              <span className="text-xs font-medium text-ink-faint">{step}</span>
+              <span className="text-xs font-medium text-ink-faint">{t(step)}</span>
             </div>
           ))}
         </div>
       </div>
-      <p className="mt-9 text-base font-medium text-ink-dim">Connecting to Argus</p>
-      <p className="mt-1.5 text-sm text-ink-faint">Negotiating protocol and restoring your workspace…</p>
+      <p className="mt-9 text-base font-medium text-ink-dim">{t('handshake.title')}</p>
+      <p className="mt-1.5 text-sm text-ink-faint">{t('handshake.detail')}</p>
     </div>
   );
 }

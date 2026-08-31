@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 
 from argus_skill.engineer.external_work import ExternalWorkState, scan_external_work
-from argus_skill.tools.resource_ledger.ledger import ResourceLedger, owner_identity
 from argus_skill.tools.resource_ledger import cli as ledger_cli
+from argus_skill.tools.resource_ledger.ledger import ResourceLedger, owner_identity
 from argus_skill.tools.resource_ledger.probe import NvidiaAdapter, ResourceProbe
 from argus_skill.tools.subagent import _cli as subagent_cli
 from argus_skill.tools.subagent import _resource_admission
@@ -226,16 +226,22 @@ def test_direct_worker_exports_grant_env_and_releases(
         "run_id": "env-run",
         "resource_demand": _demand("env test"),
     })
+    command = (
+        "powershell.exe -NoProfile -NonInteractive -Command "
+        "Write-Output $env:CUDA_VISIBLE_DEVICES"
+        if os.name == "nt"
+        else "printf '%s' \"$CUDA_VISIBLE_DEVICES\""
+    )
     _run_direct(
         "env-task",
-        "printf '%s' \"$CUDA_VISIBLE_DEVICES\"",
+        command,
         "env",
         timeout=10,
         cwd=str(tmp_path),
     )
     record = _read_task("env-task") or {}
     assert record["state"] == "done"
-    assert record["stdout_tail"] == "0"
+    assert record["stdout_tail"].strip() == "0"
     assert record["resource_grant_id"]
     assert ledger.status(refresh_probe=False)["grants"] == []
 
@@ -282,7 +288,8 @@ def test_run_wrapper_releases_on_normal_exit(tmp_path: Path) -> None:
     result = subprocess.run(
         [
             sys.executable, "-m", "argus_skill.tools.resource_ledger", "run",
-            "--accelerator", "none", "--ttl", "1", "--", "/bin/true",
+            "--accelerator", "none", "--ttl", "1", "--",
+            sys.executable, "-c", "pass",
         ],
         env=_run_env(root),
         check=False,

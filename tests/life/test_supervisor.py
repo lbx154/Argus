@@ -239,6 +239,103 @@ def test_crash_after_mission_claim_requeues_audit_and_reemits_started(
     assert started[0]["item_id"] == item.id
 
 
+def test_serial_claim_lost_does_not_rollback_another_ready_item(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    first = memory.backlog.add(BacklogItem.new(
+        title="stale",
+        objective="already handled elsewhere",
+        priority=1,
+    ))
+    second = memory.backlog.add(BacklogItem.new(
+        title="still ready",
+        objective="must remain untouched",
+        priority=2,
+    ))
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_MaintenanceRunner(),
+        sink=_RecordingSink(memory.root),
+        config=LifeSupervisorConfig(project_worktree=tmp_path),
+    )
+    original_next_pending = memory.backlog.next_pending
+    original_update = memory.backlog.update
+    raced = False
+    updates: list[tuple[str, dict[str, Any]]] = []
+
+    def stale_next_pending(*args: Any, **kwargs: Any) -> BacklogItem | None:
+        nonlocal raced
+        item = original_next_pending(*args, **kwargs)
+        if not raced and item is not None and item.id == first.id:
+            raced = True
+            assert original_update(first.id, status="done") is not None
+        return item
+
+    def recording_update(item_id: str, **fields: Any) -> BacklogItem | None:
+        updates.append((item_id, dict(fields)))
+        return original_update(item_id, **fields)
+
+    monkeypatch.setattr(memory.backlog, "next_pending", stale_next_pending)
+    monkeypatch.setattr(memory.backlog, "update", recording_update)
+
+    result = supervisor.tick()
+
+    rows = {item.id: item for item in memory.backlog.all()}
+    assert result == {"status": "claim_lost", "item_id": first.id}
+    assert rows[first.id].status == "done"
+    assert rows[second.id].status == "pending"
+    assert not any(
+        item_id == second.id and fields.get("status") == "pending"
+        for item_id, fields in updates
+    )
+
+
+def test_claim_lost_is_not_counted_as_mission(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    first = memory.backlog.add(BacklogItem.new(
+        title="stale",
+        objective="already completed by another supervisor",
+        priority=1,
+    ))
+    second = memory.backlog.add(BacklogItem.new(
+        title="still ready",
+        objective="run after the coordination miss",
+        priority=2,
+    ))
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_MaintenanceRunner(),
+        sink=_RecordingSink(memory.root),
+        config=LifeSupervisorConfig(project_worktree=tmp_path),
+    )
+    original_next_pending = memory.backlog.next_pending
+    raced = False
+
+    def stale_next_pending(*args: Any, **kwargs: Any) -> BacklogItem | None:
+        nonlocal raced
+        item = original_next_pending(*args, **kwargs)
+        if not raced and item is not None and item.id == first.id:
+            raced = True
+            assert memory.backlog.update(first.id, status="done") is not None
+        return item
+
+    monkeypatch.setattr(memory.backlog, "next_pending", stale_next_pending)
+
+    result = supervisor.run()
+
+    assert result["missions_started"] == 0
+    assert result["missions_run"] == 0
+    assert result["results"] == []
+    rows = {item.id: item for item in memory.backlog.all()}
+    assert rows[first.id].status == "done"
+    assert rows[second.id].status == "pending"
+
+
 def test_framework_maintenance_uses_private_worktree_and_review(
     tmp_path,
     monkeypatch,
@@ -338,6 +435,11 @@ def test_framework_maintenance_uses_private_worktree_and_review(
         option["id"] for option in settled.operator_decision["options"]
     ] == ["adopt", "decline"]
     assert settled.operator_decision["decision_kind"] == "framework_deployment"
+    assert settled.pending_question == (
+        "The change for “repair framework” passed review. Should I run repository CI "
+        "and the acceptance check (python -c \"from pathlib import Path; "
+        "raise SystemExit(not Path('reviewed-change.txt').is_file())\"), then apply it?"
+    )
     sidecar = json.loads(
         (memory.root / "maintenance" / "pending" / f"{item.id}.json").read_text(
             encoding="utf-8"
@@ -747,14 +849,38 @@ def test_budget_pause_is_published_once_in_operator_chat(tmp_path) -> None:
     assert sup._emit(event)
 
     (turn,) = read_turns(mem.root)
-    assert "预算不足" in turn["text"]
+    assert "Paused because this project reached its budget limit" in turn["text"]
     assert "Long experiment" in turn["text"]
+    assert "Existing work is saved" in turn["text"]
+    assert "CHECKPOINT.md" not in turn["text"]
     ui_events = [
         event
         for line in (mem.root / "events.jsonl").read_text(encoding="utf-8").splitlines()
         if (event := json.loads(line)).get("type") == "ui.argus"
     ]
     assert len(ui_events) == 1
+
+
+def test_budget_pause_uses_chinese_for_a_chinese_task(tmp_path) -> None:
+    mem = LifeMemory.open(tmp_path / "life")
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_ResearchBreakthroughRunner(),
+        sink=_RecordingSink(mem.root),
+    )
+
+    assert sup._emit({
+        "type": EventType.LIFE_BUDGET_PAUSE,
+        "item_id": "task-zh",
+        "title": "运行完整实验",
+        "reason": "项目预算已用完",
+    })
+
+    (turn,) = read_turns(mem.root)
+    assert turn["text"] == (
+        "项目已达到预算上限，任务已暂停：运行完整实验。\n"
+        "现有进度已保存；提高项目预算或缩小任务后即可继续。"
+    )
 
 
 def test_research_incomplete_mission_is_paused_and_resumable(tmp_path) -> None:

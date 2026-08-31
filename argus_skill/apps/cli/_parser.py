@@ -381,11 +381,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="with --setup: never prompt; requires --backend or --api-url",
     )
     capability_grp.add_argument(
-        "--accept-house-rules",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
-    capability_grp.add_argument(
         "--allow-prerelease",
         action="store_true",
         help="allow an explicitly selected prerelease backend CLI",
@@ -504,7 +499,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
     doctor_parser = subparsers.add_parser(
         "doctor",
-        help="Diagnose and repair Argus with an installed Code Agent",
+        help="Diagnose Argus; repairs require an explicit option",
     )
     doctor_parser.add_argument(
         "--json",
@@ -529,8 +524,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument(
         "--advisor",
         choices=("auto", "none", *SUPPORTED_BACKENDS),
-        default="auto",
-        help="ask an installed Code Agent to inspect and repair Argus (default: auto)",
+        default="none",
+        help="explicitly ask an installed Code Agent to inspect and repair Argus (default: none)",
     )
     repair_parser = subparsers.add_parser(
         "repair",

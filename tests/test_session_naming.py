@@ -189,7 +189,7 @@ def test_mission_context_renders_objective_when_event_carries_it():
     # mission-context line shows the real goal instead of "objective=-".
     ev = {"item_id": "it-1", "title": "kernel work", "objective": "hit SOL on 079"}
     bits = _format_follow_mission_context(ev)
-    assert "objective=hit SOL on 079" in bits
-    # ...and degrades to "-" only when genuinely absent.
+    assert "hit SOL on 079" in bits
+    # ...and uses a human-readable fallback only when genuinely absent.
     bits2 = _format_follow_mission_context({"item_id": "it-2"})
-    assert "objective=-" in bits2
+    assert bits2 == ["current task"]

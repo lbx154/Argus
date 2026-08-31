@@ -1344,7 +1344,18 @@ class SkillLoopExecuteMixin:
         summary_lines = []
         visible_engineer_message = strip_named_lines(
             engineer_message,
-            ("MILESTONE_STATUS", "NEXT_OWNER", "OPERATOR_QUESTION", "OPERATOR_OPTIONS"),
+            (
+                "MILESTONE_STATUS",
+                "NEXT_OWNER",
+                "OPERATOR_QUESTION",
+                "OPERATOR_OPTIONS",
+                "ROLE_DECISION",
+            ),
+        )
+        from ..engineer.external_work import strip_external_wait_footer
+
+        visible_engineer_message = strip_external_wait_footer(
+            visible_engineer_message
         )
         for line in visible_engineer_message.splitlines():
             cleaned = line.strip()
@@ -1374,6 +1385,7 @@ class SkillLoopExecuteMixin:
                 getattr(outcome, "final_review_reason", "") or ""
             ),
             final_review_next_action=ex_state.final_review_next_action,
+            final_message=engineer_message,
             summary=summary,
             research_result=(
                 getattr(

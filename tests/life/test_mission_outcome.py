@@ -15,6 +15,7 @@ from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.mission_outcome import (
     mission_outcome_class,
     mission_outcome_dimensions,
+    outcome_dimension_summary,
     review_keeps_mission_resumable,
 )
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
@@ -95,6 +96,51 @@ def test_completed_event_carries_existing_engineer_summary(tmp_path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("open_ended", "expected_complete"),
+    [(False, True), (True, False)],
+)
+def test_manager_complete_is_project_complete_only_for_bounded_campaign(
+    tmp_path,
+    open_ended: bool,
+    expected_complete: bool,
+) -> None:
+    outcome = _Outcome(
+        success=True,
+        status="done",
+        final_review_status="done",
+        final_review_source="reviewer",
+    )
+    outcome.stage_transition = {
+        "action": "complete",
+        "target_stage": "setup",
+    }
+    supervisor, sink = _make_supervisor(tmp_path, outcome)
+    supervisor.config.continuous = True
+    supervisor.config.open_ended = open_ended
+    supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title="Complete the direct objective",
+            objective="Finish one reviewed direct task.",
+            tags=["manager_direct", "scope:bounded", "stage_closing"],
+            manager_decision={
+                "routed": True,
+                "vertical": "software",
+                "workflow_mode": "direct",
+            },
+        )
+    )
+
+    result = supervisor.tick()
+
+    assert result is not None
+    assert result["overall_complete"] is expected_complete
+    assert result["campaign_continues"] is not expected_complete
+    event = _completed_event(sink)
+    assert event["overall_complete"] is expected_complete
+    assert event["campaign_continues"] is not expected_complete
+
+
+@pytest.mark.parametrize(
     ("status", "success", "expected"),
     [
         ("done", True, "completed"),
@@ -133,6 +179,25 @@ def test_review_only_outcome_marks_stage_transition_intentionally_skipped() -> N
     )
 
     assert outcome["stage_certification"] == "intentionally_skipped"
+
+
+def test_outcome_summary_uses_human_labels_instead_of_raw_dimensions() -> None:
+    summary = outcome_dimension_summary({
+        "execution_status": "paused",
+        "review_status": "continue",
+        "stage_certification": "not_certified",
+        "interruption_kind": "budget_exhausted",
+        "resumable": True,
+    })
+
+    assert summary == [
+        "Work paused",
+        "Review requested another pass",
+        "Stage remains open",
+        "Stopped at the budget limit",
+        "Can resume",
+    ]
+    assert not any("=" in part or "_" in part for part in summary)
 
 
 @pytest.mark.parametrize(
@@ -490,6 +555,119 @@ def test_external_work_wait_releases_and_auto_resumes_the_mission(tmp_path) -> N
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.status == "pending"
     assert stored.attempt == 2
+
+
+def test_runtime_preserves_long_external_wait_message_for_lifecycle_pause(
+    tmp_path,
+) -> None:
+    final_message = (
+        "x" * 1300
+        + '\n{"wait_for":"external_work","wait_id":"job-1"}'
+    )
+    loop_outcome = LoopOutcome(
+        status="paused_external_work",
+        rounds=[],
+        final_message=final_message,
+        reason="healthy external work is still running",
+        workdir=str(tmp_path),
+        recoverable=True,
+    )
+    execute_state = _ExecuteState()
+    execute_state.outcome = loop_outcome
+    execute_state.effective_status = "paused_external_work"
+    execute_state.effective_recoverable = True
+    execute_state.effective_reason = loop_outcome.reason
+    runtime_outcome = _SkillLoopRunner.__new__(
+        _SkillLoopRunner
+    )._build_execute_outcome(execute_state)
+    supervisor, sink = _make_supervisor(tmp_path, runtime_outcome)
+    workdir = supervisor._project_workdir()
+    registry = workdir / ".argus_external_work"
+    registry.mkdir(parents=True)
+    (registry / "job-1.json").write_text(json.dumps({
+        "version": 1,
+        "work_id": "job-1",
+        "state": "running_healthy",
+        "heartbeat_at": time.time(),
+        "stale_after_seconds": 300,
+        "poll_after_seconds": 30,
+        "description": "long benchmark",
+    }), encoding="utf-8")
+    item = supervisor.memory.backlog.add(
+        BacklogItem.new(title="benchmark", objective="wait on external work")
+    )
+
+    result = supervisor.tick()
+
+    assert runtime_outcome.final_message == final_message
+    assert result is not None and result["status"] == "paused_external_work"
+    assert result["recoverable"] is True
+    assert result["external_wait"]["work_id"] == "job-1"
+    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
+    assert stored.status == "paused_external_work"
+    assert stored.outcome["external_wait"]["work_id"] == "job-1"
+    assert _completed_event(sink)["external_wait"]["work_id"] == "job-1"
+
+
+def test_runtime_summary_omits_role_and_external_wait_control_lines() -> None:
+    final_message = "\n".join([
+        "Started the durable job.",
+        'ARGUS_ROLE_DECISION={"role":"engineer","payload":{"status":"done"}}',
+        '{"wait_for":"external_work","wait_id":"job-1"}',
+    ])
+    loop_outcome = LoopOutcome(
+        status="paused_external_work",
+        rounds=[],
+        final_message=final_message,
+        reason="healthy external work is still running",
+        workdir="/tmp/project",
+        recoverable=True,
+    )
+    execute_state = _ExecuteState()
+    execute_state.outcome = loop_outcome
+    execute_state.effective_status = "paused_external_work"
+    execute_state.effective_recoverable = True
+    execute_state.effective_reason = loop_outcome.reason
+
+    runtime_outcome = _SkillLoopRunner.__new__(
+        _SkillLoopRunner
+    )._build_execute_outcome(execute_state)
+
+    assert runtime_outcome.final_message == final_message
+    assert runtime_outcome.summary == "Started the durable job."
+
+
+def test_runtime_summary_preserves_nonfinal_wait_protocol_example() -> None:
+    engineer_message = (
+        'For reference, use {"wait_for":"external_work","wait_id":"job-1"}.\n'
+        "The job has now completed."
+    )
+    loop_outcome = LoopOutcome(
+        status="done",
+        rounds=[
+            RoundRecord(
+                round_index=1,
+                engineer_message=engineer_message,
+                engineer_exit_code=0,
+                review=None,
+            )
+        ],
+        final_message=engineer_message,
+        reason="",
+        workdir=".",
+    )
+    execute_state = _ExecuteState()
+    execute_state.outcome = loop_outcome
+    execute_state.effective_status = "done"
+
+    runtime_outcome = _SkillLoopRunner.__new__(
+        _SkillLoopRunner
+    )._build_execute_outcome(execute_state)
+
+    assert runtime_outcome.summary == (
+        'For reference, use {"wait_for":"external_work","wait_id":"job-1"}. '
+        "The job has now completed."
+    )
 
 
 def test_daemon_reconciles_project_registry_from_unrelated_cwd(

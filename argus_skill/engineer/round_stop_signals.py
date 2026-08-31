@@ -380,6 +380,7 @@ def operator_abort_review_decision(
     *,
     fatal_error: str | None,
     exit_code: int,
+    engineer_aborted_before_review: bool = False,
 ) -> ReviewDecision:
     return ReviewDecision(
         status="blocked",
@@ -388,6 +389,7 @@ def operator_abort_review_decision(
         # shutdown. Keep it structural so the distinction survives being read
         # apart from the round record that also carries ``stop_kind``.
         backend_stop_kind="operator_abort",
+        engineer_aborted_before_review=engineer_aborted_before_review,
         reason="The operator requested this mission be aborted.",
         next_action=(
             "This item was intentionally aborted, not a crash — the daemon "

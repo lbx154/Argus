@@ -113,28 +113,32 @@ def test_early_completion_is_still_available_to_a_caller_with_standing(
 ) -> None:
     """``direct`` workflow mode is a real path and must not be broken.
 
-    The gate is the argument, not the stage: this asserts the parameter is
-    honored. Whether the *deterministic completion validator* then passes is a
-    separate question this test does not prejudge, so a ``StageCompletionError``
-    is an acceptable outcome — what must not happen is the flat ``ValueError``
-    refusal about stage position.
+    The explicit argument and persisted direct workflow jointly carry standing.
+    Direct work does not require a staged artifact bundle.
     """
-    from argus_skill.skills.stage_machine import StageCompletionError
-
     root = _project(tmp_path, stage="scope", mode="direct")
 
-    try:
+    complete_final_stage(
+        root,
+        reason="direct mode stops here",
+        completed_by="manager",
+        allow_early_completion=True,
+    )
+
+    assert vertical_completion_certificate_status(root, "math")["ok"] is True
+
+
+def test_early_completion_flag_cannot_bypass_staged_workflow(
+    tmp_path: Path,
+) -> None:
+    root = _project(tmp_path, stage="scope", mode="staged")
+
+    with pytest.raises(ValueError, match="direct workflow"):
         complete_final_stage(
             root,
-            reason="direct mode stops here",
+            reason="staged work is not done",
             completed_by="manager",
             allow_early_completion=True,
-        )
-    except StageCompletionError:
-        pass
-    except ValueError as exc:  # pragma: no cover - the regression itself
-        assert "not the final stage" not in str(exc), (
-            "allow_early_completion did not reach the stage-position check"
         )
 
 

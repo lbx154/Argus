@@ -690,3 +690,49 @@ def test_copilot_tool_lines_are_forwarded_for_live_progress() -> None:
     assert _needed_for_live_progress("stdout", _tool_start_line("view", {"path": "/a"}))
     assert _needed_for_live_progress("simple-1.stdout", _tool_complete_line())
     assert not _needed_for_live_progress("stderr", _tool_start_line("view", {"path": "/a"}))
+
+
+def test_cursor_tool_call_lifecycle_streams_start_without_success_duplicate() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    started = json.dumps({
+        "type": "tool_call",
+        "subtype": "started",
+        "call_id": "cursor-1",
+        "tool_call": {"shellToolCall": {"args": {"command": "git status"}}},
+    })
+    completed = json.dumps({
+        "type": "tool_call",
+        "subtype": "completed",
+        "call_id": "cursor-1",
+        "tool_call": {"shellToolCall": {"result": {"exitCode": 0}}},
+    })
+
+    cb("engineer.stdout", started)
+    cb("engineer.stdout", completed)
+
+    assert len(sink.events) == 1
+    assert sink.events[0]["kind"] == "command_execution"
+    assert sink.events[0]["text"] == "git status"
+    assert sink.events[0]["status"] == "running"
+
+
+def test_cursor_failed_tool_call_emits_definite_failure() -> None:
+    sink = _RecordingSink()
+    cb = make_stream_progress_callback(sink)
+    cb("engineer.stdout", json.dumps({
+        "type": "tool_call",
+        "subtype": "started",
+        "call_id": "cursor-2",
+        "tool_call": {"shellToolCall": {"args": {"command": "false"}}},
+    }))
+    cb("engineer.stdout", json.dumps({
+        "type": "tool_call",
+        "subtype": "completed",
+        "call_id": "cursor-2",
+        "tool_call": {"shellToolCall": {"result": {"exitCode": 1, "output": "failed"}}},
+    }))
+
+    assert len(sink.events) == 2
+    assert sink.events[-1]["status"] == "failed"
+    assert sink.events[-1]["exit_code"] == 1

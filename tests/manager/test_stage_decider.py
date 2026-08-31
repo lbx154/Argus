@@ -44,6 +44,49 @@ def test_prompt_uses_minimal_reviewer_verdict() -> None:
         assert removed not in prompt
 
 
+def test_completion_report_prompt_contains_all_stage_information() -> None:
+    from argus_skill.roles.prompts.manager import (
+        build_project_completion_report_prompt,
+    )
+
+    prompt = build_project_completion_report_prompt(
+        objective="Complete the project.",
+        completion_reason="The final stage is done.",
+        completion_context={
+            "current_stage": "submission",
+            "stages": {
+                "research": {"status": "done"},
+                "submission": {"status": "done"},
+            },
+            "stage_history": [
+                {
+                    "from_stage": "research",
+                    "to_stage": "plan",
+                    "reason": "research accepted",
+                }
+            ],
+            "rollback_history": [
+                {
+                    "from_stage": "submission",
+                    "to_stage": "draft",
+                    "reason": "draft needed repair",
+                }
+            ],
+            "stage_reviews": {
+                "research": {"review_status": "done"},
+                "submission": {"review_status": "done"},
+            },
+        },
+    )
+
+    assert "completion report, not another review" in prompt
+    assert '"research": {' in prompt
+    assert '"submission": {' in prompt
+    assert "research accepted" in prompt
+    assert "draft needed repair" in prompt
+    assert '"stage_reviews"' in prompt
+
+
 def test_parse_advance_immediate_ok() -> None:
     decision = parse_stage_decision(
         '{"action":"advance","target_stage":"plan","reason":"ok"}',

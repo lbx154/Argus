@@ -28,14 +28,14 @@ OPERATIONS = frozenset(
 
 _PLANNER_DECISION_FOOTER = decision_footer_instruction(
     "PROJECT_DONE=false\n"
-    "REASON=why\n"
+    "REASON=one clear operator-language sentence with the decision and what happens next\n"
     "TASK_KEY=k1\n"
     "TASK_DEPS=\n"
     "TASK_TITLE=Launch the strongest untested attack on the core hypothesis\n"
     "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance"
 )
 _BOUNDED_DAG_FOOTER = decision_footer_instruction(
-    "PLAN_REASON=why this is a coherent executable DAG\n"
+    "PLAN_REASON=one clear operator-language sentence with the decision and what happens next\n"
     "TASK_KEY=k1\n"
     "TASK_DEPS=\n"
     "TASK_TITLE=Launch the strongest untested attack on the core hypothesis\n"
@@ -76,7 +76,9 @@ Do not edit project files; Engineer owns edits, commands, tests, iteration.
 - External waits: `blocker_fingerprint`, `recheck_condition`, `recheck_token`, semantically
   `wake_on` (synonyms/combined sources), and `watched_paths`; `operator_action_required`
   is operator-only. Host chooses an event or bounded poll.
-- Use the operator's language.
+- REASON and PLAN_REASON are operator-facing. In the operator's language, state
+  what was decided and its next consequence in one clear sentence. Do not emit
+  field names or status tokens in their values.
 """ + _PLANNER_DECISION_FOOTER + """
 
 The footer may optionally end with `PLAN_UPDATE=` followed by the complete
@@ -167,6 +169,64 @@ def preview_request(project_root: Path | str) -> RolePromptRequest:
         operation=PLAN_PREVIEW,
         project_root=project_root,
     )
+
+
+def build_bounded_single_task_prompt(
+    objective: str,
+    *,
+    project_root: Path | str | None = None,
+    state_root: Path | str | None = None,
+    require_independent_review: bool = True,
+) -> str:
+    """Planner sign-off for a Manager-decided single coherent work package.
+
+    This is still a real Planner decision and produces the same validated DAG
+    contract. It removes only multi-track deliberation that the Manager already
+    ruled out with ``workflow_mode=direct``.
+    """
+    shell_contract = native_shell_contract()
+    shell_block = "\n\n" + shell_contract if shell_contract else ""
+    review_policy = (
+        " Independent review is required after Engineer; set "
+        "TASK_REQUIRE_INDEPENDENT_REVIEW=true."
+        if require_independent_review
+        else " Independent review was explicitly waived."
+    )
+    prompt = (
+        "You are the Planner signing one Manager-approved coherent work package. "
+        "Do not do the work and do not create multiple nodes. Issue exactly one "
+        "executable DAG node whose owner is Engineer; Reviewer remains Host-invoked."
+        + review_policy
+        + shell_block
+        + "\n\nRules:\n"
+        "- Preserve the Manager handoff exactly: paths, requested outputs, order, "
+        "constraints, exclusions, and stopping conditions.\n"
+        "- Name the concrete work and one decisive acceptance check that fails when "
+        "the requested result is wrong.\n"
+        "- Do not add planning documents, Git ceremony, cleanup, a review-only node, "
+        "or unrelated research.\n"
+        "- End immediately with PLAN_REASON and one TASK_* block. Use TASK_KEY=k1, "
+        "an empty TASK_DEPS, a concise TASK_TITLE, the complete TASK_OBJECTIVE, "
+        "TASK_ACCEPTANCE_CHECK, TASK_NON_GOALS when present, and "
+        "TASK_REQUIRE_INDEPENDENT_REVIEW.\n\n"
+        + _BOUNDED_DAG_FOOTER
+        + "\n\n"
+        + _reviewed_facts_block()
+        + "\n\nManager execution handoff:\n"
+        + objective.strip()
+    )
+    policy_root = state_root if state_root is not None else project_root
+    if policy_root is not None:
+        from ...core.operator_context import build_operator_context_block
+
+        operator_context, _revision = build_operator_context_block(
+            "planner", policy_root
+        )
+        if operator_context:
+            from ...core.operator_context import append_operator_context
+
+            prompt = append_operator_context(prompt, operator_context)
+    return prompt
 
 
 def build_bounded_dag_prompt(
@@ -265,8 +325,11 @@ def build_bounded_dag_prompt(
         "(project-relative nested repository), and "
         "`require_independent_review` when useful. Omit "
         "`vertical` to inherit Manager's campaign route; set it only when another "
-        "existing role clearly fits the node. Use the operator objective's "
-        "language. Keys must be unique and the graph acyclic.\n\n"
+        "existing role clearly fits the node. REASON and PLAN_REASON are "
+        "operator-facing. In the operator objective's language, state what was "
+        "decided and its next consequence in one clear sentence. Do not emit field "
+        "names or status tokens in their values. Keys must be unique and the graph "
+        "acyclic.\n\n"
         + _BOUNDED_DAG_FOOTER
         + "\n\n"
         + _reviewed_facts_block()
@@ -294,12 +357,18 @@ def build_bounded_dag_repair_prompt(
     project_root: Path | str | None = None,
     state_root: Path | str | None = None,
     require_independent_review: bool = True,
+    single_package: bool = False,
 ) -> str:
     """Request one complete replacement after a mechanically invalid DAG."""
     prior = sanitize_model_visible_text(str(previous_output or "")[-40_000:])
     error = sanitize_model_visible_text(str(validation_error or ""))
+    builder = (
+        build_bounded_single_task_prompt
+        if single_package
+        else build_bounded_dag_prompt
+    )
     return (
-        build_bounded_dag_prompt(
+        builder(
             objective,
             project_root=project_root,
             state_root=state_root,
@@ -691,6 +760,7 @@ __all__ = [
     "PARALLEL_DRAFT",
     "PLAN_PREVIEW",
     "build_bounded_dag_prompt",
+    "build_bounded_single_task_prompt",
     "build_continuous_prompt",
     "build_continuous_resume_prompt",
     "continuous_request",

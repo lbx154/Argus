@@ -86,6 +86,18 @@ def test_bounded_reviewer_only_gates_on_mission_relevant_items() -> None:
     assert "research.literature" in text
 
 
+def test_bounded_reviewer_submission_stage_keeps_submission_markers() -> None:
+    text = format_stage_checklist("submission", role="reviewer", scope="bounded")
+
+    assert "## Stage checklist (submission)" in text
+    assert "Full pipeline checklist" not in text
+    assert "bounded mission" in text
+    assert "only the checklist items materially touched by this mission" in text
+    assert "submission.upstream" in text
+    assert "submission.anonymous" in text
+    assert "research.literature" not in text
+
+
 def test_plan_benchmark_checklist_supports_clinical_mechanism_projects() -> None:
     text = format_stage_checklist("plan", role="reviewer")
     assert "Clinical or mechanism projects" in text

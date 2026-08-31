@@ -137,13 +137,6 @@ def _review_forward_progress(review: ReviewDecision) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
-def _review_plan_signal(review: ReviewDecision) -> str:
-    report = review.planner_report
-    if not isinstance(report, dict):
-        return ""
-    return str(report.get("plan_signal") or "").strip().lower()
-
-
 def _blocked_on_healthy_work(workdir: Path) -> bool:
     """True while a job this mission launched is still running and healthy."""
     from .external_work import scan_external_work
@@ -215,19 +208,6 @@ class RoundSettlementMixin:
         soft_limit_stalled: bool = False,
         soft_round_limit: int = 0,
     ) -> tuple[LoopStatus | None, str]:
-        if _review_plan_signal(review) == "reconsider":
-            report = review.planner_report if isinstance(review.planner_report, dict) else {}
-            challenge = str(report.get("challenge") or review.reason or "").strip()
-            authority = str(report.get("authority_impact") or "technical").strip()
-            if authority == "operator" and review.operator_question:
-                return (
-                    "blocked",
-                    challenge or "The plan challenge requires an operator decision.",
-                )
-            return (
-                "replan_requested",
-                challenge or "Later evidence materially challenged the current plan.",
-            )
         if review.status == "done":
             return "done", review.reason or "Reviewer judged the objective complete."
         if review.status == "blocked":

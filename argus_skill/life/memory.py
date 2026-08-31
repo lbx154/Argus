@@ -914,7 +914,7 @@ class BacklogItem:
             status = "pending"
         objective = str(row.get("objective", ""))
         return cls(
-            id=str(row.get("id", uuid.uuid4().hex[:12])),
+            id=str(row["id"] if "id" in row else cls.new_id()),
             ts=float(row.get("ts", time.time())),
             title=str(row.get("title", "")),
             objective=objective,
@@ -1893,12 +1893,8 @@ class Backlog:
                     self._save(items)
                 return None
             ready.sort(key=lambda it: (it.priority, it.ts))
-            head = (
-                next((item for item in ready if item.id == expected_id), None)
-                if expected_id
-                else ready[0]
-            )
-            if head is None:
+            head = ready[0]
+            if expected_id and head.id != expected_id:
                 return None
             head.status = "running"
             head.started_ts = time.time()

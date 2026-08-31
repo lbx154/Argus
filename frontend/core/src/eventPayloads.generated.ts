@@ -389,7 +389,7 @@ export interface LifeManagerIntentFailedEvent extends EventMsg {
   "item_id"?: string | null;
   "objective": string;
   "error": string;
-  "phase": "backend" | "parse" | "contract" | "timeout";
+  "phase": "backend" | "parse" | "contract" | "timeout" | "unknown";
   "cause": string;
   "contract_field"?: string;
   "attempts": number;

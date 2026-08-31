@@ -8,7 +8,7 @@ from argus_skill.apps.cli._follow import (
 )
 
 
-def test_follow_routing_failure_leads_with_structured_facts() -> None:
+def test_follow_routing_failure_keeps_raw_diagnostics_out_of_headline() -> None:
     rendered = _format_follow_event(
         {
             "type": "life.manager.intent.failed",
@@ -16,13 +16,85 @@ def test_follow_routing_failure_leads_with_structured_facts() -> None:
             "cause": "401 Missing bearer",
             "attempts": 2,
             "error": "VerticalDecisionError: raw failure",
+            "objective": "route this request",
         },
         "manager",
     )
 
     assert rendered is not None
-    assert "分流失败 · 后端 401 Missing bearer (第2次尝试)" in rendered
-    assert "原始错误: VerticalDecisionError: raw failure" in rendered
+    assert "I couldn’t determine how to handle this request" in rendered
+    assert "Nothing was queued" in rendered
+    assert "401 Missing bearer" not in rendered
+    assert "VerticalDecisionError" not in rendered
+
+
+def test_follow_planner_and_stage_messages_hide_storage_fields_and_enums() -> None:
+    added = _format_follow_event(
+        {
+            "type": "life.planner.task_added",
+            "item_id": "task-secret",
+            "title": "Verify the result",
+            "objective": "Run the acceptance test",
+        },
+        "planner",
+    )
+    skipped = _format_follow_event(
+        {
+            "type": "life.planner.task_skipped",
+            "title": "Repeat the benchmark",
+            "matched_item_id": "task-secret",
+            "matched_title": "Benchmark the candidate",
+            "matched_status": "done",
+            "skip_category": "duplicate",
+            "reason": "The existing task has the same acceptance check.",
+        },
+        "planner",
+    )
+    stage = _format_follow_event(
+        {
+            "type": "life.manager.stage_decision",
+            "action": "advance",
+            "target_stage": "final_submission",
+            "reason": "The required checks passed.",
+        },
+        "manager",
+    )
+
+    assert added == "📋 [Planner] Planner added “Verify the result”: Run the acceptance test"
+    assert "task-secret" not in added
+    assert skipped is not None and "already covers it" in skipped
+    assert "matched_" not in skipped and "skip_category" not in skipped
+    assert stage == "🧭 [Manager] Advanced to final submission: The required checks passed."
+    assert "advance" not in stage and "_" not in stage
+
+
+def test_follow_round_and_completion_messages_read_as_outcomes() -> None:
+    review = _format_follow_event(
+        {
+            "type": "round.review.completed",
+            "round_index": 2,
+            "status": "continue",
+            "reason": "One edge case remains.",
+        },
+        "reviewer",
+    )
+    completed = _format_follow_event(
+        {
+            "type": "life.mission.completed",
+            "item_id": "task-secret",
+            "title": "Repair the parser",
+            "objective": "Handle empty input",
+            "status": "done",
+            "success": True,
+            "summary": "The regression test passes.",
+        },
+        "engineer",
+    )
+
+    assert review == "✅ [Reviewer] Requested another pass after round 2. One edge case remains."
+    assert "status=" not in review and "round=" not in review
+    assert completed == "✅ Completed: Repair the parser. The regression test passes."
+    assert "task-secret" not in completed and "success=" not in completed
 
 
 def test_follow_layer_detects_all_four_roles() -> None:

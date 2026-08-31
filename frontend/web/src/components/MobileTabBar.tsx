@@ -22,10 +22,12 @@ export function MobileTabBar({
   active,
   onSelect,
   onOpenSessions,
+  sidebarOpen = false,
 }: {
   active: Exclude<MobileTab, 'sessions'>;
   onSelect: (tab: Exclude<MobileTab, 'sessions'>) => void;
   onOpenSessions?: () => void;
+  sidebarOpen?: boolean;
 }) {
   const { t } = useI18n();
   const tabs: { id: Exclude<MobileTab, 'sessions'>; label: string; icon: IconDefinition }[] = [
@@ -38,7 +40,9 @@ export function MobileTabBar({
   return (
     <nav
       aria-label={t('mobile.views')}
-      className="mobile-tabbar glass-panel glass-panel--raised fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-line/60 lg:hidden"
+      className={`mobile-tabbar glass-panel glass-panel--raised fixed inset-x-0 bottom-0 z-40 items-stretch border-t border-line/60 lg:hidden ${
+        sidebarOpen ? 'hidden' : 'flex'
+      }`}
     >
       {onOpenSessions ? (
         <button

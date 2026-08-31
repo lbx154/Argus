@@ -272,7 +272,14 @@ def test_cli_process_starts_in_its_own_posix_session(_fake_copilot, monkeypatch)
         options=RunnerOptions(),
         run_label="stream-test",
     )
-    assert _fake_copilot["start_new_session"] is (runner_mod.os.name != "nt")
+    if runner_mod.os.name == "nt":
+        assert _fake_copilot["creationflags"] & runner_mod.subprocess.CREATE_NO_WINDOW
+        startup = _fake_copilot["startupinfo"]
+        assert startup is not None
+        assert startup.dwFlags & runner_mod.subprocess.STARTF_USESHOWWINDOW
+        assert startup.wShowWindow == runner_mod.subprocess.SW_HIDE
+    else:
+        assert _fake_copilot["start_new_session"] is True
 
 
 def test_callback_exception_never_breaks_the_turn(_fake_copilot, monkeypatch) -> None:

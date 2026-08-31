@@ -37,6 +37,17 @@ def test_deps_roundtrip_through_jsonable() -> None:
     assert restored.deps == ["dep1", "dep2"]
 
 
+def test_existing_id_does_not_generate_a_replacement(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "argus_skill.life.memory.uuid.uuid4",
+        lambda: pytest.fail("existing IDs must not consume a random UUID"),
+    )
+
+    restored = BacklogItem.from_jsonable({"id": "stable", "objective": "o"})
+
+    assert restored.id == "stable"
+
+
 def test_legacy_row_without_deps_loads_as_no_deps() -> None:
     # A pre-DAG jsonl row has no "deps" key at all.
     legacy = {

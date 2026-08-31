@@ -49,7 +49,7 @@ describe('deriveProgressEstimate', () => {
     expect(result.currentRole).toBe('stopped');
     expect(result.currentStep).toMatch(/^已停止/);
     expect(result.eta).toBeNull();
-    expect(result.etaUnavailableReason).toContain('Daemon 已停止');
+    expect(result.etaUnavailableReason).toContain('Argus 已停止');
     expect(result.elapsedSeconds).toBe(50);
     expect(deriveProgressEstimate(snapshot({ alive: false }), events, 2_000).elapsedSeconds).toBe(50);
     expect(result.checkpoints.every((checkpoint) => checkpoint.status !== 'active')).toBe(true);

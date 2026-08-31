@@ -160,7 +160,7 @@ def role_skill_libraries(
                 "own_paths": [str(path) for path in own_paths],
                 "reference_paths": [str(path) for path in reference_paths],
                 "required_paths": [str(path) for path in required_paths],
-                "precedence": "project,vertical,global",
+                "precedence": ["project", "vertical", "global"],
                 "discovery": "native-or-path-fallback",
                 "text": "Skill library paths supplied for on-demand discovery",
             }

@@ -13,8 +13,18 @@ import { JsonPreview, TablePreview } from './DataPreview';
 import { MarkdownContent } from './MarkdownContent';
 import { displayObjective, formatMissionElapsed } from '../../../core/src/missionView';
 import { useI18n } from '../i18n';
+import { PdfPreview } from './PdfPreview';
 
 export const LIVE_PROGRESS_PATH = '__argus_live_progress__';
+
+const ACTIVE_MISSION_STATUSES = new Set([
+  'framed', 'grounding', 'queued', 'running', 'in_progress', 'working',
+]);
+const COMPLETE_MISSION_STATUSES = new Set(['complete', 'completed', 'done', 'success']);
+
+export function missionIsComplete(view?: MissionView | null): boolean {
+  return COMPLETE_MISSION_STATUSES.has(String(view?.mission.status || '').toLowerCase());
+}
 
 export function selectLiveArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo[] {
   return (artifacts ?? []).filter((item) => item.source === 'manager_live');
@@ -39,10 +49,10 @@ export function selectPreviewArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo
   if (existing.length || existingDelivery.length) {
     return [
       ...existingDelivery,
-      ...existingLive,
       ...[...existing].sort(
         (left, right) => (kindPriority[left.kind] ?? 99) - (kindPriority[right.kind] ?? 99),
       ),
+      ...existingLive,
     ];
   }
   return existingLive;
@@ -50,6 +60,14 @@ export function selectPreviewArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo
 
 export function selectPreferredPreviewArtifact(artifacts?: ArtifactInfo[]): ArtifactInfo | null {
   return selectPreviewArtifacts(artifacts).find((item) => item.exists) ?? null;
+}
+
+export function selectCompletionArtifact(artifacts?: ArtifactInfo[]): ArtifactInfo | null {
+  const visible = selectPreviewArtifacts(artifacts);
+  return visible.find((item) => item.source === 'delivery')
+    ?? visible.find((item) => item.source !== 'manager_live')
+    ?? visible[0]
+    ?? null;
 }
 
 function artifactLabel(item: ArtifactInfo): string {
@@ -61,11 +79,18 @@ export function defaultPreviewPath(
   view?: MissionView | null,
   artifacts?: ArtifactInfo[],
 ): string {
-  const delivered = view?.delivery?.primary_target?.path;
-  if (delivered) return delivered;
-  const managerSelected = selectPreferredLiveArtifact(artifacts);
-  if (managerSelected) return managerSelected.path;
-  if (view) return LIVE_PROGRESS_PATH;
+  if (view) {
+    const status = String(view.mission.status || '').toLowerCase();
+    if (ACTIVE_MISSION_STATUSES.has(status)) return LIVE_PROGRESS_PATH;
+    const delivered = view.delivery?.primary_target?.path;
+    if (delivered) return delivered;
+    if (missionIsComplete(view)) {
+      return selectCompletionArtifact(artifacts)?.path ?? LIVE_PROGRESS_PATH;
+    }
+    const managerSelected = selectPreferredLiveArtifact(artifacts);
+    if (managerSelected) return managerSelected.path;
+    return LIVE_PROGRESS_PATH;
+  }
   return selectPreferredPreviewArtifact(artifacts)?.path ?? '';
 }
 
@@ -98,6 +123,7 @@ export function selectLiveMissionStatus(
   view?: MissionView | null,
   events: EventMsg[] = [],
 ): LiveMissionStatus | null {
+  if (missionIsComplete(view)) return null;
   const role = String(view?.active_role ?? '');
   if (!role) return null;
   const roleView = view?.roles.find((candidate) => candidate.role === role);
@@ -175,6 +201,7 @@ function LiveProgressPreview({
             <button
               type="button"
               onClick={() => onOpenArtifact(delivery.primary_target!.path)}
+              title={artifacts.find((item) => item.path === delivery.primary_target!.path)?.storage_path || delivery.primary_target.path}
               className="mt-3 rounded border border-ok/40 bg-panel px-2.5 py-1.5 font-mono text-[10px] text-ok hover:border-ok"
             >
               打开成果 · {delivery.primary_target.label || delivery.primary_target.path}
@@ -220,7 +247,13 @@ function LiveProgressPreview({
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">{t('research.verifiedOutputs')}</div>
           <div className="mt-2 flex flex-wrap gap-2">
             {reviewedArtifacts.map((item) => (
-              <button key={item.path} type="button" onClick={() => onOpenArtifact(item.path)} className="rounded border border-line/70 bg-panel px-2.5 py-1.5 font-mono text-[10px] text-blue-sky hover:border-blue/60">
+              <button
+                key={item.path}
+                type="button"
+                onClick={() => onOpenArtifact(item.path)}
+                title={item.storage_path || item.path}
+                className="rounded border border-line/70 bg-panel px-2.5 py-1.5 font-mono text-[10px] text-blue-sky hover:border-blue/60"
+              >
                 {artifactLabel(item)} ↗
               </button>
             ))}
@@ -276,9 +309,20 @@ export function ResearchCanvas({
     [artifacts],
   );
   const preferred = useMemo(() => selectPreferredPreviewArtifact(artifacts), [artifacts]);
+  const completed = missionIsComplete(missionView);
+  const completionArtifact = useMemo(() => {
+    if (!completed) return null;
+    const receiptPath = missionView?.delivery?.primary_target?.path;
+    return previewArtifacts.find((item) => item.path === receiptPath && item.exists)
+      ?? selectCompletionArtifact(artifacts);
+  }, [artifacts, completed, missionView?.delivery?.primary_target?.path, previewArtifacts]);
   const [manualPath, setManualPath] = useState<string | null>(null);
 
-  useEffect(() => setManualPath(null), [sid]);
+  useEffect(() => {
+    // New/running work always returns to the truthful event-sourced progress
+    // view. Once that same mission becomes terminal, select its best real file.
+    setManualPath(completed && completionArtifact ? completionArtifact.path : null);
+  }, [completed, completionArtifact?.path, missionView?.mission.id, sid]);
   useEffect(() => {
     if (!requestedPath) return;
     const target = previewArtifacts.find(
@@ -291,7 +335,8 @@ export function ResearchCanvas({
   const showLiveProgress = effectivePath === LIVE_PROGRESS_PATH;
   const selected = showLiveProgress
     ? null
-    : previewArtifacts.find((item) => item.path === effectivePath) ?? preferred;
+    : previewArtifacts.find((item) => item.path === effectivePath)
+      ?? (completed ? completionArtifact : preferred);
   const artifactQ = useArtifact(
     sid,
     selected?.exists ? selected.path : null,
@@ -333,7 +378,10 @@ export function ResearchCanvas({
   const delivery: DeliveryReceipt | null = missionView?.delivery ?? null;
   const deliveryTargetPath = delivery?.primary_target?.path ?? '';
   const showingDelivery = Boolean(
-    delivery && (showLiveProgress || selected?.path === deliveryTargetPath),
+    completed
+    && !showLiveProgress
+    && selected
+    && (selected.source === 'delivery' || selected.path === deliveryTargetPath),
   );
   const deliveryLabel = locale === 'zh-CN'
     ? (delivery?.kind === 'submission_certified' ? '交付已认证' : '已完成')
@@ -393,11 +441,12 @@ export function ResearchCanvas({
             <select
               value={showLiveProgress ? LIVE_PROGRESS_PATH : selected?.path ?? ''}
               onChange={(event) => setManualPath(event.target.value)}
+              title={showLiveProgress ? t('research.liveProgress') : selected?.storage_path || selected?.path}
               className="h-8 w-full min-w-0 max-w-64 truncate rounded-md border border-line/50 bg-bg px-2 font-mono text-xs text-ink-dim outline-none focus:border-blue/60"
             >
               {missionView ? <option value={LIVE_PROGRESS_PATH}>{t('research.liveProgress')}</option> : null}
               {previewArtifacts.map((item) => (
-                <option key={item.path} value={item.path} disabled={!item.exists}>
+                <option key={item.path} value={item.path} disabled={!item.exists} title={item.storage_path || item.path}>
                   {item.source === 'delivery' ? '交付 · ' : item.source === 'manager_live' ? 'Checkpoint · ' : ''}{artifactLabel(item)}{item.exists ? '' : ' · pending'}
                 </option>
               ))}
@@ -456,7 +505,7 @@ export function ResearchCanvas({
 
       <div ref={previewRef} key={showLiveProgress ? LIVE_PROGRESS_PATH : selected?.path ?? 'empty'} className="relative flex min-h-0 flex-1 flex-col bg-bg">
         {showLiveProgress && missionView ? (
-          <LiveProgressPreview view={missionView} liveStatus={liveStatus} artifacts={artifacts} onOpenArtifact={onExpand} />
+          <LiveProgressPreview view={missionView} liveStatus={liveStatus} artifacts={artifacts} onOpenArtifact={setManualPath} />
         ) : null}
         {!showLiveProgress && error ? (
           <div className="m-auto max-w-sm px-6 text-center text-sm text-warn">
@@ -495,7 +544,7 @@ export function ResearchCanvas({
         ) : null}
         {info?.kind === 'markdown' ? (
           <div className="min-h-0 flex-1 overflow-auto p-5 text-sm text-ink-dim scroll-thin">
-            <MarkdownContent>{info.preview || '(empty file)'}</MarkdownContent>
+            <MarkdownContent artifacts={artifacts} onOpenArtifact={setManualPath}>{info.preview || '(empty file)'}</MarkdownContent>
           </div>
         ) : null}
         {info?.kind === 'json' ? <JsonPreview value={info.preview || ''} /> : null}
@@ -516,12 +565,7 @@ export function ResearchCanvas({
           </div>
         ) : null}
         {info?.kind === 'pdf' && previewUrl ? (
-          <embed
-            src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
-            type="application/pdf"
-            aria-label={`Live PDF preview: ${info.name}`}
-            className="min-h-0 flex-1 bg-white"
-          />
+          <PdfPreview src={previewUrl} name={info.name} />
         ) : null}
         {info?.kind === 'audio' && previewUrl ? (
           <div className="m-auto w-full max-w-xl px-6">
@@ -551,7 +595,7 @@ export function ResearchCanvas({
         </footer>
       ) : info ? (
         <footer className="flex h-9 items-center gap-2 border-t border-line px-4 font-mono text-xs text-ink-faint">
-          <span className="min-w-0 flex-1 truncate">{info.path}</span>
+          <span className="min-w-0 flex-1 truncate" title={info.storage_path || info.path}>{info.storage_path || info.path}</span>
           {downloadError ? <span className="ml-auto truncate text-err" title={downloadError}>{t('research.downloadFailed')}</span> : null}
           <span className="shrink-0">{info.kind} · {formatBytes(info.size)}</span>
           <span className="shrink-0 text-ok">{showingDelivery ? deliveryLabel : t('common.live')}</span>

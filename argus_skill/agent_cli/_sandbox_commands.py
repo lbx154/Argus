@@ -18,6 +18,7 @@ from .runner_backend import (
     BACKEND_CLAUDE,
     BACKEND_CODEX,
     BACKEND_COPILOT,
+    BACKEND_CURSOR,
     BACKEND_DSH,
     BACKEND_GROK,
     BACKEND_OPENCODE,
@@ -162,15 +163,25 @@ _READ_ONLY_FLAG_SWITCHES = frozenset({
     "--allow-tool",
     "--available-tools",
     "--autopilot",
+    "--auto-review",
     "--dangerously-bypass-approvals-and-sandbox",
     "--dangerously-bypass-hook-trust",
     "--dangerously-skip-permissions",
     "--auto",
     "--full-auto",
+    "--force",
+    "-f",
     "--permission-mode",
+    "--mode",
     "--sandbox",
     "--tools",
     "--yolo",
+    "--trust",
+    "--workspace",
+    "--worktree",
+    "--worktree-base",
+    "--skip-worktree-setup",
+    "--approve-mcps",
     "--agent",
     "--approve",
     "-a",
@@ -195,6 +206,10 @@ _READ_ONLY_VALUE_SWITCHES = frozenset({
     "--dir",
     "--permission-mode",
     "--sandbox",
+    "--mode",
+    "--workspace",
+    "--worktree",
+    "--worktree-base",
     "--tools",
     "-C",
     "-s",
@@ -263,6 +278,10 @@ class CommandBuilderMixin:
             return self._build_copilot_command(
                 resume_thread_id=resume_thread_id, options=options
             )
+        if self.backend == BACKEND_CURSOR:
+            return self._build_cursor_command(
+                resume_thread_id=resume_thread_id, options=options
+            )
         if self.backend == BACKEND_OPENCODE:
             return self._build_opencode_command(
                 resume_thread_id=resume_thread_id, options=options
@@ -300,6 +319,7 @@ class CommandBuilderMixin:
         if self.backend in (
             BACKEND_CLAUDE,
             BACKEND_COPILOT,
+            BACKEND_CURSOR,
             BACKEND_GROK,
             BACKEND_OPENCODE,
             BACKEND_PI,
@@ -339,6 +359,31 @@ class CommandBuilderMixin:
         if resume_thread_id:
             command.append("resume")
         command.append("--json")
+        # Argus owns desktop/background completion notifications. Inheriting a
+        # Codex Desktop ``notify`` hook makes every non-interactive turn wait for
+        # an unrelated GUI helper after the authoritative ``turn.completed``
+        # event (10.3–10.6 seconds per call in the packaged-host trace). Override
+        # it only for this child invocation; the operator's config.toml is never
+        # modified, and later explicit extra args may still opt back in.
+        command.extend(["-c", "notify=[]"])
+        if options.disable_tools:
+            # Stateless Manager/Planner control calls need the operator's model
+            # provider and auth, but not interactive plugins, MCP servers, JS
+            # REPL startup or project exec-policy rules. Keeping the base config
+            # while overriding only these tool surfaces preserves custom
+            # providers and cuts several seconds of Codex startup per control
+            # turn (measured doctor startup: ~12s -> ~2.5s on this host).
+            command.extend([
+                "--ignore-rules",
+                "-c",
+                "mcp_servers={}",
+                "-c",
+                "plugins={}",
+                "-c",
+                "features.js_repl=false",
+                "-c",
+                'web_search="disabled"',
+            ])
         if options.model:
             command.extend(["-m", options.model])
         if options.reasoning_effort:
@@ -538,6 +583,41 @@ class CommandBuilderMixin:
         # 超过内核单参数上限触发 E2BIG（Errno 7）导致 reviewer 每轮崩溃，故与
         # codex/claude 一样统一走 stdin；schema 契约改由 ``_effective_prompt``
         # 拼进 stdin prompt。
+        return command
+
+    def _build_cursor_command(
+        self, *, resume_thread_id: str | None, options
+    ) -> list[str]:
+        """Build Cursor CLI print-mode argv; the prompt is delivered on stdin."""
+        command = [self.agent_bin, "-p", "--output-format", "stream-json"]
+        model = str(options.model or "").strip()
+        effort = str(options.reasoning_effort or "").strip()
+        if model:
+            if effort and "[" not in model:
+                model = f"{model}[effort={effort}]"
+            command.extend(["--model", model])
+        if options.disable_tools or options.sandbox_mode == "read-only":
+            command.extend(["--mode", "ask"])
+        elif options.dangerous_yolo or options.full_auto:
+            command.append("--force")
+        if options.working_dir:
+            command.extend(["--workspace", options.working_dir])
+        if options.add_dirs:
+            for dir_path in options.add_dirs:
+                command.extend(["--add-dir", dir_path])
+        if options.plugin_dirs:
+            for dir_path in options.plugin_dirs:
+                command.extend(["--plugin-dir", dir_path])
+        merged_extra_args = [*self.default_extra_args]
+        if options.extra_args:
+            merged_extra_args.extend(options.extra_args)
+        if options.disable_tools or options.sandbox_mode == "read-only":
+            merged_extra_args = _read_only_extra_args(
+                merged_extra_args, backend=BACKEND_CURSOR,
+            )
+        command.extend(merged_extra_args)
+        if resume_thread_id:
+            command.extend(["--resume", resume_thread_id])
         return command
 
     def _build_opencode_command(

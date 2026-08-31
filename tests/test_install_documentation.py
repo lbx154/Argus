@@ -89,11 +89,12 @@ def test_install_guides_cover_updates_paths_models_and_doctor_semantics() -> Non
     assert "uv tool upgrade argus-skill" not in update
     assert "\npip install " not in update
 
-    assert "If the Releases page has no matching installer asset" in desktop
+    assert "GitHub Release" in desktop
+    assert "只产生 NSIS installer" in desktop
 
 
 def test_readmes_surface_the_wechat_qr_before_installation() -> None:
-    asset = ROOT / "docs" / "assets" / "argus-wechat-group.jpg"
+    asset = ROOT / "docs" / "assets" / "argus-wechat-group-2.jpg"
     assert asset.is_file()
     assert asset.stat().st_size > 100_000
 
@@ -103,7 +104,7 @@ def test_readmes_surface_the_wechat_qr_before_installation() -> None:
     ):
         text = (ROOT / name).read_text(encoding="utf-8")
         assert text.count(heading) == 1
-        assert text.count('src="docs/assets/argus-wechat-group.jpg"') == 1
+        assert text.count('src="docs/assets/argus-wechat-group-2.jpg"') == 1
         assert text.index(heading) < text.index("## Quick Install" if name == "README.md" else "## 快速安装")
         assert "Docker" in text
 

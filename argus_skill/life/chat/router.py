@@ -12,7 +12,7 @@ Commands:
 * ``/status`` — daemon / active queue / history / cost summary
 * ``/config [key=val ...]`` — view/change session defaults
 * ``/identity`` / ``/identity set <text>`` — view or update the identity card
-* ``/backend [codex|claude|copilot|opencode|pi|grok|qoder|dsh|memory]`` — show or change backend
+* ``/backend [codex|claude|copilot|cursor|opencode|pi|grok|qoder|dsh|memory]`` — show or change backend
 * ``/reset`` — drop the current codex session id
 * ``/skills [ls|promote <name>]`` — inspect or promote skills
 * ``/backlog [all]`` — list pending tasks or the full backlog
@@ -103,7 +103,7 @@ def help_text(channel_name: str = "") -> str:
 /config [key=val ...] — 调整会话默认值
 /identity — 查看身份卡
 /identity set <text> — 单条消息更新身份卡
-/backend [codex|claude|copilot|opencode|pi|grok|qoder|dsh|memory] — 查看或切换后端
+/backend [codex|claude|copilot|cursor|opencode|pi|grok|qoder|dsh|memory] — 查看或切换后端
 /reset — 清除当前 codex 会话
 /skills [ls|promote <name>] — 查看或提升技能
 /backlog [all] — 查看待办任务
@@ -218,17 +218,17 @@ class CommandRouter:
         if handler:
             try:
                 handler(arg)
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 log.exception("%s command %s failed", self.channel, cmd_raw)
-                self._reply(f"❌ 命令执行失败: {exc}")
+                self._reply("❌ 这条命令暂时无法完成。详细错误已记录，请稍后重试。")
         elif text.startswith("/"):
             self._reply(f"❓ 未知命令: {cmd_raw}\n使用 /help 查看可用命令")
         else:
             try:
                 self._cmd_free_text(text)
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 log.exception("%s free-text dispatch failed", self.channel)
-                self._reply(f"❌ 任务未派发: {exc}")
+                self._reply("❌ 暂时无法安排这项任务。详细错误已记录，请稍后重试。")
 
     # -- individual commands -----------------------------------------------
 
@@ -321,8 +321,7 @@ class CommandRouter:
         self._reply(
             f"✅ 任务已添加\n\n"
             f"📌 <b>{_esc(queued.title)}</b>\n"
-            f"🎯 {_esc(queued.objective[:200])}\n"
-            f"🔖 ID: <code>{queued.id}</code>"
+            f"🎯 {_esc(queued.objective[:200])}"
         )
 
     def _cmd_free_text(self, text: str) -> None:
@@ -400,7 +399,6 @@ class CommandRouter:
             "收到，我会把这当作一个新任务来做。\n"
             f"📌 <b>{_esc(queued.title)}</b>\n"
             f"🎯 {_esc(queued.objective[:200])}\n"
-            f"🔖 ID: <code>{queued.id}</code>\n"
             f"{status_line}\n"
             "中间如果在匹配技能、读代码或跑测试，我也会发进展；/status 可以随时查看。"
         )
@@ -440,9 +438,9 @@ class CommandRouter:
         # Daemon
         if ds.alive:
             uptime_str = _fmt_duration(ds.uptime_seconds) if ds.uptime_seconds else "?"
-            lines.append(f"🟢 守护进程运行中 (PID {ds.pid}, 已运行 {uptime_str})")
+            lines.append(f"🟢 后台工作进程运行中（已运行 {uptime_str}）")
         else:
-            lines.append("🔴 守护进程未运行")
+            lines.append("🔴 后台工作进程未运行")
 
         # Continuous mode
         if cont.enabled:
@@ -457,11 +455,9 @@ class CommandRouter:
 
         # Current task + active layer
         if current_task:
-            current_id = _esc(str(getattr(current_task, "id", "")))
             current_title = _esc(str(getattr(current_task, "title", ""))[:60])
             current_objective = _esc(str(getattr(current_task, "objective", ""))[:150])
             lines.append(f"\n🔧 <b>当前任务:</b> {current_title}")
-            lines.append(f"🔖 ID: <code>{current_id}</code>")
             lines.append(f"🎯 {current_objective}")
             # Determine active layer from most recent journal entry
             active_layer = self._detect_active_layer(mem)
@@ -477,15 +473,15 @@ class CommandRouter:
 
         # Backlog
         lines.append(
-            f"\n📋 active: {pending} pending · {running} running · {paused} paused"
+            f"\n📋 进行中：{pending} 项待办 · {running} 项执行中 · {paused} 项已暂停"
         )
         history_parts = [part for part in (
-            f"{done} done" if done else "",
-            f"{failed} failed" if failed else "",
-            f"{skipped} skipped" if skipped else "",
+            f"{done} 项完成" if done else "",
+            f"{failed} 项未完成" if failed else "",
+            f"{skipped} 项已跳过" if skipped else "",
         ) if part]
         if history_parts:
-            lines.append(f"🕰️ history: {' · '.join(history_parts)}")
+            lines.append(f"🕰️ 历史：{' · '.join(history_parts)}")
 
         lines.append(f"📬 收件箱: {inbox_pending} 条待处理")
         lines.append(f"💵 {format_budget_status(mem.journal, status=ds)}")
@@ -699,7 +695,6 @@ class CommandRouter:
             self._reply("用法: /nudge <指令文本>\n会注入到当前任务的下一轮执行中")
             return
         from ...apps._inbox import queue_inbox_message
-
         from ...core.operator_context import import_deterministic_credential
 
         text, _credential = import_deterministic_credential(

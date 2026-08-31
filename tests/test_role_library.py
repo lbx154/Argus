@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from argus_skill.adapters.memory_backend import MemoryBackend
+from argus_skill.core.event_catalog import validate_event_envelope
 from argus_skill.skills.layered import LayeredSkillStore
 from argus_skill.skills.missions import (
     EngineerMission,
@@ -145,8 +146,9 @@ def test_role_library_event_exposes_precedence_without_skill_content(
     result = role_skill_libraries(store, role="planner", on_event=events.append)
 
     assert result.own_paths == [store.skills_dir.resolve() / "planner"]
-    assert events[0]["precedence"] == "project,vertical,global"
+    assert events[0]["precedence"] == ["project", "vertical", "global"]
     assert events[0]["discovery"] == "native-or-path-fallback"
+    assert validate_event_envelope(events[0]).valid
     assert "Skill body" not in str(events[0])
 
 

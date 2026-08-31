@@ -12,8 +12,11 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { PdfPreview } from '../../components/PdfPreview';
 import { api } from '../api';
+import { roleLabel } from '../enumLabels';
 import type { ArtifactInfo, EventMsg } from '../types';
+import { useWorkbenchText } from '../useWorkbenchText';
 import {
   compactPath,
   cx,
@@ -97,10 +100,11 @@ export function EmptyState({
   );
 }
 
-export function Spinner({ label = '加载中' }: { label?: string }) {
+export function Spinner({ label }: { label?: string }) {
+  const { text } = useWorkbenchText();
   return (
     <span className="spinner" role="status">
-      <LoaderCircle size={15} className="spin" /> {label}
+      <LoaderCircle size={15} className="spin" /> {label || text('加载中', 'Loading')}
     </span>
   );
 }
@@ -125,7 +129,7 @@ export function Markdown({ children, className }: { children: string; className?
 export function EventTimeline({
   events,
   limit = 24,
-  empty = '还没有可展示的实时事件',
+  empty,
   dense = false,
 }: {
   events: EventMsg[];
@@ -133,8 +137,9 @@ export function EventTimeline({
   empty?: string;
   dense?: boolean;
 }) {
+  const { locale, text } = useWorkbenchText();
   const rows = events.slice(-limit).reverse();
-  if (!rows.length) return <EmptyState icon={Radio} title={empty} />;
+  if (!rows.length) return <EmptyState icon={Radio} title={empty || text('还没有可展示的实时动态', 'No activity to show yet')} />;
   return (
     <div className={cx('event-list', dense && 'event-list--dense')}>
       {rows.map((event, index) => {
@@ -147,8 +152,8 @@ export function EventTimeline({
             <div className={cx('event-row__marker', `event-row__marker--${tone}`)} />
             <div className="event-row__content">
               <div className="event-row__meta">
-                <span className={cx('role-label', `role-label--${role}`)}>{role}</span>
-                <time>{formatClock(event.ts)}</time>
+                <span className={cx('role-label', `role-label--${role}`)}>{roleLabel(role, text)}</span>
+                <time>{formatClock(event.ts, locale)}</time>
               </div>
               <div className="event-row__title">{title}</div>
               {detail ? <div className="event-row__detail">{detail}</div> : null}
@@ -170,14 +175,15 @@ export function ArtifactList({
   artifacts,
   selected,
   onSelect,
-  empty = '暂无已注册产物',
+  empty,
 }: {
   artifacts: ArtifactInfo[];
   selected?: string | null;
   onSelect: (item: ArtifactInfo) => void;
   empty?: string;
 }) {
-  if (!artifacts.length) return <EmptyState icon={FileText} title={empty} description="Argus 注册或 Reviewer 认证产物后会自动出现在这里。" />;
+  const { text } = useWorkbenchText();
+  if (!artifacts.length) return <EmptyState icon={FileText} title={empty || text('暂无已注册产物', 'No registered artifacts yet')} description={text('Argus 注册或 Reviewer 认证产物后会自动出现在这里。', 'Artifacts appear here after Argus registers them or the Reviewer approves them.')} />;
   return (
     <div className="artifact-list">
       {artifacts.map((item) => {
@@ -211,6 +217,7 @@ export function ArtifactViewer({
   artifact: ArtifactInfo | null;
   fill?: boolean;
 }) {
+  const { text } = useWorkbenchText();
   const textLike = artifact && ['text', 'markdown', 'html', 'json', 'table'].includes(artifact.kind);
   const detail = useQuery({
     queryKey: ['v2-artifact-detail', sid, artifact?.path, artifact?.mtime],
@@ -243,7 +250,7 @@ export function ArtifactViewer({
   const language = useMemo(() => artifact?.name.split('.').pop()?.toUpperCase() ?? '', [artifact?.name]);
 
   if (!artifact) {
-    return <div className={cx('artifact-viewer', fill && 'artifact-viewer--fill')}><EmptyState title="选择一个文件预览" description="这里只展示 Argus 后端允许读取的项目产物。" /></div>;
+    return <div className={cx('artifact-viewer', fill && 'artifact-viewer--fill')}><EmptyState title={text('选择一个文件预览', 'Select a file to preview')} description={text('这里只展示 Argus 服务允许读取的项目产物。', 'Only project artifacts that the Argus service can read are shown here.')} /></div>;
   }
 
   const download = async () => {
@@ -265,25 +272,25 @@ export function ArtifactViewer({
         </div>
         <div className="artifact-viewer__tools">
           <Badge tone="neutral">{language || artifact.kind}</Badge>
-          <button className="icon-button" type="button" onClick={() => void download()} aria-label="下载文件" title="下载">
+          <button className="icon-button" type="button" onClick={() => void download()} aria-label={text('下载文件', 'Download file')} title={text('下载', 'Download')}>
             <Download size={15} />
           </button>
         </div>
       </header>
       {artifact.why ? <div className="artifact-viewer__why">{artifact.why}</div> : null}
       <div className="artifact-viewer__content">
-        {detail.isLoading || (media && !mediaUrl && !mediaError) ? <Spinner label="正在读取产物" /> : null}
+        {detail.isLoading || (media && !mediaUrl && !mediaError) ? <Spinner label={text('正在读取产物', 'Reading artifact')} /> : null}
         {detail.isError ? <div className="inline-error">{detail.error.message}</div> : null}
         {mediaError ? <div className="inline-error">{mediaError}</div> : null}
-        {detail.data?.kind === 'markdown' ? <Markdown>{detail.data.preview || '（空文件）'}</Markdown> : null}
+        {detail.data?.kind === 'markdown' ? <Markdown>{detail.data.preview || text('（空文件）', '(empty file)')}</Markdown> : null}
         {detail.data && ['text', 'html', 'json', 'table'].includes(detail.data.kind) ? (
-          <pre className="code-preview">{detail.data.preview || '（空文件）'}{detail.data.truncated ? '\n\n… 预览已截断' : ''}</pre>
+          <pre className="code-preview">{detail.data.preview || text('（空文件）', '(empty file)')}{detail.data.truncated ? text('\n\n… 预览已截断', '\n\n… preview truncated') : ''}</pre>
         ) : null}
         {artifact.kind === 'image' && mediaUrl ? <img className="media-preview" src={mediaUrl} alt={artifact.why || artifact.name} /> : null}
-        {artifact.kind === 'pdf' && mediaUrl ? <embed className="pdf-preview" src={`${mediaUrl}#toolbar=0&view=FitH`} type="application/pdf" /> : null}
+        {artifact.kind === 'pdf' && mediaUrl ? <PdfPreview src={mediaUrl} name={artifact.name} className="pdf-preview" /> : null}
         {artifact.kind === 'audio' && mediaUrl ? <audio controls src={mediaUrl} /> : null}
         {artifact.kind === 'video' && mediaUrl ? <video className="video-preview" controls src={mediaUrl} /> : null}
-        {artifact.kind === 'binary' ? <EmptyState title="该二进制文件仅支持下载" /> : null}
+        {artifact.kind === 'binary' ? <EmptyState title={text('该二进制文件仅支持下载', 'This binary file can only be downloaded')} /> : null}
       </div>
       <footer className="artifact-viewer__footer">
         <span>{artifact.source?.replaceAll('_', ' ') || 'artifact'}</span>

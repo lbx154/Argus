@@ -425,7 +425,7 @@ class SelfReplyMixin:
                 lean=mode == "reply",
                 execute_mode=mode if mode in _SELF_EXECUTION_CONTRACTS else "",
             )
-        _phase("Handing off to Planner / Engineer / Reviewer…")
+        _phase("Handing off to the Argus execution pipeline…")
         return None
 
 
@@ -708,12 +708,11 @@ class SelfReplyMixin:
             prompt = build_simple_prompt(
                 objective=objective,
                 identity_card=memory_prelude,
+                skill_library=libraries.block,
                 mission_status=self._live_mission_status_block(),
                 runtime_context=self._manager_reply_runtime_context("simple-1"),
                 operator_workspace=str(workdir),
             )
-            if libraries.block:
-                prompt = libraries.block + "\n\n" + prompt
             native_skill_paths = [str(path) for path in libraries.native_paths]
             session_root = getattr(self, "_manager_session_root", None)
             read_dirs = (

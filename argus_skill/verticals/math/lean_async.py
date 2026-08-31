@@ -168,7 +168,20 @@ def _read_outcome(run_dir: Path) -> dict[str, Any] | None:
 
 
 def _discard(run_dir: Path) -> None:
-    shutil.rmtree(run_dir, ignore_errors=True)
+    # A Windows worker can publish outcome.json a few milliseconds before it
+    # releases its log/lock handles.  POSIX permits unlinking those open files;
+    # Windows reports a sharing violation.  Retry that bounded hand-off instead
+    # of silently leaking a terminal run directory.
+    for attempt in range(20):
+        try:
+            shutil.rmtree(run_dir)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if attempt == 19:
+                return
+            time.sleep(0.05)
 
 
 # -- is the worker still there -----------------------------------------------

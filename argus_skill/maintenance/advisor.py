@@ -14,6 +14,7 @@ _SUPPORTED_ADVISORS = (
     "copilot",
     "codex",
     "claude",
+    "cursor",
     "opencode",
     "pi",
     "grok",
@@ -29,7 +30,7 @@ def _advisor_selections(requested: str) -> tuple[tuple[str, str], ...]:
     )
     from ..core.knobs import resolve_role_backend, resolve_runner_bin_setting
 
-    normalized = str(requested or "auto").strip().lower()
+    normalized = str(requested or "none").strip().lower()
     if normalized == "none":
         return ()
     if normalized != "auto" and normalized not in _SUPPORTED_ADVISORS:
@@ -208,7 +209,7 @@ def run_doctor_advisor(
     report: DoctorReport,
     context: DoctorContext,
     *,
-    requested: str = "auto",
+    requested: str = "none",
     probe_auth: bool = False,
 ) -> dict[str, Any]:
     """Ask an installed Code Agent to inspect and repair the actual machine."""

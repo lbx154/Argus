@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -64,7 +65,12 @@ def test_dispatch_workdir_provenance_replays_from_its_validated_root(
     elif case == "external_symlink":
         target = tmp_path / "external-repository"
         requested = "repository-link"
-        (base / requested).symlink_to(target, target_is_directory=True)
+        try:
+            (base / requested).symlink_to(target, target_is_directory=True)
+        except OSError as exc:
+            if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+                pytest.skip("Windows symlink privilege is unavailable")
+            raise
 
     if not deferred:
         target.mkdir()

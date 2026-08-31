@@ -884,7 +884,7 @@ def _first_error_line(result: dict[str, Any]) -> str:
 
 def _display(path: Path, project_root: Path) -> str:
     try:
-        return str(path.resolve().relative_to(project_root.resolve()))
+        return path.resolve().relative_to(project_root.resolve()).as_posix()
     except (ValueError, OSError):
         return str(path)
 

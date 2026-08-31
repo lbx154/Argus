@@ -1514,7 +1514,7 @@ def test_altitude_facts_are_read_from_the_worktree_not_the_state_root(tmp_path) 
     campaign. Seventeen planning cycles produced no trace of any of them.
     """
     from argus_skill.roles.prompts.registry import resolve_role_prompt
-    from argus_skill.roles.prompts.types import RolePromptRequest, RoleName
+    from argus_skill.roles.prompts.types import RoleName, RolePromptRequest
 
     worktree = tmp_path / "campaign"
     state = worktree / "state" / "projects" / "s-1"
@@ -1773,24 +1773,23 @@ def test_a_placeholder_ledger_is_not_the_thing_being_judged() -> None:
 
 
 def test_a_certified_campaign_still_hears_the_operator() -> None:
-    """Certification fires before every tick and the daemon then disables
-    continuous mode for good, so a campaign that certifies once can never act
-    again -- including on anything said to it afterwards. run-04 certified a
-    4,176-word paper using four of its seven figures, and eight hours of
-    operator notes went into an inbox nothing would read. Bringing it back took
-    hand-editing continuous.json.
-    """
+    """Fresh operator guidance outranks final-certification adjudication."""
     import inspect
 
-    from argus_skill.life.supervisor import _core
+    from argus_skill.life.supervisor import _planning_cycle_intake
 
-    source = inspect.getsource(_core.LifeSupervisor.run)
-    gate = source[source.index("EMNLP gate passes") - 2000 :]
-    gate = gate[: gate.index("stopped_by = \"project_done\"") + 40]
-    # The inbox is consulted before the campaign is closed for good...
-    assert "_drain_user_inbox" in gate
-    # ...and what it says is carried into the next planning turn.
-    assert "_operator_guidance_carryover" in gate
+    intake = inspect.getsource(
+        _planning_cycle_intake.PlanningCycleIntakeMixin._pc_intake_gate
+    )
+    from argus_skill.life.supervisor import _planning_cycle
+
+    reconciliation = inspect.getsource(
+        _planning_cycle.PlanningCycleMixin._pc_reconcile_reviewed_stage
+    )
+    assert "_drain_user_inbox" in intake
+    assert "state.had_operator_messages" in intake
+    assert "not state.had_operator_messages" in reconciliation
+    assert "_journal_has_final_certification" in reconciliation
 
 
 def test_a_subagent_whose_process_died_stops_counting_as_running() -> None:

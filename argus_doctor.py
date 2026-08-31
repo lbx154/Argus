@@ -165,25 +165,19 @@ def run_bootstrap_doctor(root=None):
             "Web and TUI assets present" if not missing else f"missing: {', '.join(missing)}",
             "restore a complete release checkout or rebuild the declared frontend assets",
         ))
-        desktop = checkout / "desktop"
+        desktop = checkout / "desktop-tauri"
         if (desktop / "package.json").is_file():
-            electron = desktop / "node_modules" / "electron"
-            electron_installed = electron.is_dir()
-            electron_ready = (
-                (electron / "path.txt").is_file()
-                and (
-                    os.name != "nt"
-                    or (electron / "dist" / "electron.exe").is_file()
-                )
-            ) if electron_installed else True
+            tauri_cli = desktop / "node_modules" / "@tauri-apps" / "cli" / "tauri.js"
+            rust_manifest = desktop / "src-tauri" / "Cargo.toml"
+            ready = tauri_cli.is_file() and rust_manifest.is_file()
             findings.append(_finding(
                 "ARGUS-DESKTOP-001",
-                "Desktop runtime",
+                "Tauri Desktop runtime",
                 True,
                 (
-                    "Electron runtime present" if electron_installed and electron_ready
-                    else "Desktop dependencies not installed (optional for CLI/Web)" if not electron_installed
-                    else "Electron runtime binary missing (optional for CLI/Web)"
+                    "Tauri development runtime present"
+                    if ready
+                    else "Tauri dependencies not installed (optional for CLI/Web)"
                 ),
             ))
 
@@ -272,13 +266,13 @@ def run_bootstrap_repair(root, *, install=False, desktop=False):
             actions.append({"id": "install_editable", "risk": "consent", **installed})
     if desktop:
         npm = shutil.which("npm.cmd" if os.name == "nt" else "npm")
-        package = checkout / "desktop" / "package.json"
+        package = checkout / "desktop-tauri" / "package.json"
         if not npm or not package.is_file():
             actions.append({
                 "id": "install_desktop",
                 "risk": "consent",
                 "status": "failed",
-                "detail": "npm or desktop/package.json is unavailable",
+                "detail": "npm or desktop-tauri/package.json is unavailable",
             })
         else:
             installed = _run_repair_command(
@@ -323,7 +317,7 @@ def main(argv=None):
     parser.add_argument(
         "--repair-desktop",
         action="store_true",
-        help="run the locked Desktop npm install, including Electron postinstall",
+        help="run the locked Tauri Desktop npm install",
     )
     parser.add_argument("--yes", action="store_true", help="authorize bootstrap mutations")
     args = parser.parse_args(argv)

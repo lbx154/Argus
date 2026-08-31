@@ -8,6 +8,8 @@ describe('MissionControl', () => {
   it('renders real DAG, capability, replay, and git state', () => {
     const view = emptyMissionView();
     view.mission.objective = 'Optimize FlashAttention on B200';
+    view.mission.status = 'working';
+    view.active_role = 'engineer';
     view.stage = { id: 'optimize', label: 'Optimize' };
     view.round = { current: 7, max: 24 };
     view.dag = [{
@@ -90,32 +92,67 @@ describe('MissionControl', () => {
       />,
     );
     expect(markup).toContain('Optimize FlashAttention on B200');
-    expect(markup).toContain('Total elapsed');
-    expect(markup).toContain('Research DAG');
+    expect(markup).toContain('Engineer — Using a tool');
+    expect(markup).not.toContain('Total elapsed');
+    expect(markup).not.toContain('Round</div>');
+    expect(markup).not.toContain('Mode</div>');
+    expect(markup).toContain('Task route');
     expect(markup).toContain('Official scorer passed');
     expect(markup).toContain('Capabilities unlocked');
     expect(markup).toContain('Role work');
     expect(markup).toContain('Profile kernel v7');
     expect(markup).toContain('Measure fused memory traffic');
-    expect(markup).toContain('Working hypothesis · revisable');
+    expect(markup).toContain('Working hypothesis · can be revised');
     expect(markup).toContain('Fused traffic is the remaining bottleneck.');
     expect(markup).toContain('Move the official score toward the user target.');
     expect(markup).toContain('Local latency may rise before fusion is tuned.');
     expect(markup).toContain('Replace the route if memory traffic is not causal.');
     expect(markup).toContain('Official scorer passes.');
     expect(markup).toContain('Do not change the benchmark.');
-    expect(markup).toContain('evolved during · Profile kernel v7');
+    expect(markup).toContain('Learned during Profile kernel v7');
     expect(markup).toContain('# Fused epilogue');
-    expect(markup).toContain('Self-evolution storage');
+    expect(markup).toContain('Saved project knowledge');
     expect(markup).toContain('Knowledge retained');
     expect(markup).toContain('Fused epilogue evidence');
-    expect(markup).toContain('/state/project/skills');
-    expect(markup).toContain('/workspace/.autors/demo/wiki');
-    expect(markup).toContain('cold history · skill 4 · wiki 2 · 1.5 KB saved');
+    expect(markup).not.toContain('/state/project/skills');
+    expect(markup).not.toContain('/workspace/.autors/demo/wiki');
     expect(markup).toContain('Mission replay');
-    expect(markup).toContain('execution=completed');
-    expect(markup).toContain('Stage not approved');
-    expect(markup).toContain('Git changes · main');
+    expect(markup).not.toContain('Work completed');
+    expect(markup).not.toContain('Stage not approved');
+    expect(markup).toContain('Project files changed');
+    expect(markup).not.toContain('+fused_epilogue');
+  });
+
+  it('shows one plain-language status narrative for each mission state', () => {
+    const healthy = emptyMissionView();
+    expect(renderToStaticMarkup(<MissionControl view={healthy} />)).not.toContain('role="alert"');
+    expect(renderToStaticMarkup(<MissionControl view={healthy} />)).toContain('Ready when you are — assign a mission to begin.');
+
+    const paused = emptyMissionView();
+    paused.stage.id = 'HOLD';
+    expect(renderToStaticMarkup(<MissionControl view={paused} />)).toContain('Mission is paused — waiting for your input.');
+
+    const failedStep = emptyMissionView();
+    failedStep.dag = [{
+      id: 'failed-step', title: 'Run checks', objective: '', status: 'failed', deps: [],
+      branch_id: 'failed-step', parent_branch_id: null,
+    }];
+    expect(renderToStaticMarkup(<MissionControl view={failedStep} />)).toContain('A step failed — check the task below.');
+
+    const critical = emptyMissionView();
+    critical.health = 'degraded';
+    expect(renderToStaticMarkup(<MissionControl view={critical} />)).toContain('System error — health is degraded.');
+
+    const complete = emptyMissionView();
+    complete.mission.status = 'complete';
+    complete.mission.elapsed_seconds = 125;
+    complete.outcome.execution_status = 'completed';
+    complete.frontier.change = 'The benchmark route is now stable.';
+
+    const markup = renderToStaticMarkup(<MissionControl view={complete} />);
+
+    expect(markup).toContain('Work completed — finished in 2m.');
+    expect(markup).toContain('The benchmark route is now stable.');
   });
 
   it('renders escaped objective Markdown without exposing transport slashes', () => {

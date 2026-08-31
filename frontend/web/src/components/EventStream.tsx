@@ -1,17 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
-import type { EventMsg } from '../api';
+import type { ArtifactInfo, EventMsg } from '../api';
 import type { DeliveryReceipt } from '../../../core/src/types';
 import { renderEvent, toneColor, isReasoning, eventKey, mergeFragment, type Rendered } from '../lib/eventRender';
 import { eventMatchesView, fragmentMode, type EventViewFilter } from '../../../core/src/events';
 import { theme } from '../lib/theme';
 import { clockOf } from '../lib/format';
-import { rotate, IDLE_LINES } from '../lib/soul';
 import { PanelHeader, EmptyHint } from './primitives';
 import { MarkdownContent } from './MarkdownContent';
 import { ArgusMark } from './Wordmark';
 import { useI18n } from '../i18n';
 import { CopyButton } from './CopyButton';
+import { roleLabel } from '../lib/enumLabels';
 
 type ActivityRow = { ev: EventMsg; r: Rendered; key: string };
 type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
@@ -39,7 +39,7 @@ function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: bo
   const color = toneColor(r.tone);
   return (
     <div
-      className={`group relative grid grid-cols-[16px_minmax(0,1fr)] gap-3 px-4 py-3 transition-colors hover:bg-bg/70 ${last ? 'animate-appear' : ''} ${r.reasoning ? 'opacity-60' : ''}`}
+      className={`event-activity-row group relative grid grid-cols-[16px_minmax(0,1fr)] gap-3 px-4 py-3 transition-colors hover:bg-bg/70 ${last ? 'animate-appear' : ''} ${r.reasoning ? 'opacity-60' : ''}`}
       style={r.rule ? { marginTop: 4 } : undefined}
     >
       <div className="relative flex justify-center">
@@ -72,7 +72,17 @@ function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: bo
   );
 }
 
-function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
+function ConversationRow({
+  ev,
+  r,
+  artifacts,
+  onOpenArtifact,
+}: {
+  ev: EventMsg;
+  r: Rendered;
+  artifacts?: ArtifactInfo[];
+  onOpenArtifact?: (path: string) => void;
+}) {
   const { t } = useI18n();
   const operator = String(ev.type) === 'ui.operator';
   const responseLatencyMs = Number(ev.response_latency_ms ?? 0);
@@ -97,7 +107,7 @@ function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
     );
   });
   return (
-    <article ref={rowRef} className="group mx-auto w-full max-w-full px-4 py-3 sm:px-6 lg:max-w-[61.8vw]">
+    <article ref={rowRef} className="conversation-row group mx-auto w-full max-w-full px-4 py-3 sm:px-6 lg:max-w-[61.8vw]">
       {operator ? (
         <div className="flex items-end justify-end gap-2">
           <CopyButton
@@ -108,7 +118,7 @@ function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
           />
           <time className="shrink-0 pb-1 font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}</time>
           <div className="max-w-[calc(100%_-_3rem)] rounded-[18px] bg-conversation-user px-4 py-2.5 text-[15px] leading-relaxed text-ink ring-1 ring-line/35 sm:max-w-[82%]">
-            <MarkdownContent>{r.text}</MarkdownContent>
+            <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{r.text}</MarkdownContent>
           </div>
         </div>
       ) : (
@@ -127,7 +137,7 @@ function ConversationRow({ ev, r }: { ev: EventMsg; r: Rendered }) {
               />
               <time className="font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}{responseLatency}</time>
             </div>
-            <MarkdownContent>{r.text}</MarkdownContent>
+            <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{r.text}</MarkdownContent>
           </div>
         </div>
       )}
@@ -148,6 +158,7 @@ function RoleLogGroup({
   active: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useI18n();
   const color = theme.role[role];
   const logScroller = useRef<HTMLDivElement>(null);
   const tailLength = rows[rows.length - 1]?.r.text.length ?? 0;
@@ -177,7 +188,7 @@ function RoleLogGroup({
           className={`h-2 w-2 rounded-full ${active ? 'animate-pulse' : 'opacity-55'}`}
           style={{ background: color }}
         />
-        <span className="text-xs font-semibold capitalize text-ink-dim">{role}</span>
+        <span className="text-xs font-semibold text-ink-dim">{roleLabel(role, t)}</span>
         <span className="font-mono text-xs text-ink-faint">{rows.length}</span>
         {rows.length > 0 ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">{rows[rows.length - 1].r.text}</span> : <span className="flex-1" />}
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -189,7 +200,7 @@ function RoleLogGroup({
           <div ref={logScroller} className="max-h-72 overflow-x-hidden overflow-y-auto border-t border-line/40 scroll-thin">
             {rows.length > 0 ? rows.map(({ ev, r, key }, index) => (
               <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === rows.length - 1} />
-            )) : <div className="px-4 py-3 text-xs text-ink-faint">No logs</div>}
+            )) : <div className="px-4 py-3 text-xs text-ink-faint">{t('stream.noLogs')}</div>}
           </div>
         </div>
       </div>
@@ -219,6 +230,7 @@ function partitionRoleRows(rows: ActivityRow[]) {
 }
 
 function RoleLogCollection({ rows, live }: { rows: ActivityRow[]; live: boolean }) {
+  const { t } = useI18n();
   const { roleRows, systemRows, lastRole } = useMemo(() => partitionRoleRows(rows), [rows]);
   const [openRoles, setOpenRoles] = useState<Set<string>>(
     () => new Set(live && lastRole ? [lastRole] : []),
@@ -252,7 +264,7 @@ function RoleLogCollection({ rows, live }: { rows: ActivityRow[]; live: boolean 
       {systemRows.length > 0 ? (
         <details className="border-b border-line/50">
           <summary className="flex h-10 cursor-pointer list-none items-center gap-2 px-4 text-xs text-ink-faint hover:bg-bg/60">
-            <span>System</span>
+            <span>{t('stream.system')}</span>
             <span className="font-mono">{systemRows.length}</span>
           </summary>
           <div className="border-t border-line/40">
@@ -281,15 +293,14 @@ function DeliveryCard({
   delivery: DeliveryReceipt;
   onOpen?: (delivery: DeliveryReceipt) => void;
 }) {
-  const { locale } = useI18n();
-  const zh = locale === 'zh-CN';
+  const { t } = useI18n();
   const certified = delivery.kind === 'submission_certified';
   return (
     <aside className="mx-auto my-3 flex w-full max-w-full gap-3 rounded-lg border border-ok/35 bg-ok/5 px-4 py-3 lg:max-w-[61.8vw]">
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ok/15 font-semibold text-ok">✓</span>
       <div className="min-w-0 flex-1">
         <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ok">
-          {certified ? (zh ? '交付已认证' : 'Delivery certified') : (zh ? '任务已完成' : 'Task completed')}
+          {t(certified ? 'mission.deliveryCertified' : 'mission.taskCompleted')}
         </div>
         <div className="mt-1 truncate text-sm font-semibold text-ink" title={delivery.title}>{delivery.title}</div>
         {delivery.summary ? <p className="mt-1 text-xs leading-5 text-ink-dim">{delivery.summary}</p> : null}
@@ -299,7 +310,7 @@ function DeliveryCard({
             onClick={() => onOpen(delivery)}
             className="mt-2 rounded border border-ok/40 px-2 py-1 font-mono text-[10px] text-ok hover:border-ok hover:bg-ok/10"
           >
-            {delivery.primary_target ? (zh ? '打开成果' : 'Open result') : (zh ? '查看任务' : 'View task')}
+            {t(delivery.primary_target ? 'mission.openResult' : 'mission.viewTask')}
           </button>
         ) : null}
       </div>
@@ -310,10 +321,14 @@ function DeliveryCard({
 function ConversationThread({
   group,
   latest,
+  artifacts,
+  onOpenArtifact,
   onOpenDelivery,
 }: {
   group: ConversationGroup;
   latest: boolean;
+  artifacts?: ArtifactInfo[];
+  onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
 }) {
   const isSystemMessage = (row: ActivityRow) =>
@@ -342,9 +357,22 @@ function ConversationThread({
   })();
 
   return (
-    <section className="border-b border-line/60">
-      <ConversationRow ev={group.operator.ev} r={group.operator.r} />
-      {replies.map((row) => <ConversationRow key={row.key} ev={row.ev} r={row.r} />)}
+    <section className="conversation-thread border-b border-line/60">
+      <ConversationRow
+        ev={group.operator.ev}
+        r={group.operator.r}
+        artifacts={artifacts}
+        onOpenArtifact={onOpenArtifact}
+      />
+      {replies.map((row) => (
+        <ConversationRow
+          key={row.key}
+          ev={row.ev}
+          r={row.r}
+          artifacts={artifacts}
+          onOpenArtifact={onOpenArtifact}
+        />
+      ))}
       {systemMessages.map((message, index) => (
         <div key={`${group.key}-system-${index}`} className="mx-auto w-full max-w-full px-6 py-1.5 text-center text-xs text-ink-faint lg:max-w-[61.8vw]">
           {message}
@@ -378,6 +406,8 @@ export function EventStream({
   filter = 'all',
   query = '',
   skipFirst = 0,
+  artifacts,
+  onOpenArtifact,
   onOpenDelivery,
 }: {
   events: EventMsg[];
@@ -388,13 +418,21 @@ export function EventStream({
   filter?: EventViewFilter;
   query?: string;
   skipFirst?: number;
+  artifacts?: ArtifactInfo[];
+  onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
 }) {
   const { locale, t } = useI18n();
   const [following, setFollowing] = useState(true);
   const [activityTick, setActivityTick] = useState(() => Date.now());
   const scroller = useRef<HTMLDivElement>(null);
-  const activeProvider = useMemo(() => activeProviderRequest(events), [events]);
+  // Rendering a long Markdown/event history is interruptible, so incoming
+  // provider fragments never take priority over typing or scrolling.
+  const deferredEvents = useDeferredValue(events);
+  const activeProvider = useMemo(
+    () => activeProviderRequest(deferredEvents),
+    [deferredEvents],
+  );
   useEffect(() => {
     if (!activeProvider) return;
     setActivityTick(Date.now());
@@ -414,7 +452,9 @@ export function EventStream({
     const out: { ev: EventMsg; r: Rendered; key: string }[] = [];
     const msgRow = new Map<string, number>(); // message_id → index in out
     let hiddenReasoning = 0;
-    const displayEvents = skipFirst > 0 ? events.slice(skipFirst) : events;
+    const displayEvents = skipFirst > 0
+      ? deferredEvents.slice(skipFirst)
+      : deferredEvents;
     displayEvents.forEach((ev, i) => {
       const r = renderEvent(ev, locale);
       if (!r) return; // non-whitelisted → hidden
@@ -449,7 +489,7 @@ export function EventStream({
       out.push(entry);
     });
     return { list: out, hiddenReasoning };
-  }, [events, showReasoning, filter, query, skipFirst, locale]);
+  }, [deferredEvents, showReasoning, filter, query, skipFirst, locale]);
 
   const rows = baseRows;
   const conversations = useMemo(() => {
@@ -469,14 +509,21 @@ export function EventStream({
     return { groups, earlier };
   }, [rows.list]);
 
-  const reasoningTotal = useMemo(() => events.filter(isReasoning).length, [events]);
+  const reasoningTotal = useMemo(
+    () => deferredEvents.filter(isReasoning).length,
+    [deferredEvents],
+  );
   const tailContentLength = useMemo(
     () => rows.list.slice(-20).reduce((total, row) => total + row.r.text.length, 0),
     [rows.list],
   );
 
   useEffect(() => {
-    if (following && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+    if (!following) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [rows.list.length, tailContentLength, following]);
 
   useEffect(() => {
@@ -505,12 +552,12 @@ export function EventStream({
               className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
                 showReasoning ? 'text-blue-sky' : 'text-ink-faint hover:text-ink-dim'
               }`}
-              title="toggle agent reasoning (⌘T)"
+              title={t('stream.toggleReasoning')}
             >
-              reasoning{reasoningTotal ? ` ·${reasoningTotal}` : ''}
+              {t('stream.reasoning')}{reasoningTotal ? ` ·${reasoningTotal}` : ''}
             </button>
             <span className={`text-xs ${connected ? 'text-ok' : 'text-ink-faint'}`}>
-              {connected ? '● live' : '○ reconnecting'}
+              {connected ? `● ${t('common.live')}` : `○ ${t('common.reconnecting')}`}
             </span>
           </div>
         }
@@ -519,7 +566,7 @@ export function EventStream({
         <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/60 bg-blue-deep/5 px-4 text-xs text-ink-dim">
           <span className="h-2 w-2 animate-pulse rounded-full bg-blue-sky" />
           <span className="truncate">
-            {String(activeProvider.run_label ?? 'provider call')} · working
+            {t('stream.backgroundWork')}
           </span>
           <span className="ml-auto shrink-0 font-mono tabular-nums text-ink-faint">
             {providerElapsed}s
@@ -528,13 +575,13 @@ export function EventStream({
       ) : null}
       <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin">
         {rows.list.length === 0 ? (
-          <EmptyHint>{rotate(IDLE_LINES)}</EmptyHint>
+          <EmptyHint>{t('stream.ready')}</EmptyHint>
         ) : (
           <>
             {conversations.earlier.length > 0 ? (
               <section className="mx-auto w-full max-w-full border-b border-line/60 lg:max-w-[61.8vw]">
                 <div className="flex h-10 items-center gap-2 border-b border-line/40 px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
-                  Autonomous activity
+                  {t('stream.autonomous')}
                   <span className="font-mono font-normal tracking-normal">{conversations.earlier.length}</span>
                 </div>
                 <RoleLogCollection
@@ -548,6 +595,8 @@ export function EventStream({
                 key={group.key}
                 group={group}
                 latest={index === conversations.groups.length - 1}
+                artifacts={artifacts}
+                onOpenArtifact={onOpenArtifact}
                 onOpenDelivery={onOpenDelivery}
               />
             ))}

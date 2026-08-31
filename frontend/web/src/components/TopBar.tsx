@@ -43,11 +43,23 @@ export function TopBar({
 }) {
   const { t } = useI18n();
   const role = currentRole(snap.roles);
-  const missionRole = missionView?.roles.find((candidate) => candidate.role === missionView.active_role);
+  const missionTerminal = ['complete', 'completed', 'done', 'success'].includes(
+    String(missionView?.mission.status || '').toLowerCase(),
+  );
+  const missionRole = snap.daemon.alive && !missionTerminal
+    ? missionView?.roles.find((candidate) => candidate.role === missionView.active_role)
+    : undefined;
   const roleName = missionRole?.role || role?.role || 'manager';
-  const roleActive = missionRole ? missionRole.status === 'active' : Boolean(role?.active);
+  const roleActive = snap.daemon.alive && (
+    missionRole ? missionRole.status === 'active' : Boolean(role?.active)
+  );
   const activeItem = snap.backlog.find((item) => ACTIVE_STATUSES.has(item.status));
-  const focus = missionRole?.label || activeItem?.title || activeItem?.objective || snap.session.objective || t('common.ready');
+  const focus = missionRole?.label
+    || activeItem?.title
+    || activeItem?.objective
+    || (missionTerminal ? missionView?.mission.summary || missionView?.mission.title : '')
+    || snap.session.objective
+    || t('common.ready');
   const degraded = Boolean(snap.partial || snap.observability?.slo.status === 'degraded');
   const externalDaemon = snap.daemon.alive && snap.daemon.control_available === false;
   const daemonActionLabel = externalDaemon
@@ -67,7 +79,7 @@ export function TopBar({
     : t('common.reconnecting');
 
   return (
-    <header className="glass-panel glass-panel--raised flex h-12 min-w-0 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-4">
+    <header className="chrome-seam-surface glass-panel glass-panel--raised flex h-12 min-w-0 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-4">
       {onOpenSessions ? (
         <button type="button" onClick={onOpenSessions} aria-label={t('topbar.openSessions')} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink lg:hidden">
           <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.25">
@@ -81,6 +93,7 @@ export function TopBar({
       <span className="hidden h-4 w-px shrink-0 bg-line/40 sm:block" />
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <span
+          aria-label={roleActive ? t('topbar.roleActive', { role: roleName }) : t('topbar.roleIdle', { role: roleName })}
           className={`h-2 w-2 shrink-0 rounded-full ${roleActive ? 'animate-pulse' : ''}`}
           style={{ background: theme.role[roleName] || 'rgb(var(--ink-faint))' }}
         />
@@ -96,7 +109,9 @@ export function TopBar({
             ? 'bg-ok ring-1 ring-ok/30 ring-offset-1 ring-offset-panel'
             : 'bg-ink-faint/50'
         }`}
-      />
+      >
+        <span className="sr-only">{healthTitle}</span>
+      </span>
       <DaemonSpendBadge
         settledUsd={snap.spend_usd}
         knownUsd={snap.usage_summary?.known_cost_usd}

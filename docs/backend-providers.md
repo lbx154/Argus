@@ -1,6 +1,6 @@
 # Backend providers
 
-Argus drives eight agent CLIs. Two of them — **Pi** and **OpenCode** — are
+Argus drives nine agent CLIs. Two of them — **Pi** and **OpenCode** — are
 provider-agnostic fronts: the CLI holds credentials for one or more provider
 catalogs, and which one serves a request depends on the model id you select.
 This page covers how Argus picks that catalog, and what changed in the
@@ -16,6 +16,7 @@ Argus passes the model id you configured (`ARGUS_SKILL_MODEL`, or a per-role
 | `codex` | the id verbatim | single catalog |
 | `copilot` | the id verbatim | single catalog |
 | `claude` | the id verbatim | single catalog |
+| `cursor` | the id verbatim (reasoning effort uses Cursor's `[effort=...]` model override) | Cursor CLI catalog; `agent login` or set `CURSOR_API_KEY` |
 | `grok` | the id verbatim | xAI Grok Build catalog; login with `grok login` or set `XAI_API_KEY` |
 | `qoder` | the id verbatim | Qoder CLI (`qodercli`, a Claude Code fork); `qodercli login` or set `QODER_PERSONAL_ACCESS_TOKEN` |
 | `dsh` | `provider/model` through the env-driven overlay (`ARGUS_DSH_PROVIDER` / `ARGUS_DSH_MODEL`), bare id selects the overlay's provider | DeepSeek Harness headless runner; authenticates with `DEEPSEEK_API_KEY` |
@@ -31,6 +32,22 @@ grok --version
 qodercli --list-models
 ```
 
+## Cursor CLI
+
+Install and authenticate Cursor's official CLI:
+
+```bash
+curl https://cursor.com/install -fsS | bash
+agent login
+argus --setup --non-interactive --backend cursor
+```
+
+On Windows PowerShell, use `irm 'https://cursor.com/install?win32=true' | iex`.
+Argus invokes `agent -p --output-format stream-json`, sends prompts through
+stdin, maps read-only roles to `--mode ask`, trusted full-auto work to
+`--force`, and resumes role sessions with `--resume`. Older installations that
+still expose `cursor-agent` are detected automatically.
+
 ## Grok Build
 
 Install and authenticate xAI's official CLI:
@@ -38,7 +55,7 @@ Install and authenticate xAI's official CLI:
 ```bash
 curl -fsSL https://x.ai/cli/install.sh | bash
 grok login
-argus --setup --non-interactive --backend grok --accept-house-rules
+argus --setup --non-interactive --backend grok
 ```
 
 For CI or another headless host, set `XAI_API_KEY` instead of starting the
@@ -58,7 +75,7 @@ Install Qoder's official CLI and authenticate:
 ```bash
 npm install -g @qoder-ai/qodercli
 qodercli login            # browser OAuth; tokens refresh automatically
-argus --setup --non-interactive --backend qoder --accept-house-rules
+argus --setup --non-interactive --backend qoder
 ```
 
 For CI or a headless daemon, create a Personal Access Token at
@@ -79,7 +96,7 @@ Install the launcher and put a DeepSeek API key in the launching environment:
 ```bash
 npm install -g @deepseek-ai/dsh
 export DEEPSEEK_API_KEY=sk-...     # or set it on the dsh web Models page
-argus --setup --non-interactive --backend dsh --accept-house-rules
+argus --setup --non-interactive --backend dsh
 ```
 
 dsh has no stream-json surface, no session resume, and no model flag: Argus

@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Argus</title>
+  </head>
+  <body data-state="starting">
+    <header class="desktop-menu-bar" id="desktopMenuBar" aria-label="Argus 桌面菜单">
+      <nav class="desktop-menu-nav">
+        <div class="desktop-menu-group">
+          <button class="desktop-menu-trigger" id="fileMenuTrigger" type="button" aria-haspopup="menu" aria-expanded="false">文件</button>
+          <div class="desktop-menu-popover" id="fileMenu" role="menu" hidden>
+            <button type="button" role="menuitem" data-menu-action="settings">设置 <kbd>Ctrl+,</kbd></button>
+            <button type="button" role="menuitem" data-menu-action="new-chat">新建对话 <kbd>Ctrl+N</kbd></button>
+            <span class="desktop-menu-separator" role="separator"></span>
+            <button type="button" role="menuitem" data-menu-action="open-logs">打开日志目录</button>
+            <button type="button" role="menuitem" data-menu-action="open-data">打开数据目录</button>
+            <span class="desktop-menu-separator" role="separator"></span>
+            <button type="button" role="menuitem" data-menu-action="hide">隐藏窗口并在后台继续</button>
+            <button class="is-danger" type="button" role="menuitem" data-menu-action="stop-quit">停止本地后端并退出</button>
+          </div>
+        </div>
+        <div class="desktop-menu-group">
+          <button class="desktop-menu-trigger" id="helpMenuTrigger" type="button" aria-haspopup="menu" aria-expanded="false">帮助</button>
+          <div class="desktop-menu-popover" id="helpMenu" role="menu" hidden>
+            <button type="button" role="menuitem" data-menu-action="restart">重启后端</button>
+            <button type="button" role="menuitem" data-menu-action="diagnostics">导出诊断包</button>
+            <button type="button" role="menuitem" data-menu-action="check-update">检查更新</button>
+            <span class="desktop-menu-separator" role="separator"></span>
+            <button type="button" role="menuitem" data-menu-action="about">关于 Argus</button>
+          </div>
+        </div>
+      </nav>
+      <span class="desktop-menu-context">本地工作台</span>
+    </header>
+
+    <div class="window-titlebar" aria-hidden="true">
+      <span class="window-titlebar-mark"></span>
+      <span>Argus</span>
+    </div>
+
+    <svg class="icon-defs" aria-hidden="true">
+      <symbol id="i-folder" viewBox="0 0 24 24">
+        <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+      </symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24">
+        <path d="M5 12h14" />
+        <path d="m12 5 7 7-7 7" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="M20 6 9 17l-5-5" />
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+        <path d="M21 3v5h-5" />
+        <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+        <path d="M3 21v-5h5" />
+      </symbol>
+    </svg>
+
+    <main class="splash" id="splash" aria-live="polite">
+      <div class="backdrop" aria-hidden="true">
+        <span class="grid"></span>
+        <span class="scan"></span>
+        <span class="signal"></span>
+      </div>
+
+      <section class="stage">
+        <div class="emblem-shell" aria-hidden="true">
+          <span class="halo"></span>
+          <span class="orbit orbit-a"><i></i></span>
+          <span class="orbit orbit-b"><i></i></span>
+          <div class="emblem">
+            <span class="mark"></span>
+          </div>
+        </div>
+
+        <h1>Argus</h1>
+
+        <ol class="steps" id="steps" aria-label="启动进度">
+          <li class="step is-active" data-step="env">
+            <span class="dot" aria-hidden="true"></span>
+            <span class="label">运行环境</span>
+          </li>
+          <li class="step" data-step="service">
+            <span class="dot" aria-hidden="true"></span>
+            <span class="label">本地服务</span>
+          </li>
+          <li class="step" data-step="workspace">
+            <span class="dot" aria-hidden="true"></span>
+            <span class="label">工作台</span>
+          </li>
+        </ol>
+
+        <p class="status" id="status">正在启动 Argus</p>
+        <div class="progress" aria-hidden="true"><span id="bar"></span></div>
+        <p class="detail" id="detail" hidden></p>
+        <div class="actions">
+          <button class="retry" id="retry" type="button" hidden>
+            <svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>
+            重试
+          </button>
+          <button class="setup" id="setup" type="button" hidden>修改设置</button>
+          <button class="setup" id="diagnostics" type="button" hidden>导出脱敏诊断</button>
+        </div>
+      </section>
+    </main>
+
+    <section class="cockpit" id="cockpit" hidden aria-label="Argus 工作台">
+      <iframe
+        id="cockpitFrame"
+        title="Argus 工作台"
+        sandbox="allow-forms allow-same-origin allow-scripts allow-downloads"
+        referrerpolicy="no-referrer"
+      ></iframe>
+    </section>
+
+    <aside class="update-notice" id="updateNotice" hidden aria-live="polite" aria-atomic="true">
+      <span class="update-notice-accent" aria-hidden="true"></span>
+      <span class="update-notice-icon" aria-hidden="true">
+        <svg class="icon"><use href="#i-refresh"></use></svg>
+      </span>
+      <div class="update-notice-copy">
+        <span class="update-notice-kicker" id="updateKicker">软件更新</span>
+        <strong id="updateTitle">正在检查更新</strong>
+        <p id="updateDetail">只从已配置的 HTTPS 更新源读取签名清单。</p>
+        <p class="update-notice-security" id="updateSecurity">下载前会验证更新包签名</p>
+      </div>
+      <div class="update-notice-actions">
+        <button class="secondary small" id="updateCheck" type="button">检查更新</button>
+        <button class="primary small" id="updateInstall" type="button" hidden>查看并安装</button>
+        <button class="ghost small update-dismiss" id="updateDismiss" type="button" aria-label="关闭更新提示">稍后</button>
+      </div>
+    </aside>
+
+    <section class="wizard" id="wizard" hidden role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
+      <div class="wizard-shell">
+        <header class="wizard-head">
+          <div class="wizard-mark" aria-hidden="true">
+            <span class="wizard-mark-glyph"></span>
+          </div>
+          <div class="wizard-heading">
+            <h2 id="wizardTitle">设置 Argus</h2>
+            <p id="wizardCaption">Agent CLI</p>
+          </div>
+          <ol class="stepper" id="stepper" aria-label="设置步骤">
+            <li class="is-active" data-step="0"><span>1</span></li>
+            <li data-step="1"><span>2</span></li>
+            <li data-step="2"><span>3</span></li>
+          </ol>
+        </header>
+
+        <div class="wizard-body">
+          <section class="panel" data-panel="env">
+            <div class="panel-intro">
+              <span class="panel-eyebrow">步骤 1</span>
+              <h3>选择 Agent CLI</h3>
+              <p>选择 Argus 调用的本地智能代理。登录信息仍由对应 CLI 自己安全管理。</p>
+            </div>
+            <div class="panel-content panel-content-env">
+              <fieldset class="runner-kind">
+                <legend>可用代理</legend>
+                <div class="segmented runner-segmented" id="runnerKindSegmented">
+                  <button class="is-selected" type="button" data-kind="codex">Codex CLI</button>
+                  <button type="button" data-kind="claude">Claude Code</button>
+                  <button type="button" data-kind="copilot">Copilot CLI</button>
+                  <button type="button" data-kind="cursor">Cursor CLI</button>
+                  <button type="button" data-kind="pi">Pi · 用户模型</button>
+                  <button type="button" data-kind="opencode">OpenCode</button>
+                  <button type="button" data-kind="grok">Grok Build</button>
+                  <button type="button" data-kind="qoder">Qoder CLI</button>
+                  <button type="button" data-kind="dsh">DeepSeek Harness</button>
+                </div>
+              </fieldset>
+              <div class="runner">
+                <div class="runner-status" id="runnerStatus" data-state="warn">正在检测</div>
+                <div class="runner-path" id="runnerPath"></div>
+                <div class="runner-actions">
+                  <button class="secondary" id="chooseRunner" type="button">
+                    <svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg>
+                    <span id="chooseRunnerLabel">选择 Codex CLI</span>
+                  </button>
+                  <button class="ghost small" id="clearRunner" type="button" hidden>清除手动选择</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" data-panel="port" hidden>
+            <div class="panel-intro">
+              <span class="panel-eyebrow">步骤 2</span>
+              <h3>配置本地服务</h3>
+              <p>服务仅监听本机回环地址。通常保留默认端口即可。</p>
+            </div>
+            <div class="panel-content panel-content-service">
+              <div class="field service-card">
+                <label for="portInput">本地端口</label>
+                <div class="port-input">
+                  <span>127.0.0.1:</span>
+                  <input id="portInput" type="number" min="1024" max="65535" inputmode="numeric" value="8799" />
+                </div>
+                <p class="field-hint">仅供当前电脑上的 Argus 工作台访问。</p>
+                <p class="field-error" id="portError" hidden>端口需在 1024 - 65535 之间</p>
+              </div>
+              <div class="runtime-card">
+                <span class="runtime-icon" aria-hidden="true">
+                  <svg class="icon"><use href="#i-check"></use></svg>
+                </span>
+                <div>
+                  <div class="runtime-title">内置后端</div>
+                  <p>运行环境已随 Argus 一起安装，无需配置 Python、源码目录或开发依赖。</p>
+                </div>
+                <span class="runtime-badge">默认启用</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" data-panel="done" hidden>
+            <div class="panel-intro">
+              <span class="panel-eyebrow">步骤 3</span>
+              <h3>确认设置</h3>
+              <p>保存后，Argus 会在需要时安全重启本地服务。</p>
+            </div>
+            <div class="panel-content panel-content-summary">
+              <dl class="summary">
+                <div>
+                  <dt>Agent CLI</dt>
+                  <dd id="summaryRunner">未设置</dd>
+                </div>
+                <div>
+                  <dt>本地地址</dt>
+                  <dd id="summaryUrl">127.0.0.1:8799</dd>
+                </div>
+                <div>
+                  <dt>发布身份</dt>
+                  <dd id="summaryRelease">正在读取</dd>
+                </div>
+                <div>
+                  <dt>运行时身份</dt>
+                  <dd id="summaryRuntime">正在读取</dd>
+                </div>
+              </dl>
+              <div class="summary-note">
+                <span class="runtime-icon" aria-hidden="true">
+                  <svg class="icon"><use href="#i-check"></use></svg>
+                </span>
+                <span>Argus 内置后端已准备就绪</span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <footer class="wizard-foot">
+          <button class="ghost" id="wizardCancel" type="button" hidden>取消并返回工作台</button>
+          <button class="ghost" id="wizardBack" type="button" hidden>上一步</button>
+          <span class="wizard-spacer"></span>
+          <button class="primary" id="wizardNext" type="button">
+            下一步
+            <svg class="icon" aria-hidden="true"><use href="#i-arrow"></use></svg>
+          </button>
+          <button class="primary" id="wizardFinish" type="button" hidden>
+            开始使用
+            <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+          </button>
+        </footer>
+      </div>
+    </section>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

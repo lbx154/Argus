@@ -63,6 +63,7 @@ class _Outcome:
     final_review_source: str = ""
     final_review_reason: str = ""
     final_review_next_action: str = ""
+    final_message: str = ""
     summary: str = ""
     research_result: dict | None = None
     # Reviewer-confirmed artifact paths and evidence from the terminal round.

@@ -34,7 +34,7 @@ def gate_on(monkeypatch):
 # ── gate ───────────────────────────────────────────────────────────────────
 def test_default_policy_grants_every_backend_full_access(monkeypatch):
     monkeypatch.delenv("ARGUS_SKILL_SAFE_MODE", raising=False)
-    for backend in ("codex", "claude", "copilot", "opencode", "pi"):
+    for backend in ("codex", "claude", "copilot", "cursor", "opencode", "pi"):
         runner = AgentCliRunner(agent_bin=backend, backend=backend)
         options = runner._apply_sandbox_policy(
             RunnerOptions(sandbox_mode="read-only", isolate_workdir=True)
@@ -182,6 +182,36 @@ def test_build_codex_command_sandboxed():
     assert cmd[cmd.index("-C") + 1] == "/wd"
     assert cmd.count("--add-dir") == 2
     assert "sandbox_workspace_write.network_access=true" in cmd
+
+
+def test_build_codex_command_disables_interactive_notify_hook_per_turn():
+    cmd = _codex_runner()._build_codex_command(
+        resume_thread_id=None,
+        options=RunnerOptions(model="gpt-5.5", dangerous_yolo=True),
+    )
+
+    pairs = list(zip(cmd, cmd[1:]))
+    assert ("-c", "notify=[]") in pairs
+
+
+def test_build_codex_no_tools_keeps_provider_config_but_skips_tool_startup():
+    cmd = _codex_runner()._build_codex_command(
+        resume_thread_id=None,
+        options=RunnerOptions(
+            model="deepseek-v4-flash",
+            disable_tools=True,
+            sandbox_mode="read-only",
+        ),
+    )
+
+    pairs = list(zip(cmd, cmd[1:]))
+    assert "--ignore-user-config" not in cmd
+    assert "--ignore-rules" in cmd
+    assert ("-c", "mcp_servers={}") in pairs
+    assert ("-c", "plugins={}") in pairs
+    assert ("-c", "features.js_repl=false") in pairs
+    assert ("-c", 'web_search="disabled"') in pairs
+    assert cmd[cmd.index("-m") + 1] == "deepseek-v4-flash"
 
 
 def test_build_codex_command_legacy_unchanged():

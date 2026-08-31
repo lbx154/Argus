@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from ..agent_cli._process_control import windows_hidden_subprocess_kwargs
 from ..release_tools.repository_parity import (
     changed_paths as parity_changed_paths,
 )
@@ -29,9 +30,14 @@ _FRONTEND = (
     (_NPM, "--prefix", "frontend/tui", "test"),
 )
 _DESKTOP = (
-    (_NPM, "--prefix", "desktop", "ci"),
-    ("python", "-m", "ruff", "check", "desktop", "tests/desktop"),
+    (_NPM, "--prefix", "frontend/web", "ci"),
+    (_NPM, "--prefix", "desktop-tauri", "ci"),
+    (
+        "python", "-m", "ruff", "check",
+        "argus_skill", "desktop-tauri/scripts", "tests/desktop",
+    ),
     ("python", "-m", "pytest", "-q", "tests/desktop/test_frozen_runtime.py"),
+    ("python", "-m", "pytest", "-q", "tests/desktop/test_native_window_chrome.py"),
     (
         "python", "-m", "pytest", "--collect-only", "-q",
         "tests/core/test_file_lock.py", "tests/core/test_daemon_lock.py",
@@ -56,15 +62,19 @@ _DESKTOP = (
         "tests/tools/test_setup_readiness.py", "tests/webapi/test_commands_m1.py",
         "tests/webapi/test_server_m0.py", "tests/webapi/test_workspace_v2.py",
     ),
-    (_NPM, "--prefix", "desktop", "run", "typecheck"),
-    (_NPM, "--prefix", "desktop", "run", "test:identity"),
-    ("pwsh", "-NoProfile", "-File", "desktop/scripts/build-backend.ps1", "-SkipInstall"),
-    (_NPM, "--prefix", "desktop", "run", "build"),
+    (_NPM, "--prefix", "desktop-tauri", "run", "ui:typecheck"),
+    ("cargo", "fmt", "--check", "--manifest-path", "desktop-tauri/src-tauri/Cargo.toml"),
+    ("cargo", "check", "--manifest-path", "desktop-tauri/src-tauri/Cargo.toml"),
     (
-        _NPM, "--prefix", "desktop", "exec", "electron-builder", "--",
-        "--win", "--dir", "--publish", "never",
-        "--config.win.signAndEditExecutable=false",
+        "cargo", "test", "--manifest-path", "desktop-tauri/src-tauri/Cargo.toml",
+        "--test", "core_tests",
     ),
+    (_NPM, "--prefix", "frontend/web", "run", "build"),
+    (
+        "pwsh", "-NoProfile", "-File",
+        "desktop-tauri/scripts/build-backend.ps1", "-SkipInstall",
+    ),
+    (_NPM, "--prefix", "desktop-tauri", "run", "build:unsigned"),
 )
 
 
@@ -100,6 +110,7 @@ def _run(
     return subprocess.run(
         command, cwd=cwd, env=env, input=input_text, text=True,
         capture_output=True, check=check,
+        **windows_hidden_subprocess_kwargs(),
     )
 
 
@@ -129,7 +140,7 @@ def _commands(paths: Sequence[str]) -> tuple[tuple[str, ...], ...]:
         commands.extend(_PYTHON)
     if any(path.startswith("frontend/") for path in paths):
         commands.extend(_FRONTEND)
-    if any(path.startswith("desktop/") for path in paths):
+    if any(path.startswith(("desktop/", "desktop-tauri/")) for path in paths):
         commands.extend(_DESKTOP)
     return tuple(commands or _PYTHON)
 

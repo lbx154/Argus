@@ -87,6 +87,8 @@ def test_add_enqueues_only_manager_execution_task(tmp_path, monkeypatch) -> None
     }
     assert raw not in (life_dir / "backlog.jsonl").read_text()
     assert replies and "draft the MRAM paper" in replies[-1]
+    assert item.id not in replies[-1]
+    assert "ID:" not in replies[-1]
 
 
 def test_free_text_manager_self_reply_is_not_enqueued(
@@ -155,7 +157,8 @@ def test_add_does_not_enqueue_raw_text_when_manager_handoff_fails(
     router.dispatch("/add write paper; Manager owns the sidebar")
 
     assert LifeMemory.open(life_dir).backlog.all() == []
-    assert replies and "safe handoff unavailable" in replies[-1]
+    assert replies and "这条命令暂时无法完成" in replies[-1]
+    assert "safe handoff unavailable" not in replies[-1]
 
 
 def test_free_text_reports_manager_handoff_failure(
@@ -175,8 +178,49 @@ def test_free_text_reports_manager_handoff_failure(
     router.dispatch("write paper; Manager owns the sidebar")
 
     assert LifeMemory.open(life_dir).backlog.all() == []
-    assert replies and "任务未派发" in replies[-1]
-    assert "safe handoff unavailable" in replies[-1]
+    assert replies and "暂时无法安排这项任务" in replies[-1]
+    assert "safe handoff unavailable" not in replies[-1]
+
+
+def test_status_keeps_ids_pids_and_raw_enums_out_of_the_narrative(
+    tmp_path, monkeypatch,
+) -> None:
+    from argus_skill.daemon.state import ContinuousConfigState, DaemonStatus
+    from argus_skill.life.memory import BacklogItem
+
+    router, life_dir, replies = _router(tmp_path)
+    memory = LifeMemory.open(life_dir)
+    item = memory.backlog.add(
+        BacklogItem.new(title="检查结果", objective="运行验收测试")
+    )
+    memory.backlog.mark_running(item.id)
+    monkeypatch.setattr(
+        "argus_skill.daemon.life_worker.read_daemon_status",
+        lambda _life_dir: DaemonStatus(
+            alive=True,
+            pid=4242,
+            started_at_iso=None,
+            uptime_seconds=60,
+            life_dir=life_dir,
+            global_daily_cap_usd=0.0,
+        ),
+    )
+    monkeypatch.setattr(
+        "argus_skill.daemon.life_worker.read_continuous_state",
+        lambda _life_dir: ContinuousConfigState(),
+    )
+
+    router._cmd_status("")
+
+    text = replies[-1]
+    assert "检查结果" in text
+    assert item.id not in text
+    assert "4242" not in text and "PID" not in text
+    assert "进行中：0 项待办 · 1 项执行中 · 0 项已暂停" in text
+    assert "active:" not in text
+    assert "pending" not in text
+    assert "running" not in text
+    assert "paused" not in text
 
 
 def test_poller_does_not_dispatch_when_offset_persistence_fails(

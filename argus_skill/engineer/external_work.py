@@ -476,6 +476,21 @@ def parse_external_wait_request(message: str | None) -> tuple[str, str] | None:
     return wait_for, wait_id
 
 
+def strip_external_wait_footer(message: str) -> str:
+    """Remove an active structured wait footer while preserving preceding prose."""
+    if parse_external_wait_request(message) is None:
+        return message
+    lines = message.splitlines()
+    for index in range(len(lines) - 1, -1, -1):
+        if not lines[index].strip():
+            continue
+        marker = lines[index].rfind('{"wait_for"')
+        if marker >= 0:
+            lines[index] = lines[index][:marker].rstrip()
+        break
+    return "\n".join(lines)
+
+
 def cadence_seconds(status: ExternalWorkStatus) -> float:
     return min(
         _CADENCE_CAP_SECONDS,

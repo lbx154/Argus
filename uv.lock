@@ -186,7 +186,7 @@ wheels = [
 
 [[package]]
 name = "argus-skill"
-version = "0.1.2"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

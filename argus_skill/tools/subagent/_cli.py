@@ -10,9 +10,10 @@ import sys
 import time
 from pathlib import Path
 
+from ..resource_ledger.cli import parse_duration
+from ..resource_ledger.ledger import normalize_demand
 from . import _cpu_admission
 from ._direct_run import _run_direct
-from ._discuss_run import DISCUSSION_POLL_INTERVAL
 from ._discussion_log import (
     _append_discussion,
     _engineer_turn_count,
@@ -40,8 +41,6 @@ from ._registry import (
     reconcile_terminal_task,
 )
 from ._supervised_run import _run_supervised
-from ..resource_ledger.cli import parse_duration
-from ..resource_ledger.ledger import normalize_demand
 
 _ACTIVE_STATES = frozenset({
     "starting", "preflight", "waiting_resource", "running", "discussing",

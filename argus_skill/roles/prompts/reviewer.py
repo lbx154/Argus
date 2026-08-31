@@ -609,10 +609,10 @@ def render_reviewer_prompt(
         )
     )
     handoff_policy = (
-        "`done` closes a bounded direct task when its mission contract and decisive "
-        "check pass at the current verification profile. It does not certify the "
-        "project or suppress a programme-level `plan_signal=reconsider`. Use "
-        "`continue` for a concrete material gap and give the next work package; "
+        "`done` closes a bounded direct task when its contract and decisive check "
+        "pass. Use `replan_requested` only to change the plan; `plan_signal` is "
+        "advisory and cannot override `status`. Use `continue` for a material gap and give "
+        "the next work package; "
         "leave optional hardening advisory."
         if direct_workflow
         else (
@@ -633,9 +633,7 @@ def render_reviewer_prompt(
     # Reviewer is not asked to fill them in. The fields below each feed round
     # settlement, operator routing, research certification, or plan adjudication.
     static = (
-        verification_instruction
-        + surprise_judgment_block
-        + EFFECTIVE_TASK_CONTRACT
+        EFFECTIVE_TASK_CONTRACT
         + "\n\n"
         + (shell_contract + "\n\n" if shell_contract else "")
         + MODEL_INTEGRITY_BOUNDARY
@@ -656,12 +654,11 @@ def render_reviewer_prompt(
         "hedging, limitation lists, or repeat runs—only anchored, decision-changing "
         "content; "
         "positive and negative claims share one evidence standard.\n\n"
-        + ("" if _requires_engineering_audit else _verification_directive())
-        + audit_integrity_block
         + "## Decision\n"
-        "Conclude with status, reason, next action, forward progress, and plan "
-        "signal. Add an operator question only for a genuinely operator-owned "
-        "choice; write options as `id::label::description`, separated by semicolons."
+        "REASON, NEXT_ACTION, and OPERATOR_QUESTION are human-facing. Use the "
+        "operator's language. State evidence and consequence plainly; make any "
+        "question answerable in one sentence. Avoid enum and template names. "
+        "Write options as `id::label::description`, separated by semicolons."
         + (
             " Include the inspected `research_result` contract."
             if _research_target_level is not None
@@ -675,9 +672,9 @@ def render_reviewer_prompt(
             "FORWARD_PROGRESS=true\n"
             "PLAN_SIGNAL=continue"
         )
-        + "\nEqually ordinary:\n"
-        "PLAN_SIGNAL=reconsider\n"
-        "PLAN_CHALLENGE=challenged assumption\n"
+        + "\nPlan change verdict:\n"
+        "STATUS=replan_requested\n"
+        "PLAN_CHALLENGE=failed assumption\n"
         "AUTHORITY_IMPACT=technical"
         + "\nFor a real operator-owned choice only, add "
         "`OPERATOR_QUESTION=...` and "
@@ -690,6 +687,9 @@ def render_reviewer_prompt(
         + "Put the next Engineer "
         "instruction only in next_action. Do not inspect or edit "
         "checkpoint/context-packet/handoff bookkeeping.\n\n"
+        + ("" if _requires_engineering_audit else _verification_directive())
+        + audit_integrity_block
+        + verification_instruction
         + wiki_curator_skill_block
         + direct_memory_edit_block
         + matched_review_skill_block
@@ -698,6 +698,7 @@ def render_reviewer_prompt(
         + "\n\n"
         + rollback_block
         + "\n\n"
+        + surprise_judgment_block
         + venv_skill_block
         + "\n\n## Handoff policy\n"
         + handoff_policy

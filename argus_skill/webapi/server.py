@@ -271,15 +271,23 @@ def _iter_manager_stream_items(
     """
     now = clock or time.monotonic
     last_real_at = now()
+    active_role = "manager"
+    role_labels = {
+        "manager": "Manager",
+        "planner": "Planner",
+        "engineer": "Engineer",
+        "reviewer": "Reviewer",
+    }
     while True:
         try:
             item = items.get(timeout=heartbeat_s) if heartbeat_s > 0 else items.get()
         except queue.Empty:
             quiet_s = max(0, int(now() - last_real_at))
+            actor = role_labels.get(active_role, active_role.title() or "Manager")
             yield {
                 "type": "phase",
-                "role": "manager",
-                "label": f"Manager · waiting for the next model event · {quiet_s}s quiet",
+                "role": active_role,
+                "label": f"{actor} · waiting for the next model event · {quiet_s}s quiet",
                 "heartbeat": True,
                 "quiet_s": quiet_s,
             }
@@ -287,6 +295,8 @@ def _iter_manager_stream_items(
         if item is None:
             return
         last_real_at = now()
+        if item.get("type") == "phase" and not item.get("heartbeat"):
+            active_role = str(item.get("role") or "manager").strip().lower()
         yield item
 
 
@@ -669,8 +679,15 @@ def create_app(
     wheel_dist = Path(__file__).resolve().parents[1] / "_frontend" / "web" / "dist"
     web_dist = source_dist if source_dist.is_dir() else wheel_dist
     if web_dist.is_dir():
+        import mimetypes
+
         from fastapi.staticfiles import StaticFiles
 
+        # Windows' MIME registry commonly has no .mjs mapping. Serving the
+        # PDF.js worker as text/plain makes WebView2 reject the module and then
+        # fail its fake-worker fallback. Register the standards-compliant MIME
+        # before StaticFiles resolves response headers.
+        mimetypes.add_type("text/javascript", ".mjs")
         app.mount("/", StaticFiles(directory=str(web_dist), html=True), name="web")
 
     return app

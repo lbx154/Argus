@@ -10,7 +10,7 @@
 
 Long-running agent work that can plan, execute, verify, pause, and continue beyond a single model turn.
 
-**Preview v0.1.2 · Preview channel for upcoming Argus updates.**
+**Preview v0.1.1 · Preview channel for upcoming Argus updates.**
 
 [![GitHub Stars](https://img.shields.io/github/stars/lbx154/Argus?style=flat-square)](https://github.com/lbx154/Argus/stargazers)
 [![License](https://img.shields.io/github/license/lbx154/Argus?style=flat-square)](LICENSE)
@@ -62,7 +62,7 @@ and 1,548 hours it needed a human research decision about **once every 310 hours
 **95–99%** duty cycle. Everything else is in the
 **[technical report](https://arxiv.org/pdf/2608.05144)**.
 
-**Native backends:** `GitHub Copilot CLI` · `Pi` · `OpenAI Codex CLI` · `Claude Code` · `OpenCode` · `Grok Build` · `Qoder` · `DeepSeek Harness`
+**Native backends:** `GitHub Copilot CLI` · `Pi` · `OpenAI Codex CLI` · `Claude Code` · `Cursor CLI` · `OpenCode` · `Grok Build` · `Qoder` · `DeepSeek Harness`
 
 **Harbor evaluation:** Harbor Framework can invoke the complete bounded Argus
 Manager/Planner/Engineer/Reviewer runtime as a custom agent. See
@@ -78,10 +78,12 @@ size. If the printed expiry date has passed, open an Issue and ask the
 maintainers for the latest code.
 
 <p align="center">
-  <a href="docs/assets/argus-wechat-group.jpg">
-    <img src="docs/assets/argus-wechat-group.jpg" width="360" alt="Argus WeChat community QR code">
+  <a href="docs/assets/argus-wechat-group-2.jpg">
+    <img src="docs/assets/argus-wechat-group-2.jpg" width="360" alt="Argus WeChat Group 2 QR code">
   </a>
 </p>
+
+<p align="center"><strong>Community Group 1 is full. Please join Group 2.</strong></p>
 
 ## Quick Install
 
@@ -102,6 +104,7 @@ prerequisite for the separate Harbor evaluation integration.
 | GitHub Copilot CLI | `copilot` | `npm install -g @github/copilot` | `copilot login` |
 | OpenAI Codex CLI | `codex` | `npm install -g @openai/codex@latest` | `codex login` |
 | Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | Run `claude`, then `/login` |
+| Cursor CLI | `cursor` | `curl https://cursor.com/install -fsS | bash` ([Windows](https://cursor.com/install?win32=true)) | `agent login` or `CURSOR_API_KEY` |
 | Pi | `pi` | `npm install -g --ignore-scripts @earendil-works/pi-coding-agent` | Run `pi`, then `/login` |
 | OpenCode | `opencode` | [Official install](https://opencode.ai/docs/) | `opencode auth login` |
 | Grok Build | `grok` | [Official install](https://x.ai/cli) | `grok login` |
@@ -152,12 +155,12 @@ Calling `$Argus` proves setup is not accidentally using another stale
 installation. `$env:Path` also makes plain `argus` available in the current
 PowerShell. The troubleshooting section covers persistent PATH repair.
 
-`argus doctor` is an active repair command. By default it launches an installed
-Agent CLI in the real Argus directories with tools enabled, lets the Agent
-inspect and fix the machine, then reruns deterministic checks. Use
-`argus doctor --advisor none --verify` for a no-model verification.
-The active repair may take several minutes because it performs a real Agent
-turn; it is not a quick version check.
+`argus doctor` is read-only by default. To explicitly authorize an installed
+Agent CLI to inspect and repair Argus-scoped files, configuration, runtime
+state, or dependencies, use `argus doctor --advisor auto` (or name a specific
+advisor). Use `argus doctor --advisor none --verify` for deterministic,
+no-model verification. An explicitly requested active repair may take several
+minutes because it performs a real Agent turn; it is not a quick version check.
 
 Windows currently supports installation, Manager chat, pairing, Web/TUI,
 terminal-scoped daemon control, and native durable subagents. On native Windows,
@@ -222,10 +225,10 @@ creation reports that `ensurepip` is unavailable, install the distribution's
 
 ### Backend notes
 
-Use `copilot`, `pi`, `codex`, `claude`, `opencode`, `grok`, `qoder`, or `dsh`
+Use `copilot`, `pi`, `codex`, `claude`, `cursor`, `opencode`, `grok`, `qoder`, or `dsh`
 for `--backend`. Setup adopts a model from the selected CLI's own catalog when
 one is available; otherwise it keeps that CLI's native default. It does not
-inject an OpenAI model id into Claude Code, Pi, OpenCode, Grok, Qoder, or dsh.
+inject an OpenAI model id into Claude Code, Cursor CLI, Pi, OpenCode, Grok, Qoder, or dsh.
 If you have an OpenAI-compatible endpoint, setup installs Pi when needed and
 configures it directly:
 
@@ -289,7 +292,8 @@ argus
 ```
 
 ```bash
-argus doctor                         # Agent-driven inspection and repair
+argus doctor                         # deterministic, read-only diagnostics
+argus doctor --advisor auto          # explicitly request Agent-driven inspection and repair
 argus doctor --advisor none --verify # deterministic verification, no model call
 argus --status                       # inspect the current runtime
 ```
@@ -298,10 +302,11 @@ argus --status                       # inspect the current runtime
 
 ### Windows Desktop
 
-The Windows x64 source tree includes an Electron host that supervises a frozen
+The Windows x64 source tree includes a Tauri/Rust host that supervises a frozen
 copy of the same Argus runtime and opens the existing Web cockpit—there is no
-separate Desktop fork of Manager, Workbench, or the WebAPI. Source setup,
-security boundaries, verification, and packaging commands are documented in
+separate Desktop fork of Manager, Workbench, or the WebAPI. It also provides
+signed update discovery and user-confirmed installation. Source setup, security
+boundaries, verification, and packaging commands are documented in
 **[Windows Desktop](docs/windows-desktop.md)**.
 
 ### Terminal cockpit
@@ -442,9 +447,9 @@ which kind of check is allowed to settle which kind of question. See
 
 ### Use another agent as the outer layer
 
-GitHub Copilot, Pi, Codex, Claude Code, OpenCode, Grok Build, OpenClaw, or Hermes can be the environment from which you invoke Argus, inspect its state, operate its local CLI or Web/API surface, and continue improving the deployment.
+GitHub Copilot, Pi, Codex, Claude Code, Cursor CLI, OpenCode, Grok Build, OpenClaw, or Hermes can be the environment from which you invoke Argus, inspect its state, operate its local CLI or Web/API surface, and continue improving the deployment.
 
-- **Native Argus backends:** GitHub Copilot CLI, Pi, Codex CLI, Claude Code, OpenCode, Grok Build, Qoder, DeepSeek Harness
+- **Native Argus backends:** GitHub Copilot CLI, Pi, Codex CLI, Claude Code, Cursor CLI, OpenCode, Grok Build, Qoder, DeepSeek Harness
 - **External agent operators:** OpenClaw, Hermes, or any agent that can use a shell or HTTP API
 
 For durable missions, install or adapt the portable
@@ -529,8 +534,8 @@ logs.
 - On Linux, use `$HOME/Argus/.venv/bin/argus`; a global `argus` may be an older
   installation. Install `python3-venv` if `python3 -m venv` lacks `ensurepip`.
 - Use `argus doctor --advisor none --verify` for deterministic diagnostics.
-  Use `argus doctor` when you want an installed Agent to inspect and repair
-  Argus directly.
+  Use `argus doctor --advisor auto` when you explicitly want an installed
+  Agent to inspect and repair Argus directly.
 - Use `argus --config-help` to check the effective backend/model before blaming
   setup or authentication.
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
@@ -27,9 +28,80 @@ from .state import (
 
 log = logging.getLogger(__name__)
 
+_RUNNING_STALL_SECONDS = 30.0
+_RUNNING_STALL_ERROR = "executor exited without completing the task"
+_RUNNING_STALL_POLL_SECONDS = 1.0
+
 
 class LifeWorkerRunMixin:
     """``run_forever``'s post-boot phases: main loop and shutdown."""
+
+    def _fail_stalled_running_items(self, rf_state: _RunForeverState) -> list[str]:
+        """Fail durable running claims after every role has gone quiet."""
+        from ..core.event_catalog import EventType
+        from ..life.mission_outcome import mission_outcome_class
+        from ..life.role_activity import role_activity
+
+        now = time.time()
+        activities = role_activity(rf_state.runtime_root, now=now)
+        if any(activity.active for activity in activities.values()):
+            return []
+        role_ages = [
+            float(activity.age_s)
+            for activity in activities.values()
+            if activity.age_s is not None
+        ]
+
+        failed: list[str] = []
+        for item in rf_state.mem.backlog.active():
+            if item.status != "running" or item.started_ts is None:
+                continue
+            quiet_seconds = max(0.0, now - float(item.started_ts))
+            if role_ages:
+                quiet_seconds = min(quiet_seconds, min(role_ages))
+            if quiet_seconds <= _RUNNING_STALL_SECONDS:
+                continue
+            if rf_state.mem.backlog.mark_failed(
+                item.id,
+                error=_RUNNING_STALL_ERROR,
+            ) is None:
+                continue
+            failed.append(item.id)
+            rf_state.sink.handle_event({
+                "type": EventType.LIFE_MISSION_COMPLETED,
+                "item_id": item.id,
+                "title": item.title,
+                "objective": item.objective,
+                "success": False,
+                "status": "failed",
+                "summary": _RUNNING_STALL_ERROR,
+                "failure_reason": _RUNNING_STALL_ERROR,
+                "outcome_class": mission_outcome_class("failed", False),
+                "rounds": 0,
+                "elapsed_seconds": max(0.0, now - float(item.started_ts)),
+            })
+            log.error("daemon: failed stalled running item %s", item.id)
+        return failed
+
+    def _start_running_stall_watcher(self, rf_state: _RunForeverState) -> None:
+        def _watch() -> None:
+            while not self._running_stall_stop.wait(_RUNNING_STALL_POLL_SECONDS):
+                try:
+                    self._fail_stalled_running_items(rf_state)
+                except Exception:  # noqa: BLE001 - watchdog failure must not stop work
+                    log.exception("daemon: stalled-running watchdog failed")
+
+        self._running_stall_thread = threading.Thread(
+            target=_watch,
+            name="argus-running-stall",
+            daemon=True,
+        )
+        self._running_stall_thread.start()
+
+    def _stop_running_stall_watcher(self) -> None:
+        self._running_stall_stop.set()
+        if self._running_stall_thread is not None:
+            self._running_stall_thread.join(timeout=2.0)
 
     def _deployment_handoff_gate(self) -> str:
         from ..core.runtime_identity import source_root
@@ -194,6 +266,8 @@ class LifeWorkerRunMixin:
             )
             self._foreground_wait_guard.start()
 
+        self._start_running_stall_watcher(rf_state)
+
     def _rf_main_loop(self, rf_state: _RunForeverState) -> None:
         """Drain the backlog until stop is requested, sleeping wakeably."""
 
@@ -252,16 +326,23 @@ class LifeWorkerRunMixin:
                                 )
                             ):
                                 self._adopted_continuous_generation = None
-                    # A bounded campaign owns exactly one terminal objective.
-                    # The supervisor has already persisted project_done and the
-                    # so another drain pass can only re-open a
-                    # completed project and waste tokens. Open-ended daemons keep
-                    # their resident behavior unchanged.
+                    # A bounded worker owns one finite queue. Plain bounded DAGs
+                    # finish with ``backlog_empty``; finite staged campaigns end
+                    # with ``project_done``. Both must release the process slot.
+                    # A standing campaign that was enabled while this worker was
+                    # alive remains resident even if the launch itself was bounded.
+                    terminal_bounded_stop = summary.get("stopped_by") in {
+                        "backlog_empty",
+                        "project_done",
+                    }
+                    standing = read_continuous_state(rf_state.runtime_root)
+                    standing_enabled = standing.enabled and standing.open_ended
                     if (
-                        summary.get("stopped_by") == "project_done"
+                        terminal_bounded_stop
                         and not rf_state.cfg.continuous_open_ended
+                        and not standing_enabled
                     ):
-                        log.info("daemon: bounded project completed; exiting cleanly")
+                        log.info("daemon: bounded work completed; exiting cleanly")
                         break
                     # Idle auto-exit: the supervisor judged the project idle past
                     # the cap. Exit the loop so the process shuts down cleanly
@@ -304,6 +385,7 @@ class LifeWorkerRunMixin:
                     rf_state.runtime_root,
                 )
         finally:
+            self._stop_running_stall_watcher()
             foreground_wait_guard = getattr(
                 self,
                 "_foreground_wait_guard",

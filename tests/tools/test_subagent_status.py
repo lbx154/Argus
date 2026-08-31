@@ -4,6 +4,8 @@ import json
 import os
 from argparse import Namespace
 
+import pytest
+
 from argus_skill.tools import subagent
 
 
@@ -106,7 +108,8 @@ def test_reconcile_prefers_current_exit_sidecar_over_live_pid(tmp_path, monkeypa
 def test_reconcile_rejects_reused_live_pid_identity(tmp_path, monkeypatch):
     monkeypatch.setattr(subagent._registry, "REGISTRY_DIR", tmp_path)
     identity = subagent._registry._process_identity(os.getpid())
-    assert "start_time_ticks" in identity
+    if "start_time_ticks" not in identity:
+        pytest.skip("requires /proc process start-time identity")
     identity["start_time_ticks"] = f"{identity['start_time_ticks']}-reused"
     task = {
         "state": "running",

@@ -1,4 +1,5 @@
 import { isImeComposing } from '../lib/ime';
+import type { MessageRouteOverride } from '../api';
 import {
   useEffect,
   useRef,
@@ -9,7 +10,6 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { spinnerFrame } from '../lib/soul';
-import { thinkingStatusLine } from '../../../core/src/thinking';
 import { slashCompletions, applyCompletion } from '../../../core/src/commands';
 import { isPromptRewriteShortcut } from '../../../core/src/shortcuts';
 import {
@@ -69,10 +69,10 @@ export function handlePromptRewriteShortcut(
 }
 
 /**
- * The Manager front-door as a single conversational box. The operator just
- * talks to Argus; the Manager decides whether
- * to reply (chat) or dispatch a mission to the planner/engineer/reviewer team.
- * No task/nudge/note modes to think about.
+ * One composer with an explicit category selector. Task is operator authority
+ * and skips only the category classifier; Manager and Planner ownership remain
+ * unchanged. Auto keeps the remote Manager front-door behavior, while Chat
+ * guarantees that a question is not enqueued as work.
  *
  * The composer is controlled: draft state lives in the parent (App.tsx) so that
  * slash completions can be applied atomically without racing internal state.
@@ -88,15 +88,13 @@ export function ChatBox({
   pending,
   focusSignal,
   embedded = false,
-  phase = '',
-  heartbeat = false,
-  quietS = 0,
-  startedAt = 0,
   steps = [],
   onRewrite,
   rewriting = false,
   slashSelection,
   onSlashSelectionChange,
+  routeOverride = 'auto',
+  onRouteOverrideChange,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -106,16 +104,14 @@ export function ChatBox({
   pending: boolean;
   focusSignal?: number;
   embedded?: boolean;
-  phase?: string;
-  heartbeat?: boolean;
-  quietS?: number;
-  startedAt?: number;
   steps?: PhaseStep[];
   /** Ask the Manager to rewrite the current draft; result replaces the draft. */
   onRewrite?: (draft: string) => void;
   rewriting?: boolean;
   slashSelection: number;
   onSlashSelectionChange: (n: number) => void;
+  routeOverride?: MessageRouteOverride;
+  onRouteOverrideChange?: (value: MessageRouteOverride) => void;
 }) {
   const { t } = useI18n();
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -130,11 +126,11 @@ export function ChatBox({
   useEffect(() => {
     if (!pending && !rewriting) return;
     setThinkTick((t) => t + 1);
-    const id = setInterval(() => setThinkTick((t) => t + 1), 120);
+    // Five frames per second keeps the textual spinner lively without forcing
+    // the entire composer to reconcile at animation-frame cadence in WebView2.
+    const id = setInterval(() => setThinkTick((t) => t + 1), 200);
     return () => clearInterval(id);
   }, [pending, rewriting]);
-  const thinkingLine = thinkingStatusLine(phase, thinkTick, heartbeat, quietS);
-  const elapsedS = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
   const trailRows = visibleTrail(steps);
   const trailNow = Date.now() / 1000;
 
@@ -299,12 +295,6 @@ export function ChatBox({
     >
       {pending ? (
         <div className="border-b border-line/40 px-3 py-2">
-          <div className="flex min-w-0 items-center gap-2 text-xs">
-            <span className="font-mono text-manager">{spinnerFrame(thinkTick)}</span>
-            <span className="shrink-0 font-semibold text-manager">{t('chat.yourMessage')}</span>
-            <span className="min-w-0 flex-1 truncate text-blue" title={thinkingLine}>{thinkingLine}</span>
-            <span className="shrink-0 font-mono tabular-nums text-ink-faint">{elapsedS}s</span>
-          </div>
           {trailRows.length ? (
             <ol className="mt-1.5 space-y-0.5">
               {trailRows.map((step, index) => {
@@ -412,6 +402,22 @@ export function ChatBox({
           className="max-h-48 min-h-[38px] min-w-0 flex-1 resize-none bg-transparent py-2 font-sans text-[15px] text-ink outline-none placeholder:text-ink-faint"
           style={{ fieldSizing: 'content' } as React.CSSProperties}
         />
+        {onRouteOverrideChange ? (
+          <select
+            value={routeOverride}
+            onChange={(event) => onRouteOverrideChange(
+              event.target.value as MessageRouteOverride,
+            )}
+            disabled={disabled || pending}
+            title={t('chat.routeHint')}
+            aria-label={t('chat.routeLabel')}
+            className="send-control h-9 shrink-0 rounded-full border-line bg-transparent px-3 text-xs font-medium text-ink-faint hover:border-blue/70 hover:text-ink disabled:opacity-40"
+          >
+            <option value="task">{t('chat.routeTask')}</option>
+            <option value="auto">{t('chat.routeAuto')}</option>
+            <option value="chat">{t('chat.routeChat')}</option>
+          </select>
+        ) : null}
         {onRewrite ? (
           <button
             type="button"

@@ -14,9 +14,11 @@ Complete the installation; do not merely print commands.
 - Prefer the Agent CLI already running this conversation.
 - Do not replace a dirty checkout or silently switch providers after a failure.
 - Use only the section for the detected operating system.
-- Running `argus doctor` authorizes the selected installed Agent to inspect and
-  repair Argus files, configuration, runtime state, and required dependencies.
-  Login or administrator blockers must be reported rather than guessed.
+- Running `argus doctor` is read-only. Only an explicit
+  `argus doctor --advisor <auto|backend>` authorizes the selected installed
+  Agent to inspect and repair Argus files, configuration, runtime state, and
+  required dependencies. Login or administrator blockers must be reported
+  rather than guessed.
 
 Supported backend values:
 
@@ -25,6 +27,7 @@ Supported backend values:
 | GitHub Copilot CLI | `copilot` |
 | OpenAI Codex CLI | `codex` |
 | Claude Code | `claude` |
+| Cursor CLI | `cursor` |
 | Pi | `pi` |
 | OpenCode | `opencode` |
 | xAI Grok Build | `grok` |
@@ -46,7 +49,7 @@ Use PowerShell:
 [Environment]::OSVersion.VersionString
 py --version
 node --version
-Get-Command copilot,codex,claude,pi,opencode,grok,qodercli,dsh -ErrorAction SilentlyContinue
+Get-Command copilot,codex,claude,agent,cursor-agent,pi,opencode,grok,qodercli,dsh -ErrorAction SilentlyContinue
 ```
 
 Require Python 3.11+ from python.org with **Add Python to PATH** selected,
@@ -73,7 +76,7 @@ package version may stay unchanged when the archive contents change.
 ### Configure and verify
 
 ```powershell
-& $Argus --setup --non-interactive --backend <copilot|codex|claude|pi|opencode|grok|qoder|dsh>
+& $Argus --setup --non-interactive --backend <copilot|codex|claude|cursor|pi|opencode|grok|qoder|dsh>
 & $Argus doctor --deep --advisor auto
 & $Argus --status
 ```
@@ -97,7 +100,7 @@ sw_vers
 uname -m
 uv --version
 node --version
-for cli in copilot codex claude pi opencode grok qodercli dsh; do command -v "$cli" || true; done
+for cli in copilot codex claude agent cursor-agent pi opencode grok qodercli dsh; do command -v "$cli" || true; done
 ```
 
 Require Node.js 22.12+, one authenticated Agent CLI, and uv. Install uv only with
@@ -117,7 +120,7 @@ test -x "$ARGUS_BIN"
 
 ```bash
 "$ARGUS_BIN" --setup --non-interactive \
-  --backend <copilot|codex|claude|pi|opencode|grok|qoder|dsh>
+  --backend <copilot|codex|claude|cursor|pi|opencode|grok|qoder|dsh>
 "$ARGUS_BIN" doctor --deep --advisor auto
 "$ARGUS_BIN" --status
 ```
@@ -126,11 +129,12 @@ Setup is complete only after the real Agent-turn smoke succeeds. Keep using
 `$ARGUS_BIN` in the current shell. With approval, run `uv tool update-shell` to
 make plain `argus` available in new terminals.
 
-Doctor is not advisory-only: it runs the installed Agent with tools enabled,
-applies Argus-scoped repairs, and then reruns deterministic verification. Use
-`--advisor none --verify` only for a non-Agent verification run.
-Allow several minutes for the active repair because it performs a real Agent
-turn and may repair dependencies.
+With the explicit `--advisor auto` shown above, Doctor runs the installed
+Agent with tools enabled, applies Argus-scoped repairs, and then reruns
+deterministic verification. `argus doctor` without an advisor remains
+read-only; use `--advisor none --verify` for an explicit non-Agent verification
+run. Allow several minutes for an active repair because it performs a real
+Agent turn and may repair dependencies.
 
 ## Linux
 
@@ -141,7 +145,7 @@ uname -a
 python3 --version
 node --version
 git --version
-for cli in copilot codex claude pi opencode grok qodercli dsh; do command -v "$cli" || true; done
+for cli in copilot codex claude agent cursor-agent pi opencode grok qodercli dsh; do command -v "$cli" || true; done
 ```
 
 Require Python 3.11+, Node.js 22.12+, Git, the distribution's `python3-venv`
@@ -171,7 +175,7 @@ with `git pull --ff-only`, then refresh the editable install.
 ```bash
 cd "$HOME/Argus"
 "$ARGUS_BIN" --setup --non-interactive \
-  --backend <copilot|codex|claude|pi|opencode|grok|qoder|dsh>
+  --backend <copilot|codex|claude|cursor|pi|opencode|grok|qoder|dsh>
 "$ARGUS_BIN" doctor --deep --advisor auto
 "$ARGUS_BIN" --status
 ```

@@ -99,6 +99,10 @@ def test_post_task_appends_to_backlog(ctx) -> None:
     # went through the real Backlog store (flock CAS), not a raw write
     items = LifeMemory.open(life).backlog.all()
     assert len(items) == 1 and items[0].objective == "optimize the kernel"
+    assert items[0].manager_decision == {
+        "require_independent_review": True,
+        "routed": True,
+    }
 
 
 def test_post_task_preserves_active_continuous_campaign_governance(
@@ -217,7 +221,11 @@ def test_post_task_enqueues_only_manager_execution_handoff(ctx, monkeypatch) -> 
     assert captured["sid"] == sid
     assert captured["text"] == raw
     assert captured["root_task_id"] == item["id"]
-    assert LifeMemory.open(life).backlog.all()[0].objective == "write the MRAM paper"
+    persisted = LifeMemory.open(life).backlog.all()[0]
+    assert persisted.objective == "write the MRAM paper"
+    # Even a narrow/fake handoff that omits Division details has completed the
+    # Manager gate.  The daemon must not classify the claimed item again.
+    assert persisted.manager_decision == {"routed": True}
 
 
 def test_post_task_returns_503_instead_of_enqueuing_raw_on_handoff_failure(
@@ -713,8 +721,16 @@ def test_daemon_start_surfaces_clean_launcher_failure(ctx, monkeypatch) -> None:
     response = client.post(f"/api/projects/{sid}/daemon/start")
 
     assert response.status_code == 200
-    assert response.json()["rc"] == 2
-    assert "ModuleNotFoundError: No module named 'uvicorn'" in response.json()["error"]
+    body = response.json()
+    assert body["rc"] == 2
+    assert body["error"] == (
+        "The background worker could not start. "
+        "Check the startup diagnostic and try again."
+    )
+    assert body["startup_diagnostic"] == (
+        "RuntimeError: ModuleNotFoundError: No module named 'uvicorn'"
+    )
+    assert "ModuleNotFoundError" not in body["error"]
 
 
 def test_daemon_start_surfaces_captured_helper_stderr(ctx, monkeypatch, caplog) -> None:
@@ -735,8 +751,38 @@ def test_daemon_start_surfaces_captured_helper_stderr(ctx, monkeypatch, caplog) 
     body = response.json()
     assert body["rc"] == 1
     assert body["startup_diagnostic"] == diagnostic
-    assert body["error"] == f"background executor failed to start (rc=1): {diagnostic}"
+    assert body["error"] == (
+        "The background worker could not start. "
+        "Check the startup diagnostic and try again."
+    )
+    assert diagnostic not in body["error"]
     assert diagnostic in caplog.text
+
+
+@pytest.mark.parametrize("resume_continuous", [False, True])
+def test_web_start_without_an_open_ended_campaign_launches_a_bounded_worker(
+    ctx,
+    monkeypatch,
+    resume_continuous: bool,
+) -> None:
+    root, sid, _life = ctx
+    spawned: dict[str, object] = {}
+
+    def fake_spawn(config, *, quiet=False):
+        spawned["open_ended"] = config.continuous_open_ended
+        spawned["quiet"] = quiet
+        return 0
+
+    monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
+
+    result = server.start_project_daemon(
+        sid,
+        global_root=root,
+        resume_continuous=resume_continuous,
+    )
+
+    assert result is not None and result["rc"] == 0
+    assert spawned == {"open_ended": False, "quiet": True}
 
 
 def test_daemon_start_retries_one_transient_windows_sharing_failure(
@@ -1376,6 +1422,34 @@ def test_daemon_upgrade_schedules_restart_when_active_mission_is_still_running(
     assert request is not None
     assert request["expected_pid"] == 321
     assert request["resume_continuous"] is True
+
+
+def test_manual_force_stop_uses_short_verified_interrupt_timeout(
+    ctx,
+    monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    calls: list[tuple[object, dict]] = []
+
+    def stop_daemon(target, **kwargs):
+        calls.append((target, kwargs))
+        return 0
+
+    monkeypatch.setattr(server, "stop_daemon", stop_daemon)
+
+    result = server.stop_project_daemon(
+        sid,
+        force=True,
+        global_root=root,
+    )
+
+    assert result == {"rc": 0, "forced": True}
+    assert calls == [
+        (
+            life,
+            {"timeout": 1.0, "drain": False, "force": True},
+        )
+    ]
 
 
 def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> None:

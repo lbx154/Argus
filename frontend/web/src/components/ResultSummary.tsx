@@ -59,7 +59,7 @@ export function ResultSummary({
                 key={item.path}
                 type="button"
                 disabled={!interactive}
-                title={item.why || (item.exists === false ? 'declared evidence is not present' : String(item.path))}
+                title={item.storage_path || item.why || (item.exists === false ? 'declared evidence is not present' : String(item.path))}
                 onClick={() => item.path && interactive && onOpenArtifact?.(item.path)}
                 className={`rounded border px-2 py-0.5 font-mono text-[10px] transition-colors ${
                   interactive

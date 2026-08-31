@@ -16,7 +16,7 @@ import logging
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Mapping
 
 from ..core.role_decision import latest_role_decision
 from ._helpers import (
@@ -138,14 +138,12 @@ class _StageDecisionMixin:
             if not isinstance(signal, str):
                 return False
             signal = signal.strip().lower()
-            if signal not in {"", "continue", "reconsider"} or signal == "reconsider":
+            if signal not in {"", "continue", "reconsider"}:
                 return False
         for name in ("challenge", "alternative"):
             if name in planner_report:
                 value = planner_report[name]
                 if not isinstance(value, str):
-                    return False
-                if value.strip().casefold() not in _NEUTRAL_REVIEW_TEXT:
                     return False
         if "authority_impact" in planner_report:
             authority = planner_report["authority_impact"]
@@ -357,6 +355,59 @@ class _StageDecisionMixin:
             return extract_answer(result) or ""
         except Exception:  # noqa: BLE001
             return ""
+
+    def report_project_completion(
+        self,
+        *,
+        completion_context: Mapping[str, Any],
+        continuous_objective: str = "",
+        completion_reason: str = "",
+        on_event: Any = None,
+        root_task_id: str | None = None,
+    ) -> str:
+        """Return a Manager-authored operator report for a completed stage ledger."""
+        from ..roles.prompts.manager import build_project_completion_report_prompt
+
+        prompt = build_project_completion_report_prompt(
+            objective=continuous_objective,
+            completion_reason=completion_reason,
+            completion_context=completion_context,
+        )
+        run_exec, hold = self._build_stage_run_exec(None, on_event)
+        if hold is not None or run_exec is None:
+            from ..core.operator_messages import uses_cjk
+
+            stages = completion_context.get("stages")
+            stage_names = list(stages) if isinstance(stages, dict) else []
+            route = " -> ".join(stage_names)
+            if uses_cjk(continuous_objective):
+                return (
+                    "项目已完成。Manager 已收到完整阶段记录"
+                    + (f"（{route}）。" if route else "。")
+                    + (
+                        f" 完成原因：{completion_reason.strip()}"
+                        if completion_reason.strip()
+                        else ""
+                    )
+                )
+            return (
+                "Project completed. Manager received the full stage ledger"
+                + (f" ({route})." if route else ".")
+                + (
+                    f" Completion reason: {completion_reason.strip()}"
+                    if completion_reason.strip()
+                    else ""
+                )
+            )
+        raw = self._run_stage_model(run_exec, prompt, root_task_id)
+        if not raw.strip():
+            return ""
+        from ..core.role_reply import strip_control_footer
+
+        return strip_control_footer(
+            raw,
+            ("ACTION", "TARGET_STAGE", "REASON", "RESOLVES_WAIT"),
+        ).strip()
 
     def _parse_and_finalize_stage_decision(
         self,
@@ -738,6 +789,19 @@ class _StageDecisionMixin:
             return ctx
         cur, order, checklist_contract = ctx
 
+        if (
+            getattr(review, "engineer_aborted_before_review", False) is True
+            and getattr(review, "backend_stop_kind", None) == "operator_abort"
+        ):
+            return StageTransition(
+                "hold",
+                cur,
+                "engineer was operator-aborted before review",
+                current_stage=cur,
+                source="operator_abort_hold",
+                diagnostic="engineer_aborted_before_review",
+            )
+
         # --- Phase 2: Compute reconciliation flags ---
         # An open-ended final-stage checkpoint may need a new solve cycle after
         # the Planner confirms the operator's objective is still unresolved.
@@ -819,17 +883,17 @@ class _StageDecisionMixin:
                 )
 
         # A parsed, conflict-free Reviewer acceptance is already the semantic
-        # judgment for an intermediate stage. Manager still performs the exact
-        # stage-machine preflight and remains the sole writer; only its duplicate
-        # model vote is skipped. Terminal completion and every ambiguous signal
-        # continue through the model path below.
+        # judgment for a stage. Manager still performs the exact stage-machine
+        # preflight and remains the sole writer; only its duplicate model vote is
+        # skipped. Every ambiguous signal continues through the model path below.
         next_stage = (
             order[order.index(cur) + 1]
             if cur in order and order.index(cur) + 1 < len(order)
             else ""
         )
+        terminal_stage = bool(order and cur == order[-1])
         external_gate_issue = ""
-        if next_stage:
+        if next_stage or terminal_stage:
             from ..core.external_completion_gate import external_completion_gate_issue
 
             external_gate_issue = external_completion_gate_issue(
@@ -837,7 +901,7 @@ class _StageDecisionMixin:
             )
         deterministic_candidate = bool(
             stage_closing
-            and next_stage
+            and (next_stage or terminal_stage)
             and self._is_clean_reviewer_acceptance(review)
             and planner_verdict is None
             and not external_gate_issue
@@ -845,25 +909,54 @@ class _StageDecisionMixin:
         if deterministic_candidate:
             try:
                 from ..skills.stage_machine import _ensure_stage_completion
+                from ..skills.vertical_select import resolve_workflow_mode
                 from .stage_decider import StageDecision
 
-                _ensure_stage_completion(
-                    root,
-                    cur,
-                    evidence_root=self.execution_workdir,
+                allow_early_completion = (
+                    not open_ended and resolve_workflow_mode(root) == "direct"
                 )
-                return self._apply_stage_decision_to_disk(
-                    StageDecision(
+                if not (allow_early_completion and not terminal_stage):
+                    _ensure_stage_completion(
+                        root,
+                        cur,
+                        evidence_root=self.execution_workdir,
+                    )
+                if terminal_stage or allow_early_completion:
+                    from ..core.research_contract import resolve_research_target_level
+                    from ..skills.vertical_select import resolve_vertical
+                    from .stage_decider import final_stage_completion_decision
+
+                    decision = final_stage_completion_decision(
+                        review,
+                        current_stage=cur,
+                        stage_order=order,
+                        vertical=resolve_vertical(root),
+                        mission_scope=mission_scope,
+                        project_root=root,
+                        research_target_level=resolve_research_target_level(root),
+                        checklist_contract=checklist_contract,
+                        trigger_diagnostic="deterministic_reviewer_done",
+                        trigger_reason=(
+                            "Reviewer certified the current-stage checklist and "
+                            "deterministic completion checks passed"
+                        ),
+                        allow_early_completion=allow_early_completion,
+                    )
+                else:
+                    decision = StageDecision(
                         "advance",
                         next_stage,
                         "Reviewer certified the current-stage checklist and "
                         "deterministic completion checks passed",
                         "deterministic_reviewer_done",
-                    ),
-                    cur,
-                    root,
-                    source="manager_deterministic",
-                )
+                    )
+                if decision is not None:
+                    return self._apply_stage_decision_to_disk(
+                        decision,
+                        cur,
+                        root,
+                        source="manager_deterministic",
+                    )
             except Exception:  # noqa: BLE001 - ambiguity retains Manager semantics
                 log.debug(
                     "deterministic stage advance preflight failed; using Manager",

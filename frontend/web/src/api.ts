@@ -143,6 +143,8 @@ export interface UploadedAttachment {
 export interface MessageAttachmentRef {
   attachment_id: string;
 }
+/** Operator-owned message category; Task skips only the category classifier. */
+export type MessageRouteOverride = 'auto' | 'chat' | 'task';
 export interface AttachmentUploadResponse {
   attachments: UploadedAttachment[];
   limits: {
@@ -426,8 +428,15 @@ function isAbortSignal(value: unknown): value is AbortSignal {
   );
 }
 
-function messageBody(text: string, attachments?: MessageAttachmentRef[]): Record<string, unknown> {
-  return attachments?.length ? { text, attachments } : { text };
+function messageBody(
+  text: string,
+  attachments?: MessageAttachmentRef[],
+  routeOverride?: MessageRouteOverride,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = { text };
+  if (attachments?.length) body.attachments = attachments;
+  if (routeOverride && routeOverride !== 'auto') body.route_override = routeOverride;
+  return body;
 }
 
 export function compatibleApiMeta(): Promise<ApiMeta> {
@@ -705,13 +714,15 @@ export const api = {
     signalOrOptions?: AbortSignal | {
       signal?: AbortSignal;
       attachments?: MessageAttachmentRef[];
+      routeOverride?: MessageRouteOverride;
     },
   ) => {
     const signal = isAbortSignal(signalOrOptions) ? signalOrOptions : signalOrOptions?.signal;
     const attachments = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.attachments;
+    const routeOverride = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.routeOverride;
     return postJson<{ kind: 'chat' | 'task' | 'pending_question' | 'pending_question_choice' | 'error'; reply: string | null; resolved?: boolean; item?: BacklogItem | null; daemon_alive?: boolean }>(
       P(sid, '/message'),
-      messageBody(text, attachments),
+      messageBody(text, attachments, routeOverride),
       signal,
     );
   },
@@ -737,14 +748,16 @@ export const api = {
     signalOrOptions?: AbortSignal | {
       signal?: AbortSignal;
       attachments?: MessageAttachmentRef[];
+      routeOverride?: MessageRouteOverride;
     },
   ): Promise<void> => {
     const signal = isAbortSignal(signalOrOptions) ? signalOrOptions : signalOrOptions?.signal;
     const attachments = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.attachments;
+    const routeOverride = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.routeOverride;
     const res = await fetch(P(sid, '/message/stream'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(messageBody(text, attachments)),
+      body: JSON.stringify(messageBody(text, attachments, routeOverride)),
       signal,
     });
     await ensureResponseOk(res, 'POST', P(sid, '/message/stream'));
@@ -836,8 +849,14 @@ export const api = {
     command_id: commandId(),
     expected_revision: expectedRevision,
   }).then(requireDaemonCommand),
-  stopDaemon: (sid: string, drain = false, expectedRevision?: number) => postJson(P(sid, '/daemon/stop'), {
+  stopDaemon: (
+    sid: string,
+    drain = false,
+    expectedRevision?: number,
+    force = false,
+  ) => postJson(P(sid, '/daemon/stop'), {
     drain,
+    force,
     command_id: commandId(),
     expected_revision: expectedRevision,
   }).then(requireDaemonCommand),

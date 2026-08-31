@@ -62,7 +62,7 @@ from foundry.services import plan_local_argus
 plan = plan_local_argus(
     campaign_root=Path("campaigns/iclr-2027/idea-01"),
     objective_file=Path("campaigns/iclr-2027/idea-01/OBJECTIVE.md"),
-    backend="pi",  # also copilot, codex, claude, opencode, grok, qoder, dsh
+    backend="pi",  # also copilot, codex, claude, cursor, opencode, grok, qoder, dsh
 )
 ```
 

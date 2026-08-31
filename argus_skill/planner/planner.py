@@ -352,7 +352,8 @@ class Planner:
                 reason="planner backend failed before producing output; will retry later",
                 new_tasks=[],
                 raw_text=text or details,
-                error=f"planner backend exit {getattr(result, 'exit_code', 'unknown')}",
+                error=details
+                or f"planner backend exit {getattr(result, 'exit_code', 'unknown')}",
             )
         verdict = (
             parse_planner_payload(process_decision)

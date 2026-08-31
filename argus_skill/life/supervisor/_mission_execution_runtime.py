@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ...agent_cli._process_control import windows_hidden_subprocess_kwargs
 from ...core.event_catalog import EventType
 from ...core.stop_kinds import normalize_stop_kind, pause_status_for_stop_kind
 from ...core.usage import UsageLedger, UsageRecord
@@ -29,6 +30,13 @@ from ._cost import _CostTrackingSink
 from ._mission_execution_helpers import _MissionRunState
 
 log = logging.getLogger(__name__)
+
+
+def _run_hidden(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+    """Run a non-interactive maintenance command without a Windows console."""
+    for key, value in windows_hidden_subprocess_kwargs().items():
+        kwargs.setdefault(key, value)
+    return subprocess.run(*args, **kwargs)
 
 
 def _maintenance_sidecar_path(life_root: Path | str, item_id: str) -> Path:
@@ -50,7 +58,7 @@ def dispose_maintenance_worktree(
     repository = Path(metadata["repository"]).expanduser().resolve(strict=True)
     worktree = Path(metadata["worktree"]).expanduser().resolve()
     if worktree.exists():
-        result = subprocess.run(
+        result = _run_hidden(
             ["git", "worktree", "remove", "--force", str(worktree)],
             cwd=repository,
             check=False,
@@ -146,14 +154,14 @@ class MissionExecutionRuntimeMixin:
                     item.execution_workdir = str(recorded_worktree)
                     return recorded_worktree
             worktree.parent.mkdir(parents=True, exist_ok=True)
-            subprocess.run(
+            _run_hidden(
                 ["git", "fetch", "origin", "main"],
                 cwd=repository,
                 check=True,
                 capture_output=True,
                 text=True,
             )
-            public_base = subprocess.run(
+            public_base = _run_hidden(
                 ["git", "rev-parse", "refs/remotes/origin/main"],
                 cwd=repository,
                 check=True,
@@ -161,7 +169,7 @@ class MissionExecutionRuntimeMixin:
                 text=True,
             ).stdout.strip()
             try:
-                subprocess.run(
+                _run_hidden(
                     [
                         "git", "worktree", "add", "--detach",
                         str(worktree), public_base,
@@ -182,7 +190,7 @@ class MissionExecutionRuntimeMixin:
                     encoding="utf-8",
                 )
             except (OSError, subprocess.CalledProcessError):
-                subprocess.run(
+                _run_hidden(
                     ["git", "worktree", "remove", "--force", str(worktree)],
                     cwd=repository,
                     check=False,
@@ -226,21 +234,21 @@ class MissionExecutionRuntimeMixin:
         if runtime_dir.exists():
             shutil.rmtree(runtime_dir)
 
-        if subprocess.run(
+        if _run_hidden(
             ["git", "status", "--porcelain"],
             cwd=worktree,
             check=True,
             capture_output=True,
             text=True,
         ).stdout.strip():
-            subprocess.run(
+            _run_hidden(
                 ["git", "add", "--all"],
                 cwd=worktree,
                 check=True,
                 capture_output=True,
                 text=True,
             )
-            subprocess.run(
+            _run_hidden(
                 [
                     "git",
                     "-c", "user.name=Argus Runtime",
@@ -252,7 +260,7 @@ class MissionExecutionRuntimeMixin:
                 capture_output=True,
                 text=True,
             )
-        candidate = subprocess.run(
+        candidate = _run_hidden(
             ["git", "rev-parse", "HEAD"],
             cwd=worktree,
             check=True,
@@ -716,6 +724,10 @@ class MissionExecutionRuntimeMixin:
                     str(state.context_packet_path) if state.context_packet_path else ""
                 )
                 execute_kwargs["vertical_override"] = execution_vertical
+                execute_kwargs["preplanned"] = any(
+                    str(tag).strip().lower() == "planner"
+                    for tag in getattr(item, "tags", [])
+                )
                 if state.repair_capability is not None:
                     execute_kwargs["max_rounds_override"] = 1
                     execute_kwargs["workflow_mode_override"] = "direct"

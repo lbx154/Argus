@@ -225,6 +225,7 @@ class _PlanCycleState:
         # Set by the intake/gate phase.
         self.operator_messages: list[str] = []
         self.fresh_operator_messages: list[str] = []
+        self.had_operator_messages = False
         self.operator_context_revision: int = 0
         self.revision_active_items: list[BacklogItem] = []
         self.revision_witness_active_item_ids: list[str] = []
@@ -250,6 +251,7 @@ class _PlanCycleState:
         self.skipped_certification_reproposal_reasons: list[str] = []
         self.skipped_recent_failure_titles: list[str] = []
         self.skipped_subagent_family_failure_titles: list[str] = []
+        self.skipped_task_feedback: list[dict[str, str]] = []
         self.new_plan_id: str = ""
         self.new_plan_version: int = 1
         self.key_map: dict[str, str] = {}

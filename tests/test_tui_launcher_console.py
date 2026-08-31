@@ -48,15 +48,6 @@ def launcher(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(tui_launcher, "_configure_tui_backend_bin", lambda: None)
     monkeypatch.setattr(tui_launcher, "_export_tui_local_identity", lambda: None)
-    monkeypatch.setattr(
-        tui_launcher,
-        "describe_special_prompt_gate",
-        lambda: (True, ""),
-        raising=False,
-    )
-    import argus_skill.life.special_prompts as prompts
-
-    monkeypatch.setattr(prompts, "describe_special_prompt_gate", lambda: (True, ""))
     return bundle
 
 

@@ -270,8 +270,8 @@ class _TurnEmitter:
     fragment: Callable[[str, dict[str, Any]], None]
     after_reply: Callable[[str], None] | None = None
 
-    def phase(self, label: str) -> None:
-        self.fragment("phase", {"role": "manager", "label": label})
+    def phase(self, label: str, *, role: str = "manager") -> None:
+        self.fragment("phase", {"role": role, "label": label})
 
     def reply_fragment(self, text: str, *, message_id: str | None = None) -> None:
         payload: dict[str, Any] = {"text": text, "fragment_mode": "snapshot"}
@@ -335,7 +335,13 @@ def _handle_pending_question_turn(
     from ..life.memory import BacklogItem
 
     if len(pending_questions) == 1:
-        emitter.phase("Manager · interpreting your answer to the blocked mission")
+        from ..core.operator_messages import uses_cjk
+
+        emitter.phase(
+            "正在核对你的回答与已暂停的任务…"
+            if uses_cjk(body)
+            else "Checking your answer against the paused task…"
+        )
         result = _resolve_pending_question_with_manager(
             mem,
             pending_questions[0],
@@ -377,6 +383,11 @@ class _ClassifyResult:
     frontdoor_failure: str
 
 
+# Explicit message categories are operator authority. ``task`` skips only the
+# category model; the normal Manager + Planner ownership chain remains intact.
+_FORCED_ROUTES = {"chat": "simple", "task": "complex"}
+
+
 def _self_skill_context_available(chat_state: dict[str, Any]) -> bool:
     runner = chat_state.get("manager_runner")
     manager = getattr(runner, "manager", None)
@@ -406,21 +417,47 @@ def _classify_operator_turn(
     startup_handoff: str,
     emitter: _TurnEmitter,
     cancelled: Callable[[], bool],
+    route_override: str = "",
 ) -> "_ClassifyResult | dict[str, Any]":
     """Run rotation bookkeeping + the merged front-door classify call.
 
     Returns a ``_ClassifyResult`` normally, or a terminal ``{"kind":
     "cancelled", ...}`` dict if the request was cancelled mid-classify — the
     caller must check ``isinstance(result, dict)`` before reading fields.
+
+    An explicit ``chat``/``task`` category skips this classifier call. This is
+    the same operator-authority pattern as Codex execution mode selection and
+    avoids paying for a model to second-guess a category the operator supplied.
     """
+    from ..core.operator_messages import uses_cjk
     from ..life.memory import BacklogItem
     from ..manager.config_intent import _front_door_classify
     from ..manager.front_door import _accepts_parameter
 
+    forced_route = _FORCED_ROUTES.get(str(route_override or "").strip().lower())
+
     # Emit the stage BEFORE the classifier call. Copilot ACP may produce no
     # protocol events while the model is reasoning, so without this real
     # transition the TUI can only show its generic rotating slogan.
-    emitter.phase("Manager · classifying this message")
+
+    if forced_route == "complex":
+        emitter.phase(
+            "任务模式：正在准备 Manager 路由…"
+            if uses_cjk(body)
+            else "Task mode: preparing Manager routing…"
+        )
+    elif forced_route == "simple":
+        emitter.phase(
+            "对话模式：Manager 正在准备回复…"
+            if uses_cjk(body)
+            else "Chat mode: preparing the Manager reply…"
+        )
+    else:
+        emitter.phase(
+            "正在理解你的请求…"
+            if uses_cjk(body)
+            else "Understanding your request…"
+        )
 
     # Persistent Manager session with context-rotation: it stays alive (the
     # codex/copilot thread is resumed via last_thread_id each turn) and is
@@ -470,6 +507,38 @@ def _classify_operator_turn(
     )
     if _accepts_parameter(_front_door_classify, "active_mission"):
         classify_kwargs["active_mission"] = active_mission
+    if forced_route:
+        # No classifier ran, so clear every classifier-owned transient before
+        # constructing the authoritative route. A prior turn must never leak a
+        # greeting, control, lifetime or failure into this one.
+        for stale in (
+            "_frontdoor_lifetime",
+            "_frontdoor_self_mode",
+            "_frontdoor_fast_reply",
+            "_frontdoor_greeting_reply",
+            "_frontdoor_failure",
+            "_frontdoor_steering_directive",
+            "_frontdoor_operator_question_policy",
+            "_frontdoor_authorization",
+            "_frontdoor_intake",
+        ):
+            chat_state.pop(stale, None)
+        if forced_route == "simple":
+            chat_state["_frontdoor_self_mode"] = "inspect"
+        selected_body = dispatch_body if forced_route == "complex" else body
+        return _ClassifyResult(
+            intent=None,
+            control=None,
+            route=forced_route,
+            send_body=(
+                f"{handoff}\n\n{selected_body}" if handoff else selected_body
+            ),
+            root_task_id=root_task_id,
+            self_mode="inspect",
+            fast_reply="",
+            greeting_reply="",
+            frontdoor_failure="",
+        )
     decision = _front_door_classify(
         mem,
         body,
@@ -638,8 +707,8 @@ def _handle_authorization_control(
             expected_wait_id=str(active_wait.get("wait_id") or ""),
         )
         reply = (
-            "Authorization recorded for the current campaign blocker "
-            f"as {authorization.authorization_id}. No task was dispatched."
+            "Authorization saved for the current blocker. "
+            "The team can use it when the task resumes."
         )
         result = {
             "kind": "control",
@@ -811,42 +880,47 @@ def _handle_pause_control(
     daemon_stop_requested, daemon_pid = request_daemon_stop(life_dir)
     daemon_stop_failed = daemon_pid is not None and not daemon_stop_requested
 
-    chinese = any("\u3400" <= ch <= "\u9fff" for ch in body)
+    from ..core.operator_messages import uses_cjk
+
+    chinese = uses_cjk(body)
     if not pause_persisted:
         reply = (
-            "已请求中止当前任务和停止 daemon，但暂停状态未能持久化；"
-            "在检查 continuous.json 前不要重启该会话。"
+            "我已要求当前任务和后台工作进程停止，但暂停状态未能保存。"
+            "请先检查项目状态，再恢复工作。"
             if chinese
-            else "The active task and daemon were asked to stop, but the pause "
-            "could not be persisted; do not restart this session until "
-            "continuous.json is checked."
+            else "I asked the current task and background worker to stop, but "
+            "could not save the paused state. Check the project status before resuming."
+        )
+    elif daemon_stop_failed:
+        reply = (
+            "任务已暂停，现有工作已保存，但后台工作进程未能停止。"
+            "恢复前请检查其状态。"
+            if chinese
+            else "The task is paused and your work is saved, but the background "
+            "worker did not stop. Check its status before resuming."
         )
     elif chinese:
-        pieces = ["已暂停：持续任务已关闭"]
-        pieces.append("当前任务已请求中止" if abort_requested else "当前没有运行中的任务")
-        if daemon_stop_requested:
-            pieces.append("daemon 正在停止")
-        elif daemon_stop_failed:
-            pieces.append("daemon 停止请求失败")
+        if abort_requested and daemon_stop_requested:
+            first = "已暂停。当前任务和后台工作进程正在停止。"
+        elif abort_requested:
+            first = "已暂停。当前任务正在停止，后台工作进程已经停止。"
+        elif daemon_stop_requested:
+            first = "已暂停。当前没有运行中的任务，后台工作进程正在停止。"
         else:
-            pieces.append("daemon 已停止")
-        reply = "，".join(pieces) + "。目标和待办已保留；明确继续时才会恢复。"
+            first = "已暂停。当前没有运行中的任务，后台工作进程已经停止。"
+        reply = first + "目标和待办已保存；只有你提出继续时才会恢复。"
     else:
-        pieces = ["Paused: continuous work is disabled"]
-        pieces.append(
-            "the active task was asked to abort"
-            if abort_requested
-            else "no task is currently running"
-        )
-        if daemon_stop_requested:
-            pieces.append("the daemon is stopping")
-        elif daemon_stop_failed:
-            pieces.append("the daemon stop request failed")
+        if abort_requested and daemon_stop_requested:
+            first = "Paused. The current task and background worker are stopping."
+        elif abort_requested:
+            first = "Paused. The current task is stopping; the background worker is stopped."
+        elif daemon_stop_requested:
+            first = "Paused. No task is running, and the background worker is stopping."
         else:
-            pieces.append("the daemon is stopped")
+            first = "Paused. No task is running, and the background worker is stopped."
         reply = (
-            "; ".join(pieces)
-            + ". The objective and backlog are preserved until you explicitly resume."
+            first
+            + " Your objective and queue are saved; work will resume only when you ask."
         )
 
     return emitter.respond(
@@ -880,13 +954,22 @@ def _handle_abort_control(
         reason=f"operator requested: {body}",
         requested_by="manager",
     )
+    from ..core.operator_messages import uses_cjk
+
+    chinese = uses_cjk(body)
     if requested:
-        reply = f"Stop requested for running task {item_id}."
+        reply = "我已要求当前任务停止。" if chinese else "I asked the current task to stop."
     elif item_id is not None:
-        reply = f"Stop request failed for running task {item_id}."
+        reply = (
+            "当前任务未能停止；请先检查其状态，再重试。"
+            if chinese
+            else "I couldn't ask the current task to stop. Check its status before trying again."
+        )
     else:
         reply = (
-            "No running task to abort. Pending tasks were left unchanged."
+            "当前没有运行中的任务；待办任务未受影响。"
+            if chinese
+            else "No task is currently running. Pending tasks were left unchanged."
         )
     return emitter.respond(
         reply,
@@ -952,6 +1035,19 @@ def _run_triage_and_fallbacks(
     from ..manager.front_door import manager_triage
 
     self_mode = str(chat_state.pop("_frontdoor_self_mode", "inspect") or "inspect")
+    if frontdoor_failure:
+        # A failed classifier did not produce a trustworthy route. Reporting
+        # that failure must precede triage: otherwise a timed-out front-door
+        # call can start a second long Manager turn before the operator learns
+        # that no safe dispatch decision exists.
+        reply = (
+            "[not dispatched] Manager could not classify this message "
+            f"({frontdoor_failure}). The configured Manager backend is "
+            "unavailable or failed during classification. No task was queued. "
+            "Run `argus doctor --deep` to check backend readiness, then retry."
+        )
+        return emitter.respond(reply, {"kind": "chat"})
+
     # 1) Manager triage — chat/SELF returns a reply; TEAM returns None. The
     # route was already decided in the merged call above, so triage skips its
     # own route classify (``route=route``).
@@ -983,19 +1079,6 @@ def _run_triage_and_fallbacks(
     if control == "no_dispatch":
         reply = _NO_DISPATCH_FALLBACK
         return emitter.respond(reply, {"kind": "chat"})
-    if frontdoor_failure:
-        # The reason is carried, not summarized away: the classifier is
-        # unavailable for both transient causes (a backend hiccup, where
-        # retrying is the right advice) and permanent ones (unresolvable
-        # project state, where retrying can only fail again), and the operator
-        # cannot tell which without being told.
-        reply = (
-            "[not dispatched] Manager could not classify this message "
-            f"({frontdoor_failure}). The configured Manager backend is "
-            "unavailable or failed during classification. No task was queued. "
-            "Run `argus doctor --deep` to check backend readiness, then retry."
-        )
-        return emitter.respond(reply, {"kind": "chat"})
     return None
 
 
@@ -1012,6 +1095,7 @@ def _dispatch_team_mission(
     """Apply the Manager's lifetime decision, resume a done lifecycle, and
     enqueue the operator's TEAM mission. Raises on failure — the caller
     catches it and turns it into a structured ``{"kind": "error"}`` reply."""
+    from ..core.operator_messages import uses_cjk
     from ..manager.dispatch import (
         enqueue_mission,
         maybe_promote_to_continuous,
@@ -1025,14 +1109,24 @@ def _dispatch_team_mission(
     # A publication campaign has a finite finish line, but Manager may still
     # require staged progression. Run the normal workflow decision once, use it
     # to choose topology, then reuse the sealed handoff during commit.
-    emitter.phase("Manager · choosing workflow and task lifetime")
+
+    chinese = uses_cjk(body)
+    emitter.phase(
+        "正在选择合适的工作流程…"
+        if chinese
+        else "Choosing the right workflow…"
+    )
     prepared = prepare_manager_execution_task(
         mem,
         body,
         chat_state,
         root_task_id=root_task_id,
     )
-    emitter.phase("Manager · validating project lifecycle")
+    emitter.phase(
+        "正在确认这个项目能否恢复…"
+        if chinese
+        else "Checking whether this project can resume…"
+    )
     resume_done_lifecycle_for_team_dispatch(mem)
     workflow_mode = str(
         getattr(prepared.decision, "workflow_mode", "") or ""
@@ -1061,6 +1155,22 @@ def _dispatch_team_mission(
     except Exception as exc:
         prepared.failed(exc)
         raise
+    if prepared.continuous:
+        emitter.phase(
+            "正在将长期工作写入待办…"
+            if chinese
+            else "Adding standing work to the backlog…"
+        )
+    else:
+        # Bounded dispatch now enters a real Planner call before persistence.
+        # Keep the stream on the role that is actually working instead of
+        # making that model latency look like a stalled Manager turn.
+        emitter.phase(
+            "Planner 正在拆分并签发任务…"
+            if chinese
+            else "Planner is decomposing and signing off the task…",
+            role="planner",
+        )
     return enqueue_mission(
         mem,
         body,

@@ -765,8 +765,8 @@ class MissionExecutionSettlementMixin:
             status = "paused_operator"
             resumable = True
             operator_question = (
-                f"Reviewer accepted the isolated change for {item.title!r}. "
-                f"Run repository CI and {item.acceptance_check!r}, then adopt it?"
+                f"The change for “{item.title}” passed review. Should I run repository CI "
+                f"and the acceptance check ({item.acceptance_check}), then apply it?"
             )
             decision_card = build_operator_decision(
                 item_id=item.id,
@@ -1119,6 +1119,11 @@ class MissionExecutionSettlementMixin:
             and state.iteration is None
             and (
                 final_submission_certified
+                or (
+                    not self.config.open_ended
+                    and "manager_direct" in state.item_tags
+                    and state.stage_action == "complete"
+                )
                 or (not self.config.continuous and not remaining_work)
             )
         )
@@ -1156,16 +1161,33 @@ class MissionExecutionSettlementMixin:
         mission_summary = " ".join(raw_mission_summary.split())[:1200]
         # A completed mission needs one durable, operator-facing receipt rather
         # than three loosely related hints (event, chat text, and sidebar).
-        # Resolve targets only from the final Reviewer evidence, vertical
-        # contract, or Manager-owned live view; never scan or guess workspace
-        # files at settlement time.
+        # Resolve targets only from final Reviewer evidence, the accepted
+        # completion message, or a vertical contract; never scan or guess files.
+        # Some Reviewer backends certify the files named in the Engineer handoff
+        # without repeating them in ``frontier.artifacts``. Those explicit links
+        # are still reviewer-accepted evidence and must remain openable in the UI.
         delivery: dict[str, Any] | None = None
+        delivery_workspace = state.execution_workdir or self._project_workdir()
         frontier = getattr(outcome, "final_frontier_report", {}) or {}
         reviewer_artifacts = (
             list(frontier.get("artifacts") or [])
             if isinstance(frontier, dict)
             else []
         )
+        try:
+            from ..delivery import referenced_delivery_paths
+
+            referenced = referenced_delivery_paths(
+                delivery_workspace,
+                [raw_mission_summary],
+                limit=12,
+            )
+            known_artifacts = {str(candidate) for candidate in reviewer_artifacts}
+            reviewer_artifacts.extend(
+                path for path in referenced if path not in known_artifacts
+            )
+        except Exception:  # noqa: BLE001 - receipt construction remains fail-soft
+            log.debug("completion artifact links could not be resolved", exc_info=True)
         try:
             from ..delivery import build_delivery_receipt
 
@@ -1180,7 +1202,7 @@ class MissionExecutionSettlementMixin:
                     getattr(outcome, "final_review_status", "") or ""
                 ),
                 final_submission_certified=final_submission_certified,
-                workspace=(state.execution_workdir or self._project_workdir()),
+                workspace=delivery_workspace,
                 state_root=self.memory.root,
                 stage=state.pipeline_stage_at_start,
                 reviewer_artifacts=reviewer_artifacts,

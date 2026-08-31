@@ -1,6 +1,6 @@
 {
   "name": "argus-web",
-  "version": "0.1.2",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "React web cockpit for the argus-skill autonomous-research daemon — a client of the argus-skill webapi.",

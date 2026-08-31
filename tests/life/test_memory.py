@@ -214,6 +214,24 @@ def test_backlog_status_transitions(tmp_path: Path) -> None:
     assert b.next_pending() is None
 
 
+def test_expected_claim_rejects_a_new_queue_head(tmp_path: Path) -> None:
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    previewed = backlog.add(BacklogItem.new(
+        title="normal",
+        objective="normal priority work",
+        priority=2,
+    ))
+    assert backlog.next_pending().id == previewed.id
+    urgent = backlog.add(BacklogItem.new(
+        title="urgent",
+        objective="new urgent work",
+        priority=1,
+    ))
+
+    assert backlog.claim_next(expected_id=previewed.id) is None
+    assert backlog.next_pending().id == urgent.id
+
+
 def test_parallel_claims_require_disjoint_explicit_ownership(tmp_path: Path) -> None:
     backlog = Backlog(tmp_path / "backlog.jsonl")
     first = backlog.add(BacklogItem.new(

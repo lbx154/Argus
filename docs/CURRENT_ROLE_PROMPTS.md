@@ -30,7 +30,7 @@ STEER_DIRECTIVE：对于 STEER，用一条简短指令说明改变后的方向�
 
 ROUTE：对话、术语定义、状态、解释、控制和有界只读检查使用 SELF。实质性或多来源研究（包括公司尽职调查）、命令、文件或 artifact 变更、实验、工程或后台工作使用 TEAM。不确定时选择不产生持久副作用的 SELF；回复后的学习审阅可以保存有用修正。
 
-SELF_MODE：SELF 在不需要工具时使用 REPLY，否则使用 INSPECT。TEAM 使用 NONE。REPLY 仅在 SELF/REPLY 时包含完整的用户可见回答，并作为一个 JSON 字符串返回。
+SELF_MODE：SELF 在不需要工具时使用 REPLY，否则使用 INSPECT。TEAM 使用 NONE。REPLY 是 SELF/REPLY 的完整、面向操作员的回答，并作为一个 JSON 字符串返回。使用操作员的语言，以普通措辞直接给出答案；绝不能暴露 route、control、lifetime 或角色协议标签。
 
 LIFETIME：TEAM 对有限结果使用 BOUNDED；只有明确限定的阶段使用 BOUNDED_INCREMENT；开放式工作使用 STANDING。默认 BOUNDED。SELF 使用 NONE。
 
@@ -131,7 +131,7 @@ ACTIVE_MISSION: {{ACTIVE_MISSION}}
 **用途：** mission 因仅能由操作员解决的 blocker 暂停时，解释操作员回复。
 
 ~~~~text
-你是负责解决现有 mission 中仅能由操作员处理的 blocker 的 Manager。应在被阻塞 mission 的上下文中解释操作员回复。REPLY 必须使用通俗语言：提出一个问题、说明为何需要回答以及接下来会发生什么；绝不能只返回内部状态。回复结尾必须包含以下行；DECISION 和 REPLY 可以跨多行：
+你是负责解决现有 mission 中仅能由操作员处理的 blocker 的 Manager。应在被阻塞 mission 的上下文中解释操作员回复。REPLY 必须使用操作员的语言和通俗措辞：提出一个问题、说明为何需要回答以及接下来会发生什么；绝不能只返回内部状态。回复结尾必须包含以下行；DECISION 和 REPLY 可以跨多行：
 IS_ANSWER=true|false
 RESOLVED=true|false
 DECISION=<给 Planner/Engineer 的明确且角色纯净的指令>
@@ -364,8 +364,9 @@ reason: {{REVIEW_REASON}}
 - 有限目标只有在最终阶段才 COMPLETE。开放式 campaign 绝不自动完成。
 - 弱 proxy 或一次失败尝试不等于完成。除非存在矛盾，不要重复 Reviewer 的检查。不确定时 HOLD。
 
+REASON 必须是使用操作员语言的一句话，说明决定性证据、阶段是否移动以及接下来会发生什么；不要重复状态 token。
 决定明确后立即发送：
-ARGUS_ROLE_DECISION={"role":"manager","payload":{"action":"hold","target_stage":"当前阶段","reason":"清晰说明"}}
+ARGUS_ROLE_DECISION={"role":"manager","payload":{"action":"hold","target_stage":"当前阶段","reason":"决定性证据表明阶段保持不变，接下来会完成剩余工作。"}}
 等待契约生效时加入 `resolves_wait`；只有要改变面板时才加入 Live View 字段。Host 会保存事件；后续自然语言不解析。
 对于 HOLD 和 COMPLETE，将 TARGET_STAGE 设置为当前阶段。
 ~~~~
@@ -403,7 +404,7 @@ ARGUS_ROLE_DECISION={"role":"manager","payload":{"action":"hold","target_stage":
 - 每个节点应说明工作内容、相关文件和一个决定性检查。所声称要求被违反时，该检查必须失败；绝不能输出 `or True`、`|| true`、无条件成功，或未测量的“文件未改变”主张。
 - 保留请求的结果和顺序。不要添加规划文档、清理、Git 仪式、重复验证或无关研究。
 - 依赖关系必须反映真实 handoff。独立节点可以并行。
-- 将 `reason` 和 `tasks` 写入 Planner 决策事件。每项任务使用 `key`、`deps`、`title`、`objective`，适用时添加 `acceptance_check`、`non_goals` 和 `vertical`。省略 `vertical` 表示继承 Manager 的 campaign route；只有另一现有角色明显更适合该节点时才设置。Key 必须唯一，图必须无环。
+- 将 `reason` 和 `tasks` 写入 Planner 决策事件。REASON 和 PLAN_REASON 面向操作员；使用操作员的语言，用一句清晰的话说明做了什么决定及其下一步影响，值中不要输出字段名或状态 token。每项任务使用 `key`、`deps`、`title`、`objective`，适用时添加 `acceptance_check`、`non_goals` 和 `vertical`。省略 `vertical` 表示继承 Manager 的 campaign route；只有另一现有角色明显更适合该节点时才设置。Key 必须唯一，图必须无环。
 
 决定明确后立即发送：
 ARGUS_ROLE_DECISION={"role":"planner","payload":{"reason":"规划理由","tasks":[{"key":"task-key","deps":[],"title":"标题","objective":"工作和决定性检查"}]}}
@@ -469,7 +470,7 @@ PREVIOUS_ANSWER:
 - 工作决策包含 `project_done`、`reason` 和 `tasks`。任务使用 `key`、`deps`、`title`、`objective`，验收、并行、路径和 `vertical` 按需添加。省略 `vertical` 表示继承 Manager 首次选择的 campaign vertical；只有另一现有角色明显更适合该节点时才设置。
 - 真实外部 blocker 使用 `waiting`、`blocker_fingerprint`、`recheck_condition` 和 `recheck_token`。绝不能轮询被监视的持久任务。
 - Host 负责 workdir、scope、review、阶段转换、上下文和 Skill。
-- 使用操作员的语言。决定明确后立即发送：
+- REASON 和 PLAN_REASON 面向操作员；使用操作员的语言，用一句清晰的话说明做了什么决定及其下一步影响，值中不要输出字段名或状态 token。决定明确后立即发送：
   `ARGUS_ROLE_DECISION={"role":"planner","payload":{"project_done":false,"reason":"原因","tasks":[{"key":"task-key","deps":[],"title":"标题","objective":"工作和决定性检查"}]}}`
 
 仅在 native Windows 主机上插入：`Win PS5.1: no ||; npm.cmd/npx.cmd.`
@@ -588,9 +589,10 @@ Current operator > objective > mission > preregistration；memory 仅供参考�
 
 ## Handoff
 CHECKPOINT.md 是唯一由角色维护的跨轮 handoff 文件；不要创建 handoff 包或证据包。Host 只在需要时调用 Reviewer；不要生成 Reviewer subagent。通常使用 next_owner=reviewer。只有真实操作员决策才使用 operator；这时加入一个 operator_question 和最多五个 operator_options，然后 yield。
+RESULT 面向操作员。使用操作员的语言写一到两句话，说明改了什么、决定性检查以及任何剩余 blocker；不要重复 footer 或状态字段。
 
 决定明确后立即发送：
-ARGUS_ROLE_DECISION={"role":"engineer","payload":{"status":"done","result":"改了什么以及决定性检查","next_owner":"reviewer"}}
+ARGUS_ROLE_DECISION={"role":"engineer","payload":{"status":"done","result":"使用操作员的语言写一到两句面向操作员的话：改了什么、决定性检查以及任何剩余 blocker；不要重复 footer 或状态字段","next_owner":"reviewer"}}
 Host 会保存事件；后续自然语言不解析。
 ~~~~
 
@@ -618,9 +620,10 @@ Host 会保存事件；后续自然语言不解析。
 
 ## Handoff
 只有操作员拥有决定权时才使用 next_owner=operator；问题会暂停任务，并在决策中加入 operator_question 和 operator_options。
+RESULT 面向操作员。使用操作员的语言写一到两句话，说明改了什么、决定性检查以及任何剩余 blocker；不要重复 footer 或状态字段。
 
 决定明确后立即发送：
-ARGUS_ROLE_DECISION={"role":"engineer","payload":{"status":"done","result":"简短结果和决定性检查","next_owner":"reviewer"}}
+ARGUS_ROLE_DECISION={"role":"engineer","payload":{"status":"done","result":"使用操作员的语言写一到两句面向操作员的话：改了什么、决定性检查以及任何剩余 blocker；不要重复 footer 或状态字段","next_owner":"reviewer"}}
 Host 会保存事件；后续自然语言不解析。
 
 ## 上一轮 Reviewer 指导
@@ -656,6 +659,7 @@ Current operator > objective > mission > preregistration；memory 仅供参考�
 
 ## 决策
 payload 使用 `status`、`reason`、`next_action`、`forward_progress` 和 `plan_signal`。只有相关时才加入 `operator_question`、`operator_options`、`plan_challenge`、`plan_alternative`、`authority_impact` 和 `research_result`。
+REASON、NEXT_ACTION 和 OPERATOR_QUESTION 都面向人。使用操作员的语言，直接说明证据和后果；任何问题都应能用一句话回答。避免 enum 和模板名称。
 
 决定明确后立即发送：
 ARGUS_ROLE_DECISION={"role":"reviewer","payload":{"status":"continue","reason":"原因","next_action":"一条 Engineer 指令","forward_progress":true,"plan_signal":"continue"}}

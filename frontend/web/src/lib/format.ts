@@ -1,3 +1,5 @@
+import { translate, type Locale } from '../i18n';
+
 /** Small formatting helpers shared across the web views. */
 
 /** epoch-seconds → "3m ago" / "2h ago" / "just now". */
@@ -35,6 +37,50 @@ export function formatBytes(bytes: number): string {
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const value = bytes / 1024 ** index;
   return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
+}
+
+/** Human-readable local time relative to now, with calendar context for older events. */
+export function formatRelativeTime(ts: string | number | Date, locale: Locale = 'en'): string {
+  const date = ts instanceof Date
+    ? ts
+    : new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
+  if (Number.isNaN(date.getTime())) return '—';
+
+  const now = new Date();
+  const elapsed = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 1000));
+  if (elapsed < 60) return translate('time.justNow', {}, locale);
+  if (elapsed < 3600) {
+    return translate('time.minutesAgo', { count: Math.floor(elapsed / 60) }, locale);
+  }
+
+  const time = new Intl.DateTimeFormat(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+  const calendarDays = Math.round((
+    Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+    - Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+  ) / 86_400_000);
+  if (calendarDays === 1) return translate('time.yesterdayAt', { time }, locale);
+  if (elapsed < 86_400) {
+    return translate('time.hoursAgo', { count: Math.floor(elapsed / 3600) }, locale);
+  }
+  if (elapsed < 7 * 86_400) {
+    return new Intl.DateTimeFormat(locale, {
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
+  }
+  return new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
 }
 
 /** local wall-clock HH:MM:SS for a stream event, tolerant of ts/time shapes. */
