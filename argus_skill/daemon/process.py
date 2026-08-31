@@ -34,6 +34,31 @@ _DAEMON_STABILITY_SECONDS = 0.5
 _DAEMON_POLL_INTERVAL_SECONDS = 0.1
 
 
+def _close_inherited_fds(workspace_lease_fd: int | None) -> None:
+    keep = {0, 1, 2}
+    if workspace_lease_fd is not None:
+        keep.add(workspace_lease_fd)
+    try:
+        names = os.listdir("/proc/self/fd")
+    except FileNotFoundError:
+        first = 3
+        if workspace_lease_fd is not None:
+            os.closerange(first, workspace_lease_fd)
+            first = workspace_lease_fd + 1
+        os.closerange(first, 4096)
+        return
+    for name in names:
+        try:
+            fd = int(name)
+        except ValueError:
+            continue
+        if fd not in keep:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
 def _wait_for_stable_daemon_status(
     life_dir,
     *,
@@ -391,22 +416,7 @@ def spawn_detached_process(
     # connections queue to a daemon that never accepts). The daemon opens every
     # fd it actually needs (pid lock, status sidecar, events) AFTER this point,
     # so dropping the inherited table is safe and correct daemonisation.
-    try:
-        _keep = {0, 1, 2}
-        if workspace_lease_fd is not None:
-            _keep.add(workspace_lease_fd)
-        for _name in os.listdir("/proc/self/fd"):
-            try:
-                _fd = int(_name)
-            except ValueError:
-                continue
-            if _fd not in _keep:
-                try:
-                    os.close(_fd)
-                except OSError:
-                    pass
-    except FileNotFoundError:  # /proc unavailable — bounded fallback
-        os.closerange(3, 4096)
+    _close_inherited_fds(workspace_lease_fd)
 
     logging.basicConfig(
         level=logging.INFO,

@@ -21,9 +21,11 @@ def looks_like_project_life_dir(path: Path) -> bool:
 
 def resolve_life_root(life_dir: str | Path | None) -> Path:
     """Resolve a CLI ``--life-dir`` to the canonical global root."""
-    if life_dir is None:
-        return core_paths.global_root()
-    explicit = core_paths.resolve_runtime_path(life_dir, context="--life-dir")
+    explicit = (
+        core_paths.global_root()
+        if life_dir is None
+        else core_paths.resolve_runtime_path(life_dir, context="--life-dir")
+    ).resolve()
     if looks_like_project_life_dir(explicit):
         return explicit.parent.parent
     return explicit

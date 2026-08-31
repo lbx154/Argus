@@ -99,3 +99,23 @@ def test_spawn_rejects_workspace_before_fork(tmp_path, monkeypatch) -> None:
 
     assert rc == 3
     assert released == [(7, True)]
+
+
+def test_close_inherited_fds_preserves_workspace_lease_without_proc(
+    monkeypatch,
+) -> None:
+    closed_ranges: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        process.os,
+        "listdir",
+        lambda _path: (_ for _ in ()).throw(FileNotFoundError),
+    )
+    monkeypatch.setattr(
+        process.os,
+        "closerange",
+        lambda low, high: closed_ranges.append((low, high)),
+    )
+
+    process._close_inherited_fds(7)
+
+    assert closed_ranges == [(3, 7), (8, 4096)]
