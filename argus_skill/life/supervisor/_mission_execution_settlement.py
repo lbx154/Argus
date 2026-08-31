@@ -1119,6 +1119,11 @@ class MissionExecutionSettlementMixin:
             and state.iteration is None
             and (
                 final_submission_certified
+                or (
+                    not self.config.open_ended
+                    and "manager_direct" in state.item_tags
+                    and state.stage_action == "complete"
+                )
                 or (not self.config.continuous and not remaining_work)
             )
         )

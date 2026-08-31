@@ -95,6 +95,7 @@ def test_continuous_mission_only_delivers_after_project_done(tmp_path) -> None:
             project_worktree=workspace,
         ),
     )
+    supervisor._manager_publish_project_report = lambda _reason: "reported"
 
     assert supervisor._emit({
         "type": "life.mission.completed",
