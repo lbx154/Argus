@@ -474,3 +474,36 @@ def test_bounded_planner_does_not_cap_node_count(tmp_path) -> None:
 
     assert not plan.error
     assert len(plan.tasks) == 12
+
+
+def test_bounded_planner_accepts_bare_lowercase_task_fields(tmp_path) -> None:
+    # The Planner sometimes writes the optional per-task fields without the
+    # TASK_ prefix and in lowercase (acceptance_check=, non_goals=) instead of
+    # TASK_ACCEPTANCE_CHECK= / TASK_NON_GOALS=. Those lines must not be dropped
+    # silently: the acceptance check is the one decisive gate in the plan.
+    runner = _RawRunner(
+        "\n".join(
+            [
+                "Decision:",
+                "PLAN_REASON=撰写并核验综述论文，由同一 Engineer 在一个节点内完成。",
+                "TASK_KEY=sparse-attention-survey",
+                "TASK_DEPS=",
+                "TASK_TITLE=撰写并核验大语言模型稀疏注意力机制综述",
+                "TASK_OBJECTIVE=在工作目录创建 survey.md，系统综述稀疏注意力机制。",
+                "acceptance_check=运行验证脚本：确认 survey.md 存在且含六个必需章节，引用至少5篇可核验论文。",
+                "non_goals=不创建规划文档，不做无关研究。",
+                "TASK_REQUIRE_INDEPENDENT_REVIEW=true",
+            ]
+        )
+    )
+
+    plan = plan_bounded_dag(runner, "write a sparse attention survey", workdir=tmp_path)
+
+    assert plan.error == ""
+    assert len(plan.tasks) == 1
+    task = plan.tasks[0]
+    assert task.key == "sparse-attention-survey"
+    assert "survey.md" in task.objective
+    assert "run" in task.acceptance_check or "验证脚本" in task.acceptance_check
+    assert task.non_goals == ("不创建规划文档，不做无关研究。",)
+    assert task.require_independent_review is True

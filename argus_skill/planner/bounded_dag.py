@@ -77,11 +77,10 @@ def _extract(result: Any) -> str:
 
 
 _PLAN_LINE = re.compile(
-    r"^(?P<key>PLAN_REASON|TASK_KEY|TASK_DEPS|TASK_TITLE|TASK_OBJECTIVE|"
-    r"TASK_HYPOTHESIS|TASK_GOAL_CONTRIBUTION|TASK_EXPECTED_REGRESSIONS|"
-    r"TASK_DECISION_RULE|TASK_ACCEPTANCE_CHECK|TASK_NON_GOALS|"
-    r"TASK_VERTICAL|TASK_WORKDIR|"
-    r"TASK_REQUIRE_INDEPENDENT_REVIEW)"
+    r"^(?P<key>(?:TASK_)?(?:PLAN_REASON|KEY|DEPS|TITLE|OBJECTIVE|"
+    r"HYPOTHESIS|GOAL_CONTRIBUTION|EXPECTED_REGRESSIONS|DECISION_RULE|"
+    r"ACCEPTANCE_CHECK|NON_GOALS|VERTICAL|WORKDIR|"
+    r"REQUIRE_INDEPENDENT_REVIEW))"
     r"\s*[:=]\s*(?P<value>.*)$",
     re.IGNORECASE,
 )
@@ -111,6 +110,8 @@ def _parse_key_value_plan(text: str) -> dict[str, Any]:
         if match is None:
             continue
         key = match.group("key").upper()
+        if key != "PLAN_REASON" and not key.startswith("TASK_"):
+            key = "TASK_" + key
         value = match.group("value").strip()
         if key == "PLAN_REASON":
             reason = value
