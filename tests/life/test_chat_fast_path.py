@@ -364,6 +364,7 @@ def test_local_microtask_returns_delivery_for_named_workspace_file(
 
     assert outcome.delivery is not None
     assert outcome.delivery["review_status"] == "not_assessed"
+    assert outcome.delivery["title"] == "result.txt"
     assert outcome.delivery["primary_target"]["path"] == "result.txt"
     assert outcome.delivery["primary_target"]["source"] == "solo_output"
     assert outcome.delivery["delivery_id"].startswith("delivery:solo-call-1:")

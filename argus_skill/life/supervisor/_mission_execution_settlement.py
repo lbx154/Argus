@@ -1197,7 +1197,10 @@ class MissionExecutionSettlementMixin:
 
             referenced = referenced_delivery_paths(
                 delivery_workspace,
-                [raw_mission_summary],
+                [
+                    raw_mission_summary,
+                    getattr(outcome, "final_message", ""),
+                ],
                 limit=12,
             )
             known_artifacts = {str(candidate) for candidate in reviewer_artifacts}

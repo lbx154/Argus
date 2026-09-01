@@ -950,7 +950,7 @@ class SelfReplyMixin:
                         or root_task_id
                         or reply_message_id
                     ),
-                    title=" ".join(objective.split())[:240],
+                    title=Path(paths[0]).name,
                     summary=safe_last_msg,
                     success=True,
                     overall_complete=True,

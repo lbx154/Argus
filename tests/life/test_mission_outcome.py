@@ -127,6 +127,36 @@ def test_reviewer_summary_creates_delivery_when_engineer_returns_only_footer(
     assert event["delivery"]["primary_target"]["path"] == "餐饮企业运营手册.md"
 
 
+def test_reviewed_engineer_path_survives_malformed_reviewer_link(tmp_path) -> None:
+    supervisor, sink = _make_supervisor(
+        tmp_path,
+        _Outcome(
+            success=True,
+            status="done",
+            final_review_status="done",
+            final_review_reason="team-result.txt` passed independent byte verification.",
+            final_message=(
+                "Decision:\n"
+                "MILESTONE_STATUS=done\n"
+                "RESULT=Created `team-result.txt` and verified it.\n"
+                "NEXT_OWNER=reviewer"
+            ),
+        ),
+    )
+    workdir = supervisor._project_workdir()
+    workdir.mkdir(parents=True, exist_ok=True)
+    (workdir / "team-result.txt").write_text("ARGUS_TEAM_OK\n", encoding="utf-8")
+    supervisor.memory.backlog.add(
+        BacklogItem.new(title="Create team result", objective="Create team-result.txt")
+    )
+
+    supervisor.tick()
+
+    assert _completed_event(sink)["delivery"]["primary_target"]["path"] == (
+        "team-result.txt"
+    )
+
+
 @pytest.mark.parametrize(
     ("open_ended", "expected_complete"),
     [(False, True), (True, False)],
