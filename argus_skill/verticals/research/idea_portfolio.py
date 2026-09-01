@@ -468,7 +468,8 @@ def _ensure_selection_team(
     )
     payload["selection_review_task_ids"] = list(reviews)
     payload["selection_team_id"] = selection_team_id
-    _write_state(project_root, payload)
+    if state != payload:
+        _write_state(project_root, payload)
     return selection_root
 
 
