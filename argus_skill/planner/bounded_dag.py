@@ -72,7 +72,9 @@ def _prompt(
 def _extract(result: Any) -> str:
     messages = list(getattr(result, "agent_messages", None) or [])
     if messages:
-        return str(messages[-1] or "").strip()
+        # Consumers append text per streaming chunk; a role's footer may span
+        # several events, so join rather than read only the last element.
+        return "\n".join(str(msg or "").strip() for msg in messages).strip()
     return str(getattr(result, "last_agent_message", "") or "").strip()
 
 

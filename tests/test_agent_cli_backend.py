@@ -475,7 +475,7 @@ def test_run_exec_translates_options_and_result(
     # --- result was translated correctly
     assert result.exit_code == 0
     assert result.agent_messages == ["hello world", "final answer"]
-    assert result.last_agent_message == "final answer"
+    assert result.last_agent_message == "hello world\nfinal answer"
     assert result.thread_id == "thr-abc123"
     assert result.fatal_error is None
     # Token counts: latest non-zero wins.

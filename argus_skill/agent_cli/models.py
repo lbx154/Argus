@@ -27,9 +27,9 @@ class AgentRunResult:
 
     @property
     def last_agent_message(self) -> str:
-        if not self.agent_messages:
-            return ""
-        return self.agent_messages[-1]
+        # Consumers append each streamed text chunk as a separate element, so
+        # the model's reply may span several; return the whole text.
+        return "\n".join(self.agent_messages)
 
 
 @dataclass

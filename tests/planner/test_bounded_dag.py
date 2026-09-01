@@ -72,6 +72,25 @@ class _SequenceRunner:
         return RunnerResult(exit_code=0, agent_messages=[self.texts.pop(0)])
 
 
+class _ChunkedRunner:
+    """Emulate opencode: the text footer arrives split across several events.
+
+    The event consumer appends every text chunk as a separate ``agent_messages``
+    element, so a plan whose named-lines footer spans chunks must still parse.
+    """
+
+    def __init__(self, *chunks: str) -> None:
+        self.chunks = list(chunks)
+
+    def run_exec(self, **_kwargs):
+        return RunnerResult(
+            exit_code=0,
+            agent_messages=[chunk for chunk in self.chunks if chunk.strip()],
+            input_tokens=100,
+            output_tokens=20,
+        )
+
+
 def test_bounded_planner_parses_real_fanout_fanin_dag(tmp_path) -> None:
     runner = _Runner(
         {
@@ -506,4 +525,30 @@ def test_bounded_planner_accepts_bare_lowercase_task_fields(tmp_path) -> None:
     assert "survey.md" in task.objective
     assert "run" in task.acceptance_check or "验证脚本" in task.acceptance_check
     assert task.non_goals == ("不创建规划文档，不做无关研究。",)
+    assert task.require_independent_review is True
+
+
+def test_bounded_planner_reassembles_chunked_opencode_footer(tmp_path) -> None:
+    # opencode emits text in streaming chunks; _consume_opencode_event appends
+    # each one as a separate agent_messages element. If the footer's PLAN_REASON
+    # and TASK_* fields land in earlier chunks than the closing lines, the old
+    # _extract (agent_messages[-1]) dropped them and the plan was rejected.
+    runner = _ChunkedRunner(
+        "Plan the Manager handoff one task:",
+        "PLAN_REASON=one chunked task",
+        "TASK_KEY=survey",
+        "TASK_DEPS=",
+        "TASK_TITLE=Write survey",
+        "TASK_OBJECTIVE=create survey.md",
+        "TASK_REQUIRE_INDEPENDENT_REVIEW=true",
+    )
+
+    plan = plan_bounded_dag(runner, "write a survey", workdir=tmp_path)
+
+    assert plan.error == ""
+    assert len(plan.tasks) == 1
+    task = plan.tasks[0]
+    assert task.key == "survey"
+    assert task.title == "Write survey"
+    assert "survey.md" in task.objective
     assert task.require_independent_review is True
