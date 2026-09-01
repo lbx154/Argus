@@ -32,6 +32,7 @@ from ._env import (
     _positive_env_int,
     _turn_wall_clock_seconds,
 )
+from ._event_consumers import _OpenCodeWriteState
 from ._idle_watchdog import (
     STALLED_STAGE,
     TERMINATE_STAGE,
@@ -67,6 +68,7 @@ class _StreamState:
     stderr_line_count: int = 0
     json_event_count: int = 0
     agent_messages: list[str] = field(default_factory=list)
+    opencode_write: _OpenCodeWriteState = field(default_factory=_OpenCodeWriteState)
     turn_completed: bool = False
     turn_failed: bool = False
     fatal_error: str | None = None
@@ -562,6 +564,7 @@ class RunExecMixin:
                 if self._retain_json_event(event):
                     state.events.append(event)
                 _msgs_before = len(state.agent_messages)
+                _last_text_before = len(state.agent_messages[-1]) if state.agent_messages else 0
                 (
                     state.thread_id,
                     state.turn_completed,
@@ -574,17 +577,27 @@ class RunExecMixin:
                     turn_completed=state.turn_completed,
                     turn_failed=state.turn_failed,
                     fatal_error=state.fatal_error,
+                    write_state=state.opencode_write,
                 )
                 # Stream each NEW assistant block to the opt-in callback the
                 # instant it lands — this is what lets the Manager chat front-door
                 # render the reply live instead of after the whole turn. Default
                 # ``None`` (every daemon/role turn) skips this entirely, so the
                 # hot path is unchanged. A callback fault must never break the run.
+                # As in the ACP path, the callback receives the accumulated element
+                # (a growing superset), so the UI merges it in place by message_id.
                 _cb = options.on_agent_message
-                if _cb is not None and len(state.agent_messages) > _msgs_before:
-                    for _blk in state.agent_messages[_msgs_before:]:
+                if _cb is not None and state.agent_messages:
+                    _new_count = len(state.agent_messages)
+                    if _new_count > _msgs_before:
+                        for _blk in state.agent_messages[_msgs_before:]:
+                            try:
+                                _cb(_blk)
+                            except Exception:  # noqa: BLE001 — UI callback must not break the turn
+                                pass
+                    elif _new_count == _msgs_before and len(state.agent_messages[-1]) > _last_text_before:
                         try:
-                            _cb(_blk)
+                            _cb(state.agent_messages[-1])
                         except Exception:  # noqa: BLE001 — UI callback must not break the turn
                             pass
             else:
@@ -654,6 +667,7 @@ class RunExecMixin:
                     if self._retain_json_event(event):
                         state.events.append(event)
                     messages_before = len(state.agent_messages)
+                    last_text_before = len(state.agent_messages[-1]) if state.agent_messages else 0
                     (
                         state.thread_id,
                         state.turn_completed,
@@ -663,15 +677,23 @@ class RunExecMixin:
                         event=event,
                         thread_id=state.thread_id,
                         agent_messages=state.agent_messages,
+                        write_state=state.opencode_write,
                         turn_completed=state.turn_completed,
                         turn_failed=state.turn_failed,
                         fatal_error=state.fatal_error,
                     )
                     callback = options.on_agent_message
-                    if callback is not None and len(state.agent_messages) > messages_before:
-                        for message in state.agent_messages[messages_before:]:
+                    if callback is not None and state.agent_messages:
+                        new_count = len(state.agent_messages)
+                        if new_count > messages_before:
+                            for message in state.agent_messages[messages_before:]:
+                                try:
+                                    callback(message)
+                                except Exception:  # noqa: BLE001 — UI callback must not break the turn
+                                    pass
+                        elif new_count == messages_before and len(state.agent_messages[-1]) > last_text_before:
                             try:
-                                callback(message)
+                                callback(state.agent_messages[-1])
                             except Exception:  # noqa: BLE001 — UI callback must not break the turn
                                 pass
 

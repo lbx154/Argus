@@ -85,9 +85,7 @@ def test_on_agent_message_fires_per_block_in_order(_fake_copilot, monkeypatch) -
     assert got == ["block one", "block two"]
     # … and the authoritative result still holds the full message list + thread.
     assert result.agent_messages == ["block one", "block two"]
-    # A reply streamed in several chunks is one message: last_agent_message
-    # reassembles them (consumers append per-chunk, not per-turn).
-    assert result.last_agent_message == "block one\nblock two"
+    assert result.last_agent_message == "block two"
     assert result.thread_id == "sess-1"
     assert result.exit_code == 0
     assert _fake_copilot["encoding"] == "utf-8"

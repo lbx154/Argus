@@ -73,19 +73,23 @@ class _SequenceRunner:
 
 
 class _ChunkedRunner:
-    """Emulate opencode: the text footer arrives split across several events.
+    """Emulate opencode write-side accumulation: streaming text chunks are
+    assembled into a single ``agent_messages`` element by the event consumer.
 
-    The event consumer appends every text chunk as a separate ``agent_messages``
-    element, so a plan whose named-lines footer spans chunks must still parse.
+    The consumer now appends the first chunk then accumulates subsequent chunks
+    into that same element (``agent_messages[-1] += text``), so a reply whose
+    footer spans chunks arrives as one final string.
     """
 
     def __init__(self, *chunks: str) -> None:
         self.chunks = list(chunks)
 
     def run_exec(self, **_kwargs):
+        # Simulate write-side accumulation: join chunks with newlines into one element.
+        assembled = "\n".join(chunk for chunk in self.chunks if chunk.strip())
         return RunnerResult(
             exit_code=0,
-            agent_messages=[chunk for chunk in self.chunks if chunk.strip()],
+            agent_messages=[assembled] if assembled else [],
             input_tokens=100,
             output_tokens=20,
         )

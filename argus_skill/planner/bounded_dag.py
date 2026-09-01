@@ -72,9 +72,10 @@ def _prompt(
 def _extract(result: Any) -> str:
     messages = list(getattr(result, "agent_messages", None) or [])
     if messages:
-        # Consumers append text per streaming chunk; a role's footer may span
-        # several events, so join rather than read only the last element.
-        return "\n".join(str(msg or "").strip() for msg in messages).strip()
+        # The OpenCode consumer now accumulates a reply on the write side into a
+        # single element (see ``_event_consumers``), so the last element IS the
+        # whole reply — including a Planner footer split across stream chunks.
+        return str(messages[-1] or "").strip()
     return str(getattr(result, "last_agent_message", "") or "").strip()
 
 
