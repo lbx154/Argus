@@ -1024,7 +1024,10 @@ def stage_completion_issues(
             "research stage requirements cannot be determined because "
             "PIPELINE_STATE.json is missing at the resolved state root",
         )
-    return idea_portfolio_completion_issues(resolved_state_root)
+    return idea_portfolio_completion_issues(
+        project_root,
+        state_root=resolved_state_root,
+    )
 
 
 def iteration_assessment(

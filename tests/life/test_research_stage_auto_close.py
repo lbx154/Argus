@@ -18,10 +18,17 @@ def test_research_stage_ready_when_deterministic_blockers_are_empty(
         "argus_skill.verticals._base.load_vertical",
         lambda *_args, **_kwargs: definition,
     )
+    gate_call: dict[str, object] = {}
+
+    def completion_issues(*args, **kwargs):
+        gate_call.update({"args": args, **kwargs})
+        return ()
+
     monkeypatch.setattr(
         "argus_skill.verticals._base.vertical_stage_completion_issues",
-        lambda *_args, **_kwargs: (),
+        completion_issues,
     )
+    state_root = tmp_path / "state"
     evidence_root = tmp_path / "workdir"
     (evidence_root / "research").mkdir(parents=True)
     (evidence_root / "paper").mkdir()
@@ -29,9 +36,15 @@ def test_research_stage_ready_when_deterministic_blockers_are_empty(
     (evidence_root / "paper" / "novelty_audit.md").write_text("positioned\n")
 
     assert module._research_stage_ready_for_close(
-        state_root=tmp_path / "state",
+        state_root=state_root,
         evidence_root=evidence_root,
     )
+    assert gate_call == {
+        "args": (definition,),
+        "stage": "research",
+        "project_root": evidence_root,
+        "state_root": state_root,
+    }
 
 
 def test_research_stage_does_not_close_with_blockers(
