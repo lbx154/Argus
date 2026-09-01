@@ -468,7 +468,8 @@ def _ensure_selection_team(
     )
     payload["selection_review_task_ids"] = list(reviews)
     payload["selection_team_id"] = selection_team_id
-    _write_state(project_root, payload)
+    if state != payload:
+        _write_state(project_root, payload)
     return selection_root
 
 
@@ -760,9 +761,14 @@ def refresh_idea_portfolio(project_root: Path) -> None:
         pool.update(root, state="draining")
 
 
-def idea_portfolio_completion_issues(project_root: Path) -> tuple[str, ...]:
+def idea_portfolio_completion_issues(
+    project_root: Path,
+    *,
+    state_root: Path | None = None,
+) -> tuple[str, ...]:
+    """Validate repository artifacts under ``project_root`` using state-root policy."""
     project_root = Path(project_root).expanduser().resolve()
-    if not portfolio_required(project_root):
+    if not portfolio_required(state_root or project_root):
         return ()
     active = _active_portfolio(project_root)
     if active is None:

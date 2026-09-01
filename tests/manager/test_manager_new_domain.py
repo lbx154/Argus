@@ -10,9 +10,11 @@ import json
 import pytest
 
 from argus_skill.manager import Manager
-from argus_skill.manager.domain_author import VerticalDecisionError
+from argus_skill.manager._vertical_ops import _decision_requires_agent_grounding
+from argus_skill.manager.domain_author import VerticalDecision, VerticalDecisionError
 from argus_skill.skills import stage_machine as sc
 from argus_skill.skills import vertical_select as vs
+from argus_skill.verticals._data_domain import CANDIDATE_DOMAIN_STAGES
 
 
 class _FakeResult:
@@ -38,7 +40,6 @@ class _FakeRunner:
 _NEW_DOMAIN_DECISION = {
     "choice": "new",
     "name": "robotics_sim",
-    "stages": ["scope", "simulate", "measure", "report"],
     "rationale": "novel",
     "confidence": 0.8,
     "workflow_mode": "staged",
@@ -56,7 +57,6 @@ _EXISTING_RESEARCH_DECISION = {
 _NEW_MATH_DOMAIN_DECISION = {
     "choice": "new",
     "vertical": "math_conjecture",
-    "stages": ["literature", "experiment", "proof", "review"],
     "rationale": "task-specific mathematical route",
     "confidence": 0.9,
     "workflow_mode": "staged",
@@ -64,6 +64,104 @@ _NEW_MATH_DOMAIN_DECISION = {
 }
 # A task carrying NO preset (research/optimize/quant) signal → novel domain.
 _NOVEL_TASK = "Build a closed-loop pick-and-place controller in a MuJoCo world"
+
+
+def test_restaurant_stages_line_is_ignored_on_exact_empty_snapshot(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
+    execution_task = "在30天内完成餐厅筹备、开业执行与首周运营复盘。"
+    reply = (
+        "CHOICE=new\n"
+        "VERTICAL=restaurant_operations\n"
+        "DOMAIN=\n"
+        "WORKFLOW_MODE=staged\n"
+        "REQUIRE_INDEPENDENT_REVIEW=true\n"
+        "CONFIDENCE=0.93\n"
+        "RATIONALE=现有能力不覆盖餐厅筹备与持续运营。\n"
+        f"EXECUTION_TASK={execution_task}\n"
+        "PRECISE_CONSTRAINTS=总预算不超过50万元；30天内完成开业\n"
+        "EXCLUSIONS=不得降低食品安全标准\n"
+        "AMBIGUITIES=目标城市和餐厅规模尚未明确\n"
+        "STAGES=1.明确经营目标；2.制定采购排班方案；3.执行开业准备；4.复盘优化\n"
+    )
+
+    class _NoToolRunner:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            self.calls.append({"prompt": prompt, "run_label": run_label})
+            result = _FakeResult(reply)
+            result.tool_activity_observed = False
+            return result
+
+    runner = _NoToolRunner()
+    manager = Manager(project_root=tmp_path, runner=runner)
+    decision = manager.decide_vertical("制定并执行一家新餐厅的开业运营方案。")
+
+    assert [call["run_label"] for call in runner.calls] == [
+        "manager-classify-grounded",
+    ]
+    assert "workspace_empty=true" in runner.calls[0]["prompt"]
+    assert "project_markers=none" in runner.calls[0]["prompt"]
+    assert "top_level_entries=none" in runner.calls[0]["prompt"]
+    assert "STAGES" not in runner.calls[0]["prompt"]
+    assert decision.execution_task == execution_task
+    assert decision.precise_constraints == ("总预算不超过50万元；30天内完成开业",)
+    assert decision.exclusions == ("不得降低食品安全标准",)
+    assert decision.ambiguities == ("目标城市和餐厅规模尚未明确",)
+    assert decision.require_independent_review is True
+
+    division = manager.commit_vertical_decision(
+        "制定并执行一家新餐厅的开业运营方案。",
+        decision,
+    )
+    payload = json.loads(
+        (
+            tmp_path
+            / "research"
+            / "DOMAINS"
+            / "restaurant_operations.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert division.stages == list(CANDIDATE_DOMAIN_STAGES)
+    assert payload["stages"] == list(CANDIDATE_DOMAIN_STAGES)
+    assert "review" not in payload["stages"]
+
+
+@pytest.mark.parametrize(
+    "snapshot",
+    [
+        {
+            "accessible": False,
+            "workspace_empty": False,
+            "entries": [],
+            "project_markers": [],
+        },
+        {
+            "accessible": True,
+            "workspace_empty": True,
+            "entries": ["pyproject.toml"],
+            "project_markers": ["pyproject.toml"],
+        },
+    ],
+)
+def test_new_domain_requires_tools_for_inaccessible_or_contradictory_snapshot(
+    snapshot,
+) -> None:
+    decision = VerticalDecision(
+        choice="new",
+        vertical="restaurant_operations",
+    )
+
+    assert _decision_requires_agent_grounding(
+        decision,
+        snapshot=snapshot,
+        builtin_verticals={"software"},
+        project_domains=set(),
+    )
 
 
 def test_autonomous_authors_and_commits(tmp_path, monkeypatch):
@@ -78,11 +176,12 @@ def test_autonomous_authors_and_commits(tmp_path, monkeypatch):
         (tmp_path / "research" / "DOMAINS" / "robotics_sim.json").read_text()
     )
     assert payload["status"] == "candidate"
+    assert payload["stages"] == list(CANDIDATE_DOMAIN_STAGES)
     assert payload["purpose"] == "novel"
     assert payload["require_independent_review"] is True
     assert div.learned_vertical_status == "candidate"
     assert vs.resolve_vertical(tmp_path) == "robotics_sim"
-    assert sc.current_stage(tmp_path) == "scope"
+    assert sc.current_stage(tmp_path) == CANDIDATE_DOMAIN_STAGES[0]
 
 
 def test_video_research_harness_is_grounded_before_authoring_domain(
@@ -91,13 +190,6 @@ def test_video_research_harness_is_grounded_before_authoring_domain(
     runner = _FakeRunner({
         "choice": "new",
         "vertical": "video_robotics_research",
-        "stages": [
-            "environment_gate",
-            "provider_integration",
-            "task_coverage",
-            "tier_evaluation",
-            "evidence_freeze",
-        ],
         "workflow_mode": "staged",
         "execution_task": (
             "Reproduce Video4CaP, integrate a VLM, map RoboTwin tasks, and "
@@ -160,7 +252,9 @@ def test_candidate_domain_is_visible_and_reused_on_next_route(tmp_path) -> None:
     ) == ["embodied_eval_campaign.json"]
 
 
-def test_existing_data_domain_is_adapted_in_place_for_matching_task(tmp_path) -> None:
+def test_existing_data_domain_keeps_runtime_stages_when_manager_suggests_others(
+    tmp_path,
+) -> None:
     from argus_skill.verticals import _data_domain as dd
 
     dd.write_data_domain(
@@ -191,18 +285,11 @@ def test_existing_data_domain_is_adapted_in_place_for_matching_task(tmp_path) ->
     )
 
     assert division.vertical == "regulated_localization"
-    assert division.stages == [
-        "terminology_lock",
-        "translation",
-        "regulatory_review",
-        "layout_qa",
-        "linguistic_qa",
-        "release",
-    ]
+    assert division.stages == ["translate"]
     revised = dd.load_data_domain("regulated_localization", tmp_path)
     assert revised is not None
     assert revised.STAGE_ORDER == division.stages
-    assert sc.current_stage(tmp_path) == "terminology_lock"
+    assert sc.current_stage(tmp_path) == "translate"
     assert sorted(
         path.name
         for path in (tmp_path / "research" / "DOMAINS").glob("*.json")
@@ -216,7 +303,6 @@ def test_authored_domain_purpose_does_not_persist_conversation_context(
     runner = _FakeRunner({
         "choice": "new",
         "vertical": "embodied_eval_campaign",
-        "stages": ["runtime_gate", "task_coverage", "evaluation"],
         "workflow_mode": "staged",
         "execution_task": "Build and evaluate the RoboTwin integration.",
         "rationale": "recurring embodied evaluation needs explicit runtime gates",

@@ -49,7 +49,10 @@ def _advisor_selections(requested: str) -> tuple[tuple[str, str], ...]:
             *[candidate for candidate in _SUPPORTED_ADVISORS if candidate != configured],
         )
     )
-    configured_bin = resolve_runner_bin_setting("manager")
+    configured_bin = resolve_runner_bin_setting(
+        "manager",
+        backend=configured,
+    )
     selected: list[tuple[str, str]] = []
     for backend in candidates:
         requested_bins = (

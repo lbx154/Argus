@@ -110,7 +110,9 @@ def test_doctor_advisor_uses_configured_manager_executable(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_runner_bin_setting",
-        lambda _role: "/opt/agents/claude-custom",
+        lambda _role, *, backend: (
+            "/opt/agents/claude-custom" if backend == "claude" else ""
+        ),
     )
     calls: list[tuple[str, str | None]] = []
 
@@ -141,7 +143,7 @@ def test_doctor_advisor_accepts_qoder_and_dsh(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_runner_bin_setting",
-        lambda _role: "",
+        lambda _role, *, backend: "",
     )
     monkeypatch.setattr(
         "argus_skill.agent_cli.runner_backend.resolve_runner_bin",
@@ -163,7 +165,9 @@ def test_doctor_advisor_retries_path_when_configured_executable_is_stale(
     )
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_runner_bin_setting",
-        lambda _role: "/missing/claude",
+        lambda _role, *, backend: (
+            "/missing/claude" if backend == "claude" else ""
+        ),
     )
 
     def resolve(backend: str, requested: str | None = None):
@@ -190,7 +194,7 @@ def test_doctor_advisor_uses_configured_codex_for_repair(
     )
     monkeypatch.setattr(
         "argus_skill.core.knobs.resolve_runner_bin_setting",
-        lambda _role: "",
+        lambda _role, *, backend: "",
     )
     monkeypatch.setattr(
         "argus_skill.agent_cli.runner_backend.resolve_runner_bin",

@@ -774,7 +774,11 @@ def check_backend_readiness(
 
     configured_bin = str(
         runner_bin
-        or resolve_runner_bin_setting(env=env_map, persisted=read_persisted_knobs())
+        or resolve_runner_bin_setting(
+            backend=profile.backend,
+            env=env_map,
+            persisted=read_persisted_knobs(),
+        )
     ).strip()
     executable = resolve_runner_bin(profile.backend, configured_bin or None)
     if executable is None:

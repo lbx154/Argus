@@ -122,6 +122,46 @@ def test_explicit_shared_runner_bin_beats_persisted_role_bin(
     assert captured["runner_bin"] == "/env/shared"
 
 
+def test_reviewer_backend_override_ignores_persisted_shared_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus_skill.adapters import agent_cli_backend
+    from argus_skill.core import knob_store, run_gateway
+
+    captured = {}
+    monkeypatch.setattr(
+        knob_store,
+        "read_persisted_knobs",
+        lambda: {
+            "ARGUS_SKILL_RUNNER_BACKEND": "dsh",
+            "ARGUS_SKILL_RUNNER_BIN": "/persisted/dsh",
+        },
+    )
+    monkeypatch.setattr(
+        agent_cli_backend,
+        "AgentCliBackend",
+        lambda **kwargs: captured.update(kwargs) or SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        run_gateway,
+        "run_exec",
+        lambda *args, **kwargs: RunnerResult(
+            exit_code=0,
+            agent_messages=['{"accepted":true}'],
+        ),
+    )
+
+    fallback.run_reviewer_prompt_via_runner(
+        "review this",
+        run_label="research.test_review",
+        env={"ARGUS_SKILL_REVIEWER_BACKEND": "copilot"},
+        timeout=5.0,
+    )
+
+    assert captured["backend"] == "copilot"
+    assert captured["runner_bin"] is None
+
+
 def test_malformed_runner_extra_args_becomes_handled_error() -> None:
     env = _explicit_env()
     env["ARGUS_SKILL_RUNNER_EXTRA_ARGS"] = "'unterminated"

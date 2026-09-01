@@ -2335,3 +2335,37 @@ def test_build_agent_cli_backend_from_env_defaults(monkeypatch):
     assert backend._default_watchdog_soft_idle_seconds == 600
     assert backend._default_watchdog_stalled_idle_seconds == 1800
     assert backend._default_watchdog_hard_idle_seconds == 0
+
+
+def test_build_backend_default_does_not_reuse_persisted_dsh_runner(
+    monkeypatch,
+):
+    from argus_skill.adapters.agent_cli_backend import _core
+    from argus_skill.core import knob_store
+
+    monkeypatch.setattr(
+        knob_store,
+        "read_persisted_knobs",
+        lambda: {
+            "ARGUS_SKILL_RUNNER_BACKEND": "dsh",
+            "ARGUS_SKILL_RUNNER_BIN": "/persisted/dsh",
+        },
+    )
+    captured = {}
+    monkeypatch.setattr(
+        _core,
+        "AgentCliBackend",
+        lambda **kwargs: captured.update(kwargs) or captured,
+    )
+
+    for configured_backend in (None, "   "):
+        if configured_backend is None:
+            monkeypatch.delenv("ARGUS_SKILL_RUNNER_BACKEND", raising=False)
+        else:
+            monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", configured_backend)
+        monkeypatch.delenv("ARGUS_SKILL_RUNNER_BIN", raising=False)
+        captured.clear()
+
+        assert build_agent_cli_backend_from_env() is captured
+        assert captured["backend"] == "codex"
+        assert captured["runner_bin"] is None

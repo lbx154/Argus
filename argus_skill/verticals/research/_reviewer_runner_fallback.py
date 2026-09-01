@@ -65,25 +65,6 @@ def runner_fallback_enabled(env: Mapping[str, str] | None = None) -> bool:
     return str(source.get(_DISABLE_ENV, "")).strip().lower() not in _TRUE_TOKENS
 
 
-def _resolve_reviewer_runner_bin(source: Mapping[str, str]) -> str | None:
-    candidates = (
-        "ARGUS_SKILL_REVIEWER_RUNNER_BIN",
-        "ARGUS_SKILL_RUNNER_BIN",
-    )
-    for name in candidates:
-        value = str(source.get(name, "") or "").strip()
-        if value:
-            return value
-    from ...core.knob_store import read_persisted_knobs
-
-    persisted = read_persisted_knobs()
-    for name in candidates:
-        value = str(persisted.get(name, "") or "").strip()
-        if value:
-            return value
-    return None
-
-
 def run_reviewer_prompt_via_runner(
     prompt: str,
     *,
@@ -110,6 +91,7 @@ def run_reviewer_prompt_via_runner(
         resolve_role_backend,
         resolve_role_model,
         resolve_role_reasoning_effort,
+        resolve_runner_bin_setting,
     )
     from ...core.models import RunnerOptions
     from ...core.run_gateway import run_exec as gateway_run_exec
@@ -131,7 +113,11 @@ def run_reviewer_prompt_via_runner(
             env=source,
             default="high",
         )
-        runner_bin = _resolve_reviewer_runner_bin(source)
+        runner_bin = resolve_runner_bin_setting(
+            "reviewer",
+            backend=backend_name,
+            env=source,
+        ) or None
         raw_extra = resolve_knob(
             "ARGUS_SKILL_RUNNER_EXTRA_ARGS",
             "",

@@ -72,16 +72,18 @@ def _prompt(
 def _extract(result: Any) -> str:
     messages = list(getattr(result, "agent_messages", None) or [])
     if messages:
+        # The OpenCode consumer now accumulates a reply on the write side into a
+        # single element (see ``_event_consumers``), so the last element IS the
+        # whole reply — including a Planner footer split across stream chunks.
         return str(messages[-1] or "").strip()
     return str(getattr(result, "last_agent_message", "") or "").strip()
 
 
 _PLAN_LINE = re.compile(
-    r"^(?P<key>PLAN_REASON|TASK_KEY|TASK_DEPS|TASK_TITLE|TASK_OBJECTIVE|"
-    r"TASK_HYPOTHESIS|TASK_GOAL_CONTRIBUTION|TASK_EXPECTED_REGRESSIONS|"
-    r"TASK_DECISION_RULE|TASK_ACCEPTANCE_CHECK|TASK_NON_GOALS|"
-    r"TASK_VERTICAL|TASK_WORKDIR|"
-    r"TASK_REQUIRE_INDEPENDENT_REVIEW)"
+    r"^(?P<key>(?:TASK_)?(?:PLAN_REASON|KEY|DEPS|TITLE|OBJECTIVE|"
+    r"HYPOTHESIS|GOAL_CONTRIBUTION|EXPECTED_REGRESSIONS|DECISION_RULE|"
+    r"ACCEPTANCE_CHECK|NON_GOALS|VERTICAL|WORKDIR|"
+    r"REQUIRE_INDEPENDENT_REVIEW))"
     r"\s*[:=]\s*(?P<value>.*)$",
     re.IGNORECASE,
 )
@@ -111,6 +113,8 @@ def _parse_key_value_plan(text: str) -> dict[str, Any]:
         if match is None:
             continue
         key = match.group("key").upper()
+        if key != "PLAN_REASON" and not key.startswith("TASK_"):
+            key = "TASK_" + key
         value = match.group("value").strip()
         if key == "PLAN_REASON":
             reason = value

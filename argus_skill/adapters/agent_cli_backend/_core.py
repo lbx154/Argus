@@ -552,10 +552,10 @@ def build_agent_cli_backend_from_env() -> AgentCliBackend:
     """
     import shlex
 
-    backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND") or None
+    backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND", "").strip() or "codex"
     from ...core.knobs import resolve_runner_bin_setting
 
-    runner_bin = resolve_runner_bin_setting() or None
+    runner_bin = resolve_runner_bin_setting(backend=backend) or None
     raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
     extra = _strip_legacy_codex_profile_args(shlex.split(raw_extra) if raw_extra else None)
     return AgentCliBackend(

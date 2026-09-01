@@ -24,7 +24,10 @@ _SUPERVISOR_BACKENDS: dict[tuple[str, str], AgentCliBackend] = {}
 def _supervisor_backend() -> AgentCliBackend:
     """Return the configured supervisor backend, inheriting the fleet default."""
     requested = resolve_role_backend("supervisor")
-    configured_bin = resolve_runner_bin_setting("supervisor") or None
+    configured_bin = resolve_runner_bin_setting(
+        "supervisor",
+        backend=requested,
+    ) or None
     backend_name, runner_bin = resolve_available_runner(requested, configured_bin)
     key = (backend_name, runner_bin)
     backend = _SUPERVISOR_BACKENDS.get(key)

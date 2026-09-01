@@ -535,23 +535,27 @@ class MissionExecutionSettlementMixin:
         operator_question = str(
             getattr(outcome, "operator_question", "") or ""
         ).strip()
+        operator_question_policy = "unchanged"
         if operator_question:
+            from ...manager.directive import active_operator_question_policy
+
+            operator_question_policy = active_operator_question_policy(
+                self._artifact_root()
+            )
             from ...core.autonomy import (
                 assess_operator_intervention,
+                resolve_autonomy_mode,
                 technical_continuation,
             )
 
-            planner_report = dict(
-                getattr(outcome, "final_planner_report", {}) or {}
-            )
-            intervention = assess_operator_intervention(
-                question=operator_question,
-                reason=str(getattr(outcome, "final_review_reason", "") or ""),
-                next_action=str(getattr(outcome, "final_review_next_action", "") or ""),
-                planner_report=planner_report,
-            )
-            if not intervention.required:
-                continuation = technical_continuation(
+            if (
+                operator_question_policy == "forbid"
+                or resolve_autonomy_mode() == "autonomous"
+            ):
+                planner_report = dict(
+                    getattr(outcome, "final_planner_report", {}) or {}
+                )
+                intervention = assess_operator_intervention(
                     question=operator_question,
                     reason=str(
                         getattr(outcome, "final_review_reason", "") or ""
@@ -559,38 +563,54 @@ class MissionExecutionSettlementMixin:
                     next_action=str(
                         getattr(outcome, "final_review_next_action", "") or ""
                     ),
+                    planner_report=planner_report,
+                    mode=(
+                        "autonomous"
+                        if operator_question_policy == "forbid"
+                        else None
+                    ),
                 )
-                planner_report.update({
-                    "forward_progress": False,
-                    "plan_signal": "reconsider",
-                    "challenge": str(
-                        planner_report.get("challenge")
-                        or getattr(outcome, "final_review_reason", "")
-                        or operator_question
-                    ),
-                    "alternative": continuation,
-                    "authority_impact": "technical",
-                    "auto_continued": True,
-                })
-                outcome.final_planner_report = planner_report
-                outcome.operator_question = ""
-                self._emit({
-                    "type": EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED,
-                    "item_id": item.id,
-                    "manager_action": "replace",
-                    "manager_reason": intervention.reason,
-                    "challenge": operator_question,
-                    "alternative": continuation,
-                    "authority_impact": "technical",
-                    "source": "pragmatic_autonomy_policy",
-                    "text": (
-                        "Argus kept a reversible technical choice inside the team "
-                        "instead of interrupting the operator."
-                    ),
-                })
-                operator_question = ""
-                if status in {"blocked", "replan_requested"}:
-                    status = "replan_requested"
+                if not intervention.required:
+                    continuation = technical_continuation(
+                        question=operator_question,
+                        reason=str(
+                            getattr(outcome, "final_review_reason", "") or ""
+                        ),
+                        next_action=str(
+                            getattr(outcome, "final_review_next_action", "") or ""
+                        ),
+                    )
+                    planner_report.update({
+                        "forward_progress": False,
+                        "plan_signal": "reconsider",
+                        "challenge": str(
+                            planner_report.get("challenge")
+                            or getattr(outcome, "final_review_reason", "")
+                            or operator_question
+                        ),
+                        "alternative": continuation,
+                        "authority_impact": "technical",
+                        "auto_continued": True,
+                    })
+                    outcome.final_planner_report = planner_report
+                    outcome.operator_question = ""
+                    self._emit({
+                        "type": EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED,
+                        "item_id": item.id,
+                        "manager_action": "replace",
+                        "manager_reason": intervention.reason,
+                        "challenge": operator_question,
+                        "alternative": continuation,
+                        "authority_impact": "technical",
+                        "source": "pragmatic_autonomy_policy",
+                        "text": (
+                            "Argus kept a reversible technical choice inside the team "
+                            "instead of interrupting the operator."
+                        ),
+                    })
+                    operator_question = ""
+                    if status in {"blocked", "replan_requested"}:
+                        status = "replan_requested"
         research_pause = status in {
             "research_incomplete",
             "paused_no_breakthrough",
@@ -712,10 +732,8 @@ class MissionExecutionSettlementMixin:
 
         forbid_operator_parking = False
         if status == "blocked" and operator_question:
-            from ...manager.directive import active_operator_question_policy
-
             forbid_operator_parking = (
-                active_operator_question_policy(self.memory.root) == "forbid"
+                operator_question_policy == "forbid"
             )
             if forbid_operator_parking:
                 operator_question = ""

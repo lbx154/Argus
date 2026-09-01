@@ -133,6 +133,7 @@ def _install_pi_cli() -> bool:
 
 def _configured_runner_backend() -> str:
     """Return the explicit or persisted shared backend, if valid."""
+    from ..agent_cli.runner_backend import normalize_runner_backend
     from ..core.knob_store import read_persisted_knobs
 
     persisted = read_persisted_knobs()
@@ -142,9 +143,13 @@ def _configured_runner_backend() -> str:
         persisted.get("ARGUS_SKILL_RUNNER_BACKEND"),
         persisted.get("ARGUS_SKILL_LIFE_BACKEND"),
     ):
-        normalized = str(value or "").strip().lower()
-        if normalized in _SUPPORTED_AGENT_BACKENDS:
-            return normalized
+        raw = str(value or "").strip()
+        if not raw:
+            continue
+        try:
+            return normalize_runner_backend(raw)
+        except ValueError:
+            continue
     return ""
 
 

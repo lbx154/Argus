@@ -145,6 +145,7 @@ def _research_stage_ready_for_close(
             definition,
             stage="research",
             project_root=evidence_root,
+            state_root=state_root,
         )
     except Exception:  # noqa: BLE001 - automatic closing is fail-open to normal planning
         return False

@@ -216,6 +216,11 @@ the research banners now range from 771 to 2,096 characters instead of roughly
 2,800 to 9,800. TEAM learning runs only after final settlement and only for a
 new candidate batch.
 
+Manager routing also no longer asks for or consumes model-authored `STAGES`.
+Fresh candidate domains use the runtime-owned `execute` → `validate` lifecycle;
+existing project-domain stages, Planner tasks, checklists, and runtime stage
+state remain authoritative.
+
 The direct engineering path now skips Planner decomposition for one cohesive
 finite task and invokes Reviewer only when the Vertical or operator requires it.
 In a matched user test this reduced Argus from more than 15 minutes and 19 model

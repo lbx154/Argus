@@ -163,6 +163,44 @@ def write_persisted_knobs(values: Mapping[str, str]) -> bool:
             # holding only `updates`, silently discarding every other switch
             # it contained. `except OSError` below does not catch it.
             data = read_persisted_knobs()
+            from ..agent_cli.runner_backend import normalize_runner_backend
+
+            combined = {**data, **updates}
+            shared_before = str(
+                data.get("ARGUS_SKILL_RUNNER_BACKEND")
+                or data.get("ARGUS_SKILL_LIFE_BACKEND")
+                or ""
+            ).strip()
+            shared_after = str(
+                combined.get("ARGUS_SKILL_RUNNER_BACKEND")
+                or combined.get("ARGUS_SKILL_LIFE_BACKEND")
+                or ""
+            ).strip()
+            for runner_bin_name, runner_bin in data.items():
+                if (
+                    not runner_bin
+                    or runner_bin_name in updates
+                    or (
+                        runner_bin_name != "ARGUS_SKILL_RUNNER_BIN"
+                        and not runner_bin_name.endswith("_RUNNER_BIN")
+                    )
+                ):
+                    continue
+                if runner_bin_name == "ARGUS_SKILL_RUNNER_BIN":
+                    before, after = shared_before, shared_after
+                else:
+                    backend_name = (
+                        f"{runner_bin_name.removesuffix('_RUNNER_BIN')}_BACKEND"
+                    )
+                    before = str(data.get(backend_name) or shared_before).strip()
+                    after = str(combined.get(backend_name) or shared_after).strip()
+                if (
+                    before
+                    and after
+                    and normalize_runner_backend(before)
+                    != normalize_runner_backend(after)
+                ):
+                    updates[runner_bin_name] = ""
             data.update(updates)
             fd, tmp_name = tempfile.mkstemp(
                 dir=path.parent,

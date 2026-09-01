@@ -137,7 +137,6 @@ def test_repository_tool_contract_has_its_own_clause(tmp_path, monkeypatch) -> N
         json.dumps({
             "choice": "new",
             "vertical": "custom_runtime",
-            "stages": ["measure", "implement", "verify"],
             "workflow_mode": "staged",
             "execution_task": "Build the project-specific runtime.",
             "rationale": "new local capability",

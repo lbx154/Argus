@@ -6,6 +6,7 @@ appended assistant message text. Extracted verbatim from ``agent_cli_runner.py``
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from .runner_backend import (
     BACKEND_COPILOT,
@@ -15,6 +16,64 @@ from .runner_backend import (
     BACKEND_PI,
     CLAUDE_FAMILY,
 )
+
+
+@dataclass
+class _OpenCodeWriteState:
+    """Per-run write-side accumulator for the OpenCode event consumer.
+
+    ``open_index`` is the ``agent_messages`` slot of the assistant reply
+    currently streaming (``None`` between steps). OpenCode emits text as
+    streaming deltas, so the consumer accumulates consecutive deltas into that
+    one slot instead of the old one-element-per-chunk behaviour — that old
+    behaviour is what let a Planner footer spanning several chunks lose all but
+    its last chunk. ``_run_exec.py`` threads one instance per turn so a reply is
+    assembled on the write side and the reader keeps reading ``[-1]``.
+    """
+
+    open_index: int | None = None
+
+
+def _append_opencode_text(
+    agent_messages: list[str],
+    write_state: _OpenCodeWriteState,
+    text: str,
+) -> None:
+    """Accumulate one OpenCode text delta into the streaming reply element.
+
+    Deltas keep their own surrounding whitespace so a reply that is split
+    across chunks (``"Hello "`` then ``"world"``) reassembles to ``"Hello
+    world"`` rather than ``"Helloworld"``: only ``_close_opencode_text``
+    strips, once the whole element is final. Whitespace-only deltas never
+    start a fresh element, so a step that emits nothing does not leave an
+    empty row behind.
+    """
+    if not text:
+        return
+    index = write_state.open_index
+    if index is None or not (0 <= index < len(agent_messages)):
+        if not text.strip():
+            return
+        agent_messages.append(text)
+        write_state.open_index = len(agent_messages) - 1
+    else:
+        agent_messages[index] += text
+
+
+def _close_opencode_text(
+    agent_messages: list[str],
+    write_state: _OpenCodeWriteState,
+) -> None:
+    """Finalize the streaming reply: trim it and drop whitespace-only steps."""
+    index = write_state.open_index
+    if index is None or not (0 <= index < len(agent_messages)):
+        return
+    stripped = agent_messages[index].strip()
+    if stripped:
+        agent_messages[index] = stripped
+    else:
+        del agent_messages[index]
+    write_state.open_index = None
 
 
 class EventConsumerMixin:
@@ -120,6 +179,7 @@ class EventConsumerMixin:
         turn_completed: bool,
         turn_failed: bool,
         fatal_error: str | None,
+        write_state: _OpenCodeWriteState | None = None,
     ) -> tuple[str | None, bool, bool, str | None]:
         if self.backend in CLAUDE_FAMILY:
             # qoder emits the same stream-json schema as claude.
@@ -162,10 +222,13 @@ class EventConsumerMixin:
                 fatal_error=fatal_error,
             )
         if self.backend == BACKEND_OPENCODE:
+            if write_state is None:
+                write_state = _OpenCodeWriteState()
             return self._consume_opencode_event(
                 event=event,
                 thread_id=thread_id,
                 agent_messages=agent_messages,
+                write_state=write_state,
                 turn_completed=turn_completed,
                 turn_failed=turn_failed,
                 fatal_error=fatal_error,
@@ -362,6 +425,7 @@ class EventConsumerMixin:
         event: dict,
         thread_id: str | None,
         agent_messages: list[str],
+        write_state: _OpenCodeWriteState,
         turn_completed: bool,
         turn_failed: bool,
         fatal_error: str | None,
@@ -375,11 +439,12 @@ class EventConsumerMixin:
         part = part if isinstance(part, dict) else {}
         if event_type == "text":
             text = part.get("text")
-            if isinstance(text, str) and text.strip():
-                agent_messages.append(text.strip())
+            if isinstance(text, str) and text:
+                _append_opencode_text(agent_messages, write_state, text)
             return thread_id, turn_completed, turn_failed, fatal_error
 
         if event_type == "error":
+            _close_opencode_text(agent_messages, write_state)
             turn_failed = True
             error = event.get("error")
             error = error if isinstance(error, dict) else {}
@@ -393,6 +458,7 @@ class EventConsumerMixin:
         if event_type != "step_finish":
             return thread_id, turn_completed, turn_failed, fatal_error
 
+        _close_opencode_text(agent_messages, write_state)
         reason = str(part.get("reason") or "").strip().lower()
         if reason in {"tool-calls", "tool_calls"}:
             return thread_id, turn_completed, turn_failed, fatal_error

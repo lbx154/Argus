@@ -1181,7 +1181,6 @@ def test_vertical_decision_rejects_repeated_no_tool_new_vertical_route(
                 json.dumps({
                     "choice": "new",
                     "vertical": "custom_runtime",
-                    "stages": ["measure", "implement", "verify"],
                     "workflow_mode": "staged",
                     "execution_task": "Build the requested custom runtime.",
                     "rationale": "claimed a new project capability without inspection",

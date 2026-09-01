@@ -198,13 +198,27 @@ def _decision_requires_agent_grounding(
     project_domains: set[str],
 ) -> bool:
     """Whether this decision needs evidence beyond the Host snapshot."""
-    if not bool(snapshot.get("accessible")):
+    if snapshot.get("accessible") is not True:
+        return True
+    entries = snapshot.get("entries")
+    markers = snapshot.get("project_markers")
+    workspace_empty = snapshot.get("workspace_empty")
+    exact_empty = (
+        workspace_empty is True
+        and entries == []
+        and markers == []
+    )
+    consistent_nonempty = (
+        workspace_empty is False
+        and isinstance(entries, list)
+        and bool(entries)
+        and isinstance(markers, list)
+    )
+    if not (exact_empty or consistent_nonempty):
         return True
     if decision.choice != "existing":
-        return True
+        return not exact_empty
     if decision.vertical in project_domains or decision.vertical not in builtin_verticals:
-        return True
-    if decision.adapted_stages:
         return True
     return False
 
@@ -1081,7 +1095,6 @@ class _VerticalDecisionMixin:
         from ..verticals._data_domain import (
             load_data_domain,
             materialize_learned_data_domain,
-            revise_data_domain_stages,
         )
 
         materialize_learned_data_domain(
@@ -1098,25 +1111,7 @@ class _VerticalDecisionMixin:
             primary_pipeline_state_path(self.project_root),
             legacy_pipeline_state_path(self.project_root),
         ]
-        domain_path = (
-            self.project_root / "research" / "DOMAINS" / f"{vertical}.json"
-        )
-        index_path = self.project_root / "research" / "DOMAINS" / "INDEX.json"
-        adapted = bool(
-            decision.adapted_stages
-            and load_data_domain(vertical, self.project_root) is not None
-        )
-        restore_paths = list(pipeline_states)
-        if adapted:
-            restore_paths.extend((domain_path, index_path))
-        with _restore_files_on_error(restore_paths):
-            if adapted:
-                revise_data_domain_stages(
-                    self.project_root,
-                    vertical,
-                    stages=decision.adapted_stages,
-                    reason=decision.adaptation_reason or task,
-                )
+        with _restore_files_on_error(pipeline_states):
             stages = self.plan_stages(vertical)
             persist_vertical(
                 self.project_root,
@@ -1131,7 +1126,7 @@ class _VerticalDecisionMixin:
                 self.project_root,
                 old_vertical=old_vertical,
                 new_vertical=vertical,
-                force_replacement=force_stage_reset or adapted,
+                force_replacement=force_stage_reset,
                 evidence_root=self.execution_workdir,
             )
             self._adopt_operator_objective(vertical, decision, task)

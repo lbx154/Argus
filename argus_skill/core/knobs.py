@@ -294,10 +294,11 @@ def resolve_knob(
 def resolve_runner_bin_setting(
     role: str | None = None,
     *,
+    backend: str | None = None,
     env: Mapping[str, str] | None = None,
     persisted: Mapping[str, str] | None = None,
 ) -> str:
-    """Resolve role/shared runner paths with env-before-persisted precedence."""
+    """Resolve a runner path without crossing persisted backend bindings."""
     env_map = env if env is not None else os.environ
     if persisted is None:
         from .knob_store import read_persisted_knobs
@@ -305,16 +306,49 @@ def resolve_runner_bin_setting(
         persisted = read_persisted_knobs()
     role_name = str(role or "").strip().upper()
     role_key = f"ARGUS_SKILL_{role_name}_RUNNER_BIN" if role_name else ""
-    for source, key in (
-        (env_map, role_key),
-        (env_map, "ARGUS_SKILL_RUNNER_BIN"),
-        (persisted, role_key),
-        (persisted, "ARGUS_SKILL_RUNNER_BIN"),
+    for key in (role_key, "ARGUS_SKILL_RUNNER_BIN"):
+        if not key:
+            continue
+        value = str(env_map.get(key, "") or "").strip()
+        if value:
+            return value
+
+    from ..agent_cli.runner_backend import normalize_runner_backend
+
+    def normalized(value: object) -> str:
+        text = str(value or "").strip()
+        return normalize_runner_backend(text) if text else ""
+
+    requested_backend = normalized(backend)
+    if not requested_backend:
+        for key in (
+            f"ARGUS_SKILL_{role_name}_BACKEND" if role_name else "",
+            "ARGUS_SKILL_RUNNER_BACKEND",
+            "ARGUS_SKILL_LIFE_BACKEND",
+        ):
+            requested_backend = normalized(env_map.get(key))
+            if requested_backend:
+                break
+
+    shared_backend = normalized(
+        persisted.get("ARGUS_SKILL_RUNNER_BACKEND")
+        or persisted.get("ARGUS_SKILL_LIFE_BACKEND")
+    )
+    role_backend = normalized(
+        persisted.get(f"ARGUS_SKILL_{role_name}_BACKEND")
+        if role_name
+        else ""
+    ) or shared_backend
+    for key, configured_backend in (
+        (role_key, role_backend),
+        ("ARGUS_SKILL_RUNNER_BIN", shared_backend),
     ):
         if not key:
             continue
-        value = str(source.get(key, "") or "").strip()
-        if value:
+        value = str(persisted.get(key, "") or "").strip()
+        if value and (
+            not requested_backend or requested_backend == configured_backend
+        ):
             return value
     return ""
 
@@ -741,11 +775,25 @@ def resolve_manager_reply_model(
 ) -> str:
     """Resolve the high-quality operator-facing Manager SELF model."""
     env_map = env if env is not None else os.environ
-    configured = resolve_knob(
+    resolved = resolve_knob(
         "ARGUS_SKILL_MANAGER_REPLY_MODEL",
         "inherit",
         env=env_map,
-    ).value.strip()
+    )
+    configured = resolved.value.strip()
+    if (
+        resolved.source == "persisted"
+        and any(
+            str(env_map.get(name, "") or "").strip()
+            for name in ("ARGUS_SKILL_MANAGER_MODEL", "ARGUS_SKILL_MODEL")
+        )
+    ):
+        return resolve_role_model(
+            "manager",
+            role_env="ARGUS_SKILL_MANAGER_MODEL",
+            backend=backend,
+            env=env_map,
+        )
     if configured.lower() not in {"", "auto", "inherit", "default"}:
         return configured
     return resolve_role_model(
@@ -830,7 +878,22 @@ def resolve_cheap_route_model(
     OpenAI 目录后端；此处统一规则，非 OpenAI 目录的后端回落到角色 model。
     """
     env_map = env if env is not None else os.environ
-    configured = resolve_knob(knob, "auto", env=env_map).value.strip()
+    resolved = resolve_knob(knob, "auto", env=env_map)
+    configured = resolved.value.strip()
+    if (
+        resolved.source == "persisted"
+        and any(
+            str(env_map.get(name, "") or "").strip()
+            for name in (role_env, "ARGUS_SKILL_MODEL")
+            if name
+        )
+    ):
+        return resolve_role_model(
+            role,
+            role_env=role_env,
+            backend=backend,
+            env=env_map,
+        )
     if configured.lower() not in _AUTO_MODEL_SENTINELS:
         return configured
     from ..agent_cli.runner_backend import BACKEND_MEMORY, normalize_runner_backend

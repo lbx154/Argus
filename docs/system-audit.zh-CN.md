@@ -189,6 +189,10 @@ frontmatter；274 个 `@dataclass` 和 21 个 `BaseModel` 描述着内部形状�
 退休，physics 各角色 banner 均低于 800 字符，research banner 从原约 2,800–9,800 字符降到
 771–2,096。TEAM learning 只在最终结算成功且出现新候选批次时运行。
 
+Manager 路由也不再要求或消费模型编写的 `STAGES`。新候选 domain 统一使用 runtime 持有的
+`execute` → `validate` 生命周期；现有项目 domain 阶段、Planner 任务、checklist 和 runtime
+阶段状态仍然具有权威性。
+
 普通有限 direct 工程任务现在跳过 Planner 的单节点重包装，并只在 Vertical 或操作者要求时
 调用 Reviewer。同题用户对照中，Argus 从超过 15 分钟、19 次模型调用降到 53.35 秒、2 次调用，
 同一组测试仍全部通过。

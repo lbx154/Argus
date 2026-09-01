@@ -172,11 +172,6 @@ class RunnerResult:
             return ""
         return self.agent_messages[-1]
 
-    @property
-    def message(self) -> str:
-        """Concatenated agent message text for backend compatibility."""
-        return "\n".join(self.agent_messages)
-
 
 @dataclass
 class ReviewDecision:

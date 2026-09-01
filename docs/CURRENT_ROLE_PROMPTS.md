@@ -196,7 +196,7 @@ ARGUS_ROLE_DECISION={"role":"manager","payload":{"choice":"existing","vertical":
 ## 现有项目 domain
   - `{{EXISTING_DOMAIN}}`: {{EXISTING_DOMAIN_SUMMARY}}
 
-根据请求的动作选择最接近的现有能力，不要根据文件名或日志中的偶然词语选择。优先选择匹配的正式项目 domain，其次是内置能力，再次是候选项目 domain。只有均不匹配时才使用 `new`；新 vertical 需要可复用 slug 和 2-10 个动作阶段，不能是一份一次性任务清单。
+根据请求的动作选择最接近的现有能力，不要根据文件名或日志中的偶然词语选择。优先选择匹配的正式项目 domain，其次是内置能力，再次是候选项目 domain。只有均不匹配时才使用 `new`；新 vertical 只需可复用 slug。Host 持有通用候选生命周期，不要提出或修订阶段名称。
 
 单个连贯的 Engineer 工作包使用 `direct`；只有确实存在依赖阶段或多条证据路线时才使用 `staged`。仓库工作通常属于 `software`；Argus runtime 变更属于 `argus_maintenance`；论文和综述属于 `research`；原创数学工作属于 `math`。
 
@@ -205,7 +205,7 @@ ARGUS_ROLE_DECISION={"role":"manager","payload":{"choice":"existing","vertical":
 
 研究目标 vertical：{{RESEARCH_TARGET_VERTICALS}}。有界调查使用 exploratory；只有要求发表级原创工作时才使用 publishable；只有明确要求博士级别时才使用 doctoral。绝不能推断 venue。
 
-payload 使用 `choice`、`vertical`、`domain`、`workflow_mode` 和 `rationale`。只有修订项目 domain 或创建新 vertical 时才添加 `stages`。独立的现有路由省略 `execution_task`；只有需要把有界上下文改写成独立 handoff 或创建新 vertical 时才包含它。保留路径、命令、顺序和停止条件。研究字段只在操作员明确提出时添加。新 vertical 还需添加 `confidence`、`precise_constraints`、`exclusions` 和 `ambiguities`，并从操作员原话复制。
+payload 使用 `choice`、`vertical`、`domain`、`workflow_mode` 和 `rationale`。独立的现有路由省略 `execution_task`；只有需要把有界上下文改写成独立 handoff 或创建新 vertical 时才包含它。保留路径、命令、顺序和停止条件。研究字段只在操作员明确提出时添加。新 vertical 还需添加 `confidence`、`precise_constraints`、`exclusions` 和 `ambiguities`，并从操作员原话复制。
 
 决定明确后，立即发送：
 ARGUS_ROLE_DECISION={"role":"manager","payload":{"choice":"existing","vertical":"software","domain":"","workflow_mode":"direct","rationale":"简短理由"}}
