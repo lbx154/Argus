@@ -90,6 +90,46 @@ def test_highlight_ours_bars_emphasises_ours_and_greys_baselines() -> None:
     plt.close(fig)
 
 
+def test_highlight_ours_grouped_bars_emphasises_the_whole_series() -> None:
+    pytest.importorskip("matplotlib")
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    pcs.set_pub_style(venue="EMNLP")
+    fig, ax = plt.subplots()
+    x = [0, 1]
+    ax.bar(
+        [value - 0.2 for value in x],
+        [1.0, 1.5],
+        width=0.2,
+        yerr=[0.1, 0.1],
+        capsize=2,
+    )
+    ax.bar(x, [1.4, 1.8], width=0.2, yerr=[0.1, 0.1], capsize=2)
+    ax.bar(
+        [value + 0.2 for value in x],
+        [1.7, 2.1],
+        width=0.2,
+        yerr=[0.1, 0.1],
+        capsize=2,
+    )
+    pcs.highlight_ours(ax, ours_index=2)
+
+    bar_containers = [
+        container for container in ax.containers if hasattr(container, "patches")
+    ]
+    assert len(bar_containers) == 3
+    for index, container in enumerate(bar_containers):
+        for bar in container.patches:
+            if index == 2:
+                assert bar.get_edgecolor()[:3] == (0.0, 0.0, 0.0)
+                assert bar.get_alpha() in (None, 1.0)
+            else:
+                assert bar.get_alpha() == pytest.approx(0.85)
+    plt.close(fig)
+
+
 def test_highlight_ours_lines_thickens_ours() -> None:
     pytest.importorskip("matplotlib")
     import matplotlib

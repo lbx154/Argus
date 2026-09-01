@@ -15,13 +15,13 @@ from ...core.research_contract import (
     resolve_research_direction_mode,
     resolve_research_target_level,
 )
-from ...team import formation, pool, registry, task_board
+from ...team import formation, pool, registry, roster, task_board
 
-TEAM_ID = "research-idea-pipeline-v6"
+TEAM_ID = "research-idea-pipeline-v7"
 # An operating default, not a breadth quota or selection threshold. Callers may
 # size the portfolio differently when the problem structure warrants it.
 DEFAULT_PORTFOLIO_SIZE = 12
-SELECTION_POLICY = "evidence_judgment_v3"
+SELECTION_POLICY = "source_only_judgment_v4"
 _REVIEW_SCHEMA_VERSION = 2
 _SELECTION_SCHEMA_VERSION = 2
 TEAM_ROOT = Path(".argus") / "teams"
@@ -61,9 +61,12 @@ def _route_task(
             "or fits one local GPU. Feasibility is a staged resource plan, not the "
             "scientific ranking objective. "
             "Record the mechanism, primary-source trail, closest work, non-obvious gap, "
-            "strongest kill argument, resource needs, and any useful probe evidence. "
+            "strongest kill argument, resource needs, and the future decisive experiment. "
             "Search the current frontier and relevant foundations deeply enough to make "
             "the novelty claim credible; preserve primary URLs and search boundaries. "
+            "Idea selection is read-only: do not execute candidate code or run toy, "
+            "premise, feasibility, smoke, or other probe experiments. Describe how the "
+            "selected idea should later be tested without producing result evidence now. "
             f"{_NO_NESTED_TEAM}"
         ),
         "acceptance_check": (
@@ -101,8 +104,9 @@ def _review_task(
             "JSON review at "
             f"`{output}` with schema_version={_REVIEW_SCHEMA_VERSION}, route_id, "
             "verdict (`qualified` or `rejected`), a natural-language summary of the "
-            "contribution and evidence, and fatal_concerns (array). Include probe "
-            "evidence when it changes the judgment. "
+            "contribution and evidence, and fatal_concerns (array). Review only the "
+            "primary-source trail, official source inspection, mechanism, and future "
+            "evidence plan. Do not request or run an experiment during idea selection. "
             f"{_NO_NESTED_TEAM}"
         ),
         "acceptance_check": (
@@ -155,14 +159,15 @@ def _selection_tasks(
             "review_artifact": str(review["owns_paths"][0]),
         })
     selector_id = f"{team_id}-evidence-selector"
+    output = f"{artifact_root}/selection.json"
     return [
         {
             "task_id": selector_id,
             "title": "Adversarially select the strongest supported idea",
             "objective": (
                 "Read every route/review pair in the manifest, then inspect all other "
-                "relevant evidence that has arrived before you decide, including probes "
-                "and later routes. First judge whether the portfolio covers the key "
+                "relevant non-experimental selection evidence that has arrived, including "
+                "later routes. First judge whether the portfolio covers the key "
                 "uncertainties well enough to choose; if not, state what materially "
                 "different evidence is missing instead of filling the selection record. "
                 "When it is sufficient, choose the qualified route with the strongest "
@@ -170,9 +175,12 @@ def _selection_tasks(
                 "fits the question. Let new evidence change the choice when it changes "
                 "the contribution's credibility. Do not rank local convenience as "
                 "scientific value; record resource gaps for the winning route. "
+                "Selection must precede candidate execution. Do not request or run a "
+                "toy, premise, feasibility, smoke, or other probe experiment, and do not "
+                "use a legacy pre-selection probe outcome to rank candidates. "
                 "Evidence available when this selector was formed:\n"
                 + json.dumps(candidates, ensure_ascii=True, indent=2)
-                + "\nWrite `research/IDEA_SELECTION.json` as one JSON object with "
+                + f"\nWrite `{output}` as one JSON object with "
                 f"schema_version={_SELECTION_SCHEMA_VERSION}, "
                 f"policy=`{SELECTION_POLICY}`, route_id, "
                 "route_task_id, review_task_id, route_artifact, review_artifact, "
@@ -182,11 +190,11 @@ def _selection_tasks(
                 f"{_NO_NESTED_TEAM}"
             ),
             "acceptance_check": (
-                "`research/IDEA_SELECTION.json` records a fresh adversarial choice from "
+                f"`{output}` records a fresh adversarial choice from "
                 "the sufficiently broad evidence available."
             ),
             "role": "idea-selector",
-            "owns_paths": [str(_SELECTION_PATH)],
+            "owns_paths": [output],
             "target": "evidence-selection",
             "priority": 0,
         },
@@ -310,8 +318,11 @@ def _review_payload(project_root: Path, task: dict[str, Any]) -> dict[str, Any] 
     return payload
 
 
-def _selection_payload(project_root: Path) -> dict[str, Any] | None:
-    payload = _json_object(project_root / _SELECTION_PATH)
+def _selection_payload(
+    project_root: Path,
+    path: Path = _SELECTION_PATH,
+) -> dict[str, Any] | None:
+    payload = _json_object(project_root / path)
     required = (
         "route_id",
         "route_task_id",
@@ -482,6 +493,35 @@ def ensure_idea_portfolio(project_root: Path, *, direction: str) -> Path:
         )
     project_root = Path(project_root).expanduser().resolve()
     team_id, artifact_root, direction_digest = _portfolio_identity(direction)
+    previous = _state_payload(project_root)
+    previous_team_id = str(previous.get("team_id") or "")
+    if previous_team_id and previous_team_id != team_id:
+        previous_ids = {
+            previous_team_id,
+            str(previous.get("selection_team_id") or ""),
+        }
+        teams_root = (project_root / TEAM_ROOT).resolve()
+        for previous_id in previous_ids:
+            if not previous_id:
+                continue
+            previous_root = (teams_root / previous_id).resolve()
+            try:
+                previous_root.relative_to(teams_root)
+            except ValueError:
+                continue
+            if previous_root.is_dir():
+                for task in task_board.snapshot(previous_root):
+                    if (
+                        task.get("role") == "idea-selector"
+                        and task.get("state") in {"pending", "claimed", "running"}
+                    ):
+                        task_board.fail(
+                            previous_root,
+                            str(task["task_id"]),
+                            reason="superseded by source-only selection policy",
+                        )
+                roster.set_state(previous_root, "dissolved")
+                pool.update(previous_root, width=0, state="dissolved")
     root = project_root / TEAM_ROOT / team_id
     tasks = portfolio_tasks(team_id, artifact_root)
     route_count = sum(task.get("role") == "idea-route" for task in tasks)
@@ -556,7 +596,13 @@ def _selection_from_tasks(
         return None
     if not _valid_shard(selection_root, selector):
         return None
-    selection = _selection_payload(project_root)
+    selection_path = _task_output_path(project_root, selector)
+    if selection_path is None:
+        return None
+    selection = _selection_payload(
+        project_root,
+        selection_path.relative_to(project_root),
+    )
     if selection is None:
         return None
     route_task_id = str(selection.get("route_task_id") or "")
@@ -640,7 +686,7 @@ def _materialize_selection(
 ) -> None:
     path = project_root / _SELECTION_PATH
     current = _json_object(path) or {}
-    merged = {**current, **selection}
+    merged = dict(selection)
     if current != merged:
         tmp = path.with_name(
             f"{path.name}.tmp.{os.getpid()}.{threading.get_ident():x}.{uuid.uuid4().hex[:8]}"

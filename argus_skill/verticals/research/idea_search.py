@@ -1,9 +1,8 @@
 """codex web-search as an ADDITIONAL candidate source for research ideation.
 
 argus's research stage works in two phases: GENERATE candidates
-(``idea-discovery`` -> ``research/IDEA_CANDIDATES.md``) then SELECT the feasible
-one (``idea-creator`` ranks + pilots, ``novelty-check`` de-dupes,
-``signal-derisk`` validates). This module adds ONE MORE candidate *source*: a
+(``idea-discovery`` -> ``research/IDEA_CANDIDATES.md``) then SELECT one from
+read-only primary-source and mechanism evidence. This module adds ONE MORE candidate *source*: a
 single codex call with native live web_search that surfaces literature-grounded
 gaps and appends them to the candidate pool. The existing selection machinery is
 untouched — it simply ranks over a richer pool.
@@ -112,6 +111,9 @@ def _build_prompt(direction: str, n: int) -> str:
         "You are a senior ML researcher doing candidate discovery for a STRONG "
         "paper that resolves an important question with a nontrivial contribution.\n"
         f"Research direction:\n{direction}\n\n"
+        "This is read-only idea discovery. Do not run candidate code or execute "
+        "toy, premise, feasibility, smoke, or other probe experiments. Describe "
+        "future falsifiers and resource needs without producing result evidence.\n\n"
         "Using LIVE web_search, find REAL recent papers (roughly the last 18 "
         "months) closely related to this direction on arXiv / Semantic Scholar, "
         "including the current strong methods / reported SOTA baselines.\n\n"

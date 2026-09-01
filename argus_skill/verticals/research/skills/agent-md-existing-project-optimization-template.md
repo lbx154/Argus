@@ -165,31 +165,32 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
          --out paper/figures/method_overview.review.json
 
    A helper such as `code/generate_image2_figure.py` must then write or refresh `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. The sidecar must preserve image-tool/API evidence (`/images/generations`, model, created time, prompt SHA, output SHA, dimensions), and `review_path` must come from the `image_review` model route. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, locally redraw the accepted raster, or hand-fill `codex-image2` metadata around a local PNG after this provenance is written.
-6. If the current Figure 1/teaser uses image-2 and is ugly, cramped, misspelled, square, generic, or prompt-thin, regenerate through image-2 from `python -m argus_skill.verticals.research.figure_tool paper-prompt ...`, using it as the recommended canonical prompt (carrying the `argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a` markers), generating as many layout variants as needed (up to 20) by changing only the layout/candidate-contract fields; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest. For any other recorded renderer, repair its source and rerender through the Research Visualization Router:
+6. If the current Figure 1/teaser uses image-2 and has a concrete defect, regenerate through image-2 from `python -m argus_skill.verticals.research.figure_tool paper-prompt ...`, using the canonical semantic-geometry prompt (carrying the `argus-image2-paper-prompt-v2` and `paper-framework-figure-studio-pro-v3.2.0` markers). Generate another layout only to repair a visible defect or compare a materially different direction; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest. For any other recorded renderer, repair its source and rerender through the Research Visualization Router:
 
        Use case: scientific-educational
-       Prompt template: argus-image2-paper-prompt-v1
-       Prompt source: paper-framework-figure-studio-pro-v3.1.4a
+       Prompt template: argus-image2-paper-prompt-v2
+       Prompt source: paper-framework-figure-studio-pro-v3.2.0
        Asset type: Figure 1 teaser / conceptual overview for the selected venue.
 
        General style:
        - Selected-venue AI paper method figure, adaptive landscape, 1536x1024 or 1920x1088.
-       - Clean Figma-style block diagram / block-based Figma style with rounded cards, neat alignment, soft pastel fills, dark-gray 2px borders, and compact information density.
+       - Conventional scientific diagram with aligned non-overlapping modules, deliberate whitespace, restrained accents, and dark-gray 2px borders.
        - Compact, information-rich, suitable for a PDF page-width figure; little wasted space but not crowded.
-       - Tidy rounded handwritten or friendly sans-serif feel is acceptable only if it remains crisp and readable; no messy sketch fonts.
-       - Moderate badge/icon use only when semantically useful; a few simple recognizable icons are fine, not a logo wall.
+       - Neutral publication sans-serif with at most two type weights.
+       - Avoid badges, chips, icons, and rounded cards unless they encode a necessary distinction.
        - No heavy shadows, no gradients, no photorealism, no glassmorphism, no messy Excalidraw look.
        - Large readable labels, short phrases, balanced hierarchy, flat vector-like raster rendering on warm white #fbfaf7.
 
-       Style intent:
-       - Clean, dense, modular, Figma-like, mostly rounded cards, low-saturation pastel blocks.
-       - Use small badges/icons sparingly; avoid empty space while preserving alignment.
-       - It should look like a main figure in the selected venue, not a marketing graphic, stock illustration, dashboard screenshot, or casual whiteboard.
+       Semantic geometry:
+       - Pass the exact edge ledger through `--semantic-contract`; draw no undeclared arrows.
+       - Every connector attaches to source/target boundaries and never penetrates an unrelated node, label, or group.
+       - Use rectangles for processes, diamonds for decisions with labeled branches, and enclosing boxes only for real scope.
+       - Reject overlap, clipping, avoidable crossings, and text below final-size readability.
 
        Pinned content that must appear exactly:
        - Title: "<short human-readable method/system name>"
        - Show: "<source/input>" -> "<parse/build/distill step>" -> "<quality/verification gate>" -> "<memory/library/model state>" -> "<agent/execution step>" -> "<output/result>" -> "<benchmark/evidence protocol>".
-       - Components/chips: "<baseline/status quo>", "<proposed method>", "<accepted item>", "<rejected item>", "<main metric/evidence>", "<failure avoided>".
+       - Secondary labels: "<baseline/status quo>", "<proposed method>", "<accepted item>", "<rejected item>", "<main metric/evidence>", "<failure avoided>".
        - SPELL EXACTLY every quoted label above. Do not invent alternate terminology, code identifiers, raw artifact paths, or extra labels.
 
        Layout variant:
@@ -198,22 +199,22 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
        - 02 horizontal swimlanes: three clean lanes such as Build, Verify, Execute; use offset cards so it is not too rigid.
        - 03 sankey funnel: many sources merge into distillation, narrow through gates, expand into library/state, then branch to outputs.
        - 04 exploded entry: one accepted skill/memory/wiki entry pulled apart into Text, Visual, Recipe, Metadata plates with callout arrows.
-       - 05 layered architecture stack: bottom sources, middle reusable memory/library, top agent execution; use shelf-like overlapping slabs.
+       - 05 layered architecture stack: bottom sources, middle reusable memory/library, top agent execution; use aligned separated layers.
        - 06 pipeline plus gallery: main pipeline across top, output gallery on right, compact benchmark/evidence cards along bottom.
-       - 07 modular dashboard: dense but paper-clean cards; central method card largest, side panel for domains/tasks/outputs.
+       - 07 modular method map: aligned paper-clean modules; central method largest, side panel for domains/tasks/outputs.
        - 08 radial hub-spoke: reusable library/state as center hub; sources feed from left arc; agent/results radiate right; evidence panel below.
        - 09 zigzag pipeline: Z-shaped reading path with numbered step badges and compact insets.
-       - 10 research-poster dense: section headers, compact cards, mini charts, and small output thumbnails; still clean Figma and paper-friendly.
+       - 10 research-poster: section headers, aligned panels, mini charts, and small output thumbnails with deliberate whitespace.
        - 11 grayscale accent: mostly grayscale academic style with two pastel accent colors for proposed path and verification.
-       - 12 color-coded phases: peach acquisition, blue memory/library, green agent, lavender domains, yellow benchmark; overlapping phase tabs.
+       - 12 color-coded phases: peach acquisition, blue memory/library, green agent, lavender domains, yellow benchmark; aligned non-overlapping phase bands.
        - 13 card deck: sources, skills, and outputs as tidy fanned decks; one accepted card expanded.
        - 14 computation graph: nodes and grouped modules with thin arrows and rounded containers, like an ML systems diagram.
        - 15 dataflow with sidebars: main flow through center, left source sidebar, right output sidebar, bottom benchmark/evidence sidebar.
        - 16 timeline plus insets: left-to-right timeline with zoom boxes for the core mechanism and output/evidence.
        - 17 nested containers: big containers for Offline Construction and Online Execution; nested subcards plus benchmark footer.
-       - 18 multi-panel A/B/C/D: A sources/build, B reusable state, C agent execution, D benchmark/evidence; panels overlap slightly and share arrows.
-       - 19 light blueprint: pale blue grid background, modular boxes, thin connector routes, neat badges, strong central method box.
-       - 20 polished Figma wireframe: component frames, auto-layout-like spacing, section tabs, chips, and carefully staggered components.
+       - 18 multi-panel A/B/C/D: aligned non-overlapping panels for sources/build, reusable state, agent execution, and benchmark/evidence.
+       - 19 light technical schematic: modular boxes, obstacle-free connector routes, and a strong central method box.
+       - 20 publication wireframe: component frames, consistent spacing, explicit ports, and conventional process/decision shapes.
 
        Negative prompt / Avoid:
        - no concrete code snippets, raw paths, tiny unreadable text, character-level vertical text, or dense paragraphs
@@ -222,13 +223,13 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
        - no messy whiteboard / Excalidraw-heavy sketch style
        - no large empty areas, overlapping cards, squashed labels, inconsistent terminology, or extra captions that make it look like a dashboard
 
-       Figma tokens for camera-ready cleanup:
+       Publication tokens for camera-ready cleanup:
        - Canvas 1536x1024 or 1920x1088; background #fbfaf7; stroke #1f2933 at 2px.
-       - Corner radius 10-16px; card padding 12-20px; card gap 12-24px.
+       - Corner radius 0-10px only when meaningful; module padding 12-20px; gap 16-28px.
        - Pastels: acquisition #ffe2d1, parsing #fff2bd, memory/wiki #dcecff, agent #e2f7df, domains #eadfff, benchmark #fff1c9.
-       - Text sizes: title 38-52px, section headers 22-30px, card labels 16-22px, chips 12-16px.
+       - Text sizes: optional heading 30-38px, section headers 22-28px, ordinary labels 18-22px, secondary labels 16-18px.
 
-   A prompt that lacks `argus-image2-paper-prompt-v1`, `paper-framework-figure-studio-pro-v3.1.4a`, `General style`, `Pinned content`, exact spelling instructions, `Layout variant`, and `Negative prompt / Avoid` is a blocker even if the image API call succeeds.
+   A prompt that lacks `argus-image2-paper-prompt-v2`, `paper-framework-figure-studio-pro-v3.2.0`, `General style`, `Pinned content`, exact spelling instructions, `Semantic geometry`, `Layout variant`, and `Negative prompt / Avoid` is a blocker even if the image API call succeeds.
 
 ## Role model
 - Planner: chooses the next blocker with the highest reviewer value, not the easiest cosmetic edit.

@@ -16,6 +16,7 @@ import json
 import pytest
 
 from argus_skill.verticals._base import load_vertical, vertical_search_altitude
+from argus_skill.verticals.research.idea_portfolio import TEAM_ID
 from argus_skill.verticals.research.stages import _selection_contract_block
 
 
@@ -26,6 +27,32 @@ def _write(root, payload: object) -> None:
         payload if isinstance(payload, str) else json.dumps(payload),
         encoding="utf-8",
     )
+
+
+def test_active_source_only_portfolio_ignores_legacy_shared_selection(
+    tmp_path,
+) -> None:
+    _write(
+        tmp_path,
+        {
+            "policy": "evidence_judgment_v3",
+            "central_uncertainty": "Legacy probe-ranked question",
+        },
+    )
+    digest = "a" * 64
+    (tmp_path / "research" / "IDEA_PORTFOLIO.json").write_text(
+        json.dumps({
+            "team_id": f"{TEAM_ID}-{digest[:12]}",
+            "artifact_root": f"research/ideation/portfolios/{digest[:12]}",
+            "direction_sha256": digest,
+        }),
+        encoding="utf-8",
+    )
+
+    block = _selection_contract_block(tmp_path)
+
+    assert "no canonical IDEA_SELECTION.json" in block
+    assert "Legacy probe-ranked question" not in block
 
 
 def test_flat_contract_renders_every_promise(tmp_path):

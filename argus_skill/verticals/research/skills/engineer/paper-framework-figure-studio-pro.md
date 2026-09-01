@@ -122,6 +122,8 @@ For each selected direction, prepare a formal candidate contract:
 - **Content block**: all labels spelled exactly as they should appear
 - **Caption plan**: what the caption will explain (not drawn in pixels)
 - **Legend plan**: arrow types, color meanings, icon semantics
+- **Edge ledger / semantic contract**: exact source, target, direction,
+  meaning, and branch label for every connector
 - **Core mechanism visibility**: how the contribution is shown internally
 - **Body reference**: how the paper text will refer to this figure
 
@@ -163,7 +165,8 @@ python -m argus_skill.verticals.research.figure_tool paper-prompt \
   --project-root . --figure-type method \
   --out paper/figures/<id>.prompt.txt \
   --figure-title "<from S4>" --content "<from S4>" \
-  --layout-variant "<from S4>" --force
+  --layout-variant "<from S4>" \
+  --semantic-contract "<edge ledger from S4>" --force
 
 python -m argus_skill.tools.image_api generate \
   --prompt-file paper/figures/<id>.prompt.txt \
@@ -241,10 +244,10 @@ python -m argus_skill.verticals.research.figure_tool sync-paper-metadata \
 - The figure carries the reader path and structure; the caption carries
   definitions, caveats, and numeric evidence. Do not stuff explanatory
   text into image pixels.
-- Generate 3 attempts per direction, pick the cleanest. Do NOT generate
-  more than 3 per round — quality comes from better prompts, not more
-  attempts. Common defects: misspelled labels, vertical text, overlapping
-  cards. Re-prompt with sharper constraints; do not fix in post.
+- Follow the canonical Paper Framework Figure Studio edge, connector,
+  overlap, visual-grammar, and final-size typography contract. Stop after one
+  reviewed candidate passes; generate another only to repair a visible defect
+  or compare a materially different direction.
 - If prompt/provenance/manifest hashes drift, run `sync-paper-metadata`
   from the real generated files. Do not patch JSON hashes by hand.
 - Inside this image-2 route, do not post-process the accepted raster with local

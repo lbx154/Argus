@@ -63,6 +63,11 @@ def test_router_requires_real_deterministic_figure1_fallback() -> None:
     studio = texts["engineer/paper-framework-figure-studio.md"]
     assert "S0" in studio and "S7" in studio
     assert "Renderer-neutral design system" in studio
+    assert "edge ledger" in studio
+    assert "explicit node-boundary ports" in studio
+    assert "no shaft or arrowhead may enter a node fill" in studio
+    assert "aligned non-overlapping A/B/C panels" in studio
+    assert "approximately 8 pt" in studio
     assert "PPT Master" in studio
     assert "image-2 only when configured" in studio
 
@@ -130,12 +135,24 @@ def test_figure_spec_renderer_is_reachable() -> None:
     assert (skills / "figure_spec_scripts/figure_renderer.py").is_file()
 
 
-def test_figure_one_never_takes_the_flat_route() -> None:
-    """A flat-fill renderer draws the boxes the paper's opening figure is judged
-    on, so Figure 1 must not qualify for the simple-topology row."""
-    router = dict(iter_vertical_skill_texts("research"))[
+def test_figure_one_prioritizes_exact_topology_over_decorative_richness() -> None:
+    texts = dict(iter_vertical_skill_texts("research"))
+    router = texts[
         "engineer/research-visualization-router.md"
     ].lower()
+    normalized = " ".join(router.split())
 
-    assert "a paper's figure 1 never qualifies as the simple row" in router
-    assert "simple exact topology in a supporting figure" in router
+    assert "exact load-bearing topology" in router
+    assert "topology fidelity takes priority over decorative richness" in normalized
+    assert "figure 1 must pass the full studio design" in normalized
+    assert "publication polish does not require depth, icons" in normalized
+    assert "foreign-node penetration" in router
+    for path in (
+        "agent-md-new-project-template.md",
+        "agent-md-existing-project-optimization-template.md",
+    ):
+        template = texts[path]
+        assert "modular dashboard" not in template
+        assert "overlapping slabs" not in template
+        assert "overlapping phase tabs" not in template
+        assert "Semantic geometry:" in template

@@ -52,8 +52,9 @@ experiment or honest failure report is not automatically a paper.
 - A repeat detects sampling noise and nothing else. Name that failure mode before
   buying N repeats; if the margin is far from the noise floor, one run suffices.
   Repeats cannot detect wrong implementation, a broken control, or claim-code
-  mismatch, so the claim-to-code faithfulness trace and positive control come
-  first. Preserve repeats when the margin is near the noise; flag unchanged-
+  mismatch, so the frozen hypothesis-to-implementation contract and its independent
+  pre-execution review come first; the claim-to-code trace then follows the executed
+  path after results exist. Preserve repeats when the margin is near the noise; flag unchanged-
   configuration reruns motivated only by generalized fear as ritual waste.
 - Do not invent project-specific round-number improvement or error thresholds
   merely to obtain a binary keep/reject rule. A numeric cutoff needs a basis in
@@ -193,7 +194,7 @@ while credible fixes remain.
 - Stream discovery into validation: each completed route receives a fresh
   independent review immediately. A fresh selector judges when genuinely distinct
   mechanism families cover the alternatives and key uncertainties well enough to
-  choose. It reads all evidence that has arrived, including probes and later routes,
+  choose. It reads all non-experimental selection evidence that has arrived, including later routes,
   and may update the choice when new evidence changes credibility. Judge important,
   credible, nontrivial knowledge in any contribution form; local convenience is not
   scientific value, and resource gaps belong in the staged plan.
@@ -202,22 +203,16 @@ while credible fixes remain.
   analogy, and explain what each lens lets the work establish.
 - Reuse the active independent route pipeline; do not start another breadth
   sweep under new route names.
-- Validate each finalist in one decision-sized milestone, but preserve the
-  dependency inside that milestone: first complete the nearest-source grounding,
-  prior-art attack, technical/formal validity check, and independent selection
-  decision; only a selected survivor may proceed to probe design and execution.
-  A rejected or still-unresolved idea must not consume model, API, or GPU calls.
-  Run independent finalists concurrently, while keeping selection-before-probe
-  ordering within each finalist. Keep probes below ten minutes by default and
-  never turn them into formal benchmarks, training, or broad sweeps. Do not
-  serialize "repair research canon,"
-  "build smoke harness," and "judge smoke" into separate Planner missions when
-  one coherent milestone can own the ordered conditional branch.
-- Treat the probe as an observation, not a keep/reject gate. A ceilinged,
-  floored, too-easy, underpowered, or poorly implemented result is merely a
-  limitation note; record missing headroom explicitly. Never reject a
-  qualitatively strong idea from a research smoke probe; later stages own
-  faithful benchmarking and iterative refinement.
+- Keep idea generation, route review, and selection read-only. Do not execute
+  candidate code or run toy, premise, feasibility, smoke, or other probe
+  experiments to choose among ideas. A rejected or unresolved idea must not
+  consume model, API, or GPU experiment calls.
+- After selection, freeze `research/HYPOTHESIS_IMPLEMENTATION_CONTRACT.md`, then
+  implement and independently review the actual entry point against that contract.
+  Wiring/unit checks may validate the implementation after selection, but they do
+  not rank scientific ideas. Proceed from the reviewed implementation to a
+  claim-relevant experiment sized to answer the question rather than inserting a
+  miniature scientific probe.
 - Before paid/model-backed execution, verify that candidate predictions cannot
   read gold labels or scorer-derived fields and that baselines receive the same
   decision-time information.

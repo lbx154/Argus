@@ -191,27 +191,39 @@ def highlight_ours(
 ) -> None:
     """De-emphasise baselines and make the OUR series pop.
 
-    Works for both bar charts (an ``ax.containers`` / patch group) and line
-    plots (``ax.get_lines()``). Baselines fade to neutral grey; the series at
-    ``ours_index`` keeps full saturation, gains a dark outline / heavier
-    weight, and is drawn on top. ``ours_index`` counts the plotted series in
-    draw order (0-based).
+    Works for both bar charts and line plots. With multiple bar containers,
+    ``ours_index`` selects one plotted series and styles every bar in that
+    container. With one bar container, it selects one category for backward
+    compatibility. For line plots it selects one line. Baselines fade to
+    neutral grey; Ours keeps full saturation, gains a dark outline / heavier
+    weight, and is drawn on top.
     """
     # --- bar charts -------------------------------------------------------
-    bars = [p for p in getattr(ax, "patches", [])]
-    if bars and not ax.get_lines():
-        for i, bar in enumerate(bars):
-            if i == ours_index:
-                if ours_color:
-                    bar.set_facecolor(ours_color)
-                bar.set_edgecolor("black")
-                bar.set_linewidth(1.2)
-                bar.set_alpha(1.0)
-                bar.set_zorder(3)
-            else:
-                bar.set_facecolor(baseline_grey)
-                bar.set_alpha(0.85)
-                bar.set_zorder(2)
+    containers = [
+        container
+        for container in getattr(ax, "containers", [])
+        if getattr(container, "patches", None)
+    ]
+    if containers:
+        grouped = len(containers) > 1
+        for container_index, container in enumerate(containers):
+            for category_index, bar in enumerate(container.patches):
+                selected = (
+                    container_index == ours_index
+                    if grouped
+                    else category_index == ours_index
+                )
+                if selected:
+                    if ours_color:
+                        bar.set_facecolor(ours_color)
+                    bar.set_edgecolor("black")
+                    bar.set_linewidth(1.2)
+                    bar.set_alpha(1.0)
+                    bar.set_zorder(3)
+                else:
+                    bar.set_facecolor(baseline_grey)
+                    bar.set_alpha(0.85)
+                    bar.set_zorder(2)
         return
 
     # --- line charts ------------------------------------------------------

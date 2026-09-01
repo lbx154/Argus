@@ -32,9 +32,11 @@ Inventory existing reports before spawning work. Ask which mechanisms, alternati
 explanations, foundations, or deployment realities could change the decision, and
 assign independent routes to those uncertainties rather than to a preset discipline
 list. Each route should preserve the source trail, closest work, gap, kill argument,
-and any useful probe evidence. Search primary papers and official artifacts deeply
+and the future decisive experiment. Search primary papers and official artifacts deeply
 enough to support novelty, using practitioner or incident evidence when it reveals a
-real unmet need.
+real unmet need. This is a read-only selection phase: inspect papers, documentation,
+released source, and existing non-outcome metadata, but do not execute candidate code
+or run toy, premise, feasibility, smoke, or other probe experiments.
 
 Review each route as it arrives. Preserve rejected routes and avoid duplicating the
 same mechanism under new names. Breadth is established by distinct explanatory and
@@ -198,7 +200,7 @@ decision-relevant value>
 **Frontier significance**: <what general belief, design principle, or capability
 would change if the claim is true>
 
-**Experiment sketch (resource-adaptive)**:
+**Future experiment sketch (do not execute during idea selection)**:
 - Setup: <models / data / baselines + the method>
 - Falsifier: <what result would refute or materially weaken the claim>
 - Compute & budget: <method-appropriate resources, staged execution, and the
@@ -210,7 +212,7 @@ a model/GPU you cannot actually run here; if the operator/direction states a
 resource or time limit, that wins):
 - Method runs on: <API-call | local inference | local training (LoRA/FT)>
 - GPU memory needed vs free: <est. vs discovered free memory>
-- **Can the probe answer the research question on public evidence within the
+- **Can the full claim-relevant experiment answer the research question on public evidence within the
   available budget?**: YES / NO / CONDITIONAL
 - **Executable on deployed setup**: YES / NO / CONDITIONAL (condition: <...>)
 
@@ -237,14 +239,22 @@ are all eligible. Local ease cannot rescue a shallow or already-occupied idea.
 
 ### Step 6 — judge coverage, then select
 
-Give one fresh selector every relevant route, review, probe, and later result that has
-arrived. The selector decides whether the portfolio contains genuinely distinct
+Give one fresh selector every relevant route, review, and later non-experimental
+selection artifact that has arrived. The selector decides whether the portfolio contains genuinely distinct
 mechanism families and covers the uncertainties that could change the ranking. A
 twelve-route portfolio is a common operating example, not a quota; request the missing
 kind of evidence when coverage is weak. When coverage is sufficient, select the
-strongest qualified contribution and write `research/IDEA_SELECTION.json`. New evidence
-may update the choice and its rationale. Resource gaps become a staged plan rather than
-a reason to substitute a scientifically weaker route.
+strongest qualified contribution and write the selector task's owned
+`research/ideation/portfolios/<direction>/selection.json`. The validated
+portfolio workflow alone materializes the shared
+`research/IDEA_SELECTION.json`. New evidence may update the choice and its
+rationale. Resource gaps become a staged plan rather than a reason to
+substitute a scientifically weaker route.
+
+Do not run an experiment to break a tie between ideas. Resolve ties through stronger
+prior-art reduction, clearer mechanism predictions, and a better full-scale evidence
+plan. Experimental execution begins only after one idea is selected and its
+hypothesis-to-implementation contract is frozen.
 
 ## Anti-patterns
 
@@ -263,4 +273,6 @@ a reason to substitute a scientifically weaker route.
 
 For broad publishable/doctoral paper ideation, preserve route and review artifacts
 under `research/ideation/portfolios/<direction>/`. Once the fresh selector judges the
-evidence broad enough, write its adversarial choice to `research/IDEA_SELECTION.json`.
+evidence broad enough, write its adversarial choice to the task-owned
+`selection.json`; the portfolio workflow materializes the canonical
+`research/IDEA_SELECTION.json` after validation.

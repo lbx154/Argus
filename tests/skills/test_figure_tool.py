@@ -18,8 +18,8 @@ _PNG_BYTES = base64.b64decode(
 def test_render_paper_figure_prompt_uses_figure_studio_template() -> None:
     prompt = figure_tool.render_paper_figure_prompt(figure_title="SkillCycle")
 
-    assert "Prompt template: argus-image2-paper-prompt-v1" in prompt
-    assert "Prompt source: paper-framework-figure-studio-pro-v3.1.4a" in prompt
+    assert "Prompt template: argus-image2-paper-prompt-v2" in prompt
+    assert "Prompt source: paper-framework-figure-studio-pro-v3.2.0" in prompt
     assert "SkillCycle" in prompt
     assert "General style:" in prompt
     assert "Pinned content that must appear exactly:" in prompt
@@ -50,7 +50,7 @@ def test_render_paper_figure_prompt_with_free_content() -> None:
     # Should contain research.md features
     assert "Aspect ratio:" in prompt
     assert "1536x1024 landscape" in prompt
-    assert "干净" in prompt  # Chinese style intent
+    assert "清晰、克制" in prompt  # Chinese style intent
 
 
 def test_render_paper_figure_prompt_legacy_compat() -> None:
@@ -134,6 +134,7 @@ def test_sync_paper_metadata_writes_manifest_and_provenance(tmp_path: Path) -> N
                 "image": info,
                 "model": "gpt-5.4",
                 "endpoint": "/responses",
+                "review_contract": figure_tool.PAPER_FIGURE_STUDIO_SOURCE_ID,
                 "review": "score_1_to_5: 5\nkeep_or_regenerate: keep",
             }
         )
@@ -160,8 +161,8 @@ def test_sync_paper_metadata_writes_manifest_and_provenance(tmp_path: Path) -> N
     )
     manifest_entry = manifest["figures"][0]
     unified_entry = unified["figures"][0]
-    assert entry["prompt_template_id"] == "argus-image2-paper-prompt-v1"
-    assert entry["figure_studio_source"] == "paper-framework-figure-studio-pro-v3.1.4a"
+    assert entry["prompt_template_id"] == "argus-image2-paper-prompt-v2"
+    assert entry["figure_studio_source"] == "paper-framework-figure-studio-pro-v3.2.0"
     assert manifest_entry["output_sha256"] == info["sha256"]
     assert provenance["output_sha256"] == info["sha256"]
     assert unified_entry["renderer"] == "image2"
@@ -205,6 +206,7 @@ def test_sync_paper_metadata_accepts_raw_file_prompt_hash_with_stripped_sidecar_
                 "image": info,
                 "model": "gpt-5.4",
                 "endpoint": "/responses",
+                "review_contract": figure_tool.PAPER_FIGURE_STUDIO_SOURCE_ID,
                 "review": "score_1_to_5: 5\nkeep_or_regenerate: keep",
             }
         )
@@ -310,6 +312,7 @@ def _sync_reviewed_candidate(root: Path, index: int) -> dict[str, Any]:
                 "image": info,
                 "model": "gpt-5.4",
                 "endpoint": "/responses",
+                "review_contract": figure_tool.PAPER_FIGURE_STUDIO_SOURCE_ID,
                 "review": "score_1_to_5: 5\nkeep_or_regenerate: keep",
             }
         )
@@ -379,6 +382,10 @@ def test_reviewed_candidate_cache_reuses_frozen_context(
     assert status["context_sha256"] == frozen["context_sha256"]
     assert status["reusable"] is True
     assert status["passed_candidates"] == 6
+    assert all(
+        row["review_contract"] == figure_tool.PAPER_FIGURE_STUDIO_SOURCE_ID
+        for row in status["candidates"]
+    )
 
     main_tex = tmp_path / "paper" / "main.tex"
     main_tex.write_text("minor prose v1", encoding="utf-8")
@@ -406,6 +413,23 @@ def test_reviewed_candidate_cache_reuses_frozen_context(
     assert not prompt_out.exists()
 
 
+def test_candidate_cache_requires_current_review_contract(tmp_path: Path) -> None:
+    _seed_frozen_paper_context(tmp_path)
+    _sync_reviewed_candidate(tmp_path, 0)
+    cache = tmp_path / figure_tool.PAPER_FIGURE_CANDIDATE_CACHE_PATH
+    payload = json.loads(cache.read_text(encoding="utf-8"))
+    payload["candidates"][0].pop("review_contract")
+    cache.write_text(json.dumps(payload), encoding="utf-8")
+
+    status = figure_tool.paper_figure_cache_status(
+        project_root=tmp_path,
+        figure_type="method",
+    )
+
+    assert status["reusable"] is False
+    assert status["passed_candidates"] == 0
+
+
 def test_candidate_cache_invalidates_only_on_frozen_input_change(
     tmp_path: Path,
 ) -> None:
@@ -425,52 +449,39 @@ def test_candidate_cache_invalidates_only_on_frozen_input_change(
     assert status["reason"] == "evidence_or_structure_changed"
 
 
-def test_paper_figure_prompt_template_is_byte_identical_to_pre_refactor_template() -> None:
-    """Regression guard for the argus_skill.tools.image_tool -> tools/image_api.py
-    + verticals/research/figure_tool.py split.
-
-    PAPER_FIGURE_PROMPT_TEMPLATE must never be reworded during a refactor. This
-    hash was computed from the exact template string literal in the original
-    (now-deleted) argus_skill/tools/image_tool.py before the move, and the
-    template must hash identically after living in figure_tool.py.
-    """
-    expected_sha256 = (
-        "4c77b07e114451914ed259645385b8a989459a275daa4036c36188bf46c8ded8"
-    )
+def test_paper_figure_prompt_requires_semantic_geometry() -> None:
     template = figure_tool.PAPER_FIGURE_PROMPT_TEMPLATE
-    assert len(template) == 2790
-    assert hashlib.sha256(template.encode("utf-8")).hexdigest() == expected_sha256
+    normalized = " ".join(template.split())
+    assert "Semantic geometry:" in template
+    assert "Figma tokens" not in template
+    assert "Draw exactly the declared nodes and edges" in template
+    assert "Every arrowhead points to its named target" in template
+    assert "Connectors meet explicit node boundaries" in template
+    assert "No shaft or arrowhead enters a node fill" in normalized
+    assert "No node, label, legend, callout, or panel overlaps another" in normalized
+    assert "rectangles for processes, diamonds for decisions" in template
 
 
-def test_review_prompt_is_byte_identical_to_pre_split_image_api_prompt() -> None:
-    """Regression guard for the tools/image_api.py -> verticals/research/figure_tool.py
-    move of ``_review_prompt``.
-
-    ``_review_prompt`` moved out of ``tools.image_api`` (which must stay
-    domain-neutral) into this paper-specific module byte-for-byte. These
-    hashes were computed from the exact string literals in ``_review_prompt``
-    before the move (both the no-rubric generic-schema branch and the
-    rubric-authoritative branch), and must never change during a refactor.
-    """
-    no_rubric_sha256 = "5f5f285d044bd6d691d5f5e51e7e17dae0b8bf94a84ea9ac66f43123f5084a2a"
+def test_review_prompt_requires_submission_ready_geometry() -> None:
     no_rubric = figure_tool._review_prompt(original_prompt="a diagram", rubric="")
-    assert len(no_rubric) == 1480
-    assert hashlib.sha256(no_rubric.encode("utf-8")).hexdigest() == no_rubric_sha256
+    assert "connector penetration" in no_rubric
+    assert "node-boundary termination" in no_rubric
+    assert "non-overlapping, unclipped" in no_rubric
+    assert "semantically correct and submission-ready" in no_rubric
 
     rubric_text = (
         "Output a JSON object with fields: keep_or_regenerate, confirmed_labels, "
         "findings, prohibited_content_present."
     )
-    with_rubric_sha256 = "095766b7b52e39661f8237c00698f0322e14de6ae16f08faf025d5714f660ad6"
     with_rubric = figure_tool._review_prompt(original_prompt="a diagram", rubric=rubric_text)
-    assert len(with_rubric) == 1050
-    assert hashlib.sha256(with_rubric.encode("utf-8")).hexdigest() == with_rubric_sha256
+    assert "connector penetration" in with_rubric
+    assert "element overlap" in with_rubric
+    assert "unreadable final-size type" in with_rubric
 
 
 def test_review_prompt_without_rubric_uses_generic_schema() -> None:
-    # Backward compatibility: when no rubric is supplied the historical generic
-    # "communicate the method" schema (score_1_to_5 ...) is emitted verbatim, so
-    # existing paper-figure callers keep byte-identical behavior.
+    # When no rubric is supplied, callers still receive the generic structured
+    # review schema plus the canonical publication-geometry requirements.
     prompt = figure_tool._review_prompt(original_prompt="a diagram", rubric="")
     assert "score_1_to_5" in prompt
     assert "Return JSON with:" in prompt
@@ -552,8 +563,10 @@ def test_review_image_threads_rubric_into_authoritative_prompt(
     # "rubric" field the domain-neutral tools.image_api.review_image no
     # longer writes itself.
     assert result["rubric"] == "Output JSON with keep_or_regenerate and confirmed_labels."
+    assert result["review_contract"] == figure_tool.PAPER_FIGURE_STUDIO_SOURCE_ID
     sidecar = json.loads((tmp_path / "review.json").read_text(encoding="utf-8"))
     assert sidecar["rubric"] == "Output JSON with keep_or_regenerate and confirmed_labels."
+    assert sidecar["review_contract"] == figure_tool.PAPER_FIGURE_STUDIO_SOURCE_ID
 
 
 def test_review_cli_builds_paper_prompt_and_calls_generic_reviewer(

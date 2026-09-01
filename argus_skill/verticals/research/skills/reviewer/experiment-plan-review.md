@@ -18,6 +18,9 @@ Review an experiment plan as a senior ML researcher would before approving compu
   reasonableness here. Review whether the proposed experiment gives that idea a
   valid, fair, executable test. If the plan silently changes the method or
   premise, return it upstream rather than re-selecting the idea in this review.
+- Read `research/HYPOTHESIS_IMPLEMENTATION_CONTRACT.md` and the actual planned
+  entry point. Review the implementation mapping before any claim-bearing run;
+  do not approve from prose and function names alone.
 
 ## Review dimensions
 
@@ -28,6 +31,11 @@ post-training plans — omit `rl_config_sanity` from the output for non-RL plans
 1. **Method and hypothesis fidelity**
    - Does the plan implement the selected method and test its frozen binding
      premise without silently substituting an easier claim?
+   - Does every load-bearing object, formula, intervention, baseline, observable,
+     and invariant map to the actual entry-point call chain and configuration?
+   - Record `ALIGNED`, `MISMATCH`, or `NOT_IMPLEMENTED` in the contract. A
+     mismatch returns to implementation or prospective thesis revision before
+     result-producing execution; it is not a negative method result.
    - Does the plan use resources appropriate to the question rather than merely
      maximizing available compute?
    - Do the primary measurement and controls distinguish the mechanism-specific
@@ -57,8 +65,10 @@ post-training plans — omit `rl_config_sanity` from the output for non-RL plans
      failure mode those repeats can detect? A repeat detects sampling noise and
      nothing else. If the expected margin is far from the noise floor, one run
      suffices. Repeats can never detect a wrong implementation, broken control,
-     or claim-code mismatch: require the claim-to-code faithfulness trace and a
-     positive-control check first because both are cheaper. Flag ritual reruns of
+     or claim-code mismatch: require the independently reviewed
+     hypothesis-to-implementation contract and a positive-control branch check
+     first, then use the post-run
+     claim-to-code trace on produced evidence. Flag ritual reruns of
      one unchanged configuration out of generalized fear as a design defect, not
      diligence; retain repeats when the margin is genuinely near the noise.
    - Does every numeric keep/reject cutoff have an external basis in utility,

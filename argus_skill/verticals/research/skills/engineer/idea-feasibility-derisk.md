@@ -1,36 +1,33 @@
 ---
-name: "Research Reality Probe"
-description: "Run the cheapest faithful observation that informs a research idea, preserve the raw result, and leave its interpretation and next move to the Planner."
+name: "Selected-Idea Implementation Readiness"
+description: "After idea selection and implementation review, check only concrete wiring or external availability without using a miniature experiment to judge the scientific idea."
 ---
 
-# Research Reality Probe
+# Selected-Idea Implementation Readiness
 
 ## Purpose
 
-After an idea has passed method-reasonableness selection, optionally obtain one
-short feasibility observation before committing substantial compute. This is
-advisory context, not a routing gate, not a miniature benchmark, and never a
-reason to kill, replace, or downgrade a promising idea. If a cheap slice would
-misrepresent a training-heavy or large-scale hypothesis, record it skipped and
-advance to plan/benchmark/run.
+Never use this skill during idea generation, route review, or selection. After
+one idea is selected, its hypothesis-to-implementation contract is frozen, and
+the implementation has received independent alignment review, use this skill
+only for a concrete wiring, data-shape, evaluator-availability, or resource
+readiness question.
 
-For publishable/doctoral work, a successful probe does not waive the ambition
-standard: nontrivial technical core, verified originality, claim-relevant
-formal/causal grounding, and field-level consequence. Wiring success or easy
-feasibility cannot promote a shallow idea.
+Do not run a tiny scientific comparison or premise experiment. Readiness checks
+cannot promote, reject, replace, or downgrade an idea and cannot appear as paper
+evidence. They do not replace the selection requirement for a nontrivial
+technical core, verified originality, claim-relevant formal or causal grounding,
+and field-level consequence. This preserves the project's formal/causal grounding
+standard without turning readiness into another selection pass.
 
 ## How to work
 
-1. Read the research brief and completed selection reasoning. Identify only a
-   wiring, data-shape, evaluator, or resource question that a tiny observation can
-   answer faithfully. Research-stage scientific success is not such a question.
-2. Choose the cheapest short probe that can touch it. Target at most ten minutes
-   and a tiny real slice. Never run the formal benchmark, training, large sweep,
-   or publication-scale multi-seed evaluation in this step. If a faithful test
-   cannot fit that budget, record the limitation and continue to planning rather
-   than inflating the probe. For a comparison, note whether the baseline has
-   headroom and whether the slice exercises the mechanism, but do not enlarge
-   the smoke test to obtain statistical power.
+1. Read the selected idea, experiment plan, and
+   `research/HYPOTHESIS_IMPLEMENTATION_CONTRACT.md`. Identify one operational
+   readiness question whose answer cannot change scientific selection.
+2. Use a unit, import, schema, shape, compiler, evaluator, or resource check.
+   Do not compare candidate and baseline quality, estimate an effect, or test the
+   binding scientific premise.
 3. Record the setup before running: model/system identity, data slice, comparator
    or control, metric/observation, and the limitations of the probe.
 4. Before any paid or model-backed call, inspect the prediction boundary:
@@ -42,9 +39,8 @@ feasibility cannot promote a shallow idea.
    - execute baselines with the same information and intervention timing. A
      historical trace that already executed an action or a post-hoc verifier is a
      diagnostic, not an online prevention baseline.
-5. Run it for real when representative, or record `skipped` / `untested` when it
-   is not. Preserve any command, raw output, and analysis under a sensible project
-   path. Reuse existing run conventions instead of creating a special de-risk packet.
+5. Run the readiness check or record the concrete blocker. Preserve the command
+   and output under the existing experiment log convention.
 6. Write a short factual note in `research/RESEARCH_BRIEF.md` or the existing
    experiment log:
    - what was observed;
@@ -52,18 +48,13 @@ feasibility cannot promote a shallow idea.
    - plausible explanations, including implementation weakness;
    - paths to the raw material.
 
-Do not emit PASS/FAIL, force a pivot, or automatically schedule another direction.
-The selected idea continues after one bounded attempt. A weak/null result may
-reflect the probe setup, implementation, scale, or current idea version; record
-that ambiguity as inconclusive context for later small-step iteration. A wiring
-smoke test is not evidence for or against the scientific thesis.
+Do not emit a scientific PASS/FAIL, force a pivot, or schedule another idea.
+A wiring check is not evidence for or against the thesis.
 
 ## Integrity
 
-Never type expected numbers as results, hide failed calls, or relabel synthetic
-examples as public evidence. If the probe is not faithful enough to inform the
-premise, say so plainly. A result produced by candidate code reading the gold
-label is a failed probe, not weak supporting evidence.
+Never type expected numbers as results, hide failures, or relabel readiness
+output as public evidence. Do not read gold labels or scorer-derived fields.
 
 ## Handoff
 

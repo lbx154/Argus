@@ -78,6 +78,11 @@ def test_figure_review_uses_good_enough_non_looping_standard() -> None:
     assert "good-looking-enough" in prompt
     assert "at most one targeted aesthetic repair" in prompt
     assert "Optional renderer metadata may help" in prompt
+    assert "Wrong, reversed, missing, or unsupported arrows" in prompt
+    assert "connector penetration" in prompt
+    assert "overlapping nodes or text" in prompt
+    assert "unreadable final-size typography" in prompt
+    assert "not cosmetic preferences" in prompt
     assert "Write a prose review, not JSON" in prompt
     assert "score_1_to_5" not in prompt
     assert "criteria_scores" not in prompt

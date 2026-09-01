@@ -88,3 +88,34 @@ def test_research_stage_does_not_close_without_core_artifacts(
         state_root=tmp_path / "state",
         evidence_root=tmp_path / "workdir",
     )
+
+
+def test_active_portfolio_does_not_close_from_stale_shared_selection(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "argus_skill.core.pipeline_state.read_pipeline_state",
+        lambda _root: {"vertical": "research", "current_stage": "research"},
+    )
+    monkeypatch.setattr(
+        "argus_skill.verticals._base.load_vertical",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "argus_skill.verticals._base.vertical_stage_completion_issues",
+        lambda *_args, **_kwargs: ("selection incomplete",),
+    )
+    evidence_root = tmp_path / "workdir"
+    (evidence_root / "research").mkdir(parents=True)
+    (evidence_root / "paper").mkdir()
+    (evidence_root / "research" / "IDEA_PORTFOLIO.json").write_text("{}")
+    (evidence_root / "research" / "IDEA_SELECTION.json").write_text(
+        '{"policy":"evidence_judgment_v3"}'
+    )
+    (evidence_root / "paper" / "novelty_audit.md").write_text("positioned\n")
+
+    assert not module._research_stage_ready_for_close(
+        state_root=tmp_path / "state",
+        evidence_root=evidence_root,
+    )

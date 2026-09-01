@@ -56,27 +56,23 @@ serious candidate ask:
 Record rejected alternatives only when they affected the decision; do not create
 a rejection quota.
 
-Do not continue to probe design until this method-reasonableness case has been
-completed and the candidate has been selected. Selection may share one
-decision-sized milestone with the later probe, but it is an earlier dependency,
-not a parallel branch.
+Do not design or execute an experiment until this method-reasonableness case has
+been completed and the candidate has been selected.
 
-## 3. De-risk the selected idea's binding premise
+## 3. Freeze the hypothesis-to-implementation contract
 
-Only after selection, run the cheapest faithful real probe that can invalidate
-the central empirical assumption.
-A smoke test proves wiring, not the idea. If the premise fails, decide whether
-the failure comes from:
+After selection and before writing experimental code, use
+`engineer/hypothesis-implementation-contract.md` to write
+`research/HYPOTHESIS_IMPLEMENTATION_CONTRACT.md`. Bind every load-bearing
+hypothesis element to the planned implementation, baseline, control, observable,
+and invariant. Then implement the selected idea and have a fresh Reviewer compare
+the actual entry point and call chain with the frozen contract before any
+claim-bearing execution.
 
-- implementation/configuration/evaluator error;
-- an underpowered or under-optimized realization;
-- an unfair comparison;
-- a genuine scientific limitation;
-- insufficient resources for a fair test.
-
-Do not treat passing unit tests as implementation correctness. Compare against a
-trusted reference, inspect executed behavior, and measure the quantity the
-mechanism is supposed to change.
+Do not insert a tiny scientific probe between selection and the real experiment.
+Unit and smoke checks may establish only wiring, shapes, and external
+availability after implementation; their outcomes cannot re-rank the idea or
+stand in for scientific evidence.
 
 ## 4. Design the implementation to give the idea a fair chance
 
@@ -84,6 +80,7 @@ Study the strongest relevant implementation and reuse maintained infrastructure
 when it is not the contribution. The plan should name:
 
 - what is reused and what must be new;
+- how each mechanism and formula maps to the actual entry point and code path;
 - how proposed and baseline paths remain comparable;
 - reference behavior that validates the implementation;
 - likely optimization/tuning bottlenecks;
@@ -133,6 +130,7 @@ Use existing canonical artifacts whenever possible:
 
 - `research/RESEARCH_BRIEF.md`;
 - `research/LITERATURE_GROUNDING.json`;
+- `research/HYPOTHESIS_IMPLEMENTATION_CONTRACT.md`;
 - `research/EXPERIMENT_PLAN.md`;
 - benchmark/data provenance and code-reuse notes when applicable.
 

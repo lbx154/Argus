@@ -56,8 +56,7 @@ The schema:
 ```json
 {
   "title": "Argus Research Factory Architecture",
-  "width": 800,
-  "height": 500,
+  "canvas": {"width": 800, "height": 500},
   "style": {
     "font_family": "Arial",
     "font_size": 14,
@@ -65,11 +64,11 @@ The schema:
   },
   "nodes": [
     {"id": "planner", "label": "Planner", "x": 100, "y": 200,
-     "shape": "rounded", "color": 0},
+     "shape": "rounded", "fill": "#DBEAFE", "stroke": "#2563EB"},
     {"id": "engineer", "label": "Engineer", "x": 350, "y": 100,
-     "shape": "rounded", "color": 1},
+     "shape": "rounded", "fill": "#D1FAE5", "stroke": "#10B981"},
     {"id": "reviewer", "label": "Reviewer", "x": 350, "y": 300,
-     "shape": "rounded", "color": 2}
+     "shape": "rounded", "fill": "#FFEDD5", "stroke": "#EA580C"}
   ],
   "edges": [
     {"from": "planner", "to": "engineer", "label": "task"},
@@ -79,14 +78,14 @@ The schema:
   ],
   "groups": [
     {"id": "harness", "label": "Harness (dumb pipes)",
-     "nodes": ["planner"], "color": "#F3F4F6"}
+     "node_ids": ["planner"], "fill": "#F3F4F6", "stroke": "#9CA3AF"}
   ]
 }
 ```
 
 Allowed: `shape ∈ {rect, rounded, circle, diamond, ellipse}`,
-`style ∈ {solid, dashed, dotted}`,
-`color` is either a palette index or a `#RRGGBB` hex.
+`style ∈ {solid, dashed, dotted}`. Nodes and groups use explicit `fill` and
+`stroke` colors.
 
 ### Step 3 — render and validate
 
@@ -144,8 +143,11 @@ Common spec shapes that work well — copy then adapt:
 - **Audit cascade** — vertical stack of nodes, each with a "verdict"
   edge to a side column
 
-The renderer handles arrow placement, label positioning, and
-group-box rendering automatically; the spec only declares topology.
+The renderer clips edge endpoints to source and target boundaries, positions
+labels, and renders groups. It does not obstacle-route around unrelated nodes.
+Use FigureSpec only when each declared straight/curved edge has clear space;
+otherwise reposition nodes or choose Graphviz, Draw.io, browser SVG, or PPT
+Master. Always inspect the final render for connector penetration and overlap.
 
 ## Anti-patterns
 

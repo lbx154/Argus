@@ -116,13 +116,18 @@ def test_figure_renderer_round_trip_render(tmp_path: Path) -> None:
         json.dumps(
             {
                 "title": "Smoke",
-                "width": 400,
-                "height": 200,
+                "canvas": {"width": 400, "height": 200},
                 "nodes": [
-                    {"id": "a", "label": "A", "x": 100, "y": 100, "shape": "rounded", "color": 0},
-                    {"id": "b", "label": "B", "x": 300, "y": 100, "shape": "rounded", "color": 1},
+                    {"id": "a", "label": "A", "x": 100, "y": 100, "shape": "rounded",
+                     "fill": "#DBEAFE", "stroke": "#2563EB"},
+                    {"id": "b", "label": "B", "x": 300, "y": 100, "shape": "rounded",
+                     "fill": "#D1FAE5", "stroke": "#10B981"},
                 ],
                 "edges": [{"from": "a", "to": "b", "label": "go"}],
+                "groups": [
+                    {"id": "scope", "label": "Scope", "node_ids": ["a", "b"],
+                     "fill": "#F3F4F6", "stroke": "#9CA3AF"}
+                ],
             }
         ),
         encoding="utf-8",
@@ -138,8 +143,10 @@ def test_figure_renderer_round_trip_render(tmp_path: Path) -> None:
     body = out.read_text(encoding="utf-8")
     # Sanity: SVG with both nodes labeled
     assert body.startswith("<svg")
+    assert 'viewBox="0 0 400 200"' in body
     assert ">A<" in body
     assert ">B<" in body
+    assert ">Scope<" in body
 
 
 def test_figure_renderer_is_deterministic(tmp_path: Path) -> None:
@@ -148,8 +155,9 @@ def test_figure_renderer_is_deterministic(tmp_path: Path) -> None:
     renderer = RESEARCH_ROOT / "engineer" / "figure_spec_scripts" / "figure_renderer.py"
     spec = tmp_path / "spec.json"
     spec.write_text(
-        json.dumps({"title": "Det", "width": 300, "height": 200,
-                    "nodes": [{"id": "x", "label": "X", "x": 100, "y": 100, "color": 0}],
+        json.dumps({"title": "Det", "canvas": {"width": 300, "height": 200},
+                    "nodes": [{"id": "x", "label": "X", "x": 100, "y": 100,
+                               "fill": "#DBEAFE", "stroke": "#2563EB"}],
                     "edges": []}),
         encoding="utf-8",
     )

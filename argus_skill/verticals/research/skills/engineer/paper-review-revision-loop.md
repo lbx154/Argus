@@ -26,8 +26,10 @@ revision, or layout repair.
    - remove generic openings, repeated "not X but Y" constructions, compliance
      language, local paths, role names, and defensive caveat chains;
    - keep honest limitations without making process failure the paper's identity.
-5. Fix figures and tables from the rendered PDF. One targeted aesthetic repair is
-   enough unless a visible defect remains.
+5. Fix figures and tables from the rendered PDF. Wrong/reversed arrows,
+   connector penetration, overlapping nodes/text, clipping, inconsistent shape
+   semantics, and unreadable final-size typography are concrete defects. One
+   targeted aesthetic repair is enough unless one of those visible defects remains.
 6. Compile and inspect the current PDF after meaningful source changes.
 
 Model-backed language, infrastructure, and layout tools are optional second

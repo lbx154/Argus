@@ -45,7 +45,10 @@ to make review easier.
    a chronological list of experiments. Remove local paths, role names, gate
    language, evidence-span narration, and repetitive defensive caveats.
 6. **Presentation:** inspect the actual PDF for venue format, anonymity, readable
-   figures and tables, references, and serious layout defects.
+   figures and tables, references, and serious layout defects. For diagrams,
+   verify exact arrow direction and incidence, boundary-attached connectors,
+   zero penetration through unrelated nodes or labels, zero overlap/clipping,
+   consistent shape semantics, and readable final-size typography.
 
 ## Act
 

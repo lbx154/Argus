@@ -1,44 +1,13 @@
-"""Signal de-risk evidence validator for the default measured-signal workflow.
+"""Read and audit legacy measured-signal artifacts.
 
-The research stage today passes on *form* (a reviewer checklist of problem
-clarity / timeline / source diversity / real-search audit, plus shell checks
-that only test file existence). It never verifies that the chosen idea is
-*alive on this machine* — that its core signal actually moves on a model/data
-the local box can run. A beautifully-cited brief can still wrap a dead idea
-(observed: a safety idea whose harmful-prompt signal never moved because the
-only available frontier model refuses every harmful prompt — discovered 3.5h /
-$26 later, in the run stage).
-
-This module turns "the idea survived a minimal judgemental experiment" into a
-**mechanically checkable provenance fact**, NOT a scientific verdict. Consistent
-with :mod:`argus_skill.skills.run_contract` ("the harness is not smarter than
-the agent"), it does not decide whether the science is good — only that a real
-measured experiment was run and that its baseline vs proposed
-metrics are non-degenerate and move in the claimed direction. Whether the idea
-is *worth pursuing* stays with the L2 reviewer.
-
-Artifact:
-
-* :class:`SignalDerisk` — the verdict object, emitted at the END of the research
-  stage to ``research/SIGNAL_DERISK.json`` by the
-  ``engineer/idea-feasibility-derisk`` skill, with the raw commands + outputs of
-  the experiment captured in ``research/SIGNAL_DERISK_LOG.txt``.
-
-The L2 reviewer may run this tool to check arithmetic, provenance, and the
-default signal artifact's internal contract. Its exit code does not advance or
-hold a stage by itself; the reviewer decides against the active Planner-authored
-checklist, which may replace this workflow entirely for another research shape.
-
-CLI::
-
-    python -m argus_skill.verticals.research.signal_derisk validate --project-root . \\
-        --derisk research/SIGNAL_DERISK.json
+Idea generation, route review, and selection are now source-only. They do not
+produce or require ``SIGNAL_DERISK.json`` and this module is not a stage gate.
+The parser remains only so historical projects can inspect the internal
+consistency of already-recorded artifacts.
 """
 from __future__ import annotations
 
-import argparse
 import json
-import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -185,10 +154,7 @@ def load_signal_derisk(path: Path) -> tuple[SignalDerisk | None, list[DeriskIssu
 def validate_signal_derisk(
     d: SignalDerisk, *, project_root: Path
 ) -> list[DeriskIssue]:
-    """Provenance + non-degeneracy checks. Does NOT itself act on ``verdict`` /
-    ``pivoted`` (that is :func:`validate_for_gate`'s job) — it only reports when
-    the measured facts are degenerate or contradict the
-    self-report."""
+    """Report internal inconsistencies in one historical signal artifact."""
     issues: list[DeriskIssue] = []
 
     # --- field sanity ---
@@ -237,9 +203,7 @@ def validate_signal_derisk(
             f"delta={d.delta:g} != proposed-baseline={expected_delta:g}; the "
             "delta was edited away from the measured numbers"))
 
-    # A smoke/wiring-only screen waives the movement + direction bounds (it is an
-    # infra check, not an idea-alive proof) — but it may NOT later be cited as
-    # "the idea is alive" (reviewer dim-8 enforces that). Log checks still hold.
+    # Historical smoke/wiring records did not claim a measured effect.
     if d.smoke_only:
         return issues
 
@@ -254,24 +218,24 @@ def validate_signal_derisk(
             "baseline_equals_proposed",
             f"baseline_metric={d.baseline_metric:g} == proposed_metric="
             f"{d.proposed_metric:g}; the condition makes no measurable difference "
-            "(dead idea) — PIVOT"))
+            "in this historical artifact"))
     elif d.min_meaningful_delta > 0 and abs(d.delta) < d.min_meaningful_delta:
         issues.append(DeriskIssue(
             "signal_unmoved",
             f"|delta|={abs(d.delta):g} < min_meaningful_delta="
-            f"{d.min_meaningful_delta:g}; the core signal did not move (dead "
-            "idea) — PIVOT"))
+            f"{d.min_meaningful_delta:g}; the recorded signal did not clear its "
+            "declared threshold"))
     # --- direction: a metric that moved the WRONG way is not a pass ---
     elif d.success_direction == "higher" and d.delta < d.min_meaningful_delta:
         issues.append(DeriskIssue(
             "wrong_direction",
             f"success_direction=higher needs delta >= {d.min_meaningful_delta:g} "
-            f"but delta={d.delta:g}; the idea hurt the metric"))
+            f"but delta={d.delta:g}; the recorded direction is inconsistent"))
     elif d.success_direction == "lower" and d.delta > -d.min_meaningful_delta:
         issues.append(DeriskIssue(
             "wrong_direction",
             f"success_direction=lower needs delta <= {-d.min_meaningful_delta:g} "
-            f"but delta={d.delta:g}; the idea hurt the metric"))
+            f"but delta={d.delta:g}; the recorded direction is inconsistent"))
 
     # --- self-report agreement ---
     truly_moved = (
@@ -290,85 +254,3 @@ def validate_signal_derisk(
             "verdict=pass while pivoted=true is contradictory; a pivoted idea "
             "did not pass"))
     return issues
-
-
-def validate_for_gate(
-    project_root: Path, derisk_path: Path
-) -> tuple[bool, str]:
-    """Stage-gate interlock for the research stage.
-
-    Returns ``(reject, concern)``. ``reject`` is True when the locked idea has
-    NOT survived a real, non-degenerate, in-budget minimal experiment in the
-    claimed direction. ``concern`` names the first actionable violation. A
-    legitimate ``verdict=fail`` / ``pivoted`` also rejects: the stage must hold
-    until a passing de-risk exists (the pivot rule), so the same check enforces
-    "do not enter plan on a dead idea". Scientific worth is left to the reviewer.
-    """
-    derisk, load_issues = load_signal_derisk(derisk_path)
-    if derisk is None:
-        detail = load_issues[0].detail if load_issues else ""
-        msg = (f"produce {DEFAULT_DERISK_PATH} via the engineer/idea-feasibility-"
-               "derisk skill before leaving the research stage")
-        return True, f"{msg} ({detail})" if detail else msg
-
-    issues = validate_signal_derisk(derisk, project_root=project_root)
-    if issues:
-        return True, _first_concern(issues)
-
-    if derisk.verdict == "fail":
-        return True, (
-            "[verdict_fail] the locked idea failed its signal de-risk; PIVOT the "
-            "idea (update RESEARCH_BRIEF.md + IDEA_REJECTION_LOG.md) and re-run "
-            "engineer/idea-feasibility-derisk — do not enter plan on a dead idea")
-    if derisk.pivoted:
-        return True, (
-            "[pivoted] the idea was pivoted; re-run engineer/idea-feasibility-"
-            "derisk on the new idea so SIGNAL_DERISK.json reflects a passing screen")
-    return False, ""
-
-
-def _first_concern(issues: list[DeriskIssue], *, fallback: str = "") -> str:
-    if not issues:
-        return fallback
-    head = issues[0]
-    return f"[{head.code}] {head.detail}"
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-
-def _cmd_validate(args: argparse.Namespace) -> int:
-    root = Path(args.project_root)
-    derisk_path = root / args.derisk
-    reject, concern = validate_for_gate(root, derisk_path)
-    if reject:
-        print(f"REJECT: {concern}", file=sys.stderr)
-        return 1
-    print("OK: the locked idea survived a real, non-degenerate, in-budget signal "
-          "de-risk in the claimed direction")
-    return 0
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    sub = parser.add_subparsers(dest="cmd", required=True)
-
-    v = sub.add_parser(
-        "validate",
-        help="diagnose a missing/degenerate/over-budget/"
-        "fabricated signal de-risk")
-    # --project-root lives on the subparser so the documented
-    # `validate --project-root . --derisk ...` form parses; argparse global
-    # options must otherwise precede the subcommand.
-    v.add_argument("--project-root", type=Path, default=Path("."))
-    v.add_argument("--derisk", default=DEFAULT_DERISK_PATH)
-    v.set_defaults(func=_cmd_validate)
-
-    args = parser.parse_args(argv)
-    return int(args.func(args))
-
-
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())

@@ -83,20 +83,32 @@ the research vertical's Research Visualization Router. This skill is only for
 6. **Never use rainbow/`jet`.** For sequential data use `viridis`/`cividis`; for
    diverging data use `coolwarm`. Keep grids subtle, spines thin.
 
-7. **Save vector/high-dpi with embedded fonts** (the helper sets `pdf.fonttype=42`
+7. **Choose chart grammar from the estimand, not visual novelty.** Do not use
+   3-D charts, dual axes, or truncated axes without a claim-relevant,
+   explicitly disclosed reason. Show uncertainty when the claim depends on it,
+   keep comparable panels on consistent scales, and prevent legends,
+   annotations, and labels from covering data. Omit an in-plot title when the
+   caption already identifies the figure.
+
+8. **Save vector/high-dpi with embedded fonts** (the helper sets `pdf.fonttype=42`
    and 600 dpi): prefer `fig.savefig("paper/figures/<name>.pdf")`; a `.png` is
    acceptable as a fallback only.
 
-8. **Learn composition from real papers.** Before locking figure layouts, run the
+9. **Learn composition from real papers.** Before locking figure layouts, run the
    **Paper Exemplar PDF Learning** skill and study how 2–3 open-access papers in
    the same area compose their data figures: how many panels, axis conventions,
    how they highlight their own method, legend placement, and caption phrasing.
    Match those conventions; do not copy their data or exact styling verbatim.
 
-9. **Drive figure choice from the Draft.** Use `paper/PAPER_STRUCTURE_BLUEPRINT.md`
+10. **Drive figure choice from the Draft.** Use `paper/PAPER_STRUCTURE_BLUEPRINT.md`
    / the current draft to decide WHICH figures the story needs (main result curve,
    key ablation, cost/quality trade-off) rather than dumping every metric. Each
    figure should support a specific claim in the draft.
+
+11. **Inspect the exported PDF at final use size.** Check clipping, crowded or
+    ambiguous ticks, legend/data overlap, panel alignment, font embedding,
+    grayscale discrimination, and whether labels remain readable at the actual
+    single- or double-column width.
 
 ## Notes
 - The helper is dependency-light and self-contained; the copy in `paper/analysis/`

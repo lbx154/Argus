@@ -21,6 +21,9 @@ and results report. Record:
 
 - exact module/component names;
 - input, output, data flow, control flow, and arrow directions;
+- an edge ledger with source, target, direction, meaning
+  (`data`, `control`, `feedback`, `comparison`, or `evidence`), branch label,
+  and authoritative source;
 - the load-bearing contribution and its visible internal steps;
 - baseline/status-quo path and proposed path;
 - evidence anchors and the claim boundary;
@@ -50,7 +53,7 @@ Stop once one direction clearly wins; do not grind out variants.
 
 Useful patterns include central hero, horizontal swimlanes, nested containers,
 hub-and-spoke, zig-zag pipeline, compact research poster, grayscale-accent,
-color-coded phases, and overlapping A/B/C panels. Reject layouts with weak
+color-coded phases, and aligned non-overlapping A/B/C panels. Reject layouts with weak
 hierarchy, large dead areas, crossing arrows, or repeated identical boxes.
 
 ## S3 — Select the structural direction
@@ -96,15 +99,30 @@ Rendering must be deterministic whenever the chosen route supports it.
 ### Renderer-neutral design system
 
 - Landscape, paper-width composition with one dominant reading direction.
-- Clean Figma-like grouped modules; rounded cards only where grouping benefits.
+- Aligned, non-overlapping grouped modules; rounded cards only where grouping benefits.
 - Warm white or white background; dark-gray strokes; restrained low-saturation
   accents with redundant shape/line encoding.
-- Strong title and section hierarchy; short labels; no paragraph-sized text.
-- Consistent connectors and arrowheads behind nodes.
+- Short labels and clear section hierarchy; omit an in-graphic title when the
+  caption already identifies the figure.
+- Draw only edges declared in the S0 ledger. Every arrowhead points toward its
+  named target. Use one dominant reading direction and route feedback around
+  the outside of the primary flow.
+- Attach connectors to explicit node-boundary ports. An arrow tip may meet the
+  target boundary, but no shaft or arrowhead may enter a node fill, cross an
+  unrelated node or label, or pass through a panel boundary without meaning.
+  Avoid crossings; reroute or use an unambiguous bridge when one is unavoidable.
+- Use conventional scientific grammar: processes are rectangles, decisions are
+  diamonds with labeled outgoing conditions, and enclosing boxes denote real
+  scope. Do not add decorative arrows, arbitrary bidirectionality, or shape
+  changes solely for variety.
+- No node, label, legend, callout, or panel overlaps another. Preserve visible
+  outer margins and inter-node clearance.
 - Compact but not crowded; minimal decorative icons and no logo wall.
 - No heavy gradients, glassmorphism, photorealism, stock art, heavy shadows,
   sketch fonts, arbitrary blobs, dashboard chrome, or marketing decoration.
-- At final paper width, every label must remain readable without zooming.
+- Use a neutral publication sans-serif and no more than two type weights. At
+  final paper width, ordinary labels should be at least approximately 8 pt and
+  secondary text at least 7 pt.
 
 Reference tokens for a 1536×1024-class canvas: background `#fbfaf7`, stroke
 `#1f2933`, 2 px; corner radius 10–16 px; card gap 12–24 px; title 38–52 px,
@@ -126,6 +144,11 @@ Inspect the rendered PDF at actual page size and verify:
 | Check | Pass condition |
 |---|---|
 | Paper fidelity | Names and arrows match the manuscript and evidence |
+| Edge incidence | Every declared edge appears once with the correct source, target, direction, meaning, and branch label |
+| Connector integrity | Connectors terminate at node boundaries and never penetrate unrelated nodes, labels, or groups |
+| Geometry | No overlap, clipping, avoidable crossing, or out-of-canvas element |
+| Visual grammar | Process, decision, artifact, and scope shapes have conventional, consistent meanings |
+| Final typography | Labels remain readable at final use size with a restrained type hierarchy |
 | Core mechanism | Contribution internals are visible, not an empty box |
 | Reader path | The intended five-second takeaway is obvious |
 | Label accuracy | No invented, clipped, tiny, or inconsistent labels |

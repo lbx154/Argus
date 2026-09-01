@@ -133,10 +133,14 @@ def _research_stage_ready_for_close(
             or str(pipeline.get("current_stage") or "").strip() != "research"
         ):
             return False
+        portfolio_state = evidence_root / "research" / "IDEA_PORTFOLIO.json"
         selection = evidence_root / "research" / "IDEA_SELECTION.json"
         positioning = evidence_root / "paper" / "novelty_audit.md"
         grounding = evidence_root / "research" / "LITERATURE_GROUNDING.json"
-        if not selection.is_file() or not (
+        if (
+            not portfolio_state.is_file()
+            and not selection.is_file()
+        ) or not (
             positioning.is_file() or grounding.is_file()
         ):
             return False

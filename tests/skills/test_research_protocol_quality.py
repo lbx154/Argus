@@ -59,6 +59,8 @@ def test_method_faithfulness_is_one_draft_stage_research_obligation() -> None:
     assert "evidence chain" not in normalized.lower()
 
     planner = " ".join(_PLANNER_RESEARCH_ORCHESTRATION.split())
+    assert "Idea generation, review, and selection are read-only" in planner
+    assert "HYPOTHESIS_IMPLEMENTATION_CONTRACT.md" in planner
     assert "Before the writing stage begins" in planner
     assert "schedule one claim-to-code-trace mission" in planner
     assert "executed file:line anchors" in planner
@@ -70,6 +72,7 @@ def test_claim_to_code_trace_skill_follows_executed_quantities() -> None:
     for verdict in ("MATCHES", "CONTRADICTS", "NOT-IMPLEMENTED"):
         assert verdict in skill
     assert "follow the actual call chain" in skill.lower()
+    assert "HYPOTHESIS_IMPLEMENTATION_CONTRACT.md" in skill
     assert "Compare formulas symbol by symbol" in skill
     assert "branch_prefix_hash" in skill
     assert "only hashes" in skill
@@ -224,7 +227,12 @@ def test_broad_paper_ideation_uses_judged_breadth_not_a_quorum() -> None:
         research["research.idea_portfolio"]
     )
     assert "judges when the evidence covers" in research["research.adversarial_selection"]
-    assert "including probes and later routes" in research["research.adversarial_selection"]
+    assert "excluding experimental outcomes" in research["research.adversarial_selection"]
+    assert "EVIDENCE.json" not in next(
+        item.evidence_hint
+        for item in STAGE_CHECKLISTS["research"]
+        if item.id == "research.adversarial_selection"
+    )
     assert "rather than satisfying a route count" in normalized_creator
     assert "breadth and selection sufficiency remain Agent judgments" not in normalized_creator
     assert "fresh selector judges when" in normalized_pipeline
@@ -333,46 +341,45 @@ def test_manager_and_planner_prompts_preserve_the_ambition_standard() -> None:
         assert "field-level significance" in prompt
 
 
-def test_research_smokes_reject_label_leakage_before_model_calls() -> None:
-    probe = _skill("engineer/idea-feasibility-derisk.md")
+def test_post_selection_readiness_rejects_label_leakage_before_model_calls() -> None:
+    readiness = _skill("engineer/idea-feasibility-derisk.md")
     pipeline = _skill("engineer/auto-research-pipeline.md")
     plan_review = _skill("reviewer/experiment-plan-review.md")
     benchmark = {
         item.id: item.statement for item in STAGE_CHECKLISTS["benchmark"]
     }
 
-    for text in (probe, pipeline, plan_review):
+    for text in (readiness, pipeline, plan_review):
         assert "gold labels" in text
-    assert "remove or permute hidden labels" in probe
-    assert "same information and intervention timing" in probe
-    assert "one decision-sized milestone" in pipeline
+    assert "remove or permute hidden labels" in readiness
+    assert "same information and intervention timing" in readiness
+    assert "Wiring/unit checks" in pipeline
     assert "removing or permuting hidden labels" in (
         benchmark["benchmark.evaluator_authentic"]
     )
 
 
-def test_research_smokes_record_power_limits_without_rejecting_ideas() -> None:
-    probe = _skill("engineer/idea-feasibility-derisk.md")
+def test_idea_selection_contains_no_experiments() -> None:
+    discovery = _skill("engineer/idea-discovery.md")
+    creator = _skill("engineer/idea-creator.md")
+    readiness = _skill("engineer/idea-feasibility-derisk.md")
     pipeline = _skill("engineer/auto-research-pipeline.md")
-    runner = _skill("engineer/research-experiment-runner.md")
-    plan_review = _skill("reviewer/experiment-plan-review.md")
-    results_review = _skill("reviewer/experiment-results-review.md")
     research = {item.id: item.statement for item in STAGE_CHECKLISTS["research"]}
 
-    for text in (probe, pipeline, runner, plan_review, results_review):
-        assert "headroom" in text
-        assert "inconclusive" in text
-    assert "Research does not decide whether" in research["research.signal_derisk"]
-    assert "explicitly skip the probe" in research["research.signal_derisk"]
-    assert "relevance the Reviewer must judge" in (
+    for text in (discovery, creator, pipeline):
+        normalized = " ".join(text.split())
+        assert "do not execute candidate code" in normalized.lower()
+        assert "probe experiments" in normalized
+    assert "Never use this skill during idea generation" in readiness
+    assert "Do not run a tiny scientific comparison or premise experiment" in readiness
+    assert "contains no candidate execution or experimental outcomes" in (
         research["research.signal_derisk"]
     )
-    assert "Never reject a qualitatively strong idea" in " ".join(pipeline.split())
 
 
-def test_route_review_precedes_judged_selection_and_uses_probe_evidence() -> None:
+def test_route_review_and_selection_precede_experimental_execution() -> None:
     creator = _skill("engineer/idea-creator.md")
-    probe = _skill("engineer/idea-feasibility-derisk.md")
+    readiness = _skill("engineer/idea-feasibility-derisk.md")
     pipeline = _skill("engineer/auto-research-pipeline.md")
     brief = _skill("engineer/research-brief-to-experiment-plan.md")
     research = {item.id: item.statement for item in STAGE_CHECKLISTS["research"]}
@@ -387,21 +394,39 @@ def test_route_review_precedes_judged_selection_and_uses_probe_evidence() -> Non
 
     normalized_creator = " ".join(creator.split())
     assert "Review each route as it arrives" in normalized_creator
-    assert "Use probes as evidence" in creator
-    assert "After an idea has passed method-reasonableness selection" in probe
-    assert "selection-before-probe" in pipeline
-    assert "earlier dependency" in brief
-    assert "Before any probe is designed or executed" in research["research.thesis"]
+    assert "Select before experiments" in creator
+    assert "Never use this skill during idea generation" in readiness
+    assert "Keep idea generation, route review, and selection read-only" in pipeline
+    assert "Do not design or execute an experiment" in brief
+    assert "Before any experiment is designed or executed" in research["research.thesis"]
     assert "thesis may evolve later" in research["research.thesis"]
-    assert "After research.thesis admits" in research["research.signal_derisk"]
+    assert "Idea selection is read-only" in research["research.adversarial_selection"]
     normalized_planner = " ".join(role_banner("planner").split())
     assert "independent selector" in normalized_planner
     assert "without waiting for every late route" in normalized_planner
-    assert "Use early probes only when" in normalized_planner
+    assert "do not run candidate, toy, premise, feasibility, smoke" in normalized_planner
     assert "80% review quorum" not in generic_planner
     assert "Let credible later evidence reopen the comparison" in normalized_creator
     assert "80%" not in creator
-    assert "all evidence that has arrived" in " ".join(pipeline.split())
+    assert "all non-experimental selection evidence" in " ".join(pipeline.split())
+
+
+def test_hypothesis_implementation_contract_precedes_claim_bearing_execution() -> None:
+    contract = _skill("engineer/hypothesis-implementation-contract.md")
+    plan_review = _skill("reviewer/experiment-plan-review.md")
+    normalized_plan_review = " ".join(plan_review.split())
+    brief = _skill("engineer/research-brief-to-experiment-plan.md")
+    plan = {item.id: item.statement for item in STAGE_CHECKLISTS["plan"]}
+
+    for verdict in ("ALIGNED", "MISMATCH", "NOT_IMPLEMENTED"):
+        assert verdict in contract
+    assert "before writing or changing" in contract
+    assert "Map formulas symbol by symbol" in contract
+    assert "Never reinterpret later outcomes" in contract
+    assert "HYPOTHESIS_IMPLEMENTATION_CONTRACT.md" in plan_review
+    assert "actual planned entry point" in normalized_plan_review
+    assert "HYPOTHESIS_IMPLEMENTATION_CONTRACT.md" in brief
+    assert "HYPOTHESIS_IMPLEMENTATION_CONTRACT.md" in plan["plan.experiment"]
 
 
 def test_reviewer_treats_research_smokes_as_advisory() -> None:
@@ -474,7 +499,7 @@ def test_experiment_review_does_not_repeat_idea_selection() -> None:
         results_review.split()
     )
     assert '"idea_status": "untested|inconclusive|supported|refuted"' in results_review
-    assert "research/ideas/<id>/EVIDENCE.json" in _skill(
+    assert "HYPOTHESIS_IMPLEMENTATION_CONTRACT.md" in _skill(
         "engineer/idea-creator.md"
     )
 

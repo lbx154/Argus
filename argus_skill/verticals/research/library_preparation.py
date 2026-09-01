@@ -22,9 +22,10 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
     if resolve_research_target_level(context.workdir) == "exploratory":
         return
     if context.stage in {"plan", "benchmark", "run"}:
-        context.required_skill_paths.append(
-            "engineer/training-infrastructure-guide.md"
-        )
+        context.required_skill_paths.extend((
+            "engineer/training-infrastructure-guide.md",
+            "engineer/hypothesis-implementation-contract.md",
+        ))
     from .idea_portfolio import (
         DEFAULT_PORTFOLIO_SIZE,
         SELECTION_POLICY,

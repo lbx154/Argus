@@ -82,15 +82,19 @@ hashes, and provenance.
 | Existing Plotly analysis | Kaleido with pinned Plotly/Kaleido/Chrome and local assets |
 | Bespoke HTML/D3/Observable Plot | Native SVG plus structural snapshot and browser screenshot |
 | Polished conceptual/method/architecture figure with visual hierarchy, icons, callouts, or grouped modules | Installed PPT Master; retain source SVG/design spec, editable PPTX, and rendered paper asset |
-| Simple exact topology in a supporting figure | FigureSpec, Mermaid/Graphviz, or Draw.io after comparing the richer routes |
+| Exact load-bearing topology, arrow direction, branch condition, or spelling | Editable deterministic PPT Master, browser SVG, Graphviz/Draw.io, or FigureSpec when its routes have clear space |
 | Expressive conceptual teaser | image-2 when configured and evidence-faithful; otherwise installed PPT Master or browser-rendered HTML |
 | Visual that inherently requires unavailable generative media | Mark blocked or redesign the claim; never fabricate an output |
 
+When correctness depends on exact node-edge incidence, arrow direction, branch
+conditions, or label spelling, topology fidelity takes priority over decorative
+richness. Use image-2 only when connector geometry is not load-bearing or for
+non-semantic illustrative material.
 
-A paper's Figure 1 never qualifies as the simple row. It is the figure a
-reviewer looks at before reading a word, so it takes a polished route even
-when its topology is three boxes and two arrows: those three boxes still need
-hierarchy, depth and a type scale that a flat-fill renderer does not produce.
+Figure 1 must pass the full Studio design and final-size audit. It may use a
+sparse deterministic topology renderer when that is the clearest and most
+faithful grammar; publication polish does not require depth, icons, or
+decorative complexity.
 
 Hand-authoring raw SVG is not on this table. Typing `<rect>` and `<line>`
 yourself produces a whiteboard sketch, and it is never the shortest path to a
@@ -161,9 +165,12 @@ when a compatible system Chrome is already installed.
 For every route:
 
 1. Render from clean source.
-2. Confirm dimensions/viewBox, labels, units, arrow direction, and file integrity.
+2. Confirm dimensions/viewBox, labels, units, exact edge incidence, arrow
+   direction, branch labels, node-boundary termination, and file integrity.
 3. Inspect at the actual single- or double-column size.
-4. Check grayscale/CVD readability and redundant encoding.
+4. Check for foreign-node penetration, connector/text intersections, overlap,
+   clipping, avoidable crossings, minimum rendered type, grayscale/CVD
+   readability, and redundant encoding.
 5. For browser output, retain a normalized SVG/HTML structural snapshot and a
    Playwright screenshot; pixel diffs are meaningful only under the same pinned
    browser, OS, fonts, DPR, and headless mode.

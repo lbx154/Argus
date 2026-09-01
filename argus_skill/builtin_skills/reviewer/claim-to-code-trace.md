@@ -12,8 +12,10 @@ produced the paper's evidence actually executes the claimed computation.
 
 ## Inputs and output
 
-Inputs are the manuscript, repository, claim-bearing run manifests/configs, and
-the commands or entry points that produced the cited results. Write the audit to
+Inputs are the selected idea, `research/HYPOTHESIS_IMPLEMENTATION_CONTRACT.md`,
+manuscript, repository, claim-bearing run manifests/configs, and the commands or
+entry points that produced the cited results. Compare the prospective mapping
+with the path that actually ran. Write the audit to
 `paper/CLAIM_TO_CODE_TRACE.md` so it remains in the paper's evidence chain.
 
 For each claim, report exactly one verdict:

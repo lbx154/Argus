@@ -68,7 +68,7 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
             evidence_hint=(
                 "research/IDEA_PORTFOLIO.json + research/ideation/portfolios/**/"
-                "{routes,reviews,probes} + team tasks/shards"
+                "{routes,reviews} + team tasks/shards"
             ),
         ),
         ChecklistItem(
@@ -76,12 +76,14 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "A fresh Agent judges when the evidence covers the important alternatives "
                 "well enough to select. It reads all relevant evidence that has arrived, "
-                "including probes and later routes, and chooses the strongest credible "
+                "including later routes but excluding experimental outcomes, and chooses the strongest credible "
                 "case for important, nontrivial new knowledge in any form. New evidence "
-                "may change the choice; local convenience is not scientific value."
+                "may change the choice; local convenience is not scientific value. Idea "
+                "selection is read-only and precedes candidate execution."
             ),
             evidence_hint=(
-                "research/IDEA_SELECTION.json + selected route/review/EVIDENCE.json"
+                "active research/ideation/portfolios/*/selection.json + selected "
+                "route/review + materialized research/IDEA_SELECTION.json"
             ),
         ),
         ChecklistItem(
@@ -102,7 +104,7 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "Research review is qualitative: no finished theorem, fixed implementation, "
                 "or reliable effect size is required. Reject clear duplicates, trivial "
                 "prompt/schema/wrapper/scale variants, incoherent mechanisms, or decorative "
-                "math. Before any probe is designed or executed, lock method reasonableness; "
+                "math. Before any experiment is designed or executed, lock method reasonableness; "
                 "the thesis may evolve later."
             ),
             evidence_hint=(
@@ -112,26 +114,17 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.signal_derisk",
             statement=(
-                "Research does not decide whether the selected empirical idea succeeds. "
-                "After research.thesis admits a candidate, optionally run one <=10-minute "
-                "feasibility observation only when it checks plumbing, data shape, or "
-                "evaluator availability without masquerading as a hypothesis test. For "
-                "training-heavy or large-scale empirical work, explicitly skip the probe "
-                "as untested and advance to plan/benchmark/run. The Planner authors the "
-                "evidence contract. Preserve raw evidence honestly. A weak, failed, or "
-                "inconclusive probe is evidence whose relevance the Reviewer must judge, "
-                "not a mechanical routing decision. Infrastructure failures, "
-                "saturation, and missing predeclared power or headroom are limitations; "
-                "later stages own scientific outcomes and decisive benchmarks. "
-                "`argus_skill.verticals.research.signal_derisk validate` is available "
-                "only for "
-                "the default scalar-comparison shape and never decides quality."
+                "The research stage contains no candidate execution or experimental "
+                "outcomes. It selects from primary literature, official source inspection, "
+                "mechanism analysis, independent route reviews, and a credible future "
+                "evidence plan. Toy, premise, feasibility, smoke, and other probe "
+                "experiments belong to neither route ranking nor selection. After selection, "
+                "advance to plan and freeze the hypothesis-to-implementation contract before "
+                "experimental code or result-producing execution."
             ),
             evidence_hint=(
-                "Planner-authored research.signal_derisk evidence paths; for the "
-                "default scalar shape use research/SIGNAL_DERISK.json + raw log; "
-                "verdict in research/ideas/<id>/EVIDENCE.json, checked by "
-                "`...verticals.research.idea_evidence check`"
+                "research/IDEA_SELECTION.json + selected route/review + "
+                "future experiment and resource plan"
             ),
         ),
     ),
@@ -166,7 +159,12 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "Experiment plan states the hypothesis, the proposed method, the "
                 "baselines (including the strongest feasible prior work), the "
                 "ablations, the metrics, the interpretation and stopping criteria, "
-                "and the compute / API budget. Numeric keep/reject cutoffs require "
+                "and the compute / API budget. "
+                "`research/HYPOTHESIS_IMPLEMENTATION_CONTRACT.md` maps every "
+                "load-bearing mechanism, formula, intervention, baseline, observable, "
+                "and invariant to the actual planned entry point and code path, with "
+                "fresh Reviewer verdict ALIGNED before result-producing execution. "
+                "Numeric keep/reject cutoffs require "
                 "an external utility, risk, domain-standard, prior-evidence, theory, "
                 "or prospective-sensitivity basis; unsupported round-number gains "
                 "must not become binary gates. A baseline carrying a published "
@@ -187,7 +185,10 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "and count families before filing the table: nine rows that are "
                 "five variants of one method have not compared you to the field."
             ),
-            evidence_hint="research/EXPERIMENT_PLAN.md",
+            evidence_hint=(
+                "research/EXPERIMENT_PLAN.md + "
+                "research/HYPOTHESIS_IMPLEMENTATION_CONTRACT.md"
+            ),
         ),
         ChecklistItem(
             id="plan.benchmark",
@@ -1549,8 +1550,12 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "trigger reconsideration. At selection, name the end claim, strongest relevant "
     "baseline, expected failure modes, and the result that would convince a skeptical "
     "reader. Derive any win threshold from observed benchmark spread or published "
-    "gaps, never a convenient round number. Use early probes only when they reveal premise, harness, or feedback "
-    "quality; they do not decide the full hypothesis. Before the writing stage begins, "
+    "gaps, never a convenient round number. Idea generation, review, and selection are "
+    "read-only: do not run candidate, toy, premise, feasibility, smoke, or other probe "
+    "experiments. After selection, freeze `research/HYPOTHESIS_IMPLEMENTATION_CONTRACT.md`, "
+    "implement the selected mechanism, and have a fresh Reviewer compare the actual "
+    "entry-point call chain with the contract before result-producing execution. "
+    "Before the writing stage begins, "
     "schedule one claim-to-code-trace mission that follows the actual training/eval "
     "entry-point call chains and binds every load-bearing manuscript mechanism to "
     "executed file:line anchors. Then buy claim-bearing evidence "
@@ -2061,7 +2066,16 @@ def _selection_contract_block(project_root: object) -> str:
 
         root = _Path(str(project_root)).resolve()
         path = root / "research" / "IDEA_SELECTION.json"
-        if not path.is_file():
+        portfolio_state = root / "research" / "IDEA_PORTFOLIO.json"
+        if portfolio_state.is_file():
+            from .idea_portfolio import idea_portfolio_selection
+
+            payload = idea_portfolio_selection(root)
+        elif path.is_file():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        else:
+            payload = None
+        if payload is None:
             research = root / "research"
             candidates = sorted(
                 relative
@@ -2084,7 +2098,6 @@ def _selection_contract_block(project_root: object) -> str:
                 + ", ".join(f"`{candidate}`" for candidate in candidates)
                 + ".\n"
             )
-        payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             return ""
 

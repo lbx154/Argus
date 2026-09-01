@@ -10,8 +10,10 @@ import pytest
 from argus_skill.core.vertical_contract import VerticalLibraryContext
 from argus_skill.skills.loop_skill_library import SkillLibraryMixin
 from argus_skill.skills.loop_state import MissionContext
-from argus_skill.team import pool, task_board
+from argus_skill.team import pool, registry, task_board
 from argus_skill.verticals.research.idea_portfolio import (
+    SELECTION_POLICY,
+    TEAM_ID,
     ensure_idea_portfolio,
     idea_portfolio_completion_issues,
     idea_portfolio_selection,
@@ -39,6 +41,70 @@ def _pipeline(root: Path, *, direction: str = "broad") -> None:
         }),
         encoding="utf-8",
     )
+
+
+def test_source_only_selection_uses_a_new_portfolio_identity() -> None:
+    assert TEAM_ID == "research-idea-pipeline-v7"
+    assert SELECTION_POLICY == "source_only_judgment_v4"
+
+
+def test_new_portfolio_retires_previous_policy_campaigns(tmp_path: Path) -> None:
+    _pipeline(tmp_path)
+    old_team_id = "research-idea-pipeline-v6-legacy"
+    old_selection_id = f"{old_team_id}-selection"
+    teams = tmp_path / ".argus" / "teams"
+    for team_id in (old_team_id, old_selection_id):
+        root = teams / team_id
+        root.mkdir(parents=True)
+        pool.update(root, width=4, state="running")
+        registry.write_marker(
+            tmp_path,
+            team_id=team_id,
+            team_root=root,
+            cwd=tmp_path,
+            now=time.time(),
+        )
+    task_board.form(
+        teams / old_selection_id,
+        [{
+            "task_id": "legacy-selector",
+            "title": "Legacy selector",
+            "objective": "Use probe outcomes.",
+            "acceptance_check": "Write the old shared selection.",
+            "role": "idea-selector",
+            "owns_paths": ["research/IDEA_SELECTION.json"],
+            "target": "legacy",
+            "priority": 0,
+        }],
+    )
+    assert task_board.claim_top(
+        teams / old_selection_id,
+        "legacy-worker",
+        now=time.time(),
+    ) is not None
+    state = tmp_path / "research" / "IDEA_PORTFOLIO.json"
+    state.parent.mkdir()
+    state.write_text(
+        json.dumps({
+            "team_id": old_team_id,
+            "selection_team_id": old_selection_id,
+            "artifact_root": "research/ideation/portfolios/legacy",
+            "direction_sha256": "0" * 64,
+        }),
+        encoding="utf-8",
+    )
+
+    new_root = ensure_idea_portfolio(tmp_path, direction="agent reliability")
+
+    assert new_root.name.startswith(TEAM_ID)
+    for team_id in (old_team_id, old_selection_id):
+        retired = pool.read(teams / team_id)
+        assert retired["state"] == "dissolved"
+        assert retired["width"] == 0
+        assert registry.marker_path(tmp_path, team_id).is_file()
+    legacy_selector = task_board.snapshot(teams / old_selection_id)[0]
+    assert legacy_selector["state"] == "failed"
+    assert legacy_selector["reason"] == "superseded by source-only selection policy"
 
 
 def test_vertical_state_root_drives_ambition_assertions(
@@ -166,7 +232,7 @@ def _route_text(task: dict) -> str:
         "## Primary sources\nhttps://example.com/paper",
         "## Closest work",
         "## Kill argument",
-        "## Faithful probe",
+        "## Future decisive experiment",
     )
     return f"# {task['task_id']}\n\n" + "\n\nEvidence.\n".join(headings) + "\n"
 
@@ -192,16 +258,7 @@ def _review_payload(task: dict, *, verdict: str) -> dict:
         ),
         "resource_requirements": "Stage on local GPUs, then scale to four GPUs.",
         "fatal_concerns": [] if verdict == "qualified" else ["prior art collision"],
-        "probe": {},
     }
-    if verdict == "qualified":
-        payload["probe"] = {
-            "premise": "The route's binding mechanism produces a measurable effect.",
-            "evaluator_identity": "tiny public slice revision 1",
-            "comparison_identity": "simple baseline revision 1",
-            "minimum_signal": "one honest mechanism observation",
-            "stop_rules": "record one bounded observation, then continue",
-        }
     return payload
 
 
@@ -292,14 +349,14 @@ def _complete_selection(
     selection_path.write_text(
         json.dumps({
             "schema_version": 2,
-            "policy": "evidence_judgment_v3",
+            "policy": "source_only_judgment_v4",
             "route_id": selected_route["target"],
             "route_task_id": selected_route["task_id"],
             "review_task_id": selected_review["task_id"],
             "route_artifact": selected_route["owns_paths"][0],
             "review_artifact": selected_review["owns_paths"][0],
             "rationale": "Best qualitative theory, novelty, and generality.",
-            "evidence_considered": "All routes, reviews, and probes available at decision time.",
+            "evidence_considered": "All routes and reviews available at decision time.",
             "theory_strength": "high",
             "novelty": "high",
             "generality": "high",
@@ -357,8 +414,13 @@ def test_portfolio_size_is_an_operating_choice_not_a_selection_quota(tmp_path: P
     )
     assert "genuinely distinct" in route_task["objective"]
     assert "theory, measurement, a dataset" in route_task["objective"]
+    assert "Idea selection is read-only" in route_task["objective"]
+    assert "do not execute candidate code" in route_task["objective"]
     assert "negative results" in review_task["objective"]
     assert "Do not award credit for no-training convenience" in review_task["objective"]
+    assert "Do not request or run an experiment during idea selection" in (
+        review_task["objective"]
+    )
     assert "Do not create, ensure, launch, or delegate another Team" in (
         route_task["objective"]
     )
@@ -388,8 +450,11 @@ def test_evidence_selector_can_choose_best_not_earliest(tmp_path: Path) -> None:
         for task in task_board.snapshot(selection_root)
         if task["role"] == "idea-selector"
     )
-    assert "all other relevant evidence" in selector_task["objective"]
-    assert "including probes and later routes" in selector_task["objective"]
+    assert "all other relevant non-experimental selection evidence" in (
+        selector_task["objective"]
+    )
+    assert "non-experimental selection evidence" in selector_task["objective"]
+    assert "Selection must precede candidate execution" in selector_task["objective"]
     assert "important, credible, nontrivial new knowledge" in selector_task["objective"]
     assert "Do not create, ensure, launch, or delegate another Team" in (
         selector_task["objective"]
@@ -644,14 +709,14 @@ def test_research_library_hook_forms_evidence_portfolio(
         "agent-team-lead.md",
     ]
     assert events[0]["type"] == "idea.portfolio.formed"
-    assert events[0]["policy"] == "evidence_judgment_v3"
+    assert events[0]["policy"] == "source_only_judgment_v4"
     assert "review_quorum" not in events[0]
     assert "breadth and selection sufficiency remain Agent judgments" in events[0]["text"]
     roles = {task["role"] for task in task_board.snapshot(Path(events[0]["team_root"]))}
     assert roles == {"idea-route", "idea-review"}
 
 
-def test_research_library_requires_training_guide_after_selection(
+def test_research_library_requires_training_and_alignment_guides_after_selection(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -677,7 +742,7 @@ def test_research_library_requires_training_guide_after_selection(
         )
     )
     assert "engineer/training-infrastructure-guide.md" in required
-    assert "engineer/training-infrastructure-guide.md" in required
+    assert "engineer/hypothesis-implementation-contract.md" in required
 
 
 def test_research_library_hook_never_recurses_inside_team_task(

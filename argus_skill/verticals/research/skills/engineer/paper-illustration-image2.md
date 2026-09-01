@@ -55,7 +55,7 @@ python -m argus_skill.verticals.research.figure_tool paper-prompt \
 ```
 
 This is the recommended canonical prompt (it carries the
-`argus-image2-paper-prompt-v1` and `paper-framework-figure-studio-pro-v3.1.4a`
+`argus-image2-paper-prompt-v2` and `paper-framework-figure-studio-pro-v3.2.0`
 markers), not a mandatory gate — `sync-paper-metadata` accepts any prompt as
 long as the real raster/prompt/review hash chain is consistent. Pin visible
 labels exactly; never invent method names, results, or evidence.
@@ -96,6 +96,9 @@ figure in renderer-neutral `FIGURE_PROVENANCE.json`.
 
 ## Review criteria
 
+- Pass the Paper Framework Figure Studio edge ledger through
+  `--semantic-contract`; its connector, overlap, visual-grammar, and final-size
+  typography requirements are authoritative.
 - Logic and arrows agree with the paper and claim graph.
 - Every visible label is spelled correctly and readable at final paper size.
 - The composition has a clear hierarchy and appropriate aspect ratio.

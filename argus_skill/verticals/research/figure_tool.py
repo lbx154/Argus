@@ -51,8 +51,8 @@ from argus_skill.verticals.research.venue_profiles import (
     get_venue_profile,
 )
 
-PAPER_FIGURE_PROMPT_TEMPLATE_ID = "argus-image2-paper-prompt-v1"
-PAPER_FIGURE_STUDIO_SOURCE_ID = "paper-framework-figure-studio-pro-v3.1.4a"
+PAPER_FIGURE_PROMPT_TEMPLATE_ID = "argus-image2-paper-prompt-v2"
+PAPER_FIGURE_STUDIO_SOURCE_ID = "paper-framework-figure-studio-pro-v3.2.0"
 PAPER_FIGURE_STUDIO_DEFAULT_STAGE = "S5-CANDIDATE-IMAGE"
 PAPER_FIGURE_CONTEXT_FREEZE_PATH = Path(
     "paper/figures/IMAGE2_CONTEXT_FREEZE.json"
@@ -93,44 +93,56 @@ Prompt source: {figure_studio_source}
 
 General style:
 - EMNLP/ACL/NeurIPS/CS paper method figure, full-width two-column landscape.
-- Clean block-based Figma style with rounded cards (10-16px radius), neat alignment, soft pastel fills, dark-gray 2px borders, and compact information density.
-- Compact, information-rich, suitable for a PDF page-width figure; little wasted space but not crowded.
-- Tidy rounded or friendly sans-serif feel; must remain crisp and readable.
-- Moderate badge/icon use only when semantically useful; a few simple recognizable icons are fine, not a logo wall.
+- Compact with deliberate whitespace, aligned non-overlapping modules, restrained
+  low-saturation accents, dark-gray strokes, and conventional scientific grammar.
+- Neutral publication sans-serif with at most two type weights; short labels must
+  remain readable at final paper width.
+- Use rectangles for processes, diamonds for decisions with labeled outgoing
+  conditions, and enclosing boxes only for real scope or phase boundaries.
+- Avoid badges, chips, icons, rounded cards, and decorative depth unless they
+  encode a necessary distinction.
 - No heavy shadows, no gradients, no photorealism, no glassmorphism, no messy Excalidraw look.
-- Large readable labels, short phrases, balanced hierarchy, flat vector-like raster rendering on warm white #fbfaf7.
-- 干净、密实、模块化、Figma 风，圆角卡片为主，低饱和浅色块，少量 badge/logo，少留白但不拥挤。整体适合 EMNLP/ACL/NeurIPS 论文主图，不要像随手白板，也不要像艺术插画。
-
-Style intent:
-- Clean, dense, modular, Figma-like, mostly rounded cards, low-saturation pastel blocks.
-- Use small badges/icons sparingly; avoid empty space while preserving alignment.
-- It should look like a main figure in an EMNLP/ACL/NeurIPS paper, not a marketing graphic, stock illustration, dashboard screenshot, or casual whiteboard.
+- Balanced hierarchy and flat vector-like rendering on warm white #fbfaf7.
+- 清晰、克制、非重叠、符合论文图的常规视觉语法；不要仪表盘、营销插画、随手白板或为了“丰富”而添加装饰。
 
 Pinned content that must appear exactly:
 {content}
 - SPELL EXACTLY every quoted label above. Do not invent alternate terminology, code identifiers, raw artifact paths, or extra labels.
 
+Semantic geometry:
+- Draw exactly the declared nodes and edges from the pinned content and semantic
+  contract. Do not invent decorative arrows or implied execution paths.
+- Every arrowhead points to its named target. Put branch labels next to their
+  outgoing edge and route feedback outside the primary reading path.
+- Connectors meet explicit node boundaries. No shaft or arrowhead enters a node
+  fill, crosses an unrelated node, label, or group, terminates in empty space,
+  or disappears behind another element.
+- Avoid crossings; reroute when possible. No node, label, legend, callout, or
+  panel overlaps another, and no text is clipped or too small at final use size.
+
 Layout variant:
 - {layout_variant}
-- Keep the visible labels faithful to the pinned content, but use the layout variant to create a polished, dense, paper-native composition with visual hierarchy.
-- Prefer grouped modules, phase containers, compact chips, and clear arrows over a sparse chain of identical boxes.
+- Keep the visible labels and declared topology faithful while creating a
+  polished paper-native composition with a clear reading order.
 
 Negative prompt / Avoid:
 - no concrete code snippets, raw paths, tiny unreadable text, character-level vertical text, or dense paragraphs
 - no excessive logos or brand marks, no watermark
 - no photorealistic scenes, stock photos, glassmorphism, heavy gradients, heavy shadows, texture, or arbitrary decorative blobs
 - no messy whiteboard / Excalidraw-heavy sketch style
-- no large empty areas, overlapping cards, squashed labels, inconsistent terminology, or extra captions that make it look like a dashboard
+- no overlapping elements, connector penetration, squashed labels, avoidable
+  crossings, inconsistent shape semantics, or extra dashboard-like captions
 - no inconsistent terminology between figure and text
 
 Aspect ratio:
 - {aspect_ratio}
 
-Figma tokens for camera-ready cleanup:
+Publication tokens for camera-ready cleanup:
 - Background #fbfaf7; stroke #1f2933 at 2px.
-- Corner radius 10-16px; card padding 12-20px; card gap 12-24px.
+- Corner radius 0-10px only when meaningful; module padding 12-20px; gap 16-28px.
 - Pastels: acquisition #ffe2d1, parsing #fff2bd, memory/wiki #dcecff, agent #e2f7df, domains #eadfff, benchmark #fff1c9.
-- Text sizes: title 38-52px, section headers 22-30px, card labels 16-22px, chips 12-16px.
+- Text sizes: optional in-graphic heading 30-38px, section headers 22-28px,
+  ordinary labels 18-22px, secondary labels 16-18px.
 """
 
 
@@ -139,8 +151,8 @@ def render_paper_figure_prompt(
     figure_title: str = "Method Overview",
     content: str = "",
     layout_variant: str = (
-        "20 polished Figma wireframe: component frames, auto-layout-like spacing, "
-        "section tabs, chips, and carefully staggered components."
+        "One conventional scientific process layout with explicit ports, aligned "
+        "modules, obstacle-free connectors, and deliberate whitespace."
     ),
     framing: str = "",
     aspect_ratio: str = "1536x1024 landscape",
@@ -178,18 +190,20 @@ def render_paper_figure_prompt(
             input_label, mechanism_label, verification_label,
             state_label, execution_label, output_label, evidence_label,
         ] if s]
-        chips = [c for c in [benefit_label, failure_label] if c]
+        secondary_labels = [c for c in [benefit_label, failure_label] if c]
         lines = [f'- Title: "{figure_title}"']
         if stages:
             lines.append('- Show: "' + '" -> "'.join(stages) + '".')
-        if chips:
-            lines.append('- Components/chips: "' + '", "'.join(chips) + '".')
+        if secondary_labels:
+            lines.append(
+                '- Secondary labels: "' + '", "'.join(secondary_labels) + '".'
+            )
         content = "\n".join(lines)
 
     if not framing.strip():
         persona = venue_profile.figure_style_persona if venue_profile is not None else "EMNLP/ACL"
         framing = (
-            f"Figma-style technical diagram for an {persona} paper. "
+            f"Conventional scientific technical diagram for an {persona} paper. "
             f"Subject: {figure_title}."
         )
 
@@ -277,8 +291,8 @@ def write_paper_figure_prompt(
     figure_title: str = "Method Overview",
     content: str = "",
     layout_variant: str = (
-        "20 polished Figma wireframe: component frames, auto-layout-like spacing, "
-        "section tabs, chips, and carefully staggered components."
+        "One conventional scientific process layout with explicit ports, aligned "
+        "modules, obstacle-free connectors, and deliberate whitespace."
     ),
     framing: str = "",
     aspect_ratio: str = "1536x1024 landscape",
@@ -374,7 +388,8 @@ def _review_prompt(
             "Always include \"keep_or_regenerate\" (\"keep\" or \"regenerate\"). "
             "Apply the Rubric's pass/fail rules exactly — including exact label "
             "spelling, missing/invented/duplicated labels, wrong or reversed "
-            "relationships and arrows, off-palette colour, and prohibited content. "
+            "relationships and arrows, connector penetration, element overlap, "
+            "clipping, unreadable final-size type, off-palette colour, and prohibited content. "
             "Where the Rubric and any generic guidance disagree, the Rubric wins. "
             "Return only the JSON object, optionally fenced as ```json ... ```.\n\n"
             f"Original figure prompt:\n{original_prompt or '(not provided)'}\n\n"
@@ -383,26 +398,29 @@ def _review_prompt(
     return (
         f"You are reviewing an academic paper figure for an {figure_persona} submission. "
         "Your ONLY job is to judge whether the figure effectively communicates "
-        "the paper's method to a reader. Do NOT nitpick pixel-level prompt "
-        "compliance, chip placement, badge count, or exact visual hierarchy — "
-        "those are style preferences, not quality issues.\n\n"
+        "the paper's method to a reader and is ready for submission. Minor colour "
+        "or spacing preferences are not quality issues, but connector geometry, "
+        "overlap, clipping, typography, and conventional diagram grammar are.\n\n"
         "Focus on these questions:\n"
         "1. Does the figure faithfully represent the paper's method/architecture?\n"
         "2. Is the core contribution module visible (not an empty box)?\n"
         "3. Are labels readable and correctly spelled?\n"
-        "4. Is the data flow / reader path clear?\n"
-        f"5. Would an {reviewer_persona} reviewer understand the method from this figure + its caption?\n\n"
+        "4. Do all declared arrows have correct source, target, direction, branch "
+        "label, and node-boundary termination, without penetrating unrelated nodes or text?\n"
+        "5. Are all elements non-overlapping, unclipped, and readable at final paper size?\n"
+        f"6. Would an {reviewer_persona} reviewer understand the method from this figure + its caption?\n\n"
         "Return JSON with:\n"
         "- score_1_to_5: 4+ means acceptable for submission, 3 means needs one more pass, "
         "1-2 means fundamentally wrong (wrong modules, misleading flow, unreadable)\n"
-        "- major_issues: ONLY issues that would mislead a reader or misrepresent the method. "
-        "Do NOT list cosmetic preferences as major issues.\n"
+        "- major_issues: semantic errors plus connector penetration, overlap, "
+        "clipping, unreadable type, or unconventional grammar that prevents a "
+        "submission-ready figure. Do not list minor colour preferences.\n"
         "- concrete_revision_prompt: if score < 4, provide a SPECIFIC revision to the prompt "
         "that fixes the actual problem. The prompt must still use the standard template "
         "(General style, Pinned content, Layout variant, Negative prompt, Aspect ratio, "
-        "Figma tokens sections).\n"
-        "- keep_or_regenerate: 'keep' if score >= 4, 'regenerate' only if the figure "
-        "would actively mislead readers about the method.\n\n"
+        "Publication tokens sections).\n"
+        "- keep_or_regenerate: 'keep' only if score >= 4 and the figure is both "
+        "semantically correct and submission-ready; otherwise 'regenerate'.\n\n"
         f"Original figure prompt:\n{original_prompt or '(not provided)'}\n\n"
         f"Rubric:\n{rubric or f'Does this figure effectively communicate the paper method to an {reviewer_persona} reviewer?'}"
     )
@@ -441,6 +459,7 @@ def review_image(
         max_retries=max_retries,
     )
     result["rubric"] = rubric
+    result["review_contract"] = PAPER_FIGURE_STUDIO_SOURCE_ID
     _atomic_write_json(target, result)
     return result
 
@@ -665,6 +684,8 @@ def paper_figure_cache_status(
             continue
         if str(row.get("figure_type") or "") != figure_type:
             continue
+        if str(row.get("review_contract") or "") != PAPER_FIGURE_STUDIO_SOURCE_ID:
+            continue
         if row.get("passed_review") is not True:
             continue
         output = _project_path(project_root, str(row.get("output_path") or ""))
@@ -727,6 +748,13 @@ def _register_paper_figure_candidate(
             "reason": "review_not_passed",
             "context_sha256": context["context_sha256"],
         }
+    review_contract = str(review_payload.get("review_contract") or "")
+    if review_contract != PAPER_FIGURE_STUDIO_SOURCE_ID:
+        return {
+            "registered": False,
+            "reason": "review_contract_outdated",
+            "context_sha256": context["context_sha256"],
+        }
     candidate = {
         "figure_id": str(entry.get("figure_id") or ""),
         "figure_type": str(entry.get("figure_type") or "method"),
@@ -736,6 +764,7 @@ def _register_paper_figure_candidate(
         "output_sha256": str(entry.get("output_sha256") or ""),
         "review_path": str(entry.get("review_path") or ""),
         "review_sha256": str(entry.get("review_sha256") or ""),
+        "review_contract": review_contract,
         "passed_review": True,
         "registered_at": datetime.now(UTC).isoformat(),
     }
