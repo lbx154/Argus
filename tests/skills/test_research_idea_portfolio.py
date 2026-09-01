@@ -416,6 +416,44 @@ def test_evidence_selector_can_choose_best_not_earliest(tmp_path: Path) -> None:
     assert pool.read(selection_root)["state"] == "draining"
 
 
+def test_research_gate_separates_state_root_from_project_portfolio(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    state_root = tmp_path / "state"
+    project_root.mkdir()
+    _pipeline(state_root)
+
+    root = ensure_idea_portfolio(project_root, direction="agent reliability")
+    reviewed = _complete_review_set(project_root, root)
+    ensure_idea_portfolio(project_root, direction="agent reliability")
+    _complete_selection(
+        project_root,
+        selected_route=reviewed[0][0],
+        selected_review=reviewed[0][1],
+    )
+
+    state_files = sorted(
+        path.relative_to(state_root).as_posix()
+        for path in state_root.rglob("*")
+        if path.is_file()
+    )
+    assert state_files == [".argus/PIPELINE_STATE.json"]
+    assert stage_completion_issues(
+        "research",
+        project_root,
+        state_root=state_root,
+    ) == ()
+
+    missing_project = tmp_path / "missing-project"
+    missing_project.mkdir()
+    assert stage_completion_issues(
+        "research",
+        missing_project,
+        state_root=state_root,
+    ) == ("research idea portfolio state is missing or invalid",)
+
+
 def test_late_routes_remain_claimable_and_reach_reviewer_once_settled(
     tmp_path: Path,
 ) -> None:
