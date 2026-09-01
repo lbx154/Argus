@@ -1158,8 +1158,8 @@ class MissionExecutionSettlementMixin:
         plan_challenge = dict(getattr(outcome, "plan_challenge", {}) or {})
         raw_mission_summary = str(
             getattr(outcome, "summary", "")
-            or getattr(outcome, "final_message", "")
             or getattr(outcome, "final_review_reason", "")
+            or getattr(outcome, "final_message", "")
             or getattr(outcome, "reason", "")
             or planner_report.get("summary")
             or ""

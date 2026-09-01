@@ -78,6 +78,19 @@ def test_completion_links_resolve_to_safe_workspace_relative_files(
     assert paths == ["final report.pdf", "source.tex"]
 
 
+def test_reviewed_chinese_book_title_resolves_to_existing_delivery(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "餐饮企业运营手册.md").write_text("# 手册\n", encoding="utf-8")
+
+    assert referenced_delivery_paths(
+        workspace,
+        ["已完整审阅《餐饮企业运营手册.md》；内容符合交付条件。"],
+    ) == ["餐饮企业运营手册.md"]
+
+
 def test_intermediate_success_has_no_delivery_even_with_an_artifact(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     state = tmp_path / "state"

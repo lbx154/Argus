@@ -22,6 +22,7 @@ _MARKDOWN_TARGET_RE = re.compile(
     r"!?\[[^\]\r\n]*\]\(\s*(?:<(?P<angled>[^>\r\n]+)>|(?P<plain>[^\s)\r\n]+))",
 )
 _INLINE_CODE_RE = re.compile(r"(?<!`)`([^`\r\n]{1,2048})`(?!`)")
+_BOOK_TITLE_TARGET_RE = re.compile(r"《([^》\r\n]{1,2048})》")
 _WINDOWS_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_])/?[A-Za-z]:[\\/][^\s<>\[\]()`\"']+",
 )
@@ -34,6 +35,7 @@ def _referenced_path_candidates(text: object) -> list[str]:
     for match in _MARKDOWN_TARGET_RE.finditer(body):
         candidates.append(match.group("angled") or match.group("plain") or "")
     candidates.extend(match.group(1) for match in _INLINE_CODE_RE.finditer(body))
+    candidates.extend(match.group(1) for match in _BOOK_TITLE_TARGET_RE.finditer(body))
     candidates.extend(match.group(0) for match in _WINDOWS_PATH_RE.finditer(body))
     return candidates
 

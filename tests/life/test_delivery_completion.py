@@ -70,6 +70,7 @@ def test_completion_message_carries_one_structured_delivery_receipt(tmp_path) ->
     ]
     assert transcript[-1]["delivery"] == delivery
     assert transcript[-1]["delivery_id"] == delivery["delivery_id"]
+    assert "Deliverable: results/final.md" in transcript[-1]["text"]
     ui_events = [
         json.loads(line)
         for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()

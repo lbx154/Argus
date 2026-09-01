@@ -1685,6 +1685,23 @@ class LifeSupervisor(
             delivery_ready = bool(
                 delivery and isinstance(delivery.get("primary_target"), dict)
             )
+            primary_target = (
+                delivery.get("primary_target")
+                if isinstance(delivery, dict)
+                else None
+            )
+            delivery_path = (
+                str(primary_target.get("path") or "").strip()
+                if isinstance(primary_target, dict)
+                else ""
+            )
+            delivery_line = (
+                f"交付文件: {delivery_path}"
+                if chinese and delivery_path
+                else f"Deliverable: {delivery_path}"
+                if delivery_path
+                else ""
+            )
             overall_complete = bool(
                 success
                 and not campaign_continues
@@ -1845,6 +1862,7 @@ class LifeSupervisor(
                     for part in (
                         result,
                         summary_line,
+                        delivery_line,
                         continuation,
                     )
                     if part
