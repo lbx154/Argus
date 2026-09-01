@@ -158,6 +158,22 @@ End.
     assert "no_appendix_section" in codes
 
 
+def test_no_conclusion_fails(tmp_path: Path) -> None:
+    _seed_minimal_passing_paper(tmp_path)
+    main = tmp_path / "paper" / "main.tex"
+    main.write_text(
+        main.read_text(encoding="utf-8").replace(
+            r"\section{Conclusion}",
+            r"\section{Discussion}",
+        ),
+        encoding="utf-8",
+    )
+
+    report = validate_paper_structural_minimums(tmp_path)
+
+    assert "no_conclusion_section" in {issue.code for issue in report.issues}
+
+
 def test_v1_style_paper_no_figures_no_cites_fails(tmp_path: Path) -> None:
     """The exact v1 failure mode: PDF compiles, refs.bib has entries, but
     the body has 0 \\includegraphics and only 2 \\cite. Gate must fire."""
@@ -494,6 +510,28 @@ def test_includegraphics_referencing_missing_file_does_not_count(tmp_path: Path)
     report = validate_paper_structural_minimums(tmp_path)
     assert report.figures_found == 0
     assert "ghost.pdf" in report.figures_missing_files
+    assert "missing_figure_files" in {issue.code for issue in report.issues}
+
+
+def test_one_real_figure_does_not_hide_another_missing_figure(
+    tmp_path: Path,
+) -> None:
+    _seed_minimal_passing_paper(tmp_path)
+    main = tmp_path / "paper" / "main.tex"
+    main.write_text(
+        main.read_text(encoding="utf-8").replace(
+            r"\includegraphics{figures/fig1.pdf}",
+            "\\includegraphics{figures/fig1.pdf}\n"
+            r"\includegraphics{figures/missing-ablation.pdf}",
+        ),
+        encoding="utf-8",
+    )
+
+    report = validate_paper_structural_minimums(tmp_path)
+
+    assert report.figures_found == 1
+    assert report.figures_missing_files == ["figures/missing-ablation.pdf"]
+    assert "missing_figure_files" in {issue.code for issue in report.issues}
 
 
 def test_image2_entry_with_figure_id_field_classifies(tmp_path: Path) -> None:

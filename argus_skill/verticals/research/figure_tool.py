@@ -73,9 +73,11 @@ _PAPER_FIGURE_REQUIRED_CONTEXT = (
     Path("paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md"),
 )
 _PAPER_FIGURE_EVIDENCE_OPTIONS = (
+    Path("paper/claims_to_evidence.tsv"),
     Path("paper/CLAIM_GRAPH.json"),
     Path("paper/artifacts/claims_evidence.tsv"),
     Path("paper/RESULTS_REPORT.md"),
+    Path("research/NARRATIVE_REPORT.md"),
 )
 _PAPER_FIGURE_OPTIONAL_CONTEXT = (
     Path("research/VENUE_PROFILE.json"),

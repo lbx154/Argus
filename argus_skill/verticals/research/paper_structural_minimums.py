@@ -742,6 +742,17 @@ def validate_paper_structural_minimums(project_root: Path) -> StructuralReport:
                     )
                 )
 
+    if report.figures_missing_files:
+        report.issues.append(
+            StructuralIssue(
+                code="missing_figure_files",
+                detail=(
+                    "figure command(s) reference missing files: "
+                    + ", ".join(report.figures_missing_files[:5])
+                ),
+            )
+        )
+
     unused = _unreferenced_figures(
         paper_dir,
         {Path(ref).name for ref in figure_refs} | {Path(ref).stem for ref in figure_refs},
