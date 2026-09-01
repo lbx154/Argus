@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -51,6 +52,8 @@ class _FakeBackend:
     classify_answer: str = "SELF"
     stream_message: str | None = None
     backend: str = "pi"
+    started_at: float = 0.0
+    call_id: str = ""
     calls: list[dict[str, Any]] = field(default_factory=list)
     classify_calls: list[dict[str, Any]] = field(default_factory=list)
 
@@ -98,6 +101,8 @@ class _FakeBackend:
             output_tokens=self.output_tokens,
             thread_id=self.thread_id,
             fatal_error=self.fatal_error,
+            started_at=self.started_at,
+            call_id=self.call_id,
         )
 
 
@@ -334,6 +339,70 @@ def test_local_microtask_uses_compact_isolated_execution(monkeypatch) -> None:
         "briefly and stop.",
     ]
     assert runner.last_thread_id is None
+
+
+def test_local_microtask_returns_delivery_for_named_workspace_file(
+    tmp_path: Path,
+) -> None:
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    (workdir / "result.txt").write_text("done\n", encoding="utf-8")
+    backend = _FakeBackend(
+        response_message="Created `result.txt`. api_key=abcdefghijk",
+        started_at=time.time() - 1,
+        call_id="solo-call-1",
+    )
+    runner = _make_runner(backend)
+    runner._args.workdir = str(workdir)
+
+    outcome = runner._simple_quick_reply(
+        objective="create result.txt",
+        sink=_RecordingSink(),
+        execute_mode="micro",
+        root_task_id="solo-turn-1",
+    )
+
+    assert outcome.delivery is not None
+    assert outcome.delivery["review_status"] == "not_assessed"
+    assert outcome.delivery["primary_target"]["path"] == "result.txt"
+    assert outcome.delivery["primary_target"]["source"] == "solo_output"
+    assert outcome.delivery["delivery_id"].startswith("delivery:solo-call-1:")
+    assert "abcdefghijk" not in outcome.delivery["summary"]
+
+
+def test_local_worker_does_not_deliver_an_unchanged_existing_file(
+    tmp_path: Path,
+) -> None:
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    (workdir / "README.md").write_text("existing\n", encoding="utf-8")
+    backend = _FakeBackend(
+        response_message="Reviewed `README.md`.",
+        started_at=time.time() + 1,
+    )
+    runner = _make_runner(backend)
+    runner._args.workdir = str(workdir)
+
+    outcome = runner._simple_quick_reply(
+        objective="review README.md",
+        sink=_RecordingSink(),
+        execute_mode="review",
+        root_task_id="solo-turn-2",
+    )
+
+    assert outcome.delivery is None
+
+
+def test_text_only_self_reply_has_no_delivery() -> None:
+    runner = _make_runner(_FakeBackend(response_message="Plain answer."))
+
+    outcome = runner._simple_quick_reply(
+        objective="answer briefly",
+        sink=_RecordingSink(),
+        lean=True,
+    )
+
+    assert outcome.delivery is None
 
 
 @pytest.mark.parametrize(

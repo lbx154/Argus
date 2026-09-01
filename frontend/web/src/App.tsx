@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, us
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff, useConfig } from './hooks';
 import { api, isConnectionError, type EventMsg, type MessageRouteOverride } from './api';
 import { TopBar } from './components/TopBar';
-import { EventStream } from './components/EventStream';
+import { EventStream, latestConversationDelivery } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
 import {
   appendPhaseStep,
@@ -346,7 +346,13 @@ export default function App() {
     () => snap ? projectMissionView(snap, activityEvents, artifactsQ.data ?? []) : null,
     [activityEvents, artifactsQ.data, snap],
   );
-  const delivery = missionView?.delivery ?? null;
+  const conversationDelivery = useMemo(
+    () => latestConversationDelivery(activityEvents),
+    [activityEvents],
+  );
+  const delivery = conversationDelivery === undefined
+    ? missionView?.delivery ?? null
+    : conversationDelivery;
   const hasUnfinishedWork = snap?.backlog.some((item) =>
     ['pending', 'running', 'in_progress', 'claimed'].includes(item.status),
   ) ?? false;
@@ -388,8 +394,13 @@ export default function App() {
     if (previous === id) return;
     observedDeliveryRef.current = id;
     setDismissedDeliveryId('');
-    if (delivery) openDelivery(delivery);
-  }, [delivery, openDelivery, snap]);
+    if (delivery && loadedSid) {
+      void queryClient.invalidateQueries({
+        queryKey: ['artifacts', loadedSid],
+        exact: true,
+      }).then(() => openDelivery(delivery));
+    }
+  }, [delivery, loadedSid, openDelivery, queryClient, snap]);
   useEffect(() => {
     if (!loadedSid) return;
     const previous = observedCompletionRef.current;

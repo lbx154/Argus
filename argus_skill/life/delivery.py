@@ -149,14 +149,20 @@ def _target(
 def _reviewed_targets(
     workspace: Path,
     candidates: Iterable[object],
+    *,
+    source: str = "reviewer_evidence",
 ) -> list[dict[str, str]]:
     targets: list[dict[str, str]] = []
     for candidate in candidates:
         result = _target(
             workspace,
             candidate,
-            source="reviewer_evidence",
-            why="Reviewed evidence for this completed mission.",
+            source=source,
+            why=(
+                "Solo output for this completed task."
+                if source == "solo_output"
+                else "Reviewed evidence for this completed mission."
+            ),
         )
         if result is not None:
             targets.append(result)
@@ -213,6 +219,7 @@ def build_delivery_receipt(
     state_root: Path | str | None,
     stage: str = "",
     reviewer_artifacts: Iterable[object] = (),
+    artifact_source: str = "reviewer_evidence",
 ) -> dict[str, Any] | None:
     """Build a terminal receipt only for a real, openable deliverable."""
     if not success or not overall_complete:
@@ -236,7 +243,13 @@ def build_delivery_receipt(
         # Reviewer-named evidence is strongest. The vertical contract is an
         # explicit deliverable declaration. A Manager live view is deliberately
         # excluded: it is presentation state, not proof of a final artifact.
-        candidates.extend(_reviewed_targets(root, reviewer_artifacts))
+        candidates.extend(
+            _reviewed_targets(
+                root,
+                reviewer_artifacts,
+                source=artifact_source,
+            )
+        )
         candidates.extend(_vertical_primary_targets(root, manifest_root, str(stage or "")))
 
     targets: list[dict[str, str]] = []

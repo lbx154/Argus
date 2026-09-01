@@ -1202,6 +1202,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     runner = (ensure_runner or _ensure_manager_runner)(chat_state, mem)
     if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
         return None
+    chat_state.pop("_self_delivery", None)
     captured: list[str] = []
     empty_reply = (
         "[Manager reply unavailable] The SELF turn completed without an assistant "
@@ -1368,6 +1369,10 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         ):
             triage_kwargs["root_task_id"] = root_task_id
         if runner.chat_reply_if_conversational(**triage_kwargs):
+            outcome = getattr(runner, "last_chat_outcome", None)
+            delivery = getattr(outcome, "delivery", None)
+            if isinstance(delivery, dict):
+                chat_state["_self_delivery"] = delivery
             if mode == "inspect":
                 chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
             return captured[0] if captured else _empty_reply_for_outcome()

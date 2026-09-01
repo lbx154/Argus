@@ -14,6 +14,8 @@ import {
   completionNotificationPayload,
   deliveryNotificationPayload,
 } from '../lib/desktopBridge';
+import { latestConversationDelivery } from '../components/EventStream';
+import { mergeConversationEvents } from '../lib/conversationEvents';
 
 const delivery: DeliveryReceipt = {
   schema_version: 1,
@@ -137,5 +139,40 @@ describe('completed delivery presentation', () => {
       summary: delivery.summary,
       path: 'out/final.md',
     });
+  });
+
+  it('keeps the latest Solo delivery until the next operator turn', () => {
+    expect(latestConversationDelivery([
+      { type: 'ui.operator', text: 'Create a file', ts: 1 },
+      { type: 'ui.argus', text: 'Done', ts: 2, delivery },
+    ])).toEqual(delivery);
+    expect(latestConversationDelivery([
+      { type: 'ui.argus', text: 'Done', ts: 2, delivery },
+      { type: 'ui.operator', text: 'New question', ts: 3 },
+    ])).toBeNull();
+    expect(latestConversationDelivery([])).toBeUndefined();
+  });
+
+  it('keeps delivery metadata when an optimistic reply is confirmed', () => {
+    const events = mergeConversationEvents(
+      [],
+      [{
+        role: 'argus',
+        text: 'Done',
+        ts: 2,
+        message_id: 'turn-1-argus',
+        delivery_id: delivery.delivery_id,
+        delivery,
+      }],
+      [{
+        type: 'ui.argus',
+        text: 'Done',
+        ts: 1.5,
+        message_id: 'turn-1-argus',
+      }],
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0].delivery).toEqual(delivery);
   });
 });

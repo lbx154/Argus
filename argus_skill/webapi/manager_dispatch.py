@@ -241,7 +241,12 @@ def _cancelled_result() -> dict[str, Any]:
     }
 
 
-def _journal_argus_reply(life_dir: Path, turn_id: str, reply: str) -> None:
+def _journal_argus_reply(
+    life_dir: Path,
+    turn_id: str,
+    reply: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
     """Persist ``reply`` to transcript.jsonl and stream it to the live UI.
 
     This exact journal-then-emit pair follows every terminal Manager reply in
@@ -252,10 +257,16 @@ def _journal_argus_reply(life_dir: Path, turn_id: str, reply: str) -> None:
     from ..core.transcript import append_turn
 
     try:
-        append_turn(life_dir, "argus", reply)
+        append_turn(life_dir, "argus", reply, metadata=metadata)
     except Exception:  # noqa: BLE001
         pass
-    _emit_ui_turn(life_dir, "argus", reply, message_id=f"{turn_id}-argus")
+    _emit_ui_turn(
+        life_dir,
+        "argus",
+        reply,
+        message_id=f"{turn_id}-argus",
+        metadata=metadata,
+    )
 
 
 @dataclass
@@ -279,8 +290,25 @@ class _TurnEmitter:
             payload["message_id"] = message_id
         self.fragment("delta", payload)
 
-    def journal(self, text: str) -> None:
-        _journal_argus_reply(self.life_dir, self.turn_id, text)
+    def journal(self, text: str, result: dict[str, Any]) -> None:
+        metadata = {
+            key: result[key]
+            for key in (
+                "mission_result",
+                "item_id",
+                "success",
+                "summary",
+                "delivery_id",
+                "delivery",
+            )
+            if key in result
+        }
+        _journal_argus_reply(
+            self.life_dir,
+            self.turn_id,
+            text,
+            metadata or None,
+        )
 
     def emit_only(self, text: str) -> None:
         """Stream ``text`` to the UI without journaling it to transcript.jsonl.
@@ -302,7 +330,7 @@ class _TurnEmitter:
         pattern used by nearly every ``manager_message`` branch.
         """
         self.reply_fragment(text, message_id=message_id)
-        self.journal(text)
+        self.journal(text, result)
         if result.get("kind") == "chat" and self.after_reply is not None:
             self.after_reply(text)
         return {"reply": text, **result}
@@ -312,7 +340,7 @@ class _TurnEmitter:
         callee (e.g. ``manager_triage`` drives ``on_fragment`` itself), so no
         extra delta fragment is emitted here.
         """
-        self.journal(text)
+        self.journal(text, result)
         if result.get("kind") == "chat" and self.after_reply is not None:
             self.after_reply(text)
         return {"reply": text, **result}
@@ -553,7 +581,7 @@ def _classify_operator_turn(
     else:
         intent, route = decision
         control = None
-    selected_body = dispatch_body if route == "complex" else body
+    selected_body = dispatch_body
     send_body = f"{handoff}\n\n{selected_body}" if handoff else selected_body
 
     self_mode = str(
@@ -1065,7 +1093,17 @@ def _run_triage_and_fallbacks(
         reply = None
 
     if reply is not None:
-        return emitter.journal_and_respond(reply, {"kind": "chat"})
+        result: dict[str, Any] = {"kind": "chat"}
+        delivery = chat_state.pop("_self_delivery", None)
+        if isinstance(delivery, dict):
+            result.update({
+                "mission_result": True,
+                "success": True,
+                "summary": str(delivery.get("summary") or ""),
+                "delivery_id": str(delivery.get("delivery_id") or ""),
+                "delivery": delivery,
+            })
+        return emitter.journal_and_respond(reply, result)
     if route == "simple" and control != "no_dispatch":
         # The classifier already said SELF/chat. A failed inline Manager turn
         # must never fall through into TEAM dispatch — that queues greetings,

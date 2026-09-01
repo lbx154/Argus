@@ -96,20 +96,28 @@ def _bridge():
     return manager_bridge
 
 
-def _emit_ui_turn(life_dir: Path, role: str, text: str, *, message_id: str) -> None:
+def _emit_ui_turn(
+    life_dir: Path,
+    role: str,
+    text: str,
+    *,
+    message_id: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
     """Persist one operator/Manager turn onto the shared live Activity stream."""
     try:
         from ..life.event_log import JsonlEventSink
 
-        JsonlEventSink(None, life_dir=life_dir).append(
-            {
-                "type": f"ui.{role}",
-                "agent_layer": "manager" if role == "argus" else "operator",
-                "message_id": message_id,
-                "text": text,
-                "ts": time.time(),
-            }
-        )
+        event = {
+            "type": f"ui.{role}",
+            "agent_layer": "manager" if role == "argus" else "operator",
+            "message_id": message_id,
+            "text": text,
+            "ts": time.time(),
+        }
+        if metadata:
+            event.update(metadata)
+        JsonlEventSink(None, life_dir=life_dir).append(event)
     except Exception:  # noqa: BLE001 — Activity mirroring must never break chat
         pass
 

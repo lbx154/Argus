@@ -33,6 +33,7 @@ class _Outcome:
     # token, missing API key, etc.). The supervisor uses this to stop
     # early instead of looping over failing missions.
     auth_failure: bool = False
+    delivery: dict[str, Any] | None = None
     # Set only when a final-submission mission receives Reviewer ``done``.
     final_submission_certified: bool = False
     completion_evidence: str = ""

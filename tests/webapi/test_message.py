@@ -25,6 +25,7 @@ from argus_skill.core.session import (
     read_session_meta,
     write_session_meta,
 )
+from argus_skill.core.transcript import append_turn
 from argus_skill.life.memory import Backlog, BacklogItem, LifeMemory
 from argus_skill.manager import Manager, config_intent, dispatch, front_door
 from argus_skill.manager.domain_author import VerticalDecision
@@ -286,6 +287,9 @@ def test_followup_self_turn_disables_stateless_fast_reply(
     manager_state._STATES.clear()
     state = manager_state._chat_state_for(sid)
     state["turns"] = 1
+    append_turn(life, "operator", "Proceedings of the AMS 是什么期刊？")
+    append_turn(life, "argus", "它是美国数学会的综合性数学期刊。")
+    seen: dict[str, str] = {}
 
     def classify(mem, text, chat_state, **kwargs):
         chat_state["_frontdoor_self_mode"] = "reply"
@@ -293,11 +297,11 @@ def test_followup_self_turn_disables_stateless_fast_reply(
         return None, None, "simple"
 
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: "Your name is Xiaobei.",
-    )
+    def triage(*args, **kwargs):
+        seen["body"] = args[1]
+        return "Your name is Xiaobei."
+
+    monkeypatch.setattr(front_door, "manager_triage", triage)
 
     result = manager_bridge.manager_message(
         sid,
@@ -306,6 +310,8 @@ def test_followup_self_turn_disables_stateless_fast_reply(
     )
 
     assert result == {"kind": "chat", "reply": "Your name is Xiaobei."}
+    assert "Proceedings of the AMS" in seen["body"]
+    assert "[CURRENT OPERATOR MESSAGE]\nWhat was my name?" in seen["body"]
     assert LifeMemory.open(life).backlog.all() == []
 
 
@@ -1843,6 +1849,40 @@ def test_turn_emitter_schedules_learning_only_for_chat(tmp_path: Path) -> None:
     emitter.respond("queued", {"kind": "task"})
 
     assert reviewed == ["answer"]
+
+
+def test_turn_emitter_persists_solo_delivery_metadata(tmp_path: Path) -> None:
+    from argus_skill.webapi.manager_dispatch import _TurnEmitter
+
+    delivery = {
+        "delivery_id": "delivery:solo:task_completed",
+        "primary_target": {"path": "result.txt"},
+    }
+    emitter = _TurnEmitter(
+        life_dir=tmp_path,
+        turn_id="turn-solo",
+        fragment=lambda *_args: None,
+    )
+
+    emitter.journal_and_respond(
+        "Created result.txt.",
+        {
+            "kind": "chat",
+            "mission_result": True,
+            "success": True,
+            "delivery_id": delivery["delivery_id"],
+            "delivery": delivery,
+        },
+    )
+
+    turn = json.loads(
+        (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    )
+    event = json.loads(
+        (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    )
+    assert turn["delivery"] == delivery
+    assert event["delivery"] == delivery
 
 
 def test_manager_stream_heartbeat_uses_real_silence_and_stops_on_done() -> None:

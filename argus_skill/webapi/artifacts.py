@@ -182,6 +182,15 @@ def registered_delivery_artifacts(
             targets = raw_targets
     elif str(mission.get("title") or "").strip():
         title = str(mission.get("title") or title).strip()
+    from ..core.transcript import read_turns
+
+    for turn in reversed(read_turns(life_dir)):
+        transcript_delivery = turn.get("delivery")
+        if not isinstance(transcript_delivery, dict):
+            continue
+        raw_targets = transcript_delivery.get("targets")
+        if isinstance(raw_targets, list):
+            targets.extend(raw_targets)
 
     results: list[dict[str, str]] = []
     seen: set[str] = set()

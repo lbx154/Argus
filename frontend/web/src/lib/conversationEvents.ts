@@ -142,7 +142,7 @@ export function mergeConversationEvents(
   ];
   const keepConfirmed = new Array(confirmed.length).fill(true);
   const claimedConfirmed = new Set<number>();
-  const preferredLocal = localEvents.filter((event) => {
+  const preferredLocal = localEvents.map((event) => {
     const messageId = String(event.message_id ?? '');
     let matchIndex = messageId
       ? confirmed.findIndex((candidate, index) => (
@@ -167,8 +167,20 @@ export function mergeConversationEvents(
       // will naturally replace it after a project switch or page reload.
       claimedConfirmed.add(matchIndex);
       keepConfirmed[matchIndex] = false;
+      const authoritative = confirmed[matchIndex];
+      return {
+        ...event,
+        ...(authoritative.mission_result === true ? { mission_result: true } : {}),
+        ...(typeof authoritative.item_id === 'string' ? { item_id: authoritative.item_id } : {}),
+        ...(typeof authoritative.success === 'boolean' ? { success: authoritative.success } : {}),
+        ...(typeof authoritative.summary === 'string' ? { summary: authoritative.summary } : {}),
+        ...(typeof authoritative.delivery_id === 'string' ? { delivery_id: authoritative.delivery_id } : {}),
+        ...(authoritative.delivery && typeof authoritative.delivery === 'object'
+          ? { delivery: authoritative.delivery }
+          : {}),
+      };
     }
-    return true;
+    return event;
   });
   return [
     ...confirmed.filter((_event, index) => keepConfirmed[index]),

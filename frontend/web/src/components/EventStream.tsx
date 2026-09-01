@@ -296,12 +296,24 @@ function RoleLogCollection({ rows, live }: { rows: ActivityRow[]; live: boolean 
   );
 }
 
-function deliveryFromEvent(event: EventMsg): DeliveryReceipt | null {
+export function deliveryFromEvent(event: EventMsg): DeliveryReceipt | null {
   const delivery = event.delivery;
   if (!delivery || typeof delivery !== 'object' || Array.isArray(delivery)) return null;
   const candidate = delivery as Partial<DeliveryReceipt>;
   if (typeof candidate.delivery_id !== 'string' || !candidate.delivery_id.trim()) return null;
   return candidate as DeliveryReceipt;
+}
+
+export function latestConversationDelivery(
+  events: EventMsg[],
+): DeliveryReceipt | null | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.type === 'ui.operator') return null;
+    const delivery = deliveryFromEvent(event);
+    if (delivery) return delivery;
+  }
+  return undefined;
 }
 
 function DeliveryCard({
