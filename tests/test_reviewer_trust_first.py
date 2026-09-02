@@ -64,6 +64,9 @@ def test_paper_review_requires_idea_and_built_artifact_quality():
     assert "positive controls" in block
     assert "venue compliance" in block
     assert "rendered layout" in block
+    assert "inside the verdict's `reason=` value" in block
+    assert "same pre-repair paper" in block
+    assert "reassess the repaired current version" in block
     assert "never reopen selection or move backward" in block
 
 
@@ -108,7 +111,7 @@ def test_final_certification_review_keeps_paper_review_rubric(tmp_path) -> None:
 
     prompt, reviewer = _project_reviewer_prompt(tmp_path)
 
-    assert "## Independent paper review" in prompt
+    assert "## Integrated final paper review" in prompt
     assert reviewer.last_prompt_block_stats["static_total"]["chars"] > 0
 
 

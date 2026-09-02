@@ -35,9 +35,8 @@ def _read(relative: str) -> str:
     "relative",
     [
         "reviewer/academic-paper-peer-review-benchmark.md",
-        "reviewer/aaai-academic-language-review.md",
-        "engineer/aaai-format-preflight.md",
-        "engineer/emnlp-format-preflight.md",
+        "reviewer/venue-academic-language-review.md",
+        "engineer/venue-format-preflight.md",
     ],
 )
 def test_no_bibliography_count_floor_in_skills(relative) -> None:
@@ -70,7 +69,7 @@ def test_venue_profiles_no_longer_carry_a_bibliography_quota() -> None:
 # -- page budget is a ceiling, not a quota ----------------------------------
 
 def test_page_limit_is_described_as_a_ceiling() -> None:
-    text = _read("engineer/aaai-format-preflight.md")
+    text = _read("engineer/venue-format-preflight.md")
 
     assert "ceiling, not a quota" in text
     # The old rule forced body content until the Conclusion reached page 7.
@@ -79,14 +78,14 @@ def test_page_limit_is_described_as_a_ceiling() -> None:
 
 
 def test_over_length_is_still_enforced() -> None:
-    text = _read("engineer/aaai-format-preflight.md")
+    text = _read("engineer/venue-format-preflight.md")
 
-    assert "exceeds 7.0" in text
-    assert "page-map reflow" in text
+    assert "exceeds the current limit" in text
+    assert "reflow content" in text
 
 
 def test_padding_is_explicitly_discouraged() -> None:
-    text = _read("engineer/aaai-format-preflight.md")
+    text = _read("engineer/venue-format-preflight.md")
 
     assert "Never pad to reach a page number" in text
 

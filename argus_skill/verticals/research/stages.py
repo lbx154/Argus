@@ -161,19 +161,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="paper.argument",
             statement=(
-                "Write a thesis-driven, persuasive paper led by the contribution and the "
-                "strongest result. Do not organize it as an experiment chronology or ship "
-                "a development shortfall as a negative-result report."
-            ),
-            evidence_hint="paper/main.tex",
-        ),
-        ChecklistItem(
-            id="paper.voice",
-            statement=(
-                "Use confident, active, contribution-led prose. State supported wins "
-                "plainly; remove defensive qualifier boilerplate, compliance narration, "
-                "and integrity self-praise. Name only limitations that change a reader's "
-                "decision."
+                "Produce a complete paper draft led by the contribution and strongest "
+                "result. Include every claim-bearing experiment, intended figure and "
+                "table, citation, and venue-required section. Do not organize it as an "
+                "experiment chronology or ship a development shortfall as a "
+                "negative-result report."
             ),
             evidence_hint="paper/main.tex",
         ),
@@ -181,12 +173,9 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             id="paper.work_products",
             statement=(
                 "The manuscript, bibliography, figures, included source files, and rendered "
-                "output are mutually consistent and follow the selected venue's current "
-                "official rules. Direct citation checks, paper structure, figure/table "
-                "semantics and inclusion, rendered layout, and publication-scale evidence "
-                "must support the thesis. Tables identify the method and comparison, units, "
-                "direction, and winning values; every claim-bearing figure or table is "
-                "actually included and explained in the manuscript."
+                "output are present, mutually consistent, and compile under the selected "
+                "venue's current official rules. Final scientific review, strict visual "
+                "inspection, and academic-language polishing happen only in Review."
             ),
             evidence_hint="paper/main.tex, rendered output, bibliography, figures, and includes",
         ),
@@ -201,6 +190,16 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ),
     ),
     "review": _checklist(
+        ChecklistItem(
+            id="review.parallel",
+            statement=(
+                "Run three independent read-only passes on the same current paper in "
+                "parallel: scientific completeness, strict rendered visual quality, and "
+                "academic language. Record their combined findings only in "
+                "`paper/REVIEW.md`; create no additional project review files."
+            ),
+            evidence_hint="the three-pass assessment in paper/REVIEW.md and the current paper",
+        ),
         ChecklistItem(
             id="review.scope",
             statement=(
@@ -218,21 +217,51 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             id="review.authoritative",
             statement=(
                 "Each authoritative review overwrites `paper/REVIEW.md` with the strongest "
-                "accept case, reject-level defects, and next action. Do not create a JSON "
-                "copy, review history, or certification packet."
+                "accept case, scientific/visual/language assessment, reject-level defects, "
+                "and next action. Do not create another review file or review history."
             ),
             evidence_hint="paper/REVIEW.md",
         ),
         ChecklistItem(
-            id="review.quality",
+            id="review.scientific",
             statement=(
-                "Judge the paper as an independent venue reviewer: contribution, correctness, "
-                "same-information comparisons, evidence, citations, writing, figures, and "
-                "rendered presentation must support the thesis. Reviewer authority is "
-                "independent of Engineer or Planner confidence and may reject after tracing "
-                "the hypothesis through executed code, controls, raw rows, baselines, and "
-                "primary sources. Repair discovered defects inside Review without moving "
-                "to an earlier stage."
+                "Review the complete paper as an independent venue reviewer. Verify the "
+                "contribution, fidelity to the executed code, positive controls, strongest "
+                "same-information baselines, decisive evidence, citations, and whether all "
+                "sections and experiments needed by the thesis are present. Reviewer "
+                "authority is independent of Engineer or Planner confidence."
+            ),
+            evidence_hint="paper plus directly cited code, configurations, raw rows, and sources",
+        ),
+        ChecklistItem(
+            id="review.visual",
+            statement=(
+                "Inspect every rendered page and every figure and table at publication "
+                "scale. Any visible overlap, clipping, overflow, connector penetration, "
+                "wrong arrow, unreadable label, malformed table, misleading plot, abnormal "
+                "whitespace, broken float placement, or inconsistent typography blocks "
+                "acceptance. The whole paper must look publication-ready."
+            ),
+            evidence_hint="the complete rendered paper and all included figures and tables",
+        ),
+        ChecklistItem(
+            id="review.language",
+            statement=(
+                "The read-only language pass reports precise proposed changes for "
+                "confident, accurate academic prose. The single Engineer repair then "
+                "removes defensive qualifier boilerplate, experiment chronology, internal "
+                "workflow language, repeated caveats, and integrity self-praise while "
+                "preserving every supported claim and technical meaning."
+            ),
+            evidence_hint="paper/main.tex",
+        ),
+        ChecklistItem(
+            id="review.integrated",
+            statement=(
+                "After the three parallel passes are repaired and the paper is recompiled, "
+                "perform one integrated final review of scientific content, visual quality, "
+                "language, and venue compliance. Keep all repairs inside Review without "
+                "moving to an earlier stage."
             ),
             evidence_hint="paper/main.tex and its rendered output/direct dependencies",
         ),
@@ -354,6 +383,7 @@ def _review_document_issues(
     if "**verdict:** done" not in lowered:
         issues.append("paper/REVIEW.md does not record an authoritative done verdict")
     required_sections = (
+        "## scientific, visual, and language assessment",
         "## strongest accept case",
         "## reject-level issues",
         "## next action",
@@ -362,6 +392,11 @@ def _review_document_issues(
         if section not in lowered:
             issues.append(f"paper/REVIEW.md is missing {section}")
 
+    assessment_match = re.search(
+        r"(?ims)^## scientific, visual, and language assessment\s*(.*?)(?=^## |\Z)",
+        text,
+    )
+    assessment = assessment_match.group(1).lower() if assessment_match else ""
     accept_match = re.search(
         r"(?ims)^## strongest accept case\s*(.*?)(?=^## |\Z)",
         text,
@@ -369,6 +404,9 @@ def _review_document_issues(
     accept_case = accept_match.group(1).strip() if accept_match else ""
     if len(" ".join(accept_case.split())) < 40:
         issues.append("paper/REVIEW.md strongest accept case is not substantive")
+    for label in ("scientific:", "visual:", "language:"):
+        if label not in assessment:
+            issues.append(f"paper/REVIEW.md is missing the final {label[:-1]} assessment")
     return tuple(dict.fromkeys(issues))
 
 
@@ -534,7 +572,8 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
 
 _ENGINEER_RESEARCH_EXECUTION = (
     _AMBITIOUS_RESEARCH_POLICY
-    + " Preserve reproducibility through code, explicit configuration, and raw output, "
+    + " Verify current models, benchmark versions, and APIs from live sources instead "
+    "of memory. Preserve reproducibility through code, explicit configuration, and raw output, "
     "not extra reporting files. Repair defects in the current stage and never move the "
     "research pipeline backward. Keep experiments adaptive and rewrite HANDOFF.md with "
     "only what the next stage needs."

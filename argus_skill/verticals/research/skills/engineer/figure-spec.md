@@ -108,28 +108,13 @@ Open the SVG. Check:
 If any of these fail, edit the spec (NOT the SVG — the SVG is the
 output, the spec is the source of truth) and re-render.
 
-### Step 5 — optional reviewer audit
+### Final review ownership
 
-For the paper's main architecture figure, hand the rendered SVG + the
-spec JSON to a reviewer agent (gpt-5.5 via `reviewer` route) with the
-prompt:
-
-```
-Review this architecture figure. Spec attached as JSON; rendered SVG
-attached. Check:
-1. Does the figure clearly communicate the data flow described in
-   `paper/sec/method.tex`?
-2. Are any boxes labeled in a way the body text doesn't define?
-3. Is anything load-bearing in the figure absent from the spec
-   (i.e. drawn in spec.json but unused in main.tex)?
-4. Greyscale legibility?
-Return a list of concrete spec edits; reviewer rules on whether to
-gate on each.
-```
-
-Note: the reviewer rules on whether the figure is publication-ready,
-not the harness. This skill produces deterministic output; the
-quality call lives with the agent.
+Do not launch a separate Reviewer from Paper. The checks above are ordinary
+engineering validation needed to produce a complete compilable draft. During
+Review, the assigned read-only visual pass inspects the rendered SVG at final
+paper size together with the spec and manuscript, and the integrated Reviewer
+decides whether the repaired paper is publication-ready.
 
 ## Design patterns
 
@@ -165,7 +150,6 @@ Master. Always inspect the final render for connector penetration and overlap.
 - Renders to `paper/figures/<name>.svg`
 - Spec lives at `paper/figures/<name>.spec.json` so future re-renders
   are reproducible and visible in `git diff`
-- Optionally register the spec/renderer in `FIGURE_PROVENANCE.json` for handoff.
 - Add the SVG to LaTeX with `\includegraphics{figures/<name>.svg}`
   (most modern TeX engines handle SVG directly; for older toolchains,
   convert to PDF with `inkscape --export-type=pdf`)

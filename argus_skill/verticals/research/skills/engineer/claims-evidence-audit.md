@@ -34,12 +34,9 @@ scope claims that may have drifted from the current experiments or literature.
 6. Recompile and reread the affected paragraph, table, or caption as a paper
    reviewer would.
 
-Keep `paper/claims_to_evidence.tsv` as the one compact internal map from material
-claims to real raw paths; it protects against dangling or tainted evidence. Check
-every material claim, but do not create
-`CLAIMS_EVIDENCE_AUDIT.tsv`, `.json`, `.md`, `CLAIM_GRAPH.json`, or
-`EVIDENCE_GAPS.json` merely to record that the check happened. Existing files may
-be read as historical notes; they are not completion conditions.
+Check every material claim, but do not create a claim map, audit table, graph,
+gap list, or parallel report merely to record that the check happened. Existing
+files may be read as historical notes; they are not completion conditions.
 
 ## Handoff
 

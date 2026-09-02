@@ -115,6 +115,10 @@ def test_review_completion_requires_a_substantive_single_review(
     review.write_text(
         "# Authoritative review\n\n"
         "**Verdict:** done\n\n"
+        "## Scientific, visual, and language assessment\n"
+        "Scientific: pass; the executed method and evidence support the thesis.\n"
+        "Visual: pass; every rendered page, figure, and table is publication-ready.\n"
+        "Language: pass; the manuscript is precise, coherent, and polished.\n\n"
         "## Strongest accept case\n"
         "The mechanism, official evaluator, and strong baseline support the thesis.\n\n"
         "## Reject-level issues\nNone.\n\n"
@@ -123,6 +127,18 @@ def test_review_completion_requires_a_substantive_single_review(
     )
 
     assert stage_completion_issues("review", tmp_path) == ()
+
+    review.write_text(
+        "# Authoritative review\n\n"
+        "**Verdict:** done\n\n"
+        "## Scientific, visual, and language assessment\nAll checks passed.\n\n"
+        "## Strongest accept case\n"
+        "The mechanism, official evaluator, and strong baseline support the thesis.\n\n"
+        "## Reject-level issues\nScientific: pass. Visual: pass. Language: pass.\n\n"
+        "## Next action\nNone.\n",
+        encoding="utf-8",
+    )
+    assert stage_completion_issues("review", tmp_path)
 
     review.write_text("**Verdict:** done\n", encoding="utf-8")
     assert stage_completion_issues("review", tmp_path)

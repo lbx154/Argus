@@ -16,7 +16,8 @@ Argus-native progressive PDF reader. Mirrors ARIS `deepxiv` step pattern (`brief
 
 ## When NOT to use
 - The artifact is already in source form (`paper/main.tex`, `paper/sections/*.tex`) — read those directly; PDF extraction loses structure.
-- You need image content from the PDF — this skill is text-only; use `paper_layout_review` (vision) instead.
+- You need image content from the PDF — this skill is text-only. In a research
+  paper Review, use the assigned read-only visual pass to inspect rendered pages.
 - The "PDF" is actually HTML / a website — fetch with `WebFetch`.
 
 ## Tool surface
@@ -38,7 +39,7 @@ All output is JSON on stdout (`source`, `text`, and shape-specific keys).
 1. Always start with `head` to see the actual section map. Section detection is heuristic; the TOC tells you exactly which names will match the `section` subcommand.
 2. Use `brief` next if the question is "is this paper relevant".
 3. Drop into `section` for the targeted section(s).
-4. `page` is for "what's on page 7 of my own draft" — useful when paired with `paper_layout_review` page-snapshot output.
+4. `page` is for "what text is on page 7 of my own draft".
 5. `full` is a last resort — costs ~200 KB of context.
 
 ### Reviewer self-review pattern
@@ -51,7 +52,7 @@ python -m argus_skill.tools.pdf_chat section paper/main.pdf "Experiments"
 ```
 Then address the few questions that materially affect the paper. Keep them in the
 shared checkpoint if another round needs them; do not create a mandatory reviewer
-question inventory.
+question list.
 
 ### Related-paper inspection pattern
 ```
@@ -64,7 +65,7 @@ python -m argus_skill.tools.pdf_chat section 2509.12345 "Related Work"
 - Prefer `head`/`brief`/`section` over `full`; the whole point is to not load 30 KB of irrelevant prose.
 - Section detection is heuristic — if a section name doesn't match, re-query with a different keyword or use `page`.
 - Cached arXiv PDFs are immutable per id; force-refresh by deleting `${ARGUS_SKILL_PDF_CACHE}/<id>.pdf`.
-- This tool reads only; it does NOT modify PDFs or write summaries to disk. Save summaries via `Write` if the agent wants them persisted.
+- This tool reads only; it does not modify PDFs or write summaries to disk.
 
 ## Response shape
 - Return the subcommand's JSON output verbatim.

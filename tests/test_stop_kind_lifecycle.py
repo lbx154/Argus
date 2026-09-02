@@ -6,12 +6,14 @@ import pytest
 
 from argus_skill.adapters.agent_cli_backend import _raw_backend_stop_kind
 from argus_skill.core.models import ReviewDecision, RunnerResult
+from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus_skill.engineer.runner import (
     EngineerConfig,
     SupervisedConfig,
     SupervisedEngineer,
 )
 from argus_skill.reviewer import ReviewerConfig
+from argus_skill.skills.vertical_select import persist_vertical
 
 
 class _StoppedEngineer:
@@ -172,3 +174,84 @@ def test_reviewer_budget_stop_pauses_without_failure_streak(tmp_path: Path) -> N
         for event in events
         if event.get("type") == "round.reviewer_backend_failure"
     ]
+
+
+@pytest.mark.parametrize(
+    ("stop_kind", "expected_status"),
+    [
+        ("provider_cooldown", "paused_provider_cooldown"),
+        ("operator_abort", "aborted"),
+    ],
+)
+def test_preliminary_review_stop_kind_reaches_mission_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stop_kind: str,
+    expected_status: str,
+) -> None:
+    persist_vertical(tmp_path, "research")
+    state = read_pipeline_state(tmp_path)
+    state["current_stage"] = "review"
+    write_pipeline_state(tmp_path, state)
+
+    class EngineerMustNotRun:
+        def run_exec(self, **_kwargs):
+            raise AssertionError("Engineer must wait for preliminary review")
+
+    class Reviewer:
+        runner = object()
+
+        def evaluate(self, **_kwargs):
+            raise AssertionError("integrated review must not run")
+
+    monkeypatch.setattr(
+        "argus_skill.reviewer._core._parallel_final_review_passes",
+        lambda *_args, **_kwargs: ReviewDecision(
+            status="blocked",
+            reason="preliminary review stopped",
+            next_action="resume",
+            backend_stop_kind=stop_kind,  # type: ignore[arg-type]
+            input_tokens=6,
+            output_tokens=3,
+            premium_requests=1.0,
+        ),
+    )
+    engine = SupervisedEngineer(
+        engineer_runner=EngineerMustNotRun(),
+        reviewer=Reviewer(),
+        engineer_config=EngineerConfig(
+            model="test",
+            vertical_state_root=tmp_path,
+        ),
+        reviewer_config=ReviewerConfig(
+            model="test",
+            active_vertical="research",
+            vertical_state_root=str(tmp_path),
+        ),
+    )
+    events: list[dict] = []
+
+    status, rounds, _message, _reason, _thread = engine.run(
+        objective="review the paper",
+        engineer_prompt_builder=lambda _next, _static=True: "work",
+        supervised_config=SupervisedConfig(
+            max_rounds=1,
+            background_subagent_advisory=False,
+        ),
+        workdir=tmp_path,
+        on_event=events.append,
+    )
+
+    assert status == expected_status
+    assert rounds[0].round_index == 0
+    assert rounds[0].stop_kind == stop_kind
+    review_events = [
+        event
+        for event in events
+        if event.get("type") == "round.review.completed"
+    ]
+    assert len(review_events) == 1
+    assert review_events[0]["stop_kind"] == stop_kind
+    assert review_events[0]["input_tokens"] == 6
+    assert review_events[0]["output_tokens"] == 3
+    assert review_events[0]["premium_requests"] == 1.0

@@ -1,203 +1,35 @@
 ---
 name: "Research Results Analysis And Figures"
-description: "Turn raw experiment outputs into evidence-grounded tables, claims, and paper figures, and route every visual across PPT Master, HTML/SVG, ECharts, Recharts, Vega, FigureSpec, matplotlib, or optional image-2. Use PPT Master as a first-class polished editable route for non-data paper figures when installed; never invent missing numbers."
+description: "Turn raw outputs into direct paper tables and figures through PPT Master, HTML/SVG, ECharts, Recharts, Vega, FigureSpec, or the single SciencePlots/Matplotlib data-figure path."
 ---
 
 # Research Results Analysis and Figures
 
-Convert completed runs into canonical derived results and a reviewer-auditable
-visual story. Analysis source code and raw artifacts remain authoritative;
-paper prose and figures are derived views.
+Read the executed code, explicit configuration, raw outputs, evaluator results,
+and current `HANDOFF.md`. Produce only analysis code, paper tables, editable
+figure sources, and final exports used by `paper/main.tex`.
 
-## 1. Inventory and qualify evidence
+## Analysis
 
-Build a source table covering every claim-relevant JSON/JSONL/TSV/CSV, run
-manifest, verifier output, and log:
+- Compute every paper number from raw rows; never hard-code an expected result.
+- Compare compatible data, models, budgets, evaluators, and uncertainty.
+- Prefer a small counterfactual regression when it directly tests whether a
+  result or figure changes under a claim-critical input change.
+- Preserve valid losing rows in raw evidence, but build the paper around the
+  positive thesis that clears the Paper entry bar.
+- Reviewer decides whether the evidence supports the claim.
 
-- artifact path, run ID, condition, public source/split, metric, timestamp;
-- completion/verifier state, seeds/repeats, budget/configuration;
-- data-quality notes, exclusions, failed and negative runs.
+## Figures
 
-Do not count benchmark manifests, task declarations, or `status.task_count` as
-executed evidence. A final claim needs completed scored rows for every required
-method and baseline condition. Label pilots and diagnostics explicitly.
+- Use the single SciencePlots/Matplotlib data-figure path for quantitative paper
+  charts.
+- Use PPT Master, HTML/SVG, ECharts, Recharts, Vega, or FigureSpec for conceptual
+  and interactive-source figures when appropriate.
+- Use real measured values, correct units, conventional axes, readable labels,
+  and uncertainty when scientifically relevant.
+- Make the winning comparison and takeaway immediately visible.
+- For diagrams, preserve exact semantic geometry and prevent connector
+  penetration, overlap, clipping, and ambiguous direction.
 
-For compared rows verify compatible source, split/cohort, metric, evaluator,
-model/backend, and budget. Preserve failed/null outcomes in the canonical audit
-record unless the experimental plan gave a valid exclusion rule.
-
-## 2. Build one reproducible analysis program
-
-Prefer `paper/analysis/build_results.py` or an equivalent source-controlled
-pipeline. It must:
-
-- read canonical raw artifacts rather than hard-coded paper numbers;
-- normalize schemas and reject rows with missing/extra declared fields;
-- compute aggregates, uncertainty, significance tests, and failure slices;
-- derive ranking/winner names, caption values, and figure claim text from the
-  same analysis objects as the plotted marks; never hard-code an expected
-  method, ordering, or conclusion in a figure spec;
-- write deterministic tables and figure-source bundles;
-- regenerate every downstream result from a clean shell.
-
-When comparative ordering drives a paper claim and the generator is reusable or
-otherwise easy to get subtly wrong, prefer a small counterfactual regression:
-change only a copied fixture so one ordering reverses, then confirm the
-regenerated caption, claim metadata, table, and visual reverse consistently.
-This is risk-based engineering evidence, not a required project artifact or
-completion gate; Reviewer decides whether the current source/data/output bundle
-already provides enough confidence. Never mutate or exclude real experiment
-rows for this check.
-
-Use `Paper Chart Styling` for every data/metric/result chart. It is the single
-SciencePlots/Matplotlib data-figure path. For non-data figures, load the
-research-only `Research Visualization Router`; do not select a renderer from
-old image-2 wording.
-
-## 3. Produce canonical result artifacts
-
-As applicable:
-
-```text
-paper/artifacts/results_table.tsv
-paper/artifacts/main_results_matrix.tsv
-paper/artifacts/failure_taxonomy.tsv
-paper/artifacts/claims_evidence.tsv
-paper/artifacts/result_to_claim.tsv
-paper/CLAIM_GRAPH.json
-paper/EVIDENCE_GAPS.json
-paper/RESULTS_REPORT.md
-research/NARRATIVE_REPORT.md
-paper/figures/FIGURE_PROVENANCE.json
-```
-
-The main matrix should expose public source, evaluation unit, system/model,
-method/control, metric, budget/configuration, result, uncertainty, and raw
-artifact. Do not force a cross-benchmark matrix when the scientific design has a
-different natural evidence shape.
-
-Map every planned claim to `supported`, `weak`, `rejected`, `missing`, or
-`contradicted`. Missing evidence becomes a named experiment, ablation, or
-robustness slice — never an estimate. Downgrade a claim only when none of those
-is affordable, and record which one you could not run.
-
-For a selected idea, weak core evidence first triggers diagnosis and improvement,
-not paper writing. Audit whether the mechanism received a faithful implementation
-and competitive test, make concrete targeted repairs while they have credible
-information gain, and rerun the decisive comparison. Predeclare what the repair
-should change and preserve the earlier runs. Never manufacture improvement by
-changing labels, dropping seeds, switching headline metrics after inspection, or
-mining a favorable slice.
-
-Then select the publication thesis. The paper is not the evidence inventory or a
-chronological experiment report:
-
-- keep every claim-critical comparison that could change the thesis;
-- lead with the strongest valid evidence that establishes and explains the thesis;
-- keep misconfigured runs out of scientific conclusions;
-- move secondary dead ends and exhaustive diagnostics to internal artifacts or
-  an appendix when useful;
-- return to research/plan if no independently valuable thesis survives.
-
-For publishable/doctoral targets, write
-`paper/PUBLICATION_SCALE_ASSESSMENT.json` before drafting. Use official
-acceptance pages and full papers for recent same-area comparators, then compare
-the executed local evidence across models/systems, public sources, evaluation
-units, repeats or proof obligations, strongest comparisons, and
-uncertainty/formal guarantees. These dimensions calibrate the claim; they are
-not universal numeric quotas. Mark `pilot_only` or `proxy_only` truthfully. If either is
-true, the paper needs a bigger run, not a smaller sentence: return to run/plan
-and get the evidence the claim deserves. Retitling, relabelling the result a
-boundary, or writing a fuller limitations section leaves the evidence exactly
-where it was.
-
-## 4. Route and build figures
-
-For every figure write a brief: claim, reader takeaway, role, canonical inputs,
-final physical size, uncertainty, editability, and forbidden invention.
-
-Before analysis handoff, render the paper's Figure 1 teaser/framework overview.
-For a method or system paper it should show the problem/input, the load-bearing
-mechanism or architecture, and the output/evidence path. For a theory or survey
-paper use an explanatory geometry, taxonomy, or conceptual map. Preserve an
-editable source and export a real SVG/PDF/PNG that the draft embeds. A LaTeX
-table, boxed paragraph, or `\rule` bar display inside a `figure` environment is
-not Figure 1. If no image route exists, deterministic rendering is mandatory, not a blocker:
-use the LiveFigure-style procedural native-PPTX route through PPT Master.
-Run the `Paper Framework Figure Studio` S0-S7 workflow before authoring the
-native source; the Router alone is not a design brief.
-
-Then use `Research Visualization Router`:
-
-- data/result charts use SciencePlots through `Paper Chart Styling`; generate
-  them from canonical local data and export PDF/SVG/PNG from the same script;
-- do not hand-author SVG primitives for data plots or route paper data figures
-  through Vega/ECharts/Recharts/Plotly/HTML as an aesthetic fallback;
-- conceptual, method, architecture, teaser, and graphical-abstract figures use
-  the LiveFigure-style default: semantic contract, exemplar retrieval, two
-  layout plans, procedural native PPTX, rendered critic, bounded source repair,
-  and PDF/SVG/PNG export;
-- simple exact topology in a supporting figure may use FigureSpec,
-  Mermaid/Graphviz, or Draw.io only as a documented exception;
-- image-2 is optional and may provide a blueprint or non-claim-bearing asset,
-  never final scientific labels, arrows, numbers, or claim-bearing geometry.
-
-Do not use SciencePlots/Matplotlib for a non-data conceptual or method diagram
-merely because it is installed. It is the required statistical-chart route,
-not the universal fallback for paper graphics.
-
-Optionally record renderer/source metadata in `FIGURE_PROVENANCE.json` when it
-helps later repair. This metadata is not a paper-readiness gate. Image-2 outputs
-may additionally retain `IMAGE2_FIGURES.json`.
-
-Each figure needs a stable ID/filename, claim binding, source/input paths and versions,
-renderer, regeneration command, dimensions, review artifact, caption plan,
-LaTeX label, and in-text reference plan.
-
-Before handoff, Reviewer should inspect the actual rendered figure at its final
-physical size when the available tools support it; reading SVG/HTML/TikZ source
-alone is weak visual evidence. Reuse the paper's normal render/layout review
-rather than creating a separate mandatory review artifact. Integration means
-the current paper or bounded report actually embeds/references the accepted
-figure with its caption and body callout, not merely lists the output path in an
-inventory table.
-
-## 5. Statistical and visual discipline
-
-- For repeated runs, report mean and dispersion and name the sampling-noise
-  question the repeats answer. Their existence is not implementation evidence:
-  repeats cannot catch wrong code, broken controls, or claim-code mismatch.
-- Use tests appropriate to the design; otherwise mark significance N/A.
-- Keep units and axis scales explicit; never truncate or transform silently.
-- Use colorblind-safe redundant encoding and inspect at final single/double
-  column size.
-- Keep body figures purposeful; move low-value diagnostics to the appendix.
-- A figure may simplify presentation, never alter scientific meaning.
-- Every completed optimizer-step training run cited in analysis retains its own
-  reward/loss/gradient/KL/entropy/throughput curves from that run's logs.
-
-## 6. Write the result and narrative handoff
-
-`paper/RESULTS_REPORT.md` states:
-
-- what the data supports, weakens, rejects, or leaves unresolved;
-- headline values with canonical source paths;
-- uncertainty, significance, ablations, failures, and boundary conditions;
-- where the method loses or trades one metric for another, without spin;
-- exact missing evidence and claim wording changes.
-
-`research/NARRATIVE_REPORT.md` carries problem framing, literature gap,
-one-sentence thesis, supported/rejected claims, strongest accept/reject arguments,
-limitations, and the intended figure/table inventory. It must not present a
-method as the contribution while making that method's failure the main message
-unless a separate, compelling insight supports that framing. Organize the
-manuscript evidence by the questions needed to prove the thesis, not by run order
-or by everything the project tried. Internal paths,
-commands, GPU/cache details, route names, hashes, and daemon mechanics stay in
-provenance artifacts—not manuscript prose.
-
-## 7. Verify
-
-Run the analysis from a clean shell. Confirm every table and figure exists and
-is current against the claim graph and manuscript.
-Only then advance analysis/narrative state in `.argus/PIPELINE_STATE.json`.
+Embed every claim-bearing table and figure in `paper/main.tex`. Final
+scientific, visual, and language acceptance happens together in Review.

@@ -85,6 +85,15 @@ class MemoryBackend:
         bucket = self._queues.setdefault(run_label, [])
         bucket.extend(responses)
 
+    def fork(self) -> "MemoryBackend":
+        """Create an independent handle over the same scripted queues and history."""
+        return MemoryBackend(
+            default=self.default,
+            _queues=self._queues,
+            history=self.history,
+            resume_history=self.resume_history,
+        )
+
     def run_exec(
         self,
         *,

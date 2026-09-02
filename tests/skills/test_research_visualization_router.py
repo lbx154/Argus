@@ -28,25 +28,24 @@ def test_research_vertical_bundles_visual_router_and_renderer() -> None:
     front, body = _front_and_body(texts["engineer/research-visualization-router.md"])
     assert set(front) == {"name", "description"}
     assert front["name"] == "Research Visualization Router"
-    assert "FIGURE_PROVENANCE.json" in body
     assert "image-2" in body
-    assert "ECharts" in body
-    assert "Recharts" in body
     assert "PPT Master" in body
     assert "Paper Framework Figure Studio" in body
+    assert "manifest" not in body.lower()
+    assert "hash" not in body.lower()
     assert "engineer/paper-framework-figure-studio.md" in texts
     assert "engineer/research_visual_scripts/browser_render.py" in texts
 
 
-def test_router_makes_image2_capability_conditional() -> None:
+def test_router_keeps_image2_optional_and_non_semantic() -> None:
     texts = dict(iter_vertical_skill_texts("research"))
     _front, body = _front_and_body(texts["engineer/research-visualization-router.md"])
     content = body.lower()
     assert "when configured" in content
-    assert "unavailable image route is\nnot a project blocker" in content
-    assert "never fake image-2 provenance" in content
-    assert "--ppt-master-status" in content
-    assert "independent of model api status" in content
+    assert "non-claim-bearing" in content
+    image2 = texts["engineer/paper-illustration-image2.md"].lower()
+    assert "absence never blocks the paper" in image2
+    assert "registration files" in image2
 
 
 def test_router_requires_real_deterministic_figure1_fallback() -> None:
@@ -56,20 +55,16 @@ def test_router_requires_real_deterministic_figure1_fallback() -> None:
 
     assert "figure 1 is a paper deliverable" in content
     assert "ppt master" in content
-    assert "browser-rendered html" in content
-    assert "hand-authoring raw svg is not on this table" in content
-    assert "a latex table" in content
+    assert "browser svg" in content
+    assert "boxed\nparagraph or table" in content
     assert "\\includegraphics" in body
     studio = texts["engineer/paper-framework-figure-studio.md"]
-    assert "S0" in studio and "S7" in studio
-    assert "Renderer-neutral design system" in studio
-    assert "edge ledger" in studio
-    assert "explicit node-boundary ports" in studio
-    assert "no shaft or arrowhead may enter a node fill" in studio
-    assert "aligned non-overlapping A/B/C panels" in studio
-    assert "approximately 8 pt" in studio
+    assert "source, target, direction, boundary port" in studio
+    assert "connectors terminate at explicit node boundaries" in studio
+    assert "no shaft or arrowhead enters an unrelated node" in studio
+    assert "actual single- or double-column size" in studio
     assert "PPT Master" in studio
-    assert "image-2 only when configured" in studio
+    assert "Strict page-by-page visual acceptance happens once, in Review" in studio
 
 
 def test_results_figures_keep_claim_checks_agent_owned_and_risk_based() -> None:
@@ -144,9 +139,8 @@ def test_figure_one_prioritizes_exact_topology_over_decorative_richness() -> Non
 
     assert "exact load-bearing topology" in router
     assert "topology fidelity takes priority over decorative richness" in normalized
-    assert "figure 1 must pass the full studio design" in normalized
-    assert "publication polish does not require depth, icons" in normalized
-    assert "foreign-node penetration" in router
+    assert "polished figure 1 does not need depth, icons" in normalized
+    assert "connector penetration" in router
     for path in (
         "agent-md-new-project-template.md",
         "agent-md-existing-project-optimization-template.md",
@@ -156,21 +150,17 @@ def test_figure_one_prioritizes_exact_topology_over_decorative_richness() -> Non
         assert "overlapping slabs" not in template
         assert "overlapping phase tabs" not in template
         assert "Semantic geometry:" in template
-    assert "simple exact topology in a supporting figure" in router
+    assert "figurespec" in router
 
 
-def test_concept_figures_default_to_livefigure_style_native_pptx() -> None:
+def test_concept_figures_leave_strict_acceptance_to_review() -> None:
     texts = dict(iter_vertical_skill_texts("research"))
     router = texts["engineer/research-visualization-router.md"]
     studio = texts["engineer/paper-framework-figure-studio.md"]
-    normalized_studio = " ".join(studio.split())
 
-    assert "LiveFigure-style conceptual-figure contract" in router
-    assert "procedural editable PPTX generation with native objects" in router
-    assert "A full-slide screenshot inside a PPTX is a failure" in router
-    assert "pure white `#ffffff` paper canvas by default" in router
-    assert "stop after three" in router
-    assert "Retrieve exemplars and explore layout directions" in studio
-    assert "Generate procedural native PPTX" in studio
-    assert "at most three source-level repair rounds" in normalized_studio
-    assert "Simple exact topology in a supporting figure" in router
+    assert "editable native PPTX through PPT Master" in router
+    assert "source and final included export" in router
+    assert "not a separate visual gate" in router
+    assert "Create only the editable figure source and the final" in studio
+    assert "Strict page-by-page visual acceptance happens once, in Review" in studio
+    assert "visual-review\nfiles" in studio

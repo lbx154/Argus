@@ -122,9 +122,9 @@ For each of the top results:
 
 ## Integration
 
-- Called by `auto-research-pipeline` during literature stage
+- Used for source-only Idea review or claim-critical citation research
 - Feeds into `novelty-check` for prior work identification
-- Results referenced by `emnlp-paper-drafting` for related work section
+- Results support the selected venue's paper drafting and related-work section
 - Complements web search for comprehensive literature coverage
 
 ## Optional Wiki retention

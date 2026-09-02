@@ -2305,6 +2305,31 @@ def test_build_agent_cli_backend_from_env_uses_env(monkeypatch):
     assert backend._default_watchdog_hard_idle_seconds == 900
 
 
+def test_fork_creates_independent_runner_with_same_usage_context(tmp_path: Path) -> None:
+    backend = AgentCliBackend(
+        backend="copilot",
+        runner_bin="/bin/echo",
+        default_extra_args=["--trace"],
+        default_watchdog_soft_idle_seconds=11,
+        default_watchdog_stalled_idle_seconds=22,
+        default_watchdog_hard_idle_seconds=33,
+    )
+    backend.set_usage_context(
+        project_root=tmp_path / "project",
+        global_root=tmp_path,
+        mission_id="review",
+    )
+
+    forked = backend.fork()
+
+    assert forked is not backend
+    assert forked._runner is not backend._runner
+    assert forked._runner.agent_bin == backend._runner.agent_bin
+    assert forked._runner.default_extra_args == ["--trace"]
+    assert forked._usage_context_snapshot() == backend._usage_context_snapshot()
+    forked.close_acp_clients()
+
+
 def test_build_agent_cli_backend_from_env_strips_legacy_auto_max_profile(
     monkeypatch,
 ):

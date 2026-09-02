@@ -9,16 +9,19 @@ Read project-root `HANDOFF.md` and `paper/main.tex`. Verify the selected venue's
 current official rules directly when they matter; no separate venue profile is
 required.
 
-Load only the skill needed for the concrete Paper task:
+Load only the skill needed to create the complete draft:
 
-- first manuscript or major argument rewrite: the applicable venue drafting skill;
-- unsupported claims or citations: claim/citation checking;
+- first manuscript or major argument rewrite: `venue-paper-drafting.md`;
 - tables and figures: results-analysis or visualization skill;
-- page, template, reference, or LaTeX defects: venue format preflight;
-- reader-facing revision: paper review revision loop.
+- compilation and venue structure: `venue-format-preflight.md`.
 
 Paper is thesis-driven and persuasive. Lead with the contribution and strongest
 supported win, not experiment chronology, defensive caveats, or process
-compliance. Before Paper completes, replace `HANDOFF.md` completely with a
-compact `# HANDOFF — PAPER` handoff. Keep it as the sole upstream handoff and
-do not append or create parallel reports to explain the manuscript.
+compliance. Include all intended experiments, figures, tables, citations, and
+venue-required sections, and produce a readable rendered paper. Do not run a
+separate visual gate, academic-language gate, or complete-paper review in Paper;
+those happen together in Review.
+
+Before Paper completes, replace `HANDOFF.md` completely with a compact
+`# HANDOFF — PAPER` handoff. Keep it as the sole upstream handoff and do not
+append or create parallel reports to explain the manuscript.

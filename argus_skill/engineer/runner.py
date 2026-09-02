@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
@@ -201,6 +202,85 @@ class SupervisedEngineer(
             ),
             mission_context_path=supervised_config.context_packet_path,
         )
+        from ..reviewer._core import (
+            _parallel_final_review_passes,
+            _persist_research_review,
+        )
+
+        reviewer_runner = getattr(self.reviewer, "runner", None)
+        preliminary_review = (
+            _parallel_final_review_passes(
+                reviewer_runner,
+                replace(
+                    self.reviewer_config,
+                    working_dir=str(workdir),
+                    artifact_root=str(workdir),
+                ),
+            )
+            if reviewer_runner is not None
+            else None
+        )
+        if preliminary_review is not None:
+            if preliminary_review.status == "blocked":
+                from ..core.stop_kinds import pause_status_for_stop_kind
+
+                if on_event is not None:
+                    on_event(
+                        _review_event_payload(
+                            preliminary_review,
+                            round_index=0,
+                            round_max=supervised_config.max_rounds,
+                            text=preliminary_review.reason,
+                        )
+                    )
+                state.rounds.append(
+                    RoundRecord(
+                        round_index=0,
+                        engineer_message="",
+                        engineer_exit_code=0,
+                        review=preliminary_review,
+                        fatal_error=preliminary_review.backend_fatal_error or None,
+                        stop_kind=preliminary_review.backend_stop_kind,
+                    )
+                )
+                status = (
+                    "aborted"
+                    if preliminary_review.backend_stop_kind == "operator_abort"
+                    else (
+                        pause_status_for_stop_kind(
+                            preliminary_review.backend_stop_kind
+                        )
+                        or "error"
+                    )
+                )
+                return enforce_terminal_question_policy(
+                    (
+                        status,
+                        state.rounds,
+                        state.last_engineer_message,
+                        preliminary_review.reason,
+                        preliminary_review.thread_id,
+                    ),
+                    supervised_config,
+                )
+            _persist_research_review(
+                preliminary_review,
+                replace(
+                    self.reviewer_config,
+                    working_dir=str(workdir),
+                    artifact_root=str(workdir),
+                ),
+            )
+            state.reviewer_next_action = preliminary_review.next_action
+            if on_event is not None:
+                on_event(
+                    _review_event_payload(
+                        preliminary_review,
+                        round_index=0,
+                        round_max=supervised_config.max_rounds,
+                        text=preliminary_review.reason,
+                    )
+                )
         round_indices = (
             itertools.count(1)
             if supervised_config.max_rounds <= 0

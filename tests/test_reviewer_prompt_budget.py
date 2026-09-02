@@ -236,7 +236,7 @@ def test_bounded_review_stage_checklist_stays_compact(
     assert "bounded mission" in prompt
     assert "only the checklist items materially touched by this mission" in prompt
     assert "review.scope" in prompt
-    assert "review.quality" in prompt
+    assert "review.visual" in prompt
 
 
 def test_reviewer_does_not_duplicate_identical_objective(monkeypatch):

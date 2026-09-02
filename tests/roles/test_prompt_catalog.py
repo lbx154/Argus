@@ -322,10 +322,14 @@ def test_research_final_review_uses_only_review_stage_checklist(
 
     assert context.scope == "final_submission"
     assert context.paper_mission is True
-    assert "## Independent paper review" in context.role_banner
+    assert "## Integrated final paper review" in context.role_banner
+    assert "Scientific:" in context.role_banner
+    assert "Visual:" in context.role_banner
+    assert "Language:" in context.role_banner
+    assert "inspect every rendered page" in context.role_banner
     assert "Do not load HANDOFF.md" in context.role_banner
     assert "Overwrite `paper/REVIEW.md`" in context.role_banner
-    assert "Do not create a JSON copy" in context.role_banner
+    assert "Do not create another review file" in context.role_banner
     assert context.stage_checklist == format_stage_checklist(
         "review",
         role="reviewer",

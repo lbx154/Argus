@@ -28,6 +28,246 @@ from ._parsing import _find_decision_in_messages, decision_from_payload
 log = logging.getLogger(__name__)
 
 
+def _parallel_final_review_passes(
+    runner: RunnerBackend,
+    config: "ReviewerConfig",
+) -> ReviewDecision | None:
+    """Run the three initial final-paper inspections on one immutable draft."""
+    workdir = Path(config.artifact_root or config.working_dir or ".").resolve()
+    state_root = Path(config.vertical_state_root or workdir).resolve()
+    vertical = str(config.active_vertical or "").strip().lower()
+    if not vertical:
+        from ..skills.vertical_select import resolve_vertical
+
+        vertical = resolve_vertical(state_root)
+    if vertical != "research":
+        return None
+    from ..core.pipeline_state import read_pipeline_state
+    from ..skills.stage_machine import current_stage
+
+    verdict = str(read_pipeline_state(state_root).get("current_verdict") or "")
+    if (
+        current_stage(state_root) != "review"
+        or verdict not in {"", "in_progress", "mapped_stage_requires_current_review"}
+    ):
+        return None
+
+    common = (
+        "Read the current paper in read-only mode. Do not edit files. Start from "
+        "paper/main.tex and its rendered output, then follow only direct references "
+        "needed for this assigned pass. Return a concise pass/fail assessment with "
+        "specific blocking findings and repairs."
+    )
+    prompts = {
+        "Scientific": (
+            common
+            + " Check the complete thesis, novelty, claim-to-code fidelity, positive "
+            "controls, strongest same-information baselines, evidence, citations, and "
+            "whether every necessary experiment and section is present."
+        ),
+        "Visual": (
+            common
+            + " Inspect every rendered page and every included figure and table at "
+            "publication scale. Reject visible overlap, clipping, overflow, connector "
+            "penetration, wrong arrows, unreadable labels, malformed tables, misleading "
+            "plots, abnormal whitespace, broken float placement, or inconsistent "
+            "typography."
+        ),
+        "Language": (
+            common
+            + " Check academic language and argument flow. Identify exact revisions for "
+            "confident, precise prose without defensive boilerplate, experiment chronology, "
+            "internal workflow language, repeated caveats, or integrity self-praise."
+        ),
+    }
+
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    fork = getattr(runner, "fork", None)
+    if not callable(fork):
+        return ReviewDecision(
+            status="blocked",
+            reason="The reviewer backend cannot create independent parallel calls.",
+            next_action="Use a reviewer backend that supports independent calls.",
+            backend_unavailable=True,
+            backend_stop_kind="backend_unavailable",
+        )
+    from ..adapters.agent_cli_backend import AgentCliBackend
+
+    if isinstance(runner, AgentCliBackend):
+        interrupt_lock = threading.Lock()
+        interrupt_reason = ""
+        source_interrupt = runner._default_interrupt_reason_provider
+
+        def shared_interrupt() -> str | None:
+            nonlocal interrupt_reason
+            with interrupt_lock:
+                if not interrupt_reason and source_interrupt is not None:
+                    interrupt_reason = str(source_interrupt() or "")
+                return interrupt_reason or None
+
+        pass_runners = {
+            label: fork(interrupt_reason_provider=shared_interrupt)
+            for label in prompts
+        }
+    else:
+        pass_runners = {label: fork() for label in prompts}
+    if (
+        any(backend is runner for backend in pass_runners.values())
+        or len({id(backend) for backend in pass_runners.values()}) != len(prompts)
+    ):
+        return ReviewDecision(
+            status="blocked",
+            reason="The reviewer backend returned shared instances for parallel calls.",
+            next_action="Use a reviewer backend that supports independent calls.",
+            backend_unavailable=True,
+            backend_stop_kind="backend_unavailable",
+        )
+
+    def inspect(label: str) -> Any:
+        return gateway_run_exec(
+            pass_runners[label],
+            prompt=prompts[label],
+            options=RunnerOptions(
+                model=config.model,
+                reasoning_effort=config.reasoning_effort,
+                dangerous_yolo=False,
+                full_auto=False,
+                sandbox_mode="read-only",
+                force_safe_mode=True,
+                skip_git_repo_check=config.skip_git_repo_check,
+                extra_args=list(config.extra_args) if config.extra_args else None,
+                working_dir=str(workdir),
+            ),
+            run_label=f"reviewer-{label.lower()}",
+        )
+
+    created_runners = [
+        backend
+        for backend in pass_runners.values()
+        if backend is not runner
+    ]
+    try:
+        with ThreadPoolExecutor(
+            max_workers=3,
+            thread_name_prefix="argus-final-review",
+        ) as pool:
+            futures = {
+                label: pool.submit(inspect, label)
+                for label in prompts
+            }
+            results = {}
+            errors = {}
+            for label in prompts:
+                try:
+                    results[label] = futures[label].result()
+                except Exception as exc:  # provider boundary
+                    errors[label] = exc
+    finally:
+        for backend in created_runners:
+            close = getattr(backend, "close_acp_clients", None)
+            if callable(close):
+                close()
+
+    usage = {
+        field: sum(int(getattr(result, field, 0) or 0) for result in results.values())
+        for field in (
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+        )
+    }
+    premium_requests = sum(
+        float(getattr(result, "premium_requests", 0.0) or 0.0)
+        for result in results.values()
+    )
+    stop_priority = {
+        "operator_abort": 0,
+        "operator_pause": 1,
+        "daemon_shutdown": 2,
+        "budget_exhausted": 3,
+        "provider_cooldown": 4,
+        "provider_fence": 5,
+        "permanent_error": 6,
+        "transient_error": 7,
+        "backend_unavailable": 8,
+    }
+    failures: list[tuple[int, str, str, str, int | None, str]] = []
+    for label, error in errors.items():
+        stop_kind = normalize_stop_kind(getattr(error, "stop_kind", None))
+        if stop_kind is None and getattr(error, "login_required", False):
+            stop_kind = "permanent_error"
+        stop_kind = stop_kind or "backend_unavailable"
+        failures.append((
+            stop_priority[stop_kind],
+            label,
+            stop_kind,
+            str(error),
+            None,
+            f"{label} review provider raised {type(error).__name__}: {error}",
+        ))
+    for label, result in results.items():
+        fatal = str(getattr(result, "fatal_error", "") or "").strip()
+        exit_code = int(getattr(result, "exit_code", 0) or 0)
+        if not fatal and exit_code == 0:
+            continue
+        stop_kind = (
+            normalize_stop_kind(getattr(result, "stop_kind", None))
+            or "backend_unavailable"
+        )
+        failures.append((
+            stop_priority[stop_kind],
+            label,
+            stop_kind,
+            fatal,
+            exit_code,
+            (
+                f"{label} review failed before producing an assessment"
+                + (f": {fatal}" if fatal else f" (exit={exit_code})")
+            ),
+        ))
+    if failures:
+        _, _, stop_kind, fatal, exit_code, reason = min(failures)
+        return ReviewDecision(
+            status="blocked",
+            reason=reason,
+            next_action="Resolve the failed review provider call before retrying.",
+            backend_unavailable=True,
+            backend_fatal_error=fatal,
+            backend_exit_code=exit_code,
+            backend_stop_kind=stop_kind,
+            premium_requests=premium_requests,
+            **usage,
+        )
+    findings = {
+        label: "\n".join(results[label].agent_messages or []).strip()
+        for label in prompts
+    }
+    empty = next((label for label, text in findings.items() if not text), "")
+    if empty:
+        return ReviewDecision(
+            status="blocked",
+            reason=f"{empty} review returned no assessment",
+            next_action="Retry the missing read-only review pass.",
+            backend_unavailable=True,
+            backend_stop_kind="backend_unavailable",
+            premium_requests=premium_requests,
+            **usage,
+        )
+    return ReviewDecision(
+        status="continue",
+        reason="\n\n".join(f"{label}: {findings[label]}" for label in prompts),
+        next_action=(
+            "Apply the scientific, visual, and language findings to the paper, "
+            "recompile it, then request the integrated final review."
+        ),
+        premium_requests=premium_requests,
+        **usage,
+    )
+
+
 def _persist_research_review(
     decision: ReviewDecision,
     config: "ReviewerConfig",
@@ -65,6 +305,8 @@ def _persist_research_review(
     text = (
         "# Authoritative review\n\n"
         f"**Verdict:** {decision.status}\n\n"
+        "## Scientific, visual, and language assessment\n"
+        f"{decision.reason or 'Not assessed.'}\n\n"
         "## Strongest accept case\n"
         f"{accept_case or 'No accept case was established.'}\n\n"
         "## Reject-level issues\n"

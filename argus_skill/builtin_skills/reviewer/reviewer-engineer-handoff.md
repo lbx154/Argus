@@ -48,5 +48,4 @@ When validation concerns an auto-research paper:
 - Request at most one targeted visual repair for an aesthetic issue. Further
   regeneration requires a concrete remaining defect such as unreadable text,
   wrong content, broken rendering, or severe visual mismatch.
-- Use optional renderer metadata only to help the Engineer find the source. Its
-  absence or hash drift is not itself a Reviewer blocker.
+- Point the Engineer to the editable source and visible defect.

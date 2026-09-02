@@ -42,36 +42,6 @@ pattern-match a single noisy log line.
   correction — the idea is NOT recorded dead. Only after one fair run still
   loses is `method_failure` justified.
 
-## 🔒 Pre-launch RUN CONTRACT + feasibility packet (make the above mechanical)
-
-The diversity / non-saturation preconditions above are exactly what kept getting
-discovered *after* a multi-hour full run, by which point a step-555 run is
-cancelled. Make them a **provenance gate the launcher cannot skip**, via
-`argus_skill.skills.run_contract`:
-
-1. **Freeze the contract at plan stage** — the single source of truth for the
-   locked knobs (model, LR, group size / `num_generations`, total steps, batch,
-   and the curriculum's content hash + distinct-task count + seed):
-   `python -m argus_skill.skills.run_contract freeze --project-root . --model <instruct-id> --lr <lr> --group-size <g> --total-steps <n> --batch-size <b> --curriculum <admitted_slice.json> --seed <s> --scale full`.
-   It writes `research/RUN_CONTRACT.json` with a `contract_hash`.
-2. **Probe the EXACT curriculum the full run will consume** (same admitted slice,
-   post-decontamination, with the real repetition factor) for a short run, then
-   build the packet:
-   `python -m argus_skill.skills.run_contract build-packet --project-root . --run-dir <probe_run> --curriculum <admitted_slice.json> --total-steps <n> --batch-size <b> --group-size <g> --out research/FEASIBILITY_PACKET.json`.
-   The packet records distinct-task-vs-rollout-volume diversity and the probe's
-   reward/advantage stats. If the curriculum saturates or is too repeated, FIX
-   the curriculum now — do not launch.
-3. **Launch full runs citing the contract + packet + curriculum hash.** The
-   `subagent` pre-launch interlock REFUSES a `scale=full` RL launch that drifts
-   from the contract (LR / group size / steps / curriculum) or lacks a valid
-   packet. Pass `--run-contract research/RUN_CONTRACT.json --feasibility-packet
-   research/FEASIBILITY_PACKET.json --curriculum-hash <hash>` (the launcher must
-   compute the hash of the materialised curriculum). Dry-check first with
-   `python -m argus_skill.skills.run_contract check-launch ...`.
-
-A run that is intentionally a tiny/memorisation/wiring probe sets `smoke_only`
-in the packet and must NOT be cited as general-learning evidence.
-
 ## When NOT to use
 
 Plain SFT / supervised fine-tuning loss debugging, generic offline benchmark or
@@ -91,36 +61,10 @@ the policy stops moving. So the deepest collapse signature is not "bad numbers"
 — it is **the learning signal going to zero or going degenerate**. Map what you
 see to one of the families below.
 
-## The harness pre-computes these signals for you (advisory)
+## Keep long runs observable
 
-You do not have to scrape the raw logs by hand. At the `run` and `analysis`
-stages the harness runs an **advisory** gate, `rl_training_health`, that reads
-each live/completed optimizer run's own `verl_metrics.jsonl` /
-`progress.jsonl` / `reward_trace.jsonl` and prints the collapse-relevant
-numbers over the tail window into your review context: advantage span,
-grad-norm, reward ceiling/floor hits, entropy trend, and training-set
-diversity (unique `task_id` count vs rollout rows). It emits neutral signal
-tokens — `zero_advantage`, `near_zero_grad_norm`, `reward_ceiling_saturation`,
-`reward_floor_stuck`, `entropy_declining`, `low_task_diversity`,
-`variance_metric_masks_saturation`, `kl_blowup_candidate`, `nan_or_inf_metric`
-— that map onto the signatures below.
-
-That gate is a **fact extractor, not the authority**: it never blocks and
-never rules. The authority is this skill plus your judgment. Read its numbers,
-apply the transient-vs-sustained test below, and decide continue vs concern. A
-`low_task_diversity` + `reward_ceiling_saturation` pair, for instance, is the
-fingerprint of memorising a tiny admitted-id set — confirm it against the
-`unique_task_ids` line before you trust a high reward.
-
-## Mandatory: emit a live training-curve plot (every RL run)
-
-**Hard requirement — every RL optimizer-step run MUST produce a training-curve
-plot so the run is visually monitorable; a completed run with no curve is not
-citable evidence.** The harness enforces this: `rl_training_plots` is advisory
-at the `run` stage and **structural (blocking) at the `analysis` stage**, so an
-unplotted completed optimizer run cannot be carried into analysis.
-
-Contract the runner must satisfy:
+For a claim-bearing optimizer run, keep a live training curve under the run
+directory so collapse can be diagnosed while the job is active:
 
 - Write/refresh a curve image into **`<run_dir>/plots/training_curve.png`**
   (`.pdf`/`.svg` also accepted; the filename must contain a curve token such
@@ -129,16 +73,13 @@ Contract the runner must satisfy:
   run's own `progress.jsonl` / `verl_metrics.jsonl`: at minimum
   `reward_mean` (+ `reward_std`/`frac_reward_zero_std`), `pg_loss`,
   `grad_norm`, `kl`, `entropy`, and `throughput`.
-- **Refresh it live** during training (e.g. every N optimizer steps from the
-  monitoring loop) and write a final version at completion — do not defer all
-  plotting to the analysis stage. Live curves are how you (and the operator)
-  judge continue-vs-raise-concern in real time.
+- Refresh it during training and write a final version at completion. Live
+  curves are how you and the operator judge continue versus concern.
 - Keep it a thin wrapper over the framework's own logger output; do not
   hand-roll a training loop to produce it.
 
-This plot is infrastructure, not a paper figure — it lives under the run dir
-and is part of run-stage evidence. Paper-facing figures are still produced
-separately by the results-analysis-and-figures skill.
+This plot is direct run output, not a paper figure. Paper-facing figures are
+produced separately.
 
 ## Collapse signatures
 

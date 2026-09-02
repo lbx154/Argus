@@ -110,7 +110,10 @@ def test_research_data_figures_have_one_renderer_path() -> None:
     assert "SciencePlots is mandatory for this route" in normalized_chart
     assert "single SciencePlots/Matplotlib data-figure path" in normalized_analysis
     assert "Any paper data/metric/result chart" in normalized_router
-    assert "keep the LiveFigure-style conceptual-figure route" in normalized_router
+    assert (
+        "Conceptual, method, architecture, or teaser figure | "
+        "Paper Framework Figure Studio"
+    ) in normalized_router
 
 
 def test_highlight_ours_bars_emphasises_ours_and_greys_baselines() -> None:

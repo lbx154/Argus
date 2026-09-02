@@ -22,7 +22,11 @@ from .models import RunnerOptions, RunnerResult
 # ---------------------------------------------------------------------------
 
 class RunnerBackend(Protocol):
-    """One LLM-CLI invocation. Both engineer and reviewer call this."""
+    """One LLM-CLI invocation with independent handles for parallel review."""
+
+    def fork(self) -> "RunnerBackend":
+        """Create an independent execution handle with the same configuration."""
+        ...
 
     def run_exec(
         self,

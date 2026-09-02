@@ -66,7 +66,7 @@ def test_every_builtin_skill_has_frontmatter() -> None:
 @pytest.mark.parametrize(
     "skill_path,expected_name",
     [
-        ("engineer/citation-audit.md", "Citation Audit"),
+        ("engineer/citation-audit.md", "Citation Verification"),
         ("engineer/claims-evidence-audit.md", "Claim Check"),
         ("engineer/figure-spec.md", "Figure Spec (deterministic SVG)"),
     ],

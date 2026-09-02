@@ -69,11 +69,19 @@ _RESEARCH_MOVE_MARKER = json.loads(
     ).read_text(encoding="utf-8")
 )
 RESEARCH_MOVED_SKILLS = set(
-    _RESEARCH_MOVE_MARKER.get("paths", ())
-    if isinstance(_RESEARCH_MOVE_MARKER, dict)
-    else _RESEARCH_MOVE_MARKER
+    path
+    for path in (
+        _RESEARCH_MOVE_MARKER.get("paths", ())
+        if isinstance(_RESEARCH_MOVE_MARKER, dict)
+        else _RESEARCH_MOVE_MARKER
+    )
+    if (vertical_skill_source_path("research") / path).is_file()
 )
-RESEARCH_SKILLS = RESEARCH_BASE_SKILLS | RESEARCH_MOVED_SKILLS
+RESEARCH_SKILLS = RESEARCH_BASE_SKILLS | RESEARCH_MOVED_SKILLS | {
+    "engineer/venue-paper-drafting.md",
+    "engineer/venue-format-preflight.md",
+    "reviewer/venue-academic-language-review.md",
+}
 
 
 def test_iter_vertical_skill_texts_quant() -> None:

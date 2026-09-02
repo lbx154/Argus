@@ -199,6 +199,12 @@ class _ScriptedPlannerBackend:
             time.sleep(delay)
         return payload
 
+    def fork(self) -> "_ScriptedPlannerBackend":
+        backend = object.__new__(type(self))
+        backend._planner = self._planner
+        backend._critic = self._critic
+        return backend
+
     def run_exec(
         self,
         *,

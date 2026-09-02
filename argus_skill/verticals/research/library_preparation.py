@@ -7,7 +7,6 @@ _STAGE_SKILLS: dict[str, tuple[str, ...]] = {
     "build": ("engineer/auto-research-pipeline.md",),
     "experiment": ("engineer/research-experiment-runner.md",),
     "paper": ("engineer/venue-paper-skill-router.md",),
-    "review": ("engineer/final-paper-review.md",),
 }
 
 
@@ -33,6 +32,8 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         state_root=context.state_root,
     )
     context.required_skill_paths.extend(_STAGE_SKILLS.get(context.stage, ()))
+    if context.stage == "review" and not context.team_task_id:
+        context.required_skill_paths.append("engineer/final-paper-review.md")
 
     if context.stage != "idea":
         return

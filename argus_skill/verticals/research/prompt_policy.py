@@ -50,22 +50,46 @@ def _active_context_block(stage: str, project_root: Path | None) -> str:
 
 def academic_paper_review_block() -> str:
     return (
-        "## Independent paper review\n"
+        "## Integrated final paper review\n"
         "Start with `paper/main.tex`, its rendered output, and `paper/REVIEW.md`. "
         "Follow only direct claim-critical references to executed code, explicit "
-        "configuration, raw rows, the real evaluator, and primary sources. Judge novelty, "
-        "correctness, strong same-information baselines, positive controls, evidence "
-        "scale, citations, figures/tables, venue compliance, and rendered layout. Do not "
-        "load HANDOFF.md or recursively crawl old reports or history. Independently reject "
-        "a weak idea, broken realization, stale baseline, unsupported claim, or invalid "
-        "paper even when Engineer is confident. Keep repairs in Review; never reopen "
-        "selection or move backward. Overwrite `paper/REVIEW.md` only with the strongest "
-        "accept case, reject-level issues, verdict, and next action. Do not create a JSON "
-        "copy or review history."
+        "configuration, raw rows, the real evaluator, and primary sources. Confirm that "
+        "the three preliminary passes inspected the same pre-repair paper, then "
+        "independently reassess the repaired current version across all three dimensions.\n\n"
+        "Scientific: judge novelty, correctness, claim-to-code fidelity, positive controls, "
+        "strong same-information baselines, evidence scale, citations, and complete support "
+        "for the thesis.\n"
+        "Visual: inspect every rendered page and every included figure and table at "
+        "publication scale. Reject visible overlap, clipping, overflow, connector "
+        "penetration, wrong arrows, unreadable labels, malformed tables, misleading plots, "
+        "abnormal whitespace, broken float placement, or inconsistent typography.\n"
+        "Language: require confident, precise academic prose with a coherent argument. "
+        "Reject defensive qualifier boilerplate, experiment chronology, internal workflow "
+        "language, repeated caveats, and integrity self-praise.\n\n"
+        "Check venue compliance and rendered layout across the complete source and paper. "
+        "Put all three results inside the verdict's `REASON=` value as "
+        "`Scientific: ... | Visual: ... | Language: ...`; do not leave them only in prose "
+        "before the verdict. Do not load HANDOFF.md or "
+        "recursively crawl old reports or history. Independently reject a weak idea, broken "
+        "realization, stale baseline, unsupported claim, or unfinished paper even when "
+        "Engineer is confident. Keep repairs in Review; never reopen selection or move "
+        "backward. Overwrite `paper/REVIEW.md` only with the strongest accept case, "
+        "reject-level issues, verdict, and next action. Do not create another review file "
+        "or review history."
     )
 
 
 def _planner_fragment(stage: str, project_root: Path | None) -> str:
+    review_sequence = ""
+    if stage == "review":
+        review_sequence = (
+            "## Final Review sequence\n"
+            "The Reviewer first runs scientific completeness, strict rendered visual "
+            "inspection, and academic-language review concurrently in read-only mode. "
+            "Schedule one Engineer task to apply their combined findings and recompile. "
+            "The next independent Reviewer performs integrated final acceptance. Write "
+            "only `paper/REVIEW.md` as the project review file."
+        )
     return "\n\n".join(
         block
         for block in (
@@ -79,6 +103,7 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
                 "`HANDOFF.md` completely with only the minimum context the next stage "
                 f"needs, starting with `# HANDOFF — {stage.upper()}`. Never append."
             ),
+            review_sequence,
             (
                 "## Paper entry and writing policy\n"
                 "Do not enter Paper until mechanism-relevant wins clearly exceed losses, "
@@ -109,7 +134,13 @@ def _engineer_fragment(stage: str, project_root: Path | None) -> str:
             "another handoff schema."
         )
     if stage == "review":
-        stage_policy = academic_paper_review_block()
+        stage_policy = (
+            "## Final Review execution\n"
+            "Read the scientific, visual, and language findings in `paper/REVIEW.md`. "
+            "Apply them to the real method, evidence, manuscript, figures, and tables as "
+            "needed, then recompile the complete paper. Hand the repaired paper to the "
+            "normal independent Reviewer for one integrated final decision."
+        )
     elif stage == "paper":
         stage_policy += (
             "\nWrite confidently around the central thesis and strongest supported win. "

@@ -55,11 +55,15 @@ beaten. Otherwise continue method work in Experiment.
 
 Write a thesis-driven, persuasive paper around the contribution and strongest
 supported result. Do not produce a negative-result report or experiment
-chronology. State real wins confidently and remove defensive qualifier
-boilerplate, compliance narration, and integrity self-praise.
+chronology. Paper produces a complete compilable draft with every intended
+experiment, figure, table, citation, and venue-required section. Final visual
+inspection, academic-language polishing, and whole-paper acceptance happen only
+in Review.
 
 ## Review
 
-An authoritative review overwrites `paper/REVIEW.md`. Repair reject-level issues
-inside Review. Do not create a JSON copy, review history, assurance packet, or
+Run scientific, strict visual, and academic-language passes in parallel on the
+same paper, repair their combined findings, recompile, and obtain one integrated
+independent decision. An authoritative review overwrites `paper/REVIEW.md`.
+Repair reject-level issues inside Review. Do not create another review file or
 request to move backward. Review is the terminal certified stage.

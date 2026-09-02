@@ -1,56 +1,22 @@
 ---
 name: "Paper Infrastructure Review"
-description: "Run the model-backed gate that rejects reader-facing local environment, device, cache, path, credential, and orchestration leaks in a research manuscript."
+description: "Read-only final check that the paper contains no private or internal implementation leakage."
 ---
 
-## Title
-Paper Infrastructure Review
+# Paper Infrastructure Review
 
-## Description
-Use this skill when a paper may contain local execution details that do not belong in reader-facing manuscript prose. The check is intentionally delegated to the reviewer model through `paper_infrastructure_review`; do not add ad hoc grep/regex filters for every possible device, cache, or route string.
+Use this only inside the final scientific or language Review. Read the current
+manuscript and rendered paper directly.
 
-## When to use
-- After editing Method, Experimental Setup, captions, tables, reproducibility appendix, or any configuration prose.
-- When validator output mentions `paper_infrastructure_*`, an infrastructure review generated before current sources, or final readiness is blocked by missing infrastructure review.
-- When the reviewer suspects environment, device, cache, local path, internal route, or paper-generation details entered the paper.
+Reject reader-facing content that exposes:
 
-## What to reject
-- Local hardware capacity, ordinals, and device placement such as GPU card numbers, `single local GPU`, local GPU/workstation/node labels, `cuda:6`, `CUDA_VISIBLE_DEVICES`, local device IDs, or node-specific execution notes.
-- Local software-environment descriptions that explain the authoring machine rather than the evaluated research system, including CUDA/driver/Python/conda/package tables, runtime environment blocks, or benchmark-machine notes when they are not needed as paper-facing method facts.
-- Local cache and filesystem configuration such as `HF_HOME`, `TRANSFORMERS_CACHE`, `TORCH_HOME`, `XDG_CACHE_HOME`, `/root/.cache`, `/root/...`, `/home/...`, or project-private paths.
-- Raw runner commands, script names, run IDs, virtual-environment paths, private output roots, or project-specific experiment directories rendered as the paper-facing reproducibility interface.
-- Operational audit-bundle metadata promoted into main-body scientific prose: wall-clock logging, artifact hashes, status snapshots, progress logs, STOP-file cancellation contracts, internal manifest mechanics, provenance-refresh workflow details, or validator/review artifact names. Keep these in appendix replay notes, manifests, logs, or supplementary metadata unless the paper explicitly studies that infrastructure.
-- Authoring infrastructure: daemon handoffs, internal role routes, capability-vault configuration, validation or review artifacts, image-tool plumbing, API keys, private endpoints, or authoring-model identifiers.
-- Any local config table that explains how the paper was generated rather than how the evaluated research system ran.
+- private paths, credentials, endpoints, device assignments, or caches;
+- internal role names, task IDs, stage names, validator names, or daemon details;
+- development logs, debugging narration, or local-only commands that do not
+  belong in a reproducible scientific description;
+- contradictory descriptions of the actual model, evaluator, data, or method.
 
-## What is allowed
-- Paper-facing evaluated system facts: model/backend names, benchmark harness, public dataset or benchmark version, task count/split, metric, decoding/budget setting, seed policy, and high-level compute cost when it is genuinely part of reproducibility and not a local machine or authoring-environment description.
-- Neutral replay descriptions in the appendix: public benchmark lane, seed policy, split, metric, paper-facing command alias, and concise artifact-type availability. Put exact local CLI strings, path-heavy run IDs, audit-bundle mechanics, hashes, status/progress internals, and STOP-file contracts in manifests/logs/supplementary metadata, not rendered main-body prose.
-- Local execution notes in non-rendered comments, manifests, logs, or operator traces. These can support the pipeline, but they must not be rendered in title, abstract, body, captions, tables, or appendix prose.
-
-## How to solve
-1. Read the relevant manuscript source:
-   - `paper/main.tex`
-   - any `\input{}`/`\include{}` section files
-   - figure/table captions and appendix prose
-2. Remove or rewrite leaks as reader-facing method facts:
-   - Replace local device/cache/path text with benchmark protocol, model/backend, metric, budget, and artifact availability.
-   - Replace raw local runner paths and run IDs with neutral paper-facing labels plus seeds, split, metric, and artifact types.
-   - Move wall-clock/hash/status/progress/STOP-file details out of Method, Setup, Results, Analysis, and Conclusion; if needed, summarize them once in appendix-facing replay language.
-   - Move local operational details to manifests/logs if they are needed for the daemon, not to the manuscript.
-   - Keep evaluated model identifiers only when they describe the experiment itself.
-3. Run the model-backed tool:
-   - `python -m argus_skill.verticals.research.paper_infrastructure_review --project-root . --review-mode model --write`
-   - self-audit the paper-infrastructure review thresholds (leak_free, score); the L2 reviewer verifies the review artifact directly against the review stage checklist.
-4. Treat the review files as generated evidence:
-   - Do not hand-edit `paper/PAPER_INFRASTRUCTURE_REVIEW.json`, `.md`, or `_history.jsonl`.
-   - If the nested `model_review` says `revise`, lists blocking/major issues, reports `leak_free: false`, or leaves revision directives, edit the manuscript and rerun the tool.
-5. After a pass, run the surrounding gates affected by source changes:
-   - the academic-language review thresholds
-   - the `research.md` format-preflight requirements
-   - the selected venue's full submission contract near final readiness
-
-## Response shape
-- State whether the paper-infrastructure review thresholds (leak_free, score) hold.
-- If blocked, quote the highest-priority model review issue and the exact source target.
-- Mention any paper-facing rewrite made to replace local environment/device/config prose.
+Return exact locations and replacement guidance through the current Reviewer
+response. Do not edit the paper and do not create an infrastructure-review
+file. The single Engineer applies the fix; the integrated verdict remains in
+`paper/REVIEW.md`.

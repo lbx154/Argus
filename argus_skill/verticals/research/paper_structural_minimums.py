@@ -344,7 +344,7 @@ def validate_paper_structural_minimums(
             StructuralIssue(
                 code="no_main_tex",
                 detail=(
-                    "paper/main.tex not found — draft stage requires a "
+                    "paper/main.tex not found — Paper requires a "
                     "LaTeX source file before structural checks can run"
                 ),
             )
@@ -438,9 +438,7 @@ def validate_paper_structural_minimums(
             )
         )
 
-    # Determine figure semantics from the manuscript and included files
-    # directly. Historical outline and visual-manifest files may remain on disk
-    # but are not part of the five-stage completion path.
+    # Determine figure semantics directly from the manuscript and included files.
     inferred_overview_paths: set[str] = set()
     role_keywords = _TEASER_KEYWORDS + _PIPELINE_KEYWORDS
     for ref, relative in resolved_figure_paths.items():
@@ -475,11 +473,6 @@ def validate_paper_structural_minimums(
                 ),
             )
         )
-    # Figure provenance is advisory metadata for reproducibility and renderer
-    # handoff. It is deliberately not a structural completion gate: the L2
-    # Reviewer judges whether the rendered figures are clear and attractive
-    # enough without creating provenance-driven polish loops.
-
     # Citations (body).
     for m in _RE_CITE.finditer(tex):
         for key in m.group(1).split(","):
@@ -495,7 +488,7 @@ def validate_paper_structural_minimums(
                     f"only {len(report.cite_keys)} unique \\cite key(s) in "
                     f"body (minimum {MIN_INTEXT_CITES}); a paper without "
                     "in-text citations cannot be reviewed as related-to-prior-"
-                    "work — pull citations from research/LITERATURE_GROUNDING.json"
+                    "work — add the claim-critical primary citations directly"
                 ),
             )
         )

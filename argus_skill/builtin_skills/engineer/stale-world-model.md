@@ -107,7 +107,7 @@ mission afterwards.
 
 An unavailable dependency is a substitution, not a blocker. Find the nearest
 thing that does resolve, take it, and record what you swapped and why in the
-results manifest so the claim can be read honestly later. A campaign that
+active configuration so the claim can be read honestly later. A campaign that
 stops to ask permission to use a different checkpoint has converted a
 thirty-second decision into an idle machine.
 
@@ -118,7 +118,7 @@ right move is to say so and re-scope.
 ## Write it down where it will be reread
 
 When you verify something external, put the answer and the date next to the
-thing that depends on it — the manifest, the config, the plan. The next round
+configuration or paper statement that depends on it. The next round
 is a different session with the same stale prior, and a probe result recorded
 in a file is worth more than one that lived in a transcript.
 

@@ -88,24 +88,23 @@ class VenueProfile:
     post_reference_sections: tuple[str, ...] = ()
 
     # ---- LaTeX template / style ----------------------------------------
-    documentclass: str = r"\documentclass[11pt]{article}"
-    style_package: str = "acl"           # \usepackage[..]{<style_package>}
-    review_option: str = "review"        # the anonymous-review package option
-    review_mode_macro: str = r"\usepackage[review]{acl}"
-    style_clone_url: str = "https://github.com/acl-org/acl-style-files"
-    style_files: tuple[str, ...] = ("acl.sty", "acl_natbib.bst")
-    anon_author_string: str = "Anonymous EMNLP Submission"
-    bib_style: str = "acl_natbib"
-    # ACL authors emit \bibliographystyle{acl_natbib}; AAAI must NOT (the
-    # aaai2026 class sets it and a manual command errors).
+    documentclass: str = r"\documentclass{article}"
+    style_package: str = ""
+    review_option: str = ""
+    review_mode_macro: str = ""
+    style_clone_url: str = ""
+    style_files: tuple[str, ...] = ()
+    anon_author_string: str = "Anonymous authors"
+    bib_style: str = ""
+    # Whether the selected venue expects an explicit bibliography-style command.
     emit_bibliographystyle: bool = True
     forbidden_packages: tuple[str, ...] = ()
 
-    # ---- AAAI-only structural requirements (all default off => EMNLP) ---
-    requires_style_package: bool = False        # \usepackage{aaai2026} present
-    requires_pdfinfo: bool = False              # \pdfinfo{...} block present
-    forbids_nocopyright: bool = False           # \nocopyright forbidden
-    forbids_thanks_in_titleblock: bool = False  # \thanks in title forbidden
+    # ---- optional venue structural requirements -------------------------
+    requires_style_package: bool = False
+    requires_pdfinfo: bool = False
+    forbids_nocopyright: bool = False
+    forbids_thanks_in_titleblock: bool = False
     requires_reproducibility_checklist: bool = False
 
     # ---- journal-wide manuscript requirements ---------------------------
@@ -119,16 +118,12 @@ class VenueProfile:
     layout_format_persona: str = "two-column conference paper"
 
     # ---- review rubric / persona ---------------------------------------
-    academic_language_rubric_id: str = "emnlp-academic-language-v2"
-    reviewer_persona: str = "EMNLP"
-    review_skill_path: str = "reviewer/emnlp-academic-language-review.md"
+    academic_language_rubric_id: str = "venue-academic-language-v1"
+    reviewer_persona: str = "selected venue reviewer"
+    review_skill_path: str = "reviewer/venue-academic-language-review.md"
 
-    # ---- figure (image-2) style persona --------------------------------
-    # The venue family used when prompting/reviewing paper figures. EMNLP
-    # figures read as "EMNLP/ACL/NeurIPS" method figures; AAAI as "AAAI".
-    # figure_tool builds the prompt/rubric skeleton and fills the venue from
-    # here, so a figure is never prompted or graded against the wrong venue.
-    figure_style_persona: str = "EMNLP/ACL/NeurIPS"
+    # ---- figure style persona -------------------------------------------
+    figure_style_persona: str = "selected venue"
 
     # ---- shared quality heuristics (kept equal across venues for now) ---
     # NOTE: bibliography *size* is deliberately not a profile field. Reference
@@ -145,9 +140,12 @@ class VenueProfile:
     # convenience: secondary keys that resolve to this profile
     aliases: tuple[str, ...] = field(default_factory=tuple)
 
-    # Built-in Skill files specific to this venue. Agents may use this metadata
-    # while navigating the library; the runtime does not filter or select files.
-    venue_skill_files: tuple[str, ...] = ()
+    venue_skill_files: tuple[str, ...] = (
+        "venue-paper-drafting.md",
+        "venue-format-preflight.md",
+        "venue-paper-skill-router.md",
+        "venue-academic-language-review.md",
+    )
 
     @property
     def has_fixed_page_budget(self) -> bool:
@@ -335,17 +333,9 @@ EMNLP_PROFILE = VenueProfile(
     bib_style="acl_natbib",
     emit_bibliographystyle=True,
     forbidden_packages=(),
-    academic_language_rubric_id="emnlp-academic-language-v2",
     reviewer_persona="EMNLP",
-    review_skill_path="reviewer/emnlp-academic-language-review.md",
     figure_style_persona="EMNLP/ACL/NeurIPS",
     aliases=("ACL", "ARR", "FINDINGS"),
-    venue_skill_files=(
-        "emnlp-paper-drafting.md",
-        "emnlp-format-preflight.md",
-        "venue-paper-skill-router.md",
-        "emnlp-academic-language-review.md",
-    ),
 )
 
 AAAI_PROFILE = VenueProfile(
@@ -377,20 +367,12 @@ AAAI_PROFILE = VenueProfile(
     forbids_nocopyright=True,
     forbids_thanks_in_titleblock=True,
     requires_reproducibility_checklist=True,
-    academic_language_rubric_id="aaai-academic-language-v2",
     reviewer_persona="AAAI",
-    review_skill_path="reviewer/aaai-academic-language-review.md",
     figure_style_persona="AAAI",
     # AAAI has no official abstract word limit — keep a soft advisory floor.
     abstract_word_floor=150,
     abstract_word_floor_is_hard=False,
     aliases=(),
-    venue_skill_files=(
-        "aaai-paper-drafting.md",
-        "aaai-format-preflight.md",
-        "venue-paper-skill-router.md",
-        "aaai-academic-language-review.md",
-    ),
 )
 
 ICLR_PROFILE = VenueProfile(
@@ -421,12 +403,7 @@ ICLR_PROFILE = VenueProfile(
     bib_style="iclr2027_conference",
     emit_bibliographystyle=True,
     layout_format_persona="single-column conference paper",
-    # ICLR publishes no academic-language rubric of its own; the EMNLP one is
-    # about prose, not venue branding, and its figure persona already names
-    # NeurIPS-family single-column work.
-    academic_language_rubric_id="emnlp-academic-language-v2",
     reviewer_persona="ICLR",
-    review_skill_path="reviewer/emnlp-academic-language-review.md",
     figure_style_persona="ICLR/NeurIPS",
     # No aliases: NeurIPS and ICML have their own page limits and style files,
     # and quietly handing one of them the ICLR template is the failure this
@@ -462,14 +439,11 @@ FRONTIERS_SLEEP_PROFILE = VenueProfile(
     requires_ai_disclosure=True,
     requires_figure_alt_text=True,
     layout_format_persona="single-column biomedical journal manuscript",
-    academic_language_rubric_id="frontiers-sleep-academic-language-v1",
     reviewer_persona="Frontiers in Sleep",
-    review_skill_path="reviewer/academic-paper-peer-review-benchmark.md",
     figure_style_persona="Frontiers biomedical journal",
     abstract_word_floor=150,
     abstract_word_floor_is_hard=False,
     aliases=("FRONTIERS", "FRONTIERS IN SLEEP", "FRSLE"),
-    venue_skill_files=(),
 )
 
 

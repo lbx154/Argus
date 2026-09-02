@@ -1,469 +1,58 @@
 ---
 name: "Training Infrastructure Guide"
-description: "Guide the engineer to use established training and inference frameworks. Covers LLM, agent RL, diffusion, and API inference. Do NOT write custom training loops or inference loops."
+description: "Use maintained training or inference frameworks and size them to the experiment's real model, data, and hardware."
 ---
 
-# Training & Inference Infrastructure Guide
+# Training Infrastructure Guide
 
-When experiments involve model training or large-scale inference, use established frameworks. Do NOT write custom loops from scratch.
+Use this when the selected method needs model training or large-scale inference.
+Reuse maintained infrastructure unless a custom loop is itself the contribution.
 
-## 🔒 Selection contract (plan stage, after idea de-risk)
+## Choose the framework
 
-This guide is a starting baseline, not a reason to survey generic frameworks
-before the research idea survives its cheapest faithful falsification probe.
-During the **plan** stage, projects that need training or large-scale inference
-must commit to a specific framework on each required axis.
+Inspect current official documentation and released code. Select the framework
+that directly supports the method, model family, precision, and hardware:
 
-1. **Open-source and actively maintained.** Judge maintenance, compatibility,
-   and method support from current releases/issues/docs; do not use a calendar
-   year as a proxy.
-2. **No self-written training or inference loops.** A custom `for epoch`
-   loop, a bare `model.generate()` benchmark loop, or a hand-rolled
-   RL/PPO trainer is a hard blocker. Wrap an existing framework instead.
-3. **Paper-released frameworks are allowed** when the repo is maintained and
-   its paper is in the canonical literature ledger. Prefer official code.
-4. **Compare only decision-relevant candidates.** Reuse previously certified
-   framework evidence when current. Search further only when the guide lacks a
-   compatible option or a concrete tradeoff remains unresolved.
+- SFT or preference optimization: TRL, LLaMA-Factory, or another maintained
+  project that implements the required algorithm;
+- distributed RL or RLVR: veRL, OpenRLHF, or another maintained implementation;
+- large-scale inference: vLLM or the model's official serving stack;
+- diffusion or multimodal training: the maintained library used by the released
+  baseline when practical.
 
-### 🚨 Always scan the README for supersession hints
+Check the repository for deprecation, migration, or a named successor. Prefer the
+current maintained path unless the older release has a capability the experiment
+actually needs.
 
-Frameworks routinely get **upstreamed into a larger project, renamed,
-or superseded**. The original repo often stays publicly archived but
-its own README points at the new home. Pick the wrong one and you'll
-end up wrapping abandoned code while the active community has moved
-on. Concrete observed example: `flow_grpo`'s own README now says
-"🚀 Flow-GRPO is now supported by verl-omni, which provides a
-verl-style training framework for Flow-GRPO users." A naive shortlist
-that just notices "flow_grpo matches my domain" misses that the
-recommended path is now `verl-omni`.
+## Configure the real experiment
 
-For the selected framework and any decision-critical runner-up, inspect the
-README before writing `research/INFRA_CHOICE.md`:
+- Use a current, task-capable backbone unless the thesis specifically concerns an
+  older or smaller model.
+- Derive sequence length and generation limits from real examples; measure
+  truncation rather than choosing a convenient round number.
+- Reproduce the strongest published baseline under its documented protocol
+  before comparing the new method.
+- Keep candidate and baseline data, information, compute, and evaluator access
+  comparable.
+- Use the framework's standard logging, checkpointing, and distributed launch.
+- Run a small wiring check before spending the full budget.
 
-```bash
-# Get the README text (handle both common spellings + .md/.rst):
-for f in README.md README.rst README; do
-  [ -f code/references/<repo>/$f ] && echo "=== $f ===" && cat code/references/<repo>/$f
-done | head -200
-```
+## Use allocated hardware
 
-Then explicitly grep for supersession / migration language:
+Declare accelerator demand through the project runner. For one distributed job,
+use the framework's supported launcher; for independent conditions, submit
+separate jobs with disjoint allocations. Measure observed throughput and memory
+use during the run, then adjust batch size, sequence length, precision, and
+parallelism when the allocation is materially idle.
 
-```bash
-grep -nEi 'now supported by|upstreamed (in)?to|merged (in)?to|moved to|migrated to|deprecat|archived|superseded|recommended|please use|maintained at|see also' \
-    code/references/<repo>/README* 2>/dev/null
-```
+For vLLM, set model length, generation length, concurrency, batched tokens, and
+parallelism from the actual workload rather than conservative defaults. Feed
+requests in batches instead of constructing a new engine per prompt.
 
-If any hit names a successor project:
+Keep credentials in the capability vault or environment and downloaded weights
+inside the project's model store. Do not print secrets or install project
+dependencies into the Argus runtime environment.
 
-1. **Evaluate the successor** as the likely current choice.
-2. **Compare the two in the rationale**: what does the original repo
-   still offer that the successor does not (e.g. an algorithm-specific
-   recipe the successor hasn't ported yet)?
-3. **Default to the successor** unless step 2 produced a concrete
-   reason to stay on the older repo. Wrapping a self-deprecated
-   framework "because it appeared first in our search" is a real
-   blocker, not a stylistic preference.
-
-Also do one sanity pass at the *paper* level: if the chosen framework
-backs a paper that was itself surpassed by a follow-up paper with
-its own released code, the follow-up wins on the same logic.
-
-### Artifact the L2 reviewer will check
-
-The **plan stage** (`plan.infra_choice`) owns `research/INFRA_CHOICE.md`.
-Include a short comparison, the final training/inference choice where
-applicable, repository/maintenance evidence, the decisive compatibility
-reason, and one rejected runner-up. Mirror the choice in the `## Infra`
-section of `research/EXPERIMENT_PLAN.md`.
-
-Skip this artifact only if the project genuinely needs neither training nor
-large-scale inference. Record the decision in the experiment plan.
-
-## 🧬 Backbone model selection contract (research + plan stages)
-
-Picking the **base model** is as important as picking the framework, and is a
-**separate decision** that the L2 reviewer checks. Default failures here are
-choosing a model that is **too small** or **too old** for the hardware — that
-produces a result no main-conference reviewer will believe.
-
-1. **Current generation only.** The backbone must be from a **current,
-   actively released open model family** (latest generation at decision time,
-   e.g. released/updated in the most recent ~12 months). Do **not** default to
-   a previous-generation or legacy small model just because it is familiar or
-   downloads fast. Verify the family is current by checking the Hugging Face
-   model hub / trending / a recent open-LLM leaderboard at decision time —
-   exactly as you verify framework recency.
-2. **Size the model to measured constraints, not convenience.** Probe the
-   actual accelerator memory and topology, then justify model size, precision,
-   optimizer state, activation/checkpointing strategy, and parallelism against
-   the research objective and measured budget. No GPU SKU or parameter-count
-   floor in a generic Skill can substitute for that project-specific evidence.
-3. **Justify the choice in writing.** `research/INFRA_CHOICE.md` (and the
-   `## Infra` section of `research/EXPERIMENT_PLAN.md`) must name the exact
-   backbone (org/model id + parameter count + release date), state the VRAM
-   budget it was sized against, and give a one-line reason the size is
-   appropriate. If you deliberately use a small model, the reason must be a
-   research reason, not "it was easier / faster to train".
-4. **Headline boundary.** A stale backbone may remain a compatibility baseline,
-   but it cannot carry the paper's main empirical claim when a relevant current
-   generation is available. Parameter count alone is not the rule: verify model
-   generation, architecture, task capability, context support, and release date.
-
-## 🔥 Hardware saturation contract (run stage)
-
-Allocated GPUs that sit idle or near-idle are wasted compute and a blocker.
-The headline run must actually *use* the machine.
-
-> **Before a `scale=full` RL/training launch also clear the RUN CONTRACT gate**
-> (`argus_skill.skills.run_contract`): the run must execute exactly the frozen
-> `research/RUN_CONTRACT.json` knobs (no LR / `num_generations` / steps /
-> curriculum drift) and cite a feasibility packet proving the exact curriculum is
-> non-saturating. The `subagent` pre-launch interlock refuses a drifting or
-> contract-less full-scale RL launch. See `rl-training-collapse-diagnosis` for
-> the freeze → probe → launch flow. Saturating the GPU on a curriculum that
-> collapses to zero advantage is still wasted budget.
-
-1. **Use every allocated GPU.** If `gpu_env.visible_devices()` reports N GPUs,
-   the headline run must drive all N — one distributed job across them
-   (torchrun / accelerate / DeepSpeed / FSDP, or vLLM `--tensor-parallel-size N`
-   for inference) **or** several conditions fanned out one-per-GPU in parallel
-   through a project-owned coordinator. A headline run pinned to a single GPU while
-   others are free is a blocker.
-2. **Fill the memory.** Target **high VRAM utilization on each card** (aim for
-   ≳70% of each GPU's memory in steady state). Reach it by scaling, in order:
-   model size → per-device batch size / sequence length → less aggressive
-   quantization. Use **bf16**, **gradient checkpointing**, and
-   **flash-attention** so the headroom goes to useful work, not waste. A run
-   that trains at a few-GB footprint on a 140GB+ card is the single most common
-   failure mode here — treat it as a blocker, not a default.
-3. **Maximize throughput — train FAST, don't crawl.** A job that uses a GPU but
-   inches along (tiny per-device batch, short sequences, `num_generations=2`)
-   wastes the allocation as badly as an idle card *and* slows every iteration of
-   the research loop. Push the knobs UP to the largest values that fit and keep
-   step-time low / samples-per-second high:
-   - **Per-device batch size + gradient accumulation** → raise the effective
-     batch until VRAM is full; bigger batches mean fewer, fatter steps and far
-     better card utilization than many tiny ones.
-   - **Sequence / `max_len` (prompt + completion)** → set it as large as the
-     task genuinely needs. For reasoning RL the completion budget must be big
-     enough that generations are **not** truncated: a saturating `clipped_ratio`
-     or completions pinned at the cap means `max_completion_length` is too
-     **small** — raise it, do not shrink it to "save tokens".
-   - **GRPO/PPO/RLVR rollouts** → increase `num_generations` / group size and the
-     rollout/prompt batch; more parallel rollouts per step both fill memory and
-     give a stronger advantage estimate.
-   - Prefer **sequence packing**, **bf16**, **flash-attention**, and a
-     **vLLM-backed generation** path so the extra memory converts into speed.
-   Going deliberately small to be "cheap" or "stable" is justified **only** as a
-   smoke run or a documented research/ablation reason — never as the default that
-   leaves an allocated card half-empty and the loop slow. If you must bound cost,
-   do it by cutting the number of steps or the model size as a stated choice, not
-   by starving an otherwise-idle GPU with tiny batches and short sequences.
-4. **vLLM inference/eval — fill the card, don't trickle.** Benchmark/eval and
-   RL-rollout generation are throughput-bound, and the common failure is a card
-   left at low VRAM and low util% by conservative defaults. When you construct a
-   `vllm.LLM`, set these explicitly instead of trusting library/script defaults:
-   - **`gpu_memory_utilization`** → raise to **0.85–0.92** (a default like `0.55`
-     leaves ~half the KV-cache budget on the table; that alone explains a card
-     sitting at ~55% VRAM). Leave a little headroom only when co-locating other
-     processes on the GPU.
-   - **`max_num_seqs`** (max concurrent sequences) → raise it to **64–256** so
-     continuous batching actually keeps the GPU busy; a value like `8` serializes
-     the work and leaves util in the teens. Don't tie it to a tiny training-style
-     `batch_size`.
-   - **`max_num_batched_tokens`** → raise alongside `max_num_seqs` (e.g.
-     8k–32k) so the scheduler can pack many requests per step.
-   - **`max_model_len`** → size it to the real prompt + generation need; for
-     reasoning evals `max_tokens` (generation cap) must be long enough that
-     answers/CoT are not truncated. A short generation cap silently caps quality,
-     not just speed.
-   - **`tensor_parallel_size = N`** for a model too big for one card, or fan out
-     **one condition per GPU** when each fits — never leave N-1 cards idle.
-   - Prefer **CUDA graphs** (do **not** force `enforce_eager=True` unless a real
-     bug requires it — eager mode disables graph capture and slows generation).
-   - **Feed all tasks at once** and let vLLM batch them; never loop one prompt at
-     a time with a fresh engine. Submit the whole prompt set and stream results.
-   These are defaults to set deliberately per run; if a project helper
-   (`code/run_condition.py` or similar) hard-codes a low
-   `gpu_memory_utilization` / `max_num_seqs`, raise the defaults or pass larger
-   values rather than inheriting the trickle.
-5. **Verify, don't assume.** Read the resource ledger's probe facts while the
-   run is live and record
-   **peak VRAM per GPU, observed GPU util%, and throughput (step time or
-   samples/sec)** in the run's `manifest.json`/report. "I launched a distributed
-   command" is not evidence; measured utilization is. A run that trained at a
-   few-GB / low-util footprint on a 140GB+ card — or that crawled at a tiny batch
-   while the card sat mostly idle between steps — has not used the hardware and
-   must be rescaled before it counts.
-6. **Stay unblocked without spending model calls on waiting.** Submit a stable
-   long run through `argus_skill.tools.subagent --mode direct` and let its
-   deterministic in-process guard/watchdog own timeout, process, checkpoint,
-   GPU-isolation, and metric-integrity checks. Use `--mode supervised` only when
-   the run genuinely needs semantic trend judgement while it is live. A healthy
-   `running` job is **not** a failure — see the Subagent note below.
-
-## 🧠 Run health: hard facts first, bounded LLM judgement second
-
-Who decides whether a finished run is usable is split deliberately:
-
-- **Mechanical checks own binary facts and explicit operator contracts** — a
-  real crash, CUDA OOM, NaN/Inf loss, process non-zero exit, hard timeout,
-  exact target-shape mismatch, incomplete checkpoint, failed restore, configured
-  retention breach, GPU ownership/isolation violation, or a launch knob that
-  differs from the frozen run contract. These are deterministic facts, not
-  model judgements, and may fail hard.
-- **The LLM (supervisor + reviewer) owns every JUDGEMENT call** — learning
-  health, clipping/truncation severity, reward-collapse vs noise, KL/entropy
-  trends, and the terminal judgment on whether a completed run produced
-  usable evidence. These are trend judgements, not threshold checks. Invoke the
-  model once at a meaningful transition (new anomaly, terminal state, or
-  operator request), not on every unchanged healthy poll.
-
-Therefore, when you author a training/eval script:
-
-- **DO** write the full metric series (`progress.jsonl`) and a *non-authoritative*
-  health summary (e.g. `health_gate.json` with the raw numbers). Diagnostics are
-  good.
-- **DO** share one canonical receipt/checkpoint path across Manager, Planner,
-  Engineer, and Reviewer. A role may read that compact handoff and referenced
-  deltas; it must not repeatedly ingest the complete runner log, mission record,
-  and artifact tree when their semantic state is unchanged.
-- **DO** freeze and mechanically verify the binding model structure before a
-  costly run: parameter count, layer/hidden/FFN sizes, attention head counts and
-  explicit head dimension, projection shapes, vocabulary, RoPE settings, and
-  any architecture-specific invariants. A framework-compatible approximation
-  is infrastructure evidence, not target-complete model evidence.
-- **DO** preserve the original failed/blocked run record. If later checkpoint or
-  teardown evidence changes its interpretation, append a correction through
-  `EvidenceLedger` or `append_experiment_correction`; never rewrite the original
-  exit code or delete the failed attempt.
-- **DO** model protected GPU ownership as pinned process identity and lineage,
-  not as "the protected GPUs must be empty". `argus_skill.tools.gpu_ownership`
-  can pin an existing owner and authorize a short-lived stale `nvidia-smi` row
-  only when the same GPU/PID/process was recently verified as campaign-owned.
-- **DO NOT** convert a metric-threshold breach into a TERMINAL verdict that flips
-  a finished run to `status.json state="failed"` and
-  forces a relaunch. A single noisy tail step (e.g. `clipped_ratio=0.5` at one
-  step, a brief reward dip) is **not** a failed run. Hard-coding
-  `max(tail_clipped_ratio) > 0.25 -> failed` is exactly the brittle gate that
-  makes the harness thrash on micro-smokes. If you want to flag such a signal,
-  emit it as an **advisory** field — never as the run's terminal state.
-- The supervisor writes a `Final health verdict: usable | unusable |
-  inconclusive` in its handoff; the reviewer treats any mechanical failure marker
-  as advisory and judges from the trend. Your script's job is to surface clean
-  signals so those LLM judgements are well-grounded — not to pre-empt them.
-
-
-
-These resources are allocated to you. Use them.
-
-**GPU**:
-- Config file: `~/.argus-skill/capabilities/gpu_resources.json`
-- Read with: `json.load(open(os.path.expanduser('~/.argus-skill/capabilities/gpu_resources.json')))`
-- Static capability visibility is a constraint, not free-capacity evidence. A
-  declared subagent demand receives the authoritative CUDA/ROCm visibility env
-  from its active ledger grant at launch.
-
-**API (for reward models, VLM scoring, image generation)**:
-- Load named routes with `argus_skill.tools.capability_vault.load_model_api_route`; never open or print the capability file directly.
-- Available routes: `text` (LLM), `image` (generation), `image_review` (VLM).
-- Keep credentials in the capability vault or process environment and out of logs, prompts, and artifacts.
-
-**Project venv** (for ML dependencies):
-- Path: `.venv/bin/python` (in project directory)
-- If not exists: `python3 -m venv .venv --system-site-packages && .venv/bin/pip install torch diffusers transformers accelerate peft safetensors`
-- NEVER install ML deps in the argus-skill framework venv (`$ARGUS_SKILL_PYTHON`)
-
-**Project model store** (for ALL downloaded weights / adapters / datasets):
-- Path: `./models/` inside the project directory (pre-created by the launcher).
-- Set HF / Torch cache env vars before any download or model load:
-  ```bash
-  export HF_HOME="$(pwd)/models/huggingface"
-  export HUGGINGFACE_HUB_CACHE="$(pwd)/models/huggingface/hub"
-  export HF_DATASETS_CACHE="$(pwd)/models/huggingface/datasets"
-  export TRANSFORMERS_CACHE="$(pwd)/models/huggingface/hub"
-  export TORCH_HOME="$(pwd)/models/torch"
-  ```
-- Equivalent Python (set before `import transformers` / `from huggingface_hub`):
-  ```python
-  import os, pathlib
-  root = pathlib.Path.cwd() / "models"
-  os.environ.update({
-      "HF_HOME": str(root / "huggingface"),
-      "HUGGINGFACE_HUB_CACHE": str(root / "huggingface/hub"),
-      "HF_DATASETS_CACHE": str(root / "huggingface/datasets"),
-      "TRANSFORMERS_CACHE": str(root / "huggingface/hub"),
-      "TORCH_HOME": str(root / "torch"),
-  })
-  ```
-- `./models/` is already in `.gitignore`; never commit downloaded weights.
-- NEVER download into `~/.cache/`, `/root/.cache/`, or any other project's `models/`. Each project owns its weights.
-- Skip the download entirely if the model is served via the model API route in `~/.argus-skill/capabilities/model_api.json`.
-
-**Subagent** (for long GPU tasks):
-- Default stable launch: `python -m argus_skill.tools.subagent submit --task-id <id> --mode direct --command '.venv/bin/python ...'`
-- Semantic live supervision, only when justified: `python -m argus_skill.tools.subagent submit --task-id <id> --mode supervised --run-dir experiments/<id> --command '.venv/bin/python ...'`
-- Declare accelerator demand honestly with `--accelerator`, `--gpu-count`,
-  `--gpu-mem-mib`, `--expected-duration`, `--checkpointable`, and a one-line
-  `--intent`. Never call `nvidia-smi` or poll for a GPU inside the command.
-  `waiting_resource` is a healthy wait: trust it; queue and holder intents are
-  visible to every participant through the ledger.
-- A yield request is a fact, not preemption. The holder judges whether to
-  checkpoint/release or records a reason with
-  `python -m argus_skill.tools.resource_ledger yield-response`.
-- For CPU-exclusive preprocessing/evaluation, add `--cpu-count N` (automatic
-  disjoint selection) or `--cpu-ids i,j` (exact allocation). Admission happens
-  before task/log/run artifacts, and the child process inherits the selected
-  affinity; insufficient or overlapping requests fail closed.
-- `--mode direct` is durable and uses zero supervisor-model tokens. Put
-  deterministic safety checks in the launched command/watchdog and let the
-  terminal task state wake the Engineer.
-- `--mode supervised` attaches an RL-aware LLM watcher: it polls the log on an
-  increasing interval (backs off while healthy to save tokens, tightens when it
-  sees trouble), judges reward/KL/response-length (not just SFT loss), and writes
-  `STOP` into the run dir to early-stop a diverging run.
-- `--run-dir` should point at the `experiment_io` run directory so the watcher
-  reads `progress.jsonl`/`status.json` and its early-stop `STOP` reaches `RunWriter`.
-- Check: `python -m argus_skill.tools.subagent status --task-id <id>`
-- A `status` call exits **0 while the job is healthily `running`** (and when it
-  is `done`/`early_stopped`); it exits non-zero **only** for genuine failures
-  (`error`/`crashed`/`timeout`). So a `running` result is NOT a failed command —
-  do not "repair" it. The JSON includes `live` (worker process alive) and a
-  `progress` summary (rows written + last progress line + age), so one poll
-  answers "is it alive and advancing" without hand-reading `progress.jsonl`.
-- Poll with backoff; do not spam `status` or wake an LLM every few seconds.
-  Inspect the run directory directly only if `live` is true but the compact
-  progress signature has stopped advancing.
-- Do NOT block — submit and continue other work.
-No project helper code is pre-seeded. Inspect the repository first, then create only
-the smallest helpers the actual experiment needs. Run bookkeeping and condition
-fan-out belong to the project; device discovery and admission belong to the ledger.
-
-**Multi-GPU utilization**:
-- One large job that needs multiple GPUs → declare its count with `--gpu-count` and
-  launch your framework's distributed runner inside its command
-  (torchrun / accelerate / deepspeed / vLLM `--tensor-parallel-size`).
-- Several independent conditions → submit each with an honest separate demand;
-  the ledger grants disjoint devices when capacity exists.
-- Never run two parallel conditions on the same GPU unless you have measured the memory
-  headroom; `run_experiments.py` warns on oversubscription.
-
----
-
-## Core rule
-
-If a task involves gradient-based training or inference on >100 examples, the engineer MUST use an approved framework. Custom `for epoch` training loops and bare `model.generate()` inference loops are hard blockers in experiment plan review.
-
----
-
-## 1. LLM Post-Training (SFT / DPO / RLHF)
-
-| Task | Framework | Why |
-|------|-----------|-----|
-| SFT / instruction tuning | **LLaMA-Factory** | 100+ architectures, LoRA/QLoRA/full, YAML config |
-| SFT (HF ecosystem) | **TRL** | HuggingFace official, clean API |
-| SFT (ModelScope/Chinese) | **Swift** (ms-swift) | ModelScope integration |
-| DPO / ORPO / SimPO / KTO | **LLaMA-Factory** or **TRL** | Both support modern preference methods |
-| RLHF (PPO at scale) | **OpenRLHF** | Ray-based distributed, production-grade |
-| GRPO / RLVR / reasoning RL | **veRL** | ByteDance, cutting-edge reasoning RL |
-| Pretraining | **Megatron-LM** or **LitGPT** | Distributed pretraining |
-
-Decision flow:
-1. DPO/preference → LLaMA-Factory (fastest to set up)
-2. PPO RLHF at scale → OpenRLHF
-3. GRPO/reasoning RL → veRL
-4. Simple SFT → TRL or LLaMA-Factory
-
-## 2. Agent RL (multi-turn, environment interaction)
-
-| Task | Framework | Why |
-|------|-----------|-----|
-| Multi-turn agent RL | **AgentGym-RL** | ICLR 2026 oral, modular, multi-env, PPO/GRPO/REINFORCE++ |
-| Agent RL (general) | **veRL** | Async rollouts, LangGraph integration, tool-use RL |
-| Code agent RL | **SLIME** (slime-rl) | SWE-Bench oriented, code execution RL |
-| Web agent RL | **AgentGym-RL** | Built-in web navigation environments |
-
-Decision flow:
-1. Agent RL with environment → AgentGym-RL (most complete)
-2. Tool-use / reasoning RL → veRL (best async support)
-3. Code-specific RL → SLIME
-
-## 3. Diffusion / Text-to-Image
-
-| Task | Framework | Why |
-|------|-----------|-----|
-| Full training (multi-GPU, production) | **SimpleTuner** | 14+ architectures (SD3/SDXL/Flux), DeepSpeed/FSDP, caching, web UI |
-| Research training (efficient) | **Diffusers** (HuggingFace) | Gold standard API, DreamBooth/LoRA/ControlNet |
-| High-res T2I (budget-efficient) | **PixArt-α pipeline** | 10x faster than SD v1.5, DiT architecture |
-| LoRA fine-tuning (consumer GPU) | **kohya_ss** or **Musubi** | Optimized for low-VRAM, community standard |
-| LoRA fine-tuning (cloud, easy) | **FluxGym** | Web UI, RunPod integration, streamlined |
-| Multi-task (gen + understanding) | **OneDiffusion** | Unified T2I/depth/pose/segmentation training |
-| Inference / generation | **Diffusers** or **ComfyUI** | Pipeline API or node-based GUI |
-
-Decision flow:
-1. Production multi-GPU training → **SimpleTuner** (most complete, best distributed support)
-2. Research with HF ecosystem → **Diffusers** training scripts
-3. Budget-efficient DiT training → PixArt-α style pipeline
-4. LoRA on consumer GPU → kohya_ss / Musubi
-5. Quick LoRA experiments → FluxGym
-
-## 4. LLM Inference
-
-| Task | Framework | Why |
-|------|-----------|-----|
-| Local batch inference | **vLLM** | Fastest, PagedAttention, continuous batching |
-| Structured generation | **SGLang** | RadixAttention, constrained decoding |
-| API inference | **OpenAI client** (`openai` package) | Standard interface for OpenAI/Azure/compatible |
-| Multi-provider API | **LiteLLM** | Unified API for 100+ providers |
-| Docker serving | **TGI** | HuggingFace official, Docker-native |
-| CPU / edge | **llama.cpp** / **ollama** | Quantized inference |
-
-Decision flow:
-1. Local GPU + open model → **vLLM** (default choice)
-2. Need structured output → **SGLang**
-3. API-based (OpenAI/Azure) → **OpenAI client** (openai package)
-4. Multiple API providers → **LiteLLM**
-
-## 5. API Inference (standard)
-
-All API-based inference MUST use the **OpenAI client interface**:
-
-```python
-from openai import OpenAI
-from argus_skill.tools.capability_vault import load_model_api_route
-
-route = load_model_api_route("text")
-if route is None:
-    raise RuntimeError("text model route is not configured")
-client = OpenAI(api_key=route.api_key, base_url=route.base_url)
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": prompt}],
-)
-```
-
-For Azure:
-```python
-from openai import AzureOpenAI
-import os
-
-client = AzureOpenAI(
-    api_key=os.environ["AZURE_OPENAI_API_KEY"],
-    api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01"),
-    azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-)
-```
-
-Do NOT use raw `urllib`/`requests` for LLM API calls. Use the `openai` package.
-
-## What NOT to do
-
-- Custom PyTorch training loop with manual loss.backward() / optimizer.step()
-- Bare model.generate() in a for-loop for >100 examples
-- Raw HTTP requests to LLM APIs instead of openai client
-- Reimplementing gradient accumulation, mixed precision, or distributed training
-- Writing custom KV-cache management
-- Using bare transformers pipeline for benchmark evaluation at scale
-- Training a tiny custom MLP/scorer when GPU budget allows a real model with a framework
+Preserve the executable configuration, command, checkpoints when needed, and raw
+metrics as direct run outputs. Do not create a separate infrastructure report or
+duplicate experiment plan.

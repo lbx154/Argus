@@ -11,8 +11,7 @@ Prevent invalid or wasted runs without assuming every AI research project uses
 CUDA, Hugging Face models, an LLM API, or a training framework.
 
 Run this gate before the first real benchmark/evidence call and before each
-substantively different pilot/full/ablation launch. Capture the applicable
-checks in `experiments/runs/<run_id>/preflight.txt`.
+substantively different pilot, full, or ablation launch.
 
 ## Applicability rule
 
@@ -128,7 +127,6 @@ non-accelerator work.
 
 - Confirm enough disk space for expected outputs/checkpoints.
 - Create the run directory and verify it is writable.
-- Write the run manifest before the first expensive call.
 
 ### 8. Cancellation and observability
 
@@ -140,16 +138,8 @@ For long-running work:
 
 Short deterministic commands may simply capture stdout/stderr.
 
-## Preflight record
-
-`preflight.txt` should state:
-
-- applicable and not-applicable sections;
-- exact commands run;
-- decisive outputs;
-- public evidence source and evaluator status;
-- selected compute/runtime;
-- unresolved blockers.
+Report only a concrete blocker and the decisive command or output through the
+normal Engineer response. Do not create a separate preflight file.
 
 ## Reviewer hook
 

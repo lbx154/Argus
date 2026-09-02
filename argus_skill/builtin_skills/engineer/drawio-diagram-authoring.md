@@ -49,7 +49,7 @@ Keep geometry explicit and deterministic.
 
 1. **Define the view.** Record audience, one takeaway, diagram family, scope,
    sources, and desired page size.
-2. **Build a semantic inventory.** List nodes, relationships, groups, edge
+2. **List the semantic content.** List nodes, relationships, groups, edge
    direction, and uncertainty before assigning coordinates.
 3. **Choose a layout.** Use a grid and one dominant flow. Reserve whitespace for
    labels and future edits. Separate deployment, control flow, data flow, and

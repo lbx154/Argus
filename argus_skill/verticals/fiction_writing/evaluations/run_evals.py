@@ -148,6 +148,13 @@ class CoproxyRunner:
         self.last_raw = ""
         self.rounds_used = 0
 
+    def fork(self) -> "CoproxyRunner":
+        return CoproxyRunner(
+            model=self.model,
+            investigate_dir=self.investigate_dir,
+            max_rounds=self.max_rounds,
+        )
+
     def run_exec(self, *, prompt: str, options, run_label: str,
                  resume_thread_id: str | None = None) -> RunnerResult:
         model = getattr(options, "model", None) or self.model

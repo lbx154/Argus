@@ -1,215 +1,46 @@
 ---
 name: "Academic Paper Peer Review Benchmark"
-description: "Review a nearly complete AI research paper the way a top-venue area chair does: find the strongest paper this evidence can support, say what would get it accepted, and hold claims to real evidence — without requiring a positive result or a fixed benchmark scale."
+description: "Read-only scientific completeness pass inside the final integrated paper Review."
 ---
 
 # Academic Paper Peer Review Benchmark
 
-## Purpose
+Review the current paper as a constructive top-venue area chair. Start with
+`paper/main.tex` and the rendered paper, then follow only direct
+claim-critical references to code, configuration, raw results, evaluators,
+baselines, bibliography, figures, and primary sources.
 
-Review a nearly complete paper against its selected venue and actual
-contribution shape. Use `research/VENUE_PROFILE.json`,
-`research/VENUE_SELECTION.md`, and the official author kit rather than assuming
-EMNLP or AAAI.
+Do not edit files, recursively inspect project history, or require separate
+review reports. Return findings through the current Reviewer response; the
+integrated verdict is written only to `paper/REVIEW.md`.
 
-A method, system, theorem, diagnostic, characterization, interpretability,
-benchmark/data, negative, or boundary contribution is legitimate only when it
-supports a clear, venue-relevant thesis. Honest evidence is necessary but does
-not by itself create publication value.
+## Scientific assessment
 
-## Reviewer stance
-
-Review as an area chair who would like to accept this paper and is deciding
-what it would take. The useful output is the shortest path to acceptance, not a
-verdict.
-
-- For publishable/doctoral work, require a nontrivial technical core, verified
-  originality, claim-relevant formal/causal grounding, and field-level
-  consequence.
-- Be skeptical about unsupported claims, not biased toward positive results.
-- Review constructively: first identify the strongest publishable argument the
-  evidence can support, including a negative or mixed-result argument, and limit
-  blocking feedback to issues that would actually change the venue decision.
-- Say what would raise the paper, concretely, in priority order: the experiment
-  that would close the gap, the claim that the evidence already supports more
-  strongly than the text admits, the reorganization that would make one insight
-  carry the argument.
-- A paper that undersells itself is a paper you are failing. When the result is
-  stronger than the abstract claims, return that as a finding: hedged writing
-  over a real result costs the same acceptance as an unsupported claim.
-- Do not reward a PDF merely for existing.
-- Do not accept or reject a contribution by result sign. For a negative/boundary
-  paper, value a robustly characterized regime, mechanism, scaling law, benchmark
-  lesson, or practical decision only after the positive-recovery record establishes
-  reference parity, valid learning signal/evaluator, adequate tuning and scale, and
-  exhausted credible repairs. Do not demand that the original method win after
-  engineering adequacy has been established.
-- Broader claims require broader validation; narrow claims may be supported by a
-  focused public benchmark plus decisive controls.
-- Every weakness must identify a concrete repair or a justified scope boundary.
-
-Before accepting any negative conclusion—method failure, route retirement, or
-“X does not work”—ask whether the executed call chain faithfully implemented the
-idea, baselines and hyperparameters received a competent competitive effort, the
-scale and setup could have revealed the effect, and credible alternative
-explanations were excluded. If any answer is no, the honest status is “this idea
-has not yet been given a real chance”: unfinished work, not a negative result,
-paper section, or reason to abandon the route.
-
-Treat unsupported humility as the same defect as unsupported boasting: labels
-such as “bounded,” “limited,” “preliminary,” “受限,” or similar must be tied to a
-named, concrete limitation with evidence or be deleted. A limitations section
-lists only
-limitations that would change a reader's decision, each with its evidence;
-flag virtue-signaling filler or integrity self-praise such as “we honestly
-acknowledge…” for deletion.
-
-## Required inputs
-
-- selected venue profile and official template source;
-- manuscript source/PDF/log;
-- canonical literature grounding;
-- public benchmark/data provenance;
-- raw experiment or proof artifacts;
-- claims-evidence mapping and generated tables/figures;
-- format, academic-language, infrastructure, and layout reviews;
-- submission assurance.
-
-## Eight review dimensions
-
-Score each dimension 1–5.
-
-1. **Contribution and research value**
-   - Is the question important for the selected venue and subfield?
-   - Does the result add a method, mechanism, theory, reliable diagnosis,
-     evaluation capability, data resource, negative finding, or useful boundary?
-   - Is the contribution distinguished from the closest prior work?
-   - Is it technically nontrivial (not prompt/schema/wrapper/scale), grounded in
-     claim-relevant formal or causal predictions without decorative math, and
-     consequential beyond a local product metric?
-
-2. **Claim-evidence alignment**
-   - Does every headline, numerical, comparative, causal, or generalization claim
-     map to authentic evidence?
-   - Are claim-critical nulls, losses, contradictions, and limitations preserved,
-     while secondary dead ends remain in audit artifacts or appendices?
-   - Is claim scope no broader than the evidence?
-
-3. **Experiment or proof integrity**
-   - For empirical claims, is at least one appropriate public benchmark,
-     dataset, task suite, challenge, or official evaluation release actually
-     executed?
-   - Are synthetic/generated diagnostics clearly supplementary?
-   - Are the strongest relevant comparisons fair?
-   - Is evidence breadth, task count, model count, seed count, or proof coverage
-     justified by the claim rather than a universal quota?
-   - Are uncertainty and repeatability handled appropriately?
-   - For publishable/doctoral work, does
-     `paper/PUBLICATION_SCALE_ASSESSMENT.json` accurately compare the real
-     claim-bearing artifacts with recent accepted same-area papers? Claim
-     narrowing does not repair underpowered, tiny-slice, or proxy-only evidence.
-
-4. **Literature and novelty**
-   - Are material premises, nearest competitors, foundations, contradictions,
-     and the frontier grounded in primary sources?
-   - Does the bibliography cover every material premise, the nearest
-     competitors, and the contradictions a reader would raise — judged against
-     what this paper claims, not against a reference count?
-   - Does the paper explain why the result matters?
-
-5. **Reproducibility**
-   - Can an outside researcher identify public data, method/configuration,
-     evaluator, controls, uncertainty method, and relevant compute?
-   - Are generated artifacts fresh and traceable to canonical sources?
-   - Are private paths, secrets, and authoring infrastructure excluded while
-     legitimate scientific environment details remain?
-
-6. **Writing and structure**
-   - Does the abstract state problem, gap, contribution shape, evidence, and
-     implication honestly?
-   - Does the paper have one coherent thesis?
-   - Does every major section strengthen or explain the same thesis?
-   - Does `paper/style_ref/ARGUMENT_ORGANIZATION.json` show that accepted
-     same-area full papers and available official code were actually read?
-     Judge whether their argument/code organization was intelligently adapted
-     to local evidence without copied prose or a reproduction requirement.
-
-7. **Venue format and visual evidence**
-   - Does the paper follow the selected venue's current official template,
-     anonymity policy, page/word limits, bibliography rules, and required
-     sections?
-   - Are references, tables, captions, and floats readable and internally valid?
-   - Judge the actual rendered figures for clarity, readability, coherence, and
-     whether they look good enough for the venue. Metadata is advisory only.
-   - Do not require image-2 when unavailable or when a deterministic renderer is
-     better. Do not demand repeated visual regeneration for minor preferences;
-     require repair only for unreadable, factually wrong, broken, or seriously
-     unattractive figures.
-
-8. **Strongest reviewer objection**
-   - State the strongest short reason to reject.
-   - Decide whether it requires new evidence, a source repair, a scope change, or
-     only writing/format work.
-
-## Recommendation mapping
-
-Compute the mean dimension score and assign Overall 1–10.
-
-- **8–10**: strong/award-quality candidate.
-- **6–7**: accept-quality for the selected venue; evidence supports the scoped
-  contribution and no hard blocker remains.
-- **5**: borderline; one material objection remains.
-- **3–4**: reject; major evidence, novelty, integrity, or presentation gap.
-- **1–2**: strong reject; fabricated evidence, fatal flaw, or no research value.
-
-`Decision: Accept` requires Overall ≥6, mean ≥4.0, no dimension below 3,
-and no hard blocker.
+1. **Contribution** — the problem is important, the mechanism is nontrivial,
+   and the distinction from closest work is explicit.
+2. **Implementation fidelity** — the executed code implements the method the
+   paper claims, and positive controls show the evaluator can detect the target
+   effect.
+3. **Evidence** — headline and primary comparisons win, relevant wins clearly
+   exceed losses, and the strongest same-information published baseline receives
+   a fair comparison.
+4. **Completeness** — every experiment, ablation, control, section, figure, and
+   table required by the thesis is present and interpreted.
+5. **Literature** — material premises and closest competitors use genuine,
+   resolved primary citations without imposing a bibliography-count quota.
+6. **Paper value** — the manuscript makes one confident positive argument rather
+   than reporting development chronology or failed attempts.
 
 ## Hard blockers
 
-- missing or unresolved target venue/profile;
-- fabricated, duplicated, relabeled, or unsupported evidence;
-- empirical headline claim with no executed public benchmark/data/task source;
-- synthetic/generated evidence presented as the sole public validation;
-- missing strongest relevant comparison for a comparative claim;
-- claim contradicts raw evidence;
-- uncertainty or repeatability omitted where required by the claim;
-- stale or untraceable generated artifacts;
-- unresolved citations or official-format violations;
-- unreadable, factually wrong, or visibly broken required figure;
-- private infrastructure/secrets leaked into rendered prose;
-- paper value depends only on relabeling a weak result rather than a genuine
-  insight.
-- missing, false, or unsupported publication-scale assessment for a
-  publishable/doctoral target;
-- an underpowered pilot, tiny evaluation slice, or proxy-only diagnostic is the
-  primary evidence and is made to look sufficient only by narrowing the claim;
-- shallow prompt/schema/wrapper/scale contributions, decorative claimed theory,
-  or no field-level consequence beyond a local metric;
-- the paper proposes a method as its contribution while its own evidence defeats
-  that method, without a separate insight strong enough to justify publication;
-- underperformance is treated as scientific evidence without a credible
-  implementation-adequacy audit.
+- fabricated evidence or citations;
+- unresolved citations that support a material claim;
+- method prose that does not match executed code;
+- failed positive controls or invalid evaluator behavior;
+- missing strong baseline, headline comparison, or claim-critical experiment;
+- a thesis contradicted by the relevant results;
+- an incomplete or unreadable rendered paper.
 
-A negative, null, diagnostic, or boundary result is not a blocker by sign. It
-still needs standalone publication-scale evidence and independent value; lack
-of either is a blocker.
-
-## Output contract
-
-Return a compact simulated review:
-
-```markdown
-### Simulated peer review
-- Venue: ...
-- Contribution shape: method | systems | theory | diagnostic | evaluation |
-  data | negative | boundary
-- Decision: Accept | Reject
-- Overall: N/10
-- Scores: ...
-- Strongest accept argument: ...
-- Strongest reject argument: ...
-- Blocking issues: ...
-```
-
-For `final_submission`, `done` is allowed only with `Decision: Accept`.
+Return the strongest accept case, reject-level issues, and concrete repairs.
+The visual and language passes run concurrently; after one Engineer applies all
+findings, the integrated Reviewer reassesses the repaired paper.

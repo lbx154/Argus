@@ -1,571 +1,73 @@
 ---
-name: "AGENTS.md New Project Template"
-description: "Copy-ready AGENTS.md template for starting a clean-slate, venue-aware AI research paper project without inheriting prior assumptions."
+name: "AGENTS.md New Research Project Template"
+description: "Minimal five-stage contract for a new autonomous research-paper project."
 ---
 
-## Title
-AGENTS.md New Project Template
+# New Research Project Template
 
-## When to use
-- Use this when creating a new autonomous AI research workspace whose deliverable is a submission-quality paper for a selected current venue.
-- Use it before the daemon chooses the final thesis, benchmark, method name, paper story, figure design, or completion criteria.
+Use this template for a clean research project. Do not inherit another
+project's title, thesis, benchmark, method, results, or figures unless the
+operator explicitly supplies them.
 
-## When NOT to use
-- Do not use this to continue or repair an existing paper with valuable artifacts, tests, user edits, or an operator-approved direction. Use the existing-project optimization template instead.
-- Do not fill it with copied titles, claims, benchmark choices, result numbers, figures, or generated artifacts from another project.
-- Direction rule: the operator's most recent explicit instruction wins. Use this template when the operator rejects the current direction or asks for a fresh start. If raw data, logs, or evidence from an older project should remain usable, list them as allowed inputs; do not preserve the older thesis, architecture, benchmark framing, or paper story by default.
+```markdown
+# Project contract
 
-## Copy-ready `AGENTS.md`
+Produce one strong, positive, thesis-driven research paper through:
 
-````markdown
-# AGENTS.md
+Idea -> Build -> Experiment -> Paper -> Review
 
-## Project contract
-This workspace must produce a submission-quality, venue-aware AI research paper,
-not a pilot PDF, reviewer-gaming demo, or renamed copy of an older project.
-Build it as an evidence pipeline: research -> plan -> benchmark -> run ->
-analysis -> draft -> review -> submission.
+Stages move forward only. Repair defects in the current stage.
 
-This is a clean-slate project. Do not inherit titles, claims, datasets, benchmark episodes, generators, figures, review artifacts, result numbers, architecture, thesis, or paper story from any prior project unless they are listed in **Allowed starting inputs** with source, license/access status, allowed use, and rationale.
+## Idea
 
-Non-negotiable research bar: choose an important, falsifiable problem grounded
-in current primary sources. Final empirical claims must include appropriate
-public benchmark/data/task evidence. Synthetic/local diagnostics may supplement
-but not replace public evidence. Positive, negative, diagnostic, and boundary
-contributions are all valid when they have research value at publication scale.
-An underpowered pilot, tiny evaluation slice, or proxy-only diagnostic cannot
-become publishable merely by narrowing the claim or renaming it a boundary
-result. Before analysis closes, write
-`paper/PUBLICATION_SCALE_ASSESSMENT.json`: compare the real claim-bearing
-evidence with recent accepted same-area papers using official acceptance URLs,
-and document models/systems, public sources, evaluation units, repeats or proof
-obligations, strongest comparisons, and uncertainty/formal guarantees. These
-are claim-calibrated dimensions, not universal numeric quotas.
+For a broad publishable direction, complete twelve source-only routes, one
+independent review per route, and one selector. Do not run candidate or probe
+experiments while choosing. Full route material remains inside `.argus`;
+project-root `HANDOFF.md` records the winner and one-line rejection reasons.
 
-**Research taste is mandatory.** The operator gives you a research DIRECTION, not a paper plan. You must find your own insight:
-- Survey the field first. Read code, not just abstracts. Find what existing methods miss.
-- Your paper needs a 'WHY' — not just 'we applied X to Y and it worked'.
-- Simple reproduction of existing work is NOT a paper. You must have a novel thesis.
-- If you can't articulate what makes your approach surprising or counter-intuitive, keep searching.
-- Write `research/IDEA_REJECTION_LOG.md` — reject at least one mediocre idea before committing.
+## Build
 
-## Binding playbooks and completion contract
-- Read and follow the operator-provided research playbook when one is available before choosing the final thesis, benchmark, method name, metric, paper narrative, figure/table design, or final preflight.
-- Use the active Argus package/source checkout supplied by the launcher. Built-in skill markdown is available as project-local exports under `./argus_builtin_skills/` and as the Python package resource `argus_skill.builtin_skills`; `ARGUS_SKILL_SOURCE_ROOT` may point at a source checkout, but agents must not hard-code host-specific paths.
-- At project setup, copy the built-in skill markdown into this workspace so the daemon can read it directly:
-  `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --export-builtin-skills ./argus_builtin_skills`
-- Read `./argus_builtin_skills/*.md` and `./argus_builtin_skills/**/*.md` first when invoking built-in paper/research/domain skills. If the local copy is absent or stale, refresh it with the export command above or load `argus_skill.builtin_skills` through the active Python environment. Do not copy the whole Argus repository, global memory, model caches, or capability vault into this project.
-- When ownership is unclear, resolve the target venue first, then load that
-  venue's drafting/preflight/review router; do not hard-code EMNLP.
-- Prefer `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill ...` for Argus helper commands; the launcher injects `ARGUS_SKILL_PYTHON`, `ARGUS_SKILL_SOURCE_ROOT`, and `PYTHONPATH` when a source checkout is needed.
-- Final completion is certified only when the L2 reviewer returns a
-  `scope: final_submission` verdict with `status: done` and concrete evidence
-  covering the full pipeline and selected venue.
-- Full-scale experiment evidence is a prerequisite for analysis, draft, review, and submission. The L2 reviewer must tick off the run-stage "full-scale evidence" checklist item before any of those stages are marked ready/done.
-- Treat `missing_full_scale_experiment_run`, `incomplete_full_scale_experiment_run`, `missing_baseline_condition_run`, and `pilot_pdf_without_full_scale_evidence` as hard blockers.
-- Before final academic/layout review, the L2 reviewer must tick off the analysis/draft-stage paper-quality checklist items.
-- A single pipeline-state checklist item, a compiled PDF, a pilot run, or a passing review artifact alone is not final readiness; only the reviewer's full final-submission checklist certifies completion.
+Implement the selected mechanism, real strong published baselines, the real
+evaluator, and a known detectable positive control through actual entry points.
+Before advancing, replace `HANDOFF.md` with `# HANDOFF — BUILD` and only the
+context Experiment needs.
 
-## Skill route
-Before each planner or engineer round, classify the current blocker and load
-only the focused skill. Venue-specific drafting/review skills come from the
-selected venue profile and official author kit.
+## Experiment
 
-| Current blocker / task | Read this skill first | Use it to decide or produce |
-| --- | --- | --- |
-| Stage order, readiness state, pivots, or "what next?" | `the `auto-research-pipeline.md` skill` | `.argus/PIPELINE_STATE.json`, stage gates, when to move backward from paper drafting to experiments |
-| Experiment implementation, public-benchmark runs, comparisons, controls, progress files | `the `research-experiment-runner.md` skill` | runnable harnesses, manifests, status/progress, raw evidence, cancellation |
-| Results analysis, result tables, and research figures | `the `research-results-analysis-and-figures.md` skill` + research vertical `research-visualization-router.md` | `RESULTS_REPORT.md`, result-to-claim tables, figure source/render/review artifacts, `FIGURE_PROVENANCE.json`; image-2 outputs also retain `IMAGE2_FIGURES.json` |
-| Exemplar PDFs, page rhythm, structure blueprint, conformance | `the `paper-exemplar-pdf-learning.md` skill` | exemplar PDFs/text, `STYLE_PROFILE.md`, `PAPER_STRUCTURE_BLUEPRINT.md`, structure conformance artifacts |
-| Accepted-paper argument and official-code organization | `the `paper-exemplar-pdf-learning.md` skill` | `ARGUMENT_ORGANIZATION.json`: problem/gap/insight/contribution/method/evidence maps, available official-code module/config/eval maps, and a local transfer plan; no reproduction or prose copying |
-| First LaTeX draft, citations, bibliography, narrative | selected venue drafting skill + official author kit | `paper/main.tex`, page/word budget, draft report, BibTeX connected to claims |
-| Format, page/word budget, references, appendix/checklist flow | selected venue format preflight | classify whether to fix layout/prose or route back to evidence |
-| Weak claims, unsupported numbers, evidence gaps, stale artifacts | `the `claims-evidence-audit.md` skill` | source-level claim/result corrections and the smallest missing experiment |
-| Academic tone and model-backed prose critique after evidence is stable | selected venue academic-language review | fresh `ACADEMIC_LANGUAGE_REVIEW.json` and concrete directives |
-| Iterative paper repair after review feedback | `the `paper-review-revision-loop.md` skill` | source-level revisions plus review reruns, without hand-editing stale generated outputs |
-| Final paper review | `the `final-paper-review.md` skill` | independent reading of the current manuscript, PDF, and claim-critical sources |
+Keep each run reproducible from code, explicit configuration, command, and raw
+output. Let development evidence change the method, baseline, benchmark,
+controls, and next experiment. Enter Paper only when relevant wins clearly
+exceed losses, headline comparisons win, and the strongest same-information
+baseline is beaten.
 
-Routing rule: if the blocker is "paper is too short", "format looks fake", "references look bad", or "figure is wrong", first determine whether evidence/full-scale runs/claim support are missing. Missing evidence routes to benchmark execution or analysis before prose/layout polish.
+## Paper
 
-## Operator goal
-- Primary paper goal: [write the target research problem and deliverable]
-- Target venue/scope: explicit operator venue; if absent, do not infer or search
-  for one unless the operator explicitly requests venue discovery
-- Success condition: the L2 reviewer certifies `done` against the full pipeline checklist (scope: final_submission) plus a current PDF/submission package
-- Non-goals: [write what must not be optimized, copied, or claimed]
-- Allowed compute/API budget: [write limits and stop conditions]
+Write a complete compilable paper around the strongest supported contribution.
+Include every intended experiment, figure, table, citation, and venue-required
+section. Replace `HANDOFF.md` with `# HANDOFF — PAPER`. Final visual inspection,
+academic-language polishing, and whole-paper acceptance happen only in Review.
 
-## Allowed starting inputs
-List every starting input before using it:
+## Review
 
-| Input | Source/path/URL | License/access | How it may be used | Why it is appropriate |
-| --- | --- | --- | --- | --- |
-| [input] | [source] | [status] | [allowed use] | [rationale] |
-
-If an input is not listed here, treat it as unavailable until documented. Raw evidence may be reused only as evidence; it does not carry over the old thesis, narrative, or figure design.
-
-## Required project skeleton
-Use the repository's existing conventions if they are already present; otherwise create the closest equivalent:
-
-| Area | Required artifacts |
-| --- | --- |
-| Research | `research/RESEARCH_BRIEF.md`, canonical `research/LITERATURE_GROUNDING.json`, generated `research/LIT_MATRIX.tsv`, `research/EXPERIMENT_PLAN.md` |
-| Experiments | benchmark source/provenance files, run manifests, `status.json`, `progress.jsonl`, raw result JSON/TSV, logs, STOP-file contract |
-| Style references | `paper/style_ref/exemplars/<slug>/paper.pdf`, extracted text, `paper/style_ref/EXEMPLAR.json`, `paper/style_ref/EXEMPLAR_SUITABILITY.json`, `paper/style_ref/STYLE_PROFILE.md`, `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.md`, `paper/style_ref/STRUCTURE_CONFORMANCE.json`, `paper/style_ref/SOURCES.md` |
-| Claim support | canonical raw results, analysis scripts, paper tables/figures, and verified primary citations |
-| Local Argus skills | `argus_builtin_skills/*.md` and `argus_builtin_skills/**/*.md` exported from the active `argus_skill.builtin_skills` package/source checkout |
-| Reviews | Reviewer feedback plus optional language/layout tool output when a concrete doubt needs a second opinion |
-
-## Model/API and helper-code contract
-1. Model and image credentials are operator capabilities, not project artifacts. The private vault is `~/.argus-skill/capabilities/model_api.json` or `ARGUS_SKILL_CAPABILITY_VAULT`; it should be mode `0600`. Do not manually open/read, print, summarize, copy, or commit its raw contents; only Argus route helpers/tools may load it at runtime.
-2. Before model-backed work, run the secret-free status check:
-   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --model-api-status`
-   Use the reported routes: `engineer` for code/evaluation helpers, `reviewer` for audits, `image` for image-2/codex-image2 generation, and `image_review` for visual inspection. If a needed route is unavailable but operator-approved environment/Codex config exists, initialize once with:
-   `"${ARGUS_SKILL_PYTHON:-python}" -m argus_skill --init-model-api`
-3. Put reusable project wrappers under `code/`; do not scatter raw API calls through notebooks, paper generators, or review JSON writers. Use `load_model_api_route(...)` from Argus, not hard-coded keys, base URLs, or model names. Route-specific environment overrides such as `ARGUS_SKILL_IMAGE_MODEL=gpt-image-2`, `ARGUS_SKILL_IMAGE_BASE_URL`, and `ARGUS_SKILL_IMAGE_API_KEY` may be used only as process environment, never as committed text.
-4. No model wrapper is pre-seeded. If the task needs model calls, create a small
-   project-owned helper such as `code/llm.py` instead of scattering raw HTTP calls.
-   Preserve transient 429/5xx/URL
-   retry with exponential backoff and `Retry-After` handling. Do not convert a rate-limit,
-   disconnect, or temporary backend error directly into a deterministic fallback answer for an
-   experiment row; retry first, then record the failure explicitly if the route is still unusable.
-   Minimal `code/llm.py` pattern for text calls:
-
-       from __future__ import annotations
-
-       import json
-       import time
-       import urllib.error
-       import urllib.request
-       from typing import Any
-
-       from argus_skill.tools.capability_vault import ModelApiRoute, load_model_api_route
-
-       TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
-
-       def _route(name: str) -> ModelApiRoute:
-           route = load_model_api_route(name)
-           if route is None or not route.usable:
-               raise RuntimeError(f"model API route {name!r} is unavailable; run --model-api-status")
-           return route
-
-       def _retry_delay_seconds(exc: BaseException, attempt: int) -> float | None:
-           if isinstance(exc, urllib.error.HTTPError):
-               if exc.code not in TRANSIENT_HTTP_STATUS_CODES:
-                   return None
-               retry_after = exc.headers.get("Retry-After") if exc.headers else None
-               if retry_after:
-                   try:
-                       return max(1.0, float(retry_after))
-                   except ValueError:
-                       pass
-           elif not isinstance(exc, urllib.error.URLError):
-               return None
-           return min(60.0, 2.0 * (2**attempt))
-
-       def _post(route: ModelApiRoute, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
-           req = urllib.request.Request(
-               f"{route.base_url.rstrip('/')}/{endpoint.lstrip('/')}",
-               data=json.dumps(payload).encode("utf-8"),
-               headers={"Authorization": f"Bearer {route.api_key}", "Content-Type": "application/json"},
-               method="POST",
-           )
-           for attempt in range(5):
-               try:
-                   with urllib.request.urlopen(req, timeout=180) as resp:  # noqa: S310 - Argus capability route
-                       return json.loads(resp.read().decode("utf-8"))
-               except (urllib.error.HTTPError, urllib.error.URLError) as exc:
-                   delay = _retry_delay_seconds(exc, attempt)
-                   if delay is None or attempt == 4:
-                       raise
-                   time.sleep(delay)
-           raise RuntimeError("unreachable")
-
-       def complete(prompt: str, *, route_name: str = "text", system: str = "") -> str:
-           route = _route(route_name)
-           if route.wire_api == "chat":
-               data = _post(route, "/chat/completions", {
-                   "model": route.model,
-                   "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-               })
-               return data["choices"][0]["message"]["content"].strip()
-           data = _post(route, "/responses", {
-               "model": route.model,
-               "input": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-           })
-           if isinstance(data.get("output_text"), str):
-               return data["output_text"].strip()
-           return "\n".join(
-               part.get("text", "").strip()
-               for item in data.get("output", [])
-               for part in item.get("content", [])
-               if isinstance(part, dict) and part.get("text")
-           )
-
-5. For image-2 Figure 1 generation, prefer the Argus image tool and preserve the exact raster it returns:
-
-       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_api generate \
-         --prompt-file paper/figures/method_overview.prompt.txt \
-         --out paper/figures/method_overview.png \
-         --size 1536x1024 --force
-       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.tools.image_api inspect \
-         --image paper/figures/method_overview.png > paper/figures/method_overview.inspect.json
-       "${ARGUS_SKILL_PYTHON:-python}" -m argus_skill.verticals.research.figure_tool review \
-         --image paper/figures/method_overview.png \
-         --prompt-file paper/figures/method_overview.prompt.txt \
-         --out paper/figures/method_overview.review.json
-
-   A helper such as `code/generate_image2_figure.py` must then write `paper/figures/IMAGE2_FIGURES.json` with `figure_id`, `figure_type`, `model` or `generator_model`, `prompt_path`, `output_path`, `output_sha256`, `sidecar_path`, `inspect_path`, `review_path`, `generation_provenance_path`, width, and height. The sidecar must preserve image-tool/API evidence (`/images/generations`, model, created time, prompt SHA, output SHA, dimensions), and `review_path` must come from the `image_review` model route. `generation_provenance_path` may point at the image sidecar if that JSON records `prompt_path`, `output_path`, and `output_sha256`. Never crop, downsample, resave, PDF-wrap, locally redraw the accepted raster, or hand-fill `codex-image2` metadata around a local PNG after provenance is written.
-6. Do not let the model freehand a one-paragraph image prompt. Before calling image-2, create `paper/figures/method_overview.prompt.txt` with `python -m argus_skill.verticals.research.figure_tool paper-prompt ...`; it is the canonical semantic-geometry prompt (carrying the `argus-image2-paper-prompt-v2` and `paper-framework-figure-studio-pro-v3.2.0` markers). Generate another layout only to repair a visible defect or compare a materially different direction; keep the best reviewed raster and record the selected `prompt_variant_id` in provenance or the manifest:
-
-       Use case: scientific-educational
-       Prompt template: argus-image2-paper-prompt-v2
-       Prompt source: paper-framework-figure-studio-pro-v3.2.0
-       Asset type: Figure 1 teaser / conceptual overview for the selected venue.
-
-       General style:
-       - Selected-venue AI paper method figure, adaptive landscape, 1536x1024 or 1920x1088.
-       - Conventional scientific diagram with aligned non-overlapping modules, deliberate whitespace, restrained accents, and dark-gray 2px borders.
-       - Compact, information-rich, suitable for a PDF page-width figure; little wasted space but not crowded.
-       - Neutral publication sans-serif with at most two type weights.
-       - Avoid badges, chips, icons, and rounded cards unless they encode a necessary distinction.
-       - No heavy shadows, no gradients, no photorealism, no glassmorphism, no messy Excalidraw look.
-       - Large readable labels, short phrases, balanced hierarchy, flat vector-like raster rendering on warm white #fbfaf7.
-
-       Semantic geometry:
-       - Pass the exact edge ledger through `--semantic-contract`; draw no undeclared arrows.
-       - Every connector attaches to source/target boundaries and never penetrates an unrelated node, label, or group.
-       - Use rectangles for processes, diamonds for decisions with labeled branches, and enclosing boxes only for real scope.
-       - Reject overlap, clipping, avoidable crossings, and text below final-size readability.
-
-       Pinned content that must appear exactly:
-       - Title: "<short human-readable method/system name>"
-       - Show: "<source/input>" -> "<parse/build/distill step>" -> "<quality/verification gate>" -> "<memory/library/model state>" -> "<agent/execution step>" -> "<output/result>" -> "<benchmark/evidence protocol>".
-       - Secondary labels: "<baseline/status quo>", "<proposed method>", "<accepted item>", "<rejected item>", "<main metric/evidence>", "<failure avoided>".
-       - SPELL EXACTLY every quoted label above. Do not invent alternate terminology, code identifiers, raw artifact paths, or extra labels.
-
-       Layout variant:
-       - Pick one variant ID and name it in the prompt. Swap only this block when generating variants.
-       - 01 central hero: huge central memory/wiki/library card, source factory on the left, agent/output board on the right, benchmark strip at bottom.
-       - 02 horizontal swimlanes: three clean lanes such as Build, Verify, Execute; use offset cards so it is not too rigid.
-       - 03 sankey funnel: many sources merge into distillation, narrow through gates, expand into library/state, then branch to outputs.
-       - 04 exploded entry: one accepted skill/memory/wiki entry pulled apart into Text, Visual, Recipe, Metadata plates with callout arrows.
-       - 05 layered architecture stack: bottom sources, middle reusable memory/library, top agent execution; use aligned separated layers.
-       - 06 pipeline plus gallery: main pipeline across top, output gallery on right, compact benchmark/evidence cards along bottom.
-       - 07 modular method map: aligned paper-clean modules; central method largest, side panel for domains/tasks/outputs.
-       - 08 radial hub-spoke: reusable library/state as center hub; sources feed from left arc; agent/results radiate right; evidence panel below.
-       - 09 zigzag pipeline: Z-shaped reading path with numbered step badges and compact insets.
-       - 10 research-poster: section headers, aligned panels, mini charts, and small output thumbnails with deliberate whitespace.
-       - 11 grayscale accent: mostly grayscale academic style with two pastel accent colors for proposed path and verification.
-       - 12 color-coded phases: peach acquisition, blue memory/library, green agent, lavender domains, yellow benchmark; aligned non-overlapping phase bands.
-       - 13 card deck: sources, skills, and outputs as tidy fanned decks; one accepted card expanded.
-       - 14 computation graph: nodes and grouped modules with thin arrows and rounded containers, like an ML systems diagram.
-       - 15 dataflow with sidebars: main flow through center, left source sidebar, right output sidebar, bottom benchmark/evidence sidebar.
-       - 16 timeline plus insets: left-to-right timeline with zoom boxes for the core mechanism and output/evidence.
-       - 17 nested containers: big containers for Offline Construction and Online Execution; nested subcards plus benchmark footer.
-       - 18 multi-panel A/B/C/D: aligned non-overlapping panels for sources/build, reusable state, agent execution, and benchmark/evidence.
-       - 19 light technical schematic: modular boxes, obstacle-free connector routes, and a strong central method box.
-       - 20 publication wireframe: component frames, consistent spacing, explicit ports, and conventional process/decision shapes.
-
-       Negative prompt / Avoid:
-       - no concrete code snippets, raw paths, tiny unreadable text, character-level vertical text, or dense paragraphs
-       - no excessive logos or brand marks, no watermark
-       - no photorealistic scenes, stock photos, glassmorphism, heavy gradients, heavy shadows, texture, or arbitrary decorative blobs
-       - no messy whiteboard / Excalidraw-heavy sketch style
-       - no large empty areas, overlapping cards, squashed labels, inconsistent terminology, or extra captions that make it look like a dashboard
-
-       Publication tokens for camera-ready cleanup:
-       - Canvas 1536x1024 or 1920x1088; background #fbfaf7; stroke #1f2933 at 2px.
-       - Corner radius 0-10px only when meaningful; module padding 12-20px; gap 16-28px.
-       - Pastels: acquisition #ffe2d1, parsing #fff2bd, memory/wiki #dcecff, agent #e2f7df, domains #eadfff, benchmark #fff1c9.
-       - Text sizes: optional heading 30-38px, section headers 22-28px, ordinary labels 18-22px, secondary labels 16-18px.
-
-   A prompt that lacks `argus-image2-paper-prompt-v2`, `paper-framework-figure-studio-pro-v3.2.0`, `General style`, `Pinned content`, exact spelling instructions, `Semantic geometry`, `Layout variant`, and `Negative prompt / Avoid` is a blocker even if the image API call succeeds.
-
-## Role model
-- Planner: decomposes the paper into gated research tasks and chooses the next blocker with the highest reviewer value.
-- Engineer: implements benchmarks, experiments, generators, LaTeX, and fixes; edits source/generators rather than patching generated outputs.
-- Reviewer: checks evidence, freshness, paper quality, and whether the completion command actually passed.
-
-## Research and experiment plan contract
-1. Start from a research brief, not from a paper title.
-2. Before selecting the final thesis, survey credible sources: recent high-quality papers, classic anchor papers, benchmark/dataset papers, official repos, and operator-specified trend sources when available.
-3. Write one canonical `research/LITERATURE_GROUNDING.json` whose primary sources cover every material premise, nearest competitor, relevant foundation, contradictory result, and open frontier. Judge connected claim coverage rather than fixed paper counts; generate `LIT_MATRIX.tsv` with the literature-ledger tool.
-7. Never copy paper or media prose. Store metadata, short paraphrased summaries, and original analysis.
-
-## Training & inference infrastructure contract (research + plan stages)
-
-If the project will involve gradient-based training or large-scale inference,
-the agent must select an existing open-source framework on each axis
-(training, inference) before the planning stage closes. Self-written
-training loops, bare `model.generate()` benchmark loops, and hand-rolled
-PPO/GRPO/RLHF trainers are **hard blockers** at the reviewer gate.
-
-Frameworks are real, non-trivial repositories — not snippets, gists, or a
-"starter template" the agent writes itself. Investigate infrastructure in the
-plan stage after the idea survives de-risk. Clone and inspect the selected
-framework plus any decision-critical runner-up; do not clone every search hit.
-
-1. **Anchor against the bundled baseline:** read
-   `the `training-infrastructure-guide.md` skill` first. It is
-   the operator-curated starting point covering LLM SFT/DPO/RLHF, agent
-   RL, diffusion (T2I), LLM inference, and API inference.
-2. **Search further only when needed** for method compatibility or an
-   unresolved tradeoff. Reuse previously certified framework evidence when current.
-3. **Clone and study before choosing.** For the selected framework and a
-   decision-critical runner-up:
-   ```bash
-   git clone --depth=1 <repo-url> code/references/<repo-name>/
-   git -C code/references/<repo-name>/ log -1 --format='%cI' > code/references/<repo-name>/.last-commit-iso
-   ```
-   then read at least the README, the top-level `examples/` or
-   `scripts/` directory, and the trainer/inferencer entrypoint module
-   so you understand how the framework is intended to be used.
-3a. **Scan the README for supersession hints.** Frameworks routinely
-    get upstreamed into a larger project or superseded; the original
-    repo often still ranks in search but its README points elsewhere.
-    Concrete example: `flow_grpo`'s own README now says it is "now
-    supported by `verl-omni`". For every shortlisted repo run:
-    ```bash
-    grep -nEi 'now supported by|upstreamed (in)?to|merged (in)?to|moved to|migrated to|deprecat|archived|superseded|recommended|please use|maintained at' \
-        code/references/<repo>/README* 2>/dev/null
-    ```
-    If any hit names a successor, clone the successor too, compare the
-    two in the rationale, and **default to the successor** unless there
-    is a concrete reason to stay on the older repo.
-4. **Maintenance bar:** verify active maintenance and compatibility from current
-   releases/issues/docs; do not use a fixed calendar cutoff.
-5. **Paper-released frameworks are allowed** when maintained and the paper appears in
-   `research/LITERATURE_GROUNDING.json`. Prefer the official authors'
-   repo over third-party reimplementations.
-6. **No self-written training or inference loops.** Wrap an existing
-   framework. Excepted: thin glue scripts that import the framework's
-   trainer/inferencer object and configure it.
-7. **Plan stage artifact:** `research/INFRA_CHOICE.md` contains a short
-   comparison and locks in
-   exactly one training framework and exactly one inference framework
-   with rationale tying the choice to the project domain and the
-   GPU / API budget. Mirror the locked choice in
-   `research/EXPERIMENT_PLAN.md` under an `## Infra` section. Record
-   one explicitly-rejected runner-up with a one-line reason.
-8. **Skip the artifact only if** the project does not train any model
-   AND does not run large-scale inference (e.g. a pure literature
-   analysis paper). Record the skip explicitly in
-   `research/EXPERIMENT_PLAN.md`; otherwise the reviewer checks
-   `plan.infra_choice`.
-
-## Pipeline state machine and stage rollback
-
-The project advances through the 8 stages in order
-(research → plan → benchmark → run → analysis → draft → review → submission).
-`.argus/PIPELINE_STATE.json` records `current_stage` and the per-stage
-status. The L2 reviewer gates each transition by ticking off the
-current stage's checklist items.
-
-**Backward moves are not only allowed, they are required when an
-upstream defect is discovered.** Examples:
-
-- While in `run`, the reviewer notices the `benchmark` evaluator is a
-  stub that returns a constant — the right move is to roll back to
-  `benchmark` and rewire the real scorer, NOT to patch around it from
-  inside `run`.
-- While in `draft`, the reviewer notices that
-  `research/INFRA_CHOICE.md` was never locked in — roll back to `plan`,
-  lock the choice, then re-advance.
-- While in `analysis`, the reviewer notices that
-  `scored_rows.jsonl` rows all carry the same score — roll back to
-  `benchmark` (evaluator authenticity) or `run` (matrix completeness),
-  fix the upstream cause, then re-advance.
-
-When the reviewer detects an upstream defect that cannot be repaired within
-the current mission's scope, it must reply `replan_requested` (never
-`continue`) and name the target stage plus concrete reason in `next_action`.
-The Supervisor then hands control to the Manager, which must schedule a fresh
-mission to run:
-
-```python
-from argus_skill.skills.stage_machine import rollback_stage
-rollback_stage(
-    ".",
-    target_stage="<earlier-stage>",
-    reason="<one-sentence reason quoting the missing/unreliable artifact>",
-)
-```
-
-That helper updates `current_stage`, demotes any stages strictly after
-the target back to `pending`, and appends an entry to
-`rollback_history` inside `PIPELINE_STATE.json` so the journal carries
-an audit trail. The next round will load the earlier stage's checklist
-and the agent must work it before being allowed to re-advance.
-
-Forward moves still require every item on the current stage's
-checklist to be ticked off by the reviewer.
-
-## Benchmark and experiment contract
-1. Final long-paper evidence must come from existing real benchmarks, official benchmark datasets, or official task releases with real ground truth/evaluation. Do not create synthetic benchmarks, generated proxy tasks, hand-written gold graphs, or local pseudo-benchmarks for the main paper claim.
-2. Final long-paper evidence must use unique semantic tasks/examples, not duplicated prompts, relabeling, suffixes, paraphrase inflation, or shuffled copies.
-3. A pilot remains a pilot until its evidence supports the intended claim. A
-   focused public benchmark may support a narrow claim; broader claims require
-   broader public validation.
-4. Use compute appropriate to the research question. Record claim-relevant model,
-   system, data, environment, and cost details. GPU saturation is a throughput
-   consideration, not a universal scientific gate.
-5. A compact bag-of-words scorer, exact lookahead/oracle policy, lexical ranker, prompt-only wrapper, or trivial classifier is allowed only as a smoke test, baseline, ablation, or operator-approved non-frontier scope. It must not be presented as the main proposed method for a submission-quality long paper.
-6. Benchmark construction is not execution. `benchmarks/full/tasks.jsonl`, benchmark manifests, or `status.json task_count` do not satisfy final evidence unless raw completed scored rows under `experiments/**` cover every required method/baseline condition.
-7. Use appropriate executed public benchmark/data/task sources for final
-   empirical claims. Provenance must record official source, version,
-   license/access, split/filtering, evaluation unit, metric, claim tested, and
-   execution status. No fixed source count is imposed.
-8. Use local compute, hosted models, CPUs, accelerators, simulators, theorem
-   provers, or other resources only when appropriate to the research design.
-9. Synthetic/local tasks are smoke-only. They may test code paths, but their results must not appear in main paper tables, headline metrics, final claims, or submission-readiness artifacts.
-10. Include the strongest relevant comparisons needed to interpret the claim; do
-    not impose Agent-specific baseline sets on unrelated domains.
-11. Do not optimize toward a validator-shaped row target. Evidence scale follows
-    the claim and uncertainty method.
-12. Include ablations, failure analysis, confidence intervals or statistical significance, and enough raw logs/results to reproduce every numerical claim.
-13. Every long experiment must write `manifest.json`, `status.json`, `progress.jsonl`, logs, raw rows, and a STOP-file cancellation contract. `progress.jsonl` should expose current method, task count, total count, success/failure counts, last heartbeat, and latest artifact path so progress is visible while the daemon is running.
-14. the L2 reviewer run-stage "full-scale evidence" checklist item before analysis/drafting; if it fails, write only pilot diagnostics and queue the missing full-run/matrix-completion work.
-
-## Mandatory thick exemplar learning
-1. Invoke the Paper Exemplar PDF Learning skill before drafting prose.
-2. Download at least two open-access top-conference paper PDFs under `paper/style_ref/exemplars/<slug>/paper.pdf`.
-3. At least one exemplar should be a recent strong/award paper from the selected
-   venue when available; another should match the contribution/evidence structure.
-4. Extract text to `paper/style_ref/exemplars/<slug>/paper.txt`, compute and record `pdf_sha256`, record license and `pdf_storage_policy`, and write `paper/style_ref/SOURCES.md`.
-5. Before locking a primary exemplar, write `paper/style_ref/EXEMPLAR_SUITABILITY.json` scoring candidate exemplars against this project's task type, method family, experiment shape, figure/table density, related-work structure, and page rhythm. the L2 reviewer draft-stage exemplar checklist item; a weak exemplar match is a drafting blocker.
-6. `paper/style_ref/EXEMPLAR.json` must use `exemplar_schema_version: 2` and include `local_pdf`, `text_extract`, `pdf_sha256`, `license`, `pdf_storage_policy`, `usage: "structural_style_only"`, and `no_prose_copy: true` for every exemplar.
-7. Write a thick `paper/style_ref/STYLE_PROFILE.md` covering abstract shape, section/page allocation, figure/table inventory, related-work shape, evaluation layout, formatting/layout lessons, writing lessons, transfer plan, and no-prose-copy policy.
-8. Write `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md` before prose. It must map exemplar lessons to this paper's section order, page budget, paragraph roles, figure/table plan, related-work grouping, evaluation sequence, and local evidence mapping. Draft the paper by following this exemplar-derived skeleton directly; title and section names may adapt to the current thesis, but the page rhythm and role sequence should not drift without explicit evidence.
-9. After drafting, write `paper/style_ref/STRUCTURE_CONFORMANCE.md` and `paper/style_ref/STRUCTURE_CONFORMANCE.json` from the actual `paper/main.tex` section order. The JSON must use `conformance_schema_version: 1`, `verdict: "PASS"`, `no_prose_copy_attestation: true`, at least two `exemplar_lessons`, and `section_mappings` for every final top-level section before References/Appendix.
-10. Every section mapping must include `maps_to_exemplar_phase`, `evidence_sources`, `exemplar_lesson`, and a paper-specific `deviation_rationale` for nonstandard sections. The paper may adapt exemplar architecture to the current thesis, but unmapped/freehand filler sections such as `Protocol Notes`, `Track Mechanics`, `Release Detail`, `Mechanics`, or `Notes` are blockers.
-11. Run `the L2 reviewer ticking off the draft-stage exemplar/structure checklist item`; URL-only exemplars and missing structure blueprints are blockers. Final readiness additionally checks `STRUCTURE_CONFORMANCE`.
-12. Use exemplars only for structural style learning. Do not copy prose, examples, terminology, claims, bibliography text, figure design, or sentence templates.
-
-## Paper narrative and prose contract
-1. Do not write the abstract first. Draft the abstract after the main numbers, ablations, and limitations exist.
-2. The paper must have one sentence-long contribution: "We propose X. We show X improves Y by Z because W." If X, Y, Z, and W cannot be filled from evidence, the paper is not ready.
-3. The abstract should follow the selected venue's normal research-paper style:
-   problem, gap, contribution, evidence, implication.
-4. Every numerical paper claim must trace to raw artifacts under `results/`, `experiments/`, or `paper/artifacts/`.
-5. Paper writing and experimentation may interleave. If drafting exposes weak or missing evidence, stop claiming readiness, run the needed supplement/ablation/error analysis, and then update the claim graph and paper; if the evidence remains weak, soften or remove the claim instead of cherry-picking.
-6. Keep claims calibrated without turning the paper into repetitive defensive caveats. Move detailed scope limits to limitations/discussion.
-7. Never invent BibTeX. Fetch/verify references through scholarly sources or mark unresolved entries as blockers.
-8. The main Results section must present public evidence and strongest relevant
-   comparisons clearly in a domain-appropriate table, figure, proof summary, or
-   analysis. Do not force a three-benchmark matrix.
-
-## Paper-quality contract files
-1. `paper/CLAIM_GRAPH.json` must bind every major claim to its section, required evidence, raw result artifact, figure/table/citation support, and allowed fallback if evidence is weak. `paper/EVIDENCE_GAPS.json` must list missing or weak evidence and the planned supplement, ablation, negative result framing, or claim downgrade.
-2. `paper/FIGURE_TABLE_STYLE_GUIDE.json` must specify the intended body/appendix float inventory, width, font/readability target, legend/caption length, color discipline, column density, information hierarchy, and whether each float belongs in the main body or appendix. Ugly, cramped, or audit-table-like floats are blockers even if the PDF compiles.
-3. Repair missing evidence before structure, figure/table, format/layout, or language polish. Underlength, underfilled body, missing full-scale runs, missing baselines, weak ablations, or missing failure analysis are not layout-only problems: route them to additional experiments, ablations/failure studies, source-backed Introduction/Related Work/Method expansion, or evidence-backed analysis according to the actual gap. After repeated non-improving edits, reset the skeleton/float plan instead of looping on review JSON or cosmetic micro-edits.
-5. the L2 reviewer analysis/draft-stage paper-quality checklist items before final academic-language and layout review. Missing, stale, or thin contract artifacts are hard blockers.
-
-## Citation and related-work contract
-1. Use starter citation targets only when the topic matches. Treat keys as retrieval targets, not as ready BibTeX: verify each entry through Semantic Scholar, arXiv, CrossRef, ACL Anthology, DBLP, or official project pages.
-2. Keep references separated by claim/topic/section. Each related-work paragraph must cite the specific papers it discusses; do not dump all citations into one dense paragraph, one mega-sentence, a caption, or the bibliography with no local discussion.
-3. Maintain a literature matrix with topic, paper key, verified source, claim supported, and intended paper section before drafting related work.
-4. Use the selected venue's official bibliography and citation style. Do not
-   override it with a different historical venue convention.
-5. Verify references semantically, not only by compiling: citation key, title, authors, year, venue, DOI/arXiv/ACL URL, and rendered bibliography entry must refer to the same paper. Missing author/editor/organization metadata is a blocker because it renders title-only labels. If a starter key maps to an unrelated title, refetch the metadata instead of renaming the entry.
-6. Starter targets for memory, agent-skill, and hallucination papers:
-   - Tool-use and agent loops: `yao2023react`, `shinn2023reflexion`, `madaan2023selfrefine`, `schick2023toolformer`, `qin2023toolllm`, `li2023apibank`, `patil2023gorilla`, `shen2023hugginggpt`, `karpas2022mrkl`.
-   - Memory, skills, and long-horizon agents: `wang2024voyager`, `zhao2024expel`, `packer2023memgpt`, `park2023generativeagents`, `xu2025amem`, `zhong2024memorybank`, `wang2023longmem`.
-   - Self-evolution and process supervision: `qi2024webrl`, `li2025webevolver`, `wang2025mobileagente`, `tang2025sage`, `zhang2025skillrl`, `lightman2023letsverify`, `zelikman2022star`.
-   - Evaluation, hallucination, and multi-agent surveys: `zheng2023judging`, `ji2023survey`, `huang2025hallucination`, `guo2024llmmas`, `manakul2023selfcheckgpt`, `lin2022truthfulqa`.
-   - Agent benchmarks and validation environments: `liu2023agentbench`, `zhou2023webarena`, `mialon2023gaia`, `maharana2024locomo`, `shridhar2020alfworld`.
-7. Add domain- and venue-relevant papers, benchmark/data papers, and official
-   repos until the 35/30 bibliography-depth gate and claim coverage both hold.
-
-## Paper formatting and layout contract
-1. Use the selected venue's official style files and anonymous-review contract
-   from `research/VENUE_PROFILE.json`.
-2. Follow the selected venue's current page/word limits, section order,
-   bibliography rules, and reproducibility requirements. Method/Experimental
-   Setup must describe the actual research object and public evidence without
-   assuming an agent/LLM architecture.
-3. Use this reference page budget when writing `paper/PAGE_BUDGET.md` and `paper/style_ref/PAPER_STRUCTURE_BLUEPRINT.md`; adapt only with evidence/exemplar justification:
-
-   | Section | Pages |
-   | --- | --- |
-   | Abstract | 0.3 |
-   | Introduction | 1 |
-   | Related Work | 0.5--0.8 |
-   | Method | 1--1.5 |
-   | Experimental Setup | 0.5--1 |
-   | Main Results | 1--1.5 |
-   | Analysis/Ablation | 1 |
-   | Failure Cases | 0.3--0.5 |
-   | Conclusion | 0.2 |
-
-   Section-depth before final readiness is reviewer-calibrated, not an exact word-count floor. Keep the abstract in the normal 170--220 word range. The Introduction needs cited prior-work/benchmark hooks, problem/gap framing, method insight, quantified result preview, contribution roadmap, and scope; Method and Experimental Setup need enough evaluated-system, benchmark, metric, budget/decoding or scoring, seed-policy, and stopping-rule detail for a reviewer to understand the work. A body can be eight pages and still fail if it reaches the target through repeated caveats, formulaic contrast sentences, stale result numbers, oversized floats, or post-Conclusion material.
-
-4. Conclusion must appear by the end of page 8. The page count is a ceiling, not a quota: a complete paper that concludes earlier is not deficient, and padding to reach a page number is worse than a shorter complete paper. If the body is genuinely missing method, evidence, or argument a reader needs, add source-backed body content before Conclusion — literature-grounded Introduction/Related Work framing, benchmark/Method detail, or evidence-backed Results/Analysis/Ablation/Failure Cases — but expand only when something is actually missing. Limitations, Ethical Considerations, release notes, references, or appendix content after Conclusion never repair a genuinely thin body. References must appear before Appendix and start cleanly after the eight-page body. Do not cap total pages after the reference/appendix boundary. Never put `\clearpage`, `\newpage`, `\pagebreak`, or `\FloatBarrier` immediately before Conclusion; use those only after body end matter when a clean bibliography/appendix boundary is needed.
-5. the L2 reviewer review-stage checklist item for research.md format after final compile and before academic-language/layout review.
-6. Write `paper/FORMAT_PREFLIGHT.md` with compile command/status, page count, conclusion page, figure/table inventory, bibliography status, fixes, and final preflight result.
-7. No undefined references/citation warnings, no rendered `[?]`, no `Overfull \hbox > 5pt`, no placeholders/TODO/TBD/FIXME, no `% UNVERIFIED`, and no ugly code-like display labels in title, abstract, headings, captions, figures, or tables.
-8. Body figures <=5 total, at most one `figure*`, every figure labeled and referenced, every table caption has a numerical headline, middle-body visual rhythm passes the model-backed layout review, and at least one paired-significance table when comparative binary outcomes apply.
-9. The body should include a large main results matrix that covers all selected benchmark families and major baselines in one place; it should be visually professional rather than a dump of review artifacts. Split only if the table cannot fit cleanly under the overfull/legibility contract, and keep the cross-benchmark summary in the body while moving low-value diagnostics to the appendix.
-10. Tables must follow the `research.md` style tokens: `\footnotesize`, `\tabcolsep=3-4pt`, `\arraystretch=1.15`, light-gray header, soft peach "ours" row, alternating row tint for long tables, coral accent only for meaningful degradation, and bold winning values.
+Run scientific, strict visual, and academic-language inspections concurrently
+in read-only mode. Apply their combined findings, recompile, and obtain one
+integrated independent verdict in `paper/REVIEW.md`. Create no parallel review
+files.
 
 ## Figure contract
-1. Use the research vertical's Research Visualization Router for every figure.
-2. Optionally record renderer/source handoff metadata in `FIGURE_PROVENANCE.json`; it is not a completion gate.
-3. Data figures and tables trace to canonical raw data/results. Deterministic SVG/HTML/React/diagram/PPT figures trace to editable source.
-4. Image-2 is optional. When selected, preserve prompt, generation provenance, inspect/review artifacts, accepted raster SHA-256, width/height, and `IMAGE2_FIGURES.json`; never wrap a local file in image-2 metadata.
-5. Conceptual figures must be adaptive/landscape and readable at final paper size regardless of renderer. Avoid cramped squares, weird/sketchy fonts, tiny text, heavy gradients, photorealism, excessive logos, or decorative clutter.
-6. Figure 1 is mandatory for a submission-quality paper: render a real external
-   teaser/method/framework/architecture/taxonomy overview that communicates the
-   problem, core mechanism, and claim-bearing flow. image-2 is optional; when it
-   is unavailable, use PPT Master, browser-rendered HTML, FigureSpec, Draw.io,
-   Mermaid/Graphviz, or another truthful deterministic route. Preserve editable
-   source and embed the exported SVG/PDF/PNG in the manuscript. A LaTeX table,
-   boxed paragraph, or `\rule` bars inside a `figure` environment do not count.
 
-## Final paper review
-1. Compile and read the current paper as a venue reviewer.
-2. Open the raw result or primary source behind any material claim that remains
-   doubtful.
-3. Use language or layout review tools only for a concrete unresolved question;
-   their generated files are advisory.
-4. Let the L2 Reviewer decide readiness from the manuscript and sources. Do not
-   write an assurance packet or optimize generated review scores.
+Semantic geometry: every connector has the correct source, destination,
+direction, port, and label; no connector penetrates an unrelated node or text.
+At final publication size, figures and tables must be readable, unclipped,
+non-overlapping, visually balanced, and scientifically conventional.
 
-## Operational safety
-1. Work inside this project directory unless reading an operator-provided research playbook or the active Argus source/package through the launcher-provided environment.
-2. Never copy parent workspaces, the Argus repository, `.skill-agent`, `.argus-skill`, `.cache`, model caches, capability vaults, or recursive workspaces into this project.
-3. **Model weight storage:** if you download any model checkpoint, adapter, tokenizer, embedding, or dataset, put it under `./models/` inside this project. Set the HuggingFace / PyTorch cache environment to point there: `HF_HOME=$(pwd)/models/huggingface`, `HUGGINGFACE_HUB_CACHE=$(pwd)/models/huggingface/hub`, `HF_DATASETS_CACHE=$(pwd)/models/huggingface/datasets`, `TRANSFORMERS_CACHE=$(pwd)/models/huggingface/hub`, `TORCH_HOME=$(pwd)/models/torch`. Each project owns its weights; do not pollute the shared `~/.cache/` of the host or another project. Add `models/` to `.gitignore` if it is not already there so checkpoints never enter git history. Skip the download entirely if the model is already addressable through the model API route in `~/.argus-skill/capabilities/model_api.json`.
-4. Keep API keys and capability vault contents out of all artifacts.
-5. Record meaningful decisions and evidence in project files, not only in chat.
-6. Preserve user edits and unrelated work. Do not revert files you did not intentionally change.
+## Deliverables
 
-## Forbidden shortcuts
-- Do not fake experiments, citations, provenance, tests, reviews, image-2 artifacts, or review outputs.
-- Do not edit generated paper artifacts without updating the generator/source and manifest.
-- Do not satisfy the reviewer by adding boilerplate that makes the actual paper worse.
-- Do not copy a previous project and rename variables to make it look new.
-- Do not silently ignore failed commands, missing artifacts, stale reviews, or checklist blockers.
+- implementation, direct configuration, and raw results;
+- `HANDOFF.md`;
+- `paper/main.tex`, bibliography, figures, tables, and rendered paper;
+- `paper/REVIEW.md`.
 
-## Completion contract
-A task is complete only when:
-- the requested paper artifact or blocker fix exists in source and regenerated artifacts,
-- source, generated artifacts, manifests, reviews, and validation reports are synchronized,
-- relevant validation has passed or remaining failures are explicitly unrelated to the task,
-- known limitations are documented without pretending they are solved,
-- the handoff states what changed, what passed, and the next highest-priority blocker.
-
-The full project is complete only when the L2 reviewer certifies `done` for `scope: final_submission` against the full pipeline checklist on the current workspace, with every checklist item satisfied and backed by concrete evidence, and that verdict is quoted in completion evidence.
-
-## Harness self-evolution
-Reusable behavior belongs in a Skill. Checklist defects are reported in the
-Reviewer verdict and repaired in the source vertical contract by a later scoped
-task; the runtime has no `checklist_ops` mutation channel.
-````
-
-## Generality check
-This template is venue-aware and project-neutral. It must not contain
-host-specific Argus paths, a specific project title, benchmark name, result
-number, figure name, or prior-workspace story.
-
-## Coverage check
-Before using the template, fill all bracketed placeholders, list allowed inputs, and delete no hard gate unless the operator explicitly changes the paper scope.
+Do not create process inventories, duplicate reports, review histories, or
+parallel handoff files.
+```

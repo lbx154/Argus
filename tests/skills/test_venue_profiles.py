@@ -18,7 +18,7 @@ def test_emnlp_profile_reproduces_current_constants() -> None:
     assert p.key == "EMNLP"
     assert (p.conclusion_underfill_page, p.conclusion_max_page, p.references_min_page) == (7, 8, 9)
     assert p.anon_author_string == "Anonymous EMNLP Submission"
-    assert p.academic_language_rubric_id == "emnlp-academic-language-v2"
+    assert p.academic_language_rubric_id == "venue-academic-language-v1"
     assert p.emit_bibliographystyle is True
     assert p.mandatory_end_sections == ("Limitations", "Ethical Considerations")
     assert p.requires_pdfinfo is False

@@ -1,90 +1,30 @@
 ---
-name: "Hypothesis-Implementation Contract"
-description: "Bind a selected research idea to the exact code path that will test it before claim-bearing execution."
+name: "Hypothesis-Implementation Alignment"
+description: "Keep the selected thesis and the code that tests it aligned during Build."
 ---
 
-# Hypothesis-Implementation Contract
+# Hypothesis-Implementation Alignment
 
-Use this after one idea is selected and before writing or changing experimental
-code. Its purpose is to prevent an attractive hypothesis from silently becoming
-an easier implementation.
+Use this in Build after Idea selection and before claim-bearing execution. Read
+the selected thesis from `HANDOFF.md`; do not create a separate contract file.
 
-Write one canonical artifact:
-`research/HYPOTHESIS_IMPLEMENTATION_CONTRACT.md`.
+Map every load-bearing part of the thesis to the actual implementation:
 
-## Freeze the scientific object
+- mechanism, intervention, prediction, and falsifier;
+- executable entry point and branch where candidate and baseline diverge;
+- formulas, operands, masks, reductions, timing, and gradient boundaries;
+- information available at decision time;
+- evaluator output and positive control;
+- fair baseline and invariants.
 
-Copy the selected thesis and binding prediction without strengthening or
-simplifying them. State:
+Implement through those concrete paths. Then have a fresh Reviewer inspect the
+selected thesis and the reachable call chain and return exactly one conclusion:
 
-- the causal or formal objects and assumptions;
-- the intervention, treatment, decision, or transformation;
-- the estimand or proof obligation;
-- the expected direction or falsifier;
-- the strongest alternative explanation;
-- information available to the method at decision time;
-- invariants that the method must preserve.
+- `ALIGNED`: the code tests the selected mechanism under the intended comparison;
+- `MISMATCH`: the code runs but tests a different mechanism or comparison;
+- `NOT_IMPLEMENTED`: the selected mechanism is absent or unreachable.
 
-Do not run an experiment while producing this contract.
-
-## Map it to implementation
-
-For every load-bearing hypothesis element, record:
-
-| Hypothesis element | Scientific meaning | Planned code path | Config/data field | Observable output | Baseline/control | Required invariant |
-|---|---|---|---|---|---|---|
-
-Use concrete entry points, functions, branches, tensors/records, configuration
-keys, and output columns. Map formulas symbol by symbol, including operands,
-signs, masks, reductions, gradient boundaries, timing, and scope. A function or
-variable with a plausible name is not a mapping.
-
-The contract must also identify:
-
-- the command that will execute the method;
-- where the candidate and each baseline diverge;
-- how the selected intervention is applied online rather than reconstructed
-  after outcomes are known;
-- how train, development, and held-out data remain separated;
-- which output proves the claimed branch actually ran;
-- what implementation result would mean `NOT_IMPLEMENTED` rather than a
-  negative scientific finding.
-
-## Implement, then review before execution
-
-After the contract is frozen, implement the method. A fresh Reviewer compares
-the selected idea, this contract, and the actual entry-point call chain and
-records one verdict in the same artifact:
-
-- `ALIGNED`: the implemented path computes the selected mechanism with matching
-  operands, scope, timing, baselines, and invariants.
-- `MISMATCH`: code executes, but it tests a different mechanism or comparison.
-- `NOT_IMPLEMENTED`: the selected mechanism is absent or unreachable from the
-  planned entry point.
-
-`MISMATCH` and `NOT_IMPLEMENTED` have two honest exits: change the code to
-implement the selected idea, or prospectively revise the implementation contract
-and experiment plan within that selected idea before result-producing execution.
-Never reopen idea discovery or selection. Never reinterpret later outcomes to
-make the hypothesis fit the code.
-
-Implementation, dependency, infrastructure, evaluator, or contract failures are
-engineering repair work inside the selected idea. They are not evidence against
-the scientific hypothesis and must not trigger a new portfolio, recovery audit,
-or selector.
-
-Unit and smoke checks may verify imports, shapes, branches, and evaluator
-plumbing after implementation. They do not test or rank the scientific idea.
-The first scientific comparison belongs to the planned claim-relevant
-experiment.
-
-## Preserve changes prospectively
-
-If implementation constraints require a scientific change, update the contract
-and plan before inspecting affected results, and retain the prior wording in a
-short change-history section without replacing the selected idea. Routine
-refactors that preserve the mapped computation need no new contract.
-
-After results exist, the separate `Claim-to-Code Trace` follows the actual
-producing command and runtime path. This pre-execution contract prevents drift;
-the post-execution trace verifies what really ran.
+Fix `MISMATCH` or `NOT_IMPLEMENTED` in Build. Do not reopen Idea selection.
+When Build is complete, replace `HANDOFF.md` with `# HANDOFF — BUILD` and include
+only the implemented mechanism, real entry point, run configuration, baseline,
+evaluator, alignment result, and remaining experiment risks.

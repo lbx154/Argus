@@ -1,9 +1,7 @@
-"""End-to-end AAAI venue path: scaffold seed -> resolve -> every format gate.
+"""End-to-end venue path: resolve the profile and unified final Review.
 
-Proves the seam composes: a project seeded with venue=aaai resolves to the AAAI
-profile, and the layout gate, structural-minimums gate, stage checklist floor,
-and venue reviewer skill selection all switch to AAAI rules — while the same
-inputs keep EMNLP behavior for an EMNLP project.
+Venue-specific format checks remain in the Paper skills while scientific,
+visual, and language acceptance share the final Review stage.
 """
 from __future__ import annotations
 
@@ -78,27 +76,38 @@ def test_aaai_project_structural_gate_flags_missing_pdfinfo(tmp_path: Path) -> N
 
 def test_aaai_project_checklist_and_reviewer_are_aaai(tmp_path: Path) -> None:
     root = _seed_project(tmp_path, "aaai")
-    sub = format_stage_checklist("submission", role="reviewer", project_root=root)
-    assert "Anonymous submission" in sub
-    assert "Anonymous EMNLP Submission" not in sub
-    # Reviewer checklist points at the AAAI reviewer skill.
+    review = format_stage_checklist("review", role="reviewer", project_root=root)
+    assert "review.visual" in review
+    assert "review.language" in review
     profile = resolve_venue_profile(root)
-    assert profile.review_skill_path == "reviewer/aaai-academic-language-review.md"
+    assert profile.review_skill_path == "reviewer/venue-academic-language-review.md"
+    format_skill = (
+        Path(__file__).parents[1]
+        / "argus_skill/verticals/research/skills/engineer/venue-format-preflight.md"
+    ).read_text(encoding="utf-8")
+    assert "selected venue" in format_skill
+    assert "official author kit" in format_skill
 
 
 def test_emnlp_project_is_unchanged(tmp_path: Path) -> None:
     root = _seed_project(tmp_path, "emnlp")
     profile = resolve_venue_profile(root)
     assert profile.key == "EMNLP"
-    sub = format_stage_checklist("submission", role="reviewer", project_root=root)
-    assert "Anonymous EMNLP Submission" in sub
-    assert profile.review_skill_path == "reviewer/emnlp-academic-language-review.md"
+    review = format_stage_checklist("review", role="reviewer", project_root=root)
+    assert "review.visual" in review
+    assert "review.language" in review
+    assert profile.review_skill_path == "reviewer/venue-academic-language-review.md"
+    format_skill = (
+        Path(__file__).parents[1]
+        / "argus_skill/verticals/research/skills/engineer/venue-format-preflight.md"
+    ).read_text(encoding="utf-8")
+    assert "selected venue" in format_skill
+    assert "official author kit" in format_skill
 
 
 def test_venue_language_reviews_describe_claims_without_sentence_templates() -> None:
     root = Path(__file__).parents[1] / "argus_skill/verticals/research/skills/reviewer"
-    for name in ("aaai-academic-language-review.md", "emnlp-academic-language-review.md"):
-        text = (root / name).read_text(encoding="utf-8")
-        assert "what is studied, what is claimed, under which conditions" in text
-        assert "X is better for Y in Z because W" not in text
-        assert "We propose X. We show X improves Y by Z because W" not in text
+    text = (root / "venue-academic-language-review.md").read_text(encoding="utf-8")
+    assert "what is studied, what is claimed, under which conditions" in text
+    assert "X is better for Y in Z because W" not in text
+    assert "We propose X. We show X improves Y by Z because W" not in text

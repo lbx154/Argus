@@ -277,6 +277,37 @@ class AgentCliBackend:
             text = str(mission_id or "").strip()
             self._usage_mission_id = text or None
 
+    def fork(
+        self,
+        *,
+        interrupt_reason_provider=None,
+    ) -> "AgentCliBackend":
+        """Create an independent backend for one concurrent provider call."""
+        backend = AgentCliBackend(
+            backend=self._backend_name,
+            runner_bin=self._runner.agent_bin,
+            default_extra_args=self._default_extra_args,
+            default_interrupt_reason_provider=(
+                interrupt_reason_provider
+                or self._default_interrupt_reason_provider
+            ),
+            default_watchdog_soft_idle_seconds=self._default_watchdog_soft_idle_seconds,
+            default_watchdog_stalled_idle_seconds=(
+                self._default_watchdog_stalled_idle_seconds
+            ),
+            default_watchdog_hard_idle_seconds=self._default_watchdog_hard_idle_seconds,
+            before_exec=self._runner.before_exec,
+            event_callback=self._io_logger.external_event_callback,
+            known_secret_values_override=self._known_secret_values_override,
+        )
+        project_root, mission_id, global_root = self._usage_context_snapshot()
+        backend.set_usage_context(
+            project_root=project_root,
+            mission_id=mission_id,
+            global_root=global_root,
+        )
+        return backend
+
     def _usage_context_snapshot(
         self,
     ) -> tuple[Path | None, str | None, Path | None]:

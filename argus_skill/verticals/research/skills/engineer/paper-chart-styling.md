@@ -103,10 +103,9 @@ the research vertical's Research Visualization Router. This skill is only for
    how they highlight their own method, legend placement, and caption phrasing.
    Match those conventions; do not copy their data or exact styling verbatim.
 
-10. **Drive figure choice from the Draft.** Use `paper/PAPER_STRUCTURE_BLUEPRINT.md`
-   / the current draft to decide WHICH figures the story needs (main result curve,
-   key ablation, cost/quality trade-off) rather than dumping every metric. Each
-   figure should support a specific claim in the draft.
+10. **Drive figure choice from the current draft.** Decide which figures the
+    story needs (main result curve, key ablation, cost/quality trade-off) rather
+    than dumping every metric. Each figure should support a specific claim.
 
 11. **Inspect the exported PDF at final use size.** Check clipping, crowded or
     ambiguous ticks, legend/data overlap, panel alignment, font embedding,
@@ -119,7 +118,7 @@ the research vertical's Research Visualization Router. This skill is only for
 - SciencePlots is mandatory for this route. A missing package is an environment
   error, not permission to fall back to the retired ad-hoc data-figure method.
 - This skill styles data plots only. Conceptual/method figures use the
-  renderer-neutral Research Visualization Router and `FIGURE_PROVENANCE.json`.
+  renderer-neutral Research Visualization Router.
 - Figure width must still agree with the LaTeX float type: teaser and the main
   pipeline/architecture overview are the full-width `figure*` floats; sub-module
   and detail plots stay single-column `figure` (the layout review flags an
