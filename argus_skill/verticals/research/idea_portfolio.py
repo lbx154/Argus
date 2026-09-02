@@ -824,11 +824,16 @@ def ensure_idea_portfolio(project_root: Path, *, direction: str) -> Path:
     with _state_lock(project_root):
         previous = _state_payload(project_root)
         previous_team_id = str(previous.get("team_id") or "")
+        previous_selection_id = str(previous.get("selection_team_id") or "")
+        previous_ids: set[str] = set()
         if previous_team_id and previous_team_id != team_id:
-            previous_ids = {
-                previous_team_id,
-                str(previous.get("selection_team_id") or ""),
-            }
+            previous_ids.add(previous_team_id)
+        if (
+            previous_selection_id
+            and previous_selection_id != f"{team_id}-{SELECTION_TEAM_SUFFIX}"
+        ):
+            previous_ids.add(previous_selection_id)
+        if previous_ids:
             teams_root = (project_root / TEAM_ROOT).resolve()
             for previous_id in previous_ids:
                 if not previous_id:

@@ -405,7 +405,7 @@ def test_fixed_policy_retires_legacy_selector_team(tmp_path: Path) -> None:
         (tmp_path / "research" / "IDEA_PORTFOLIO.json").read_text(encoding="utf-8")
     )
     legacy_output = f"{state['artifact_root']}/selection.json"
-    legacy_root = root.with_name(f"{root.name}-selection")
+    legacy_root = root.with_name(f"{root.name}-selection-12")
     legacy_task = {
         "task_id": f"{root.name}-legacy-selector",
         "title": "Legacy early selector",
@@ -433,7 +433,7 @@ def test_fixed_policy_retires_legacy_selector_team(tmp_path: Path) -> None:
     assert pool.read(legacy_root) == {"width": 0, "state": "dissolved"}
     retired = task_board.snapshot(legacy_root)[0]
     assert retired["state"] == "failed"
-    assert retired["reason"] == "superseded by fixed twelve-route selection policy"
+    assert retired["reason"] == "superseded by source-only selection policy"
     assert not canonical_path.exists()
     assert not freeze_path.exists()
 
