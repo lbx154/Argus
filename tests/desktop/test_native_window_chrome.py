@@ -65,7 +65,7 @@ def test_ready_cockpit_path_avoids_settings_discovery_and_duplicate_reload() -> 
     assert "desktopBridge.openCockpit()" in ready_path
     assert "desktopBridge.getSetup()" not in ready_path
     assert "cockpitMounted && cockpitFrame.src === url" in shell
-    assert "}, 50);" in shell
+    assert "}, 180);" in shell
 
 
 def test_embedded_cockpit_avoids_duplicate_splash_and_heavy_offscreen_paint() -> None:
@@ -177,8 +177,8 @@ def test_trusted_shell_menu_merges_background_close_actions_and_matches_theme() 
     assert "quit-detached" not in host
     assert "install_menu" not in host
     assert "desktop-menu-bar" in styles
-    assert "--chrome-bg: #eaf2ff" in styles
-    assert "--chrome-bg: #111d30" in styles
+    assert "--chrome-bg: #f5f5f7" in styles
+    assert "--chrome-bg: #161618" in styles
     assert "background: var(--chrome-bg)" in styles
     assert "border-bottom: 0" in styles
     assert "inset: var(--desktop-menu-height) 0 0" in styles
