@@ -97,25 +97,24 @@ describe('shared frontend core', () => {
     expect(html).toContain('Retry');
   });
 
-  it('uses Rounded 02 geometry with one continuous brand gradient', () => {
+  it('uses monochrome Rounded 02 geometry', () => {
     const lockup = renderToStaticMarkup(createElement(Wordmark, { size: 24 }));
     const mark = renderToStaticMarkup(createElement(ArgusMark, { size: 32 }));
     expect(lockup).toContain('data-logo="rounded-horizontal"');
     expect(mark).toContain('data-logo="rounded-mark"');
-    expect(lockup).toContain('gradientUnits="userSpaceOnUse"');
-    expect(lockup).toContain('x1="180"');
-    expect(lockup).toContain('x2="1280"');
-    expect(lockup).not.toContain('var(--spectral-violet)');
+    expect(lockup).toContain('fill="currentColor"');
+    expect(lockup).not.toContain('linearGradient');
+    expect(mark).toContain('fill="currentColor"');
     expect(lockup).not.toContain('NightPupil');
   });
 
   it('defines the public-brand workbench surface contract', () => {
     const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
     for (const token of [
-      '--spectral-blue',
-      '--spectral-violet',
-      '--spectral-rose',
-      '--spectral-gold',
+      '--blue',
+      '--ok',
+      '--warn',
+      '--err',
       '--glass',
       '--glass-raised',
       '--glass-edge',
@@ -139,18 +138,17 @@ describe('shared frontend core', () => {
     }
     expect(css).not.toContain('@keyframes ambient-drift');
     expect(css).not.toContain('will-change: transform, opacity');
-    expect(css).not.toContain('--spectral-violet: 105 73 205');
-    expect(css).not.toContain('--spectral-rose: 190 67 119');
+    expect(css).not.toContain('--spectral-');
     expect(css).not.toContain('#89dceb');
     expect(css).not.toContain('#cba6f7');
     expect(css).toContain('.workspace-tab-indicator');
     expect(css).toContain('.role-log-group[data-open=\"true\"]');
   });
 
-  it('keeps light-theme spectral info text at WCAG AA contrast', () => {
+  it('keeps light-theme blue info text at WCAG AA contrast', () => {
     const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
     const root = css.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
-    const channels = root.match(/--spectral-blue:\s*(\d+)\s+(\d+)\s+(\d+)/);
+    const channels = root.match(/--blue:\s*(\d+)\s+(\d+)\s+(\d+)/);
     expect(channels).not.toBeNull();
     const relativeLuminance = (rgb: number[]) => {
       const linear = rgb.map((channel) => {
@@ -526,26 +524,28 @@ describe('shared frontend core', () => {
   });
 
   it('keeps the opening animation lightweight and bounded', () => {
-    expect(WEB_SPLASH_DURATION_MS).toBeLessThanOrEqual(200);
+    expect(WEB_SPLASH_DURATION_MS).toBeLessThanOrEqual(1000);
   });
 
-  it('uses Rounded 02 SVGs for both boot splash widths', () => {
+  it('uses one large animated mark for the boot splash', () => {
     const html = renderToStaticMarkup(
       createElement(BootSplash, { onDone: () => undefined }),
     );
-    expect(html).toContain('data-logo="rounded-horizontal"');
     expect(html).toContain('data-logo="rounded-mark"');
+    expect(html.match(/data-logo=/g)).toHaveLength(1);
+    expect(html).toContain('argus-mark-eye');
+    expect(html).toContain('width:168px');
     expect(html).not.toContain('<pre');
     expect(html).not.toContain('ARGUS-SKILL');
   });
 
-  it('favicon uses Rounded 02 geometry with fixed blue-gold gradient', () => {
+  it('favicon uses monochrome Rounded 02 geometry', () => {
     const svg = fs.readFileSync(path.resolve('public/favicon.svg'), 'utf8');
-    expect(svg).toContain('gradientUnits="userSpaceOnUse"');
-    expect(svg).toContain('#075fe4');
-    expect(svg).toContain('#d99a16');
+    expect(svg).toContain('fill="#000"');
+    expect(svg).toContain('fill="#fff"');
+    expect(svg).not.toContain('linearGradient');
     expect(svg).toMatch(/A\s*42\s+42/);
-    expect(svg).not.toContain('<rect');
+    expect(svg).toContain('<rect');
   });
 
   it('lets the Manager choose the live canvas and prefers its rendered output', () => {

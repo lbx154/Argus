@@ -18,11 +18,15 @@ export default {
           deep: 'rgb(var(--blue-deep) / <alpha-value>)',
           sky: 'rgb(var(--blue-sky) / <alpha-value>)',
         },
-        gold: { DEFAULT: '#d1b27c', soft: '#e0cca4', deep: '#9f7f4e' },
+        gold: {
+          DEFAULT: 'rgb(var(--blue) / <alpha-value>)',
+          soft: 'rgb(var(--blue) / <alpha-value>)',
+          deep: 'rgb(var(--blue-deep) / <alpha-value>)',
+        },
         // semantic
-        ok: '#78b892',
-        warn: '#d1ad68',
-        err: '#dc7d78',
+        ok: 'rgb(var(--ok) / <alpha-value>)',
+        warn: 'rgb(var(--warn) / <alpha-value>)',
+        err: 'rgb(var(--err) / <alpha-value>)',
         ink: {
           DEFAULT: 'rgb(var(--ink) / <alpha-value>)',
           dim: 'rgb(var(--ink-dim) / <alpha-value>)',
