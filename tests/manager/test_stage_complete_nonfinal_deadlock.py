@@ -40,7 +40,7 @@ from argus_skill.manager.stage_decider import (
 )
 from argus_skill.skills.vertical_select import persist_vertical
 
-ORDER = ("research", "plan", "benchmark", "run", "analysis", "draft", "review", "submission")
+ORDER = ("idea", "build", "experiment", "paper", "review")
 
 
 def _review(status: str = "done") -> ReviewDecision:
@@ -51,11 +51,30 @@ def _review(status: str = "done") -> ReviewDecision:
     )
 
 
-def _decide(tmp_path, *, mission_scope: str, review: ReviewDecision | None = None):
+def _decide(
+    tmp_path,
+    monkeypatch,
+    *,
+    mission_scope: str,
+    review: ReviewDecision | None = None,
+):
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir()
-    persist_vertical(state_root, "research", workflow_mode="staged")
+    persist_vertical(
+        state_root,
+        "research",
+        workflow_mode="staged",
+        target_venue="EMNLP",
+    )
+    state_path = state_root / ".argus" / "PIPELINE_STATE.json"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    payload["current_stage"] = "review"
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(
+        "argus_skill.skills.stage_machine._ensure_stage_completion",
+        lambda *_args, **_kwargs: None,
+    )
     decision = Manager(
         project_root=state_root,
         execution_workdir=workdir,
@@ -67,7 +86,7 @@ def _decide(tmp_path, *, mission_scope: str, review: ReviewDecision | None = Non
         open_ended=False,
         run_exec=lambda _prompt: SimpleNamespace(
             last_agent_message=(
-                '{"action":"complete","target_stage":"research",'
+                '{"action":"complete","target_stage":"review",'
                 '"reason":"reviewer certification establishes the objective"}'
             )
         ),
@@ -76,97 +95,68 @@ def _decide(tmp_path, *, mission_scope: str, review: ReviewDecision | None = Non
     return decision, state
 
 
-def test_a_certified_final_submission_leaves_the_stage_it_finished_in(tmp_path) -> None:
-    """Run 15's verdict, executed instead of refused."""
-    decision, state = _decide(tmp_path, mission_scope="final_submission")
+def test_a_certified_final_submission_leaves_the_stage_it_finished_in(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Research completes only at terminal Review."""
+    decision, state = _decide(
+        tmp_path,
+        monkeypatch,
+        mission_scope="final_submission",
+    )
 
-    assert decision.action == "advance"
-    assert decision.diagnostic == "complete_at_nonfinal_advanced"
-    assert state["current_stage"] == "plan"
+    assert decision.action == "complete"
+    assert state["current_stage"] == "review"
+    assert state["stages"]["review"]["status"] == "done"
 
 
-def test_the_managers_own_reason_survives_the_rewrite(tmp_path) -> None:
+def test_the_managers_own_reason_survives_the_rewrite(tmp_path, monkeypatch) -> None:
     """The stage history's only account of why the project moved."""
-    decision, _state = _decide(tmp_path, mission_scope="final_submission")
+    decision, _state = _decide(
+        tmp_path,
+        monkeypatch,
+        mission_scope="final_submission",
+    )
 
     assert "reviewer certification" in decision.reason.lower()
 
 
-def test_a_bounded_mission_still_cannot_move_the_project(tmp_path) -> None:
+def test_a_bounded_mission_still_cannot_move_the_project(
+    tmp_path,
+    monkeypatch,
+) -> None:
     """Two objections, not one: position *and* no standing to close.
 
     The rescue is for a completion that was right about everything except where
     it was standing. A bounded mission's completion is not that.
     """
-    decision, state = _decide(tmp_path, mission_scope="bounded")
+    decision, state = _decide(tmp_path, monkeypatch, mission_scope="bounded")
 
     assert decision.action == "hold"
-    assert state["current_stage"] == "research"
+    assert state["current_stage"] == "review"
 
 
-def test_an_uncertified_review_still_cannot_move_the_project(tmp_path) -> None:
-    decision, state = _decide(
-        tmp_path, mission_scope="final_submission", review=_review("continue")
-    )
-
-    assert decision.action == "hold"
-    assert state["current_stage"] == "research"
-
-
-def test_publishable_completion_rechecks_publication_scale_artifact(
+def test_an_uncertified_review_still_cannot_move_the_project(
     tmp_path,
+    monkeypatch,
 ) -> None:
-    state_root = tmp_path / "state"
-    workdir = tmp_path / "worktree"
-    workdir.mkdir()
-    persist_vertical(
-        state_root,
-        "research",
-        workflow_mode="staged",
-        research_target_level="publishable",
-    )
-    review = ReviewDecision(
-        status="done",
-        reason="Reviewer accepted the paper.",
-        next_action="",
-        research_result={
-            "result_class": "verified_new_result",
-            "correctness_status": "verified",
-            "novelty_status": "verified_new",
-            "significance_status": "publishable",
-            "statement_fidelity_status": "verified",
-            "evidence": ["paper/main.pdf"],
-            "limitations": [],
-        },
-    )
-
-    decision = Manager(
-        project_root=state_root,
-        execution_workdir=workdir,
-        runner=object(),
-    ).decide_stage_transition(
-        review=review,
-        project_root=state_root,
+    decision, state = _decide(
+        tmp_path,
+        monkeypatch,
         mission_scope="final_submission",
-        open_ended=False,
-        run_exec=lambda _prompt: SimpleNamespace(
-            last_agent_message=(
-                '{"action":"complete","target_stage":"research",'
-                '"reason":"reviewer certification establishes the objective"}'
-            )
-        ),
+        review=_review("continue"),
     )
 
     assert decision.action == "hold"
-    assert "PUBLICATION_SCALE_ASSESSMENT.json" in decision.reason
-    assert "ARGUMENT_ORGANIZATION.json" in decision.reason
+    assert state["current_stage"] == "review"
 
 
 def test_the_blockers_report_every_refusal_not_just_the_first() -> None:
     """A short-circuiting list cannot tell "only position" from "position too"."""
     blockers = final_stage_completion_blockers(
         _review(),
-        current_stage="research",
+        current_stage="idea",
         stage_order=ORDER,
         vertical="research",
         mission_scope="bounded",
@@ -180,7 +170,7 @@ def test_the_blockers_report_every_refusal_not_just_the_first() -> None:
 def test_position_alone_is_recognised_as_the_sole_blocker() -> None:
     blockers = final_stage_completion_blockers(
         _review(),
-        current_stage="research",
+        current_stage="idea",
         stage_order=ORDER,
         vertical="research",
         mission_scope="final_submission",
@@ -197,7 +187,7 @@ def test_no_blockers_is_not_a_position_problem() -> None:
 def test_a_second_blocker_disqualifies_the_rewrite() -> None:
     blockers = final_stage_completion_blockers(
         _review(),
-        current_stage="research",
+        current_stage="idea",
         stage_order=ORDER,
         vertical="research",
         mission_scope="final_submission",

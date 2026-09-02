@@ -1,10 +1,3 @@
-"""Venue-awareness of the framework floor checklists.
-
-The floor is authored EMNLP-first and project checklist edits cannot relax it, so the
-AAAI venue switch must happen in the floor itself. EMNLP must render the floor
-byte-identically; AAAI must rewrite the page budget, end-matter order, and the
-anonymity block.
-"""
 from __future__ import annotations
 
 import json
@@ -18,78 +11,66 @@ from argus_skill.skills.stage_machine import (
 
 def _project(tmp_path: Path, venue: str | None) -> Path:
     (tmp_path / ".argus").mkdir(parents=True, exist_ok=True)
-    payload = {"current_stage": "draft"}
+    payload = {
+        "vertical": "research",
+        "current_stage": "paper",
+        "selected_idea": None,
+        "current_verdict": "in_progress",
+        "next_action": "write",
+    }
     if venue is not None:
         payload["target_venue"] = venue
     (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(
-        json.dumps(payload), encoding="utf-8"
+        json.dumps(payload),
+        encoding="utf-8",
     )
     return tmp_path
 
 
-def test_missing_venue_blocks_instead_of_defaulting_to_emnlp(
+def test_missing_venue_does_not_require_a_profile_file(tmp_path: Path) -> None:
+    paper = format_stage_checklist(
+        "paper",
+        role="reviewer",
+        project_root=_project(tmp_path, None),
+    )
+    assert "paper.work_products" in paper
+    assert "selected venue's current official rules" in paper
+    assert "VENUE_PROFILE" not in paper
+    assert "`venue.profile`" not in paper
+
+
+def test_explicit_venue_uses_the_same_single_handoff_contract(
     tmp_path: Path,
 ) -> None:
-    unresolved = format_stage_checklist(
-        "draft", role="reviewer", project_root=_project(tmp_path / "a", None)
+    paper = format_stage_checklist(
+        "paper",
+        role="reviewer",
+        project_root=_project(tmp_path, "AAAI"),
     )
-    assert "`venue.profile`" in unresolved
-    assert "do not infer or search for one" in unresolved
-    assert "CCF-A" not in unresolved
-    assert "Anonymous EMNLP Submission" not in unresolved
+    assert "paper.handoff" in paper
+    assert "HANDOFF.md" in paper
+    assert "VENUE_PROFILE" not in paper
 
 
-def test_explicit_emnlp_floor_remains_available(tmp_path: Path) -> None:
-    emnlp = format_stage_checklist(
-        "draft", role="reviewer", project_root=_project(tmp_path, "EMNLP")
-    )
-    assert "EMNLP 2026 two-column paper sections" in emnlp
-    assert "Conclusion, Limitations, Ethical Considerations" in emnlp
-    assert "up to 8 pages" in emnlp
-    assert "References starts on page 9 or later" in emnlp
-
-
-def test_aaai_floor_rewrites_page_budget_and_sections(tmp_path: Path) -> None:
-    root = _project(tmp_path, "AAAI")
-    draft = format_stage_checklist("draft", role="reviewer", project_root=root)
-    assert "AAAI 2026 two-column paper sections" in draft
-    assert "up to 7 pages, References starts on page 8 or later" in draft
-    # AAAI does not mandate Limitations/Ethics as a body end section.
-    assert "Limitations, Ethics, Reproducibility appendix" not in draft
-    assert "Reproducibility Checklist" in draft
-    # No leftover EMNLP page-9 floor.
-    assert "References starts on page 9 or later" not in draft
-
-
-def test_aaai_submission_anonymity_block(tmp_path: Path) -> None:
-    root = _project(tmp_path, "AAAI")
-    sub = format_stage_checklist("submission", role="reviewer", project_root=root)
-    assert "Anonymous submission" in sub
-    assert "aaai2026 submission mode" in sub
-    assert "Anonymous EMNLP Submission" not in sub
-
-
-def test_full_pipeline_checklist_is_venue_aware(tmp_path: Path) -> None:
-    aaai = format_full_pipeline_checklist(role="reviewer", project_root=_project(tmp_path, "AAAI"))
-    assert "Anonymous submission" in aaai
-    assert "up to 7 pages" in aaai
-    assert "Anonymous EMNLP Submission" not in aaai
-
-
-def test_unknown_venue_does_not_break_venue_neutral_plan(tmp_path: Path) -> None:
-    root = _project(tmp_path, "Undecided pending contribution strength")
-    plan = format_stage_checklist("plan", role="reviewer", project_root=root)
-    assert "Experiment plan states the hypothesis" in plan
-    assert "`venue.profile`" not in plan
-
-
-def test_unknown_venue_blocks_full_pipeline_without_emnlp_fallback(
+def test_unknown_venue_does_not_block_review_with_profile_artifacts(
     tmp_path: Path,
 ) -> None:
-    root = _project(tmp_path, "Undecided pending contribution strength")
+    review = format_stage_checklist(
+        "review",
+        role="reviewer",
+        project_root=_project(tmp_path, "Undecided pending contribution strength"),
+    )
+    assert "review.terminal" in review
+    assert "paper/REVIEW.md" in review
+    assert "`venue.profile`" not in review
+
+
+def test_full_pipeline_has_only_five_research_stages(tmp_path: Path) -> None:
     checklist = format_full_pipeline_checklist(
-        role="reviewer", project_root=root
+        role="reviewer",
+        project_root=_project(tmp_path, "EMNLP"),
     )
-    assert "`venue.profile`" in checklist
-    assert "do not return `done`" in checklist
-    assert "Anonymous EMNLP Submission" not in checklist
+    for stage in ("idea", "build", "experiment", "paper", "review"):
+        assert f"### {stage}" in checklist
+    assert "### submission" not in checklist
+    assert "VENUE_PROFILE" not in checklist

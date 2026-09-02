@@ -967,7 +967,7 @@ class _VerticalDecisionMixin:
 
     # ---- split into the vertical's Stage template ----
     def plan_stages(self, vertical: str) -> list[str]:
-        """The vertical's Stage list (research → the 8-stage paper pipeline).
+        """Return the selected vertical's own ordered stages.
 
         Reads the validated vertical contract. Missing stages or a broken
         provider fail visibly; substituting another vertical would change the

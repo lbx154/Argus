@@ -160,15 +160,14 @@ def test_commented_bibliography_declaration_is_ignored(tmp_path: Path) -> None:
     assert mod.main(["citations", "--project-root", str(root)]) == 0
 
 
-def test_late_stages_enforce_citation_integrity(tmp_path: Path) -> None:
+def test_paper_completion_uses_direct_citation_integrity(tmp_path: Path) -> None:
     root = _paper(tmp_path, r"\cite{ghost2025}", GOOD_BIB)
 
-    for stage in ("draft", "review", "submission"):
-        issues = stage_completion_issues(stage, root)
-        assert any(
-            "[citation_integrity:unresolved_citation]" in issue
-            for issue in issues
-        ), (stage, issues)
+    assert any(issue.code == "unresolved_citation" for issue in mod.check_citations(root))
+    assert any(
+        "citation_integrity" in issue
+        for issue in stage_completion_issues("paper", root)
+    )
 
 
 # -- scores -----------------------------------------------------------------

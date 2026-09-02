@@ -8,6 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from argus_skill.core.event_catalog import EventType
 from argus_skill.core.models import RunnerResult
 from argus_skill.core.role_decision import encode_role_decision
@@ -394,7 +396,7 @@ def test_bounded_completed_campaign_stops_before_planner_cycle(
     )
 
 
-def test_bounded_direct_research_completion_stops_without_submission_journal(
+def test_direct_research_cannot_bypass_the_five_stage_pipeline(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -419,21 +421,12 @@ def test_bounded_direct_research_completion_stops_without_submission_journal(
         "_ensure_stage_completion",
         lambda *_args, **_kwargs: None,
     )
-    stage_machine.complete_final_stage(
-        project,
-        reason="The reviewed direct objective is complete.",
-        allow_early_completion=True,
-    )
-    monkeypatch.setattr(
-        supervisor,
-        "_manager_publish_project_report",
-        lambda _reason: "reported",
-    )
-
-    result = supervisor.run()
-
-    assert result["stopped_by"] == "project_done"
-    assert result["planning_cycles"] == 0
+    with pytest.raises(ValueError, match="not the final stage"):
+        stage_machine.complete_final_stage(
+            project,
+            reason="The reviewed direct objective is complete.",
+            allow_early_completion=True,
+        )
     assert backend.planner_calls == 0
 
 

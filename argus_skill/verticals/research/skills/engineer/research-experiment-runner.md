@@ -1,186 +1,48 @@
 ---
 name: "Research Experiment Runner"
-description: "Execute reproducible AI research experiments across model, systems, data, evaluation, interpretability, and diagnostic studies using public benchmarks, claim-proportional evidence, raw artifacts, and honest positive or negative outcomes."
+description: "Run adaptive, reproducible research experiments until the selected method clears the Paper entry bar."
 ---
 
 # Research Experiment Runner
 
-## Purpose
+Read project-root `HANDOFF.md`, the code, explicit run configuration, and the
+direct outputs relevant to the current comparison. Do not recursively load old
+research reports.
 
-Execute the experiment plan without forcing every AI project into an
-LLM-agent, RL, multi-benchmark, or GPU-training shape. The experiment design,
-scale, baselines, uncertainty analysis, and compute path must follow the actual
-research claim.
+## Adaptive programme
 
-This skill supports:
+- Every executed run must be reproducible from its code, configuration, command,
+  environment requirements, and raw output.
+- Methods, baselines, benchmarks, controls, scale, and next experiments may
+  change when development evidence justifies the change.
+- Preserve earlier raw outputs; do not require a frozen global experiment plan.
+- Use official evaluators and the strongest fair same-information baseline when
+  available.
+- Reproduce real strong published baselines; a renamed local heuristic is not a
+  published baseline. Use current models and appropriate public or official
+  benchmarks when the claim depends on them.
+- Run a known detectable positive control through the same executed path before
+  interpreting a null or negative outcome. If it fails, diagnose the harness,
+  evaluator, truncation, scale, or information boundary first.
+- Separate scientific failure from broken implementation, evaluator, controls,
+  information leakage, or inadequate scale.
 
-- learned model or representation methods;
-- inference, serving, compiler, memory, and systems work;
-- interpretability, diagnostic, characterization, and evaluation studies;
-- data, benchmark, robustness, and failure-analysis work;
-- empirical support for theoretical or algorithmic contributions.
+Treat a weak or mixed result as method-development evidence. Repair the largest
+claim-relevant defect and run the next decisive comparison. Do not turn an
+unfinished implementation into a negative-result paper, reopen idea selection,
+or request rollback.
 
-## Evidence policy
+## Paper entry
 
-1. **Use public evidence.** Every final empirical paper must evaluate on at least
-   one relevant public benchmark, dataset, task suite, challenge, or official
-   evaluation release with documented provenance and evaluation semantics.
-2. **Do not invent the final benchmark.** Locally generated or synthetic data may
-   be used for smoke tests, controlled diagnostics, causal isolation, stress
-   tests, or ablations, but it must be labeled as supplementary evidence and
-   must not be the sole support for a paper-facing empirical claim.
-3. **Scale follows the claim.** There is no universal benchmark-family count,
-   task-count minimum, seed count, or condition matrix. Use enough independent
-   evidence and uncertainty analysis to support the exact scope of the claim.
-   Broader claims require broader validation; narrow mechanism claims may need a
-   focused public benchmark plus decisive controls.
-4. **Use the strongest relevant comparisons.** Reproduce or faithfully compare
-   against the closest feasible published baseline, standard method, or accepted
-   reference implementation. Do not pad the matrix with arbitrary weak baselines.
-5. **Actively recover the intended result.** Treat an initial null, loss, or
-   failure as a likely engineering signal. Debug implementation, optimization,
-   data, evaluator, scale, and method details; reproduce reference behavior; and
-   iteratively apply scientifically motivated repairs while credible paths remain.
+Continue Experiment unless all three conditions hold:
 
-## Before execution
+1. mechanism-relevant wins clearly exceed losses;
+2. headline and primary comparisons win;
+3. the strongest same-information baseline is beaten.
 
-1. Read `research/EXPERIMENT_PLAN.md`, the research brief, and the active stage
-   checklist.
-2. Confirm the public benchmark/data source, version, split, license/access
-   conditions, official metric or evaluator, and any permitted filtering.
-3. Reproduce the strongest feasible reference condition before interpreting the
-   proposed method.
-4. Run the Environment Readiness Gate only for resources the experiment
-   actually uses:
-   - verify CUDA and framework imports for GPU work;
-   - verify CPU/runtime/compiler dependencies for CPU or systems work;
-   - verify data access for dataset studies;
-   - verify API routes only when the experiment calls them.
-5. Freeze claim-relevant settings in a manifest or run contract appropriate to
-   the method. LLM/RL-specific fields are required only for LLM/RL experiments.
-
-## Run artifact contract
-
-Each substantive run should have a stable run directory containing:
-
-- `manifest.json`: objective, source revision, command/config, public
-  benchmark/data provenance, method/baseline identity, budget, and expected
-  outputs;
-- `status.json`: current and terminal state;
-- raw observations or scored rows in JSONL/TSV/CSV or the domain-native format;
-- stdout/stderr or equivalent logs;
-- progress/heartbeat data for long runs;
-- an explicit cancellation mechanism when the job is long-running;
-- a short `RUN_REPORT.md` after collection.
-
-The exact schema may vary by domain. Do not manufacture per-task rows for work
-whose natural evidence is a trace, profile, theorem check, aggregate simulation,
-human cohort, or systems measurement.
-
-## Execution loop
-
-0. **Build the project research platform.** The Engineer may create the
-   project-local environment, data/model bindings, evaluator, runner, telemetry,
-   and teardown tooling needed by the research question. Run the real entrypoint
-   on the smallest faithful case and retain its native output, but label that run
-   plumbing-only. Before claim-bearing execution, query the live model catalog and
-   move to the current-generation backbone selected in the plan; a cached or familiar
-   previous-generation model cannot become headline evidence by inertia. Platform
-   failures route back to Engineer repair and are not evidence about the scientific idea.
-1. **Smoke the real path.** Run the smallest faithful end-to-end public-data or
-   official-evaluator check that catches wiring errors.
-2. **Execute the preregistered comparison.** Keep data, metric, compute, and
-   stopping conditions fair across the proposed method and baselines.
-   Launch every long/GPU command through the durable subagent interface; raw
-   attached shell launches are an orchestration defect because their owner and
-   terminalizer disappear with the model session.
-   Separate the full-cohort quality pass from the resource microbenchmark when
-   they answer different questions. Batch homogeneous examples when batching
-   preserves outputs, and apply the same execution implementation to compared
-   conditions for resource claims. Do not repeat an entire deterministic cohort
-   merely to estimate runtime when a declared representative resource sample is
-   sufficient.
-   A repeat detects sampling noise and nothing else. Before expensive repeats,
-   name the sampling-noise failure mode and choose a valid stopping and uncertainty
-   method for the actual design. If the margin is far from the noise floor, one
-   run suffices; preserve genuinely load-bearing repeats when the margin is near
-   the noise. Repeats can never detect wrong implementation, a broken control, or
-   claim-code mismatch, so run the cheaper claim-to-code faithfulness trace and
-   positive control first. Ritual rerunning of the same configuration out of
-   generalized fear is a defect, not diligence. Retain every observation regardless
-   of the stopping decision.
-3. **Monitor without steering toward success.** Preserve crashes, nulls,
-   exclusions, and failed cases in the audit trail. Do not change thresholds or
-   remove difficult examples after seeing results.
-4. **Use background execution when useful.** Long jobs may run through the
-   supervised subagent system, a scheduler, or the project's native runner.
-   Parallelism is optional and must follow real resource and file-ownership
-   boundaries.
-5. **Collect and verify.** Recompute headline aggregates from raw artifacts,
-   check row/trace counts against the manifest, and preserve the exact evaluator
-   output.
-6. **Classify the result.**
-   - `supported_positive`: evidence supports the proposed improvement;
-   - `supported_negative`: a clean null or failure answers the research question;
-   - `supported_boundary`: the mechanism works only in a scoped regime;
-   - `misconfigured_run`: repair and rerun because the evidence is invalid;
-   - `inconclusive`: evidence cannot answer the question;
-   - `infeasible_under_budget`: a fair test is outside the current allocation.
-
-Classify a comparison as `inconclusive`, not `supported_negative`, when the
-baseline has no metric headroom because candidate and baseline saturate at the
-ceiling/floor, the task slice does not exercise the claimed mechanism, or the
-cases/repeats cannot resolve the predeclared contrast. Redesign the next probe;
-do not rerun the same non-discriminative comparison.
-
-Before `supported_negative` or `supported_boundary`, complete a positive-recovery
-loop: establish reference parity, inspect executed configuration and evaluator
-semantics, verify gradients/learning signals and treatment activation, test
-optimization/tuning/data/scale sufficiency, and implement credible mechanism-based
-repairs while expected information gain and approved budget permit. There is no
-universal retry cap. An independent Reviewer must confirm engineering adequacy
-before genuine failure is accepted. Evidence is proportional to the claim, variance,
-field norms, and available budget; there is no universal requirement to pass every
-planned seed, benchmark, or strongest baseline. The evaluator, conditions, repeats,
-and comparisons may change for a documented methodological reason if earlier results
-remain visible and claims distinguish exploratory from confirmatory evidence. Do not
-require a universal protocol shape.
-
-## Public benchmark provenance
-
-Record for every selected public source:
-
-- canonical name and official URL/repository;
-- paper/DOI/citation when available;
-- version/date and split;
-- license or access conditions;
-- evaluation unit and official metric/evaluator;
-- any sampling/filtering or conversion performed locally;
-- the claim or failure mode this source tests;
-- raw artifact paths proving execution.
-
-Synthetic or generated diagnostics must be clearly separated from this table.
-
-## Completion criteria
-
-The run stage is ready for review when:
-
-- every claim-relevant planned condition has executed or has an explicit,
-  evidence-backed exclusion;
-- at least one appropriate public benchmark/data/task source has real executed
-  evidence for empirical claims;
-- the strongest relevant baseline is represented fairly;
-- raw artifacts regenerate the reported aggregates;
-- uncertainty, variance, or repeatability is handled in a way appropriate to the
-  data-generating process;
-- positive, negative, and contradictory outcomes are retained in canonical
-  evidence;
-- underperformance has a reviewer-audited implementation diagnosis;
-- the result scope does not exceed the evidence.
-
-## Response shape
-
-- Name the run(s), public evidence source(s), and executed conditions.
-- Report the result classification and the strongest supported claim.
-- List raw artifacts and the command used to regenerate headline numbers.
-- State remaining uncertainty without turning it into a success-shaped fallback.
+When they hold, overwrite `HANDOFF.md` with the thesis, winning comparisons,
+essential losses or limitations, strongest baseline, figures/data to use, and
+the minimum reproducibility pointers Paper needs. Code, configurations, raw
+outputs, and figures remain direct work products rather than handoff files.
+Replace the file completely, start it with `# HANDOFF — EXPERIMENT`, and do not
+append history or add another schema.

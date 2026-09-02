@@ -55,32 +55,16 @@ def test_directive_trusts_and_drops_reflexive_rerun():
 
 
 def test_paper_review_requires_idea_and_built_artifact_quality():
-    block = academic_paper_review_block()
+    block = academic_paper_review_block().lower()
 
-    # Truth is necessary and not sufficient: the PC reviewer owns the separate
-    # judgement of whether the selected idea is worth the venue, and can demand
-    # a stronger realization without reopening idea selection.
-    assert "central research idea is novel" in block
-    assert "small scoreboard gain is not paper-level success" in block
-    assert "repeat a date-sorted live search" in block
-    assert "never to reopen idea discovery or selection" in block
-    assert "`plan_signal` to `reconsider`" in block
-    assert "`plan_alternative`" in block
-    assert "same configuration is not a bolder plan" in block
-    assert "cross-model, cross-benchmark" in block
-    assert "stronger realization or decisive evidence" in block
-    assert "what materially improved" in block
-    assert "whether the current manuscript clears the venue bar" in block
-    assert "unsupported humility" in block
-    assert "named, concrete limitation with evidence" in block
-    assert "limitations that would change a reader's decision" in block
-    assert "virtue-signaling filler or integrity self-praise" in block
-
-    assert "undefined citations" in block
-    assert "bibliography warnings" in block
-    assert "overfull boxes" in block
-    assert "PDF title/author metadata" in block
-    assert "Render the relevant pages" in block
+    assert "executed code" in block
+    assert "raw rows" in block
+    assert "real evaluator" in block
+    assert "strong same-information baselines" in block
+    assert "positive controls" in block
+    assert "venue compliance" in block
+    assert "rendered layout" in block
+    assert "never reopen selection or move backward" in block
 
 
 def _persist_review_stage(tmp_path, vertical: str) -> None:
@@ -124,7 +108,7 @@ def test_final_certification_review_keeps_paper_review_rubric(tmp_path) -> None:
 
     prompt, reviewer = _project_reviewer_prompt(tmp_path)
 
-    assert "## Near-complete paper review" in prompt
+    assert "## Independent paper review" in prompt
     assert reviewer.last_prompt_block_stats["static_total"]["chars"] > 0
 
 

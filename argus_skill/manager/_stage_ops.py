@@ -518,13 +518,16 @@ class _StageDecisionMixin:
             resolve_workflow_mode,
         )
 
-        # Computed once and shared by every check below that needs it.
-        _allow_early_completion = (
-            not open_ended and resolve_workflow_mode(root) == "direct"
-        )
         decision = parse_stage_decision(raw, current_stage=cur, stage_order=order)
 
         _completion_vertical = resolve_vertical(root)
+        # Research always closes through its terminal Review stage. Other
+        # verticals retain their existing direct-work early-completion behavior.
+        _allow_early_completion = (
+            _completion_vertical != "research"
+            and not open_ended
+            and resolve_workflow_mode(root) == "direct"
+        )
         _research_target_level = resolve_research_target_level(root)
         _completion_blockers = [
             blocker
@@ -639,6 +642,14 @@ class _StageDecisionMixin:
 
         from .stage_decider import StageDecision
 
+        if _completion_vertical == "research" and decision.action == "rollback":
+            decision = StageDecision(
+                "hold",
+                cur,
+                "research stages are forward-only; schedule repair work in Review",
+                "research_rollback_rejected",
+            )
+
         if (
             planner_wait_reconciliation
             and resolve_workflow_mode(root) != "direct"
@@ -728,6 +739,18 @@ class _StageDecisionMixin:
                                    decision.resolves_wait)
 
         if decision.action == "rollback":
+            from ..skills.vertical_select import resolve_vertical
+
+            if resolve_vertical(root) == "research":
+                return StageTransition(
+                    "hold",
+                    cur,
+                    "research stages are forward-only; schedule repair work in "
+                    "the current stage",
+                    current_stage=cur,
+                    source="illegal_target_hold",
+                    diagnostic="research_rollback_rejected",
+                )
             try:
                 _rollback(root, target_stage=decision.target_stage,
                           reason=decision.reason, rolled_back_by="manager",
@@ -909,11 +932,16 @@ class _StageDecisionMixin:
         if deterministic_candidate:
             try:
                 from ..skills.stage_machine import _ensure_stage_completion
-                from ..skills.vertical_select import resolve_workflow_mode
+                from ..skills.vertical_select import (
+                    resolve_vertical,
+                    resolve_workflow_mode,
+                )
                 from .stage_decider import StageDecision
 
                 allow_early_completion = (
-                    not open_ended and resolve_workflow_mode(root) == "direct"
+                    resolve_vertical(root) != "research"
+                    and not open_ended
+                    and resolve_workflow_mode(root) == "direct"
                 )
                 if not (allow_early_completion and not terminal_stage):
                     _ensure_stage_completion(
@@ -923,7 +951,6 @@ class _StageDecisionMixin:
                     )
                 if terminal_stage or allow_early_completion:
                     from ..core.research_contract import resolve_research_target_level
-                    from ..skills.vertical_select import resolve_vertical
                     from .stage_decider import final_stage_completion_decision
 
                     decision = final_stage_completion_decision(
@@ -982,6 +1009,7 @@ class _StageDecisionMixin:
                 build_stage_decision_prompt,
                 stage_decision_request,
             )
+            from ..skills.vertical_select import resolve_vertical
 
             prompt_context = resolve_role_prompt(
                 stage_decision_request(root, stage=cur)
@@ -1000,6 +1028,7 @@ class _StageDecisionMixin:
                     planner_verdict=planner_verdict,
                     open_ended=open_ended,
                     continuous_objective=continuous_objective,
+                    allow_rollback=resolve_vertical(root) != "research",
                 ),
                 role_banner=prompt_context.role_banner,
                 role_skill_block=self._role_skill_block(

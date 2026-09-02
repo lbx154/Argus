@@ -241,8 +241,20 @@ def _fallback_project_digest(
     return digest.digest()
 
 
-def _review_files(artifact_root: Path) -> list[Path]:
+def _review_files(
+    artifact_root: Path,
+    *,
+    state_root: Path | None = None,
+) -> list[Path]:
     """Find canonical review files without descending into environments/logs."""
+    try:
+        from ..skills.vertical_select import resolve_vertical
+
+        if resolve_vertical(state_root or artifact_root) == "research":
+            current = artifact_root / "paper" / "REVIEW.md"
+            return [current] if current.is_file() else []
+    except Exception:  # noqa: BLE001 - generic discovery remains the fallback
+        pass
     found: list[Path] = []
     try:
         for dirpath, dirnames, filenames in os.walk(artifact_root):
@@ -282,14 +294,14 @@ def build_terminal_idle_signature(
     from ..core.pipeline_state import read_pipeline_state
 
     try:
-        digest.update(_json_bytes(read_pipeline_state(artifact_root)))
+        digest.update(_json_bytes(read_pipeline_state(state_root or artifact_root)))
     except (OSError, ValueError):
         digest.update(b"pipeline-state-unavailable")
     digest.update(b"\0")
 
-    for path in _review_files(artifact_root):
+    for path in _review_files(project_root, state_root=state_root or artifact_root):
         try:
-            relative = path.relative_to(artifact_root).as_posix()
+            relative = path.relative_to(project_root).as_posix()
         except ValueError:
             relative = str(path)
         digest.update(relative.encode("utf-8", errors="surrogateescape"))

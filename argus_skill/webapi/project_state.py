@@ -491,8 +491,8 @@ def current_stage_for_session(
 
     Testbed run 15 (``s-f0dbba19``) finished its math project at stage
     ``review`` of ``scope -> solve -> review``, with all three stages recorded
-    done. The API served ``research`` — stage one of the eight-stage default
-    pipeline, a vertical that project never ran — for the entire run, because
+    done. The API served the research vertical's first stage — a pipeline that
+    project never ran — for the entire run, because
     the execution workdir happened to hold a three-key ``PIPELINE_STATE.json``
     carrying the adopted objective and nothing else, and the old lookup
     accepted the first root where that file merely *existed*.

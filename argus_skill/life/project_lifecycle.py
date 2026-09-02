@@ -449,17 +449,23 @@ def infer_observable_status(
     has_submission_artifact = (project_root / "paper" / "main.pdf").exists()
 
     # Opt #5: PIPELINE_STATE.json as a secondary signal — if the agent
-    # has advanced the pipeline state (research → plan → benchmark →
-    # ... → submission), reflect that in lifecycle state even when the
+    # has advanced the pipeline state, reflect that in lifecycle state even when the
     # filesystem-derived signals haven't caught up yet (e.g. benchmark
     # stage in progress but benchmarks/evidence/ still empty because
     # the agent is still building bundles). Pre-Opt-#5 these would
     # disagree, confusing the cockpit.
     pipeline_stage = _read_pipeline_stage(project_root)
     pipeline_inferred: ProjectState | None = None
-    if pipeline_stage in ("draft", "review", "submission"):
+    if pipeline_stage in ("paper", "draft", "review", "submission"):
         pipeline_inferred = ProjectState.WRITING
-    elif pipeline_stage in ("plan", "benchmark", "run", "analysis"):
+    elif pipeline_stage in (
+        "build",
+        "experiment",
+        "plan",
+        "benchmark",
+        "run",
+        "analysis",
+    ):
         pipeline_inferred = ProjectState.RUNNING
 
     if has_submission_artifact:

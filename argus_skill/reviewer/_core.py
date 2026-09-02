@@ -28,6 +28,63 @@ from ._parsing import _find_decision_in_messages, decision_from_payload
 log = logging.getLogger(__name__)
 
 
+def _persist_research_review(
+    decision: ReviewDecision,
+    config: "ReviewerConfig",
+) -> None:
+    """Overwrite the sole research review artifact at the Review stage."""
+    workdir = Path(config.working_dir or ".").expanduser().resolve()
+    artifact_root = Path(
+        config.artifact_root or workdir
+    ).expanduser().resolve()
+    state_root = Path(config.vertical_state_root or workdir).expanduser().resolve()
+    vertical = str(config.active_vertical or "").strip().lower()
+    if not vertical:
+        from ..skills.vertical_select import resolve_vertical
+
+        vertical = resolve_vertical(state_root)
+    if vertical != "research":
+        return
+    from ..skills.stage_machine import current_stage
+
+    if current_stage(state_root) != "review":
+        return
+    report = decision.planner_report if isinstance(decision.planner_report, dict) else {}
+    accept_case = str(
+        report.get("accept_case")
+        or report.get("strongest_accept_case")
+        or decision.reason
+        or ""
+    ).strip()
+    challenge = str(
+        report.get("challenge")
+        or report.get("plan_challenge")
+        or ("" if decision.status == "done" else decision.reason)
+        or ""
+    ).strip()
+    text = (
+        "# Authoritative review\n\n"
+        f"**Verdict:** {decision.status}\n\n"
+        "## Strongest accept case\n"
+        f"{accept_case or 'No accept case was established.'}\n\n"
+        "## Reject-level issues\n"
+        f"{challenge or 'None.'}\n\n"
+        "## Next action\n"
+        f"{decision.next_action or 'None.'}\n"
+    )
+    path = artifact_root / "paper" / "REVIEW.md"
+    from ..manager.source_writeback import atomic_write
+
+    atomic_write(path, text)
+
+    from ..core.pipeline_state import read_pipeline_state, write_pipeline_state
+
+    payload = read_pipeline_state(state_root)
+    payload["current_verdict"] = str(decision.status)
+    payload["next_action"] = str(decision.next_action or "none")
+    write_pipeline_state(state_root, payload)
+
+
 @dataclass
 class ReviewerConfig:
     model: str | None = None
@@ -40,6 +97,7 @@ class ReviewerConfig:
     sandbox_mode: str | None = None
     isolate_workdir: bool = False
     working_dir: str | None = None
+    artifact_root: str | None = None
     vertical_state_root: str | None = None
 
 
@@ -140,7 +198,9 @@ class Reviewer:
         try:
             from ..core.manuscript_snapshot import manuscript_snapshot
 
-            candidate_snapshot = manuscript_snapshot(config.working_dir)
+            candidate_snapshot = manuscript_snapshot(
+                config.artifact_root or config.working_dir
+            )
             if candidate_snapshot["sha256"]:
                 reviewed_manuscript_snapshot = candidate_snapshot
         except Exception:  # noqa: BLE001 - non-paper reviews have no manuscript
@@ -345,6 +405,7 @@ class Reviewer:
         # reviewer-prompt concern (the reviewer is told to demand concrete
         # evidence and verify when it is missing/contradictory), not a harness
         # post-filter.
+        _persist_research_review(parsed, config)
         return parsed
 
     def _render(

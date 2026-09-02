@@ -443,11 +443,11 @@ def test_manager_without_backend_cannot_be_bypassed_by_vertical_env(
         Manager(project_root=tmp_path).decide_vertical("prove the lemma")
 
 
-def test_plan_stages_research_is_the_8_stage_pipeline():
+def test_plan_stages_research_is_the_five_stage_pipeline():
     stages = Manager().plan_stages("research")
     assert stages == list(RESEARCH_STAGES)
-    assert stages[0] == "research" and stages[-1] == "submission"
-    assert len(stages) == 8
+    assert stages[0] == "idea" and stages[-1] == "review"
+    assert len(stages) == 5
 
 
 def test_plan_stages_propagates_vertical_load_failure(monkeypatch):
@@ -645,7 +645,8 @@ def test_replacement_intent_forces_immediate_pipeline_reset(tmp_path):
 
     state = json.loads(state_path.read_text())
     assert state["vertical"] == "research"
-    assert state["current_stage"] == "research"
+    assert state["current_stage"] == "idea"
+    assert state["research_intent_generation"] == 2
     assert state["stages"]["review"]["status"] == "pending"
     assert state["stage_history"][-1]["direction"] == "reset"
 
@@ -1406,8 +1407,8 @@ def test_divide_resets_stage_when_new_intent_supersedes_finished_prior_vertical(
     assert d.vertical == "research"
     state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
     assert state["vertical"] == "research"
-    assert state["current_stage"] == "research"  # reset to the NEW vertical's first stage
-    assert current_stage(tmp_path) == "research"
+    assert state["current_stage"] == "idea"
+    assert current_stage(tmp_path) == "idea"
 
 
 def test_divide_reopens_finished_pipeline_for_new_same_vertical_task(tmp_path):
@@ -1418,7 +1419,7 @@ def test_divide_reopens_finished_pipeline_for_new_same_vertical_task(tmp_path):
     (tmp_path / ".argus" / "PIPELINE_STATE.json").write_text(
         json.dumps({
             "vertical": "research",
-            "current_stage": "submission",
+            "current_stage": "review",
             "stages": {stage: {"status": "done"} for stage in RESEARCH_STAGES},
         }),
         encoding="utf-8",
@@ -1432,7 +1433,8 @@ def test_divide_reopens_finished_pipeline_for_new_same_vertical_task(tmp_path):
 
     state = json.loads((tmp_path / ".argus" / "PIPELINE_STATE.json").read_text())
     assert division.vertical == "research"
-    assert state["current_stage"] == "research"
+    assert state["current_stage"] == "idea"
+    assert state["research_intent_generation"] == 2
     assert vertical_reached_own_terminal_stage(tmp_path, "research") is False
 
 

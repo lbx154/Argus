@@ -5,18 +5,22 @@ from pathlib import Path
 from argus_skill.life.supervisor import _planning_cycle_enqueue as module
 
 
-def test_research_stage_ready_when_deterministic_blockers_are_empty(
+def test_research_first_stage_ready_when_provider_gate_is_empty(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
         "argus_skill.core.pipeline_state.read_pipeline_state",
-        lambda _root: {"vertical": "research", "current_stage": "research"},
+        lambda _root: {"vertical": "research", "current_stage": "idea"},
     )
     definition = object()
     monkeypatch.setattr(
         "argus_skill.verticals._base.load_vertical",
         lambda *_args, **_kwargs: definition,
+    )
+    monkeypatch.setattr(
+        "argus_skill.verticals._base.vertical_checklist_stage_order",
+        lambda _definition: ("idea", "build", "experiment", "paper", "review"),
     )
     gate_call: dict[str, object] = {}
 
@@ -30,10 +34,6 @@ def test_research_stage_ready_when_deterministic_blockers_are_empty(
     )
     state_root = tmp_path / "state"
     evidence_root = tmp_path / "workdir"
-    (evidence_root / "research").mkdir(parents=True)
-    (evidence_root / "paper").mkdir()
-    (evidence_root / "research" / "IDEA_SELECTION.json").write_text("{}")
-    (evidence_root / "paper" / "novelty_audit.md").write_text("positioned\n")
 
     assert module._research_stage_ready_for_close(
         state_root=state_root,
@@ -41,13 +41,13 @@ def test_research_stage_ready_when_deterministic_blockers_are_empty(
     )
     assert gate_call == {
         "args": (definition,),
-        "stage": "research",
+        "stage": "idea",
         "project_root": evidence_root,
         "state_root": state_root,
     }
 
 
-def test_research_stage_does_not_close_with_blockers(
+def test_research_auto_close_derives_first_stage_not_old_literal(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -60,28 +60,8 @@ def test_research_stage_does_not_close_with_blockers(
         lambda *_args, **_kwargs: object(),
     )
     monkeypatch.setattr(
-        "argus_skill.verticals._base.vertical_stage_completion_issues",
-        lambda *_args, **_kwargs: ("selection incomplete",),
-    )
-    evidence_root = tmp_path / "workdir"
-    (evidence_root / "research").mkdir(parents=True)
-    (evidence_root / "paper").mkdir()
-    (evidence_root / "research" / "IDEA_SELECTION.json").write_text("{}")
-    (evidence_root / "paper" / "novelty_audit.md").write_text("positioned\n")
-
-    assert not module._research_stage_ready_for_close(
-        state_root=tmp_path / "state",
-        evidence_root=evidence_root,
-    )
-
-
-def test_research_stage_does_not_close_without_core_artifacts(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        "argus_skill.core.pipeline_state.read_pipeline_state",
-        lambda _root: {"vertical": "research", "current_stage": "research"},
+        "argus_skill.verticals._base.vertical_checklist_stage_order",
+        lambda _definition: ("idea", "build", "experiment", "paper", "review"),
     )
 
     assert not module._research_stage_ready_for_close(
@@ -90,32 +70,28 @@ def test_research_stage_does_not_close_without_core_artifacts(
     )
 
 
-def test_active_portfolio_does_not_close_from_stale_shared_selection(
+def test_research_first_stage_does_not_close_with_blockers(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
         "argus_skill.core.pipeline_state.read_pipeline_state",
-        lambda _root: {"vertical": "research", "current_stage": "research"},
+        lambda _root: {"vertical": "research", "current_stage": "idea"},
     )
     monkeypatch.setattr(
         "argus_skill.verticals._base.load_vertical",
         lambda *_args, **_kwargs: object(),
     )
     monkeypatch.setattr(
+        "argus_skill.verticals._base.vertical_checklist_stage_order",
+        lambda _definition: ("idea", "build"),
+    )
+    monkeypatch.setattr(
         "argus_skill.verticals._base.vertical_stage_completion_issues",
         lambda *_args, **_kwargs: ("selection incomplete",),
     )
-    evidence_root = tmp_path / "workdir"
-    (evidence_root / "research").mkdir(parents=True)
-    (evidence_root / "paper").mkdir()
-    (evidence_root / "research" / "IDEA_PORTFOLIO.json").write_text("{}")
-    (evidence_root / "research" / "IDEA_SELECTION.json").write_text(
-        '{"policy":"evidence_judgment_v3"}'
-    )
-    (evidence_root / "paper" / "novelty_audit.md").write_text("positioned\n")
 
     assert not module._research_stage_ready_for_close(
         state_root=tmp_path / "state",
-        evidence_root=evidence_root,
+        evidence_root=tmp_path / "workdir",
     )

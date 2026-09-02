@@ -3,8 +3,8 @@
 This package is the **single authoritative location** for everything that
 assumes the project is producing a research paper:
 
-* the 8 paper-pipeline stages (research → plan → benchmark → run → analysis →
-  draft → review → submission), defined in ``stages.py``;
+* the five forward-only paper-pipeline stages (idea → build → experiment →
+  paper → review), defined in ``stages.py``;
 * the **paper-specific quality gates** — the eleven research-paper-only
   reviewers/validators that previously lived alongside the generic skills in
   ``argus_skill.skills`` and now live here as submodules:

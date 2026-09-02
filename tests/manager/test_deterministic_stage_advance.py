@@ -65,6 +65,40 @@ def test_stage_closing_reviewer_done_advances_without_manager_model(tmp_path) ->
     assert _state(state_root)["current_stage"] == "optimize"
 
 
+def test_direct_research_advances_instead_of_completing_early(tmp_path) -> None:
+    state_root = tmp_path / "state"
+    workdir = tmp_path / "worktree"
+    workdir.mkdir()
+    persist_vertical(
+        state_root,
+        "research",
+        workflow_mode="direct",
+        research_target_level="exploratory",
+        research_direction_mode="locked",
+    )
+    (workdir / "HANDOFF.md").write_text(
+        "# HANDOFF — IDEA\n\nSelected idea.",
+        encoding="utf-8",
+    )
+    manager = Manager(
+        project_root=state_root,
+        execution_workdir=workdir,
+        runner=object(),
+    )
+
+    decision = manager.decide_stage_transition(
+        review=_review(),
+        project_root=state_root,
+        mission_scope="bounded",
+        stage_closing=True,
+        run_exec=lambda _prompt: pytest.fail("deterministic advance called model"),
+    )
+
+    assert decision.action == "advance"
+    assert decision.target_stage == "build"
+    assert _state(state_root)["current_stage"] == "build"
+
+
 def test_stage_closing_bounded_direct_done_with_advice_completes_current_stage(
     tmp_path,
 ) -> None:

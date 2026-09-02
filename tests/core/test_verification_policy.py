@@ -86,7 +86,7 @@ def test_vertical_profile_reaches_reviewer_without_research_target(
 def test_defaults_are_balanced_and_adaptive(project: Path) -> None:
     policy = resolve_policy(
         project,
-        stage="research",
+        stage="idea",
         stage_profiles=_profiles("research"),
     )
 
@@ -99,7 +99,7 @@ def test_a_missing_state_file_is_not_an_error(tmp_path: Path) -> None:
     assert (
         resolve_policy(
             tmp_path,
-            stage="research",
+            stage="idea",
             stage_profiles=_profiles("research"),
         ).profile
         == "explore"
@@ -114,7 +114,7 @@ def test_a_corrupt_state_file_falls_back_to_defaults(project: Path) -> None:
     assert (
         resolve_policy(
             project,
-            stage="research",
+            stage="idea",
             stage_profiles=_profiles("research"),
         ).posture
         == "balanced"
@@ -123,12 +123,12 @@ def test_a_corrupt_state_file_falls_back_to_defaults(project: Path) -> None:
 
 # -- the fix: early stages stop being judged as submissions ----------------
 
-def test_a_publishable_project_explores_during_the_research_stage(project: Path) -> None:
+def test_a_publishable_project_explores_during_the_idea_stage(project: Path) -> None:
     write_state(project, research_target_level="publishable")
 
     policy = resolve_policy(
         project,
-        stage="research",
+        stage="idea",
         target_level="publishable",
         stage_profiles=_profiles("research"),
     )
@@ -143,10 +143,11 @@ def test_a_publishable_project_explores_during_the_research_stage(project: Path)
 @pytest.mark.parametrize(
     "stage,expected",
     [
-        ("research", "explore"), ("plan", "explore"),
-        ("benchmark", "develop"), ("run", "develop"),
-        ("analysis", "develop"), ("draft", "develop"),
-        ("review", "certify"), ("submission", "certify"),
+        ("idea", "explore"),
+        ("build", "develop"),
+        ("experiment", "develop"),
+        ("paper", "develop"),
+        ("review", "certify"),
     ],
 )
 def test_research_stage_mapping(stage, expected) -> None:
@@ -166,7 +167,7 @@ def test_a_final_submission_is_always_certified(project: Path) -> None:
     # Even with the loosest possible configuration.
     write_state(project, verification_profile="explore", exploration_posture="frontier")
 
-    policy = resolve_policy(project, scope="final_submission", stage="research")
+    policy = resolve_policy(project, scope="final_submission", stage="idea")
 
     assert policy.profile == "certify"
     assert policy.source == "final_scope"

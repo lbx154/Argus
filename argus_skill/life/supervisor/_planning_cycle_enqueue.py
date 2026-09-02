@@ -117,37 +117,30 @@ def _research_stage_ready_for_close(
     state_root: Path,
     evidence_root: Path,
 ) -> bool:
-    """Promote the next single task when deterministic research blockers are gone."""
+    """Promote the research vertical's first stage when its blockers are gone."""
     try:
         from ...core.pipeline_state import read_pipeline_state
         from ...verticals._base import (
             load_vertical,
+            vertical_checklist_stage_order,
             vertical_stage_completion_issues,
         )
 
         pipeline = read_pipeline_state(state_root)
         if not isinstance(pipeline, dict):
             return False
-        if (
-            str(pipeline.get("vertical") or "").strip() != "research"
-            or str(pipeline.get("current_stage") or "").strip() != "research"
-        ):
-            return False
-        portfolio_state = evidence_root / "research" / "IDEA_PORTFOLIO.json"
-        selection = evidence_root / "research" / "IDEA_SELECTION.json"
-        positioning = evidence_root / "paper" / "novelty_audit.md"
-        grounding = evidence_root / "research" / "LITERATURE_GROUNDING.json"
-        if (
-            not portfolio_state.is_file()
-            and not selection.is_file()
-        ) or not (
-            positioning.is_file() or grounding.is_file()
-        ):
+        if str(pipeline.get("vertical") or "").strip() != "research":
             return False
         definition = load_vertical("research", project_root=state_root)
+        order = tuple(vertical_checklist_stage_order(definition))
+        if (
+            len(order) < 2
+            or str(pipeline.get("current_stage") or "").strip() != order[0]
+        ):
+            return False
         return not vertical_stage_completion_issues(
             definition,
-            stage="research",
+            stage=order[0],
             project_root=evidence_root,
             state_root=state_root,
         )
@@ -162,15 +155,36 @@ def _apply_planner_stage_request(
     reason: str,
     evidence_root: Path,
 ) -> None:
-    """Apply a Manager-owned Planner stage request in either valid direction."""
+    """Apply a Manager-owned Planner stage request."""
     from ...skills.stage_machine import (
         advance_stage,
         current_stage,
         rollback_stage,
     )
+    from ...skills.vertical_select import resolve_vertical
+    from ...verticals._base import (
+        load_vertical,
+        vertical_checklist_stage_order,
+    )
 
-    if requested_stage == current_stage(state_root):
+    current = current_stage(state_root)
+    if requested_stage == current:
         return
+    if resolve_vertical(state_root) == "research":
+        order = tuple(
+            vertical_checklist_stage_order(
+                load_vertical("research", project_root=state_root)
+            )
+        )
+        if (
+            current in order
+            and requested_stage in order
+            and order.index(requested_stage) < order.index(current)
+        ):
+            raise ValueError(
+                "research stages are forward-only; schedule the repair in the "
+                "current stage"
+            )
     try:
         advance_stage(
             state_root,
@@ -474,16 +488,25 @@ class PlanningCycleEnqueueMixin:
         if auto_close_research:
             try:
                 from ...skills.stage_machine import advance_stage
+                from ...verticals._base import (
+                    load_vertical,
+                    vertical_checklist_stage_order,
+                )
+
+                order = tuple(
+                    vertical_checklist_stage_order(
+                        load_vertical("research", project_root=state_root)
+                    )
+                )
 
                 advance_stage(
                     state_root,
-                    target_stage="plan",
-                    reason="selected research target and positioning are complete",
+                    target_stage=order[1],
+                    reason="the research vertical's first stage is complete",
                     advanced_by="manager:auto_completion",
                     evidence_root=Path(context_root).resolve(),
                 )
-                # The tasks were authored under the old research-stage context.
-                # Replan immediately so they cannot become stale closeout work in plan.
+                # Tasks were authored under the prior stage context.
                 return PLAN_RETRY
             except Exception:  # noqa: BLE001 - normal Manager planning remains available
                 log.debug("automatic research stage advance failed", exc_info=True)

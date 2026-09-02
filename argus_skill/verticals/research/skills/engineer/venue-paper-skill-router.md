@@ -1,19 +1,24 @@
 ---
 name: "Venue Paper Skill Router"
-description: "Choose the smallest relevant paper skill for the active venue without loading the full research pipeline."
+description: "Route Paper work to the smallest relevant writing, citation, format, or figure skill."
 ---
 
 # Venue Paper Skill Router
 
-Read the active venue profile, then load only the skill needed for the current problem:
+Read project-root `HANDOFF.md` and `paper/main.tex`. Verify the selected venue's
+current official rules directly when they matter; no separate venue profile is
+required.
 
-- literature, research question, or experiment design: **Research Brief To Experiment Plan**;
-- benchmark execution and baselines: **Research Experiment Runner**;
-- analysis, tables, and figures: **Research Results Analysis And Figures**;
-- unsupported or stale claims: **Claim Check**;
-- first manuscript: the active venue's drafting skill;
-- page limits, references, checklist placement, or LaTeX defects: the active venue's format-preflight skill;
-- reader-facing revision: **Paper Review Revision Loop**;
-- final independent judgment: **Final Paper Review**.
+Load only the skill needed for the concrete Paper task:
 
-Use language, infrastructure, or visual-layout review only for a concrete reviewer concern. When a paper is weak, route to the source problem—missing research, analysis, writing, or layout—instead of creating extra assurance artifacts.
+- first manuscript or major argument rewrite: the applicable venue drafting skill;
+- unsupported claims or citations: claim/citation checking;
+- tables and figures: results-analysis or visualization skill;
+- page, template, reference, or LaTeX defects: venue format preflight;
+- reader-facing revision: paper review revision loop.
+
+Paper is thesis-driven and persuasive. Lead with the contribution and strongest
+supported win, not experiment chronology, defensive caveats, or process
+compliance. Before Paper completes, replace `HANDOFF.md` completely with a
+compact `# HANDOFF — PAPER` handoff. Keep it as the sole upstream handoff and
+do not append or create parallel reports to explain the manuscript.

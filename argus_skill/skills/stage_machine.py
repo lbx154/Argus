@@ -128,6 +128,39 @@ def normalize_stage_for_project(
     return normalized
 
 
+def migrate_legacy_research_stage(project_root: Path | str) -> bool:
+    """Persist the five-stage mapping for one legacy research state."""
+    root = Path(project_root)
+    payload = read_pipeline_state(root)
+    if str(payload.get("vertical") or "").strip().lower() != "research":
+        return False
+    order, _items = _active_vertical_checklist_defs(root)
+    canonical = tuple(_normalize_stage(stage) for stage in order)
+    raw = _normalize_stage(payload.get("current_stage"))
+    mapped = normalize_stage_for_project(root, raw)
+    stages = payload.get("stages")
+    stage_keys = {
+        _normalize_stage(key)
+        for key in stages
+    } if isinstance(stages, dict) else set()
+    legacy_shape = bool(stage_keys - set(canonical))
+    if mapped not in canonical or (raw == mapped and not legacy_shape):
+        return False
+    payload["current_stage"] = mapped
+    payload["stages"] = {
+        stage: {"status": "in_progress" if stage == mapped else "pending"}
+        for stage in canonical
+    }
+    payload.setdefault("selected_idea", None)
+    payload["current_verdict"] = "mapped_stage_requires_current_review"
+    payload["next_action"] = (
+        f"Resume in {mapped} and satisfy its current checklist; legacy completion "
+        "does not certify this stage."
+    )
+    write_pipeline_state(root, payload)
+    return True
+
+
 def current_stage(project_root: Path | str = ".") -> str:
     """Read the project pipeline state and return the current stage.
 
@@ -429,6 +462,15 @@ def _set_stage(
             "rolled_back_by": by,
         })
 
+    if str(payload.get("vertical") or "").strip().lower() == "research":
+        payload.setdefault("selected_idea", None)
+        if direction == "complete":
+            payload["current_verdict"] = "certified"
+            payload["next_action"] = "none"
+        else:
+            payload["current_verdict"] = "in_progress"
+            payload["next_action"] = f"Continue the current {target} stage."
+
     state_path = write_pipeline_state(root, payload)
     _sync_status_stage(Path(evidence_root or root), target)
     return str(state_path)
@@ -520,6 +562,14 @@ def rollback_stage(
     ``stage_history`` log is written too.
     """
 
+    from .vertical_select import resolve_vertical
+
+    if resolve_vertical(project_root) == "research":
+        raise ValueError(
+            "research stages are forward-only; schedule repair work in the "
+            "current stage"
+        )
+
     return _set_stage(
         project_root,
         target_stage=target_stage,
@@ -546,6 +596,8 @@ def reset_stage_for_replacement_intent(
     superseded objective's downstream statuses are downgraded and the target is
     made actionable immediately.
     """
+    from .vertical_select import resolve_vertical
+
     return _set_stage(
         project_root,
         target_stage=target_stage,
@@ -553,7 +605,7 @@ def reset_stage_for_replacement_intent(
         by=reset_by,
         direction="reset",
         downgrade_downstream=True,
-        legacy_rollback_history=True,
+        legacy_rollback_history=resolve_vertical(project_root) != "research",
         evidence_root=evidence_root,
     )
 
@@ -606,10 +658,15 @@ def complete_final_stage(
     cur = _normalize_stage(current_stage(project_root))
     if cur not in order:
         raise ValueError(f"current stage {cur!r} is not in the active vertical")
-    early_completion = cur != order[-1] and allow_early_completion
-    if early_completion:
-        from .vertical_select import resolve_workflow_mode
+    from .vertical_select import resolve_vertical, resolve_workflow_mode
 
+    vertical = resolve_vertical(project_root)
+    early_completion = (
+        vertical != "research"
+        and cur != order[-1]
+        and allow_early_completion
+    )
+    if early_completion:
         early_completion = resolve_workflow_mode(project_root) == "direct"
     if cur != order[-1] and not early_completion:
         raise ValueError(
@@ -630,10 +687,8 @@ def complete_final_stage(
         load_vertical,
         vertical_completion_contract_version,
     )
-    from .vertical_select import resolve_vertical
 
     try:
-        vertical = resolve_vertical(project_root)
         completion_contract_version = vertical_completion_contract_version(
             load_vertical(vertical, project_root=project_root)
         )

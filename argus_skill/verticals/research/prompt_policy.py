@@ -1,273 +1,147 @@
-"""Research-owned dynamic Planner and Reviewer prompt fragments."""
+"""Research-owned role prompts and explicit stage context loading."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from .method_freeze import research_review_prompt_block
+_HANDOFF_STAGES = frozenset({"idea", "build", "experiment", "paper"})
+_CONTEXT_CHAR_LIMIT = 32_000
+
+
+def active_context_paths(stage: str) -> tuple[str, ...]:
+    """Return the only normal cross-stage context path for ``stage``."""
+    normalized = str(stage or "").strip().lower()
+    if normalized in _HANDOFF_STAGES:
+        return ("HANDOFF.md",)
+    if normalized == "review":
+        return ("paper/REVIEW.md",)
+    return ()
+
+
+def _active_context_block(stage: str, project_root: Path | None) -> str:
+    if project_root is None:
+        return ""
+    paths = active_context_paths(stage)
+    if not paths:
+        return ""
+    relative = paths[0]
+    path = Path(project_root) / relative
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        text = ""
+    if not text.strip():
+        return (
+            "## Active research context\n"
+            f"The only normal cross-stage context for `{stage}` is `{relative}`, "
+            "and it is currently absent or empty. Do not substitute historical "
+            "research files or search the project for an older handoff."
+        )
+    if len(text) > _CONTEXT_CHAR_LIMIT:
+        text = text[:_CONTEXT_CHAR_LIMIT].rstrip() + "\n[context truncated]"
+    return (
+        "## Active research context\n"
+        f"Loaded only from `{relative}`:\n\n{text.strip()}\n\n"
+        "Treat this as the current upstream summary, not as permission to crawl "
+        "historical artifacts. Open an older file only if this document explicitly "
+        "names it for a concrete dispute."
+    )
 
 
 def academic_paper_review_block() -> str:
     return (
-        "## Near-complete paper review\n"
-        "Be a skeptical program-committee reviewer. The FIRST question of any "
-        "paper review is whether the Method section describes the code that "
-        "produced the results. Spot-check the trace yourself: pick two or three "
-        "load-bearing anchors and follow their training/eval entry-point call chains "
-        "to verify the claimed method actually executes; a plausible name or an "
-        "unused function is not evidence. A paper that overclaims its mechanism is "
-        "incorrect, not 'needs polish'. Treat unsupported humility as the same defect "
-        "as unsupported boasting: labels such as 'bounded', 'limited', 'preliminary', "
-        "'受限', or similar must be tied to a named, concrete limitation with evidence "
-        "or be deleted. A limitations section lists only limitations that would change "
-        "a reader's "
-        "decision, each with its evidence; flag virtue-signaling filler or integrity "
-        "self-praise such as 'we honestly acknowledge...' for deletion; integrity is "
-        "demonstrated by anchors and artifacts, not adjectives. "
-        "Judge correctness, evidence "
-        "and presentation, and separately whether the central research idea is "
-        "novel, non-obvious, ambitious and important enough for the selected "
-        "venue. A clean, defensible selector, allocator, router or small scoreboard "
-        "gain is not paper-level success merely because it is true. Read the idea "
-        "selection beside paper/main.tex, and whenever the thesis or technical "
-        "claim has changed, repeat a date-sorted live search of the latest twelve "
-        "months/current venue cycle and official implementations before judging "
-        "novelty. Use that search to scope claims and strengthen the selected "
-        "direction, never to reopen idea discovery or selection. "
-        "Did the campaign strengthen the idea it selected, or retreat to its "
-        "easiest certifiable variant? If a round is sound but the programme is now too "
-        "incremental or uninteresting for the venue, accept the round and set "
-        "`plan_signal` to `reconsider`, naming the programme-level failure in "
-        "`plan_challenge` and a bolder implementation, analysis, or decisive "
-        "experiment inside the selected idea in `plan_alternative` for Manager "
-        "adjudication. The alternative must "
-        "escape the failure mode: more tuning, coverage, thresholds, or capacity "
-        "inside the same configuration is not a bolder plan unless it decides a "
-        "field-level hypothesis. Strengthen the mechanism or objective within the "
-        "selected research direction, or run the "
-        "cross-model, cross-benchmark, or mechanism experiment that can make the "
-        "idea matter. Do not ask for hype or a replacement portfolio; ask for a "
-        "stronger realization or decisive evidence. Make two independent judgments: "
-        "what materially improved "
-        "since the previous manuscript, and whether the current manuscript "
-        "clears the venue bar now. Progress does not imply readiness, and a new "
-        "absolute concern does not erase real progress. Also require "
-        "credible comparisons, sufficient evidence/statistics, accurate citations, "
-        "readable writing and clean figures/layout. `done` requires the applicable "
-        "final checklist with no critical blocker; do not reward polish without "
-        "substantive evidence. Rebuild the manuscript and inspect the generated "
-        "artifact: reject undefined citations, bibliography warnings, significant "
-        "overfull boxes or clipped pages, and missing PDF title/author metadata. "
-        "Render the relevant pages when layout matters."
-    )
-
-
-def _parallel_drafting_block(stage: str, project_root: Path | None) -> str:
-    if stage not in {"run", "analysis"}:
-        return ""
-    from ...skills.stage_machine import format_stage_checklist
-
-    draft_checklist = format_stage_checklist(
-        "draft",
-        role="planner",
-        project_root=project_root,
-    )
-    caveat = (
-        "At `analysis`, keep every touched claim/evidence artifact internally "
-        "consistent or explicitly placeholder-only."
-        if stage == "analysis"
-        else "At `run`, prose is unblocked but final outcomes remain unknown."
-    )
-    return (
-        "## Parallel paper-drafting track (run/analysis only)\n"
-        f"`current_stage` is `{stage}`. When a long experiment is already running "
-        "under its own supervision, delegate one bounded drafting task instead of "
-        "spending a round only waiting. It may extend Introduction, Related Work, "
-        "Background, Problem Definition, Method, Experimental Setup, or Results "
-        "scaffolding.\n\n"
-        "Do not advance or edit `.argus/PIPELINE_STATE.json`. Never invent a final "
-        "metric, comparison, significance test, or outcome-dependent claim: use an "
-        "explicit `TBD`/`PLACEHOLDER` and record its source artifact and backfill "
-        "condition in `paper/RESULT_PLACEHOLDERS.md`. A placeholder stands in for "
-        "a result that is coming, never for one already on disk: evidence you "
-        "hold goes in as evidence, at the scale it actually reaches, even while a "
-        "larger run is still out. The abstract never contains a placeholder: "
-        "it states the strongest completed result the paper can defend now, and "
-        "is revised when stronger evidence lands. Keep one lightweight health "
-        "check on the live run, and judge this pass by whether the manuscript "
-        "reads as a paper "
-        "now -- a reader opens the abstract first, and an abstract reporting its "
-        "own unresolved fields is a template whatever the ledger says about its "
-        f"integrity. {caveat}\n\n"
-        "Draft-stage checklist for shaping scope only; do not mark it complete:\n"
-        f"{draft_checklist}"
-    )
-
-
-def _planner_upstream_block(stage: str) -> str:
-    from .stages import CANONICAL_STAGE_ORDER
-
-    try:
-        stage_index = CANONICAL_STAGE_ORDER.index(stage)
-    except ValueError:
-        stage_index = 0
-    earlier = ", ".join(CANONICAL_STAGE_ORDER[:stage_index]) or "(none)"
-    return (
-        "## Upstream research defect handling\n"
-        f"Current stage: `{stage or '(unknown)'}`. Earlier stages: {earlier}.\n"
-        "If an earlier paper artifact is missing, stale, or unreliable, inspect the "
-        "expected artifact, its checklist, pipeline state, and nearby evidence before "
-        "calling it broken. Report the earliest broken stage and concrete evidence; "
-        "the Manager owns rollback. Do not edit `.argus/PIPELINE_STATE.json`, and do "
-        "not continue work whose claims depend on the broken evidence."
+        "## Independent paper review\n"
+        "Start with `paper/main.tex`, its rendered output, and `paper/REVIEW.md`. "
+        "Follow only direct claim-critical references to executed code, explicit "
+        "configuration, raw rows, the real evaluator, and primary sources. Judge novelty, "
+        "correctness, strong same-information baselines, positive controls, evidence "
+        "scale, citations, figures/tables, venue compliance, and rendered layout. Do not "
+        "load HANDOFF.md or recursively crawl old reports or history. Independently reject "
+        "a weak idea, broken realization, stale baseline, unsupported claim, or invalid "
+        "paper even when Engineer is confident. Keep repairs in Review; never reopen "
+        "selection or move backward. Overwrite `paper/REVIEW.md` only with the strongest "
+        "accept case, reject-level issues, verdict, and next action. Do not create a JSON "
+        "copy or review history."
     )
 
 
 def _planner_fragment(stage: str, project_root: Path | None) -> str:
-    blocks = [
-        _parallel_drafting_block(stage, project_root),
-        _planner_upstream_block(stage),
-        _planner_manuscript_block(project_root),
-        (
-            "## Research paper infrastructure\n"
-            "Trust a fresh model-backed `paper/PAPER_INFRASTRUCTURE_REVIEW.json`. "
-            "If it is missing or stale, run its generator instead of substituting an "
-            "ad hoc keyword scan."
-        ),
-    ]
-    return "\n\n".join(block for block in blocks if block)
-
-
-def _manuscript_exists(project_root: Path | None) -> bool:
-    """Is there something here that a reviewer would call a manuscript?
-
-    Deliberately crude -- a file with a document body in it. Anything finer
-    would be the host deciding what counts as a paper, which is the judgement
-    this gate exists to hand to the Reviewer.
-    """
-    if project_root is None:
-        return False
-    try:
-        tex = (Path(project_root) / "paper" / "main.tex").read_text(
-            encoding="utf-8", errors="ignore"
+    return "\n\n".join(
+        block
+        for block in (
+            _active_context_block(stage, project_root),
+            (
+                "## Forward-only research planning\n"
+                f"Current stage: `{stage or '(unknown)'}`. Plan repairs and new work "
+                "inside this stage. Never request rollback. If a later stage exposes an "
+                "earlier method, experiment, or manuscript defect, keep the current "
+                "stage and schedule the concrete repair there. At a transition, replace "
+                "`HANDOFF.md` completely with only the minimum context the next stage "
+                f"needs, starting with `# HANDOFF — {stage.upper()}`. Never append."
+            ),
+            (
+                "## Paper entry and writing policy\n"
+                "Do not enter Paper until mechanism-relevant wins clearly exceed losses, "
+                "the headline and primary comparisons win, and the strongest "
+                "same-information baseline is beaten. Until then, improve the method in "
+                "Experiment. Paper work is thesis-driven and contribution-led, not a "
+                "negative-result report, experiment chronology, or compliance exercise."
+            ),
         )
-    except OSError:
-        return False
-    return "\\begin{document}" in tex
-
-
-def _planner_manuscript_block(project_root: Path | None) -> str:
-    """Put the paper in front of the role that decides what gets worked on.
-
-    Only draft, review and submission carry paper-facing checklist items, and
-    five of seven campaigns write their manuscript from stages that carry none.
-    The Planner creates the missions, so with no paper question it plans the one
-    figure it has a word for: every figure mission run-06-control ever queued
-    was about Figure 1 -- build it, make it carry the argument, ask whether it
-    is real -- while three finished result figures sat unused in paper/figures
-    beside a two-figure manuscript.
-
-    The question stays a question. Which claims the paper asks a reader to take
-    on trust cannot be answered from here; naming faults would replace the
-    reading rather than provoke it.
-    """
-    if not _manuscript_exists(project_root):
-        return ""
-    return (
-        "## The paper is work\n"
-        "A manuscript exists, and its gaps are missions like any other rather "
-        "than something that happens at the end. Read it: ask which claims a "
-        "reader has to take on trust because no figure shows them, where the "
-        "evidence is thinner than in the accepted papers this campaign chose, "
-        "and what a reviewer would reject it for. Queue that work now. Every "
-        "figure needs the manuscript to embed it, so figure missions cannot run "
-        "beside each other: give one mission the whole set the argument is "
-        "missing rather than one claim each, with owns_paths covering the "
-        "manuscript and every source it will draw from. A mission that may draw "
-        "but not edit prose leaves the asset on disk, and the work is finished "
-        "only when the figures are in the compiled paper -- not another pass "
-        "over Figure 1."
+        if block
     )
 
 
-def _reviewer_fragment(stage: str, scope: str, project_root: Path | None) -> str:
-    blocks: list[str] = [
-        "## Research-program adjudication\n"
-        "Judge whether the mission advanced the research plan's stated program, "
-        "not merely whether it completed its own scope.\n"
-        "Review the full trial record, including discarded or archived failed rounds "
-        "and the protocol-change history; reviewing only the final showcase is not a "
-        "qualified review."
-    ]
-    # Reading the paper as a paper used to wait for the campaign to declare a
-    # writing stage. They do not: run-07 held a twenty-page manuscript at
-    # `benchmark` and spent a hundred and seventy consecutive reviews checking
-    # whether a measurement packet had the right JSON files in it, never once
-    # noticing it had no figures. run-04, at `review`, read main.tex end to
-    # end, pulled the PDF text and looked at the rendered pages -- same
-    # Reviewer, same model, one condition apart.
-    #
-    # So the question is asked as soon as there is something to ask it about.
-    # This routes authority; it does not spend it. What is wrong with the
-    # manuscript stays the Reviewer's to find by reading, which is the only
-    # way faults nobody enumerated in advance are ever found.
-    if (
-        scope == "final_submission"
-        or stage in {"review", "submission"}
-        or _manuscript_exists(project_root)
-    ):
-        blocks.append(academic_paper_review_block())
-    if scope == "final_submission":
-        blocks.append(
-            "## Final paper review\n"
-            "Read the current manuscript, rendered PDF, and claim-critical sources "
-            "as an independent venue reviewer. Use `done` only when the research "
-            "objective and selected venue bar are genuinely met; otherwise return "
-            "`continue` with the few highest-leverage scientific or writing changes. "
-            "Do not require or manufacture an assurance memo, reviewer-question "
-            "bundle, or other certification packet."
-        )
-    if project_root is not None:
-        freeze_block = research_review_prompt_block(project_root)
-        if freeze_block:
-            blocks.append(freeze_block.rstrip())
-    return "\n\n".join(blocks)
-
-
-def _engineer_fragment(project_root: Path | None) -> str:
-    """Require result-aware disclosure and name drawn but unused figures.
-
-    The Engineer is the role that writes the paper and puts figures in it, and
-    it is the one role the altitude facts never reach. So the Reviewer asks for
-    figures while the hand doing the work cannot see that run-06 had three
-    result figures sitting in paper/figures with two of them in the paper, or
-    that run-02 had thirteen files that were all the same overview redrawn.
-
-    Files beside the paper are the one thing reading the paper cannot show.
-    Everything else about the manuscript the Engineer can open and see, and
-    listing that here would be the host doing its looking for it.
-    """
-    disclosure = (
-        "## Research result disclosure\n"
-        "Any protocol change, discarded sample or round, or rerun made after inspecting "
-        "results must be prominently disclosed in the report's main text, stating when "
-        "it happened, why, and how it affects the evidence."
+def _engineer_fragment(stage: str, project_root: Path | None) -> str:
+    context = _active_context_block(stage, project_root)
+    stage_policy = (
+        "## Research execution policy\n"
+        "Use code, explicit run configuration, raw outputs, figures, bibliography, "
+        "manuscript source, and rendered output directly as work products. Do not create "
+        "extra handoff substitutes. Experiments remain adaptive: preserve each run's "
+        "reproducibility while changing methods, baselines, benchmark design, controls, "
+        "or next experiments when evidence justifies it."
     )
-    if project_root is None:
-        return disclosure
-    try:
-        from .paper_structural_minimums import validate_paper_structural_minimums
+    if stage in _HANDOFF_STAGES:
+        stage_policy += (
+            "\nBefore completing this stage, replace `HANDOFF.md` completely and start "
+            f"it with `# HANDOFF — {stage.upper()}`. Do not append history or impose "
+            "another handoff schema."
+        )
+    if stage == "review":
+        stage_policy = academic_paper_review_block()
+    elif stage == "paper":
+        stage_policy += (
+            "\nWrite confidently around the central thesis and strongest supported win. "
+            "Remove defensive qualifier boilerplate and integrity self-praise; discuss "
+            "only limitations that materially change interpretation."
+        )
+    return "\n\n".join(block for block in (context, stage_policy) if block)
 
-        unused = [
-            note.detail
-            for note in validate_paper_structural_minimums(Path(project_root)).notes
-            if note.code == "figures_drawn_but_unused"
-        ]
-    except Exception:  # noqa: BLE001 - context is advisory
-        return disclosure
-    if not unused:
-        return disclosure
-    return disclosure + "\n\n## Already drawn\n" + unused[0] + "."
+
+def _reviewer_fragment(
+    stage: str,
+    scope: str,
+    project_root: Path | None,
+) -> str:
+    context = _active_context_block(stage, project_root)
+    if stage == "review" or scope == "final_submission":
+        policy = academic_paper_review_block()
+    else:
+        policy = (
+            "## Research-stage adjudication\n"
+            "Judge whether the current-stage work advances the selected contribution. "
+            "Separate implementation, evaluator, control, and scale defects from a "
+            "scientific failure. Keep the current stage and name the repair; never "
+            "request rollback or reopen the completed idea selection."
+        )
+        if stage == "experiment":
+            policy += (
+                " Recommend Paper only when wins clearly exceed losses on "
+                "mechanism-relevant evaluations, headline comparisons win, and the "
+                "strongest same-information baseline is beaten."
+            )
+    return "\n\n".join(block for block in (context, policy) if block)
 
 
 def render_role_prompt_fragment(
@@ -278,7 +152,7 @@ def render_role_prompt_fragment(
     scope: str,
     project_root: Path | None,
 ) -> str:
-    """Render only policy owned by the Research paper vertical."""
+    """Render only policy owned by the Research vertical."""
     _ = operation
     normalized_role = str(role or "").strip().lower()
     normalized_stage = str(stage or "").strip().lower()
@@ -286,12 +160,25 @@ def render_role_prompt_fragment(
     if normalized_role == "planner":
         return _planner_fragment(normalized_stage, project_root)
     if normalized_role == "engineer":
-        return _engineer_fragment(project_root)
+        return _engineer_fragment(normalized_stage, project_root)
     if normalized_role == "reviewer":
         return _reviewer_fragment(
-            normalized_stage, normalized_scope, project_root
+            normalized_stage,
+            normalized_scope,
+            project_root,
         )
+    if normalized_role == "manager":
+        return (
+            _active_context_block(normalized_stage, project_root)
+            + "\n\n## Forward-only stage authority\n"
+            "Research stages never roll back. Hold the current stage and schedule "
+            "repairs there, or advance when its checklist is satisfied."
+        ).strip()
     return ""
 
 
-__all__ = ["academic_paper_review_block", "render_role_prompt_fragment"]
+__all__ = [
+    "academic_paper_review_block",
+    "active_context_paths",
+    "render_role_prompt_fragment",
+]

@@ -130,6 +130,7 @@ class RolePromptCatalog:
                 ChecklistMode.FULL_PIPELINE
                 if request.role is RoleName.REVIEWER
                 and scope == "final_submission"
+                and vertical != "research"
                 else ChecklistMode.STAGE
             )
 

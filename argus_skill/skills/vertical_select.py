@@ -3,8 +3,8 @@
 The loop runs ONE of several *verticals*, selected by a single ``vertical``
 field in ``.argus/PIPELINE_STATE.json``:
 
-* ``"research"`` — the full eight-stage research-paper pipeline
-  (research → ... → submission). This is the default and the safe fallback
+* ``"research"`` — the five-stage research-paper pipeline
+  (idea → build → experiment → paper → review). This is the default and the safe fallback
   whenever intent is unclear: producing a paper subsumes the optimize work,
   so over-running is never a correctness hazard, only a cost one.
 * ``"speedrun"`` — the lean numeric-optimization vertical (setup → optimize →
@@ -89,8 +89,8 @@ VERTICAL_PURPOSES: dict[str, str] = {
     "local verification, pre-score elaboration, and attempt handoff",
     "chip_design": "end-to-end digital ASIC/accelerator design from workload and "
     "microarchitecture through RTL, physical implementation, and sign-off",
-    "research": "substantial scholarly survey or original research paper: literature, "
-    "optional experiments, synthesis, drafting, and review; submission is optional",
+    "research": "substantial original research paper: idea selection, implementation, "
+    "adaptive experiments, persuasive drafting, and terminal independent review",
     "medical": "biomedical and pharmaceutical evidence execution: target-disease "
     "mechanisms, human genetics, preclinical translation, clinical trials, safety, "
     "failed programs, competitive pipelines, and auditable non-diagnostic decision "
@@ -301,9 +301,8 @@ def migrate_legacy_manager_state(
             return False
     except OSError:
         return False
-    target = primary_pipeline_state_path(target_root)
     source = _state_path(source_root)
-    if target.exists() or not source.is_file():
+    if primary_pipeline_state_path(target_root).exists() or not source.is_file():
         return False
     payload = _load_state_payload(source_root)
     if not payload:
@@ -320,8 +319,22 @@ def migrate_legacy_manager_state(
             f"neither a built-in vertical (available: "
             f"{', '.join(available_verticals())}) nor a project data domain"
         )
+    if primary_pipeline_state_path(target_root).exists():
+        return False
     write_pipeline_state(target_root, payload)
     if names_a_vertical:
+        if _known_vertical(named, target_root) == "research":
+            from ..verticals.research.idea_portfolio import (
+                migrate_legacy_idea_selection,
+            )
+            from .stage_machine import migrate_legacy_research_stage
+
+            migrate_legacy_research_stage(target_root)
+            migrate_legacy_idea_selection(
+                source_root,
+                state_root=target_root,
+                materialize_handoff=False,
+            )
         # Warm read that proves the imported decision resolves against the new
         # root. Skipped when undecided: `resolve_vertical` would only log its
         # "no Manager vertical resolved" fallback warning for a project that is
@@ -499,6 +512,9 @@ def persist_vertical(
     already falls back to the vertical's first stage at read time without
     mutating the file.
     """
+    from .stage_machine import migrate_legacy_research_stage
+
+    migrate_legacy_research_stage(project_root)
     legacy_direct = str(vertical or "").strip().lower() == "direct"
     vert = require_vertical(vertical, project_root)
     payload = _load_state_payload(project_root)
@@ -602,6 +618,15 @@ def persist_vertical(
         first_stage = _vertical_first_stage(vert, project_root)
         if first_stage:
             payload["current_stage"] = first_stage
+    if vert == "research":
+        payload.setdefault("selected_idea", None)
+        payload.setdefault("current_verdict", "in_progress")
+        payload.setdefault("research_intent_generation", 1)
+        payload.setdefault("legacy_selection_consumed", False)
+        payload.setdefault(
+            "next_action",
+            f"Continue the current {payload.get('current_stage') or 'idea'} stage.",
+        )
 
     write_pipeline_state(project_root, payload)
 
@@ -919,7 +944,7 @@ def reset_stage_for_new_intent(
         return False
 
     try:
-        if force_replacement:
+        if force_replacement or new_vertical == "research":
             from .stage_machine import reset_stage_for_replacement_intent
 
             reset_stage_for_replacement_intent(
@@ -929,6 +954,12 @@ def reset_stage_for_new_intent(
                     "operator replaced the standing Manager objective; resetting "
                     f"the superseded {old_vertical!r} pipeline to the first stage "
                     f"of {new_vertical!r} instead of preserving incompatible progress."
+                    if force_replacement
+                    else (
+                        f"prior vertical {old_vertical!r} was complete and a new "
+                        f"operator intent selected {new_vertical!r}; start its first "
+                        "stage without recording a research rollback."
+                    )
                 ),
                 reset_by="manager",
                 evidence_root=evidence_root,
@@ -957,6 +988,33 @@ def reset_stage_for_new_intent(
             old_vertical, new_vertical, exc_info=True,
         )
         return False
+    if new_vertical == "research":
+        payload = _load_state_payload(project_root)
+        try:
+            generation = max(
+                1,
+                int(payload.get("research_intent_generation") or 1),
+            )
+        except (TypeError, ValueError):
+            generation = 1
+        payload["research_intent_generation"] = generation + 1
+        # A replacement intent is never an initial migration. Permanently
+        # consume the legacy-import opportunity before the fresh portfolio is
+        # formed, even if no earlier runtime reached library preparation.
+        payload["legacy_selection_consumed"] = True
+        payload.pop("idea_portfolio", None)
+        payload["selected_idea"] = None
+        payload["current_verdict"] = "in_progress"
+        payload["next_action"] = f"Continue the current {new_order[0]} stage."
+        write_pipeline_state(project_root, payload)
+        handoff_root = Path(evidence_root or project_root)
+        try:
+            (handoff_root / "HANDOFF.md").unlink(missing_ok=True)
+        except OSError:
+            log.debug(
+                "reset_stage_for_new_intent: could not clear stale HANDOFF.md",
+                exc_info=True,
+            )
     return True
 
 

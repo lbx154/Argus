@@ -146,7 +146,7 @@ def test_an_uncontracted_wait_still_reaches_the_manager() -> None:
     assert _reconciles(probe, _verdict()) is True
     assert probe.manager_feedback == [
         {
-            "stage": "research",
+            "stage": "idea",
             "reason": "held",
             "diagnostic": "manager_hold_requires_stage_repair",
         }

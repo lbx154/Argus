@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from argus_skill.core.pipeline_state import read_pipeline_state
 from argus_skill.skills.vertical_select import (
     VerticalResolutionError,
     migrate_legacy_manager_state,
@@ -58,6 +59,41 @@ def test_the_workspace_copy_is_left_alone(tmp_path: Path) -> None:
 
     # The workdir copy is also the live evidence root, not just a leftover.
     assert source.read_text(encoding="utf-8") == before
+
+
+def test_split_research_import_does_not_materialize_handoff_in_source_worktree(
+    tmp_path: Path,
+) -> None:
+    state_root, workdir = _roots(tmp_path)
+    source = _write_state(
+        workdir,
+        {
+            "vertical": "research",
+            "current_stage": "research",
+            "stages": {"research": {"status": "done"}},
+        },
+    )
+    research = workdir / "research"
+    research.mkdir(exist_ok=True)
+    (research / "IDEA_SELECTION.json").write_text(
+        json.dumps({
+            "route_id": "route-03",
+            "rationale": "legacy source-only winner",
+            "evidence_considered": "twelve routes and reviews",
+            "resource_requirements": "four accelerators",
+        }),
+        encoding="utf-8",
+    )
+    before = source.read_text(encoding="utf-8")
+
+    assert migrate_legacy_manager_state(state_root, workdir) is True
+
+    assert source.read_text(encoding="utf-8") == before
+    assert not (workdir / "HANDOFF.md").exists()
+    imported = read_pipeline_state(state_root)
+    assert imported["current_stage"] == "idea"
+    assert imported["selected_idea"]["route_id"] == "route-03"
+    assert imported["legacy_selection_consumed"] is True
 
 
 def test_an_unresolvable_vertical_still_stops_the_build(tmp_path: Path) -> None:

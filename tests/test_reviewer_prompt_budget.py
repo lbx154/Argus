@@ -208,12 +208,12 @@ def test_reviewer_records_prompt_block_token_estimates(monkeypatch):
     assert stats["static_total"]["chars"] + stats["delta_total"]["chars"] == len(prompt)
 
 
-def test_bounded_submission_reviewer_stage_checklist_stays_compact(
+def test_bounded_review_stage_checklist_stays_compact(
     tmp_path,
     monkeypatch,
 ) -> None:
     monkeypatch.delenv("ARGUS_SKILL_MEASURED_MODE", raising=False)
-    _persist_research_stage(tmp_path, "submission")
+    _persist_research_stage(tmp_path, "review")
     reviewer = Reviewer(runner=None, skill_store=None)
     prompt = reviewer._build_prompt(
         objective="bounded submission package repair",
@@ -231,12 +231,12 @@ def test_bounded_submission_reviewer_stage_checklist_stays_compact(
     stats = reviewer.last_prompt_block_stats["stage_checklist"]
     assert stats["chars"] < 10_000
     assert stats["estimated_tokens"] < 2_500
-    assert "## Stage checklist (submission)" in prompt
+    assert "## Stage checklist (review)" in prompt
     assert "Full pipeline checklist" not in prompt
     assert "bounded mission" in prompt
     assert "only the checklist items materially touched by this mission" in prompt
-    assert "submission.upstream" in prompt
-    assert "submission.anonymous" in prompt
+    assert "review.scope" in prompt
+    assert "review.quality" in prompt
 
 
 def test_reviewer_does_not_duplicate_identical_objective(monkeypatch):

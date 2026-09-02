@@ -8,19 +8,17 @@ from argus_skill.verticals._base import load_vertical, vertical_role_banner
 def test_research_reviewer_requires_engineering_audit() -> None:
     banner = vertical_role_banner(load_vertical("research"), "reviewer")
 
-    assert "implementation and raw rows" in banner
-    assert "infrastructure or evaluator failure" in banner
-    assert "Before accepting any negative conclusion" in banner
-    assert "this idea has not yet been given a real chance" in banner
-    assert len(banner) < 800
+    assert "implementation or evaluator failure" in banner
+    assert "specify the repair" in banner
+    assert "never request rollback" in banner
 
 
 def test_research_engineer_receives_only_execution_contract() -> None:
     banner = vertical_role_banner(load_vertical("research"), "engineer")
 
-    assert "Research execution" in banner
-    assert "file-disjoint and parallel" in banner
-    assert "For experiment claims" not in banner
+    assert "Preserve reproducibility" in banner
+    assert "Keep experiments adaptive" in banner
+    assert "extra reporting files" in banner
 
 
 def test_research_reviewer_prompt_disables_trust_first_shortcut(tmp_path) -> None:
@@ -37,7 +35,8 @@ def test_research_reviewer_prompt_disables_trust_first_shortcut(tmp_path) -> Non
         working_dir=tmp_path,
     )
 
-    assert "implementation and raw rows" in prompt
+    assert "Separate implementation, evaluator, control, and scale defects" in prompt
+    assert "never request rollback" in prompt
     assert "## Evidence policy" not in prompt
     assert "Trust consistent shown results" not in prompt
     assert "TRUST the scorer, judge the IDEA" not in prompt

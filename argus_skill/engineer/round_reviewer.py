@@ -182,7 +182,11 @@ class RoundReviewerMixin:
                 session_id=supervised_config.session_id,
                 main_summary=engineer_message or "(no message)",
                 main_error=safe_fatal_error,
-                config=replace(self.reviewer_config, working_dir=str(workdir)),
+                config=replace(
+                    self.reviewer_config,
+                    working_dir=str(workdir),
+                    artifact_root=str(workdir),
+                ),
                 prev_review_summary=_previous_review_summary(state),
                 scope=scope,
                 checkpoint_path=str(checkpoint_path or ""),

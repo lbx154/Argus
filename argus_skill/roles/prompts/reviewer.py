@@ -500,14 +500,25 @@ def render_reviewer_prompt(
     stage_order = prompt_context.stage_order
     stage_idx = stage_order.index(stage) if stage in stage_order else 0
     earlier_stages = ", ".join(stage_order[:stage_idx]) or "(none)"
-    rollback_block = (
-        "## Upstream defects\n"
-        f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
-        "Rollback only when a concrete earlier defect makes the current result unusable. "
-        "Optional or non-claim-critical artifacts are advisory. If rollback is necessary, "
-        "return `replan_requested` with the earliest stage and evidence; Manager owns rollback. "
-        "Never edit `.argus/PIPELINE_STATE.json`."
-    )
+    if prompt_context.vertical == "research":
+        rollback_block = (
+            "## Upstream defects\n"
+            f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
+            "Research stages are forward-only. If an earlier method, experiment, "
+            "or paper defect affects current work, keep this stage and return the "
+            "concrete repair as `next_action`; never request rollback or reopen "
+            "idea selection. Never edit `.argus/PIPELINE_STATE.json`."
+        )
+    else:
+        rollback_block = (
+            "## Upstream defects\n"
+            f"Current stage: `{stage}`. Earlier stages: {earlier_stages}.\n"
+            "Rollback only when a concrete earlier defect makes the current result "
+            "unusable. Optional or non-claim-critical artifacts are advisory. If "
+            "rollback is necessary, return `replan_requested` with the earliest "
+            "stage and evidence; Manager owns rollback. Never edit "
+            "`.argus/PIPELINE_STATE.json`."
+        )
     operator_text = (
         "\n".join(f"- {line}" for line in operator_messages) if operator_messages else "- none"
     )

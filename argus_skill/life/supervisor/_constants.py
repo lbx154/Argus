@@ -40,7 +40,7 @@ STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS = 3
 REPLAN_FILTER_REJECTION_LIMIT = 3
 MANAGER_FEEDBACK_REPLAN_LIMIT = 3
 FULL_PAPER_GATE_DESCRIPTION = (
-    "the L2 reviewer's full pipeline checklist (research → submission)"
+    "the L2 reviewer's active vertical final-stage checklist"
 )
 
 

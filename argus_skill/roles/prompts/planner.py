@@ -42,6 +42,11 @@ _BOUNDED_DAG_FOOTER = decision_footer_instruction(
     "TASK_OBJECTIVE=design and run the experiment whose outcome most changes what we believe, with success and failure criteria stated in advance"
 )
 
+_PLAN_UPDATE_INSTRUCTION = """
+The footer may optionally end with `PLAN_UPDATE=` followed by the complete
+multi-line Markdown for RESEARCH_PLAN.md. Put it after every `TASK_*` block.
+"""
+
 _PLANNER_CORE_CONTRACT = """
 ## Planner read-only delegation contract
 Read state, choose work, and delegate implementation to Engineer.
@@ -79,11 +84,7 @@ Do not edit project files; Engineer owns edits, commands, tests, iteration.
 - REASON and PLAN_REASON are operator-facing. In the operator's language, state
   what was decided and its next consequence in one clear sentence. Do not emit
   field names or status tokens in their values.
-""" + _PLANNER_DECISION_FOOTER + """
-
-The footer may optionally end with `PLAN_UPDATE=` followed by the complete
-multi-line Markdown for RESEARCH_PLAN.md. Put it after every `TASK_*` block.
-"""
+""" + _PLANNER_DECISION_FOOTER + _PLAN_UPDATE_INSTRUCTION
 
 _RESEARCH_PLAN_CONTRACT = """## Research plan (living document)
 Planner owns `RESEARCH_PLAN.md` in the daemon state directory. If there is no
@@ -425,6 +426,20 @@ def build_continuous_prompt(
     # Vertical-owned policy arrives through the prompt catalog; this module
     # contributes only role-wide planning behavior.
     optimize_banner = prompt_context.role_banner
+    planner_core_contract = _PLANNER_CORE_CONTRACT
+    research_plan_context = (
+        _RESEARCH_PLAN_CONTRACT
+        + sanitize_model_visible_text(
+            research_plan.strip()
+            or "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
+        )
+    )
+    if prompt_context.vertical == "research":
+        planner_core_contract = planner_core_contract.replace(
+            _PLAN_UPDATE_INSTRUCTION,
+            "",
+        )
+        research_plan_context = ""
 
     research_target_block = ""
     _research_target_level = resolve_research_target_level(_proot)
@@ -598,15 +613,20 @@ def build_continuous_prompt(
         prompt_context.completion_gate == "certified"
         or _research_target_level is not None
     )
-    if stage == "submission" and final_submission_scope_applies:
+    final_stage = (
+        prompt_context.stage_order[-1]
+        if prompt_context.stage_order
+        else ""
+    )
+    if stage == final_stage and final_submission_scope_applies:
         final_submission_scope_block = (
-            "## Final-submission task scope\n"
-            "For a research submission or final independent certification task, "
+            "## Final-stage task scope\n"
+            "For the active vertical's final independent certification task, "
             "the Planner structured task must emit `scope:\"final_submission\"` "
             "(legacy key-value: `TASK_SCOPE=final_submission`) so the successful "
             "Reviewer verdict can satisfy the final gate. Use `scope:\"bounded\"` "
             "for ordinary prerequisite work, and do not use final_submission for "
-            "verticals without a final-submission or research-target gate."
+            "verticals without a certified final-stage or research-target gate."
         )
 
     planner_hygiene_block = (
@@ -633,7 +653,7 @@ def build_continuous_prompt(
         optimize_banner,
         research_target_block,
         standing_continuous_block,
-        _PLANNER_CORE_CONTRACT,
+        planner_core_contract,
         native_shell_summary(),
         host_policy_block,
         objective_contract_block,
@@ -651,11 +671,7 @@ def build_continuous_prompt(
             journal_tail.strip()
             or "(no completed work yet — this is the first cycle)"
         ),
-        _RESEARCH_PLAN_CONTRACT
-        + sanitize_model_visible_text(
-            research_plan.strip()
-            or "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
-        ),
+        research_plan_context,
         "## Current reality (authoritative over the journal above)\n"
         + sanitize_model_visible_text(
             runtime_change_summary.strip() or "(no additional runtime context)"
@@ -697,6 +713,15 @@ def build_continuous_resume_prompt(
     prompt_context = resolve_role_prompt(
         continuous_request(state, altitude_root=workspace)
     )
+    research_plan_context = (
+        _RESEARCH_PLAN_CONTRACT
+        + sanitize_model_visible_text(
+            research_plan.strip()
+            or "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
+        )
+        if prompt_context.vertical != "research"
+        else ""
+    )
     skill_block = ""
     if mission is not None:
         try:
@@ -736,11 +761,7 @@ def build_continuous_resume_prompt(
             journal_tail.strip()
             or "(no completed work yet — this is the first cycle)"
         ),
-        _RESEARCH_PLAN_CONTRACT
-        + sanitize_model_visible_text(
-            research_plan.strip()
-            or "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
-        ),
+        research_plan_context,
         "## Current reality (authoritative over the journal above)\n"
         + sanitize_model_visible_text(
             runtime_change_summary.strip() or "(no additional runtime context)"

@@ -733,6 +733,7 @@ def build_stage_decision_prompt(
     planner_verdict: Any = None,
     open_ended: bool = False,
     continuous_objective: str = "",
+    allow_rollback: bool = True,
 ) -> str:
     """Build the Manager's authoritative stage-transition prompt."""
     # Normalize a stray string to one stage instead of iterating over its characters.
@@ -772,16 +773,25 @@ def build_stage_decision_prompt(
 
     open_ended_block = ""
     if open_ended:
-        open_ended_block = (
-            "## Open-ended campaign contract\n"
-            "This is an open-ended campaign. Completing the final-stage checkpoint "
-            "does not complete the operator objective by itself. If the original "
-            "objective remains unresolved and the Planner identifies further "
-            "high-impact work that belongs to an earlier stage, ROLL BACK to the "
-            "earliest stage needed for that work. HOLD only when no legal work can "
-            "run yet; do not mark the campaign complete merely because a report or "
-            "review artifact exists.\n\n"
-        )
+        if allow_rollback:
+            open_ended_block = (
+                "## Open-ended campaign contract\n"
+                "This is an open-ended campaign. Completing the final-stage checkpoint "
+                "does not complete the operator objective by itself. If the original "
+                "objective remains unresolved and the Planner identifies further "
+                "high-impact work that belongs to an earlier stage, ROLL BACK to the "
+                "earliest stage needed for that work. HOLD only when no legal work can "
+                "run yet; do not mark the campaign complete merely because a report or "
+                "review artifact exists.\n\n"
+            )
+        else:
+            open_ended_block = (
+                "## Open-ended campaign contract\n"
+                "This is an open-ended forward-only campaign. Completing a checkpoint "
+                "does not complete the operator objective by itself. Keep the current "
+                "stage and schedule any remaining repair work there; never move to an "
+                "earlier stage.\n\n"
+            )
     objective_block = (
         "## Operator objective\n"
         f"{continuous_objective.strip()}\n\n"
@@ -796,13 +806,18 @@ def build_stage_decision_prompt(
     )
     mission_scope_block = ""
     if mission_scope_change:
+        rollback_sentence = (
+            "ROLL BACK only when earlier-stage evidence is genuinely broken; "
+            if allow_rollback
+            else "never move this forward-only pipeline backward; "
+        )
         mission_scope_block = (
             "## Mission-scope arbitration\n"
             "The Reviewer found that the proposed next work cannot legally run "
             "as another Engineer round under the current mission contract. "
             "Reviewer advice is not authorization. HOLD the current stage when "
             "the repair belongs in this stage so Planner can replace the mission; "
-            "ROLL BACK only when earlier-stage evidence is genuinely broken; "
+            f"{rollback_sentence}"
             "ADVANCE only when the current checklist is independently complete. "
             "Do not rewrite implementation details yourself.\n\n"
         )
@@ -833,15 +848,32 @@ def build_stage_decision_prompt(
             "`resolves_wait=false` when the blocker remains unchanged.\n\n"
         )
 
+    actions = "ADVANCE, HOLD, ROLLBACK, or COMPLETE" if allow_rollback else (
+        "ADVANCE, HOLD, or COMPLETE"
+    )
+    rollback_rule = (
+        "- ROLLBACK only when evidence from an earlier stage is broken; name the "
+        "earliest affected stage.\n"
+        if allow_rollback
+        else (
+            "- This vertical is forward-only. Keep the current stage and schedule "
+            "repairs there; never request rollback.\n"
+        )
+    )
+    rollback_targets = (
+        f"Legal ROLLBACK targets (earlier stages): {earlier}\n\n"
+        if allow_rollback
+        else "Legal ROLLBACK targets: none (forward-only vertical)\n\n"
+    )
     return (
         "Decide the pipeline stage from the evidence below. Reviewer and Planner "
-        "advise; Manager chooses ADVANCE, HOLD, ROLLBACK, or COMPLETE.\n\n"
+        f"advise; Manager chooses {actions}.\n\n"
         "## Your decision\n"
         "- ADVANCE only when the checklist is supported by concrete evidence.\n"
         "- HOLD when work remains or evidence is unclear, including when Reviewer asks "
         "for replanning inside this stage.\n"
-        "- ROLLBACK only when evidence from an earlier stage is broken; name the "
-        "earliest affected stage.\n"
+        + rollback_rule
+        +
         "- COMPLETE only at the final stage of a finite objective. Open-ended campaigns "
         "never complete automatically.\n"
         "- A weak proxy or one failed attempt is not completion. Do not repeat the "
@@ -881,7 +913,7 @@ def build_stage_decision_prompt(
         f"{open_ended_block}"
         f"Current stage: `{current_stage}`\n"
         f"Legal ADVANCE targets (later stages): {legal_advance}\n"
-        f"Legal ROLLBACK targets (earlier stages): {earlier}\n\n"
+        f"{rollback_targets}"
         "## Current-stage checklist\n"
         f"{checklist_md}\n\n"
         "## Latest completion evidence\n"

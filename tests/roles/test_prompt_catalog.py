@@ -46,7 +46,6 @@ from argus_skill.roles.prompts.reviewer import (
     render_reviewer_prompt,
 )
 from argus_skill.skills.stage_machine import (
-    format_full_pipeline_checklist,
     format_stage_checklist,
 )
 from argus_skill.skills.vertical_select import persist_vertical
@@ -311,10 +310,11 @@ def test_kernel_parallel_planning_policy_is_vertical_scoped(tmp_path) -> None:
     assert "vertical:kernel_engineering:banner:planner" in kernel.fragment_ids
 
 
-def test_reviewer_auto_selects_full_pipeline_for_final_submission(
+def test_research_final_review_uses_only_review_stage_checklist(
     tmp_path,
 ) -> None:
     persist_vertical(tmp_path, "research")
+    _set_stage(tmp_path, "review")
 
     context = resolve_role_prompt(
         evaluate_request(tmp_path, scope="final-submission")
@@ -322,23 +322,25 @@ def test_reviewer_auto_selects_full_pipeline_for_final_submission(
 
     assert context.scope == "final_submission"
     assert context.paper_mission is True
-    assert "## Near-complete paper review" in context.role_banner
-    assert "## Final paper review" in context.role_banner
-    assert "The FIRST question of any paper review" in context.role_banner
-    assert "Spot-check the trace yourself" in context.role_banner
-    assert "two or three load-bearing anchors" in context.role_banner
-    assert "incorrect, not 'needs polish'" in context.role_banner
-    assert "integrity is demonstrated by anchors and artifacts" in context.role_banner
-    assert context.stage_checklist == format_full_pipeline_checklist(
+    assert "## Independent paper review" in context.role_banner
+    assert "Do not load HANDOFF.md" in context.role_banner
+    assert "Overwrite `paper/REVIEW.md`" in context.role_banner
+    assert "Do not create a JSON copy" in context.role_banner
+    assert context.stage_checklist == format_stage_checklist(
+        "review",
         role="reviewer",
         project_root=tmp_path,
+        scope="final_submission",
     )
-    assert "vertical:research:checklist:reviewer:full_pipeline" in (
+    assert "vertical:research:checklist:reviewer:stage:review" in (
+        context.fragment_ids
+    )
+    assert "vertical:research:checklist:reviewer:full_pipeline" not in (
         context.fragment_ids
     )
 
 
-def test_reviewer_auto_uses_bounded_submission_stage_checklist(
+def test_reviewer_auto_uses_bounded_review_stage_checklist(
     tmp_path,
 ) -> None:
     persist_vertical(tmp_path, "research")
@@ -347,15 +349,15 @@ def test_reviewer_auto_uses_bounded_submission_stage_checklist(
     context = resolve_role_prompt(evaluate_request(tmp_path, scope="bounded"))
 
     assert context.scope == "bounded"
-    assert context.stage == "submission"
+    assert context.stage == "review"
     assert "Full pipeline checklist" not in context.stage_checklist
     assert context.stage_checklist == format_stage_checklist(
-        "submission",
+        "review",
         role="reviewer",
         project_root=tmp_path,
         scope="bounded",
     )
-    assert "vertical:research:checklist:reviewer:stage:submission" in (
+    assert "vertical:research:checklist:reviewer:stage:review" in (
         context.fragment_ids
     )
     assert "vertical:research:checklist:reviewer:full_pipeline" not in (
@@ -369,8 +371,10 @@ def test_research_planner_receives_dynamic_paper_policy(tmp_path) -> None:
 
     context = resolve_role_prompt(continuous_request(tmp_path))
 
-    assert "## Parallel paper-drafting track" in context.role_banner
-    assert "paper/RESULT_PLACEHOLDERS.md" in context.role_banner
+    assert "## Forward-only research planning" in context.role_banner
+    assert "Never request rollback" in context.role_banner
+    assert "negative-result report" in context.role_banner
+    assert "paper/RESULT_PLACEHOLDERS.md" not in context.role_banner
     assert "vertical:research:prompt:planner:continuous" in context.fragment_ids
 
 
@@ -393,8 +397,8 @@ def test_research_planner_prompt_keeps_proportional_stage_checklist(tmp_path) ->
         state_root=tmp_path,
     )
 
-    assert "research.literature" in prompt
-    assert "research.literature" in resume_prompt
+    assert "idea.portfolio" in prompt
+    assert "idea.portfolio" in resume_prompt
 
 
 def test_planner_surfaces_reviewed_facts_path_without_injecting_body(
