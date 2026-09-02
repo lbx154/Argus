@@ -1,6 +1,6 @@
 ---
 name: "result-to-claim"
-description: "After experiments complete, judge which claims results support, which they don't, and what evidence is missing. Routes to next action: pivot, supplement experiments, or confirm and proceed to paper writing."
+description: "After experiments complete, judge which claims results support, which they don't, and what evidence is missing. Route to implementation repair, supplementary evidence, or paper writing without reopening idea selection."
 ---
 
 # Result-to-Claim Gate
@@ -87,11 +87,15 @@ If no audit exists: label verdict as "provisional — no integrity audit run"
    permits. Require independent confirmation of reference parity, valid learning
    signal, fair evaluation, adequate tuning/scale, and implementation adequacy before
    accepting genuine method failure.
-4. Build the strongest truthful paper thesis the evidence supports: a characterized
+4. If the failure is implementation, dependency, infrastructure, evaluator, or
+   claim-code mismatch, repair it inside the selected idea. It is not scientific
+   evidence and never reopens idea discovery or selection.
+5. Build the strongest truthful paper thesis the evidence supports: a characterized
    boundary, mechanism failure, scaling regime, benchmark lesson, or practical
    decision can be the contribution. Do not require the original method to win.
-5. Advance to analysis/draft by default. Pivot only when the measurement is invalid
-   or no useful conclusion remains after bounded reframing.
+6. Advance to analysis/draft by default. Redesign the implementation or evidence
+   plan within the selected idea when measurement is invalid or no useful conclusion
+   remains after bounded reframing; do not launch a replacement-idea search.
 
 #### `partial` — Claim partially supported
 1. Update the working claim to reflect what IS supported.

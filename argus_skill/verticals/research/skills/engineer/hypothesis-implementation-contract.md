@@ -63,9 +63,15 @@ records one verdict in the same artifact:
   planned entry point.
 
 `MISMATCH` and `NOT_IMPLEMENTED` have two honest exits: change the code to
-implement the selected idea, or revise the idea and experiment plan before
-result-producing execution. Never reinterpret later outcomes to make the
-hypothesis fit the code.
+implement the selected idea, or prospectively revise the implementation contract
+and experiment plan within that selected idea before result-producing execution.
+Never reopen idea discovery or selection. Never reinterpret later outcomes to
+make the hypothesis fit the code.
+
+Implementation, dependency, infrastructure, evaluator, or contract failures are
+engineering repair work inside the selected idea. They are not evidence against
+the scientific hypothesis and must not trigger a new portfolio, recovery audit,
+or selector.
 
 Unit and smoke checks may verify imports, shapes, branches, and evaluator
 plumbing after implementation. They do not test or rank the scientific idea.
@@ -76,8 +82,8 @@ experiment.
 
 If implementation constraints require a scientific change, update the contract
 and plan before inspecting affected results, and retain the prior wording in a
-short change-history section. Routine refactors that preserve the mapped
-computation need no new contract.
+short change-history section without replacing the selected idea. Routine
+refactors that preserve the mapped computation need no new contract.
 
 After results exist, the separate `Claim-to-Code Trace` follows the actual
 producing command and runtime path. This pre-execution contract prevents drift;

@@ -470,6 +470,32 @@ def fail(root: Path, task_id: str, *, reason: str = "") -> None:
     _mutate(root, task_id, state="failed", reason=reason, finished_ts=time.time())
 
 
+def retry_terminal(root: Path, task_id: str) -> bool:
+    """Return one completed or failed task to the claimable queue."""
+    with _store.locked(_lock(root)):
+        task = _read_task(root, task_id)
+        if not isinstance(task, dict) or task.get("state") not in {"done", "failed"}:
+            return False
+        task.update(
+            state="pending",
+            owner="",
+            result_shard="",
+            reason="",
+            pending_question="",
+            operator_options=[],
+            operator_answer="",
+            last_thread_id="",
+            claim_ts=0.0,
+            heartbeat_ts=0.0,
+            claim_seq=0,
+            finish_seq=0,
+            finished_ts=0.0,
+            attempts=int(task.get("attempts", 0) or 0) + 1,
+        )
+        _write_task(root, task_id, task)
+        return True
+
+
 def block_for_operator(
     root: Path,
     task_id: str,

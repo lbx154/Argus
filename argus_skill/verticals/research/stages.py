@@ -62,9 +62,8 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.idea_portfolio",
             statement=(
-                "A team explores genuinely distinct mechanism families sized to the "
-                "problem, and each result receives independent review. The familiar "
-                "twelve-route fanout is an operating example, not a breadth quota."
+                "A team completes exactly twelve genuinely distinct mechanism routes, "
+                "and every route receives one independent review before selection."
             ),
             evidence_hint=(
                 "research/IDEA_PORTFOLIO.json + research/ideation/portfolios/**/"
@@ -74,15 +73,15 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="research.adversarial_selection",
             statement=(
-                "A fresh Agent judges when the evidence covers the important alternatives "
-                "well enough to select. It reads all relevant evidence that has arrived, "
-                "including later routes but excluding experimental outcomes, and chooses the strongest credible "
-                "case for important, nontrivial new knowledge in any form. New evidence "
-                "may change the choice; local convenience is not scientific value. Idea "
-                "selection is read-only and precedes candidate execution."
+                "After all twelve routes and all twelve reviews finish, a fresh Agent judges "
+                "the complete portfolio once. It chooses exactly "
+                "one strongest credible case for important, nontrivial new knowledge, "
+                "excluding experimental outcomes. That single source-only choice closes "
+                "idea search and advances to plan. Idea selection is read-only; local "
+                "convenience is not scientific value."
             ),
             evidence_hint=(
-                "active research/ideation/portfolios/*/selection.json + selected "
+                "active research/ideation/portfolios/*/selection-v2.json + selected "
                 "route/review + materialized research/IDEA_SELECTION.json"
             ),
         ),
@@ -1530,7 +1529,11 @@ _AMBITIOUS_RESEARCH_POLICY = (
 )
 
 _REVIEWER_RESEARCH_JUDGEMENT = (
-    "Accept sound work; use `plan_signal=reconsider` if programme cannot clear venue. "
+    "Accept sound work; use `plan_signal=reconsider` if the programme cannot clear "
+    "venue, but keep the redesign inside the selected idea. After idea selection, "
+    "never use `plan_signal=reconsider` "
+    "to reopen idea search because implementation, infrastructure, evaluator, or "
+    "claim-code work failed. Repair the selected implementation and its fair test. "
     "A well-characterized negative result, anomaly, or boundary condition counts. "
     "Before accepting any negative conclusion—method failure, route retirement, or "
     "`X does not work`—ask from evidence: do implementation and raw rows show an "
@@ -1544,10 +1547,12 @@ _REVIEWER_RESEARCH_JUDGEMENT = (
 
 _PLANNER_RESEARCH_ORCHESTRATION = (
     _AMBITIOUS_RESEARCH_POLICY
-    + "Research orchestration: explore materially different mechanisms in parallel "
-    "and let an independent selector choose from current literature and reviewed "
-    "evidence without waiting for every late route. A strong late route may still "
-    "trigger reconsideration. At selection, name the end claim, strongest relevant "
+    + "Research orchestration: complete exactly twelve materially different mechanism "
+    "routes and one independent review for each. Only after all twelve route/review "
+    "pairs finish, run one independent selector that chooses exactly one best route. "
+    "That choice closes idea search and advances to plan; do not form another idea "
+    "portfolio or selection team unless the operator explicitly changes the research "
+    "direction. At selection, name the end claim, strongest relevant "
     "baseline, expected failure modes, and the result that would convince a skeptical "
     "reader. Derive any win threshold from observed benchmark spread or published "
     "gaps, never a convenient round number. Idea generation, review, and selection are "
@@ -1555,6 +1560,8 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "experiments. After selection, freeze `research/HYPOTHESIS_IMPLEMENTATION_CONTRACT.md`, "
     "implement the selected mechanism, and have a fresh Reviewer compare the actual "
     "entry-point call chain with the contract before result-producing execution. "
+    "Implementation, dependency, infrastructure, evaluator, and claim-code failures "
+    "always route to repair of the selected implementation, never to idea reselection. "
     "Before the writing stage begins, "
     "schedule one claim-to-code-trace mission that follows the actual training/eval "
     "entry-point call chains and binds every load-bearing manuscript mechanism to "
@@ -1564,8 +1571,8 @@ _PLANNER_RESEARCH_ORCHESTRATION = (
     "comparison, analysis, figure, or manuscript section—not standalone certification, "
     "schema, or bookkeeping. When long compute runs, queue independent literature, "
     "baseline, analysis, or writing work beside it, with disjoint writable paths. A "
-    "failed route becomes project memory and a new strategic input, never automatic "
-    "completion or a negative-result paper.\n"
+    "failed execution diagnosis becomes repair input for the selected idea, never a "
+    "new idea-search trigger, automatic completion, or a negative-result paper.\n"
 )
 
 _ENGINEER_RESEARCH_EXECUTION = (
@@ -1979,36 +1986,6 @@ def _unasked_manuscript_block(project_root: object) -> str:
         return ""
 
 
-def _late_selection_reviews_block(project_root: object) -> str:
-    """Put routes unseen by the original selector before Reviewer."""
-    try:
-        from .idea_portfolio import late_selection_reviews
-
-        rows = late_selection_reviews(Path(str(project_root)).resolve())
-        if not rows:
-            return ""
-        lines = [
-            "\nLATE SELECTION EVIDENCE: these qualified routes settled after "
-            "the original selector had already started the active programme."
-        ]
-        for row in rows:
-            lines.append(
-                f"- `{row['route_artifact']}` + `{row['review_artifact']}`: "
-                f"{row['summary']} Novelty delta: {row['novelty_delta']}"
-            )
-        lines.append(
-            "Independently compare them with the current selection. If a late "
-            "route is materially more novel, ambitious or important and the "
-            "current plan has not already incorporated it, accept the local "
-            "round and use plan_signal=reconsider with the stronger direction; "
-            "otherwise continue. Do not reopen a route already rebutted by "
-            "current evidence."
-        )
-        return "\n".join(lines) + "\n"
-    except Exception:  # noqa: BLE001
-        return ""
-
-
 def search_altitude_context(project_root: object) -> str:
     """Everything a role should have in view before it judges its own work.
 
@@ -2018,7 +1995,6 @@ def search_altitude_context(project_root: object) -> str:
     """
     return (
         _selection_contract_block(project_root)
-        + _late_selection_reviews_block(project_root)
         + _accepted_papers_block(project_root)
         + _literature_ledger_block(project_root)
         + _manuscript_scale_block(project_root)

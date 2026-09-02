@@ -60,6 +60,28 @@ def test_reassign_stale_returns_to_pending(tmp_path: Path) -> None:
     assert tb.reassign_stale(tmp_path, ttl=100.0, now=210.0) == []
 
 
+@pytest.mark.parametrize("terminal_state", ["done", "failed"])
+def test_retry_terminal_returns_task_to_pending(
+    tmp_path: Path,
+    terminal_state: str,
+) -> None:
+    tb.form(tmp_path, [{"task_id": "a", "objective": "x"}])
+    tb.claim_top(tmp_path, "tm-1", now=1.0)
+    if terminal_state == "done":
+        tb.complete(tmp_path, "a", shard="shards/a.jsonl")
+    else:
+        tb.fail(tmp_path, "a", reason="invalid output")
+
+    assert tb.retry_terminal(tmp_path, "a") is True
+    task = tb.snapshot(tmp_path)[0]
+    assert task["state"] == "pending"
+    assert task["owner"] == ""
+    assert task["result_shard"] == ""
+    assert task["finished_ts"] == 0.0
+    assert task["attempts"] == 1
+    assert tb.retry_terminal(tmp_path, "a") is False
+
+
 @pytest.mark.parametrize("task_id", ["", ".", "..", "../escape", "nested/task", r"nested\task"])
 def test_task_ids_cannot_escape_task_storage(tmp_path: Path, task_id: str) -> None:
     with pytest.raises(ValueError, match="invalid task_id"):

@@ -32,10 +32,12 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         ensure_idea_portfolio,
         idea_portfolio_selection,
         portfolio_required,
-        refresh_idea_portfolio,
     )
 
-    if context.stage == "research" and portfolio_required(context.state_root):
+    portfolio_active = (
+        context.stage == "research" and portfolio_required(context.state_root)
+    )
+    if portfolio_active:
         context.required_skill_paths.extend((
             "engineer/idea-discovery.md",
             "engineer/idea-creator.md",
@@ -65,14 +67,13 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
                     f"idea portfolio selected {selection['route_id']}"
                     if selection
                     else (
-                        "formed a default-size portfolio; breadth and selection "
-                        "sufficiency remain Agent judgments"
+                        "formed fixed twelve-route portfolio; selector starts after "
+                        "all twelve independent reviews finish"
                     )
                 ),
             })
     if context.team_task_id:
         return
-    refresh_idea_portfolio(context.workdir)
     if (
         _enabled("ARGUS_SKILL_VENUE_RESEARCH")
         and context.stage in _VENUE_STAGES
@@ -101,7 +102,11 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
                     else "venue research produced no profile"
                 ),
             })
-    if _enabled("ARGUS_SKILL_IDEA_SEARCH") and context.stage == "research":
+    if (
+        _enabled("ARGUS_SKILL_IDEA_SEARCH")
+        and context.stage == "research"
+        and not portfolio_active
+    ):
         from .idea_search import _already_seeded, augment_idea_candidates
 
         if not _already_seeded(context.workdir):

@@ -122,7 +122,9 @@ Before handoff, read the paper as a skeptical AAAI reviewer:
 6. Would the paper remain useful if workflow/provenance details were removed?
 
 If the strongest honest answer is still "the proposed idea did not work," return
-to research or pivot. Do not polish the experiment report into a paper.
+to implementation, experiments, or analysis framing within the selected research
+direction. Do not reopen idea selection or polish the experiment report into a
+paper.
 
 ## Response shape
 

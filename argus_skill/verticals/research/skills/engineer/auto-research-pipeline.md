@@ -191,13 +191,13 @@ while credible fixes remain.
   observations in the existing project history.
 - Do not lock an idea until the ambition standard survives independent
   prior-art attack and adversarial review.
-- Stream discovery into validation: each completed route receives a fresh
-  independent review immediately. A fresh selector judges when genuinely distinct
-  mechanism families cover the alternatives and key uncertainties well enough to
-  choose. It reads all non-experimental selection evidence that has arrived, including later routes,
-  and may update the choice when new evidence changes credibility. Judge important,
-  credible, nontrivial knowledge in any contribution form; local convenience is not
-  scientific value, and resource gaps belong in the staged plan.
+- Complete exactly twelve independent mechanism routes and one independent review
+  for each. Then run one selector over all twelve pairs, choose exactly one best
+  route, and advance to plan. The selection is source-only and final for the
+  current operator direction; do not create late-route recovery or post-result
+  reselection. Judge important, credible, nontrivial knowledge in any contribution
+  form; local convenience is not scientific value, and resource gaps belong in the
+  staged plan.
 - Search mathematical, physical, statistical, or other foundations when they can
   bear load for the claim. Prefer distinct relevant lenses over variants of one
   analogy, and explain what each lens lets the work establish.
@@ -213,6 +213,9 @@ while credible fixes remain.
   not rank scientific ideas. Proceed from the reviewed implementation to a
   claim-relevant experiment sized to answer the question rather than inserting a
   miniature scientific probe.
+- An implementation, dependency, infrastructure, evaluator, or claim-code
+  failure means repair the selected implementation. It is not evidence against
+  the idea and must never reopen idea discovery or selection.
 - Before paid/model-backed execution, verify that candidate predictions cannot
   read gold labels or scorer-derived fields and that baselines receive the same
   decision-time information.
@@ -226,7 +229,8 @@ while credible fixes remain.
 - Define hypotheses/questions, strongest relevant comparisons, public evidence
   sources, metrics or proof obligations, controls/ablations, uncertainty method,
   budget, and stopping criteria.
-- Select infrastructure after the idea survives de-risk.
+- Select infrastructure after the idea is selected and the implementation
+  contract is frozen.
 - Do not impose fixed benchmark, baseline, task, or duration counts.
 
 ### 3. Benchmark
@@ -258,8 +262,9 @@ while credible fixes remain.
   secondary dead ends in audit artifacts or an appendix instead of dumping every
   run into the main story.
 - Select one defensible thesis before drafting. If no strong thesis survives,
-  return to implementation, experiments, or research/plan as the diagnosed cause
-  requires.
+  return to implementation, experiments, or analysis framing within the selected
+  research direction as the diagnosed cause requires; do not reopen idea
+  selection.
 - Produce the required data and conceptual figures through the Research
   Visualization Router; image-2 is conditional on capability and renderer choice.
 

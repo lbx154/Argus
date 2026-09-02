@@ -5,10 +5,9 @@ description: "Review a broad idea portfolio, use relevant evidence, and select t
 
 # Idea Creator — review evidence, then commit
 
-`idea-discovery` streams independent mechanism families. Review each route as it
-arrives, then let a fresh selector decide when the portfolio covers the important
-alternatives and uncertainties well enough to choose. A twelve-route fanout is a
-useful operating example for some broad problems, not a quota or proof of breadth.
+`idea-discovery` produces exactly twelve independent mechanism routes. Review
+each route as it arrives, but do not form the selector until all twelve routes
+and all twelve independent reviews are complete.
 
 ## Review each route
 
@@ -36,27 +35,23 @@ outcome to rank candidates.
 
 ## Make the adversarial selection
 
-The fresh selector reads every relevant route, review, and late non-experimental
-selection artifact that has arrived. It first asks whether the portfolio contains genuinely different mechanism
-families and covers the uncertainties that could change the decision. If not, it asks
-for the missing kind of evidence rather than satisfying a route count.
-
-When coverage is sufficient, choose the qualified route with the strongest supported
+The fresh selector reads all twelve route/review pairs once. Choose exactly one
+route with the strongest supported
 research value and write the task-owned
-`research/ideation/portfolios/<direction>/selection.json`. The validated
+`research/ideation/portfolios/<direction>/selection-v2.json`. The validated
 portfolio workflow materializes `research/IDEA_SELECTION.json`; the selector
 must not write that shared path directly. Record the evidence considered, the
 reason this route survives the alternatives, resource needs, and unresolved
 risks. The selection record is required; its prose and contribution shape are
-not templated.
+not templated. Once materialized, the choice closes idea search and advances to
+plan.
 
 ## Keep the portfolio honest
 
 - Preserve rejected routes and the evidence that defeated them.
-- Let credible later evidence reopen the comparison.
 - Keep idea selection free of experimental outcomes.
 - Do not substitute local convenience for contribution quality.
-- Do not start a duplicate portfolio under new route names.
+- Do not start a duplicate portfolio, recovery audit, or post-result selector.
 
 The selected route proceeds into the existing research brief and experiment-planning
 artifacts. The plan stage freezes

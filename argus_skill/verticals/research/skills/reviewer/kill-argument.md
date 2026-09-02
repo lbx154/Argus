@@ -88,9 +88,9 @@ genuinely does not reach and no affordable experiment would get it
 there — and say which experiment that was.
 
 If verdict was `KILLED`, the paper does NOT proceed to submission —
-the planner is told to consider structural rework (different
-framing, different headline result, possibly a different paper
-entirely).
+the planner is told to consider structural rework inside the selected research
+direction (different framing, evidence, or headline result). The verdict does
+not reopen idea discovery or selection.
 
 ## Anti-patterns
 

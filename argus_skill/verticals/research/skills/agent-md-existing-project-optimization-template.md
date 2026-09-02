@@ -278,7 +278,8 @@ If generated artifacts and source disagree, treat source/generator plus raw evid
 12. the L2 reviewer run-stage "full-scale evidence" checklist item before final analysis/drafting/review. If it fails, preserve valid raw evidence but queue the missing full-run or matrix-completion work and keep the PDF non-final.
 13. If valid evidence rejects the method-positive thesis, decide whether the
     negative, diagnostic, or boundary finding has research value. Write it
-    honestly when it does; pivot only when broken, inconclusive, or not useful.
+    honestly when it does; repair broken or inconclusive execution within the
+    selected direction rather than reopening idea selection.
 
 ## Existing paper repair
 1. Improve the artifact the reader/reviewer sees, not just the validator

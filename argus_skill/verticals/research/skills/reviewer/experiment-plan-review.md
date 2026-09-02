@@ -17,7 +17,8 @@ Review an experiment plan as a senior ML researcher would before approving compu
   upstream inputs. Do not re-rank its novelty, significance, or overall
   reasonableness here. Review whether the proposed experiment gives that idea a
   valid, fair, executable test. If the plan silently changes the method or
-  premise, return it upstream rather than re-selecting the idea in this review.
+  premise, return it to implementation/contract repair inside the selected idea
+  rather than re-selecting the idea in this review.
 - Read `research/HYPOTHESIS_IMPLEMENTATION_CONTRACT.md` and the actual planned
   entry point. Review the implementation mapping before any claim-bearing run;
   do not approve from prose and function names alone.
@@ -34,8 +35,9 @@ post-training plans — omit `rl_config_sanity` from the output for non-RL plans
    - Does every load-bearing object, formula, intervention, baseline, observable,
      and invariant map to the actual entry-point call chain and configuration?
    - Record `ALIGNED`, `MISMATCH`, or `NOT_IMPLEMENTED` in the contract. A
-     mismatch returns to implementation or prospective thesis revision before
-     result-producing execution; it is not a negative method result.
+     mismatch returns to implementation or prospective contract repair inside
+     the selected idea before result-producing execution; it is not a negative
+     method result and never reopens idea selection.
    - Does the plan use resources appropriate to the question rather than merely
      maximizing available compute?
    - Do the primary measurement and controls distinguish the mechanism-specific

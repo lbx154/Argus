@@ -210,7 +210,7 @@ def test_live_checklist_requires_thesis_and_implementation_adequacy() -> None:
     assert "Result sign" in review["review.publication_value"]
 
 
-def test_broad_paper_ideation_uses_judged_breadth_not_a_quorum() -> None:
+def test_broad_paper_ideation_uses_fixed_complete_portfolio_once() -> None:
     discovery = _skill("engineer/idea-discovery.md")
     creator = _skill("engineer/idea-creator.md")
     normalized_creator = " ".join(creator.split())
@@ -220,22 +220,22 @@ def test_broad_paper_ideation_uses_judged_breadth_not_a_quorum() -> None:
     normalized_pipeline = " ".join(pipeline.split())
     research = {item.id: item.statement for item in STAGE_CHECKLISTS["research"]}
 
-    assert "genuinely distinct mechanism families" in discovery
-    assert "twelve-route fanout is a useful default example, not a quota" in normalized_discovery
-    assert "number of tasks or provider width" in normalized_discovery
-    assert "twelve-route fanout is an operating example, not a breadth quota" in (
+    assert "form exactly twelve genuinely distinct mechanism routes" in normalized_discovery
+    assert "all twelve routes and all twelve independent reviews" in normalized_creator
+    assert "completes exactly twelve genuinely distinct mechanism routes" in (
         research["research.idea_portfolio"]
     )
-    assert "judges when the evidence covers" in research["research.adversarial_selection"]
+    assert "judges the complete portfolio once" in (
+        research["research.adversarial_selection"]
+    )
     assert "excluding experimental outcomes" in research["research.adversarial_selection"]
     assert "EVIDENCE.json" not in next(
         item.evidence_hint
         for item in STAGE_CHECKLISTS["research"]
         if item.id == "research.adversarial_selection"
     )
-    assert "rather than satisfying a route count" in normalized_creator
-    assert "breadth and selection sufficiency remain Agent judgments" not in normalized_creator
-    assert "fresh selector judges when" in normalized_pipeline
+    assert "fresh selector reads all twelve route/review pairs once" in normalized_creator
+    assert "choose exactly one best route" in normalized_pipeline
     for text in (normalized_discovery, normalized_creator, normalized_pipeline):
         assert "80%" not in text
         assert "10 of 12" not in text
@@ -403,12 +403,13 @@ def test_route_review_and_selection_precede_experimental_execution() -> None:
     assert "Idea selection is read-only" in research["research.adversarial_selection"]
     normalized_planner = " ".join(role_banner("planner").split())
     assert "independent selector" in normalized_planner
-    assert "without waiting for every late route" in normalized_planner
+    assert "Only after all twelve route/review pairs finish" in normalized_planner
     assert "do not run candidate, toy, premise, feasibility, smoke" in normalized_planner
     assert "80% review quorum" not in generic_planner
-    assert "Let credible later evidence reopen the comparison" in normalized_creator
+    assert "closes idea search and advances to plan" in normalized_creator
+    assert "post-result selector" in normalized_creator
     assert "80%" not in creator
-    assert "all non-experimental selection evidence" in " ".join(pipeline.split())
+    assert "one selector over all twelve pairs" in " ".join(pipeline.split())
 
 
 def test_hypothesis_implementation_contract_precedes_claim_bearing_execution() -> None:
@@ -423,8 +424,11 @@ def test_hypothesis_implementation_contract_precedes_claim_bearing_execution() -
     assert "before writing or changing" in contract
     assert "Map formulas symbol by symbol" in contract
     assert "Never reinterpret later outcomes" in contract
+    assert "Never reopen idea discovery or selection" in contract
+    assert "must not trigger a new portfolio" in contract
     assert "HYPOTHESIS_IMPLEMENTATION_CONTRACT.md" in plan_review
     assert "actual planned entry point" in normalized_plan_review
+    assert "never reopens idea selection" in normalized_plan_review
     assert "HYPOTHESIS_IMPLEMENTATION_CONTRACT.md" in brief
     assert "HYPOTHESIS_IMPLEMENTATION_CONTRACT.md" in plan["plan.experiment"]
 

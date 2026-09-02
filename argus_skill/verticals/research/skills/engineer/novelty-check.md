@@ -19,10 +19,11 @@ it creates a mechanism or insight the closest work lacks.
 
 ## When to invoke
 
-After `idea-discovery` produces IDEA_CANDIDATES.md and before
-`idea-creator` spends pilot budget. Also: any time the planner /
-author is about to commit to a new method during the research
-stage.
+During each independent route review after `idea-discovery` produces the
+candidate and before the one-time selector runs. Selection is read-only: inspect
+primary literature and official sources, but do not execute candidate code or
+spend pilot/experiment budget. Once one route is selected, novelty checking
+cannot reopen idea discovery or selection.
 
 ## Workflow
 
@@ -68,12 +69,13 @@ For each claim, the reviewer returns:
 
 ### Phase D — aggregate
 
-If ≥1 core claim is `done` (fully published by someone else), the
-idea **fails novelty-check** and pivots. The reviewer (not the
-harness) rules.
+If ≥1 core claim is `done` (fully published by someone else), the route review
+records that fatal concern for the selector. The reviewer (not the harness)
+rules, and the selector still compares all twelve completed route/review pairs
+once.
 
 Output: `research/NOVELTY_CHECK.md` with the per-claim verdict +
-recommended pivot if needed.
+the surviving novelty boundary.
 
 ## Anti-patterns
 
@@ -87,8 +89,9 @@ recommended pivot if needed.
 
 ## Integration
 
-Run before `idea-creator` Step 2 (pilot design). A claim flagged
-`done` should not enter the pilot list.
+Run inside route review before the one-time `idea-creator` selection. A claim
+flagged `done` must be visible to the selector; it cannot trigger a second
+portfolio after selection.
 
 ## Optional Wiki retention
 

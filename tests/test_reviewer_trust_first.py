@@ -58,16 +58,17 @@ def test_paper_review_requires_idea_and_built_artifact_quality():
     block = academic_paper_review_block()
 
     # Truth is necessary and not sufficient: the PC reviewer owns the separate
-    # judgement of whether the idea is worth the venue, and can reopen a sound
-    # local plan through the existing Manager-adjudicated channel.
+    # judgement of whether the selected idea is worth the venue, and can demand
+    # a stronger realization without reopening idea selection.
     assert "central research idea is novel" in block
     assert "small scoreboard gain is not paper-level success" in block
     assert "repeat a date-sorted live search" in block
-    assert "selection is context, not a boundary" in block
+    assert "never to reopen idea discovery or selection" in block
     assert "`plan_signal` to `reconsider`" in block
     assert "`plan_alternative`" in block
-    assert "same selector is not a bolder plan" in block
+    assert "same configuration is not a bolder plan" in block
     assert "cross-model, cross-benchmark" in block
+    assert "stronger realization or decisive evidence" in block
     assert "what materially improved" in block
     assert "whether the current manuscript clears the venue bar" in block
     assert "unsupported humility" in block

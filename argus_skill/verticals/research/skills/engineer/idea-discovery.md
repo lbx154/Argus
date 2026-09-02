@@ -14,10 +14,17 @@ boundary finding may close that gap.
 
 ## When to invoke
 
-- Project is in the `research` stage and has only a broad direction
-  (e.g. "improve LLM reasoning")
-- Engineer needs IDEA_CANDIDATES.md before plan stage
-- Previous idea was killed by `kill-argument` and the project needs to pivot
+- Project is in the `research` stage, no idea has been selected, and only a broad
+  direction exists (e.g. "improve LLM reasoning").
+- Engineer needs `IDEA_CANDIDATES.md` before plan stage.
+- Pre-selection source evidence invalidated a candidate and replacement routes
+  are still needed to complete the fixed twelve-route portfolio.
+- The supervisor explicitly requested a new direction.
+
+Once the selector records one winner, this skill is closed for that research
+direction. Implementation, dependency, infrastructure, evaluator, claim-code,
+or experimental failures must be handled in downstream repair and
+interpretation; they never reactivate discovery.
 
 ## Workflow
 
@@ -25,8 +32,7 @@ boundary finding may close that gap.
 
 For a `publishable` or `doctoral` paper mission that starts from a broad
 direction rather than an operator-locked hypothesis, use `agent-team-lead` to
-form a streaming portfolio of genuinely distinct mechanism families. Size it to
-the problem: a twelve-route fanout is a useful default example, not a quota.
+form exactly twelve genuinely distinct mechanism routes.
 
 Inventory existing reports before spawning work. Ask which mechanisms, alternative
 explanations, foundations, or deployment realities could change the decision, and
@@ -239,17 +245,14 @@ are all eligible. Local ease cannot rescue a shallow or already-occupied idea.
 
 ### Step 6 — judge coverage, then select
 
-Give one fresh selector every relevant route, review, and later non-experimental
-selection artifact that has arrived. The selector decides whether the portfolio contains genuinely distinct
-mechanism families and covers the uncertainties that could change the ranking. A
-twelve-route portfolio is a common operating example, not a quota; request the missing
-kind of evidence when coverage is weak. When coverage is sufficient, select the
-strongest qualified contribution and write the selector task's owned
-`research/ideation/portfolios/<direction>/selection.json`. The validated
+After all twelve routes and all twelve independent reviews finish, give one fresh
+selector the complete set. It must select exactly one strongest contribution and
+write the selector task's owned
+`research/ideation/portfolios/<direction>/selection-v2.json`. The validated
 portfolio workflow alone materializes the shared
-`research/IDEA_SELECTION.json`. New evidence may update the choice and its
-rationale. Resource gaps become a staged plan rather than a reason to
-substitute a scientifically weaker route.
+`research/IDEA_SELECTION.json`. That choice closes idea search and advances to
+plan. Resource gaps and review concerns become implementation and experiment-plan
+requirements rather than reasons to launch another route or selector.
 
 Do not run an experiment to break a tie between ideas. Resolve ties through stronger
 prior-art reduction, clearer mechanism predictions, and a better full-scale evidence
@@ -273,6 +276,6 @@ hypothesis-to-implementation contract is frozen.
 
 For broad publishable/doctoral paper ideation, preserve route and review artifacts
 under `research/ideation/portfolios/<direction>/`. Once the fresh selector judges the
-evidence broad enough, write its adversarial choice to the task-owned
-`selection.json`; the portfolio workflow materializes the canonical
+complete twelve-route portfolio, write its adversarial choice to the task-owned
+`selection-v2.json`; the portfolio workflow materializes the canonical
 `research/IDEA_SELECTION.json` after validation.
