@@ -12,7 +12,10 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math-extended';
+import rehypeKatex from 'rehype-katex';
 import { PdfPreview } from '../../components/PdfPreview';
+import { isMarkdownArtifact } from '../../lib/artifactPresentation';
 import { api } from '../api';
 import { roleLabel } from '../enumLabels';
 import type { ArtifactInfo, EventMsg } from '../types';
@@ -113,10 +116,14 @@ export function Markdown({ children, className }: { children: string; className?
   return (
     <div className={cx('markdown', className)}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[
+          remarkGfm,
+          [remarkMath, { backslashDelimiters: true, singleDollarTextMath: false }],
+        ]}
+        rehypePlugins={[rehypeKatex]}
         components={{
-          a: ({ href, children: label }) => (
-            <a href={href} target="_blank" rel="noreferrer">{label}<ExternalLink size={11} /></a>
+          a: ({ href, title, children: label }) => (
+            <a href={href} title={title} target="_blank" rel="noreferrer">{label}<ExternalLink size={11} /></a>
           ),
         }}
       >
@@ -282,8 +289,8 @@ export function ArtifactViewer({
         {detail.isLoading || (media && !mediaUrl && !mediaError) ? <Spinner label={text('正在读取产物', 'Reading artifact')} /> : null}
         {detail.isError ? <div className="inline-error">{detail.error.message}</div> : null}
         {mediaError ? <div className="inline-error">{mediaError}</div> : null}
-        {detail.data?.kind === 'markdown' ? <Markdown>{detail.data.preview || text('（空文件）', '(empty file)')}</Markdown> : null}
-        {detail.data && ['text', 'html', 'json', 'table'].includes(detail.data.kind) ? (
+        {detail.data && isMarkdownArtifact(detail.data) ? <Markdown>{detail.data.preview || text('（空文件）', '(empty file)')}</Markdown> : null}
+        {detail.data && !isMarkdownArtifact(detail.data) && ['text', 'html', 'json', 'table'].includes(detail.data.kind) ? (
           <pre className="code-preview">{detail.data.preview || text('（空文件）', '(empty file)')}{detail.data.truncated ? text('\n\n… 预览已截断', '\n\n… preview truncated') : ''}</pre>
         ) : null}
         {artifact.kind === 'image' && mediaUrl ? <img className="media-preview" src={mediaUrl} alt={artifact.why || artifact.name} /> : null}

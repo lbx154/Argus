@@ -69,7 +69,7 @@ export function Button({
 export function PanelHeader({ title, right }: { title: string; right?: ReactNode }) {
   return (
     <div className="panel-header flex min-h-11 items-center justify-between border-b px-4">
-      <span className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-faint">{title}</span>
+      <span className="text-sm font-medium text-ink-dim">{title}</span>
       {right}
     </div>
   );

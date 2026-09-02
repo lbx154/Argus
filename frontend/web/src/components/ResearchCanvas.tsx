@@ -13,6 +13,7 @@ import { MarkdownContent } from './MarkdownContent';
 import { displayObjective, formatMissionElapsed } from '../../../core/src/missionView';
 import { useI18n } from '../i18n';
 import { PdfPreview } from './PdfPreview';
+import { isMarkdownArtifact } from '../lib/artifactPresentation';
 
 export const LIVE_PROGRESS_PATH = '__argus_live_progress__';
 
@@ -342,6 +343,7 @@ export function ResearchCanvas({
     selected?.mtime ?? null,
   );
   const info = artifactQ.data;
+  const markdownPreview = info ? isMarkdownArtifact(info) : false;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [downloading, setDownloading] = useState(false);
@@ -518,13 +520,13 @@ export function ResearchCanvas({
             {t('artifact.unavailable')} · {(artifactQ.error as Error).message}
           </div>
         ) : null}
-        {info?.kind === 'text' ? (
+        {info?.kind === 'text' && !markdownPreview ? (
           <pre className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words p-5 font-mono text-xs leading-6 text-ink-dim scroll-thin">
             {info.preview || '(empty file)'}
             {info.truncated ? '\n\n… live preview truncated · expand to inspect the complete file' : ''}
           </pre>
         ) : null}
-        {info?.kind === 'markdown' ? (
+        {info && markdownPreview ? (
           <div className="min-h-0 flex-1 overflow-auto p-5 text-sm text-ink-dim scroll-thin">
             <MarkdownContent artifacts={artifacts} onOpenArtifact={setManualPath}>{info.preview || '(empty file)'}</MarkdownContent>
           </div>

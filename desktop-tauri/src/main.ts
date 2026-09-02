@@ -251,13 +251,11 @@ function mountCockpit(url: string): void {
 function hideSplashAfterCockpitLoad(): void {
   if (!cockpitMounted) return;
   if (splashHideTimer !== undefined) window.clearTimeout(splashHideTimer);
-  // The launcher has several animated full-viewport layers.  Leaving those
-  // layers alive behind a loaded iframe made WebView2 spend frames on an
-  // invisible surface, unlike the direct browser cockpit.
+  // Let the opacity-only exit complete before removing the launcher.
   splashHideTimer = window.setTimeout(() => {
     if (cockpitMounted && !wizardOpen) splashEl.hidden = true;
     splashHideTimer = undefined;
-  }, 50);
+  }, 180);
 }
 
 function render(status: DesktopStatus): void {

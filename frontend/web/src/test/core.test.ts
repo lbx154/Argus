@@ -50,6 +50,7 @@ import { Button } from '../components/primitives';
 import { ArgusMark, Wordmark } from '../components/Wordmark';
 import { ConnectionProblemBanner, pairingTokenFromInput } from '../components/ConnectionProblemBanner';
 import { LocalArgusUnavailableError, PairingRequiredError } from '../api';
+import { isMarkdownArtifact } from '../lib/artifactPresentation';
 
 const typedUsageEvent: UsageRecordedEvent = {
   type: 'usage.recorded',
@@ -63,6 +64,14 @@ const typedUsageEvent: UsageRecordedEvent = {
 };
 
 describe('shared frontend core', () => {
+  it('renders Markdown by kind, MIME type, or filename', () => {
+    expect(isMarkdownArtifact({ kind: 'markdown', name: 'report.bin' })).toBe(true);
+    expect(isMarkdownArtifact({ kind: 'text', mime: 'text/markdown; charset=utf-8', name: 'report.txt' })).toBe(true);
+    expect(isMarkdownArtifact({ kind: 'text', mime: 'text/plain', name: 'REPORT.MD' })).toBe(true);
+    expect(isMarkdownArtifact({ kind: 'text', mime: 'text/plain', path: 'notes/readme.markdown' })).toBe(true);
+    expect(isMarkdownArtifact({ kind: 'text', mime: 'text/plain', name: 'report.txt' })).toBe(false);
+  });
+
   it('renders an actionable pairing message instead of a raw 401 loop', () => {
     const html = renderToStaticMarkup(createElement(ConnectionProblemBanner, {
       error: new PairingRequiredError(),
@@ -661,7 +670,7 @@ describe('shared frontend core', () => {
 
   it('renders conversation Markdown without executing raw HTML', () => {
     const html = renderToStaticMarkup(
-      createElement(MarkdownContent, null, '## Result\n\n- **passed**\n\n`score = 1`\n\n```\nraw block\n```\n\n<script>alert(1)</script>'),
+      createElement(MarkdownContent, null, '## Result\n\n- **passed**\n\n\\[x^2\\]\n\nInline \\(y\\). Costs $20 and $30 today. Literal \\\\(not math\\\\).\n\n`score = \\(literal\\)`\n\n    \\(indented code\\)\n\n[artifact](notes/\\(draft\\).md)\n\n[reference][ref]\n\n[ref]: notes/\\(draft\\).md\n\n```\nraw block\n```\n\n<script>alert(1)</script>'),
     );
     expect(html).toContain('<h2');
     expect(html).toContain('<strong');
@@ -671,6 +680,44 @@ describe('shared frontend core', () => {
     expect(html).not.toContain('min-w-max');
     expect(html).not.toContain('<script>');
     expect(html).toContain('&lt;script&gt;');
+    expect(html).toContain('katex-display');
+    expect(html).toContain('class="katex"');
+    expect(html).toContain('Costs $20 and $30 today.');
+    expect(html).toContain('score = \\(literal\\)');
+    expect(html).toContain('\\(indented code\\)');
+    expect(html).toContain('Literal \\(not math\\).');
+    expect(html).toContain('href="notes/(draft).md"');
+    expect(html).not.toContain('notes/$draft$.md');
+  });
+
+  it('keeps Markdown syntax inside TeX atomic', () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownContent, null, String.raw`Inline \(a * b + [x](y)\).`),
+    );
+
+    expect(html).toContain('class="katex"');
+    expect(html).not.toContain('<a ');
+    expect(html).not.toContain('<em>');
+  });
+
+  it('preserves reference targets and malformed fenced code literally', () => {
+    const markdown = [
+      '[paper][ref]',
+      '',
+      '[ref]: notes/\\(draft\\).md "Title \\(literal\\)"',
+      '',
+      '```text',
+      '\\[not_math\\]',
+      '``',
+      '\\(still_code\\)',
+    ].join('\n');
+    const html = renderToStaticMarkup(createElement(MarkdownContent, null, markdown));
+
+    expect(html).toContain('href="notes/(draft).md"');
+    expect(html).toContain('title="Title (literal)"');
+    expect(html).toContain('\\[not_math\\]');
+    expect(html).toContain('\\(still_code\\)');
+    expect(html).not.toContain('class="katex"');
   });
 
   it('turns API JSON detail into a useful operator-facing error', async () => {

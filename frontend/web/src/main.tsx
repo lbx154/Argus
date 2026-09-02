@@ -9,6 +9,7 @@ import { queryRetryPolicy } from './hooks';
 import { installStaleChunkRecovery } from './lib/preloadRecovery';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
+import 'katex/dist/katex.min.css';
 import './index.css';
 
 // A cockpit left open across an update can still reference a deleted hashed

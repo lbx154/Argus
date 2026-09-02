@@ -1,6 +1,8 @@
 import { Children, isValidElement, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math-extended';
+import rehypeKatex from 'rehype-katex';
 import { CopyButton } from './CopyButton';
 import { useI18n } from '../i18n';
 import type { ArtifactInfo } from '../api';
@@ -93,7 +95,11 @@ export function MarkdownContent({
   const { t } = useI18n();
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[
+        remarkGfm,
+        [remarkMath, { backslashDelimiters: true, singleDollarTextMath: false }],
+      ]}
+      rehypePlugins={[rehypeKatex]}
       components={{
         h1: ({ children: value }) => <h1 className="mb-2 mt-3 text-base font-semibold text-ink first:mt-0">{value}</h1>,
         h2: ({ children: value }) => <h2 className="mb-1.5 mt-3 text-sm font-semibold text-ink first:mt-0">{value}</h2>,
@@ -104,7 +110,7 @@ export function MarkdownContent({
         li: ({ children: value }) => <li className="pl-0.5">{value}</li>,
         blockquote: ({ children: value }) => <blockquote className="my-2 border-l border-blue/50 pl-3 text-ink-dim">{value}</blockquote>,
         hr: () => <hr className="my-3 border-line/60" />,
-        a: ({ href, children: value }) => {
+        a: ({ href, title, children: value }) => {
           const artifactPath = artifactPathFromHref(href, artifacts);
           const artifact = artifactPath
             ? artifacts.find((item) => item.path === artifactPath)
@@ -126,7 +132,7 @@ export function MarkdownContent({
             );
           }
           return (
-            <a href={href} target="_blank" rel="noreferrer" className="text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
+            <a href={href} title={title} target="_blank" rel="noreferrer" className="text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
               {value}
             </a>
           );
