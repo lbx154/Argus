@@ -7,6 +7,8 @@ so the matplotlib-touching tests skip cleanly when it is absent.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from argus_skill.verticals.research.skills.engineer.figure_spec_scripts import (
@@ -70,6 +72,45 @@ def test_set_pub_style_unknown_palette_falls_back_to_default() -> None:
     matplotlib.use("Agg")
     colors = pcs.set_pub_style(palette="does-not-exist")
     assert colors == pcs.PALETTES[pcs.DEFAULT_PALETTE]
+
+
+def test_set_pub_style_requires_scienceplots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("matplotlib")
+
+    real_import = pcs.importlib.import_module
+
+    def reject_scienceplots(name: str, package: str | None = None):
+        if name == "scienceplots":
+            raise ModuleNotFoundError("No module named 'scienceplots'")
+        return real_import(name, package)
+
+    monkeypatch.setattr(pcs.importlib, "import_module", reject_scienceplots)
+
+    with pytest.raises(RuntimeError, match=r"argus-skill\[figures\]"):
+        pcs.set_pub_style()
+
+
+def test_research_data_figures_have_one_renderer_path() -> None:
+    skill_root = pcs.__file__.rsplit("figure_spec_scripts", 1)[0]
+
+    chart_skill = Path(skill_root, "paper-chart-styling.md").read_text(encoding="utf-8")
+    analysis_skill = Path(
+        skill_root, "research-results-analysis-and-figures.md"
+    ).read_text(encoding="utf-8")
+    router_skill = Path(
+        skill_root, "research-visualization-router.md"
+    ).read_text(encoding="utf-8")
+
+    normalized_chart = " ".join(chart_skill.split())
+    normalized_analysis = " ".join(analysis_skill.split())
+    normalized_router = " ".join(router_skill.split())
+
+    assert "SciencePlots is mandatory for this route" in normalized_chart
+    assert "single SciencePlots/Matplotlib data-figure path" in normalized_analysis
+    assert "Any paper data/metric/result chart" in normalized_router
+    assert "keep the LiveFigure-style conceptual-figure route" in normalized_router
 
 
 def test_highlight_ours_bars_emphasises_ours_and_greys_baselines() -> None:

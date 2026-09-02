@@ -156,3 +156,21 @@ def test_figure_one_prioritizes_exact_topology_over_decorative_richness() -> Non
         assert "overlapping slabs" not in template
         assert "overlapping phase tabs" not in template
         assert "Semantic geometry:" in template
+    assert "simple exact topology in a supporting figure" in router
+
+
+def test_concept_figures_default_to_livefigure_style_native_pptx() -> None:
+    texts = dict(iter_vertical_skill_texts("research"))
+    router = texts["engineer/research-visualization-router.md"]
+    studio = texts["engineer/paper-framework-figure-studio.md"]
+    normalized_studio = " ".join(studio.split())
+
+    assert "LiveFigure-style conceptual-figure contract" in router
+    assert "procedural editable PPTX generation with native objects" in router
+    assert "A full-slide screenshot inside a PPTX is a failure" in router
+    assert "pure white `#ffffff` paper canvas by default" in router
+    assert "stop after three" in router
+    assert "Retrieve exemplars and explore layout directions" in studio
+    assert "Generate procedural native PPTX" in studio
+    assert "at most three source-level repair rounds" in normalized_studio
+    assert "Simple exact topology in a supporting figure" in router

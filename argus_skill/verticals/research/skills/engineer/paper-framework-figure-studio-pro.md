@@ -27,7 +27,8 @@ Source: `paper-framework-figure-studio-pro-v3.1.4a`
 
 - The Research Visualization Router selected image-2 for a non-data conceptual
   figure and the secret-free capability status reports an available image route.
-- Data/metric/result plots are NOT handled here; use matplotlib scripts.
+- Data/metric/result plots are NOT handled here; use the required
+  SciencePlots/Matplotlib `Paper Chart Styling` route.
 - If image-2 is unavailable or a deterministic renderer better fits exact labels,
   topology, or editability, return to the router instead of invoking this skill.
 
