@@ -527,6 +527,17 @@ describe('shared frontend core', () => {
     expect(WEB_SPLASH_DURATION_MS).toBeLessThanOrEqual(1000);
   });
 
+  it('reserves stable shell, scrollbar, and font geometry', () => {
+    const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
+    const html = fs.readFileSync(path.resolve('index.html'), 'utf8');
+    const canvas = fs.readFileSync(path.resolve('src/components/ResearchCanvas.tsx'), 'utf8');
+    expect(css).toContain('height: 100dvh');
+    expect(css).toContain('scrollbar-gutter: stable');
+    expect(html.match(/rel="preload"/g)).toHaveLength(2);
+    expect(canvas).not.toContain('key={showLiveProgress');
+    expect(canvas).not.toContain('gsap.fromTo');
+  });
+
   it('uses one large animated mark for the boot splash', () => {
     const html = renderToStaticMarkup(
       createElement(BootSplash, { onDone: () => undefined }),
