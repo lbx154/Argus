@@ -105,7 +105,7 @@ export function Modal({
       className={`fixed inset-0 z-50 flex ${align === 'top' ? 'items-start pt-4 sm:pt-16' : 'items-center'} justify-center ${viewport ? 'p-0' : 'p-4'}`}
       onMouseDown={onClose}
     >
-      <div ref={backdropRef} className="absolute inset-0 bg-[rgb(4_11_24_/_0.58)] backdrop-blur-md" />
+      <div ref={backdropRef} className="absolute inset-0 bg-black/25 backdrop-blur-sm" />
       <div
         ref={dialogRef}
         role="dialog"
@@ -113,7 +113,7 @@ export function Modal({
         aria-label={label}
         tabIndex={-1}
         style={style}
-        className={`brand-modal glass-panel glass-panel--raised relative z-10 w-full ${width} border shadow-glow scroll-thin ${viewport
+        className={`brand-modal glass-panel glass-panel--raised relative z-10 w-full ${width} scroll-thin ${viewport
           ? 'flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden rounded-none'
           : 'max-h-[calc(100dvh-2rem)] overflow-x-hidden overflow-y-auto rounded-xl sm:max-h-[88dvh]'
         }`}
@@ -127,9 +127,9 @@ export function Modal({
 
 export function ModalHeader({ title, sub }: { title: string; sub?: string }) {
   return (
-    <div className="border-b border-line px-5 py-3">
-      <h2 className="text-sm font-semibold text-ink">{title}</h2>
-      {sub && <p className="mt-0.5 text-xs text-ink-faint">{sub}</p>}
+    <div className="px-6 pb-3 pt-5">
+      <h2 className="text-base font-semibold tracking-[-0.01em] text-ink">{title}</h2>
+      {sub && <p className="mt-1 text-sm text-ink-faint">{sub}</p>}
     </div>
   );
 }

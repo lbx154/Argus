@@ -10,6 +10,7 @@ import { Spinner } from './primitives';
 import { useI18n } from '../i18n';
 import { PdfPreview } from './PdfPreview';
 import { setDesktopLargePreview } from '../lib/desktopBridge';
+import { isMarkdownArtifact } from '../lib/artifactPresentation';
 
 /** Authenticated preview/download for one reviewer-approved result file. */
 export function ArtifactModal({
@@ -24,6 +25,7 @@ export function ArtifactModal({
   const { t } = useI18n();
   const artifactQ = useArtifact(sid, path);
   const info = artifactQ.data;
+  const markdownPreview = info ? isMarkdownArtifact(info) : false;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [downloading, setDownloading] = useState(false);
@@ -131,13 +133,13 @@ export function ArtifactModal({
             <span className="mr-1 text-ink-faint">Reviewer:</span>{info.why}
           </div>
         ) : null}
-        {info?.kind === 'text' ? (
+        {info?.kind === 'text' && !markdownPreview ? (
           <pre className="min-h-52 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-bg p-4 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">
             {info.preview || t('artifact.empty')}
             {info.truncated ? `\n\n… ${t('artifact.truncated')}` : ''}
           </pre>
         ) : null}
-        {info?.kind === 'markdown' ? (
+        {info && markdownPreview ? (
           <div className="min-h-52 overflow-auto rounded-lg border border-line bg-bg p-4 text-sm text-ink-dim scroll-thin">
             <MarkdownContent>{info.preview || t('artifact.empty')}</MarkdownContent>
           </div>

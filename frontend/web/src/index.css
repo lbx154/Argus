@@ -8,7 +8,7 @@
   --surface: 255 255 255;
   --panel: 250 250 252;
   --panel-raised: 255 255 255;
-  --line: 218 218 223;
+  --line: 232 232 235;
   --ink: 29 29 31;
   --ink-dim: 80 80 84;
   --ink-faint: 99 99 102;
@@ -26,7 +26,7 @@
   --conversation-argus: 246 248 252;
   --glass: 255 255 255;
   --glass-raised: 255 255 255;
-  --glass-edge: 210 210 215;
+  --glass-edge: 224 224 228;
   --chrome-surface: 248 248 250;
 }
 
@@ -100,18 +100,18 @@ body {
 
 .glass-panel {
   border-color: rgb(var(--line));
-  background: rgb(var(--panel) / 92%);
+  background: rgb(var(--panel));
   box-shadow: none;
-  backdrop-filter: blur(20px) saturate(1.05);
+  backdrop-filter: none;
 }
 
 .glass-panel--side,
 .glass-panel--main,
 .glass-panel--raised {
   border-color: rgb(var(--line));
-  background: rgb(var(--panel) / 94%);
+  background: rgb(var(--panel));
   box-shadow: none;
-  backdrop-filter: blur(20px) saturate(1.05);
+  backdrop-filter: none;
 }
 
 .glass-panel--side {
@@ -123,10 +123,8 @@ body {
 }
 
 .glass-panel--raised {
-  background: rgb(var(--panel-raised) / 96%);
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 8%),
-    0 12px 32px rgb(0 0 0 / 10%);
+  background: rgb(var(--panel-raised));
+  box-shadow: 0 8px 28px rgb(0 0 0 / 8%);
 }
 
 /* Exact continuation of the native title/menu surface inside the iframe. */
@@ -137,9 +135,9 @@ body {
 }
 
 .glass-card {
-  border: 1px solid rgb(var(--line));
-  background: rgb(var(--surface) / 94%);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+  border: 0;
+  background: rgb(var(--surface));
+  box-shadow: none;
 }
 
 .mission-status-line {
@@ -198,8 +196,8 @@ body {
   isolation: isolate;
   min-height: 32px;
   overflow: hidden;
-  border: 1px solid rgb(var(--line));
-  border-radius: 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   padding: 0.3rem 0.7rem;
   font-size: 0.75rem;
   font-weight: 600;
@@ -222,7 +220,7 @@ body {
 }
 
 .brand-button-ghost {
-  background: rgb(var(--surface));
+  background: transparent;
   color: rgb(var(--ink-dim));
 }
 
@@ -239,14 +237,12 @@ body {
 }
 
 .panel-header {
-  border-color: rgb(var(--line));
-  background: rgb(var(--panel));
+  border-color: rgb(var(--line) / 70%);
+  background: transparent;
 }
 
 .brand-modal {
-  box-shadow:
-    0 2px 8px rgb(0 0 0 / 10%),
-    0 24px 64px rgb(0 0 0 / 18%);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 16%);
 }
 
 .handshake-mark {
@@ -267,11 +263,11 @@ body {
 .icon-control,
 .compact-control,
 .send-control {
-  border: 1px solid rgb(var(--glass-edge) / 58%);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: rgb(var(--glass-raised) / 56%);
+  background: transparent;
   color: rgb(var(--ink-faint));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 24%);
+  box-shadow: none;
   transition:
     border-color 180ms ease,
     background-color 180ms ease,
@@ -292,11 +288,11 @@ body {
 
 .session-card {
   border: 1px solid transparent;
-  background: rgb(var(--glass-raised) / 24%);
+  background: transparent;
 }
 
 .session-card[data-active='true'] {
-  border-color: rgb(var(--blue) / 35%);
+  border-color: transparent;
   background: rgb(var(--blue) / 8%);
   box-shadow: inset 2px 0 0 rgb(var(--blue));
 }
@@ -306,11 +302,11 @@ body {
   display: grid;
   width: 222px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 3px;
-  border: 1px solid rgb(var(--glass-edge) / 58%);
-  border-radius: 9px;
-  background: rgb(var(--glass-raised) / 48%);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 28%);
+  padding: 2px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(var(--surface));
+  box-shadow: none;
 }
 
 .workspace-tab {
@@ -329,14 +325,14 @@ body {
 
 .workspace-tab-indicator {
   position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 3px;
-  width: calc((100% - 6px) / 3);
-  border: 1px solid rgb(var(--line));
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 3);
+  border: 0;
   border-radius: 6px;
-  background: rgb(var(--surface));
-  box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
+  background: rgb(var(--panel-raised));
+  box-shadow: none;
   transition: transform 200ms cubic-bezier(.2, .8, .2, 1);
 }
 
@@ -406,21 +402,23 @@ body {
   .icon-control:hover,
   .compact-control:hover,
   .send-control:hover {
-    border-color: rgb(var(--blue));
-    background-color: rgb(var(--blue));
-    color: white;
+    border-color: transparent;
+    background-color: rgb(var(--conversation-user));
+    color: rgb(var(--ink));
     box-shadow: none;
   }
 
   .session-card:hover {
-    border-color: rgb(var(--line));
+    border-color: transparent;
+    background: rgb(var(--conversation-user) / 55%);
   }
 }
 
 @media (hover: hover) and (pointer: fine) {
   .brand-button:hover {
-    border-color: rgb(var(--ink-faint));
-    box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
+    border-color: transparent;
+    background: rgb(var(--conversation-user));
+    box-shadow: none;
   }
 
   .brand-button-primary:hover {
@@ -677,6 +675,6 @@ button {
     @apply glass-card rounded-lg;
   }
   .chip {
-    @apply inline-flex items-center gap-1 rounded-md border border-line/80 px-1.5 py-0.5 text-xs;
+    @apply inline-flex items-center gap-1 rounded-md bg-surface px-1.5 py-0.5 text-xs;
   }
 }

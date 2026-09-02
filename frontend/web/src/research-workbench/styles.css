@@ -40,9 +40,9 @@
     --planner: var(--role-planner);
     --engineer: var(--role-engineer);
     --reviewer: var(--role-reviewer);
-    --shadow-1: 0 1px 2px rgb(0 0 0 / .04);
-    --shadow-2: 0 8px 24px -20px rgb(0 0 0 / .28);
-    --shadow-3: 0 18px 48px -28px rgb(0 0 0 / .34);
+    --shadow-1: none;
+    --shadow-2: none;
+    --shadow-3: 0 20px 60px -32px rgb(0 0 0 / .28);
     --radius-sm: 8px;
     --radius-md: 12px;
     --radius-lg: 16px;
@@ -69,18 +69,18 @@
   .argus-wordmark__copy small { margin-top: 3px; color: rgb(var(--muted)); font-size: 9px; font-weight: 530; }
   .brand-button { display: inline-flex; align-items: center; background: transparent; padding: 0; }
 
-  .button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid rgb(var(--border-strong)); border-radius: 9px; background: rgb(var(--surface)); padding: 7px 12px; color: rgb(var(--text)); font-size: 12px; font-weight: 590; box-shadow: var(--shadow-1); transition: transform .15s, border-color .15s, box-shadow .15s, background .15s; }
-  .button:hover:not(:disabled) { transform: translateY(-1px); border-color: rgb(var(--faint)); box-shadow: var(--shadow-2); }
+  .button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid transparent; border-radius: 8px; background: rgb(var(--surface-2)); padding: 7px 12px; color: rgb(var(--text)); font-size: 12px; font-weight: 590; box-shadow: none; transition: color .15s, background .15s; }
+  .button:hover:not(:disabled) { background: rgb(var(--border)); }
   .button--primary { border-color: rgb(var(--accent)); background: rgb(var(--accent)); color: rgb(var(--accent-fg)); }
   .button--secondary { background: rgb(var(--surface-2)); box-shadow: none; }
   .button--danger { border-color: rgb(var(--red) / .25); background: rgb(var(--red-bg)); color: rgb(var(--red)); }
   .button--ghost { border-color: transparent; background: transparent; box-shadow: none; }
   .button--large { min-height: 42px; border-radius: 11px; padding: 9px 15px; }
   .button--full { width: 100%; }
-  .icon-button { width: 34px; height: 34px; flex: 0 0 34px; display: inline-grid; place-items: center; border: 1px solid rgb(var(--border)); border-radius: 9px; background: rgb(var(--surface)); color: rgb(var(--muted)); transition: background .15s, color .15s, border-color .15s; }
-  .icon-button:hover:not(:disabled) { border-color: rgb(var(--border-strong)); background: rgb(var(--surface-2)); color: rgb(var(--text)); }
+  .icon-button { width: 34px; height: 34px; flex: 0 0 34px; display: inline-grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: rgb(var(--muted)); transition: background .15s, color .15s; }
+  .icon-button:hover:not(:disabled) { background: rgb(var(--surface-2)); color: rgb(var(--text)); }
 
-  .badge { display: inline-flex; min-height: 22px; align-items: center; gap: 5px; border: 1px solid rgb(var(--border)); border-radius: 999px; background: rgb(var(--surface-2)); padding: 3px 8px; color: rgb(var(--muted)); font-size: 10px; font-weight: 610; line-height: 1.2; white-space: nowrap; }
+  .badge { display: inline-flex; min-height: 22px; align-items: center; gap: 5px; border: 0; border-radius: 6px; background: rgb(var(--surface-2)); padding: 3px 8px; color: rgb(var(--muted)); font-size: 10px; font-weight: 610; line-height: 1.2; white-space: nowrap; }
   .badge--info { border-color: rgb(var(--blue) / .2); background: rgb(var(--blue-bg)); color: rgb(var(--blue)); }
   .badge--success, .badge--live { border-color: rgb(var(--green) / .22); background: rgb(var(--green-bg)); color: rgb(var(--green)); }
   .badge--warn { border-color: rgb(var(--amber) / .22); background: rgb(var(--amber-bg)); color: rgb(var(--amber)); }
@@ -90,7 +90,7 @@
   .status-dot.is-live { color: rgb(var(--green)); background: rgb(var(--green)); box-shadow: 0 0 0 4px rgb(var(--green) / .11); }
   .is-pulsing { animation: livePulse 2s infinite; }
 
-  .ros-card, .panel { min-width: 0; min-height: 0; overflow: hidden; border: 1px solid rgb(var(--border)); border-radius: var(--radius-md); background: rgb(var(--surface)); box-shadow: var(--shadow-1); }
+  .ros-card, .panel { min-width: 0; min-height: 0; overflow: hidden; border: 0; border-radius: var(--radius-sm); background: rgb(var(--surface)); box-shadow: none; }
   .panel { display: flex; flex-direction: column; }
   .panel__header, .ros-card > header { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid rgb(var(--border)); padding: 12px 16px; }
   .panel__heading, .ros-card > header > div { min-width: 0; }
