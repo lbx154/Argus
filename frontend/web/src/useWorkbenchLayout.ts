@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { type ThemeMode } from './components/TopBar';
+import { readLocalStorage, writeLocalStorage } from './lib/storage';
 
 function storedBoolean(key: string, fallback: boolean): boolean {
-  const value = localStorage.getItem(key);
+  const value = readLocalStorage(key);
   return value == null ? fallback : value === 'true';
 }
 
@@ -16,24 +17,24 @@ export function useWorkbenchLayout() {
   );
   const [workspaceView, setWorkspaceView] = useState<'mission' | 'activity' | 'workbench'>(
     () => {
-      const stored = localStorage.getItem('argus.workspace.view');
+      const stored = readLocalStorage('argus.workspace.view');
       return stored === 'mission' || stored === 'workbench' ? stored : 'activity';
     },
   );
   const [mobileView, setMobileView] = useState<'activity' | 'preview'>('activity');
   const [rightPanelOpen, setRightPanelOpen] = useState(() => storedBoolean('argus.preview.expanded.v5', true));
   const [leftWidth, setLeftWidth] = useState(() => {
-    const value = Number(localStorage.getItem('argus.sidebar.width.v2') || 256);
+    const value = Number(readLocalStorage('argus.sidebar.width.v2') || 256);
     return Number.isFinite(value) ? Math.max(220, Math.min(400, value)) : 256;
   });
   const [rightWidth, setRightWidth] = useState(() => {
-    const value = Number(localStorage.getItem('argus.preview.width.v2') || 440);
+    const value = Number(readLocalStorage('argus.preview.width.v2') || 440);
     return Number.isFinite(value) ? Math.max(320, Math.min(600, value)) : 440;
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => storedBoolean('argus.sidebar.expanded.v4', true));
   const [manualTheme, setManualTheme] = useState<ThemeMode | null>(() => {
-    const stored = localStorage.getItem('argus.theme');
+    const stored = readLocalStorage('argus.theme');
     return stored === 'light' || stored === 'dark' ? stored : null;
   });
   const [systemDark, setSystemDark] = useState(
@@ -44,18 +45,18 @@ export function useWorkbenchLayout() {
   const resizeFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('argus.sidebar.expanded.v4', String(leftPanelOpen));
-    localStorage.setItem('argus.preview.expanded.v5', String(rightPanelOpen));
-    localStorage.setItem('argus.sidebar.width.v2', String(leftWidth));
-    localStorage.setItem('argus.preview.width.v2', String(rightWidth));
+    writeLocalStorage('argus.sidebar.expanded.v4', String(leftPanelOpen));
+    writeLocalStorage('argus.preview.expanded.v5', String(rightPanelOpen));
+    writeLocalStorage('argus.sidebar.width.v2', String(leftWidth));
+    writeLocalStorage('argus.preview.width.v2', String(rightWidth));
   }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
 
   useEffect(() => {
-    localStorage.setItem('argus.workspace.view', workspaceView);
+    writeLocalStorage('argus.workspace.view', workspaceView);
   }, [workspaceView]);
 
   useEffect(() => {
-    localStorage.setItem('argus.reasoning.visible.v1', String(showReasoning));
+    writeLocalStorage('argus.reasoning.visible.v1', String(showReasoning));
   }, [showReasoning]);
 
   useEffect(() => {
@@ -75,19 +76,10 @@ export function useWorkbenchLayout() {
     }
   }, [themeMode]);
 
-  useEffect(() => {
-    const sync = () => {
-      document.documentElement.dataset.pageVisible = String(!document.hidden);
-    };
-    sync();
-    document.addEventListener('visibilitychange', sync);
-    return () => document.removeEventListener('visibilitychange', sync);
-  }, []);
-
   const cycleTheme = useCallback(() => {
     const next = themeMode === 'light' ? 'dark' : 'light';
     setManualTheme(next);
-    localStorage.setItem('argus.theme', next);
+    writeLocalStorage('argus.theme', next);
   }, [themeMode]);
 
   const resizeSidebar = useCallback((

@@ -904,6 +904,7 @@ export default function App() {
                     artifacts={artifactsQ.data}
                     onOpenArtifact={focusDeliveryPath}
                     onOpenDelivery={openDelivery}
+                    onNotify={notify}
                   />
                 ) : (
                   <EventStream

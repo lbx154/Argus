@@ -149,6 +149,7 @@ export function OperationsModal({
   const externalDaemon = snap.daemon.alive && snap.daemon.control_available === false;
   const replacements = snap.daemon_admission?.running_daemons ?? [];
   const actionIcon = action === 'task' ? faListCheck : action === 'nudge' ? faPaperPlane : action === 'note' ? faNoteSticky : faDiagramProject;
+  const actionLabel = t(`operations.action.${action}`);
   const searchTrash = async () => {
     await run('trash-search', async () => {
       const result = await api.trash(trashQuery);
@@ -161,32 +162,32 @@ export function OperationsModal({
   return (
     <Modal open={open} onClose={() => !busy && onClose()} label={t('operations.title')} width="max-w-5xl">
       <ModalHeader title={t('operations.title')} sub={snap.session.display_name || sid} />
-      <div className="flex gap-1 border-b border-line bg-panel px-4 py-2">
+      <div className="flex gap-1 overflow-x-auto border-b border-line bg-panel px-4 py-2 scroll-thin">
         {([
           ['work', t('operations.work'), faListCheck],
           ['runtime', t('operations.runtime'), faGear],
           ['system', t('operations.system'), faChartLine],
           ['recovery', t('operations.recovery'), faTrashArrowUp],
         ] as const).map(([value, label, icon]) => (
-          <button key={value} type="button" onClick={() => { setTab(value); setOutput(''); }} title={label} aria-label={label} className={`flex h-8 w-9 items-center justify-center rounded-md text-xs ${tab === value ? 'bg-blue-deep text-white' : 'text-ink-faint hover:bg-bg hover:text-ink'}`}><FontAwesomeIcon icon={icon} /></button>
+          <button key={value} type="button" onClick={() => { setTab(value); setOutput(''); }} aria-current={tab === value ? 'page' : undefined} className={`flex h-8 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-xs font-medium ${tab === value ? 'bg-blue-deep text-white' : 'text-ink-faint hover:bg-bg hover:text-ink'}`}><FontAwesomeIcon icon={icon} /><span>{label}</span></button>
         ))}
       </div>
       <div className="grid max-h-[76vh] gap-3 overflow-y-auto bg-bg p-3 scroll-thin lg:grid-cols-2">
         {tab === 'work' ? <section className="rounded-lg border border-line bg-panel p-4 lg:col-span-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-dim">{t('operations.workInput')}</h3>
           <p className="mt-1 text-xs text-ink-faint">{t('operations.workHint')}</p>
-          <div className="mt-3 flex gap-1">
+          <div className="mt-3 grid grid-cols-2 gap-1 sm:grid-cols-4">
             {([
               ['task', faListCheck],
               ['nudge', faPaperPlane],
               ['note', faNoteSticky],
               ['plan', faDiagramProject],
             ] as const).map(([value, icon]) => (
-              <button key={value} type="button" onClick={() => setAction(value)} title={value} aria-label={value} className={`flex h-8 w-9 items-center justify-center rounded text-xs capitalize ${action === value ? 'bg-blue-deep text-white' : 'bg-bg text-ink-dim'}`}><FontAwesomeIcon icon={icon} /></button>
+              <button key={value} type="button" onClick={() => setAction(value)} aria-pressed={action === value} className={`flex h-9 items-center justify-center gap-2 rounded px-2 text-xs font-medium ${action === value ? 'bg-blue-deep text-white' : 'bg-bg text-ink-dim hover:text-ink'}`}><FontAwesomeIcon icon={icon} /><span>{t(`operations.action.${value}`)}</span></button>
             ))}
           </div>
           <textarea value={text} onChange={(event) => setText(event.target.value)} rows={5} placeholder={action === 'plan' ? t('operations.planPlaceholder') : t('operations.actionPlaceholder', { action })} className="mt-3 w-full resize-y rounded border border-line bg-bg p-3 text-sm text-ink outline-none focus:border-blue" />
-          <button type="button" onClick={() => void runQuickAction()} disabled={!!busy || !text.trim()} title={action === 'plan' ? t('operations.previewPlan') : t('operations.submitAction', { action })} aria-label={action === 'plan' ? t('operations.previewPlan') : t('operations.submitAction', { action })} className="mt-2 flex h-9 w-9 items-center justify-center rounded bg-blue-deep text-xs font-medium text-white disabled:opacity-40">{busy === 'quick' ? '…' : <FontAwesomeIcon icon={actionIcon} />}</button>
+          <button type="button" onClick={() => void runQuickAction()} disabled={!!busy || !text.trim()} className="mt-2 flex h-9 items-center justify-center gap-2 rounded bg-blue-deep px-3 text-xs font-medium text-white hover:bg-blue-deep/90 disabled:opacity-40">{busy === 'quick' ? '…' : <><FontAwesomeIcon icon={actionIcon} /><span>{action === 'plan' ? t('operations.previewPlan') : t('operations.submitAction', { action: actionLabel })}</span></>}</button>
         </section> : null}
 
         {tab === 'runtime' ? <section className="rounded-lg border border-line bg-panel p-4 lg:col-span-2">

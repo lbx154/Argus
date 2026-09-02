@@ -143,6 +143,15 @@ export interface UploadedAttachment {
 export interface MessageAttachmentRef {
   attachment_id: string;
 }
+export interface ContinuousUpdateResult {
+  ok: boolean;
+  daemon?: {
+    rc?: number;
+    command_status?: string;
+    error?: string;
+    admission_required?: boolean;
+  };
+}
 /** Operator-owned message category; Task skips only the category classifier. */
 export type MessageRouteOverride = 'auto' | 'chat' | 'task';
 export interface AttachmentUploadResponse {
@@ -844,7 +853,12 @@ export const api = {
     postJson(P(sid, `/backlog/${encodeURIComponent(id)}/dispose`), { op }),
   stopBacklog: (sid: string, id: string) => postJson(P(sid, `/backlog/${encodeURIComponent(id)}/stop`)),
   setContinuous: (sid: string, enabled: boolean, objective = '') =>
-    postJson(P(sid, '/continuous'), { enabled, objective }),
+    postJson<ContinuousUpdateResult>(P(sid, '/continuous'), { enabled, objective }).then((result) => {
+      if (!enabled) return result;
+      if (!result.daemon) throw new Error('daemon start returned no result');
+      requireDaemonCommand(result.daemon);
+      return result;
+    }),
   startDaemon: (sid: string, expectedRevision?: number) => postJson(P(sid, '/daemon/start'), {
     command_id: commandId(),
     expected_revision: expectedRevision,

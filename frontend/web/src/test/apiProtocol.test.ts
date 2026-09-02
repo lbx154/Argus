@@ -454,6 +454,22 @@ describe('web API protocol handshake', () => {
     );
   });
 
+  it('rejects an HTTP-successful continuous resume failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({
+      ok: true,
+      daemon: {
+        rc: 3,
+        command_status: 'failed',
+        error: 'workdir is unavailable',
+      },
+    })));
+    const { api } = await import('../api');
+
+    await expect(api.setContinuous('s-test', true, 'Resume work')).rejects.toThrow(
+      'workdir is unavailable',
+    );
+  });
+
   it('wires the complete Web administration surface', async () => {
     const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
       if (path === '/api/metrics') return Response.json({ slo: { status: 'healthy' } });
