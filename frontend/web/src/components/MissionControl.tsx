@@ -10,7 +10,7 @@ import {
   formatMissionElapsed,
 } from '../../../core/src/missionView';
 import { theme } from '../lib/theme';
-import { formatRelativeTime } from '../lib/format';
+import { errorText, formatRelativeTime } from '../lib/format';
 import { MarkdownContent } from './MarkdownContent';
 import { useI18n } from '../i18n';
 import { api, type ArtifactInfo, type Snapshot } from '../api';
@@ -178,6 +178,7 @@ export function MissionControl({
   onOpenArtifact,
   onOpenDelivery,
   gitDiff,
+  onNotify,
 }: {
   view: MissionView;
   sid?: string;
@@ -186,6 +187,7 @@ export function MissionControl({
   onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
   gitDiff?: GitDiffView;
+  onNotify?: (tone: 'success' | 'error', message: string) => void;
 }) {
   const { locale, t } = useI18n();
   const roleMap = new Map(view.roles.map((role) => [role.role, role]));
@@ -266,8 +268,9 @@ export function MissionControl({
     setResumeBusy(true);
     try {
       await api.setContinuous(sid, true, snapshot?.continuous?.objective ?? '');
-    } catch {
-      // ignore
+      onNotify?.('success', t('sidebar.resumeSuccess'));
+    } catch (error) {
+      onNotify?.('error', t('sidebar.resumeFailed', { error: errorText(error) }));
     } finally {
       setResumeBusy(false);
     }

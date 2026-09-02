@@ -48,7 +48,7 @@ import { HtmlPreview } from '../components/HtmlPreview';
 import { formatStructuredData, parseDelimited } from '../components/DataPreview';
 import { Button } from '../components/primitives';
 import { ArgusMark, Wordmark } from '../components/Wordmark';
-import { ConnectionProblemBanner } from '../components/ConnectionProblemBanner';
+import { ConnectionProblemBanner, pairingTokenFromInput } from '../components/ConnectionProblemBanner';
 import { LocalArgusUnavailableError, PairingRequiredError } from '../api';
 
 const typedUsageEvent: UsageRecordedEvent = {
@@ -72,6 +72,18 @@ describe('shared frontend core', () => {
     expect(html).toContain('role="alert"');
     expect(html).toContain('not paired with Argus');
     expect(html).toContain('reopen the workbench from Argus Desktop');
+    expect(html).toContain('Pair again');
+  });
+
+  it('accepts a fresh pairing token or extracts one from a pairing link', () => {
+    vi.stubGlobal('window', { location: { href: 'http://127.0.0.1:8765/' } });
+
+    expect(pairingTokenFromInput('fresh-token')).toBe('fresh-token');
+    expect(pairingTokenFromInput('http://127.0.0.1:8765/?token=fresh-link-token')).toBe('fresh-link-token');
+    expect(pairingTokenFromInput('http://127.0.0.1:8765/')).toBe('');
+    expect(pairingTokenFromInput('not a token')).toBe('');
+
+    vi.unstubAllGlobals();
   });
 
   it('renders an actionable local-service message instead of Failed to fetch', () => {
@@ -125,8 +137,8 @@ describe('shared frontend core', () => {
     ]) {
       expect(css).toContain(selector);
     }
-    expect(css).toContain('@keyframes ambient-drift');
-    expect(css).toContain('[data-page-visible=\"false\"]');
+    expect(css).not.toContain('@keyframes ambient-drift');
+    expect(css).not.toContain('will-change: transform, opacity');
     expect(css).not.toContain('--spectral-violet: 105 73 205');
     expect(css).not.toContain('--spectral-rose: 190 67 119');
     expect(css).not.toContain('#89dceb');

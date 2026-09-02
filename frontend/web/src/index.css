@@ -115,20 +115,7 @@ body {
     radial-gradient(circle at 18% 24%, rgb(var(--spectral-blue) / 22%), transparent 26%),
     radial-gradient(circle at 82% 72%, rgb(var(--spectral-gold) / 18%), transparent 24%);
   filter: blur(32px);
-  transform: translate3d(-2%, -1%, 0) scale(1.03);
-  animation: ambient-drift 60s ease-in-out infinite alternate;
-  will-change: transform, opacity;
-}
-
-@keyframes ambient-drift {
-  to {
-    opacity: 0.8;
-    transform: translate3d(3%, 2%, 0) scale(1.08);
-  }
-}
-
-[data-page-visible="false"] .ambient-canvas::before {
-  animation-play-state: paused;
+  transform: translate3d(0, 0, 0);
 }
 
 .glass-panel {
