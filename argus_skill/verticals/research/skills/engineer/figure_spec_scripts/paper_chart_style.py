@@ -11,9 +11,9 @@ tick labels in the wrong size, colours that collapse to identical greys under
 colour-blind simulation. The result reads as "ugly and inconsistent" next to a
 real conference paper. This module gives every figure ONE journal-grade look:
 
-* SciencePlots ``['science','no-latex']`` base (thin spines, inward ticks,
-  serif-ish math) — degrades gracefully to a hand-rolled rcParams theme if
-  SciencePlots is not installed, so it never hard-fails in a project venv.
+* Required SciencePlots ``['science','no-latex']`` base (thin spines, inward
+  ticks, serif-ish math). Data-figure generation fails with an actionable
+  installation error rather than silently reverting to a different renderer.
 * Three named, **colour-blind-safe** palettes (seaborn) so figures are
   distinguishable in print and under CVD: ``colorblind`` (default),
   ``muted`` (cool journal tone), ``high_contrast`` (talks/posters).
@@ -44,6 +44,7 @@ Run ``python3 paper_chart_style.py`` to render a before/after demo comparison.
 """
 from __future__ import annotations
 
+import importlib
 import sys
 from typing import Sequence
 
@@ -108,22 +109,19 @@ def figure_size(
     return (width, round(width * aspect, 2))
 
 
-def _fallback_rcparams() -> dict:
-    """Hand-rolled journal theme used when SciencePlots is unavailable."""
-    return {
-        "font.family": "sans-serif",
-        "font.sans-serif": ["Helvetica", "Arial", "DejaVu Sans"],
-        "mathtext.fontset": "dejavusans",
-        "axes.linewidth": 0.8,
-        "axes.grid": True,
-        "grid.linewidth": 0.5,
-        "grid.alpha": 0.35,
-        "xtick.direction": "in",
-        "ytick.direction": "in",
-        "xtick.major.width": 0.8,
-        "ytick.major.width": 0.8,
-        "legend.frameon": False,
-    }
+def _apply_scienceplots_style() -> None:
+    """Register and apply the required publication style."""
+    import matplotlib.pyplot as plt
+
+    try:
+        importlib.import_module("scienceplots")
+    except ImportError as exc:
+        raise RuntimeError(
+            "SciencePlots is required for research data figures. Install the "
+            "plotting stack with `pip install 'argus-skill[figures]'` or "
+            "`pip install matplotlib seaborn SciencePlots`."
+        ) from exc
+    plt.style.use(["science", "no-latex"])
 
 
 def set_pub_style(
@@ -134,23 +132,16 @@ def set_pub_style(
 ) -> list[str]:
     """Apply the shared publication style and return the active colour list.
 
-    Safe to call once at the top of an analysis script. Never raises on a
-    missing optional dependency: SciencePlots is used if importable, otherwise
-    a built-in rcParams theme is applied. Returns the palette so callers can
-    cycle colours explicitly (``colors[i]``) when auto-cycling is not enough.
+    Safe to call once at the top of an analysis script. SciencePlots is a
+    required dependency for this data-figure path; a missing installation is
+    surfaced instead of producing a visually inconsistent fallback. Returns
+    the palette so callers can cycle colours explicitly (``colors[i]``) when
+    auto-cycling is not enough.
     """
     import matplotlib as mpl
-    import matplotlib.pyplot as plt
-
     colors = PALETTES.get(palette, PALETTES[DEFAULT_PALETTE])
 
-    # Base theme: SciencePlots if present, else our fallback rcParams.
-    try:
-        import scienceplots  # noqa: F401  (registers the styles)
-
-        plt.style.use(["science", "no-latex"])
-    except Exception:  # noqa: BLE001 — optional dep / registration hiccup
-        mpl.rcParams.update(_fallback_rcparams())
+    _apply_scienceplots_style()
 
     # Sizes tuned for 8–9pt body text at final print size.
     two_col = _is_two_column(venue)

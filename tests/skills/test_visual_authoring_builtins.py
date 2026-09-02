@@ -62,3 +62,5 @@ def test_presentation_and_figure_descriptions_preserve_routing_guidance() -> Non
     assert "Research Visualization Router" in figure["description"]
     assert "PPT Master" in figure["description"]
     assert "update_repo.py" in presentation_body
+    assert '"${ARGUS_SKILL_PYTHON:-python3}"' in presentation_body
+    assert "Do not call bare `python` or `python3`" in presentation_body

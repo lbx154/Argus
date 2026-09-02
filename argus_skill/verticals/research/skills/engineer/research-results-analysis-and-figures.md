@@ -49,9 +49,10 @@ completion gate; Reviewer decides whether the current source/data/output bundle
 already provides enough confidence. Never mutate or exclude real experiment
 rows for this check.
 
-Use `Paper Chart Styling` for ordinary matplotlib charts. For each other figure,
-load the research-only `Research Visualization Router`; do not select a renderer
-from old image-2 wording.
+Use `Paper Chart Styling` for every data/metric/result chart. It is the single
+SciencePlots/Matplotlib data-figure path. For non-data figures, load the
+research-only `Research Visualization Router`; do not select a renderer from
+old image-2 wording.
 
 ## 3. Produce canonical result artifacts
 
@@ -121,27 +122,28 @@ mechanism or architecture, and the output/evidence path. For a theory or survey
 paper use an explanatory geometry, taxonomy, or conceptual map. Preserve an
 editable source and export a real SVG/PDF/PNG that the draft embeds. A LaTeX
 table, boxed paragraph, or `\rule` bar display inside a `figure` environment is
-not Figure 1. If no image route exists, deterministic rendering is mandatory,
-not a blocker: use PPT Master, browser-rendered HTML, FigureSpec, Draw.io,
-Mermaid/Graphviz, or another route selected below.
-Run the renderer-neutral `Paper Framework Figure Studio` S0-S7 workflow before
-authoring the chosen renderer's source; the Router alone is not a design brief.
+not Figure 1. If no image route exists, deterministic rendering is mandatory, not a blocker:
+use the LiveFigure-style procedural native-PPTX route through PPT Master.
+Run the `Paper Framework Figure Studio` S0-S7 workflow before authoring the
+native source; the Router alone is not a design brief.
 
 Then use `Research Visualization Router`:
 
-- data/result charts normally use matplotlib;
-- Vega/ECharts/Recharts/Plotly/HTML are valid when their semantics add value and
-  they follow the fixed browser-render contract;
-- polished conceptual, method, architecture, teaser, or graphical-abstract
-  composition should consider installed PPT Master first when visual hierarchy,
-  icons, callouts, grouped modules, or editable design handoff matter;
-- simple exact topology may use FigureSpec, Mermaid/Graphviz, or Draw.io after
-  the router compares it with PPT Master and browser-native SVG;
-- image-2 is optional and selected only when configured and scientifically
-  appropriate.
+- data/result charts use SciencePlots through `Paper Chart Styling`; generate
+  them from canonical local data and export PDF/SVG/PNG from the same script;
+- do not hand-author SVG primitives for data plots or route paper data figures
+  through Vega/ECharts/Recharts/Plotly/HTML as an aesthetic fallback;
+- conceptual, method, architecture, teaser, and graphical-abstract figures use
+  the LiveFigure-style default: semantic contract, exemplar retrieval, two
+  layout plans, procedural native PPTX, rendered critic, bounded source repair,
+  and PDF/SVG/PNG export;
+- simple exact topology in a supporting figure may use FigureSpec,
+  Mermaid/Graphviz, or Draw.io only as a documented exception;
+- image-2 is optional and may provide a blueprint or non-claim-bearing asset,
+  never final scientific labels, arrows, numbers, or claim-bearing geometry.
 
-Do not default to matplotlib for a non-data conceptual or method diagram merely
-because it is installed. Matplotlib is the ordinary statistical-chart route,
+Do not use SciencePlots/Matplotlib for a non-data conceptual or method diagram
+merely because it is installed. It is the required statistical-chart route,
 not the universal fallback for paper graphics.
 
 Optionally record renderer/source metadata in `FIGURE_PROVENANCE.json` when it

@@ -29,22 +29,24 @@ the research vertical's Research Visualization Router. This skill is only for
 
 ## How to solve
 
-1. **Install the styling packages in the project venv** (fail-soft — if they
-   cannot be installed, the helper falls back to plain matplotlib and you keep
-   going):
+1. **Install the required plotting stack in the project venv**:
    ```bash
-   pip install matplotlib seaborn SciencePlots
+   pip install 'argus-skill[figures]'
+   # or: pip install matplotlib seaborn SciencePlots
    ```
+   Do not continue with plain matplotlib or a hand-authored SVG data plot when
+   this dependency is missing. Surface the installation failure and repair the
+   project environment.
 
 2. **Copy the shared style helper into the project** so analysis scripts can
    import it without `argus_skill` on the path:
    ```bash
    python - <<'PY'
-   import argus_skill, os, shutil
-   src = os.path.join(os.path.dirname(argus_skill.__file__),
-                      "builtin_skills", "engineer", "figure_spec_scripts",
-                      "paper_chart_style.py")
-   os.makedirs("paper/analysis", exist_ok=True)
+   import shutil
+   from pathlib import Path
+   from argus_skill.verticals.research.skills.engineer.figure_spec_scripts import paper_chart_style
+   src = Path(paper_chart_style.__file__)
+   Path("paper/analysis").mkdir(parents=True, exist_ok=True)
    shutil.copy(src, "paper/analysis/paper_chart_style.py")
    print("copied ->", "paper/analysis/paper_chart_style.py")
    PY
@@ -91,8 +93,9 @@ the research vertical's Research Visualization Router. This skill is only for
    caption already identifies the figure.
 
 8. **Save vector/high-dpi with embedded fonts** (the helper sets `pdf.fonttype=42`
-   and 600 dpi): prefer `fig.savefig("paper/figures/<name>.pdf")`; a `.png` is
-   acceptable as a fallback only.
+   and 600 dpi): generate PDF, SVG, and a high-DPI PNG review artifact from the
+   same plotting script. Embed the PDF in the paper; do not replace the data
+   renderer with manually constructed SVG primitives.
 
 9. **Learn composition from real papers.** Before locking figure layouts, run the
    **Paper Exemplar PDF Learning** skill and study how 2–3 open-access papers in
@@ -113,6 +116,8 @@ the research vertical's Research Visualization Router. This skill is only for
 ## Notes
 - The helper is dependency-light and self-contained; the copy in `paper/analysis/`
   is what your scripts import. Re-copy it if you upgrade.
+- SciencePlots is mandatory for this route. A missing package is an environment
+  error, not permission to fall back to the retired ad-hoc data-figure method.
 - This skill styles data plots only. Conceptual/method figures use the
   renderer-neutral Research Visualization Router and `FIGURE_PROVENANCE.json`.
 - Figure width must still agree with the LaTeX float type: teaser and the main

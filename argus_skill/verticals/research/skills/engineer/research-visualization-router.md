@@ -1,6 +1,6 @@
 ---
 name: "Research Visualization Router"
-description: "Use before rendering any research-paper visual. Select among installed PPT Master, HTML/SVG, ECharts, Recharts/React, Vega, Plotly, FigureSpec, diagrams, matplotlib, and optional image-2. Prefer PPT Master for polished editable non-data conceptual/method/architecture figures when available; image-2 is not required."
+description: "Use before rendering any research-paper visual. Route data figures through SciencePlots and make the LiveFigure-style procedural native-PPTX workflow the default for conceptual/method/architecture figures. Keep exact-topology and optional image-2 routes as explicit exceptions."
 ---
 
 # Research Visualization Router
@@ -16,9 +16,8 @@ teaser, method/framework overview, architecture, or taxonomy that communicates
 the problem, core mechanism, and claim-bearing flow at a glance. It must be a
 real exported SVG/PDF/PNG embedded by `\includegraphics` or `\includesvg`.
 A LaTeX table, boxed paragraph, or `\rule` bars inside a `figure` environment do
-not count. image-2 is optional: when it is unavailable, use PPT Master,
-browser-rendered HTML, FigureSpec, Draw.io, Mermaid/Graphviz, or another
-truthful deterministic route and keep the editable source.
+not count. Use the LiveFigure-style procedural native-PPTX workflow through PPT
+Master by default. image-2 is optional and never required for this route.
 
 Before rendering Figure 1, open and execute the renderer-neutral
 `Paper Framework Figure Studio` S0-S7 workflow. It owns factual extraction,
@@ -53,7 +52,9 @@ the pinned toolkit is complete, clean, and has dependencies recorded for the
 active Python. A successful status means PPT Master is usable even when every
 image route is unavailable. Read its adapter and upstream routing workflow
 before choosing a renderer. If status fails, continue with another truthful
-deterministic route rather than blocking the paper.
+deterministic route rather than blocking the paper. Prefer browser-rendered HTML
+for a rich fallback or Draw.io/FigureSpec for exact topology, preserve the
+editable source, and record why native PPTX was unavailable.
 
 ## 2. Write the figure brief before choosing a tool
 
@@ -75,15 +76,13 @@ hashes, and provenance.
 
 | Figure need | Preferred route |
 |---|---|
-| Ordinary statistical/result chart | Matplotlib + Paper Chart Styling |
-| Declarative, faceted, layered, or browser-parity chart | Vega-Lite/Vega; export with `vg2svg`/`vg2pdf` |
-| Large/complex chart with ECharts semantics | ECharts SVG SSR; fixed width/height, animation off, ARIA + decals |
-| Existing React/Recharts research component | Preserve it; fixed numeric dimensions, seeded data, animation off, browser export |
-| Existing Plotly analysis | Kaleido with pinned Plotly/Kaleido/Chrome and local assets |
+| Any paper data/metric/result chart | SciencePlots/Matplotlib + Paper Chart Styling; export PDF/SVG/PNG from one script |
+| Interactive or browser-only research supplement (not a paper data figure) | Vega-Lite/Vega, ECharts, Recharts, or Plotly with pinned deterministic export |
 | Bespoke HTML/D3/Observable Plot | Native SVG plus structural snapshot and browser screenshot |
-| Polished conceptual/method/architecture figure with visual hierarchy, icons, callouts, or grouped modules | Installed PPT Master; retain source SVG/design spec, editable PPTX, and rendered paper asset |
+| Conceptual/method/architecture/teaser figure, including Figure 1 | LiveFigure-style procedural native PPTX through installed PPT Master; retain semantic contract, layout plans, editable PPTX, rendered review page, and paper exports |
 | Exact load-bearing topology, arrow direction, branch condition, or spelling | Editable deterministic PPT Master, browser SVG, Graphviz/Draw.io, or FigureSpec when its routes have clear space |
-| Expressive conceptual teaser | image-2 when configured and evidence-faithful; otherwise installed PPT Master or browser-rendered HTML |
+| Simple exact topology in a supporting figure | FigureSpec, Mermaid/Graphviz, or Draw.io only when native graph editing or topology fidelity matters more than the LiveFigure-style composition |
+| Expressive visual blueprint or optional icon asset | image-2 when configured and evidence-faithful; redraw scientific labels, arrows, numbers, and claim-bearing geometry in the native PPTX |
 | Visual that inherently requires unavailable generative media | Mark blocked or redesign the claim; never fabricate an output |
 
 When correctness depends on exact node-edge incidence, arrow direction, branch
@@ -91,23 +90,58 @@ conditions, or label spelling, topology fidelity takes priority over decorative
 richness. Use image-2 only when connector geometry is not load-bearing or for
 non-semantic illustrative material.
 
+### LiveFigure-style conceptual-figure contract
+
+For every conceptual, method, architecture, teaser, or graphical-abstract
+figure, use this default pipeline:
+
+```text
+evidence-bound semantic contract
+→ same-domain exemplar/style retrieval
+→ at least two materially different layout plans
+→ procedural editable PPTX generation with native objects
+→ PDF/PNG review render
+→ static geometry and text-overflow checks
+→ visual critic at final paper size
+→ bounded source-level repair
+→ PDF + SVG + high-DPI PNG paper exports
+```
+
+- Keep exact labels, arrows, numeric claims, forbidden invention, and evidence
+  anchors in a machine-readable semantic contract.
+- Retrieve exemplars only as layout and style evidence. Record their source and
+  never copy protected artwork or unsupported scientific content.
+- Build the accepted composition as native PowerPoint shapes, groups, text, and
+  connectors. A full-slide screenshot inside a PPTX is a failure.
+- Use a pure white `#ffffff` paper canvas by default. Put low-saturation colour
+  inside semantic modules; do not use a dark or tinted full-canvas background
+  unless the manuscript itself uses that background.
+- Render the PPTX before review. Check overflow, clipping, overlap, connector
+  attachment, reading order, contrast, and final-size legibility.
+- Give the visual critic the rendered page and semantic contract. Repair the
+  editable source, never only the PDF/PNG derivative, and stop after three
+  source-level repair rounds unless the direction itself is rejected.
+- image-2 may suggest composition or supply a non-claim-bearing icon, but it
+  must not be the source of scientific text, arrows, numbers, or final
+  claim-bearing geometry.
+
 Figure 1 must pass the full Studio design and final-size audit. It may use a
 sparse deterministic topology renderer when that is the clearest and most
 faithful grammar; publication polish does not require depth, icons, or
 decorative complexity.
 
-Hand-authoring raw SVG is not on this table. Typing `<rect>` and `<line>`
-yourself produces a whiteboard sketch, and it is never the shortest path to a
-good figure anyway — every route above already draws boxes and arrows for you,
-with layout, spacing and type handled. Pick one of them.
+Hand-authoring raw SVG is not on this table. For data figures it bypasses the
+required SciencePlots source-data pipeline; for conceptual figures it produces
+a whiteboard sketch instead of using a renderer with layout and type handling.
+Pick the route that matches the figure semantics.
 
 Give each figure its own subagent, carrying the brief, the canonical numbers and
 the chosen renderer, so one drawing gets one undivided attempt.
 
-Do not introduce React for a simple line plot. Do not use a dashboard screenshot
-as a paper figure when the underlying SVG or declarative spec can be exported.
-Do not default to matplotlib for a non-data conceptual or method diagram merely
-because it is installed; use it for ordinary statistical charts.
+Do not introduce React, Vega, Plotly, or raw SVG for a paper data plot. Do not
+use a dashboard screenshot as a paper figure. Do not use SciencePlots for a
+non-data conceptual or method diagram merely because it is installed; keep the
+LiveFigure-style conceptual-figure route for those figures.
 
 ## 4. Browser-render contract
 
@@ -219,8 +253,10 @@ renderer-neutral manifest when present.
   hard-code paper numbers or use visual interpolation as data.
 - **HTML/React:** preserve source, frozen data, lockfile, local assets, render
   metadata, SVG/PDF/PNG, and regression evidence.
-- **PPT Master:** preserve the upstream route artifacts, source SVG/design spec,
-  editable PPTX, and rendered review pages.
+- **LiveFigure-style PPT Master:** preserve the semantic contract, retrieved
+  exemplar ledger, rejected and accepted layout plans, upstream route artifacts,
+  editable PPTX, rendered review pages, critic findings, source-level repairs,
+  and final paper exports.
 - **Diagrams:** every load-bearing node and edge must trace to code, evidence,
   documentation, or an explicit hypothesis label.
 

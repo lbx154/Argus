@@ -1,15 +1,15 @@
 ---
 name: "Paper Framework Figure Studio"
-description: "Design and audit a publication-grade Figure 1 teaser, method, framework, architecture, or taxonomy before rendering it with PPT Master, browser-rendered HTML, FigureSpec, Draw.io, Mermaid/Graphviz, or optional image-2. Renderer-neutral S0-S7 workflow; use after the Research Visualization Router identifies a conceptual paper figure."
+description: "Design and audit a publication-grade Figure 1 teaser, method, framework, architecture, or taxonomy with the default LiveFigure-style semantic-contract, exemplar, procedural native-PPTX, render, critic, and repair workflow."
 ---
 
 # Paper Framework Figure Studio
 
-This is the renderer-neutral design workflow for a research paper's Figure 1.
-It carries the useful design stages from
+This is the LiveFigure-style default design workflow for a research paper's
+Figure 1 and other conceptual paper figures. It carries the useful design stages from
 `paper-framework-figure-studio-pro-v3.1.4a` without coupling them to image-2.
-The Research Visualization Router chooses the renderer only after the figure's
-facts, reader path, layout, labels, caption, and audit contract are defined.
+The Research Visualization Router uses procedural native PPTX through PPT
+Master unless an explicit exact-topology exception applies.
 
 Do not skip directly from "we need a diagram" to drawing boxes. Do not use
 generic placeholders. Read the actual paper and evidence first.
@@ -46,10 +46,14 @@ Choose a figure grammar that supports it:
 Decide what belongs in pixels, caption, legend, and body text. The figure carries
 structure and reader path; the caption carries definitions, caveats, and detail.
 
-## S2 — Explore layout directions
+## S2 — Retrieve exemplars and explore layout directions
 
-Sketch at least two materially different layouts in a lightweight design spec.
-Stop once one direction clearly wins; do not grind out variants.
+Retrieve a small set of same-domain open-paper figures or project-owned examples
+for layout and style evidence. Record source, license when known, and the
+specific reusable prior—such as hierarchy, spacing rhythm, or panel grammar.
+Do not copy artwork or scientific content. Then sketch at least two materially
+different layouts in a lightweight design spec. Stop once one direction clearly
+wins; do not grind out variants.
 
 Useful patterns include central hero, horizontal swimlanes, nested containers,
 hub-and-spoke, zig-zag pipeline, compact research poster, grayscale-accent,
@@ -84,26 +88,33 @@ Use actual project terminology. Never expose raw paths, code identifiers, daemon
 terms, GPU IDs, or generic labels such as "quality gate" when the paper names a
 specific mechanism.
 
-## S5 — Render through the selected deterministic or generative route
+## S5 — Generate procedural native PPTX
 
-Return to the Research Visualization Router and use one renderer:
+Use the installed PPT Master workflow to generate native editable PowerPoint
+objects from the accepted semantic and layout plan:
 
-- PPT Master for rich editable composition and native PPTX;
-- browser-rendered HTML for bespoke exact layouts;
-- FigureSpec, Draw.io, Mermaid/Graphviz for explicit topology;
-- image-2 only when configured and semantically appropriate.
+- every module, label, connector, group, and callout remains independently
+  editable;
+- a whole-slide raster or screenshot embedded in PPTX is prohibited;
+- keep a pure white `#ffffff` paper canvas by default;
+- use FigureSpec, Draw.io, or Mermaid/Graphviz only for an explicitly documented
+  supporting exact-topology exception;
+- use image-2 only when configured, and only as a composition blueprint or
+  non-claim-bearing asset.
 
-Preserve editable source and export a real SVG/PDF/PNG for the manuscript.
-Rendering must be deterministic whenever the chosen route supports it.
+Preserve the semantic contract, exemplar ledger, layout plans, editable PPTX,
+and a real PDF/PNG review render. Export PDF, SVG, and high-DPI PNG paper assets
+from the accepted source. Rendering must be deterministic whenever supported.
 
 ### Renderer-neutral design system
 
 - Landscape, paper-width composition with one dominant reading direction.
 - Aligned, non-overlapping grouped modules; rounded cards only where grouping benefits.
-- Warm white or white background; dark-gray strokes; restrained low-saturation
-  accents with redundant shape/line encoding.
+- Pure white `#ffffff` paper background; dark-gray strokes; restrained
+  low-saturation accents inside semantic modules with redundant shape/line
+  encoding. Never use a dark or tinted full-canvas background by default.
 - Short labels and clear section hierarchy; omit an in-graphic title when the
-  caption already identifies the figure.
+  caption already identifies the figure; do not use paragraph-sized text.
 - Draw only edges declared in the S0 ledger. Every arrowhead points toward its
   named target. Use one dominant reading direction and route feedback around
   the outside of the primary flow.
@@ -124,7 +135,7 @@ Rendering must be deterministic whenever the chosen route supports it.
   final paper width, ordinary labels should be at least approximately 8 pt and
   secondary text at least 7 pt.
 
-Reference tokens for a 1536×1024-class canvas: background `#fbfaf7`, stroke
+Reference tokens for a 1536×1024-class canvas: background `#ffffff`, stroke
 `#1f2933`, 2 px; corner radius 10–16 px; card gap 12–24 px; title 38–52 px,
 section headers 22–30 px, card labels 16–22 px. Scale proportionally for SVG.
 
@@ -137,9 +148,9 @@ The source, render, caption, and manuscript terminology must agree.
 A LaTeX table, boxed paragraph, or `\rule` bars inside a `figure` environment
 are not a Figure 1 render.
 
-## S7 — Joint final audit
+## S7 — Render, critic, bounded repair, and joint final audit
 
-Inspect the rendered PDF at actual page size and verify:
+Render the native PPTX to PDF/PNG, inspect it at actual page size, and verify:
 
 | Check | Pass condition |
 |---|---|
@@ -158,4 +169,5 @@ Inspect the rendered PDF at actual page size and verify:
 | Print quality | Legible in grayscale and at final paper width |
 
 Return `PASS`, `TEXT-REPAIR`, `RENDER-REPAIR`, or `DIRECTION-REPAIR`. Repair the
-editable source and rerender; never patch only the exported SVG/PDF.
+editable source and rerender; never patch only the exported SVG/PDF. Apply at
+most three source-level repair rounds before returning to layout selection.

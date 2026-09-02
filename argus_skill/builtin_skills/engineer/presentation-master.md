@@ -1,6 +1,6 @@
 ---
 name: "PPT Master for Presentations and Paper Figures (Argus adapter)"
-description: "Use the installed hugohe3/ppt-master workflow for polished editable research-paper conceptual, method, architecture, teaser, and graphical-abstract figures as well as PPTX decks and templates. This is a first-class deterministic visual route when image-2 is unavailable; it does not require a generative image model."
+description: "Use the installed hugohe3/ppt-master workflow for the research vertical's default LiveFigure-style procedural native-PPTX research-paper conceptual figure route, as well as editable PPTX decks and templates. It remains usable when image-2 is unavailable."
 ---
 
 # PPT Master — Argus Adapter
@@ -11,16 +11,18 @@ to commit `2e29f3d3cfc379c689b07027d0fa776b9ff79291`.
 
 ## When to use
 
-Use PPT Master when a paper or presentation needs deliberate visual hierarchy,
-editable composition, icons, callouts, grouped modules, or richer layout than a
-simple box-and-arrow renderer provides. Paper-facing uses include conceptual
-figures, method overviews, architecture diagrams, teasers, and graphical
-abstracts. The toolkit can produce these through SVG/design-spec/PPTX routes
-without image-2 or another generative image backend.
+For research-paper conceptual figures, use PPT Master as the renderer for the
+LiveFigure-style default: evidence-bound semantic contract, same-domain
+exemplar/style retrieval, multiple layout plans, procedural native objects,
+rendered visual critique, and bounded source-level repair. Paper-facing uses
+include conceptual figures, method overviews, architecture diagrams, teasers,
+and graphical abstracts. The toolkit can produce these through
+SVG/design-spec/PPTX routes without image-2 or another generative image backend.
 
-Do not use PPT Master merely to restyle an ordinary statistical chart. Use the
-research visualization router to compare it with HTML/SVG, ECharts/Recharts,
-FigureSpec, and other installed deterministic routes before rendering.
+Do not use PPT Master merely to restyle an ordinary statistical chart; data
+figures use the research vertical's SciencePlots route. Use Draw.io,
+FigureSpec, or Mermaid/Graphviz instead only for an explicitly documented
+supporting exact-topology exception.
 
 ## Locate and load the real skill
 
@@ -48,6 +50,17 @@ Before doing any PPT Master work:
 4. Read only the selected route and documents it explicitly triggers.
 5. Follow the upstream gates, commands, source ownership, and recovery pointers.
 
+Upstream examples spell the interpreter as `python3`. Inside Argus, treat that
+token as a placeholder and run every PPT Master script with the injected
+framework interpreter instead:
+
+```bash
+"${ARGUS_SKILL_PYTHON:-python3}" "$SKILL_DIR/scripts/<script>.py" ...
+```
+
+Do not call bare `python` or `python3`: the host interpreter may not contain the
+audited PPT Master dependencies even when `--ppt-master-status` passes.
+
 The upstream skill, workflows, references, scripts, chart library, icon library,
 and templates are authoritative. Do not reconstruct them from this adapter.
 
@@ -69,6 +82,9 @@ and templates are authoritative. Do not reconstruct them from this adapter.
 - Keep upstream's native-editability contract: generated SVG page sources compile
   to DrawingML/native PowerPoint objects; never flatten a whole deck into slide
   screenshots.
+- For paper figures, use a pure white `#ffffff` canvas by default and confine
+  low-saturation colour to semantic modules. Do not use a dark or tinted
+  full-canvas background unless the manuscript itself does.
 - Preserve all source, route, design-spec, validation, and export artifacts so
   the Reviewer can audit the deck.
 - Optional image generation still requires an actually configured upstream
