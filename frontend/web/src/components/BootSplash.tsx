@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useI18n } from '../i18n';
-import { ArgusMark, Wordmark } from './Wordmark';
+import { ArgusMark } from './Wordmark';
 
-export const WEB_SPLASH_DURATION_MS = 180;
+export const WEB_SPLASH_DURATION_MS = 820;
 
 export function BootSplash({ onDone }: { onDone: () => void }) {
   const { t } = useI18n();
@@ -33,11 +33,8 @@ export function BootSplash({ onDone }: { onDone: () => void }) {
       }}
       className="argus-web-splash"
     >
-      <div className="argus-web-splash-logo argus-web-splash-logo-full" aria-hidden="true">
-        <Wordmark size={72} />
-      </div>
-      <div className="argus-web-splash-logo argus-web-splash-logo-compact" aria-hidden="true">
-        <ArgusMark size={112} />
+      <div className="argus-web-splash-logo" aria-hidden="true">
+        <ArgusMark size={168} />
       </div>
     </div>
   );

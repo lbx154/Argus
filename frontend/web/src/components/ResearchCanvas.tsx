@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ArtifactInfo, EventMsg } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
 import { api } from '../api';
@@ -7,7 +7,6 @@ import { formatBytes } from '../lib/format';
 import { Spinner } from './primitives';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesRight } from '@fortawesome/free-solid-svg-icons';
-import { useGsapMotion } from '../lib/motion';
 import { HtmlPreview } from './HtmlPreview';
 import { JsonPreview, TablePreview } from './DataPreview';
 import { MarkdownContent } from './MarkdownContent';
@@ -346,7 +345,6 @@ export function ResearchCanvas({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [downloading, setDownloading] = useState(false);
-  const previewRef = useRef<HTMLDivElement>(null);
   const [downloadError, setDownloadError] = useState('');
   const liveStatus = useMemo(
     () => selectLiveMissionStatus(missionView, activityEvents),
@@ -411,22 +409,6 @@ export function ResearchCanvas({
       setDownloading(false);
     }
   };
-  useGsapMotion(previewRef, (gsap, reduceMotion) => {
-    if (!previewRef.current) return;
-    if (reduceMotion) return;
-    gsap.fromTo(
-      previewRef.current,
-      { autoAlpha: 0, y: 6, scale: 0.995 },
-      {
-        autoAlpha: 1,
-        y: 0,
-        scale: 1,
-        duration: 0.3,
-        ease: 'power2.out',
-        clearProps: 'transform,opacity,visibility',
-      },
-    );
-  }, [showLiveProgress, selected?.path, info?.kind]);
 
   return (
     <section className={`glass-panel glass-panel--side flex min-h-0 flex-col overflow-hidden ${embedded ? '' : 'rounded-lg border'} ${className}`} aria-label={t('research.canvas')}>
@@ -503,7 +485,7 @@ export function ResearchCanvas({
         </div>
       ) : null}
 
-      <div ref={previewRef} key={showLiveProgress ? LIVE_PROGRESS_PATH : selected?.path ?? 'empty'} className="relative flex min-h-0 flex-1 flex-col bg-bg">
+      <div className="relative flex min-h-0 flex-1 flex-col bg-bg">
         {showLiveProgress && missionView ? (
           <LiveProgressPreview view={missionView} liveStatus={liveStatus} artifacts={artifacts} onOpenArtifact={setManualPath} />
         ) : null}

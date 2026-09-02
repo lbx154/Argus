@@ -290,7 +290,7 @@ export function ChatBox({
       onDragLeave={onDragLeaveFiles}
       onDrop={onDropFiles}
       className={`glass-card glass-panel--raised flex flex-col overflow-hidden rounded-2xl ${
-        embedded ? 'shadow-[0_12px_36px_-22px_rgb(var(--spectral-violet)/0.7)] backdrop-blur-md' : ''
+        embedded ? 'shadow-[0_12px_36px_-22px_rgb(0_0_0/0.22)] backdrop-blur-md' : ''
       } ${dragDepth > 0 ? 'ring-2 ring-manager/60 ring-offset-0' : ''}`}
     >
       {pending ? (

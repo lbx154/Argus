@@ -4,12 +4,12 @@ import { PanelHeader, EmptyHint } from './primitives';
 import { ago, money } from '../lib/format';
 
 const KIND_COLOR: Record<string, string> = {
-  win: '#7fa386',
-  milestone: '#c7a66a',
-  insight: '#8fa7b8',
-  decision: '#a69daf',
-  failure: '#c77b72',
-  note: '#7e7d75',
+  win: 'rgb(var(--blue))',
+  milestone: 'rgb(var(--blue))',
+  insight: 'rgb(var(--ink-dim))',
+  decision: 'rgb(var(--ink-dim))',
+  failure: 'rgb(var(--err))',
+  note: 'rgb(var(--ink-faint))',
 };
 
 /** The research journal — the daemon's distilled memory of wins/insights. */
@@ -22,7 +22,7 @@ export function JournalPanel({ entries }: { entries: JournalEntry[] }) {
       <div className="min-h-0 flex-1 overflow-y-auto scroll-thin">
         {entries.length === 0 && <EmptyHint>no journal entries yet</EmptyHint>}
         {newestFirst.map((e) => {
-          const color = KIND_COLOR[e.kind] ?? '#8a93a6';
+          const color = KIND_COLOR[e.kind] ?? 'rgb(var(--ink-faint))';
           const pricingStatus = String(e.extra?.pricing_status ?? '');
           const rawCost = e.extra && Object.prototype.hasOwnProperty.call(e.extra, 'cost_usd')
             ? e.extra.cost_usd

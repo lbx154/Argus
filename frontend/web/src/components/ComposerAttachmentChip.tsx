@@ -28,7 +28,7 @@ export function ComposerAttachmentChip({
   }, [file]);
 
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-line/50 bg-panel/80 px-2.5 py-2 text-xs shadow-[0_10px_24px_-20px_rgb(var(--spectral-blue)/0.8)]">
+    <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-line/50 bg-panel/80 px-2.5 py-2 text-xs shadow-[0_10px_24px_-20px_rgb(0_0_0/0.2)]">
       {previewUrl ? (
         <img
           src={previewUrl}

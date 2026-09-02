@@ -124,7 +124,7 @@ function ConversationRow({
       ) : (
         <div className="flex gap-3">
           <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center">
-            <ArgusMark size={26} className="text-blue" />
+            <ArgusMark size={26} className="text-ink" />
           </span>
           <div className="relative min-w-0 flex-1 text-[15px] leading-relaxed text-ink">
             <div className="mb-1 flex items-center gap-2">
