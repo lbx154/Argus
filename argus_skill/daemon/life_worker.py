@@ -230,6 +230,7 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
         self._control_started_at_iso = ""
         self._running_stall_stop = threading.Event()
         self._running_stall_thread: threading.Thread | None = None
+        self._supervisor_execution_active = threading.Event()
 
     # -- signal handling ------------------------------------------------
 

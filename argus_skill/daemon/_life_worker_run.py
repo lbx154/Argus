@@ -42,6 +42,9 @@ class LifeWorkerRunMixin:
         from ..life.mission_outcome import mission_outcome_class
         from ..life.role_activity import role_activity
 
+        if self._supervisor_execution_active.is_set():
+            return []
+
         now = time.time()
         activities = role_activity(rf_state.runtime_root, now=now)
         if any(activity.active for activity in activities.values()):
@@ -266,6 +269,10 @@ class LifeWorkerRunMixin:
             )
             self._foreground_wait_guard.start()
 
+        # Protect a resumed running claim before the main loop reaches its first
+        # supervisor call. The loop clears this guard as soon as that call
+        # returns, which is the only point where executor-loss detection is safe.
+        self._supervisor_execution_active.set()
         self._start_running_stall_watcher(rf_state)
 
     def _rf_main_loop(self, rf_state: _RunForeverState) -> None:
@@ -276,6 +283,7 @@ class LifeWorkerRunMixin:
                 if self._deployment_handoff_gate():
                     break
                 summary: dict = {}
+                self._supervisor_execution_active.set()
                 try:
                     from ..manager._session_ops import manager_pipeline_yield_requested
 
@@ -358,6 +366,8 @@ class LifeWorkerRunMixin:
                         log.info("daemon: drain pass interrupted by stop request")
                         break
                     log.exception("daemon: drain pass raised; sleeping and retrying")
+                finally:
+                    self._supervisor_execution_active.clear()
                 log.info(
                     "daemon: drain pass stopped_by=%s suggested_sleep=%s",
                     summary.get("stopped_by") or "",
