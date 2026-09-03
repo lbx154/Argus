@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { type ThemeMode } from './components/TopBar';
 import { readLocalStorage, writeLocalStorage } from './lib/storage';
 import {
@@ -10,6 +17,13 @@ import {
 function storedBoolean(key: string, fallback: boolean): boolean {
   const value = readLocalStorage(key);
   return value == null ? fallback : value === 'true';
+}
+
+function publishThemeMode(themeMode: ThemeMode): void {
+  document.documentElement.dataset.theme = themeMode;
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: 'argus:theme-changed', payload: themeMode }, '*');
+  }
 }
 
 export function useWorkbenchLayout() {
@@ -47,6 +61,7 @@ export function useWorkbenchLayout() {
     () => window.matchMedia('(prefers-color-scheme: dark)').matches,
   );
   const themeMode: ThemeMode = manualTheme ?? (systemDark ? 'dark' : 'light');
+  const themeModeRef = useRef(themeMode);
   const shellRef = useRef<HTMLDivElement>(null);
   const resizeFrameRef = useRef<number | null>(null);
 
@@ -74,12 +89,8 @@ export function useWorkbenchLayout() {
   }, []);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = themeMode;
-    // The Tauri shell validates iframe source/origin before accepting this
-    // presentation-only signal, then updates the native Windows title bar.
-    if (window.parent !== window) {
-      window.parent.postMessage({ type: 'argus:theme-changed', payload: themeMode }, '*');
-    }
+    themeModeRef.current = themeMode;
+    publishThemeMode(themeMode);
   }, [themeMode]);
 
   useEffect(() => {
@@ -87,10 +98,12 @@ export function useWorkbenchLayout() {
   }, [themeStyle]);
 
   const cycleTheme = useCallback(() => {
-    const next = themeMode === 'light' ? 'dark' : 'light';
-    setManualTheme(next);
+    const next = themeModeRef.current === 'light' ? 'dark' : 'light';
+    themeModeRef.current = next;
+    publishThemeMode(next);
     writeLocalStorage('argus.theme', next);
-  }, [themeMode]);
+    startTransition(() => setManualTheme(next));
+  }, []);
 
   const setThemeStyle = useCallback((next: ThemeStyle) => {
     setThemeStyleState(next);

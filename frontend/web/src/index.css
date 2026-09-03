@@ -100,7 +100,6 @@ body {
   font-feature-settings: 'ss01' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  transition: background-color 140ms ease, color 140ms ease;
 }
 
 .workbench-shell {
