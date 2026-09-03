@@ -19,9 +19,9 @@ export default {
           sky: 'rgb(var(--blue-sky) / <alpha-value>)',
         },
         gold: {
-          DEFAULT: 'rgb(var(--blue) / <alpha-value>)',
-          soft: 'rgb(var(--blue) / <alpha-value>)',
-          deep: 'rgb(var(--blue-deep) / <alpha-value>)',
+          DEFAULT: 'rgb(var(--gold) / <alpha-value>)',
+          soft: 'rgb(var(--gold-soft) / <alpha-value>)',
+          deep: 'rgb(var(--gold-deep) / <alpha-value>)',
         },
         // semantic
         ok: 'rgb(var(--ok) / <alpha-value>)',

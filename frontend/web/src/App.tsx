@@ -137,11 +137,13 @@ export default function App() {
     setRightWidth,
     setShowReasoning,
     setSidebarOpen,
+    setThemeStyle,
     setWorkspaceView,
     shellRef,
     showReasoning,
     sidebarOpen,
     themeMode,
+    themeStyle,
     workspaceView,
   } = useWorkbenchLayout();
   const [standardWorkspaceView, setStandardWorkspaceView] = useState<'mission' | 'activity'>(
@@ -1037,7 +1039,15 @@ export default function App() {
       <CommandPalette open={overlay === 'palette'} onClose={() => setOverlay('none')} items={paletteItems} />
       <KeybindingHelp open={overlay === 'help'} onClose={() => setOverlay('none')} />
       {activeSid && <DoctorModal sid={activeSid} open={overlay === 'doctor'} onClose={() => setOverlay('none')} />}
-      {activeSid && <ConfigModal sid={activeSid} open={overlay === 'config'} onClose={() => setOverlay('none')} />}
+      {activeSid && (
+        <ConfigModal
+          sid={activeSid}
+          open={overlay === 'config'}
+          onClose={() => setOverlay('none')}
+          themeStyle={themeStyle}
+          onThemeStyleChange={setThemeStyle}
+        />
+      )}
       {activeSid && <IdentityModal sid={activeSid} open={overlay === 'identity'} onClose={() => setOverlay('none')} />}
       {activeSid && <TranscriptModal sid={activeSid} open={overlay === 'transcript'} onClose={() => setOverlay('none')} />}
       {activeSid && snap ? (
