@@ -74,21 +74,13 @@
 }
 
 :root[data-theme-style='gradient'] {
-  --blue: 7 95 228;
-  --blue-deep: 11 46 104;
-  --blue-sky: 49 124 238;
-  --gold: 207 153 49;
-  --gold-soft: 225 184 91;
-  --gold-deep: 153 101 16;
+  --ambient-blue: 7 95 228;
+  --ambient-gold: 207 153 49;
 }
 
 :root[data-theme='dark'][data-theme-style='gradient'] {
-  --blue: 110 168 255;
-  --blue-deep: 47 94 168;
-  --blue-sky: 155 192 255;
-  --gold: 237 201 111;
-  --gold-soft: 245 219 151;
-  --gold-deep: 165 113 28;
+  --ambient-blue: 110 168 255;
+  --ambient-gold: 237 201 111;
 }
 
 html,
@@ -124,15 +116,15 @@ body {
 
 :root[data-theme-style='gradient'] .workbench-shell {
   background:
-    radial-gradient(circle at 8% 0%, rgb(var(--blue) / 15%), transparent 36rem),
-    radial-gradient(circle at 92% 100%, rgb(var(--gold) / 14%), transparent 34rem),
+    radial-gradient(circle at 8% 0%, rgb(var(--ambient-blue) / 15%), transparent 36rem),
+    radial-gradient(circle at 92% 100%, rgb(var(--ambient-gold) / 14%), transparent 34rem),
     rgb(var(--bg));
 }
 
 :root[data-theme='dark'][data-theme-style='gradient'] .workbench-shell {
   background:
-    radial-gradient(circle at 8% 0%, rgb(var(--blue) / 20%), transparent 38rem),
-    radial-gradient(circle at 92% 100%, rgb(var(--gold) / 17%), transparent 36rem),
+    radial-gradient(circle at 8% 0%, rgb(var(--ambient-blue) / 20%), transparent 38rem),
+    radial-gradient(circle at 92% 100%, rgb(var(--ambient-gold) / 17%), transparent 36rem),
     rgb(var(--bg));
 }
 
@@ -171,17 +163,6 @@ body {
 .glass-panel--raised {
   background: rgb(var(--panel-raised));
   box-shadow: 0 8px 28px rgb(0 0 0 / 8%);
-}
-
-:root[data-theme-style='gradient'] :is(
-  .glass-panel--side,
-  .glass-panel--main,
-  .glass-panel--raised
-) {
-  border-color: transparent;
-  background:
-    linear-gradient(145deg, rgb(var(--panel) / 97%), rgb(var(--panel-raised) / 94%)) padding-box,
-    linear-gradient(125deg, rgb(var(--blue) / 46%), rgb(var(--gold) / 40%)) border-box;
 }
 
 /* Exact continuation of the native title/menu surface inside the iframe. */
@@ -270,17 +251,10 @@ body {
 }
 
 .brand-button-primary {
-  border-color: rgb(var(--blue));
-  background: rgb(var(--blue));
-  color: white;
+  border-color: rgb(var(--blue) / 34%);
+  background: rgb(var(--blue) / 8%);
+  color: rgb(var(--blue));
   box-shadow: none;
-}
-
-:root[data-theme-style='gradient'] .brand-button-primary,
-:root[data-theme-style='gradient'] .send-control {
-  border-color: transparent;
-  background: linear-gradient(110deg, rgb(var(--blue)), rgb(var(--blue-deep)) 58%, rgb(var(--gold-deep)));
-  color: white;
 }
 
 .brand-button-ghost {
@@ -344,9 +318,9 @@ body {
 }
 
 .send-control {
-  border-color: rgb(var(--blue));
-  background: rgb(var(--blue));
-  color: white;
+  border-color: rgb(var(--blue) / 34%);
+  background: rgb(var(--blue) / 8%);
+  color: rgb(var(--blue));
   box-shadow: none;
 }
 
@@ -359,15 +333,6 @@ body {
   border-color: transparent;
   background: rgb(var(--blue) / 8%);
   box-shadow: inset 2px 0 0 rgb(var(--blue));
-}
-
-:root[data-theme-style='gradient'] .session-card[data-active='true'] {
-  background:
-    linear-gradient(100deg, rgb(var(--blue) / 11%), rgb(var(--gold) / 8%)),
-    rgb(var(--surface));
-  box-shadow:
-    inset 2px 0 0 rgb(var(--blue)),
-    inset -1px 0 0 rgb(var(--gold) / 55%);
 }
 
 .workspace-tabs {
@@ -409,13 +374,6 @@ body {
   transition: transform 200ms cubic-bezier(.2, .8, .2, 1);
 }
 
-:root[data-theme-style='gradient'] .workspace-tab-indicator {
-  border: 1px solid transparent;
-  background:
-    linear-gradient(rgb(var(--panel-raised)), rgb(var(--panel-raised))) padding-box,
-    linear-gradient(90deg, rgb(var(--blue) / 82%), rgb(var(--gold) / 74%)) border-box;
-}
-
 .workspace-tabs[data-active='activity'] .workspace-tab-indicator {
   transform: translateX(100%);
 }
@@ -450,13 +408,6 @@ body {
   box-shadow: none;
 }
 
-:root[data-theme-style='gradient'] .workbench-module-tab[data-selected='true'] {
-  border-color: rgb(var(--blue) / 34%);
-  background:
-    linear-gradient(100deg, rgb(var(--blue) / 11%), rgb(var(--gold) / 8%)),
-    rgb(var(--panel-raised));
-}
-
 .role-log-group {
   position: relative;
   transition: background-color 200ms ease, box-shadow 200ms ease;
@@ -481,22 +432,13 @@ body {
   opacity: 1;
 }
 
-:root[data-theme-style='gradient'] .role-log-group::before {
-  background: linear-gradient(180deg, rgb(var(--blue)), rgb(var(--gold)));
-}
-
-:root[data-theme-style='gradient'] .role-log-group[data-open="true"] {
-  background: linear-gradient(90deg, rgb(var(--blue) / 5%), transparent 38%);
-}
-
 .role-log-group[data-active='true']::before {
   box-shadow: none;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .icon-control:hover,
-  .compact-control:hover,
-  .send-control:hover {
+  .compact-control:hover {
     border-color: transparent;
     background-color: rgb(var(--conversation-user));
     color: rgb(var(--ink));
@@ -516,18 +458,11 @@ body {
     box-shadow: none;
   }
 
-  .brand-button-primary:hover {
+  .brand-button-primary:hover,
+  .send-control:hover {
     border-color: rgb(var(--blue-deep));
     background: rgb(var(--blue-deep));
     color: white;
-  }
-
-  :root[data-theme-style='gradient'] .brand-button-primary:hover,
-  :root[data-theme-style='gradient'] .send-control:hover {
-    border-color: transparent;
-    background: linear-gradient(110deg, rgb(var(--blue)), rgb(var(--blue-deep)) 58%, rgb(var(--gold-deep)));
-    color: white;
-    filter: brightness(0.94);
   }
 }
 

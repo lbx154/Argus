@@ -71,14 +71,11 @@
 
   .button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid transparent; border-radius: 8px; background: rgb(var(--surface-2)); padding: 7px 12px; color: rgb(var(--text)); font-size: 12px; font-weight: 590; box-shadow: none; transition: color .15s, background .15s; }
   .button:hover:not(:disabled) { background: rgb(var(--border)); }
-  :root[data-theme-style='gradient'] .integrated-workbench .button--primary:hover:not(:disabled) {
-    background: linear-gradient(110deg, rgb(var(--blue)), rgb(var(--blue-deep)) 58%, rgb(var(--gold-deep)));
-    filter: brightness(.94);
-  }
-  .button--primary { border-color: rgb(var(--accent)); background: rgb(var(--accent)); color: rgb(var(--accent-fg)); }
-  :root[data-theme-style='gradient'] .integrated-workbench .button--primary {
-    border-color: transparent;
-    background: linear-gradient(110deg, rgb(var(--blue)), rgb(var(--blue-deep)) 58%, rgb(var(--gold-deep)));
+  .button--primary { border-color: rgb(var(--blue) / .34); background: rgb(var(--blue) / .08); color: rgb(var(--blue)); }
+  .button--primary:hover:not(:disabled) {
+    border-color: rgb(var(--blue-deep));
+    background: rgb(var(--blue-deep));
+    color: rgb(var(--accent-fg));
   }
   .button--secondary { background: rgb(var(--surface-2)); box-shadow: none; }
   .button--danger { border-color: rgb(var(--red) / .25); background: rgb(var(--red-bg)); color: rgb(var(--red)); }

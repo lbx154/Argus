@@ -130,7 +130,7 @@ export function PendingReplyDialog({
           <span className="text-xs text-ink-faint">{t('decision.resumeHint')}</span>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} disabled={busy} className="rounded-md px-3 py-2 text-xs text-ink-dim hover:bg-bg disabled:opacity-50">{t('decision.later')}</button>
-            <button type="button" onClick={submit} disabled={busy} className="rounded-md bg-blue-deep px-3 py-2 text-xs font-medium text-white hover:bg-blue-deep/85 disabled:opacity-50">
+            <button type="button" onClick={submit} disabled={busy} className="rounded-md border border-blue/35 bg-blue/8 px-3 py-2 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white disabled:opacity-50">
               {busy
                 ? t('decision.applying')
                 : freeform || optionId === 'custom'
