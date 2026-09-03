@@ -7,9 +7,10 @@ description: "The single authoritative playbook for adaptive experiments that ea
 
 ## Outcome
 
-Develop the selected method until representative evidence supports one strong
-positive thesis against the strongest fair alternatives. The target is a result
-that a top reviewer would remember, not a complete-looking experiment matrix.
+Develop the selected method until representative evidence supports a scoped
+thesis with scientific value. A credible improvement in any meaningful
+dimension can carry the contribution; the target is a result that a top
+reviewer would remember, not a complete-looking experiment matrix.
 
 ## Work
 
@@ -38,9 +39,11 @@ losses, or convert an unfinished campaign into a negative-result paper.
 
 ## Paper entry
 
-Remain in Experiment unless mechanism-relevant wins clearly exceed losses, the
-headline and primary comparisons win, and the strongest same-information
-baseline is beaten. Manager alone advances the stage.
+Enter Paper when Reviewer judges that credible evidence improves at least one
+scientifically meaningful dimension. Do not require a hard numeric margin,
+wins on every headline metric, or dominance over every strong baseline. Keep
+uncertainty, relevant losses, and tradeoffs visible, and scope the thesis to
+what improved. Manager alone advances the stage.
 
 ## Handoff
 

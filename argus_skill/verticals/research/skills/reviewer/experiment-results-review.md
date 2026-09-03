@@ -22,7 +22,9 @@ A weak result first triggers implementation, evaluator, benchmark, scale, or
 method diagnosis. Keep the selected Idea and current stage. The experiment
 programme may change from development evidence.
 
-Recommend Paper only when relevant wins clearly exceed losses, headline and
-primary comparisons win, and the strongest same-information baseline is
-beaten. Otherwise return one concrete Experiment repair through the normal
-Reviewer response.
+Recommend Paper when credible evidence improves at least one scientifically
+meaningful dimension and the scoped result has research value. Do not require a
+hard numeric margin, wins on every headline metric, or dominance over every
+strong baseline. Keep uncertainty, relevant losses, and tradeoffs visible;
+otherwise return one concrete Experiment repair through the normal Reviewer
+response.

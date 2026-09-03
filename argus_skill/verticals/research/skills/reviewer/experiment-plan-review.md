@@ -19,6 +19,11 @@ frozen global plan or a separate review file.
 - Metrics and uncertainty can distinguish the intended effect.
 - Gold labels and scorer-derived fields are unavailable to the method.
 - Available resources can run an informative comparison.
+- Experimental-result quality is not a hard numeric pass/fail gate. Require
+  continuous estimates, uncertainty, and visible tradeoffs; a credible
+  improvement in any scientifically meaningful dimension may support a scoped
+  contribution. Numeric gates are reserved for operator-mandated constraints,
+  safety, integrity, or externally fixed domain standards.
 
 ## RL training-configuration sanity
 
