@@ -43,7 +43,7 @@ export function TaskDetailModal({
   const terminal = item ? isTerminalBacklogItem(item) : false;
   const outcome = outcomeLabels(item?.outcome, t);
   return (
-    <Modal open={Boolean(itemId)} onClose={onClose} label={t('task.details')} width="max-w-3xl">
+    <Modal open={Boolean(itemId)} onClose={onClose} label={t('task.details')} width="max-w-3xl" showClose={false}>
       <div className="flex flex-wrap items-start gap-3 border-b border-line px-4 py-3 sm:flex-nowrap sm:px-5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">

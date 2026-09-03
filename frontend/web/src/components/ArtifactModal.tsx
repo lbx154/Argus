@@ -89,6 +89,7 @@ export function ArtifactModal({
       label={t('artifact.preview')}
       width={pdfPreview ? 'max-w-none' : 'max-w-5xl'}
       viewport={pdfPreview}
+      showClose={false}
       style={pdfPreview ? {
         maxWidth: pdfOrientation === 'portrait' ? 'min(96vw, 76dvh)' : 'min(96vw, 145dvh)',
       } : undefined}
