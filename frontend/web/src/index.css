@@ -102,6 +102,34 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+select:not([multiple]) {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m5 6.5 3 3 3-3' stroke='%236e6e73' stroke-width='1.35' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 0.6rem center;
+  background-repeat: no-repeat;
+  background-size: 1rem;
+  padding-right: 1.9rem !important;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+:root[data-theme='dark'] select:not([multiple]) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m5 6.5 3 3 3-3' stroke='%23a2a2a7' stroke-width='1.35' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+select:not([multiple]):focus-visible {
+  border-color: rgb(var(--blue) / 58%) !important;
+  box-shadow: 0 0 0 3px rgb(var(--blue) / 10%);
+}
+
+select option,
+select optgroup {
+  background: rgb(var(--panel-raised));
+  color: rgb(var(--ink));
+}
+
 .workbench-shell {
   height: 100vh;
   height: 100dvh;
@@ -282,8 +310,67 @@ body {
   background: transparent;
 }
 
+.modal-scrim {
+  background: rgb(0 0 0 / 32%);
+}
+
 .brand-modal {
-  box-shadow: 0 20px 60px rgb(0 0 0 / 16%);
+  border: 1px solid rgb(var(--glass-edge) / 80%);
+  background: rgb(var(--panel-raised));
+  box-shadow:
+    0 24px 80px rgb(0 0 0 / 18%),
+    0 2px 10px rgb(0 0 0 / 7%);
+}
+
+:root[data-theme='dark'] .brand-modal {
+  border-color: rgb(var(--glass-edge) / 72%);
+  box-shadow:
+    0 28px 90px rgb(0 0 0 / 55%),
+    0 2px 10px rgb(0 0 0 / 28%);
+}
+
+.modal-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 2;
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgb(var(--conversation-user) / 78%);
+  color: rgb(var(--ink-faint));
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.modal-close svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.4;
+}
+
+.modal-close:hover {
+  border-color: rgb(var(--line));
+  background: rgb(var(--ink));
+  color: rgb(var(--bg));
+}
+
+.modal-close:active {
+  transform: scale(0.94);
+}
+
+.modal-close:focus-visible {
+  outline: 2px solid rgb(var(--blue) / 65%);
+  outline-offset: 2px;
 }
 
 .handshake-mark {

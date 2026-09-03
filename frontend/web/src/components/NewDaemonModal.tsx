@@ -46,7 +46,7 @@ export function NewDaemonModal({
   const armed = Boolean(objective.trim());
 
   return (
-    <Modal open={open} onClose={close} label={t('new.createDaemon')} width="max-w-xl">
+    <Modal open={open} onClose={close} label={t('new.createDaemon')} width="max-w-xl" showClose={false}>
       <form ref={formRef} onSubmit={(event) => void submit(event)}>
         <div className="flex items-start gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0 flex-1">
