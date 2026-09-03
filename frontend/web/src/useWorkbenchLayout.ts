@@ -118,25 +118,39 @@ export function useWorkbenchLayout() {
     if (!shell) return;
     event.preventDefault();
     const rect = shell.getBoundingClientRect();
+    let pendingWidth = side === 'left' ? leftWidth : rightWidth;
+    shell.dataset.resizing = side;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     const move = (pointer: PointerEvent) => {
-      if (resizeFrameRef.current != null) window.cancelAnimationFrame(resizeFrameRef.current);
+      if (side === 'left') {
+        const occupiedRight = rightPanelOpen ? rightWidth + 8 : 56;
+        const max = Math.max(220, Math.min(400, rect.width - occupiedRight - 360 - 8));
+        pendingWidth = Math.max(220, Math.min(max, pointer.clientX - rect.left));
+      } else {
+        const occupiedLeft = leftPanelOpen ? leftWidth + 8 : 56;
+        const max = Math.max(320, Math.min(600, rect.width - occupiedLeft - 360 - 8));
+        pendingWidth = Math.max(320, Math.min(max, rect.right - pointer.clientX));
+      }
+      if (resizeFrameRef.current != null) return;
       resizeFrameRef.current = window.requestAnimationFrame(() => {
-        if (side === 'left') {
-          const occupiedRight = rightPanelOpen ? rightWidth + 8 : 56;
-          const max = Math.max(220, Math.min(400, rect.width - occupiedRight - 360 - 8));
-          setLeftWidth(Math.max(220, Math.min(max, pointer.clientX - rect.left)));
-        } else {
-          const occupiedLeft = leftPanelOpen ? leftWidth + 8 : 56;
-          const max = Math.max(320, Math.min(600, rect.width - occupiedLeft - 360 - 8));
-          setRightWidth(Math.max(320, Math.min(max, rect.right - pointer.clientX)));
-        }
+        shell.style.setProperty(
+          side === 'left' ? '--sidebar-width' : '--preview-width',
+          `${pendingWidth}px`,
+        );
+        resizeFrameRef.current = null;
       });
     };
     const stop = () => {
       if (resizeFrameRef.current != null) window.cancelAnimationFrame(resizeFrameRef.current);
       resizeFrameRef.current = null;
+      shell.style.setProperty(
+        side === 'left' ? '--sidebar-width' : '--preview-width',
+        `${pendingWidth}px`,
+      );
+      if (side === 'left') setLeftWidth(pendingWidth);
+      else setRightWidth(pendingWidth);
+      delete shell.dataset.resizing;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       window.removeEventListener('pointermove', move);

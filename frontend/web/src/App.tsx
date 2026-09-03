@@ -802,7 +802,14 @@ export default function App() {
   }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, chatPending, stopWaiting, locale, t]);
 
   return (
-    <div ref={shellRef} className="workbench-shell ambient-canvas flex w-screen max-w-full overflow-hidden text-ink">
+    <div
+      ref={shellRef}
+      style={{
+        '--sidebar-width': `${leftWidth}px`,
+        '--preview-width': `${rightWidth}px`,
+      } as React.CSSProperties}
+      className="workbench-shell ambient-canvas flex w-screen max-w-full overflow-hidden text-ink"
+    >
       <ConnectionProblemBanner
         error={connectionError}
         onRetry={() => {
@@ -849,7 +856,6 @@ export default function App() {
           onToggleCollapse={() => setLeftPanelOpen((value) => !value)}
           themeMode={themeMode}
           onCycleTheme={cycleTheme}
-          expandedWidth={leftWidth}
         />
       ) : null}
       {!kiosk && leftPanelOpen ? (
@@ -968,7 +974,7 @@ export default function App() {
             ) : null}
 
             <aside
-              style={{ '--preview-width': `${rightWidth}px` } as React.CSSProperties}
+              data-resizable-panel="right"
               className={`${mobileView === 'preview' ? 'flex' : 'hidden'} relative min-w-0 flex-1 flex-col overflow-hidden border-l border-line/60 bg-panel transition-[width] duration-[250ms] ease-panel lg:flex lg:flex-none ${
               rightPanelOpen ? 'lg:w-[var(--preview-width)]' : 'lg:w-14'
             }`}>

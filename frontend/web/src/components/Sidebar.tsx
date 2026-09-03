@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProjectRow } from '../api';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
@@ -62,7 +62,6 @@ export function Sidebar({
   onToggleCollapse,
   themeMode,
   onCycleTheme,
-  expandedWidth = 256,
 }: {
   projects: ProjectRow[];
   activeId: string | null;
@@ -83,7 +82,6 @@ export function Sidebar({
   onToggleCollapse: () => void;
   themeMode: ThemeMode;
   onCycleTheme: () => void;
-  expandedWidth?: number;
 }) {
   const { locale, setLocale, t } = useI18n();
   const [scope, setScope] = useState<Scope>('local');
@@ -124,7 +122,7 @@ export function Sidebar({
   return (
     <aside
       data-state={slim ? 'collapsed' : 'expanded'}
-      style={{ '--sidebar-width': `${expandedWidth}px` } as CSSProperties}
+      data-resizable-panel="left"
       className={`glass-panel glass-panel--side fixed inset-y-0 left-0 z-50 flex h-full shrink-0 flex-col border-r transition-[width,transform,visibility] duration-panel ease-panel lg:visible lg:static lg:z-auto lg:translate-x-0 ${
         slim ? 'w-14' : 'w-64 lg:w-[var(--sidebar-width)]'
       } ${mobileOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'}`}
