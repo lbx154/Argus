@@ -32,7 +32,7 @@ const STATUS_LABELS: Record<string, readonly [string, string]> = {
 };
 
 const ROLE_LABELS: Record<string, readonly [string, string]> = {
-  manager: ['协调', 'Coordinator'],
+  manager: ['管理', 'Manager'],
   planner: ['规划', 'Planner'],
   engineer: ['执行', 'Engineer'],
   reviewer: ['审核', 'Reviewer'],
