@@ -95,7 +95,6 @@ KNOBS: tuple[Knob, ...] = (
     # --- team Curator (resident pool + leaderboard strategy) ---
     Knob("ARGUS_SKILL_CURATOR_BACKEND", "(=RUNNER_BACKEND)", "per-role backend override for the team Curator", "backend"),
     Knob("ARGUS_SKILL_CURATOR_RUNNER_BIN", "(=RUNNER_BIN)", "per-role CLI binary for the team Curator", "backend"),
-    Knob("ARGUS_SKILL_IDEA_PANEL", "(off)", "opt-in cross-lab ideation: models that propose research ideas in parallel, cross-examine each other, then each name the one to run. Set 'backend' or 'backend:model', comma separated (e.g. 'codex,claude' or 'copilot:gpt-5.5,copilot:gemini-3.1-pro-preview' on a single subscription). Blind scoring over 32 candidates found a panel buys spread, not level: the best candidate of the batch and twice the weak ones. Unset, or with fewer than two usable seats, ideation is unchanged", "models", cockpit=True),
     Knob("ARGUS_SKILL_CURATOR_MODEL", "auto", "model for Curator strategy distillation; auto uses the selected backend's default", "models"),
     Knob("ARGUS_SKILL_CURATOR_REASONING_EFFORT", "high", "Curator distillation reasoning effort", "reasoning"),
     Knob("ARGUS_SKILL_CURATOR_DISTILL_INTERVAL_S", "1260", "minimum seconds between Curator strategy updates", "team"),

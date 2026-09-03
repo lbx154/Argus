@@ -141,15 +141,6 @@ def test_figure_one_prioritizes_exact_topology_over_decorative_richness() -> Non
     assert "topology fidelity takes priority over decorative richness" in normalized
     assert "polished figure 1 does not need depth, icons" in normalized
     assert "connector penetration" in router
-    for path in (
-        "agent-md-new-project-template.md",
-        "agent-md-existing-project-optimization-template.md",
-    ):
-        template = texts[path]
-        assert "modular dashboard" not in template
-        assert "overlapping slabs" not in template
-        assert "overlapping phase tabs" not in template
-        assert "Semantic geometry:" in template
     assert "figurespec" in router
 
 

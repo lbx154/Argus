@@ -425,7 +425,9 @@ def test_main_exports_decided_vertical_skills(
     assert rc == 0
     assert "vertical: research" in out
     assert (target / "engineer/research-visualization-router.md").exists()
-    assert (target / "engineer/auto-research-pipeline.md").exists()
+    for stage in ("idea", "build", "experiment", "paper", "review"):
+        assert (target / f"research-{stage}-playbook.md").exists()
+    assert not (target / "engineer/auto-research-pipeline.md").exists()
 
 
 def test_export_target_does_not_inherit_unrelated_cwd_vertical(

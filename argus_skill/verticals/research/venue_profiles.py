@@ -143,7 +143,6 @@ class VenueProfile:
     venue_skill_files: tuple[str, ...] = (
         "venue-paper-drafting.md",
         "venue-format-preflight.md",
-        "venue-paper-skill-router.md",
         "venue-academic-language-review.md",
     )
 

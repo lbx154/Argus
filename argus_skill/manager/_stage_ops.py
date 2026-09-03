@@ -521,20 +521,23 @@ class _StageDecisionMixin:
         decision = parse_stage_decision(raw, current_stage=cur, stage_order=order)
 
         _completion_vertical = resolve_vertical(root)
-        # Research always closes through its terminal Review stage. Other
-        # verticals retain their existing direct-work early-completion behavior.
+        _research_target_level = resolve_research_target_level(root)
+        # Direct mode is the operator's explicit one-package deliverable. It may
+        # complete without traversing unrelated later stages, including an
+        # Idea-only Research request. Paper production is routed as staged.
         _allow_early_completion = (
-            _completion_vertical != "research"
-            and not open_ended
+            not open_ended
             and resolve_workflow_mode(root) == "direct"
         )
-        _research_target_level = resolve_research_target_level(root)
         _completion_blockers = [
             blocker
             for blocker in (external_completion_gate_issue(self.execution_workdir),)
             if blocker
         ]
-        if _research_target_level in {"publishable", "doctoral"}:
+        if (
+            _research_target_level in {"publishable", "doctoral"}
+            and not _allow_early_completion
+        ):
             from ..verticals._base import (
                 load_vertical,
                 vertical_stage_completion_issues,
@@ -939,8 +942,7 @@ class _StageDecisionMixin:
                 from .stage_decider import StageDecision
 
                 allow_early_completion = (
-                    resolve_vertical(root) != "research"
-                    and not open_ended
+                    not open_ended
                     and resolve_workflow_mode(root) == "direct"
                 )
                 if not (allow_early_completion and not terminal_stage):
@@ -1009,7 +1011,14 @@ class _StageDecisionMixin:
                 build_stage_decision_prompt,
                 stage_decision_request,
             )
-            from ..skills.vertical_select import resolve_vertical
+            from ..skills.vertical_select import (
+                resolve_vertical,
+                resolve_workflow_mode,
+            )
+
+            allow_direct_completion = (
+                not open_ended and resolve_workflow_mode(root) == "direct"
+            )
 
             prompt_context = resolve_role_prompt(
                 stage_decision_request(root, stage=cur)
@@ -1029,6 +1038,7 @@ class _StageDecisionMixin:
                     open_ended=open_ended,
                     continuous_objective=continuous_objective,
                     allow_rollback=resolve_vertical(root) != "research",
+                    allow_early_completion=allow_direct_completion,
                 ),
                 role_banner=prompt_context.role_banner,
                 role_skill_block=self._role_skill_block(

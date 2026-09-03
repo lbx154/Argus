@@ -50,7 +50,7 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="idea.portfolio",
             statement=(
-                "For a new broad publishable or doctoral direction, complete exactly "
+                "For a new broad publishable or doctoral paper mission, complete exactly "
                 "twelve source-only routes, twelve independent route reviews, and one "
                 "selector. Candidate execution is forbidden during selection. Full "
                 "working outputs stay under internal `.argus` team storage."
@@ -60,10 +60,14 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="idea.selection",
             statement=(
-                "The selector makes one resumable choice. Project-root `HANDOFF.md` "
-                "describes the winning idea in enough detail to build it and gives one "
-                "single-line rejection reason for every other route. It replaces prior "
-                "handoff text rather than appending history."
+                "For a staged broad paper mission, the selector makes one resumable "
+                "choice and project-root `HANDOFF.md` describes the winner plus one "
+                "single-line rejection reason for every other route. For a staged "
+                "operator-locked paper direction, `HANDOFF.md` instead validates and "
+                "positions the supplied idea without inventing a selector or rejected "
+                "routes. It replaces prior handoff text rather than appending history. "
+                "A direct Idea-only request returns its independently reviewed result "
+                "without a cross-stage handoff."
             ),
             evidence_hint="HANDOFF.md and the selected idea in internal pipeline state",
         ),

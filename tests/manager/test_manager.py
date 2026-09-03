@@ -651,6 +651,37 @@ def test_replacement_intent_forces_immediate_pipeline_reset(tmp_path):
     assert state["stage_history"][-1]["direction"] == "reset"
 
 
+def test_replacement_intent_can_commit_a_supplied_locked_idea(tmp_path) -> None:
+    persist_vertical(
+        tmp_path,
+        "research",
+        research_target_level="publishable",
+        research_direction_mode="broad",
+        workflow_mode="staged",
+    )
+    manager = Manager(project_root=tmp_path)
+    decision = VerticalDecision(
+        choice="existing",
+        vertical="research",
+        execution_task="write a paper from the supplied method",
+        workflow_mode="staged",
+        research_target_level="publishable",
+        research_direction_mode="locked",
+    )
+
+    manager.commit_vertical_decision(
+        "replace discovery with the operator's supplied paper idea",
+        decision,
+        force_stage_reset=True,
+    )
+
+    state = json.loads(
+        (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text()
+    )
+    assert state["research_direction_mode"] == "locked"
+    assert state["current_stage"] == "idea"
+
+
 def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch):
     manager = Manager(project_root=tmp_path, runner=_existing("research"))
     manager.divide("seed the research pipeline")

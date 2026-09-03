@@ -202,6 +202,67 @@ def test_an_empty_field_is_reported_as_empty_not_omitted() -> None:
     assert "significance_status=(empty)" in research_result_rejection(payload)
 
 
+def test_reviewed_new_candidate_can_complete_direct_idea_request() -> None:
+    candidate = {
+        "result_class": "new_candidate",
+        "correctness_status": "verified",
+        "novelty_status": "verified_new",
+        "significance_status": "publishable",
+        "statement_fidelity_status": "verified",
+        "evidence": ["primary-source novelty review"],
+        "limitations": [],
+    }
+
+    assert research_completion_issue(
+        candidate,
+        research_target_level="publishable",
+        scope="idea_only",
+    ) == ""
+    assert (
+        research_completion_issue(
+            candidate,
+            research_target_level="publishable",
+        )
+        == "result_class_below_publishable:new_candidate"
+    )
+
+
+def test_publishable_idea_requires_verified_novelty() -> None:
+    candidate = {
+        "result_class": "new_candidate",
+        "correctness_status": "verified",
+        "novelty_status": "unverified",
+        "significance_status": "publishable",
+        "statement_fidelity_status": "verified",
+        "evidence": ["candidate proposal"],
+        "limitations": [],
+    }
+
+    assert research_completion_issue(
+        candidate,
+        research_target_level="publishable",
+        scope="idea_only",
+    ) == "novelty_not_verified_new"
+
+
+def test_exploratory_new_candidate_also_requires_verified_novelty() -> None:
+    candidate = {
+        "result_class": "new_candidate",
+        "correctness_status": "verified",
+        "novelty_status": "known",
+        "significance_status": "exploratory",
+        "statement_fidelity_status": "verified",
+        "evidence": ["closest prior work"],
+        "limitations": [],
+    }
+
+    assert research_completion_issue(
+        candidate,
+        research_target_level="exploratory",
+        scope="idea_only",
+    ) == "novelty_not_verified_new"
+
+
 def test_a_legal_result_has_nothing_to_report() -> None:
     assert research_result_rejection(VALID) == ""
     assert normalize_research_result(VALID) is not None

@@ -661,11 +661,7 @@ def complete_final_stage(
     from .vertical_select import resolve_vertical, resolve_workflow_mode
 
     vertical = resolve_vertical(project_root)
-    early_completion = (
-        vertical != "research"
-        and cur != order[-1]
-        and allow_early_completion
-    )
+    early_completion = cur != order[-1] and allow_early_completion
     if early_completion:
         early_completion = resolve_workflow_mode(project_root) == "direct"
     if cur != order[-1] and not early_completion:

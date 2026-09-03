@@ -24,6 +24,16 @@ SKILL_PLACEMENT_BATCH = "skill_placement_batch"
 LIVE_VIEW = "live_view"
 PENDING_QUESTION = "pending_question"
 
+_RESEARCH_DELIVERABLE_ROUTING = (
+    "Intent boundary: when the operator supplies an idea or hypothesis and asks "
+    "for a full paper, choose staged research with direction locked. When the "
+    "operator asks only to propose, compare, or review ideas and does not request "
+    "implementation, experiments, or a paper, choose direct research; use broad "
+    "for idea discovery and locked for one supplied idea. Research target level "
+    "sets the requested quality bar and never expands an idea-only deliverable "
+    "into a paper.\n\n"
+)
+
 _MIN_PLAN_STEPS = 3
 _MAX_PLAN_STEPS = 8
 
@@ -328,6 +338,7 @@ def build_fast_vertical_decision_prompt(
         "publication venue. Independent review "
         "defaults on; set `require_independent_review=false` only for an authorized "
         "deliberate waiver and state the reason in `RATIONALE`.\n\n"
+        + _RESEARCH_DELIVERABLE_ROUTING
         + decision_footer_instruction(
             "CHOICE=existing\n"
             "VERTICAL=software\n"
@@ -417,7 +428,8 @@ def build_vertical_decision_prompt(
         "invalid. Never infer a venue. Set independent review on by default. Set "
         "`require_independent_review=false` only for an authorized deliberate waiver "
         "and state why in `rationale`.\n\n"
-        "State `choice`, `vertical`, `domain`, `workflow_mode`, and `rationale` "
+        + _RESEARCH_DELIVERABLE_ROUTING
+        + "State `choice`, `vertical`, `domain`, `workflow_mode`, and `rationale` "
         "at the end. Omit `execution_task` for a standalone existing route; include it only when "
         "bounded context must be rewritten as a standalone handoff or for a new "
         "vertical. Preserve stated paths, commands, order, and stopping conditions. "
@@ -734,6 +746,7 @@ def build_stage_decision_prompt(
     open_ended: bool = False,
     continuous_objective: str = "",
     allow_rollback: bool = True,
+    allow_early_completion: bool = False,
 ) -> str:
     """Build the Manager's authoritative stage-transition prompt."""
     # Normalize a stray string to one stage instead of iterating over its characters.
@@ -865,6 +878,17 @@ def build_stage_decision_prompt(
         if allow_rollback
         else "Legal ROLLBACK targets: none (forward-only vertical)\n\n"
     )
+    completion_rule = (
+        "- COMPLETE at the current stage when the independently reviewed direct "
+        "objective is fully satisfied. Do not ADVANCE merely because later stages "
+        "exist; they are outside this direct deliverable. Open-ended campaigns never "
+        "complete automatically.\n"
+        if allow_early_completion
+        else (
+            "- COMPLETE only at the final stage of a finite objective. Open-ended "
+            "campaigns never complete automatically.\n"
+        )
+    )
     return (
         "Decide the pipeline stage from the evidence below. Reviewer and Planner "
         f"advise; Manager chooses {actions}.\n\n"
@@ -873,10 +897,8 @@ def build_stage_decision_prompt(
         "- HOLD when work remains or evidence is unclear, including when Reviewer asks "
         "for replanning inside this stage.\n"
         + rollback_rule
-        +
-        "- COMPLETE only at the final stage of a finite objective. Open-ended campaigns "
-        "never complete automatically.\n"
-        "- A weak proxy or one failed attempt is not completion. Do not repeat the "
+        + completion_rule
+        + "- A weak proxy or one failed attempt is not completion. Do not repeat the "
         "Reviewer's checks without a contradiction. When unsure, HOLD.\n\n"
         + decision_footer_instruction(
             "ACTION=hold\n"

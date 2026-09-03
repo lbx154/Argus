@@ -71,7 +71,7 @@ def test_raising_the_target_does_move_the_cutoff(tmp_path: Path) -> None:
     )
 
 
-def test_broad_research_direction_cannot_be_downgraded(tmp_path: Path) -> None:
+def test_research_direction_cannot_change_without_new_intent(tmp_path: Path) -> None:
     persist_vertical(
         tmp_path,
         "research",
@@ -79,13 +79,35 @@ def test_broad_research_direction_cannot_be_downgraded(tmp_path: Path) -> None:
         research_direction_mode="broad",
     )
 
-    with pytest.raises(ValueError, match="cannot be downgraded"):
+    with pytest.raises(ValueError, match="cannot change"):
         persist_vertical(
             tmp_path,
             "research",
             research_target_level="publishable",
             research_direction_mode="locked",
         )
+
+
+def test_new_intent_can_replace_research_direction(tmp_path: Path) -> None:
+    persist_vertical(
+        tmp_path,
+        "research",
+        research_target_level="publishable",
+        research_direction_mode="broad",
+    )
+
+    persist_vertical(
+        tmp_path,
+        "research",
+        research_target_level="publishable",
+        research_direction_mode="locked",
+        allow_research_direction_change=True,
+    )
+
+    state = json.loads(
+        (tmp_path / ".argus" / "PIPELINE_STATE.json").read_text(encoding="utf-8")
+    )
+    assert state["research_direction_mode"] == "locked"
 
 
 def test_a_certified_mission_survives_later_planning_cycles(

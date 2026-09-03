@@ -19,7 +19,7 @@ AGENTS.md Optimize Project Template
 
 ## When NOT to use
 - Do not use this when the deliverable is a research paper / report. Use the
-  EMNLP/ACL auto-research template (`agent-md-new-project-template.md`) instead.
+  Research stage playbooks instead.
 - Do not bolt a paper pipeline (RESEARCH_BRIEF, literature review, LaTeX draft,
   venue/submission) onto an optimize project — that is the exact mis-routing this
   template exists to prevent.

@@ -68,43 +68,22 @@ id 在预训练数据里的分布，取决于它们被写过多少次，而这�
 > 一代，例如最近约 12 个月内发布或更新）。**不要**仅仅因为熟悉或下载快，就默认选用上一代或
 > 遗留的小模型。
 
-时效性必须在**决策当时**对着模型 hub 或近期榜单**去查**，并把选择连同确切的 model id、参数
-量和发布日期写下来。文献这条路更严——
-[`deep-research-via-api.md`](../argus_skill/verticals/research/skills/engineer/deep-research-via-api.md)
-下了一条硬禁令 **"不得使用模型记忆里的文献"**：每一条都必须追溯到真实的一手 URL；而在没有真
-正发起查询时写下 `"queried"` 或 `"retrieved from"`，被直接定性为**捏造**。
+时效性必须在**决策当时**对着模型 hub 或近期榜单**去查**。文献路径由
+[Research Idea Playbook](../argus_skill/verticals/research/skills/research-idea-playbook.md)
+统一定义：使用当前一手来源和独立 prior-art 审阅，书目信息来自实际取回的来源，而不是模型记忆。
 
-**然后给它一条真的能去查的路。** 光有禁令只会把工作卡死，所以运行时会**派生出带 live web
-search 的独立 Agent**，把它们的产出当作知识库来用，而不是用模型的记忆：
+**然后给它一条真的能去查的路。** 运行时会建立**十二条隔离的 source-only 路线和十二个独立
+评审**，全部完成后才启动一次 selector：
 
 | 机制 | 它去查什么 |
 | --- | --- |
-| [`idea_panel.py`](../argus_skill/verticals/research/idea_panel.py) | 若干个由不同实验室训练的模型，各自带 live search，先提出候选，再**互相交叉质询** |
-| [`idea_search.py`](../argus_skill/verticals/research/idea_search.py) | 一次 live-search 调用，找出有文献支撑的空白并作为**额外**候选追加——只做来源，从不做选择 |
+| [`idea_portfolio.py`](../argus_skill/verticals/research/idea_portfolio.py) | 建立固定 source-only 路线/评审组合，24 个任务完成后才允许一次 selector |
 | [`venue_research.py`](../argus_skill/verticals/research/venue_research.py) | 会议的官方投稿事实，是取回来的而不是回忆出来的 |
 | [`frontier_watch.py`](../argus_skill/verticals/kernel_engineering/frontier_watch.py) | 按阶段持久化并校验持续的前沿搜索，覆盖目标仓库、官方工具链和研究前沿 |
 
-这个 panel 同时也是第 1 条"孤立推理"的答案，它的设计说明写得很直白：
-
-> 一个模型问一次，返回的六个候选共享同一个模型的品味和同一个模型的盲区。……一个 GPT 系模型
-> 看不见的反对意见，往往对 Gemini 系或 Claude 系模型是显而易见的；而一个经受住了陌生人交叉
-> 质询的候选，比一个没有任何人跟它争论过的候选，是更好的下注。
-
-座位由机器上装了哪些 CLI 决定；而同一个 backend 上跑同一个模型的两个座位会被折叠成一个——
-*"那是一个模型在跟自己吵架，比不设 panel 更糟，因为它看起来像个 panel。"*
-
-**我们测了什么，包括没成功的那部分。** Panel 是**默认关闭、需要显式开启**的，因为我们测过
-了，它不是白捡的：
-
-> 在四个方向、三十二个盲评候选上，panel 在**均值上并没有赢过**单模型 ideation——它产出了这
-> 批里最好的那个候选，同时也产出了**两倍多的弱候选**，所以它买到的是**分布的宽度，而不是水
-> 平的提升**。
-
-这是一个**操作者应当主动选择**的权衡，而不是一场战役从"机器上碰巧装了哪些 CLI"里继承来的。
-
 **这条的普遍教训。** Agent 从预训练里知道的一切，按其构造方式就是过时的。凡是时效性重要的地
-方，运行时必须**强制它去查**，而不是信任它的回忆；而凡是"单个模型的品味"本身就是风险的地
-方，运行时必须**强制引入一个由别人训练的模型给出的第二意见**。
+方，运行时必须**强制它去查**，而不是信任它的回忆；每条候选路线还必须接受独立 prior-art
+攻击，才能进入最终选择。
 
 ---
 

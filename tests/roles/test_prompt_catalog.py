@@ -328,8 +328,9 @@ def test_research_final_review_uses_only_review_stage_checklist(
     assert "Language:" in context.role_banner
     assert "inspect every rendered page" in context.role_banner
     assert "Do not load HANDOFF.md" in context.role_banner
-    assert "Overwrite `paper/REVIEW.md`" in context.role_banner
-    assert "Do not create another review file" in context.role_banner
+    assert "`research-review-playbook.md`" in context.role_banner
+    assert "Do not edit files or change stage state" in context.role_banner
+    assert "single workflow playbook" in context.role_banner
     assert context.stage_checklist == format_stage_checklist(
         "review",
         role="reviewer",
@@ -369,15 +370,16 @@ def test_reviewer_auto_uses_bounded_review_stage_checklist(
     )
 
 
-def test_research_planner_receives_dynamic_paper_policy(tmp_path) -> None:
+def test_research_planner_receives_the_stage_playbook(tmp_path) -> None:
     persist_vertical(tmp_path, "research")
     _set_stage(tmp_path, "run")
 
     context = resolve_role_prompt(continuous_request(tmp_path))
 
-    assert "## Forward-only research planning" in context.role_banner
-    assert "Never request rollback" in context.role_banner
-    assert "negative-result report" in context.role_banner
+    assert "## Authoritative stage playbook" in context.role_banner
+    assert "`research-experiment-playbook.md`" in context.role_banner
+    assert "## Planner responsibility" in context.role_banner
+    assert "leave stage transitions to Manager" in context.role_banner
     assert "paper/RESULT_PLACEHOLDERS.md" not in context.role_banner
     assert "vertical:research:prompt:planner:continuous" in context.fragment_ids
 

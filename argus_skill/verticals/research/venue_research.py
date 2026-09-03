@@ -7,10 +7,9 @@ sources, cached so the search runs once. Failure leaves venue selection
 unresolved; venue-dependent gates then fail closed instead of silently choosing
 or using an unrelated default.
 
-Mirrors :mod:`argus_skill.verticals.research.idea_search` (same live-search + run-once +
-fail-open discipline). The detailed field playbook lives in the
-``engineer/venue-format-research.md`` skill; the prompt here inlines the
-essentials so the one-off ``run_exec`` call is self-contained.
+The detailed field playbook lives in the ``engineer/venue-format-research.md``
+skill; the prompt here inlines the essentials so the one-off ``run_exec`` call
+is self-contained.
 """
 from __future__ import annotations
 

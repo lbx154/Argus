@@ -102,6 +102,20 @@ def test_serious_survey_is_staged_without_implied_publication() -> None:
     assert "Never infer a venue" in prompt
 
 
+def test_research_routing_distinguishes_idea_only_from_paper_production() -> None:
+    prompt = build_vertical_decision_prompt(
+        "Use Argus to propose one strong idea.",
+        verticals_with_purpose=VERTICAL_PURPOSES,
+        research_target_verticals=("research",),
+    )
+
+    assert "supplies an idea or hypothesis and asks for a full paper" in prompt
+    assert "choose staged research with direction locked" in prompt
+    assert "asks only to propose, compare, or review ideas" in prompt
+    assert "choose direct research" in prompt
+    assert "never expands an idea-only deliverable into a paper" in prompt
+
+
 def test_vertical_prompt_composes_chemistry_with_research() -> None:
     prompt = build_vertical_decision_prompt(
         "Run autonomous chemistry research and produce a paper",
@@ -431,7 +445,7 @@ def test_vertical_parser_preserves_operator_locked_research_hypothesis() -> None
     assert decision.research_direction_mode == "locked"
 
 
-def test_vertical_parser_does_not_trust_fresh_model_locked_claim() -> None:
+def test_vertical_parser_preserves_fresh_locked_paper_direction() -> None:
     decision = parse_vertical_decision(
         json.dumps({
             "choice": "existing",
@@ -446,7 +460,7 @@ def test_vertical_parser_does_not_trust_fresh_model_locked_claim() -> None:
     )
 
     assert decision is not None
-    assert decision.research_direction_mode == "broad"
+    assert decision.research_direction_mode == "locked"
 
 
 def test_vertical_parser_rejects_downgrading_persisted_broad_research() -> None:
@@ -465,6 +479,50 @@ def test_vertical_parser_rejects_downgrading_persisted_broad_research() -> None:
         persisted_workflow_mode="staged",
         persisted_research_target_level="publishable",
         persisted_research_direction_mode="broad",
+    )
+
+    assert decision is None
+
+
+def test_new_operator_intent_can_lock_a_prior_broad_direction() -> None:
+    decision = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "name": "research",
+            "workflow_mode": "staged",
+            "research_target_level": "publishable",
+            "research_direction_mode": "locked",
+            "execution_task": "write a paper from the operator's supplied idea",
+        }),
+        known_verticals=VERTICALS,
+        research_target_verticals=("research",),
+        persisted_vertical="research",
+        persisted_workflow_mode="staged",
+        persisted_research_target_level="publishable",
+        persisted_research_direction_mode="broad",
+        allow_persisted_change=True,
+    )
+
+    assert decision is not None
+    assert decision.research_direction_mode == "locked"
+
+
+def test_supplemental_task_cannot_broaden_a_locked_direction() -> None:
+    decision = parse_vertical_decision(
+        json.dumps({
+            "choice": "existing",
+            "name": "research",
+            "workflow_mode": "staged",
+            "research_target_level": "publishable",
+            "research_direction_mode": "broad",
+            "execution_task": "continue the supplied paper idea",
+        }),
+        known_verticals=VERTICALS,
+        research_target_verticals=("research",),
+        persisted_vertical="research",
+        persisted_workflow_mode="staged",
+        persisted_research_target_level="publishable",
+        persisted_research_direction_mode="locked",
     )
 
     assert decision is None

@@ -24,6 +24,7 @@ def test_build_runner_ns_has_required_fields(tmp_path: Path, monkeypatch) -> Non
     ns = te._build_runner_ns(str(tmp_path), max_rounds=7, paper_mission=False)
     assert ns.engineer_model == "m-eng" and ns.reviewer_model == "m-rev"
     assert ns.workdir == str(tmp_path) and ns.max_rounds == 7 and ns.paper_mission is False
+    assert ns.project_state_dir == ""
     # every field _SkillLoopRunner / execute reads must exist
     for f in ("backend", "engineer_reasoning_effort", "skills_dir",
               "plan_mode", "plan_model", "color", "verbose", "quiet"):
@@ -106,6 +107,80 @@ def test_main_passes_task_timeout_to_mission(tmp_path: Path, monkeypatch) -> Non
 
     assert rc == 0
     assert captured["timeout_s"] == 600.0
+
+
+def test_research_teammate_inherits_paper_mission_context(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    root = tmp_path / ".argus_team" / "t1"
+    _form_claim(root)
+    persist_vertical(tmp_path, "research")
+    captured: dict[str, object] = {}
+
+    def run(*_args, **kwargs):
+        captured.update(kwargs)
+        return True
+
+    monkeypatch.setattr(te, "run_one_engineer_mission", run)
+
+    assert te.main([
+        "--root",
+        str(root),
+        "--member-id",
+        "t1::w1",
+        "--task-id",
+        "t1::a",
+        "--cwd",
+        str(tmp_path),
+    ]) == 0
+    assert captured["paper_mission"] is True
+
+
+def test_teammate_runtime_uses_isolated_layered_skill_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import argus_skill.apps._runtime as rt
+
+    for role in ("ENGINEER", "REVIEWER"):
+        monkeypatch.setenv(f"ARGUS_SKILL_{role}_MODEL", "m")
+    monkeypatch.setenv("ARGUS_SKILL_SKILLS_DIR", str(tmp_path / "skills"))
+    captured: dict[str, object] = {}
+
+    class Outcome:
+        success = True
+
+    class Runner:
+        def __init__(self, ns):
+            captured["paper_mission"] = ns.paper_mission
+            captured["project_state_dir"] = ns.project_state_dir
+            captured["project_skills_dir"] = os.environ.get(
+                "ARGUS_SKILL_PROJECT_SKILLS_DIR"
+            )
+
+        def execute(self, **_kwargs):
+            return Outcome()
+
+    monkeypatch.setattr(rt, "_SkillLoopRunner", Runner)
+    life_dir = tmp_path / "life"
+
+    result = te.run_one_engineer_mission(
+        "obj",
+        cwd=str(tmp_path),
+        life_dir=life_dir,
+        paper_mission=True,
+        max_rounds=1,
+    )
+
+    assert result.success is True
+    assert captured == {
+        "paper_mission": True,
+        "project_state_dir": str(tmp_path),
+        "project_skills_dir": str(life_dir / "skills"),
+    }
 
 
 def test_main_inprocess_failure_marks_failed(tmp_path: Path, monkeypatch) -> None:

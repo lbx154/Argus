@@ -44,6 +44,21 @@ def test_prompt_uses_minimal_reviewer_verdict() -> None:
         assert removed not in prompt
 
 
+def test_direct_stage_prompt_completes_instead_of_advancing() -> None:
+    prompt = build_stage_decision_prompt(
+        current_stage="idea",
+        next_stage="build",
+        earlier_stages=(),
+        checklist_md="Return one independently reviewed idea.",
+        review=_review(),
+        allow_early_completion=True,
+    )
+
+    assert "COMPLETE at the current stage" in prompt
+    assert "Do not ADVANCE merely because later stages exist" in prompt
+    assert "COMPLETE only at the final stage" not in prompt
+
+
 def test_completion_report_prompt_contains_all_stage_information() -> None:
     from argus_skill.roles.prompts.manager import (
         build_project_completion_report_prompt,
@@ -169,19 +184,25 @@ def test_research_advances_from_idea_to_build(tmp_path) -> None:
     assert state["stages"]["idea"]["status"] == "done"
 
 
-def test_finite_research_cannot_complete_before_terminal_review(tmp_path) -> None:
+def test_direct_idea_only_research_can_complete_at_idea(tmp_path) -> None:
     from argus_skill.manager import Manager
     from argus_skill.skills.vertical_select import persist_vertical
 
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir()
-    persist_vertical(state_root, "research", workflow_mode="direct")
+    persist_vertical(
+        state_root,
+        "research",
+        workflow_mode="direct",
+        research_target_level="exploratory",
+        research_direction_mode="broad",
+    )
     review = _review()
     review.research_result = {
-        "result_class": "literature_review",
+        "result_class": "new_candidate",
         "correctness_status": "verified",
-        "novelty_status": "known",
+        "novelty_status": "verified_new",
         "significance_status": "exploratory",
         "statement_fidelity_status": "verified",
         "evidence": ["independent review"],
@@ -199,7 +220,7 @@ def test_finite_research_cannot_complete_before_terminal_review(tmp_path) -> Non
         open_ended=False,
         run_exec=lambda _prompt: SimpleNamespace(
             last_agent_message=(
-                '{"action":"complete","target_stage":"research",'
+                '{"action":"complete","target_stage":"idea",'
                 '"reason":"the finite reviewed objective is complete"}'
             )
         ),
@@ -208,9 +229,57 @@ def test_finite_research_cannot_complete_before_terminal_review(tmp_path) -> Non
     state = json.loads(
         (state_root / ".argus" / "PIPELINE_STATE.json").read_text()
     )
-    assert decision.action == "hold"
+    assert decision.action == "complete"
     assert state["current_stage"] == "idea"
-    assert state.get("stages", {}).get("idea", {}).get("status") != "done"
+    assert state["stages"]["idea"]["status"] == "done"
+
+
+def test_publishable_idea_only_can_complete_without_paper_artifacts(
+    tmp_path,
+) -> None:
+    from argus_skill.manager import Manager
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    state_root = tmp_path / "state"
+    workdir = tmp_path / "worktree"
+    workdir.mkdir()
+    persist_vertical(
+        state_root,
+        "research",
+        workflow_mode="direct",
+        research_target_level="publishable",
+        research_direction_mode="broad",
+    )
+    review = _review()
+    review.research_result = {
+        "result_class": "new_candidate",
+        "correctness_status": "verified",
+        "novelty_status": "verified_new",
+        "significance_status": "publishable",
+        "statement_fidelity_status": "verified",
+        "evidence": ["primary-source novelty review"],
+        "limitations": [],
+    }
+
+    decision = Manager(
+        project_root=state_root,
+        execution_workdir=workdir,
+        runner=object(),
+    ).decide_stage_transition(
+        review=review,
+        project_root=state_root,
+        mission_scope="bounded",
+        open_ended=False,
+        run_exec=lambda _prompt: SimpleNamespace(
+            last_agent_message=(
+                '{"action":"complete","target_stage":"idea",'
+                '"reason":"the requested publication-quality idea is complete"}'
+            )
+        ),
+    )
+
+    assert decision.action == "complete"
+    assert not (workdir / "paper").exists()
 
 
 def test_bounded_stage_mission_cannot_complete_staged_research_project(

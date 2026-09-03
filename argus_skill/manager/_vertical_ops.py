@@ -1121,6 +1121,7 @@ class _VerticalDecisionMixin:
                 research_direction_mode=decision.research_direction_mode or None,
                 workflow_mode=decision.workflow_mode,
                 target_venue=decision.target_venue or None,
+                allow_research_direction_change=force_stage_reset,
             )
             vertical_select.reset_stage_for_new_intent(
                 self.project_root,

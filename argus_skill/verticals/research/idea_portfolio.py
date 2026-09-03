@@ -43,9 +43,15 @@ _NO_NESTED_TEAM = (
 
 
 def portfolio_required(project_root: Path) -> bool:
+    from ...skills.vertical_select import resolve_workflow_mode
+
     target = resolve_research_target_level(project_root)
     direction = resolve_research_direction_mode(project_root)
-    return target in {"publishable", "doctoral"} and direction != "locked"
+    return (
+        resolve_workflow_mode(project_root) != "direct"
+        and target in {"publishable", "doctoral"}
+        and direction != "locked"
+    )
 
 
 def _team_id(generation: int) -> str:

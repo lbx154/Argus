@@ -65,7 +65,7 @@ def test_stage_closing_reviewer_done_advances_without_manager_model(tmp_path) ->
     assert _state(state_root)["current_stage"] == "optimize"
 
 
-def test_direct_research_advances_instead_of_completing_early(tmp_path) -> None:
+def test_direct_idea_only_research_completes_without_advancing(tmp_path) -> None:
     state_root = tmp_path / "state"
     workdir = tmp_path / "worktree"
     workdir.mkdir()
@@ -76,27 +76,35 @@ def test_direct_research_advances_instead_of_completing_early(tmp_path) -> None:
         research_target_level="exploratory",
         research_direction_mode="locked",
     )
-    (workdir / "HANDOFF.md").write_text(
-        "# HANDOFF — IDEA\n\nSelected idea.",
-        encoding="utf-8",
-    )
     manager = Manager(
         project_root=state_root,
         execution_workdir=workdir,
         runner=object(),
     )
+    review = _review()
+    review.research_result = {
+        "result_class": "new_candidate",
+        "correctness_status": "verified",
+        "novelty_status": "verified_new",
+        "significance_status": "exploratory",
+        "statement_fidelity_status": "verified",
+        "evidence": ["independent source review"],
+        "limitations": [],
+    }
 
     decision = manager.decide_stage_transition(
-        review=_review(),
+        review=review,
         project_root=state_root,
         mission_scope="bounded",
         stage_closing=True,
-        run_exec=lambda _prompt: pytest.fail("deterministic advance called model"),
+        run_exec=lambda _prompt: pytest.fail("deterministic completion called model"),
     )
 
-    assert decision.action == "advance"
-    assert decision.target_stage == "build"
-    assert _state(state_root)["current_stage"] == "build"
+    assert decision.action == "complete"
+    assert decision.target_stage == "idea"
+    assert _state(state_root)["current_stage"] == "idea"
+    assert _state(state_root)["stages"]["idea"]["status"] == "done"
+    assert not (workdir / "HANDOFF.md").exists()
 
 
 def test_stage_closing_bounded_direct_done_with_advice_completes_current_stage(

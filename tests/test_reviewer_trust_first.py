@@ -65,8 +65,6 @@ def test_paper_review_requires_idea_and_built_artifact_quality():
     assert "venue compliance" in block
     assert "rendered layout" in block
     assert "inside the verdict's `reason=` value" in block
-    assert "same pre-repair paper" in block
-    assert "reassess the repaired current version" in block
     assert "never reopen selection or move backward" in block
 
 

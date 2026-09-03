@@ -91,50 +91,25 @@ runtime a way to actually look things up.
 
 Recency must be *verified at decision time* against the model hub or a recent
 leaderboard, and the choice written down with the exact model id, parameter
-count, and release date. The literature path is stricter still —
-[`deep-research-via-api.md`](../argus_skill/verticals/research/skills/engineer/deep-research-via-api.md)
-carries a flat prohibition, **"No model-knowledge literature"**: every entry must
-trace to a real primary URL, and writing `"queried"` or `"retrieved from"` when
-no query ran is classified as fabrication.
+count, and release date. The literature path is stricter still: the
+[Research Idea Playbook](../argus_skill/verticals/research/skills/research-idea-playbook.md)
+requires current primary sources and independent prior-art review. Bibliographic
+facts come from fetched sources rather than model memory.
 
 **Then give it a way to look things up.** A prohibition alone would just block
-work, so the runtime spawns **separate agents that carry live web search** and
-treats their output as the knowledge base instead of the model's memory:
+work, so the runtime assigns **twelve isolated source-only routes and twelve
+independent reviews** before one selector:
 
 | Mechanism | What it looks up |
 | --- | --- |
-| [`idea_panel.py`](../argus_skill/verticals/research/idea_panel.py) | Several independently-trained models, each with live search, propose and then cross-examine each other |
-| [`idea_search.py`](../argus_skill/verticals/research/idea_search.py) | A live-search call that surfaces literature-grounded gaps and appends them as *additional* candidates — a source, never a selector |
+| [`idea_portfolio.py`](../argus_skill/verticals/research/idea_portfolio.py) | Forms the fixed source-only route/review portfolio and admits one selector only after all 24 tasks finish |
 | [`venue_research.py`](../argus_skill/verticals/research/venue_research.py) | A venue's official submission facts, fetched rather than recalled |
 | [`frontier_watch.py`](../argus_skill/verticals/kernel_engineering/frontier_watch.py) | Persists and validates continuous frontier search per stage, across the target repository, official toolchains, and the research frontier |
 
-The panel is also the answer to §1's isolated reasoning, and its rationale says
-why plainly:
-
-> One model asked once returns six candidates that share one model's taste and
-> one model's blind spots. […] an objection a GPT-family model cannot see is
-> often obvious to a Gemini- or Claude-family one, and a candidate that survives
-> cross-examination by a stranger is a better bet than one nobody argued with.
-
-Seats are filled by whichever CLIs are installed, and two seats on one backend
-serving one model are collapsed to one — *"one model arguing with itself, which
-is worse than not seating a panel, because it looks like one."*
-
-**What we measured, including the part that did not work.** The panel is opt-in,
-because we measured it and it is not a free win:
-
-> Across four directions and thirty-two blind-scored candidates a panel did not
-> beat single-model ideation on the mean — it produced the best candidate in the
-> batch and more than twice as many weak ones, so it buys **spread rather than
-> level**.
-
-That is a trade an operator chooses deliberately, not one a campaign inherits
-from which CLIs happen to be installed.
-
 **The general lesson.** Anything the agent knows from pretraining is, by
 construction, out of date. Where recency matters, the runtime must force a lookup
-instead of trusting recall — and where a single model's taste is the risk, it
-must force a second opinion from a model trained by someone else.
+instead of trusting recall, and independent route reviews must attack the
+proposal before selection.
 
 ---
 

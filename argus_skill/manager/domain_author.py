@@ -339,6 +339,7 @@ def _resolve_research_direction(
     target_level: str,
     same_persisted_identity: bool,
     persisted_research_direction_mode: str,
+    allow_persisted_change: bool,
 ) -> str | None:
     from ..core.research_contract import normalize_research_direction_mode
 
@@ -352,14 +353,14 @@ def _resolve_research_direction(
     )
     if (
         same_persisted_identity
-        and prior_direction == "broad"
-        and direction == "locked"
+        and prior_direction
+        and direction
+        and direction != prior_direction
+        and not allow_persisted_change
     ):
         return None
     if direction is None and same_persisted_identity:
         direction = prior_direction
-    if direction == "locked" and not prior_direction:
-        direction = "broad"
     if direction is None:
         direction = "broad" if target_level in {"publishable", "doctoral"} else "locked"
     return direction
@@ -628,6 +629,7 @@ def parse_fast_vertical_decision(
         target_level=target_level,
         same_persisted_identity=same_persisted_identity,
         persisted_research_direction_mode=persisted_research_direction_mode,
+        allow_persisted_change=allow_persisted_change,
     )
     if direction_mode is None:
         return None
@@ -855,6 +857,7 @@ def vertical_decision_contract_violation(
         target_level=target_level,
         same_persisted_identity=same_persisted_identity,
         persisted_research_direction_mode=persisted_research_direction_mode,
+        allow_persisted_change=allow_persisted_change,
     )
     if direction is None:
         return ContractViolation(
@@ -956,6 +959,7 @@ def parse_vertical_decision(
             target_level=target_level,
             same_persisted_identity=same_persisted_identity,
             persisted_research_direction_mode=persisted_research_direction_mode,
+            allow_persisted_change=allow_persisted_change,
         )
         if direction_mode is None:
             return None

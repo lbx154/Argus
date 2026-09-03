@@ -105,8 +105,14 @@ def _env_bool(name: str, default: bool) -> bool:
     return default
 
 
-def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
-                     stop_event=None) -> argparse.Namespace:
+def _build_runner_ns(
+    cwd: str,
+    *,
+    max_rounds: int,
+    paper_mission: bool,
+    project_state_dir: Path | None = None,
+    stop_event=None,
+) -> argparse.Namespace:
     """Replicate the daemon's runner namespace (life_worker._runner_namespace)."""
     from argus_skill.core import paths as core_paths
     from argus_skill.core.knobs import resolve_role_model
@@ -119,6 +125,7 @@ def _build_runner_ns(cwd: str, *, max_rounds: int, paper_mission: bool,
     ns.reviewer_reasoning_effort = os.environ.get("ARGUS_SKILL_REVIEWER_REASONING_EFFORT", "high")
     ns.skills_dir = os.environ.get("ARGUS_SKILL_SKILLS_DIR", str(core_paths.shared_skills_root()))
     ns.workdir = str(cwd)
+    ns.project_state_dir = str(project_state_dir or "")
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", str(max_rounds)))
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
@@ -170,7 +177,13 @@ def run_one_engineer_mission(
     # Disable checkpoint persistence: the audit is then omitted, and a single-shot
     # teammate (no cross-mission continuity) won't collide with sibling teammates
     # on a shared CHECKPOINT.md.
-    with _temporary_env("ARGUS_SKILL_CHECKPOINT_PERSIST", "0"):
+    with (
+        _temporary_env("ARGUS_SKILL_CHECKPOINT_PERSIST", "0"),
+        _temporary_env(
+            "ARGUS_SKILL_PROJECT_SKILLS_DIR",
+            str(Path(life_dir) / "skills"),
+        ),
+    ):
         watchdog: threading.Timer | None = None
         try:
             from argus_skill.apps._runtime import LifeStderrSink, _SkillLoopRunner
@@ -189,6 +202,7 @@ def run_one_engineer_mission(
                 cwd,
                 max_rounds=max_rounds,
                 paper_mission=paper_mission,
+                project_state_dir=Path(cwd),
                 stop_event=stop_event,
             )
             runner = _SkillLoopRunner(ns)
@@ -404,12 +418,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         if part
     )
+    from ..apps._runtime_supervisor import _paper_mission_for_project_root
+
     with _temporary_env("ARGUS_SKILL_TEAM_TASK_ID", task_id):
         mission = _coerce_mission_result(
             run_one_engineer_mission(
                 objective,
                 cwd=cwd,
                 life_dir=life_dir,
+                paper_mission=_paper_mission_for_project_root(cwd),
                 timeout_s=float(task.get("timeout_s", 0) or 0) or None,
                 prelude_context=launch_prelude,
             )

@@ -3,18 +3,20 @@ from __future__ import annotations
 
 from ...core.vertical_contract import VerticalLibraryContext
 
-_STAGE_SKILLS: dict[str, tuple[str, ...]] = {
-    "build": ("engineer/auto-research-pipeline.md",),
-    "experiment": ("engineer/research-experiment-runner.md",),
-    "paper": ("engineer/venue-paper-skill-router.md",),
+STAGE_PLAYBOOK_PATHS: dict[str, str] = {
+    stage: f"research-{stage}-playbook.md"
+    for stage in ("idea", "build", "experiment", "paper", "review")
 }
 
 
 def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
     """Prepare only the active stage's research Skills and internal idea team."""
+    playbook = STAGE_PLAYBOOK_PATHS.get(context.stage)
+    if playbook:
+        context.required_skill_paths.append(playbook)
+
     if not context.paper_mission:
         return
-
     from ...skills.stage_machine import migrate_legacy_research_stage
 
     migrate_legacy_research_stage(context.state_root)
@@ -31,18 +33,10 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         context.workdir,
         state_root=context.state_root,
     )
-    context.required_skill_paths.extend(_STAGE_SKILLS.get(context.stage, ()))
-    if context.stage == "review" and not context.team_task_id:
-        context.required_skill_paths.append("engineer/final-paper-review.md")
-
     if context.stage != "idea":
         return
 
-    context.required_skill_paths.extend((
-        "engineer/idea-discovery.md",
-        "engineer/idea-creator.md",
-    ))
-    if not portfolio_required(context.state_root):
+    if context.workflow_mode == "direct" or not portfolio_required(context.state_root):
         return
     if context.team_task_id:
         context.emit({
@@ -52,7 +46,6 @@ def prepare_skill_libraries(context: VerticalLibraryContext) -> None:
         })
         return
 
-    context.required_skill_paths.append("agent-team-lead.md")
     team_root = ensure_idea_portfolio(
         context.workdir,
         direction=context.direction,

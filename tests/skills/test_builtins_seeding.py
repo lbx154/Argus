@@ -61,6 +61,11 @@ RESEARCH_BASE_SKILLS = {
     "engineer/paper-framework-figure-studio.md",
     "engineer/research-visualization-router.md",
     "engineer/research_visual_scripts/browser_render.py",
+    "research-idea-playbook.md",
+    "research-build-playbook.md",
+    "research-experiment-playbook.md",
+    "research-paper-playbook.md",
+    "research-review-playbook.md",
 }
 _RESEARCH_MOVE_MARKER = json.loads(
     (
@@ -288,9 +293,9 @@ def test_research_playbooks_are_owned_only_by_research_vertical() -> None:
     common = dict(iter_builtin_skill_texts())
     research = dict(iter_vertical_skill_texts("research"))
 
-    assert "engineer/idea-discovery.md" not in common
+    assert "research-idea-playbook.md" not in common
     assert "reviewer/experiment-results-review.md" not in common
-    assert "engineer/idea-discovery.md" in research
+    assert "research-idea-playbook.md" in research
     assert "reviewer/experiment-results-review.md" in research
 
 
@@ -332,7 +337,7 @@ def test_reference_corpora_are_assets_not_matchable_skills(tmp_path) -> None:
 
     assert not any("/references/" in f"/{name}" for name in names)
     seed_vertical_skills(tmp_path, "research", overwrite=True)
-    # The owning idea-discovery Skill opens these paths directly. Excluding
+    # The Idea playbook may open these paths on demand. Excluding
     # them from matching must not exclude them from the runtime cache.
     assert (
         tmp_path

@@ -339,6 +339,7 @@ def _review_certifies_completion(
     mission_scope: str = "",
     research_target_level: str | None = None,
     checklist_contract: Any | None = None,
+    research_result_scope: str = "",
 ) -> str:
     """Empty when this verdict may close the project; a reason otherwise.
 
@@ -370,6 +371,7 @@ def _review_certifies_completion(
         issue = research_completion_issue(
             getattr(review, "research_result", None),
             research_target_level=research_target_level,
+            scope=research_result_scope,
         )
         if issue:
             return issue
@@ -421,6 +423,11 @@ def final_stage_completion_decision(
         mission_scope=mission_scope,
         research_target_level=research_target_level,
         checklist_contract=checklist_contract,
+        research_result_scope=(
+            "idea_only"
+            if allow_early_completion and cur == "idea" and vertical == "research"
+            else ""
+        ),
     )
     if missing:
         return None
@@ -504,6 +511,11 @@ def final_stage_completion_blockers(
             mission_scope=mission_scope,
             research_target_level=research_target_level,
             checklist_contract=checklist_contract,
+            research_result_scope=(
+                "idea_only"
+                if allow_early_completion and cur == "idea" and vertical == "research"
+                else ""
+            ),
         )
         or ""
     ).strip()

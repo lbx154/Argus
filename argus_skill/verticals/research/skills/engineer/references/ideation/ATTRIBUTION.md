@@ -7,9 +7,9 @@ sub-patterns** (`ideation-sub-patterns/C00.md … C30.md`), plus `anti-patterns.
 into one paper).
 
 These are read progressively by the ideation skills:
-- **`idea-discovery.md` — pattern selection**: read `ideation-patterns/overview.md`
+- **Research Idea Playbook — pattern selection**: read `ideation-patterns/overview.md`
   to pick the 1–3 patterns whose operational signature closes the diagnosed gap.
-- **`idea-discovery.md` — instantiation**: read the ONE selected
+- **Research Idea Playbook — instantiation**: read the ONE selected
   `ideation-sub-patterns/C##.md` tactical card (its Step-by-Step + failure mode)
   to write the candidate.
 - **`novelty-check.md` / reviewer `kill-argument.md` — audit**: read the

@@ -318,6 +318,12 @@ def research_completion_issue(
         # result and evidence checks above, but leave terminal novelty and
         # significance to final-submission missions.
         return ""
+    if str(scope or "").strip().lower() == "idea_only" and result_class == "new_candidate":
+        if novelty != "verified_new":
+            return "novelty_not_verified_new"
+        if significance not in ACCEPTED_SIGNIFICANCE[target]:
+            return f"significance_below_{target}:{significance}"
+        return ""
     if result_class == "literature_review":
         if novelty not in {"known", "not_applicable"}:
             return "survey_novelty_must_be_not_applicable"

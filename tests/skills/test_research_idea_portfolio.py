@@ -264,8 +264,14 @@ def test_split_state_root_keeps_team_artifacts_in_the_workdir(
     assert not (state / ".argus" / "teams").exists()
 
 
-def test_direct_research_still_prepares_the_idea_portfolio(tmp_path: Path) -> None:
+def test_direct_idea_only_research_does_not_prepare_a_paper_portfolio(
+    tmp_path: Path,
+) -> None:
     _state(tmp_path)
+    state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["workflow_mode"] = "direct"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
     required: list[str] = []
 
     prepare_skill_libraries(
@@ -285,6 +291,65 @@ def test_direct_research_still_prepares_the_idea_portfolio(tmp_path: Path) -> No
         )
     )
 
-    assert "engineer/idea-discovery.md" in required
+    assert required == ["research-idea-playbook.md"]
     root = tmp_path / ".argus" / "teams" / f"{TEAM_ID}-g1"
-    assert len(task_board.snapshot(root)) == 24
+    assert not root.exists()
+    assert idea_portfolio_completion_issues(tmp_path) == ()
+
+
+def test_locked_paper_idea_uses_playbook_without_reselection(
+    tmp_path: Path,
+) -> None:
+    _state(tmp_path)
+    state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["workflow_mode"] = "staged"
+    state["research_direction_mode"] = "locked"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    required: list[str] = []
+
+    prepare_skill_libraries(
+        VerticalLibraryContext(
+            workdir=tmp_path,
+            state_root=tmp_path,
+            stage="idea",
+            objective="write a paper from the supplied method",
+            direction="supplied method",
+            workflow_mode="staged",
+            paper_mission=True,
+            team_task_id=None,
+            runner=None,
+            model=None,
+            emit=lambda _event: None,
+            required_skill_paths=required,
+        )
+    )
+
+    assert required == ["research-idea-playbook.md"]
+    assert not (tmp_path / ".argus" / "teams" / f"{TEAM_ID}-g1").exists()
+    assert idea_portfolio_completion_issues(tmp_path) == ()
+
+
+def test_direct_nonpaper_research_still_requires_idea_playbook(
+    tmp_path: Path,
+) -> None:
+    required: list[str] = []
+
+    prepare_skill_libraries(
+        VerticalLibraryContext(
+            workdir=tmp_path,
+            state_root=tmp_path,
+            stage="idea",
+            objective="propose one idea",
+            direction="broad",
+            workflow_mode="direct",
+            paper_mission=False,
+            team_task_id=None,
+            runner=None,
+            model=None,
+            emit=lambda _event: None,
+            required_skill_paths=required,
+        )
+    )
+
+    assert required == ["research-idea-playbook.md"]

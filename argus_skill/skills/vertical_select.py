@@ -491,6 +491,7 @@ def persist_vertical(
     research_direction_mode: str | None = None,
     workflow_mode: str | None = None,
     target_venue: str | None = None,
+    allow_research_direction_change: bool = False,
 ) -> None:
     """Persist the chosen ``vertical`` into ``.argus/PIPELINE_STATE.json``.
 
@@ -603,9 +604,14 @@ def persist_vertical(
         previous_direction = normalize_research_direction_mode(
             payload.get("research_direction_mode")
         )
-        if previous_direction == "broad" and normalized_direction == "locked":
+        if (
+            previous_direction
+            and normalized_direction != previous_direction
+            and not allow_research_direction_change
+        ):
             raise ValueError(
-                "broad research direction cannot be downgraded to locked"
+                "research direction mode cannot change without a new "
+                "operator-authorized intent"
             )
         payload["research_direction_mode"] = normalized_direction
     elif vert != "research":
