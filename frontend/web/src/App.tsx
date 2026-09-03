@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff, useConfig } from './hooks';
+import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
 import { api, isConnectionError, type EventMsg, type MessageRouteOverride } from './api';
 import { TopBar } from './components/TopBar';
 import { EventStream, latestConversationDelivery } from './components/EventStream';
@@ -62,7 +62,6 @@ import { useI18n } from './i18n';
 import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
 import { DeliveryNotice } from './components/DeliveryNotice';
 import type { ArtifactInfo, DeliveryReceipt, MissionView } from '../../core/src/types';
-import { configuredBackend, configuredModel } from './lib/backend';
 import {
   completionNotificationPayload,
   installDesktopExternalLinkBridge,
@@ -289,7 +288,6 @@ export default function App() {
 
 
   const snapQ = useSnapshot(activeSid);
-  const activeConfigQ = useConfig(activeSid, Boolean(activeSid));
   const snap = snapQ.data;
   const loadedSid = snap?.session.id === activeSid ? activeSid : null;
   const continuous = snap?.continuous;
@@ -840,10 +838,6 @@ export default function App() {
           onManage={requestManageSession}
           onResume={(sid) => void resumeSession(sid)}
           resumingId={resumingSid}
-          activeBackend={configuredBackend(activeConfigQ.data)}
-          activeModel={configuredModel(activeConfigQ.data)}
-          activeConfigLoading={activeConfigQ.isLoading}
-          activeConfigError={activeConfigQ.isError}
           onOpenPanel={(panel) => setOverlay(panel)}
           onNew={() => setNewDaemonOpen(true)}
           loading={projectsQ.isLoading}

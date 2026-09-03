@@ -6,40 +6,25 @@ import { ago, uptime } from '../lib/format';
 import { filterProjects, hasHumanProjectLabel } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { DaemonSpendBadge } from './DaemonSpendBadge';
 import {
   faAnglesLeft,
   faAnglesRight,
+  faChevronDown,
   faEllipsis,
+  faFolder,
   faGear,
   faLanguage,
   faMoon,
+  faPlay,
   faSun,
 } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
-import { backendLabel } from '../lib/backend';
 
 type Scope = 'local' | 'all';
 
-type SidebarProjectRow = ProjectRow & {
-  created?: number;
-  created_at?: number;
-  health?: string;
-  status?: string;
-};
-
-function projectNeedsAttention(project: ProjectRow): boolean {
-  const { health, status } = project as SidebarProjectRow;
-  return status === 'failed' || status === 'error' || health === 'red' || health === 'critical';
-}
-
-function projectCost(project: ProjectRow): number {
-  return project.spend_usd ?? project.known_cost_usd ?? 0;
-}
-
-function projectCreatedAt(project: ProjectRow): number {
-  const { created, created_at: createdAt } = project as SidebarProjectRow;
-  return createdAt ?? created ?? 0;
+function projectGroupLabel(path: string): string {
+  const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/);
+  return parts.at(-1) || path;
 }
 
 export function recommendedSidebarScope(
@@ -66,10 +51,6 @@ export function Sidebar({
   onManage,
   onResume,
   resumingId,
-  activeBackend,
-  activeModel,
-  activeConfigLoading,
-  activeConfigError,
   onOpenPanel,
   onNew,
   loading,
@@ -91,10 +72,6 @@ export function Sidebar({
   onManage: (id: string) => void;
   onResume?: (id: string) => void;
   resumingId?: string | null;
-  activeBackend?: string;
-  activeModel?: string;
-  activeConfigLoading?: boolean;
-  activeConfigError?: boolean;
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
   onNew: () => void;
   loading: boolean;
@@ -112,6 +89,7 @@ export function Sidebar({
   const [scope, setScope] = useState<Scope>('local');
   const initialScopeResolved = useRef(false);
   const [query, setQuery] = useState('');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const slim = collapsed && !mobileOpen;
   const normalizedLocalCwd = localCwd.trim();
   const localProjects = useMemo(
@@ -127,15 +105,7 @@ export function Sidebar({
   }, [activeId, loading, normalizedLocalCwd, projects]);
   const scoped = scope === 'local' ? localProjects : projects;
   const rawVisible = query.trim() ? filterProjects(scoped, query) : scoped;
-  const visible = [...rawVisible].sort((a, b) => {
-    const aNeedsAttention = projectNeedsAttention(a);
-    const bNeedsAttention = projectNeedsAttention(b);
-    if (aNeedsAttention !== bNeedsAttention) return aNeedsAttention ? -1 : 1;
-    const aCost = projectCost(a);
-    const bCost = projectCost(b);
-    if (aCost !== bCost) return bCost - aCost;
-    return projectCreatedAt(b) - projectCreatedAt(a);
-  });
+  const visible = rawVisible;
   const grouped = useMemo(() => {
     if (scope === 'local') return visible.length > 0 ? [[normalizedLocalCwd || 'Local', visible] as const] : [];
     const groups = new Map<string, ProjectRow[]>();
@@ -149,6 +119,7 @@ export function Sidebar({
   }, [normalizedLocalCwd, scope, visible]);
   const themeIcon = themeMode === 'light' ? faSun : faMoon;
   const nextTheme = themeMode === 'light' ? 'dark' : 'light';
+  const groupIsCollapsed = (path: string) => collapsedGroups.has(path) && !query.trim();
 
   return (
     <aside
@@ -248,16 +219,31 @@ export function Sidebar({
             ) : null}
             {grouped.map(([path, rows]) => (
               <section key={path} className="mb-4 last:mb-0">
-                <div className="mb-1 truncate px-1 font-mono text-xs text-ink-faint" title={path}>{path}</div>
-                {rows.map((project) => {
+                <button
+                  type="button"
+                  aria-expanded={!groupIsCollapsed(path)}
+                  title={path}
+                  onClick={() => setCollapsedGroups((current) => {
+                    const next = new Set(current);
+                    if (next.has(path)) next.delete(path);
+                    else next.add(path);
+                    return next;
+                  })}
+                  className="mb-1 flex h-7 w-full items-center gap-2 rounded-md px-1.5 text-left text-[11px] font-medium text-ink-faint hover:bg-bg/70 hover:text-ink-dim"
+                >
+                  <FontAwesomeIcon icon={faChevronDown} className={`h-2.5 w-2.5 transition-transform ${groupIsCollapsed(path) ? '-rotate-90' : ''}`} />
+                  <FontAwesomeIcon icon={faFolder} className="h-3 w-3" />
+                  <span className="min-w-0 flex-1 truncate">{projectGroupLabel(path)}</span>
+                  <span className="font-mono text-[10px]">{rows.length}</span>
+                </button>
+                {!groupIsCollapsed(path) ? rows.map((project) => {
                   const active = project.id === activeId;
                   const hasHumanLabel = hasHumanProjectLabel(project);
                   const name = hasHumanLabel
                     ? (project.label || project.display_name || '').trim()
-                    : project.objective.trim() || t('sidebar.unnamedSession');
+                    : project.objective.trim() || project.id || t('sidebar.unnamedSession');
                   const incompatible = project.daemon_alive && project.daemon_protocol_compatible === false;
                   const resumable = !project.daemon_alive && project.last_active > 0 && Boolean(project.workdir?.trim());
-                  const cost = projectCost(project);
                   return (
                     <div
                       key={project.id}
@@ -265,7 +251,7 @@ export function Sidebar({
                       onPointerEnter={() => {
                         if (!active) onPrefetch?.(project.id);
                       }}
-                      className={`session-card group relative mb-1 w-full rounded-md transition-colors duration-150 ease-panel ${
+                      className={`session-card group relative mb-0.5 h-14 w-full rounded-md transition-colors duration-150 ease-panel ${
                         active ? 'text-ink' : 'text-ink-dim hover:text-ink'
                       }`}
                     >
@@ -277,8 +263,8 @@ export function Sidebar({
                           if (!active) onPrefetch?.(project.id);
                         }}
                         aria-current={active ? 'page' : undefined}
-                        title={`${name}${hasHumanLabel ? '' : ` · ${project.id}`}${project.objective && project.objective !== name ? ` — ${project.objective}` : ''}`}
-                        className="w-full min-w-0 px-3 py-2.5 pr-10 text-left"
+                        title={`${name}${!hasHumanLabel && name !== project.id ? ` · ${project.id}` : ''}${project.objective && project.objective !== name ? ` — ${project.objective}` : ''}`}
+                        className={`flex h-14 w-full min-w-0 flex-col justify-center px-2.5 text-left ${resumable ? 'pr-[4.75rem]' : 'pr-10'}`}
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <StatusDot
@@ -287,21 +273,7 @@ export function Sidebar({
                           />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
                         </div>
-                        {!hasHumanLabel ? (
-                          <div className="mt-0.5 truncate pl-4 font-mono text-[10px] text-ink-faint">{project.id}</div>
-                        ) : project.objective ? (
-                          <div className="mt-0.5 truncate pl-4 text-xs text-ink-faint">{project.objective}</div>
-                        ) : null}
-                        {active ? (
-                          <div className="mt-1 truncate pl-4 text-[10px] text-blue-sky">
-                            {activeConfigLoading
-                              ? t('sidebar.modelLoading')
-                              : activeConfigError || !activeBackend
-                                ? t('sidebar.modelUnavailable')
-                                : `${backendLabel(activeBackend, t)} · ${activeModel || t('sidebar.defaultModel')}`}
-                          </div>
-                        ) : null}
-                        <div className="mt-1 flex min-w-0 items-center justify-between gap-2 pl-4 text-xs text-ink-faint">
+                        <div className="mt-1 min-w-0 truncate pl-3.5 text-[11px] text-ink-faint">
                           <span className={`min-w-0 truncate ${incompatible ? 'text-warn' : ''}`}>
                             {incompatible
                               ? t('sidebar.updateRequired')
@@ -309,43 +281,32 @@ export function Sidebar({
                                 ? t('sidebar.runningFor', { uptime: uptime(project.uptime_seconds) })
                                 : ago(project.last_active)}
                           </span>
-                          {cost ? (
-                            <DaemonSpendBadge
-                              settledUsd={project.spend_usd}
-                              knownUsd={project.known_cost_usd}
-                              status={project.spend_status}
-                              calls={project.usage_calls}
-                              premiumRequests={project.premium_requests}
-                              live={project.daemon_alive}
-                            />
-                          ) : null}
                         </div>
                       </button>
                       {resumable && onResume ? (
-                        <div className="px-3 pb-2 pl-7">
-                          <button
-                            type="button"
-                            disabled={resumingId != null}
-                            onClick={() => onResume(project.id)}
-                            title={t('sidebar.resumeHint', { workdir: project.workdir ?? '' })}
-                            className="rounded border border-blue/40 px-2 py-1 text-[10px] font-medium text-blue-sky hover:bg-blue/10 disabled:opacity-40"
-                          >
-                            {resumingId === project.id ? '…' : t('sidebar.resume')}
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          disabled={resumingId != null}
+                          onClick={() => onResume(project.id)}
+                          aria-label={t('sidebar.resume')}
+                          title={t('sidebar.resumeHint', { workdir: project.workdir ?? '' })}
+                          className="absolute right-9 top-3 flex h-8 w-8 items-center justify-center rounded-md text-blue opacity-100 hover:bg-blue/10 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                        >
+                          {resumingId === project.id ? '…' : <FontAwesomeIcon icon={faPlay} className="h-3 w-3" />}
+                        </button>
                       ) : null}
                       <button
                         type="button"
                         onClick={() => onManage(project.id)}
                         aria-label={t('sidebar.manage', { name })}
                         title={t('sidebar.manageHint')}
-                        className="absolute right-1.5 top-1.5 flex h-8 w-8 items-center justify-center rounded-md text-ink-faint opacity-100 transition-opacity hover:bg-panel-raised hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                        className="absolute right-1 top-3 flex h-8 w-8 items-center justify-center rounded-md text-ink-faint opacity-100 transition-opacity hover:bg-panel-raised hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
                       >
                         <FontAwesomeIcon icon={faEllipsis} className="h-4 w-4" />
                       </button>
                     </div>
                   );
-                })}
+                }) : null}
               </section>
             ))}
           </div>
