@@ -182,3 +182,16 @@ def test_trusted_shell_menu_merges_background_close_actions_and_matches_theme() 
     assert "background: var(--chrome-bg)" in styles
     assert "border-bottom: 0" in styles
     assert "inset: var(--desktop-menu-height) 0 0" in styles
+
+
+def test_native_brand_keeps_the_sclera_and_highlight_white_in_dark_mode() -> None:
+    shell = (TAURI_ROOT / "src" / "index.html").read_text(encoding="utf-8")
+    styles = (TAURI_ROOT / "src" / "style.css").read_text(encoding="utf-8")
+
+    assert shell.count('class="argus-mark-eye-white"') == 3
+    assert shell.count('class="argus-mark-pupil"') == 3
+    assert shell.count('class="argus-mark-highlight"') == 3
+    assert "--brand-body: #d7d9dc" in styles
+    assert "--brand-eye: #ffffff" in styles
+    assert "--brand-pupil: #202326" in styles
+    assert "--brand-highlight: #ffffff" in styles
