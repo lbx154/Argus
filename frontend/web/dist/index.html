@@ -25,18 +25,26 @@
     <title>Argus · Workbench</title>
     <script>
       (() => {
-        const mode = localStorage.getItem('argus.theme') || 'system';
+        let mode = 'system';
+        let style = 'standard';
+        try {
+          mode = localStorage.getItem('argus.theme') || 'system';
+          style = localStorage.getItem('argus.themeStyle') === 'gradient' ? 'gradient' : 'standard';
+        } catch {
+          // Browser storage is optional; stable defaults still render immediately.
+        }
         const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        document.documentElement.dataset.themeStyle = style;
       })();
     </script>
-    <script type="module" crossorigin src="/assets/index-D6S72pnK.js"></script>
+    <script type="module" crossorigin src="/assets/index-DmGTPB30.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-hePW80VL.js">
     <link rel="modulepreload" crossorigin href="/assets/icons-Ef92GGEA.js">
     <link rel="modulepreload" crossorigin href="/assets/query-DlyGfxkB.js">
     <link rel="modulepreload" crossorigin href="/assets/markdown-oDDmjKCd.js">
     <link rel="stylesheet" crossorigin href="/assets/markdown-B3MBJsZb.css">
-    <link rel="stylesheet" crossorigin href="/assets/index-CHUOwR_h.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-Cxka2WDT.css">
   </head>
   <body>
     <div id="root"></div>

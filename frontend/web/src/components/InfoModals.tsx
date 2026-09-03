@@ -21,6 +21,7 @@ import {
   configuredBackend,
   type BackendOption,
 } from '../lib/backend';
+import type { ThemeStyle } from '../lib/themePreference';
 
 const BUDGET_FIELDS = [
   { alias: 'global_daily_cap', env: 'ARGUS_SKILL_GLOBAL_DAILY_CAP_USD', label: 'settings.budget.global', unit: 'settings.unit.usd', step: '0.1' },
@@ -145,7 +146,19 @@ export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean
   );
 }
 
-export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean; onClose: () => void }) {
+export function ConfigModal({
+  sid,
+  open,
+  onClose,
+  themeStyle,
+  onThemeStyleChange,
+}: {
+  sid: string;
+  open: boolean;
+  onClose: () => void;
+  themeStyle: ThemeStyle;
+  onThemeStyleChange: (style: ThemeStyle) => void;
+}) {
   const { t } = useI18n();
   const { data, isLoading, isError, isFetching, refetch } = useConfig(sid, open);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -251,6 +264,32 @@ export function ConfigModal({ sid, open, onClose }: { sid: string; open: boolean
     <Modal open={open} onClose={onClose} label={t('common.settings')} width="max-w-4xl">
       <ModalHeader title={t('common.settings')} sub={t('settings.subtitle')} />
       <div className="p-4">
+        <section className="mb-4 rounded-lg border border-line glass-card p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('settings.appearance')}</div>
+          <p className="mt-0.5 text-[10px] text-ink-faint">{t('settings.appearanceHint')}</p>
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t('settings.themeStyle')}>
+            {(['standard', 'gradient'] as const).map((style) => (
+              <button
+                key={style}
+                type="button"
+                role="radio"
+                aria-checked={themeStyle === style}
+                data-selected={themeStyle === style}
+                onClick={() => onThemeStyleChange(style)}
+                className="theme-style-option"
+              >
+                <span className={`theme-style-preview theme-style-preview--${style}`} aria-hidden="true" />
+                <span className="min-w-0 text-left">
+                  <span className="block text-xs font-semibold text-ink">{t(`settings.themeStyle.${style}`)}</span>
+                  <span className="mt-0.5 block text-[10px] leading-relaxed text-ink-faint">{t(`settings.themeStyle.${style}Hint`)}</span>
+                </span>
+                <span className="theme-style-check" aria-hidden="true">
+                  <FontAwesomeIcon icon={faCheck} />
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
         {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
         {!isLoading && isError && <LoadFailure message={t('settings.loadError')} retrying={isFetching} onRetry={() => void refetch()} t={t} />}
         {!isLoading && !isError && !hasData && <EmptyHint>{t('settings.empty')}</EmptyHint>}

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { type ThemeMode } from './components/TopBar';
 import { readLocalStorage, writeLocalStorage } from './lib/storage';
+import {
+  readThemeStyle,
+  THEME_STYLE_STORAGE_KEY,
+  type ThemeStyle,
+} from './lib/themePreference';
 
 function storedBoolean(key: string, fallback: boolean): boolean {
   const value = readLocalStorage(key);
@@ -37,6 +42,7 @@ export function useWorkbenchLayout() {
     const stored = readLocalStorage('argus.theme');
     return stored === 'light' || stored === 'dark' ? stored : null;
   });
+  const [themeStyle, setThemeStyleState] = useState<ThemeStyle>(readThemeStyle);
   const [systemDark, setSystemDark] = useState(
     () => window.matchMedia('(prefers-color-scheme: dark)').matches,
   );
@@ -76,11 +82,20 @@ export function useWorkbenchLayout() {
     }
   }, [themeMode]);
 
+  useEffect(() => {
+    document.documentElement.dataset.themeStyle = themeStyle;
+  }, [themeStyle]);
+
   const cycleTheme = useCallback(() => {
     const next = themeMode === 'light' ? 'dark' : 'light';
     setManualTheme(next);
     writeLocalStorage('argus.theme', next);
   }, [themeMode]);
+
+  const setThemeStyle = useCallback((next: ThemeStyle) => {
+    setThemeStyleState(next);
+    writeLocalStorage(THEME_STYLE_STORAGE_KEY, next);
+  }, []);
 
   const resizeSidebar = useCallback((
     side: 'left' | 'right',
@@ -163,11 +178,13 @@ export function useWorkbenchLayout() {
     setRightWidth,
     setShowReasoning,
     setSidebarOpen,
+    setThemeStyle,
     setWorkspaceView,
     shellRef,
     showReasoning,
     sidebarOpen,
     themeMode,
+    themeStyle,
     workspaceView,
   };
 }

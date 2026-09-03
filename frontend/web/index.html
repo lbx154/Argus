@@ -25,9 +25,17 @@
     <title>Argus · Workbench</title>
     <script>
       (() => {
-        const mode = localStorage.getItem('argus.theme') || 'system';
+        let mode = 'system';
+        let style = 'standard';
+        try {
+          mode = localStorage.getItem('argus.theme') || 'system';
+          style = localStorage.getItem('argus.themeStyle') === 'gradient' ? 'gradient' : 'standard';
+        } catch {
+          // Browser storage is optional; stable defaults still render immediately.
+        }
         const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        document.documentElement.dataset.themeStyle = style;
       })();
     </script>
   </head>
