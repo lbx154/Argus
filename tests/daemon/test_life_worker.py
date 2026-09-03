@@ -938,6 +938,30 @@ def test_daemon_fails_running_item_after_roles_go_idle(
     assert events[0]["status"] == "failed"
 
 
+def test_daemon_does_not_fail_quiet_item_while_supervisor_is_running(
+    tmp_path: Path,
+) -> None:
+    memory = LifeMemory.open(tmp_path)
+    memory.init()
+    item = BacklogItem.new(title="quiet", objective="wait for external workers")
+    memory.backlog.add(item)
+    memory.backlog.mark_running(item.id)
+    memory.backlog.update(item.id, started_ts=time.time() - 31.0)
+    events: list[dict[str, Any]] = []
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
+    state = SimpleNamespace(
+        mem=memory,
+        runtime_root=tmp_path,
+        sink=SimpleNamespace(handle_event=events.append),
+    )
+    worker._supervisor_execution_active.set()
+
+    assert worker._fail_stalled_running_items(state) == []
+    stored = next(row for row in memory.backlog.active() if row.id == item.id)
+    assert stored.status == "running"
+    assert events == []
+
+
 def test_life_worker_continues_when_telegram_poller_start_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
