@@ -34,12 +34,6 @@ describe('recommendedSidebarScope', () => {
 
 function sidebarMarkup(
   projects: ProjectRow[],
-  config: {
-    activeBackend?: string;
-    activeModel?: string;
-    activeConfigLoading?: boolean;
-    activeConfigError?: boolean;
-  } = { activeBackend: 'codex', activeModel: 'gpt-5' },
 ): string {
   return renderToStaticMarkup(
     createElement(Sidebar, {
@@ -49,7 +43,6 @@ function sidebarMarkup(
       onSelect: () => undefined,
       onManage: () => undefined,
       onResume: () => undefined,
-      ...config,
       onOpenPanel: () => undefined,
       onNew: () => undefined,
       loading: false,
@@ -71,12 +64,12 @@ describe('Sidebar session identity and health', () => {
 
     const markup = sidebarMarkup(unnamed);
 
-    expect(markup).toContain('title="Unnamed session · session-1"');
-    expect(markup).toContain('title="Unnamed session · session-2"');
-    expect(markup).toContain('>session-1</div>');
-    expect(markup).toContain('>session-2</div>');
-    expect(markup).toContain('Codex · gpt-5');
-    expect(markup).toContain('>Resume</button>');
+    expect(markup).toContain('title="session-1"');
+    expect(markup).toContain('title="session-2"');
+    expect(markup).toContain('>session-1</span>');
+    expect(markup).toContain('>session-2</span>');
+    expect(markup).toContain('aria-label="Resume"');
+    expect(markup).not.toContain('Codex · gpt-5');
   });
 
   it('flags a live incompatible daemon instead of presenting it as healthy', () => {
@@ -90,12 +83,14 @@ describe('Sidebar session identity and health', () => {
     expect(markup).toContain('Update required');
     expect(markup).not.toContain('title="Argus running"');
     expect(markup).not.toContain('running · 2m');
-    expect(markup).not.toContain('>Resume</button>');
+    expect(markup).not.toContain('aria-label="Resume"');
   });
 
-  it('shows loading and fallback states for active model metadata', () => {
-    expect(sidebarMarkup([rows[0]], { activeConfigLoading: true })).toContain('Loading backend and model…');
-    expect(sidebarMarkup([rows[0]], { activeConfigError: true })).toContain('Backend and model unavailable');
-    expect(sidebarMarkup([rows[0]], { activeBackend: 'codex' })).toContain('Codex · default model');
+  it('uses a compact, collapsible project group without exposing the full path', () => {
+    const markup = sidebarMarkup([rows[0]]);
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toContain('title="/workspace/test"');
+    expect(markup).toContain('>test</span>');
+    expect(markup).not.toContain('>/workspace/test</');
   });
 });
