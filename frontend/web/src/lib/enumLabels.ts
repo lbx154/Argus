@@ -36,7 +36,7 @@ const STATUS_KEYS: Record<string, string> = {
 };
 
 const ROLE_KEYS: Record<string, string> = {
-  manager: 'label.role.coordinator',
+  manager: 'label.role.manager',
   planner: 'label.role.planner',
   engineer: 'label.role.engineer',
   reviewer: 'label.role.reviewer',
