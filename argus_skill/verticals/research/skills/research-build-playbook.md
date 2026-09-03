@@ -48,8 +48,19 @@ Replace project-root `HANDOFF.md` with `# HANDOFF — BUILD`. Keep only the
 implemented mechanism, entry points, baseline, evaluator, positive-control
 result, run configuration, resource needs, and unresolved Experiment risks.
 
-## Optional tools
+## Progressive disclosure
 
-Use hypothesis-to-code, environment, training-infrastructure, numerical, and
-setup-diagnosis Skills only for concrete implementation questions. They do not
-define the stage workflow or add parallel contracts.
+Start with this Playbook. Open one specialist Skill only when its condition is
+present, then return here. Do not preload the table.
+
+| When needed | Open | Use it for |
+|---|---|---|
+| The thesis may have drifted from code | `engineer/hypothesis-implementation-contract.md` | Map the selected mechanism to the executed path |
+| A fresh Reviewer must verify execution fidelity | `reviewer/claim-to-code-trace.md` | Trace claim-critical calls and formulas |
+| Training or large inference infrastructure is required | `engineer/training-infrastructure-guide.md` | Select and reuse maintained frameworks |
+| A concrete dependency or resource may block execution | `engineer/environment-readiness-gate.md` | Check only the resources this implementation uses |
+| A surprising result may come from configuration | `engineer/suspect-the-setup.md` | Diagnose the highest-impact setup cause |
+| Build readiness needs independent judgment | `reviewer/experiment-plan-review.md` | Check method, baseline, evaluator, and positive control |
+
+Specialist Skills solve implementation questions. They do not add contracts,
+reports, stages, or completion gates.

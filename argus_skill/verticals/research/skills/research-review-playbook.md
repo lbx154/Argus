@@ -55,8 +55,20 @@ action. Only an integrated `done` verdict completes the paper.
 Do not create separate scientific, visual, language, revision-history, or
 certification files.
 
-## Optional tools
+## Progressive disclosure
 
-Use peer-review, citation, visual, language, and venue-format Skills only as
-read-only specialist tools or Engineer repair aids. They do not create another
-review workflow.
+Start with this Playbook. Each preliminary pass opens only the specialist Skill
+for its assigned dimension. Engineer opens a repair Skill only for a concrete
+finding. Do not preload the table.
+
+| When needed | Open | Use it for |
+|---|---|---|
+| Scientific completeness is under review | `reviewer/academic-paper-peer-review-benchmark.md` | Judge contribution, evidence, and paper value |
+| A material claim or citation is disputed | `engineer/claims-evidence-audit.md` or `engineer/citation-audit.md` | Trace the claim to raw evidence or a primary source |
+| Visual quality needs venue calibration | `engineer/paper-exemplar-pdf-learning.md` | Compare the rendered paper with strong accepted work |
+| Academic language is under review | `reviewer/venue-academic-language-review.md` | Return precise language repairs in read-only mode |
+| Private implementation detail may have leaked | `engineer/paper-infrastructure-review.md` | Inspect the current paper for internal leakage |
+| A repaired paper needs venue compilation | `engineer/venue-format-preflight.md` | Recompile under the official author kit |
+
+These Skills support one pass or repair. They do not create another review
+workflow or another review file.

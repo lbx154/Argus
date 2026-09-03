@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import argus_skill
@@ -192,6 +193,27 @@ def test_every_role_is_directed_to_the_same_stage_playbook() -> None:
             assert str(skills_root / playbook) in prompt
             assert "single workflow playbook" in prompt
             assert "Other Skills are optional tools" in prompt
+
+
+def test_playbooks_progressively_disclose_existing_specialist_skills() -> None:
+    package_root = Path(argus_skill.__file__).parent
+    research_skills = package_root / "verticals" / "research" / "skills"
+    builtin_skills = package_root / "builtin_skills"
+
+    for stage in STAGE_PLAYBOOK_PATHS:
+        text = _playbook(stage)
+        assert "progressive disclosure" in text
+        assert "do not preload the table" in text
+        references = re.findall(
+            r"`((?:engineer|reviewer)/[^`]+\.md)`",
+            text,
+        )
+        assert references
+        for relative in references:
+            assert (
+                (research_skills / relative).is_file()
+                or (builtin_skills / relative).is_file()
+            ), f"{stage} playbook references missing Skill {relative}"
 
 
 def test_research_skills_do_not_reintroduce_parallel_workflow_artifacts() -> None:

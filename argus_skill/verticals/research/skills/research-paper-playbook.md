@@ -59,8 +59,21 @@ Replace project-root `HANDOFF.md` with `# HANDOFF — PAPER`, containing only th
 current manuscript location, central thesis, headline evidence, venue, and any
 known issue Review must inspect. Do not create another drafting or format report.
 
-## Optional tools
+## Progressive disclosure
 
-Use venue drafting, citation, data-figure, conceptual-figure, and format Skills
-only for the relevant paper task. They do not define stage completion or run
-independent review gates.
+Start with this Playbook. Open one specialist Skill only for the current paper
+task, then return here. Do not preload the table.
+
+| When needed | Open | Use it for |
+|---|---|---|
+| The venue is not selected | `engineer/venue-format-research.md` | Choose a fitting venue from current official sources |
+| The argument or full draft must be written | `engineer/venue-paper-drafting.md` | Draft under the selected author kit |
+| Strong paper structure or visual calibration is needed | `engineer/paper-exemplar-pdf-learning.md` | Study open-access Oral, Outstanding, or Best Papers |
+| A material citation is uncertain | `engineer/citation-audit.md` | Resolve and repair it from primary sources |
+| Data results need paper figures | `engineer/paper-chart-styling.md` | Produce consistent publication-size data charts |
+| A conceptual or method figure is needed | `engineer/research-visualization-router.md` | Select the faithful rendering route |
+| Figure 1 needs an editable composition | `engineer/paper-framework-figure-studio.md` | Build the conceptual figure and final export |
+| Compilation or venue structure is uncertain | `engineer/venue-format-preflight.md` | Compile against the official author kit |
+
+Specialist Skills produce parts of the manuscript. They do not define stage
+completion or run scientific, visual, language, or whole-paper review gates.

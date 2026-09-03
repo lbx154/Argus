@@ -67,13 +67,17 @@ project-visible selection report.
 A direct Idea-only request returns its reviewed result to the operator and does
 not create a cross-stage handoff.
 
-## Optional tools
+## Progressive disclosure
 
-Use literature search, novelty checking, and ideation-pattern Skills only when
-they answer a specific route question. They do not define the stage workflow or
-its artifacts.
+Start with this Playbook. Open one specialist source only when its condition is
+present, then return here. Do not preload the table or let a specialist redefine
+the stage.
 
-For a mechanism lens, open
-`engineer/references/ideation/ideation-patterns/overview.md`, choose one relevant
-pattern, and read only its matched card. Do not turn the pattern collection into
-another candidate-generation process.
+| When needed | Open | Use it for |
+|---|---|---|
+| A route's novelty or closest work is uncertain | `engineer/novelty-check.md` | Primary-source prior-art attack |
+| The route needs a non-obvious mechanism lens | `engineer/references/ideation/ideation-patterns/overview.md` | Choose one relevant pattern, then one matched card |
+| A reviewer needs the strongest adversarial case | `reviewer/kill-argument.md` | One decisive scientific objection |
+
+These sources answer a route question. They do not create another candidate
+process, selector, handoff, or completion rule.

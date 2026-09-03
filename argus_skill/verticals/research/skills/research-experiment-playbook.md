@@ -50,8 +50,20 @@ baseline, relevant limitations, confirmed figures/data, and minimum
 reproducibility pointers needed by Paper. Organize the handoff around the claim
 and its evidence, not around the order in which experiments ran.
 
-## Optional tools
+## Progressive disclosure
 
-Use setup diagnosis, research-grind, ablation, evidence-audit, and
-results-analysis Skills only for the current experiment question. They do not
-define stage completion or create parallel plans.
+Start with this Playbook. Open one specialist Skill only for the current
+decision, then return here. Do not preload the table.
+
+| When needed | Open | Use it for |
+|---|---|---|
+| The method is below its baseline | `engineer/research-grind.md` | Diagnose and improve the largest live gap |
+| The run may be misconfigured | `engineer/suspect-the-setup.md` | Separate setup failure from method evidence |
+| A mechanism needs one decisive ablation | `engineer/ablation-planner.md` | Choose only claim-changing ablations |
+| Raw evidence or evaluator behavior is disputed | `reviewer/experiment-audit.md` | Inspect code, configuration, evaluator, and rows |
+| The next experiment or Paper decision is unclear | `reviewer/experiment-results-review.md` | Independently judge the evidence frontier |
+| Results must become a precise claim | `engineer/result-to-claim.md` | Bind direct evidence to the strongest supported thesis |
+| Confirmed results need tables or figures | `engineer/research-results-analysis-and-figures.md` | Produce claim-bearing paper visuals |
+
+Specialist Skills answer one experiment question. They do not define a global
+plan, stage transition, or parallel report.
