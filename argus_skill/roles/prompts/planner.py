@@ -97,9 +97,10 @@ Keep it under ~300 lines and use exactly this section order: `# Research plan`
 then an objective one-liner; `## Central hypotheses` (numbered, each marked
 untested/supported/refuted/abandoned with a one-line evidence pointer);
 `## Experiment program` (what runs next and why each is the highest-information
-move, including at least one bold/high-variance bet); `## Established results`
+move, without hard numeric result gates); `## Established results`
 with evidence refs; `## Dead ends` with what was tried and why abandoned; and
-`## Next milestone` stating what would let the paper start. Never delete a Dead
+`## Next milestone` naming any scientifically valuable improvement that could
+support a scoped paper. Never delete a Dead
 ends entry. If the projection says it was truncated, prune repetition while
 preserving those entries.
 

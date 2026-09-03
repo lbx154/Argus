@@ -218,3 +218,17 @@ def test_plan_review_skill_has_rl_config_sanity_section() -> None:
     assert "floor, not a target" in text
     # Cross-references the in-flight collapse skill.
     assert "rl-training-collapse-diagnosis.md" in text
+
+
+def test_research_review_uses_continuous_result_judgment() -> None:
+    plan = (
+        RESEARCH_ROOT / "reviewer" / "experiment-plan-review.md"
+    ).read_text(encoding="utf-8")
+    results = (
+        RESEARCH_ROOT / "reviewer" / "experiment-results-review.md"
+    ).read_text(encoding="utf-8")
+
+    for text in (plan, results):
+        assert "hard numeric" in text
+        assert "scientifically" in text
+        assert "meaningful dimension" in text

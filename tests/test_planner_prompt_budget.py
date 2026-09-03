@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus_skill.life.supervisor import LifeSupervisor
 from argus_skill.planner import Planner
+from argus_skill.roles.prompts.planner import _RESEARCH_PLAN_CONTRACT
 from argus_skill.skills.vertical_select import persist_vertical
 
 # Raised from 9_500 / 15_000 when the math vertical gained the objective mode
@@ -329,6 +330,11 @@ def test_planner_prompt_marks_absent_or_corrupt_plan_for_creation(tmp_path) -> N
     assert "no plan yet" in absent
     assert "create RESEARCH_PLAN.md" in absent
     assert corrupt == absent
+
+
+def test_research_plan_contract_avoids_hard_result_gates() -> None:
+    assert "without hard numeric result gates" in _RESEARCH_PLAN_CONTRACT
+    assert "scientifically valuable improvement" in _RESEARCH_PLAN_CONTRACT
 
 
 def test_oversize_research_plan_keeps_head_and_next_milestone_with_hard_cap(
