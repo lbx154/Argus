@@ -18,6 +18,10 @@
   --danger: #14161c;
   --success: #075fe4;
   --shadow: rgba(24, 30, 44, 0.16);
+  --brand-body: #000000;
+  --brand-eye: #ffffff;
+  --brand-pupil: #000000;
+  --brand-highlight: #ffffff;
   --desktop-menu-height: 34px;
 }
 
@@ -40,6 +44,10 @@
   --danger: #f2f5fa;
   --success: #6ea8ff;
   --shadow: rgba(0, 0, 0, 0.42);
+  --brand-body: #d7d9dc;
+  --brand-eye: #ffffff;
+  --brand-pupil: #202326;
+  --brand-highlight: #ffffff;
 }
 
 * {
@@ -220,9 +228,23 @@ body {
 .window-titlebar-mark {
   width: 14px;
   height: 14px;
-  background: var(--ink);
-  -webkit-mask: url('./argus-mark-24.png') center / contain no-repeat;
-  mask: url('./argus-mark-24.png') center / contain no-repeat;
+  flex: 0 0 auto;
+}
+
+.argus-mark-body {
+  fill: var(--brand-body);
+}
+
+.argus-mark-eye-white {
+  fill: var(--brand-eye);
+}
+
+.argus-mark-pupil {
+  fill: var(--brand-pupil);
+}
+
+.argus-mark-highlight {
+  fill: var(--brand-highlight);
 }
 
 .icon-defs {
@@ -688,9 +710,7 @@ button {
 .wizard-mark-glyph {
   width: 25px;
   height: 25px;
-  background: linear-gradient(135deg, var(--accent) 0 18%, var(--brand-mid) 42%, var(--brand-violet) 62%, var(--warm) 86% 100%);
-  -webkit-mask: url('./argus-mark-24.png') center / contain no-repeat;
-  mask: url('./argus-mark-24.png') center / contain no-repeat;
+  display: block;
 }
 
 .wizard-heading {

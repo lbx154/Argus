@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>Argus rounded mark on an iOS-style white rounded square</title>
+  <rect width="512" height="512" rx="112" fill="#080a0b"/>
+  <path d="M352 112q0-30 30-30h28q30 0 30 30v320h-88v-52q-46 62-129 62Q66 442 66 266T228 88q80 0 124 56v-32ZM140 266q46-80 102-80t110 80q-54 80-110 80t-102-80Z" fill="#d7d9dc" fill-rule="evenodd"/>
+  <path d="M140 266q46-80 102-80t110 80q-54 80-110 80t-102-80Z" fill="#ffffff"/>
+<circle cx="244" cy="266" r="42" fill="#202326"/>
+<circle cx="262" cy="248" r="12" fill="#ffffff"/>
+</svg>

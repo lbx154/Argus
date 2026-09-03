@@ -106,15 +106,17 @@ describe('shared frontend core', () => {
     expect(html).toContain('Retry');
   });
 
-  it('uses monochrome Rounded 02 geometry', () => {
+  it('uses theme-aware Rounded 02 eye geometry', () => {
     const lockup = renderToStaticMarkup(createElement(Wordmark, { size: 24 }));
     const mark = renderToStaticMarkup(createElement(ArgusMark, { size: 32 }));
     expect(lockup).toContain('data-logo="rounded-horizontal"');
     expect(mark).toContain('data-logo="rounded-mark"');
-    expect(lockup).toContain('fill="currentColor"');
+    expect(lockup).toContain('fill="rgb(var(--brand-body))"');
     expect(lockup).not.toContain('linearGradient');
-    expect(mark).toContain('fill="currentColor"');
-    expect(lockup).not.toContain('NightPupil');
+    expect(mark).toContain('fill="rgb(var(--brand-eye))"');
+    expect(mark).toContain('fill="rgb(var(--brand-pupil))"');
+    expect(mark).toContain('fill="rgb(var(--brand-highlight))"');
+    expect(mark).toContain('argus-mark-eye');
   });
 
   it('defines the public-brand workbench surface contract', () => {
@@ -566,6 +568,26 @@ describe('shared frontend core', () => {
     expect(svg).not.toContain('linearGradient');
     expect(svg).toMatch(/A\s*42\s+42/);
     expect(svg).toContain('<rect');
+  });
+
+  it('ships a non-inverted dark-mode favicon and full semantic palette', () => {
+    const svg = fs.readFileSync(path.resolve('public/favicon-dark.svg'), 'utf8');
+    const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
+    const html = fs.readFileSync(path.resolve('index.html'), 'utf8');
+    const manifest = fs.readFileSync(path.resolve('public/manifest.webmanifest'), 'utf8');
+    expect(svg).toContain('fill="#d7d9dc"');
+    expect(svg).toContain('fill="#ffffff"');
+    expect(svg).toContain('fill="#202326"');
+    expect(svg).toContain('fill="#080a0b"');
+    expect(css).toContain('--brand-body: 215 217 220');
+    expect(css).toContain('--brand-eye: 255 255 255');
+    expect(css).toContain('--brand-pupil: 32 35 38');
+    expect(css).toContain('--brand-highlight: 255 255 255');
+    expect(html).toContain('href="/favicon-dark.svg" media="(prefers-color-scheme: dark)"');
+    expect(html).toContain('href="/apple-touch-icon-dark.png" media="(prefers-color-scheme: dark)"');
+    expect(manifest).toContain('/icon-dark-192.png');
+    expect(manifest).toContain('/icon-dark-512.png');
+    expect(manifest).toContain('/icon-maskable-dark-512.png');
   });
 
   it('lets the Manager choose the live canvas and prefers its rendered output', () => {

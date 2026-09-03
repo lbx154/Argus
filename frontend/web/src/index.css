@@ -28,6 +28,10 @@
   --glass-raised: 255 255 255;
   --glass-edge: 224 224 228;
   --chrome-surface: 248 248 250;
+  --brand-body: 0 0 0;
+  --brand-eye: 255 255 255;
+  --brand-pupil: 0 0 0;
+  --brand-highlight: 255 255 255;
 }
 
 :root[data-theme='dark'] {
@@ -56,6 +60,10 @@
   --glass-raised: 36 36 38;
   --glass-edge: 72 72 74;
   --chrome-surface: 22 22 24;
+  --brand-body: 215 217 220;
+  --brand-eye: 255 255 255;
+  --brand-pupil: 32 35 38;
+  --brand-highlight: 255 255 255;
   font-synthesis: none;
 }
 
