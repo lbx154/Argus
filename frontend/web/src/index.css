@@ -109,6 +109,10 @@ body {
   background: rgb(var(--bg));
 }
 
+.workbench-shell[data-resizing] [data-resizable-panel] {
+  transition-duration: 0s !important;
+}
+
 :root[data-theme='dark'] .workbench-shell {
   background: rgb(var(--bg));
 }
