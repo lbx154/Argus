@@ -88,7 +88,7 @@ export function ConnectionProblemBanner({
             placeholder={t('connection.pairingPlaceholder')}
             className="h-9 min-w-0 flex-1 rounded-md border border-line bg-bg px-3 text-xs text-ink outline-none focus:border-blue"
           />
-          <button type="submit" className="h-9 rounded-md bg-blue px-3 text-xs font-medium text-white hover:brightness-105">
+          <button type="submit" className="h-9 rounded-md border border-blue/35 bg-blue/8 px-3 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-white">
             {t('connection.connect')}
           </button>
           {pairingError ? <span role="alert" className="w-full text-xs text-err">{pairingError}</span> : null}
