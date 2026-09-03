@@ -172,6 +172,7 @@ export default function App() {
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [newDaemonOpen, setNewDaemonOpen] = useState(false);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
+  const [manageTargetSid, setManageTargetSid] = useState<string | null>(null);
   const [resumingSid, setResumingSid] = useState<string | null>(null);
   const messageSubmitLockRef = useRef(false);
   const messageRequestRef = useRef<ActiveMessageRequest | null>(null);
@@ -288,6 +289,7 @@ export default function App() {
 
 
   const snapQ = useSnapshot(activeSid);
+  const manageSnapQ = useSnapshot(manageTargetSid);
   const snap = snapQ.data;
   const loadedSid = snap?.session.id === activeSid ? activeSid : null;
   const continuous = snap?.continuous;
@@ -456,6 +458,10 @@ export default function App() {
     dispatchEventView({ kind: 'reset' });
   }, [loadedSid]);
   const actions = useProjectActions(activeSid, snap?.daemon_commands?.revision);
+  const manageActions = useProjectActions(
+    manageTargetSid,
+    manageSnapQ.data?.daemon_commands?.revision,
+  );
   const resumeSession = useCallback(async (sid: string) => {
     setResumingSid(sid);
     try {
@@ -482,10 +488,12 @@ export default function App() {
     toggleContinuous,
   } = useProjectDaemonActions({
     actions,
+    manageActions,
+    manageTargetSid,
+    setManageTargetSid,
     activeSid,
     clearProjectSelection,
     continuous,
-    currentSnapshotSid: snap?.session.id,
     notify,
     refetchProjects: projectsQ.refetch,
     selectProject,
@@ -879,7 +887,7 @@ export default function App() {
                 streamOk={connected}
                 onStart={requestStartDaemon}
                 onStop={requestStopDaemon}
-                onManage={() => setDaemonManageOpen(true)}
+                onManage={() => activeSid && requestManageSession(activeSid)}
                 busy={daemonBusy}
                 snapshotStale={snapQ.isError}
                 readOnly={kiosk}
@@ -984,7 +992,7 @@ export default function App() {
                   streamOk={connected}
                   onStart={requestStartDaemon}
                   onStop={requestStopDaemon}
-                  onManage={() => setDaemonManageOpen(true)}
+                  onManage={() => activeSid && requestManageSession(activeSid)}
                   busy={daemonBusy}
                   snapshotStale={snapQ.isError}
                   readOnly={kiosk}
@@ -1102,15 +1110,22 @@ export default function App() {
         onClose={() => setPendingReplyOpen(false)}
         onSubmit={answerPendingReply}
       />
-      {activeSid && snap ? (
+      {manageTargetSid ? (
         <DaemonManageModal
           open={daemonManageOpen}
-          sid={activeSid}
-          name={snap.session.display_name || ''}
-          alive={snap.daemon.alive}
-          controlAvailable={snap.daemon.control_available !== false}
+          sid={manageTargetSid}
+          name={manageSnapQ.data?.session.display_name
+            || projects.find((project) => project.id === manageTargetSid)?.display_name
+            || projects.find((project) => project.id === manageTargetSid)?.label
+            || ''}
+          alive={manageSnapQ.data?.daemon.alive
+            ?? Boolean(projects.find((project) => project.id === manageTargetSid)?.daemon_alive)}
+          controlAvailable={manageSnapQ.data?.daemon.control_available !== false}
           busy={daemonBusy}
-          onClose={() => setDaemonManageOpen(false)}
+          onClose={() => {
+            setDaemonManageOpen(false);
+            setManageTargetSid(null);
+          }}
           onRename={manageRenameProject}
           onStart={manageStartDaemon}
           onStop={manageStopDaemon}

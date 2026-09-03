@@ -285,7 +285,10 @@ export function Sidebar({
                         <button
                           type="button"
                           disabled={resumingId != null}
-                          onClick={() => onResume(project.id)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onResume(project.id);
+                          }}
                           aria-label={t('sidebar.resume')}
                           title={t('sidebar.resumeHint', { workdir: project.workdir ?? '' })}
                           className="absolute right-9 top-3 flex h-8 w-8 items-center justify-center rounded-md text-blue opacity-100 hover:bg-blue/10 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
@@ -295,7 +298,10 @@ export function Sidebar({
                       ) : null}
                       <button
                         type="button"
-                        onClick={() => onManage(project.id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onManage(project.id);
+                        }}
                         aria-label={t('sidebar.manage', { name })}
                         title={t('sidebar.manageHint')}
                         className="absolute right-1 top-3 flex h-8 w-8 items-center justify-center rounded-md text-ink-faint opacity-100 transition-opacity hover:bg-panel-raised hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
