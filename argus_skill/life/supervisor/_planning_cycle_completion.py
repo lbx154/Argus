@@ -21,6 +21,7 @@ from ._constants import (
     PLAN_ERROR,
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
+    PLANNER_TASKS_FILTERED_DIAGNOSTIC,
 )
 from ._planning_cycle_helpers import (
     _PlanCycleState,
@@ -175,16 +176,28 @@ class PlanningCycleCompletionMixin:
         expected_plan_version = state.expected_plan_version
 
         if verdict.waiting:
-            if self._load_manager_planner_feedback() is not None:
-                self._emit(
-                    {
-                        "type": "life.manager.feedback.unresolved",
-                        "reason": "planner returned waiting instead of revision tasks",
-                    }
-                )
-                self._emit_status("planner ignored unresolved Manager feedback; retry later")
-                self._enter_idle_backoff()
-                return PLAN_ERROR
+            feedback = self._load_manager_planner_feedback()
+            if feedback is not None:
+                diagnostic = str(feedback.get("diagnostic") or "")
+                if diagnostic == PLANNER_TASKS_FILTERED_DIAGNOSTIC:
+                    # Filtered-task feedback says every proposed task
+                    # duplicated live backlog work. A deliberate wait answers
+                    # that feedback instead of dodging it: nothing new is
+                    # schedulable until the live work moves, so hand control
+                    # to the waiting contract rather than another replan.
+                    self._clear_manager_planner_feedback()
+                else:
+                    self._emit(
+                        {
+                            "type": "life.manager.feedback.unresolved",
+                            "reason": "planner returned waiting instead of revision tasks",
+                        }
+                    )
+                    self._emit_status(
+                        "planner ignored unresolved Manager feedback; retry later"
+                    )
+                    self._enter_idle_backoff()
+                    return PLAN_ERROR
             if revision_request is not None:
                 reconciliation_result = self._reconcile_open_ended_planner_waiting(verdict)
                 if reconciliation_result == "rollback":

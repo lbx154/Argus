@@ -625,6 +625,12 @@ class PlanningCycleEnqueueMixin:
                     project_root=state_root,
                 )
             except LookupError:
+                _record_filtered_task(
+                    state,
+                    title=task.title,
+                    category="unknown_task_vertical",
+                    reason=f"unknown Planner task vertical: {policy_vertical}",
+                )
                 self._emit({
                     "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
                     "cycle": self._planning_cycles,
@@ -640,6 +646,12 @@ class PlanningCycleEnqueueMixin:
                 task,
             )
             if policy_issues:
+                _record_filtered_task(
+                    state,
+                    title=task.title,
+                    category="vertical_task_policy",
+                    reason="; ".join(policy_issues),
+                )
                 self._emit({
                     "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
                     "cycle": self._planning_cycles,
