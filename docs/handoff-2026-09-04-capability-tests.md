@@ -221,3 +221,17 @@ intake 的签名比对立即清除反馈并唤醒规划器。安全性核对过�
 `_planning_cycle_intake.py`(按 diagnostic 选签名)、`_constants.py`
 (共享 diagnostic 常量);配一个回归测试
 `tests/life/test_filtered_feedback_survives_file_churn.py`。
+
+**同族第三处(部署上一条修复后暴露)**:过滤反馈的路走通后,规划器改为
+发布事件等待契约(waiting contract,设计上契约生效期间完全跳过规划器、
+零模型开销),但契约的 `watched_paths` 里有一条指向活跃 finalizer 的日志
+目录(`.argus_subagents/<job>_logs`)。`artifact_revision` 唤醒源对该目录
+做 stat 摘要,作业活着就周期性写日志 → 修订值不断变化 → 契约每 ~40-100
+秒被"证据变化"唤醒一次,每次唤醒都是一次完整规划器调用。修复
+(`_planner_waiting_observed_revision`):落在外部作业注册表目录内的
+watched path 不再做文件摘要——作业自身的簿记(日志、心跳)只要作业在跑
+就会一直变,不构成证据;改为纳入注册表的作业状态视图(work_id/run_id/
+state,与 `subagent_state` 唤醒源同一实现,抽成 `_external_work_state_rows`
+复用),状态恰好只在启动/完成/失败这类真实转变时移动。注册表外的
+watched path(如 workers 的结果记录目录)行为不变。已在 run-08 的真实
+项目上验证:finalizer 持续写日志的同时,新算法两次间隔计算的修订值一致。

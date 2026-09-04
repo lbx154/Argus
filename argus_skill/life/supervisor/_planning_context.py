@@ -1140,6 +1140,31 @@ class PlanningContextMixin:
         except Exception:  # noqa: BLE001 - visibility must not break planning
             return False
 
+    @staticmethod
+    def _external_work_state_rows(project_root: Path) -> list[dict[str, str]]:
+        """Registered background jobs as (work_id, run_id, state) rows.
+
+        This is the wait-relevant view of the external-work registry: it moves
+        when a job starts, completes, or fails, and stays put while a healthy
+        job merely appends to its own logs. An unreadable registry contributes
+        a stable empty view rather than churn.
+        """
+        try:
+            from ...engineer.external_work import scan_external_work
+
+            return [
+                {
+                    "work_id": status.work_id,
+                    "run_id": status.run_id,
+                    "state": status.state.value,
+                }
+                for status in scan_external_work(project_root)
+                if status.source == "subagent"
+            ]
+        except Exception:  # noqa: BLE001 - wait evaluation must stay stable
+            log.debug("external-work registry scan failed", exc_info=True)
+            return []
+
     def _planner_waiting_observed_revision(
         self,
         *,
@@ -1173,9 +1198,26 @@ class PlanningContextMixin:
                 pipeline_state_path(project_root)
             )
         if "artifact_revision" in wake_sources:
-            revision["artifacts"] = [
-                self._waiting_revision_file(project_root / relative) for relative in watched_paths
-            ]
+            artifacts: list[dict[str, Any]] = []
+            registry_paths = False
+            for relative in watched_paths:
+                rel = str(relative).strip().lstrip("/")
+                parts = Path(rel).parts
+                if parts and parts[0] == ".argus_subagents":
+                    # A watched path inside the external-work registry points
+                    # at a job's own bookkeeping (logs, heartbeats), which is
+                    # rewritten for as long as the job runs. Stat-digesting it
+                    # woke the planner every cycle of a live job; what the
+                    # contract actually waits for is the job's registered
+                    # state, which moves exactly at real transitions.
+                    registry_paths = True
+                    continue
+                artifacts.append(self._waiting_revision_file(project_root / rel))
+            revision["artifacts"] = artifacts
+            if registry_paths and "subagent_state" not in wake_sources:
+                revision["registry_jobs"] = self._external_work_state_rows(
+                    project_root
+                )
         if "subagent_terminal" in wake_sources:
             terminal_rows: list[dict[str, str]] = []
             registry = project_root / ".argus_subagents"
@@ -1208,17 +1250,9 @@ class PlanningContextMixin:
                 )
             revision["subagent_terminal"] = terminal_rows
         if "subagent_state" in wake_sources:
-            from ...engineer.external_work import scan_external_work
-
-            revision["subagent_state"] = [
-                {
-                    "work_id": status.work_id,
-                    "run_id": status.run_id,
-                    "state": status.state.value,
-                }
-                for status in scan_external_work(project_root)
-                if status.source == "subagent"
-            ]
+            revision["subagent_state"] = self._external_work_state_rows(
+                project_root
+            )
         blob = json.dumps(revision, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
