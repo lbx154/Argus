@@ -15,12 +15,14 @@ from argus_skill.core.session import (
     SessionMeta,
     SessionResolutionError,
     list_sessions,
+    migrate_legacy_session_workdir,
     most_recent_session,
     new_session_id,
     read_session_meta,
     resolve_session,
     resolve_session_workdir,
     touch_session,
+    write_session_meta,
 )
 from argus_skill.life.memory import MemoryBundle
 
@@ -73,6 +75,48 @@ def test_resolve_session_workdir_rejects_missing_legacy_cwd(tmp_path):
             SessionMeta(id="legacy", cwd=str(tmp_path / "missing")),
             state_dir=tmp_path,
         )
+
+
+def test_resolve_session_workdir_rejects_incomplete_metadata(tmp_path):
+    with pytest.raises(FileNotFoundError, match="no trustworthy workdir"):
+        resolve_session_workdir(
+            SessionMeta(id="incomplete", display_name="Named too early"),
+            state_dir=tmp_path,
+        )
+
+
+def test_migrate_repairs_incomplete_metadata_without_losing_identity(tmp_path):
+    root = tmp_path / "state"
+    sid = "incomplete"
+    state_dir = root / "projects" / sid
+    workspace = tmp_path / "workspace"
+    state_dir.mkdir(parents=True)
+    workspace.mkdir()
+    write_session_meta(
+        root,
+        SessionMeta(
+            id=sid,
+            display_name="Existing name",
+            created=10.0,
+            last_active=20.0,
+        ),
+    )
+
+    resolved = migrate_legacy_session_workdir(
+        root,
+        sid,
+        state_dir=state_dir,
+        candidates=(state_dir, workspace),
+    )
+    meta = read_session_meta(root, sid)
+
+    assert resolved == workspace.resolve()
+    assert meta is not None
+    assert meta.cwd == str(workspace.resolve())
+    assert meta.workdir == str(workspace.resolve())
+    assert meta.display_name == "Existing name"
+    assert meta.created == 10.0
+    assert meta.last_active == 20.0
 
 
 def test_continue_returns_most_recent(tmp_path):

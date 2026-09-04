@@ -2486,6 +2486,35 @@ def test_web_daemon_config_migrates_legacy_daemon_workdir(
     assert meta.workdir == str(workspace.resolve())
 
 
+def test_web_daemon_config_repairs_incomplete_session_metadata(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    sid = "incomplete-workdir"
+    life_dir = tmp_path / "projects" / sid
+    workspace = tmp_path / "workspace"
+    life_dir.mkdir(parents=True)
+    workspace.mkdir()
+    write_session_meta(
+        tmp_path,
+        SessionMeta(id=sid, display_name="Named before launch", created=123.0),
+    )
+    monkeypatch.setattr(
+        server,
+        "read_daemon_status",
+        lambda _path: SimpleNamespace(project_workdir=str(workspace)),
+    )
+
+    cfg = server._worker_config_from_env(life_dir, tmp_path)
+    meta = read_session_meta(tmp_path, sid)
+
+    assert cfg.project_workdir == workspace.resolve()
+    assert meta is not None
+    assert meta.workdir == str(workspace.resolve())
+    assert meta.display_name == "Named before launch"
+    assert meta.created == 123.0
+
+
 def test_web_daemon_config_refuses_legacy_session_without_workdir(
     tmp_path: Path,
 ) -> None:

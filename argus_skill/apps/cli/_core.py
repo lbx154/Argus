@@ -257,6 +257,7 @@ def _resolve_project_bundle(
         migrate_legacy_session_workdir,
         read_session_meta,
         resolve_session_workdir,
+        session_workdir_is_bound,
     )
 
     state_dir = core_paths.session_state_root(sid, root=global_root)
@@ -264,11 +265,11 @@ def _resolve_project_bundle(
         return None
     meta = read_session_meta(global_root, sid)
     try:
-        if meta is None:
+        if not session_workdir_is_bound(meta):
             # Prefer the last daemon workspace over the shell cwd. A Web/CLI
             # restart may be initiated from the state directory, which must
-            # never become the execution root for a legacy external-worktree
-            # session.
+            # never become the execution root for a legacy or partially
+            # initialized external-worktree session.
             from ...daemon.state import read_daemon_status
 
             prior = read_daemon_status(state_dir).project_workdir

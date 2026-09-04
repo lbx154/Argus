@@ -264,6 +264,45 @@ def test_cli_legacy_resume_persists_first_explicit_workdir(
     assert meta.workdir == str(workspace.resolve())
 
 
+def test_cli_resume_repairs_named_session_without_workdir(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "state"
+    sid = "partially-initialized-session"
+    state_dir = root / "projects" / sid
+    workspace = tmp_path / "workspace"
+    state_dir.mkdir(parents=True)
+    workspace.mkdir()
+    write_session_meta(
+        root,
+        SessionMeta(
+            id=sid,
+            display_name="GLM optimization",
+            created=10.0,
+            last_active=20.0,
+        ),
+    )
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(_core, "_resolve_global_root", lambda _args: root)
+    monkeypatch.setattr(
+        _core,
+        "_resolve_session_id",
+        lambda *_args, **_kwargs: (sid, False),
+    )
+
+    bundle = _core._resolve_project_bundle(_args())
+    meta = read_session_meta(root, sid)
+
+    assert bundle.project_worktree == workspace.resolve()
+    assert meta is not None
+    assert meta.workdir == str(workspace.resolve())
+    assert meta.cwd == str(workspace.resolve())
+    assert meta.display_name == "GLM optimization"
+    assert meta.created == 10.0
+    assert meta.last_active == 20.0
+
+
 def test_cli_legacy_resume_prefers_last_daemon_workdir_over_state_cwd(
     tmp_path,
     monkeypatch,

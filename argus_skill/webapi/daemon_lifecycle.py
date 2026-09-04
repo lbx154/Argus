@@ -25,6 +25,7 @@ from ..core.session import (
     normalize_session_name,
     read_session_meta,
     resolve_session_workdir,
+    session_workdir_is_bound,
     session_lifecycle_lock,
     update_session_meta,
     write_session_meta,
@@ -69,7 +70,7 @@ def _worker_config_from_env(life_dir: Path, global_root: Path) -> LifeWorkerConf
         global_root=global_root,
     )
     meta = read_session_meta(global_root, life_dir.name)
-    if meta is None:
+    if not session_workdir_is_bound(meta):
         prior = _srv().read_daemon_status(life_dir).project_workdir
         project_workdir = migrate_legacy_session_workdir(
             global_root,

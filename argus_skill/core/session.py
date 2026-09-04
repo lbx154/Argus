@@ -76,6 +76,16 @@ class SessionMeta:
         )
 
 
+def session_workdir_is_bound(meta: SessionMeta | None) -> bool:
+    return bool(
+        meta is not None
+        and (
+            str(meta.workdir or "").strip()
+            or str(meta.cwd or "").strip()
+        )
+    )
+
+
 def resolve_session_workdir(
     meta: SessionMeta | None,
     *,
@@ -103,6 +113,8 @@ def resolve_session_workdir(
         if not resolved.is_dir():
             raise NotADirectoryError(f"legacy session cwd is not a directory: {resolved}")
         return resolved
+    if meta is not None:
+        raise FileNotFoundError("session metadata has no trustworthy workdir")
     return fallback
 
 
@@ -121,7 +133,7 @@ def migrate_legacy_session_workdir(
                 f"legacy session state directory is unavailable: {fallback}"
             )
         meta = read_session_meta(global_root, sid)
-        if meta is not None:
+        if session_workdir_is_bound(meta):
             return resolve_session_workdir(meta, state_dir=fallback)
         workdir: Path | None = None
         for candidate in candidates:
@@ -142,11 +154,10 @@ def migrate_legacy_session_workdir(
                 "legacy session has no trustworthy workdir; resume it once "
                 "from its project directory"
             )
-        meta = SessionMeta(
-            id=sid,
-            cwd=str(workdir),
-            workdir=str(workdir),
-        )
+        if meta is None:
+            meta = SessionMeta(id=sid)
+        meta.cwd = str(workdir)
+        meta.workdir = str(workdir)
         _write_session_meta_unlocked(global_root, meta)
         return workdir
 
