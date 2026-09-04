@@ -42,16 +42,16 @@ def _stage(stage: str) -> str:
     )
 
 
-def test_build_requires_fidelity_positive_control_and_real_baselines() -> None:
-    build = _stage("build")
+def test_experiment_requires_fidelity_positive_control_and_real_baselines() -> None:
+    experiment = _stage("experiment")
 
-    assert "hypothesis-to-code mapping" in build
-    assert "same executed path" in build
-    assert "positive control" in build
-    assert "strong published baselines" in build
-    assert "rename a local heuristic" in build
-    assert "public or official benchmarks" in build
-    assert "real evaluator" in build
+    assert "hypothesis-to-code mapping" in experiment
+    assert "same executed path" in experiment
+    assert "positive control" in experiment
+    assert "strong published baselines" in experiment
+    assert "rename a local heuristic" in experiment
+    assert "public or official benchmarks" in experiment
+    assert "real evaluator" in experiment
 
 
 def test_idea_is_source_only_and_never_reselects_after_implementation_failure() -> None:
@@ -67,7 +67,7 @@ def test_idea_is_source_only_and_never_reselects_after_implementation_failure() 
     assert "exploratory target" in playbook
     assert "do not manufacture twelve routes" in playbook
     assert "direct idea-only request" in playbook
-    assert "do not continue into build" in playbook
+    assert "do not continue into experiment" in playbook
 
 
 def test_experiments_are_adaptive_and_paper_requires_dominant_wins() -> None:

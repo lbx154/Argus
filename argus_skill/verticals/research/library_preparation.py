@@ -1,11 +1,11 @@
-"""Research-only Skill preparation for the five-stage workflow."""
+"""Research-only Skill preparation for the four-stage workflow."""
 from __future__ import annotations
 
 from ...core.vertical_contract import VerticalLibraryContext
 
 STAGE_PLAYBOOK_PATHS: dict[str, str] = {
     stage: f"research-{stage}-playbook.md"
-    for stage in ("idea", "build", "experiment", "paper", "review")
+    for stage in ("idea", "experiment", "paper", "review")
 }
 
 

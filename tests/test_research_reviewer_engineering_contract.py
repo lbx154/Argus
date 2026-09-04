@@ -35,7 +35,7 @@ def test_research_reviewer_prompt_disables_trust_first_shortcut(tmp_path) -> Non
         working_dir=tmp_path,
     )
 
-    assert "Separate implementation, evaluator, control, and scale defects" in prompt
+    assert "Separate implementation defects from scientific evidence" in prompt
     assert "never request rollback" in prompt
     assert "## Evidence policy" not in prompt
     assert "Trust consistent shown results" not in prompt

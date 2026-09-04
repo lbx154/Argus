@@ -569,20 +569,25 @@ def test_repeated_greeting_calls_frontdoor_every_time_without_cache(
         return None, None, "simple"
 
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
-    monkeypatch.setattr(
-        front_door,
-        "manager_triage",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("pure greeting must not make a second model call")
-        ),
-    )
+    triage_bodies: list[str] = []
+
+    def triage(mem, body, chat_state, **kwargs):
+        triage_bodies.append(body)
+        return "一切正常，任务仍在推进。"
+
+    monkeypatch.setattr(front_door, "manager_triage", triage)
 
     first = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
     second = manager_bridge.manager_message(sid, "你好", global_root=tmp_path)
 
-    expected = {"kind": "chat", "reply": "你好，我是 Argus Manager。"}
-    assert first == expected
-    assert second == expected
+    # Turn 1 has no prior context: the classifier's greeting reply is returned
+    # inline without a second model call.
+    assert first == {"kind": "chat", "reply": "你好，我是 Argus Manager。"}
+    # Turn 2 carries prior-turn context, so the greeting is answered by the
+    # persistent Manager rather than a replayed classifier reply.
+    assert second == {"kind": "chat", "reply": "一切正常，任务仍在推进。"}
+    assert len(triage_bodies) == 1
+    # The classifier ran on both turns — greeting replies are never cached.
     assert classify_calls == 2
 
 

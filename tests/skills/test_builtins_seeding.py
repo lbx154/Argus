@@ -62,7 +62,6 @@ RESEARCH_BASE_SKILLS = {
     "engineer/research-visualization-router.md",
     "engineer/research_visual_scripts/browser_render.py",
     "research-idea-playbook.md",
-    "research-build-playbook.md",
     "research-experiment-playbook.md",
     "research-paper-playbook.md",
     "research-review-playbook.md",

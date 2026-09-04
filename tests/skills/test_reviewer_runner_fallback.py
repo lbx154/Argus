@@ -14,7 +14,7 @@ from argus_skill.verticals.research import paper_infrastructure_review as infras
 from argus_skill.verticals.research._reviewer_runner_fallback import (
     ReviewerRunnerError,
 )
-from argus_skill.verticals.research.venue_profiles import EMNLP_PROFILE
+from tests.skills.researched_venues import EIGHT_PAGE_CONFERENCE
 
 
 def _explicit_env() -> dict[str, str]:
@@ -255,6 +255,6 @@ def test_gate_converts_runner_failure_to_handled_review_error(
             threshold=4.0,
             env={},
             timeout=7.0,
-            venue=EMNLP_PROFILE,
+            venue=EIGHT_PAGE_CONFERENCE,
             **kwargs,
         )

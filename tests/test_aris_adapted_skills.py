@@ -194,41 +194,28 @@ def test_seed_builtin_skills_copies_bundled_scripts(tmp_path: Path) -> None:
     assert renderer.read_text(encoding="utf-8") == in_tree.read_text(encoding="utf-8")
 
 
-def test_plan_review_skill_has_rl_config_sanity_section() -> None:
-    """The plan-review skill must teach the L2 reviewer to reject
-    structurally-unlearnable RL configs at the plan stage (before GPU spend).
+def test_rl_config_sanity_lives_in_collapse_diagnosis_skill() -> None:
+    """Structurally-unlearnable RL configs are still caught before GPU spend.
+
+    The separate plan-review stage skill no longer exists (design and
+    experiment merged into one adaptive stage), so the pre-launch knob-sanity
+    pass lives in the collapse-diagnosis skill's "before launching" use.
     """
 
-    md = RESEARCH_ROOT / "reviewer" / "experiment-plan-review.md"
+    md = BUILTIN_ROOT / "engineer" / "rl-training-collapse-diagnosis.md"
     text = md.read_text(encoding="utf-8")
-    # The scored 6th dimension + its output key.
-    assert "RL training-configuration sanity" in text
-    assert "rl_config_sanity" in text
-    # The hard-blocker auto-fails for at-a-glance rejects.
-    assert "RL post-training auto-fails" in text
+    assert "structurally learnable" in text
     assert "num_generations" in text
     assert "max_completion_length" in text
-    # Concrete length-budget yardsticks so the reviewer can actually JUDGE
-    # "max_len too short" instead of eyeballing it.
-    assert "p95" in text
-    assert "Reference floors" in text
-    assert "auto-reject" in text
-    # Asymmetric-error stance: default to the max the budget allows.
-    assert "as large as the context window" in text
-    assert "floor, not a target" in text
-    # Cross-references the in-flight collapse skill.
-    assert "rl-training-collapse-diagnosis.md" in text
+    # All three uses: pre-launch sanity, live-run watching, post-hoc attribution.
+    assert "BEFORE launching" in text
 
 
 def test_research_review_uses_continuous_result_judgment() -> None:
-    plan = (
-        RESEARCH_ROOT / "reviewer" / "experiment-plan-review.md"
-    ).read_text(encoding="utf-8")
     results = (
         RESEARCH_ROOT / "reviewer" / "experiment-results-review.md"
     ).read_text(encoding="utf-8")
 
-    for text in (plan, results):
-        assert "hard numeric" in text
-        assert "scientifically" in text
-        assert "meaningful dimension" in text
+    assert "hard numeric" in results
+    assert "scientifically" in results
+    assert "meaningful dimension" in results

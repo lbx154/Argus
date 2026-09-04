@@ -65,12 +65,13 @@ def test_unknown_venue_does_not_block_review_with_profile_artifacts(
     assert "`venue.profile`" not in review
 
 
-def test_full_pipeline_has_only_five_research_stages(tmp_path: Path) -> None:
+def test_full_pipeline_has_only_four_research_stages(tmp_path: Path) -> None:
     checklist = format_full_pipeline_checklist(
         role="reviewer",
         project_root=_project(tmp_path, "EMNLP"),
     )
-    for stage in ("idea", "build", "experiment", "paper", "review"):
+    for stage in ("idea", "experiment", "paper", "review"):
         assert f"### {stage}" in checklist
+    assert "### build" not in checklist
     assert "### submission" not in checklist
     assert "VENUE_PROFILE" not in checklist

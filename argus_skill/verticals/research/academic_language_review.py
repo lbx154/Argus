@@ -1,4 +1,4 @@
-"""Generate final academic-language review artifacts for EMNLP/AAAI papers."""
+"""Generate the final academic-language review materials for the paper."""
 from __future__ import annotations
 
 import argparse
@@ -43,9 +43,8 @@ ACADEMIC_LANGUAGE_REVIEW_MD_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.md")
 MIN_ACADEMIC_LANGUAGE_SCORE = 4.0
 DEFAULT_TIMEOUT_SECONDS: float | None = None
 MAX_SOURCE_FILES = 120
+REQUIRED_ABSTRACT_SENTENCES = 5
 MIN_REVIEW_ABSTRACT_WORDS = 170
-INTRODUCTION_DEPTH_SIGNAL_WORDS = 900
-MIN_INTRODUCTION_CITATION_KEYS = 3
 REVIEW_SOURCE_CONTEXT_CHAR_LIMIT = 70000
 PINNED_REVIEW_CONTEXT_CHAR_LIMIT = 32000
 NUMBERED_REVIEW_CONTEXT_CHAR_LIMIT = 42000
@@ -114,27 +113,6 @@ HYPE_PATTERNS: tuple[tuple[str, str], ...] = (
     ("unsupported_significant_language", r"\bsignificant(?:ly)? improves?\b"),
 )
 
-INTRODUCTION_RESULT_VALUE_PATTERN = (
-    r"\d+(?:\.\d+)?\s*(?:\\?%|percentage\s+points?|points?|pp)|"
-    r"\d+\s*/\s*\d+"
-)
-
-INTRODUCTION_RESULT_PREVIEW_PATTERN = (
-    r"\b(?:achiev\w*|reach\w*|solv\w*|outperform\w*|improv\w*|increase\w*|"
-    r"reduce\w*|recover\w*|yield\w*|lift\w*|gain\w*|win\w*|success|"
-    r"accuracy|score)\b"
-    rf".{{0,100}}(?:{INTRODUCTION_RESULT_VALUE_PATTERN})"
-    rf"|(?:{INTRODUCTION_RESULT_VALUE_PATTERN})"
-    r".{0,100}\b(?:success|accuracy|score|improv\w*|outperform\w*|"
-    r"increase\w*|reduce\w*|lift\w*|gain\w*)\b"
-)
-
-INTRODUCTION_ROADMAP_PATTERN = (
-    r"\b(?:we|this paper|our)\s+"
-    r"(?:make|offer|propose|introduce|present|evaluate|study|show|report)\b|"
-    r"\b(?:contribution|contributions|we show|we find)\b"
-)
-
 ABSTRACT_READER_HOSTILE_PATTERNS: tuple[tuple[str, str, str], ...] = (
     (
         "abstract_references_layout_artifact",
@@ -195,53 +173,6 @@ SECTION_SYNONYMS: dict[str, tuple[str, ...]] = {
     "limitations": ("limitations", "limitations and broader impact", "discussion"),
 }
 
-EVALUATED_SYSTEM_DETAIL_PATTERNS: tuple[tuple[str, str, str], ...] = (
-    (
-        "missing_method_framework_or_runtime",
-        r"\b(?:agent framework|framework|runtime|harness|benchmark driver|"
-        r"evaluation suite|simulator|controller|"
-        r"orchestrator|policy engine|python\s+\d|implementation)\b",
-        (
-            "method/setup must name the evaluated paper system, benchmark "
-            "harness, implementation, or controller, not the paper-generation "
-            "infrastructure"
-        ),
-    ),
-    (
-        "missing_method_agent_mechanism",
-        r"\b(?:agent|planner|skill|memory|retrieval|tool|verifier|reflection|"
-        r"policy|routing|controller|state|admission|promotion|gate)\b",
-        "method/setup must explain the agent mechanism rather than only reporting scores",
-    ),
-    (
-        "missing_method_evaluation_protocol",
-        r"\b(?:baseline|benchmark|task|episode|trial|metric|budget|temperature|token|"
-        r"cost|scored|run)\b",
-        "method/setup must give enough evaluation protocol detail to interpret the results",
-    ),
-)
-
-MODEL_IDENTIFIER_PATTERN = (
-    r"\b(?:gpt[-_ ]?\d(?:[\w.\-:]*)?|o\d(?:[\w.\-:]*)?|claude[-_ ]?\d(?:[\w.\-:]*)?|"
-    r"gemini[-_ ]?\d(?:[\w.\-:]*)?|llama[-_ ]?\d(?:[\w.\-:]*)?|qwen[-_ ]?\d(?:[\w.\-:]*)?|"
-    r"mistral(?:[\w.\-:]*)?|deepseek(?:[\w.\-:]*)?|pairscorer(?:[-_\s]*base)?|pair\s+scorer(?:[-_\s]*base)?|"
-    r"candidate[-\s]+ranking\s+(?:scorer|backend|model)|branch[-\s]+selection\s+scorer|"
-    r"auxiliary\s+operation\s+prediction)\b"
-)
-
-MODEL_USE_CONTEXT_PATTERN = (
-    r"\b(?:llm|large language model|language model|prompt(?:ed|ing)?|"
-    r"temperature|decoding|token budget|model route|model call|api call|"
-    r"openai|anthropic|gemini|claude|gpt[-_ ]?\d|llama[-_ ]?\d|qwen[-_ ]?\d)\b"
-)
-
-NO_EXTERNAL_MODEL_PATTERN = (
-    r"\b(?:no|without|does not|do not|never)\s+(?:call|use|invoke|query|run)\s+"
-    r"(?:an?\s+)?(?:external\s+)?(?:llm|large language model|language model|model|api)\b|"
-    r"\bbenchmark loop itself does not call an external llm\b|"
-    r"\bdeterministic\b.{0,100}\b(?:symbolic|no external llm|without external llm)\b"
-)
-
 class AcademicLanguageReviewError(RuntimeError):
     """Raised when an academic-language review cannot be generated."""
 
@@ -253,7 +184,7 @@ def generate_academic_language_review(
     threshold: float = MIN_ACADEMIC_LANGUAGE_SCORE,
     timeout: float | None = DEFAULT_TIMEOUT_SECONDS,
     iteration: int | None = None,
-    write: bool = True,
+    write: bool = False,
     env: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Review paper prose and optionally persist review artifacts."""
@@ -399,6 +330,85 @@ def _neutral_language_facts(tex_text: str) -> dict[str, Any]:
         "section_titles": _extract_section_titles(tex_text),
         "body_word_count": _word_count(plain),
         "placeholder_marker_count": placeholder_count,
+        "narrative_packaging": _narrative_packaging_facts(tex_text),
+    }
+
+
+def _narrative_packaging_facts(tex_text: str) -> dict[str, Any]:
+    """Return candidates for Reviewer judgment, never host quality verdicts."""
+    source = _strip_latex_comments(tex_text)
+    audit_pattern = re.compile(
+        r"\b(?:validation gate|review gate|evidence[- ]chain|claim[- ]bearing|"
+        r"audit matrix|artifact status|validator status|passed (?:all|the) checks?)\b",
+        re.I,
+    )
+    audit_matches = list(audit_pattern.finditer(source))
+    audit_spans = _regex_match_spans(source, audit_matches, limit=20)
+
+    prose_source = source
+    document_start = prose_source.find(r"\begin{document}")
+    if document_start >= 0:
+        prose_source = prose_source[document_start:]
+    prose_source = re.sub(
+        r"\\begin\{(table\*?|figure\*?|longtable)\}.*?\\end\{\1\}",
+        " ",
+        prose_source,
+        flags=re.S,
+    )
+    plain = _latex_to_plain_text(prose_source)
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", plain)
+        if sentence.strip()
+    ]
+    control_terms = re.compile(
+        r"\b(?:control|ablation|sanity check|random[- ]adjusted|powered|"
+        r"null|negative control|positive control|robustness check)\b",
+        re.I,
+    )
+    control_checklist_candidates = [
+        sentence[:240]
+        for sentence in sentences
+        if len(control_terms.findall(sentence)) >= 3
+    ][:6]
+    dense_numeric_candidates = [
+        sentence[:240]
+        for sentence in sentences
+        if len(re.findall(r"(?<![A-Za-z])[-+]?\d+(?:\.\d+)?%?", sentence)) >= 4
+    ][:6]
+
+    captions = [
+        match.group(1)
+        for match in re.finditer(r"\\caption(?:\[[^\]]*\])?\s*\{([^{}]*)\}", source, re.S)
+    ]
+    numerical_captions = [
+        caption
+        for caption in captions
+        if re.search(r"(?<![A-Za-z])[-+]?\d+(?:\.\d+)?\s*(?:%|pp|points?)?", caption)
+    ]
+    inference_captions = [
+        caption
+        for caption in captions
+        if re.search(
+            r"\b(?:shows?|indicates?|supports?|suggests?|implies?|reveals?|"
+            r"predict\w*|locat\w*|plac\w*|mak\w*|motivat\w*|informative|"
+            r"consistent with|rules? out|therefore|whereas)\b",
+            _latex_to_plain_text(caption),
+            re.I,
+        )
+    ]
+    return {
+        "audit_language_count": len(audit_matches),
+        "audit_language_spans": audit_spans,
+        "control_checklist_candidates": control_checklist_candidates,
+        "dense_numeric_sentence_candidates": dense_numeric_candidates,
+        "caption_count": len(captions),
+        "numerical_caption_count": len(numerical_captions),
+        "caption_with_inference_count": len(inference_captions),
+        "interpretation": (
+            "candidate measurements only: repeated headline numbers and dense scientific "
+            "content are not defects without a section-role or inference failure"
+        ),
     }
 
 
@@ -529,19 +539,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
             )
         )
     else:
-        sentence_count = _sentence_count(abstract_plain)
-        if sentence_count < 4 or sentence_count > 6:
-            score_penalty += 0.6
-            section_scores["abstract"] = min(section_scores["abstract"], 3.5)
-            required_checks["five_sentence_abstract_or_equivalent"] = False
-            issues.append(
-                _issue(
-                    "weak_abstract_shape",
-                    "major",
-                    f"abstract has {sentence_count} sentence(s); target five evidence-backed sentences",
-                    action="rewrite_abstract",
-                )
-            )
         for code, message, penalty, score_cap in _abstract_quality_issue_specs(abstract, venue=venue):
             score_penalty += penalty
             section_scores["abstract"] = min(section_scores["abstract"], score_cap)
@@ -575,76 +572,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                 "major",
                 f"paper is missing an expected {section_key.replace('_', ' ')} section",
                 action=_missing_section_action(section_key),
-            )
-        )
-
-    introduction_plain = _section_text(tex_text, "introduction")
-    if introduction_plain.strip():
-        introduction_words = _word_count(introduction_plain)
-        if introduction_words < INTRODUCTION_DEPTH_SIGNAL_WORDS:
-            issues.append(
-                _issue(
-                    "thin_introduction_depth_signal",
-                    "minor",
-                    (
-                        f"introduction has {introduction_words} words; this is a "
-                        "reviewer signal, not an automatic rejection. Judge whether "
-                        "the opening actually explains the problem, literature gap, "
-                        "method insight, result preview, contributions, and scope "
-                        "within the rendered eight-page body budget."
-                    ),
-                    action="rewrite_introduction",
-                )
-            )
-        for code, message in find_introduction_readability_issues(tex_text):
-            score_penalty += 0.6
-            section_scores["introduction"] = min(section_scores["introduction"], 3.1)
-            section_scores["contribution_framing"] = min(
-                section_scores["contribution_framing"], 3.4
-            )
-            required_checks["clear_problem_gap_contribution"] = False
-            issues.append(
-                _issue(
-                    code,
-                    "major",
-                    message,
-                    action="rewrite_introduction",
-                )
-            )
-
-    contribution_context = " ".join([abstract_plain, _section_text(tex_text, "introduction")])
-    if not _has_reader_facing_contribution(contribution_context):
-        score_penalty += 0.8
-        section_scores["contribution_framing"] = min(section_scores["contribution_framing"], 3.0)
-        required_checks["clear_problem_gap_contribution"] = False
-        issues.append(
-            _issue(
-                "missing_evidence_backed_contribution_sentence",
-                "major",
-                (
-                    "paper needs a reader-facing contribution sentence or paragraph that "
-                    "names the method, task/context, measured effect, and design lever "
-                    "or scoped comparator; name a mechanism only when the current "
-                    "ablations isolate it"
-                ),
-                action="tighten_contribution_sentence",
-            )
-        )
-
-    for code, message in find_method_system_readability_issues(tex_text):
-        score_penalty += 0.45
-        section_scores["method_system_clarity"] = min(
-            section_scores["method_system_clarity"], 3.2
-        )
-        section_scores["style_and_clarity"] = min(section_scores["style_and_clarity"], 3.7)
-        required_checks["method_system_readable"] = False
-        issues.append(
-            _issue(
-                code,
-                "major",
-                message,
-                action="clarify_method_mechanism",
-                target="paper/main.tex",
             )
         )
 
@@ -710,19 +637,6 @@ def _deterministic_assessment(tex_text: str, *, venue: VenueProfile) -> dict[str
                 "major",
                 f"display prose contains code-like labels: {', '.join(sorted(code_labels)[:4])}",
                 action="rename_code_like_label",
-            )
-        )
-
-    if not _has_quantified_claim(plain):
-        score_penalty += 0.7
-        section_scores["evidence_alignment"] = min(section_scores["evidence_alignment"], 3.2)
-        required_checks["evidence_aligned_claims"] = False
-        issues.append(
-            _issue(
-                "missing_quantified_evidence_claim",
-                "major",
-                "paper needs at least one quantified result tied to the headline claim",
-                action="add_evidence_sentence",
             )
         )
 
@@ -817,29 +731,6 @@ def _run_model_review(
     return parsed
 
 
-def _spell_small_number(value: int) -> str:
-    """Spell a small page count as an English word for agent-facing prose.
-
-    Keeps EMNLP's original ``"eight-page body budget"`` byte-identical while
-    letting every venue derive the same phrasing from its ``body_page_limit``
-    (AAAI -> ``"seven-page"``). Falls back to the numeric form for values
-    outside the expected page-budget range.
-    """
-    words = {
-        1: "one",
-        2: "two",
-        3: "three",
-        4: "four",
-        5: "five",
-        6: "six",
-        7: "seven",
-        8: "eight",
-        9: "nine",
-        10: "ten",
-    }
-    return words.get(value, str(value))
-
-
 def _review_prompt(
     *,
     source_text_by_path: Mapping[str, str],
@@ -848,51 +739,23 @@ def _review_prompt(
     venue: VenueProfile,
 ) -> str:
     source_context = _review_source_context(source_text_by_path)
-    if venue.key == "FRONTIERS_SLEEP":
-        return _frontiers_sleep_review_prompt(
-            source_context=source_context,
-            deterministic=deterministic,
-            threshold=threshold,
-            venue=venue,
-        )
-    # Venue-local strings, all derived from the resolved profile so neither
-    # venue gets a hardcoded special path. EMNLP's profile fields reproduce the
-    # exact original tokens ("EMNLP long paper", the ACL/EMNLP hard-floor
-    # standard, an eight-page body budget) so its prompt — and the persisted
-    # prompt_sha256 — stays byte-identical; AAAI derives its own persona, page
-    # budget, and (advisory) abstract policy from the same fields.
-    #
-    # ``abstract_word_floor_is_hard`` is the ACL-family axis: venues that keep a
-    # hard abstract floor (EMNLP/ACL) also render the long-paper persona and the
-    # spelled-out body budget; advisory-floor venues (AAAI) use the plain persona
-    # and the numeric body budget. This keeps both venues' wording profile-driven
-    # rather than branching on ``venue.key``.
+    # All venue-local strings derive from the researched profile; no venue has
+    # a hardcoded special path.
     intro_label = venue.reviewer_persona
-    if venue.abstract_word_floor_is_hard:
-        persona_label = f"{venue.reviewer_persona} long paper"
-        abstract_standard = (
-            f"Apply this ACL/{venue.reviewer_persona} standard: abstracts under "
-            f"{venue.abstract_word_floor} words are too thin. "
-        )
-        body_budget_phrase = (
-            f"{_spell_small_number(venue.body_page_limit)}-page body budget"
-            if venue.has_fixed_page_budget
-            else venue.page_budget_line()
-        )
-    else:
-        persona_label = f"{venue.reviewer_persona} paper"
-        abstract_standard = (
-            f"{venue.reviewer_persona} sets no official abstract word limit, so treat any abstract "
-            "word target as advisory only and judge the abstract on whether it states problem, gap, "
-            "method, result, and implication rather than on a fixed minimum length. "
-        )
-        body_budget_phrase = (
-            f"{venue.body_page_limit}-page body budget"
-            if venue.has_fixed_page_budget
-            else venue.page_budget_line()
-        )
+    abstract_standard = (
+        f"Require exactly {REQUIRED_ABSTRACT_SENTENCES} evidence-backed sentences and "
+        f"at least {MIN_REVIEW_ABSTRACT_WORDS} words in the abstract. Use that space to "
+        "connect the problem, gap, method, selected headline result, and implication; "
+        "do not turn the five sentences into a flat experiment checklist. "
+    )
+    body_budget_phrase = (
+        f"{venue.body_page_limit}-page body budget"
+        if venue.has_fixed_page_budget
+        else venue.page_budget_line()
+    )
     return (
-        f"You are the final academic-language reviewer for an {persona_label}. "
+        f"You are the final academic-language reviewer for a paper submitted to "
+        f"{venue.display_name}. "
         "Reject papers that read like generic agent output: template LLM openings, "
         "unsupported hype, vague claims, weak contribution framing, experiment dumps "
         "without a What/Why/So-What story, ungrouped related work, repeated "
@@ -908,6 +771,23 @@ def _review_prompt(
         "whose sections read as parallel unconnected experiments, whose "
         "contribution is only 'we ran X on Y', or where no single sentence could "
         "name what the paper is about. "
+        "Preserve the full scientific backend while judging the reader-facing "
+        "hierarchy. Classify evidence by what it does: headline evidence establishes "
+        "the thesis, mechanism evidence explains it, disambiguating controls rule out "
+        "credible alternatives, scope-changing evidence bounds it, and completeness "
+        "evidence keeps the comparison and reproduction record whole. Require the "
+        "complete methods, baselines, controls, adverse results, uncertainty, and "
+        "result matrices to remain in an appropriate prose, table, Methods, caption, "
+        "Appendix, or cross-reference carrier. Do not require every matrix cell to be "
+        "recited in prose. Exact headline numbers may recur in Abstract, Introduction, "
+        "Results, captions, and Conclusion when each occurrence performs that section's "
+        "different job; never reject by a mechanical repetition count. Every figure and "
+        "table caption still needs a numerical takeaway, but it should select the result "
+        "that answers the figure's question and explain its inference rather than narrate "
+        "every row or bar. Treat the deterministic checklist/density matches below only "
+        "as places to inspect: distinguish necessary scientific density from flat report "
+        "recital, and also flag papers that are too sparse to support or interpret the "
+        "claim. "
         "Evidence spans are reviewer-internal audit artifacts: do not ask "
         "authors to paste source paths, appendix/figure references, validation-gate "
         "vocabulary, or evidence quotes into the abstract to satisfy this review. Reject "
@@ -991,54 +871,6 @@ def _review_prompt(
         "comparison. If no material defect remains, say so plainly. The review is advisory to "
         "the agent checklist. Do not quote LaTeX boilerplate or comments as evidence.\n\n"
         f"Deterministic signals:\n{json.dumps(deterministic, ensure_ascii=False)[:7000]}\n\n"
-        f"Reviewer source context:\n{source_context}"
-    )
-
-
-def _frontiers_sleep_review_prompt(
-    *,
-    source_context: str,
-    deterministic: dict[str, Any],
-    threshold: float,
-    venue: VenueProfile,
-) -> str:
-    """Frontiers-native language rubric for Hypothesis and Theory articles."""
-
-    return (
-        f"You are the final academic-language reviewer for a {venue.display_name} "
-        "Hypothesis and Theory article. Judge it as a biomedical sleep-science "
-        "manuscript, not as an ML conference systems paper. Do not require agent "
-        "controllers, benchmark families, model backends, decoding budgets, baselines, "
-        "or a cross-benchmark results matrix unless the manuscript itself makes such "
-        "claims.\n\n"
-        "Require a single-paragraph abstract that clearly states the scientific problem, "
-        "the literature gap, the proposed testable hypothesis or model, the status and "
-        "uncertainty of any executed evidence, the proposed discriminating test, and the "
-        "bounded implication. The Introduction must ground the gap in specific cited "
-        "sleep/circadian literature before presenting the conceptual synthesis. The body "
-        "must accurately distinguish inherited theory, original analysis, interpretation, "
-        "planned work, alternative explanations, falsifiers, and clinical limits. A "
-        "Hypothesis and Theory article may contain an unimplemented protocol, but planned "
-        "sample sizes and anticipated outcomes must never read as recruited participants "
-        "or observed results. Null or crossed-zero uncertainty must be stated without spin.\n\n"
-        f"Enforce the live venue contract: {venue.page_budget_line()}, international-"
-        "standard English, Frontiers Harvard author-date references, reader-facing "
-        "section titles, and a public generative-AI disclosure when AI assisted text or "
-        "figures. The disclosure should identify the technology name, version, model, and "
-        "source at the appropriate public abstraction, while omitting private routes, "
-        "credentials, daemons, internal reviewer/engineer orchestration, and local artifact "
-        "paths. Reject unsupported efficacy, treatment, generalization, priority, or "
-        "causal claims. Do not ask the authors to paste validation vocabulary, source "
-        "paths, evidence quotes, or defensive audit prose into the manuscript.\n\n"
-        "Calibrate severity tightly. Separate publication-blocking defects from optional "
-        "polish, and give one coherent paragraph-level repair plan instead of oscillating "
-        "micro-edits. Write a prose review, not JSON. Order findings by severity; for each "
-        "material finding give the source path and line or section, quote the reader-facing "
-        "evidence, and suggest a concrete fix. If no material defect remains, say so plainly. "
-        "The review is advisory to the agent checklist. Do not quote LaTeX boilerplate or "
-        "comments as evidence.\n\n"
-        f"Deterministic signals:\n"
-        f"{json.dumps(deterministic, ensure_ascii=False)[:7000]}\n\n"
         f"Reviewer source context:\n{source_context}"
     )
 
@@ -1335,94 +1167,6 @@ def _word_count(text: str) -> int:
 
 
 
-def find_introduction_readability_issues(tex_text: str) -> list[tuple[str, str]]:
-    """Return introduction issues that make a draft read like agent filler."""
-
-    intro_source = _raw_section_text(tex_text, "introduction")
-    intro_plain = _latex_to_plain_text(intro_source)
-    if not intro_plain.strip():
-        return []
-
-    issues: list[tuple[str, str]] = []
-    citation_keys = _citation_keys_from_latex(intro_source)
-    if len(citation_keys) < MIN_INTRODUCTION_CITATION_KEYS:
-        issues.append(
-            (
-                "introduction_missing_literature_hooks",
-                (
-                    "Introduction must situate the problem before Related Work with "
-                    f"at least {MIN_INTRODUCTION_CITATION_KEYS} verified cited "
-                    "prior-work or benchmark hooks; otherwise the opening reads "
-                    "like project-local motivation rather than a conference paper"
-                ),
-            )
-        )
-
-    if not re.search(INTRODUCTION_RESULT_PREVIEW_PATTERN, intro_plain, re.I | re.S):
-        issues.append(
-            (
-                "introduction_missing_quantified_result_preview",
-                (
-                    "Introduction must preview the main empirical result with a "
-                    "verified number or effect size before the Results section; "
-                    "otherwise reviewers cannot tell what evidence the paper is "
-                    "asking them to evaluate"
-                ),
-            )
-        )
-
-    if not re.search(INTRODUCTION_ROADMAP_PATTERN, intro_plain, re.I):
-        issues.append(
-            (
-                "introduction_missing_contribution_roadmap",
-                (
-                    "Introduction must include a reader-facing contribution roadmap "
-                    "that names the method, evaluated setting, main result, and "
-                    "scope before the paper moves to Related Work"
-                ),
-            )
-        )
-    return issues
-
-
-def find_method_system_readability_issues(tex_text: str) -> list[tuple[str, str]]:
-    """Return method/setup issues that make the paper unreadable to outside reviewers."""
-
-    context = " ".join(
-        _section_text(tex_text, title)
-        for title in (
-            "method",
-            "approach",
-            "system",
-            "implementation",
-            "experimental setup",
-            "experiments",
-            "evaluation",
-        )
-    )
-    if not context.strip():
-        context = _latex_to_plain_text(tex_text)
-    issues: list[tuple[str, str]] = []
-    for code, pattern, message in EVALUATED_SYSTEM_DETAIL_PATTERNS:
-        if not re.search(pattern, context, re.I):
-            issues.append((code, message))
-    if (
-        re.search(MODEL_USE_CONTEXT_PATTERN, context, re.I)
-        and not re.search(MODEL_IDENTIFIER_PATTERN, context, re.I)
-        and not re.search(NO_EXTERNAL_MODEL_PATTERN, context, re.I)
-    ):
-        issues.append(
-            (
-                "missing_method_model_identifier",
-                (
-                    "method/setup mentions external model-style execution but does "
-                    "not name the paper-facing evaluated model or backend identifier"
-                ),
-            )
-        )
-    return issues
-
-
 def _abstract_quality_issue_specs(
     abstract: str, *, venue: VenueProfile
 ) -> list[tuple[str, str, float, float]]:
@@ -1433,15 +1177,30 @@ def _abstract_quality_issue_specs(
     abstract_without_comments = _strip_latex_comments(abstract)
     abstract_plain = _latex_to_plain_text(abstract)
 
+    sentence_count = _sentence_count(abstract_plain)
+    if sentence_count != REQUIRED_ABSTRACT_SENTENCES:
+        issues.append(
+            (
+                "weak_abstract_shape",
+                (
+                    f"abstract has {sentence_count} sentence(s); require exactly "
+                    f"{REQUIRED_ABSTRACT_SENTENCES} evidence-backed sentences with distinct "
+                    "problem, gap, method, headline-result, and implication roles"
+                ),
+                0.6,
+                3.5,
+            )
+        )
+
     abstract_words = _word_count(abstract_plain)
     if abstract_words < MIN_REVIEW_ABSTRACT_WORDS:
         issues.append(
             (
                 "thin_abstract",
                 (
-                    f"abstract has {abstract_words} words; final {venue.reviewer_persona} abstracts "
-                    f"should be at least {MIN_REVIEW_ABSTRACT_WORDS} words and cover "
-                    "problem, gap, method, model/benchmark, result, and implication"
+                    f"abstract has {abstract_words} words; require at least "
+                    f"{MIN_REVIEW_ABSTRACT_WORDS} words so the five-sentence argument can "
+                    "connect problem, method, selected evidence, and implication"
                 ),
                 0.6,
                 3.5,
@@ -1513,43 +1272,6 @@ def _first_sentence(text: str) -> str:
     return parts[0] if parts else ""
 
 
-def _has_reader_facing_contribution(text: str) -> bool:
-    lower = text.lower()
-    has_method_or_artifact = bool(
-        re.search(
-            r"\b(?:we|this paper|our|the paper)\b.{0,100}"
-            r"\b(?:propos\w*|introduc\w*|present\w*|develop\w*|study|"
-            r"evaluate\w*|report\w*)\b",
-            lower,
-            re.S,
-        )
-        or re.search(
-            r"\b(?:method|approach|system|framework|protocol|benchmark|skill|agent)\b",
-            lower,
-        )
-    )
-    has_measured_effect = bool(
-        _has_quantified_claim(text)
-        or re.search(
-            r"\b(?:show\w*|find\w*|demonstrat\w*|achiev\w*|improv\w*|"
-            r"increas\w*|reduc\w*|outperform\w*|beat\w*|recover\w*|"
-            r"rais\w*|yield\w*)\b.{0,120}"
-            r"(?:\d+(?:\.\d+)?\s*(?:%|points?|pp)?|\d+\s*/\s*\d+|p\s*[<=>]\s*0?\.\d+)",
-            lower,
-            re.S,
-        )
-    )
-    has_design_or_scope = bool(
-        re.search(
-            r"\b(?:because|by|via|through|using|with|under|from|against|"
-            r"relative to|compared (?:with|to)|end-to-end|policy|comparator|"
-            r"baseline|ablation|benchmark|slice|setting)\b",
-            lower,
-        )
-    )
-    return has_method_or_artifact and has_measured_effect and has_design_or_scope
-
-
 def _opening_text(plain: str) -> str:
     return plain[:1800]
 
@@ -1563,36 +1285,6 @@ def _find_display_code_labels(tex_text: str) -> set[str]:
         for match in re.finditer(r"\b[A-Za-z][A-Za-z0-9]*(?:\\_)[A-Za-z0-9][A-Za-z0-9\\_]*\b", context):
             labels.add(match.group(0).strip())
     return {label for label in labels if label}
-
-
-def _has_quantified_claim(plain: str) -> bool:
-    text = plain.replace(r"\%", "%")
-    quantity = (
-        r"(?:\d+(?:\.\d+)?\s*(?:%|points?|pp)|"
-        r"\d+\s*/\s*\d+|p\s*[<=>]\s*0?\.\d+)"
-    )
-    outcome = (
-        r"(?:success|completion|pass rate|accuracy|score|solv\w*|"
-        r"repair\w*|recover\w*|win rate|verified completion)"
-    )
-    return bool(
-        re.search(
-            r"\b(?:improv\w*|increase\w*|reduce\w*|outperform\w*|beat\w*|"
-            r"recover\w*|raise\w*|yield\w*)\b.{0,100}" + quantity,
-            text,
-            re.I | re.S,
-        )
-        or re.search(
-            quantity
-            + r".{0,140}\b(?:vs\.?|versus|compared (?:with|to)|relative to|"
-            r"against|over)\b.{0,140}"
-            + quantity,
-            text,
-            re.I | re.S,
-        )
-        or re.search(r"\b" + outcome + r"\b.{0,140}" + quantity, text, re.I | re.S)
-        or re.search(quantity + r".{0,140}\b" + outcome + r"\b", text, re.I | re.S)
-    )
 
 
 def _review_source_context(source_text_by_path: Mapping[str, str]) -> str:

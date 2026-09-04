@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -48,9 +49,43 @@ def _parallel_final_review_passes(
     verdict = str(read_pipeline_state(state_root).get("current_verdict") or "")
     if (
         current_stage(state_root) != "review"
-        or verdict not in {"", "in_progress", "mapped_stage_requires_current_review"}
+        or verdict
+        not in {
+            "",
+            "continue",
+            "in_progress",
+            "mapped_stage_requires_current_review",
+        }
     ):
         return None
+    comparison_mode = bool(config.narrative_snapshot_root)
+    comparison = None
+    if comparison_mode:
+        from ..core.manuscript_narrative_runtime import snapshot_after_edit
+
+        try:
+            comparison = snapshot_after_edit(
+                workdir,
+                config.narrative_snapshot_root or "",
+            )
+        except (OSError, ValueError, KeyError, RuntimeError) as exc:
+            return ReviewDecision(
+                status="continue",
+                reason=f"ScientificLoss shadow pass unavailable: {exc}",
+                next_action=(
+                    "Restore a readable immutable pre-edit snapshot, then rerun the "
+                    "semantic-loss comparison."
+                ),
+            )
+        from ..core.manuscript_narrative_runtime import rendered_pdf_freshness
+
+        pdf_is_current, pdf_status = rendered_pdf_freshness(workdir)
+        if not pdf_is_current:
+            return ReviewDecision(
+                status="continue",
+                reason=f"ColdRead shadow pass unavailable: {pdf_status}",
+                next_action="Compile the current manuscript before the PDF-only cold read.",
+            )
 
     common = (
         "Read the current paper in read-only mode. Do not edit files. Start from "
@@ -58,28 +93,86 @@ def _parallel_final_review_passes(
         "needed for this assigned pass. Return a concise pass/fail assessment with "
         "specific blocking findings and repairs."
     )
-    prompts = {
-        "Scientific": (
-            common
-            + " Check the complete thesis, novelty, claim-to-code fidelity, positive "
-            "controls, strongest same-information baselines, evidence, citations, and "
-            "whether every necessary experiment and section is present."
-        ),
-        "Visual": (
-            common
-            + " Inspect every rendered page and every included figure and table at "
-            "publication scale. Reject visible overlap, clipping, overflow, connector "
-            "penetration, wrong arrows, unreadable labels, malformed tables, misleading "
-            "plots, abnormal whitespace, broken float placement, or inconsistent "
-            "typography."
-        ),
-        "Language": (
-            common
-            + " Check academic language and argument flow. Identify exact revisions for "
-            "confident, precise prose without defensive boilerplate, experiment chronology, "
-            "internal workflow language, repeated caveats, or integrity self-praise."
-        ),
-    }
+    if comparison is None:
+        # Compatibility for direct callers that have not entered the narrative-edit
+        # operation. Production Review missions always provide an immutable baseline.
+        prompts = {
+            "Scientific": (
+                common
+                + " Check the complete thesis, novelty, claim-to-code fidelity, positive "
+                "controls, strongest same-information baselines, evidence, citations, and "
+                "whether every necessary experiment and section is present."
+            ),
+            "Visual": (
+                common
+                + " Inspect every rendered page and every included figure and table at "
+                "publication scale. Reject visible overlap, clipping, overflow, connector "
+                "penetration, wrong arrows, unreadable labels, malformed tables, misleading "
+                "plots, abnormal whitespace, broken float placement, or inconsistent "
+                "typography."
+            ),
+            "Language": (
+                common
+                + " Check academic language and argument flow. Identify exact revisions for "
+                "confident, precise prose without defensive boilerplate, experiment "
+                "chronology, internal workflow language, repeated caveats, or integrity "
+                "self-praise."
+            ),
+        }
+    else:
+        from ..roles.prompts import ChecklistMode, resolve_role_prompt
+        from ..roles.prompts.reviewer import (
+            COLD_READ,
+            SCIENCE_LOSS_CHECK,
+            evaluate_request,
+        )
+
+        science_policy = resolve_role_prompt(
+            evaluate_request(
+                state_root,
+                altitude_root=workdir,
+                vertical="research",
+                stage="review",
+                checklist_mode=ChecklistMode.NONE,
+                operation=SCIENCE_LOSS_CHECK,
+            )
+        ).role_banner
+        cold_policy = resolve_role_prompt(
+            evaluate_request(
+                state_root,
+                altitude_root=workdir,
+                vertical="research",
+                stage="review",
+                checklist_mode=ChecklistMode.NONE,
+                operation=COLD_READ,
+            )
+        ).role_banner
+        prompts = {
+            "ScientificLoss": (
+                science_policy
+                + "\n\nCompare these immutable trees:\n"
+                f"- before: `{comparison.before_paper}` "
+                f"(sha256 {comparison.before_sha256})\n"
+                f"- after: `{comparison.after_paper}` "
+                f"(sha256 {comparison.after_sha256})\n"
+                "Use the live project only for a direct claim-critical dispute. Return "
+                "pass/fail and identify every loss by fact, prior carrier, and required "
+                "replacement carrier."
+            ),
+            "Visual": (
+                common
+                + " Inspect every rendered page and every included figure and table at "
+                "publication scale. Reject visible overlap, clipping, overflow, connector "
+                "penetration, wrong arrows, unreadable labels, malformed tables, misleading "
+                "plots, abnormal whitespace, broken float placement, or inconsistent "
+                "typography."
+            ),
+            "ColdRead": (
+                cold_policy
+                + "\n\nOpen `paper/main.pdf` and return a concise pass/fail cold-read "
+                "assessment with page-locatable findings."
+            ),
+        }
 
     import threading
     from concurrent.futures import ThreadPoolExecutor
@@ -125,6 +218,15 @@ def _parallel_final_review_passes(
             backend_stop_kind="backend_unavailable",
         )
 
+    workspace_stack = ExitStack()
+    working_dirs = {label: workdir for label in prompts}
+    if comparison is not None:
+        from ..core.manuscript_narrative_runtime import isolated_pdf_workspace
+
+        working_dirs["ColdRead"] = workspace_stack.enter_context(
+            isolated_pdf_workspace(workdir)
+        )
+
     def inspect(label: str) -> Any:
         return gateway_run_exec(
             pass_runners[label],
@@ -138,7 +240,7 @@ def _parallel_final_review_passes(
                 force_safe_mode=True,
                 skip_git_repo_check=config.skip_git_repo_check,
                 extra_args=list(config.extra_args) if config.extra_args else None,
-                working_dir=str(workdir),
+                working_dir=str(working_dirs[label]),
             ),
             run_label=f"reviewer-{label.lower()}",
         )
@@ -169,6 +271,7 @@ def _parallel_final_review_passes(
             close = getattr(backend, "close_acp_clients", None)
             if callable(close):
                 close()
+        workspace_stack.close()
 
     usage = {
         field: sum(int(getattr(result, field, 0) or 0) for result in results.values())
@@ -260,7 +363,7 @@ def _parallel_final_review_passes(
         status="continue",
         reason="\n\n".join(f"{label}: {findings[label]}" for label in prompts),
         next_action=(
-            "Apply the scientific, visual, and language findings to the paper, "
+            "Apply the scientific, visual, and reader-facing findings to the paper, "
             "recompile it, then request the integrated final review."
         ),
         premium_requests=premium_requests,
@@ -341,6 +444,7 @@ class ReviewerConfig:
     working_dir: str | None = None
     artifact_root: str | None = None
     vertical_state_root: str | None = None
+    narrative_snapshot_root: str | None = None
 
 
 def _load_wiki_curator_skill_if_present(
@@ -404,6 +508,7 @@ class Reviewer:
     def evaluate(
         self,
         *,
+        operation: str = "evaluate",
         objective: str,
         original_objective: str | None = None,
         operator_messages: list[str] | None = None,
@@ -474,7 +579,11 @@ class Reviewer:
             vertical_state_root=config.vertical_state_root,
             vertical=config.active_vertical,
         )
-        static, delta_base = self._render(resumed=False, **common)
+        static, delta_base = self._render(
+            operation=operation,
+            resumed=False,
+            **common,
+        )
         prompt_block_stats = {
             name: dict(stats)
             for name, stats in self._last_prompt_block_stats.items()
@@ -653,6 +762,7 @@ class Reviewer:
     def _render(
         self,
         *,
+        operation: str = "evaluate",
         resumed: bool = False,
         objective: str,
         original_objective: str = "",
@@ -688,6 +798,7 @@ class Reviewer:
 
         return render_reviewer_prompt(
             self,
+            operation=operation,
             resumed=resumed,
             objective=objective,
             original_objective=original_objective,

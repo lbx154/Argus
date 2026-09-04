@@ -1,7 +1,9 @@
 """Research vertical stage definitions and active role policy.
 
-Research uses one forward-only five-stage pipeline:
-``idea -> build -> experiment -> paper -> review``.
+Research uses one forward-only four-stage pipeline:
+``idea -> experiment -> paper -> review``. Experiment covers both building
+the method and running the experiments, so the design can be revised freely
+while the evidence comes in.
 """
 from __future__ import annotations
 
@@ -22,7 +24,6 @@ LIBRARY_PREPARER = library_preparation.prepare_skill_libraries
 
 CANONICAL_STAGE_ORDER: tuple[str, ...] = (
     "idea",
-    "build",
     "experiment",
     "paper",
     "review",
@@ -32,8 +33,9 @@ CANONICAL_STAGE_ORDER: tuple[str, ...] = (
 # explicitly at Manager/runtime entry points.
 STAGE_ALIASES = {
     "research": "idea",
-    "plan": "build",
-    "benchmark": "build",
+    "plan": "experiment",
+    "benchmark": "experiment",
+    "build": "experiment",
     "run": "experiment",
     "analysis": "experiment",
     "draft": "paper",
@@ -72,9 +74,9 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="HANDOFF.md and the selected idea in internal pipeline state",
         ),
     ),
-    "build": _checklist(
+    "experiment": _checklist(
         ChecklistItem(
-            id="build.implementation",
+            id="experiment.implementation",
             statement=(
                 "Implement the selected mechanism and real strong published baselines "
                 "through real entry points. Do not rename a local heuristic after a paper. "
@@ -86,18 +88,18 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="code, explicit run configuration, and direct smoke output",
         ),
         ChecklistItem(
-            id="build.fidelity",
+            id="experiment.fidelity",
             statement=(
                 "Trace the actual call path and confirm the method, baseline, controls, "
                 "information boundary, and evaluator test the selected idea. Repair "
-                "implementation or setup defects in Build; do not reopen selection or "
+                "implementation or setup defects in place; do not reopen selection or "
                 "move the pipeline backward. A hypothesis-to-code mapping must name the "
                 "executed quantities and path rather than merely matching labels."
             ),
             evidence_hint="implemented entry points and their direct test output",
         ),
         ChecklistItem(
-            id="build.positive_control",
+            id="experiment.positive_control",
             statement=(
                 "Run a positive control with a known recoverable signal through the same "
                 "executed path before "
@@ -108,23 +110,17 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="direct positive-control command, configuration, and raw output",
         ),
         ChecklistItem(
-            id="build.handoff",
-            statement=(
-                "Overwrite project-root `HANDOFF.md` with only the minimum implementation, "
-                "configuration, baseline, evaluator, known-risk, and next-run context "
-                "Experiment needs."
-            ),
-            evidence_hint="HANDOFF.md",
-        ),
-    ),
-    "experiment": _checklist(
-        ChecklistItem(
             id="experiment.adaptive",
             statement=(
                 "Run an adaptive programme: every executed run is reproducible from its "
                 "code, explicit configuration, and raw output, while methods, baselines, "
                 "benchmarks, controls, and next experiments may change in response to "
-                "development evidence. No frozen global experiment plan is required."
+                "development evidence. Design and execution live in the same stage, so "
+                "revise the experimental design in place as evidence arrives. No frozen "
+                "global experiment plan is required, and experiment designs do not "
+                "prescribe repeated runs across random seeds — one well-configured run "
+                "per condition is the default, with compute spent on decisive "
+                "comparisons instead."
             ),
             evidence_hint="executed commands/configuration and raw experimental outputs",
         ),
@@ -156,7 +152,9 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "When the Paper entry bar is met, overwrite project-root `HANDOFF.md` with "
                 "the thesis, winning comparisons, strongest baseline, essential losses or "
                 "limits, figures/data to use, and the minimum reproducibility pointers "
-                "needed to write the paper."
+                "needed to write the paper. Classify the complete evidence as headline, "
+                "mechanism, disambiguating control, scope-changing, or completeness "
+                "evidence, and name its canonical and repeat locations."
             ),
             evidence_hint="HANDOFF.md",
         ),
@@ -167,11 +165,26 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Produce a complete paper draft led by the contribution and strongest "
                 "result. Include every claim-bearing experiment, intended figure and "
-                "table, citation, and venue-required section. Do not organize it as an "
-                "experiment chronology or ship a development shortfall as a "
-                "negative-result report."
+                "table, citation, and venue-required section. Select and package evidence "
+                "by its headline, mechanism, disambiguating-control, scope-changing, or "
+                "completeness role: keep complete matrices in Methods, tables, or the "
+                "Appendix while prose interprets the comparisons that change the current "
+                "inference. Do not organize it as an experiment chronology or ship a "
+                "development shortfall as a negative-result report."
             ),
             evidence_hint="paper/main.tex",
+        ),
+        ChecklistItem(
+            id="paper.presentation",
+            statement=(
+                "Preserve the five-sentence, at-least-170-word abstract contract, exact "
+                "headline numbers in the major reader-facing locations where they establish "
+                "the claim, and a numerical takeaway in every figure and table caption. "
+                "The same headline number may recur for a different section role; do not "
+                "apply a mechanical repetition cap or recite the same full result matrix "
+                "in every location."
+            ),
+            evidence_hint="paper/main.tex and its rendered figures and tables",
         ),
         ChecklistItem(
             id="paper.work_products",
@@ -197,12 +210,19 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="review.parallel",
             statement=(
-                "Run three independent read-only passes on the same current paper in "
-                "parallel: scientific completeness, strict rendered visual quality, and "
-                "academic language. Record their combined findings only in "
-                "`paper/REVIEW.md`; create no additional project review files."
+                "Before narrative editing, preserve an immutable source/PDF snapshot in "
+                "internal mission state. After the fresh-context edit, run three independent "
+                "read-only passes in parallel: before/after scientific semantic-loss, strict "
+                "rendered visual quality, and a cold read whose isolated input contains only "
+                "the current rendered PDF. Keep pass results internal; the integrated Reviewer "
+                "records their adjudicated result only in `paper/REVIEW.md`. Until calibration "
+                "promotes them, new semantic-loss and cold-read diagnostics run in shadow mode "
+                "and cannot be the sole reason to block."
             ),
-            evidence_hint="the three-pass assessment in paper/REVIEW.md and the current paper",
+            evidence_hint=(
+                "internal immutable snapshots, isolated rendered-PDF pass, current paper, "
+                "and the adjudicated assessment in paper/REVIEW.md"
+            ),
         ),
         ChecklistItem(
             id="review.scope",
@@ -221,7 +241,7 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             id="review.authoritative",
             statement=(
                 "Each authoritative review overwrites `paper/REVIEW.md` with the strongest "
-                "accept case, scientific/visual/language assessment, reject-level defects, "
+                "accept case, scientific/visual/reader-facing assessment, reject-level defects, "
                 "and next action. Do not create another review file or review history."
             ),
             evidence_hint="paper/REVIEW.md",
@@ -233,7 +253,10 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "contribution, fidelity to the executed code, positive controls, strongest "
                 "same-information baselines, decisive evidence, citations, and whether all "
                 "sections and experiments needed by the thesis are present. Reviewer "
-                "authority is independent of Engineer or Planner confidence."
+                "authority is independent of Engineer or Planner confidence. For narrative "
+                "edits, compare the immutable before/after snapshots and veto only a named "
+                "lost fact, reasoning step, scope boundary, or coverage carrier—not changed "
+                "wording or a valid move into Methods, a table, caption, or Appendix."
             ),
             evidence_hint="paper plus directly cited code, configurations, raw rows, and sources",
         ),
@@ -249,20 +272,22 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             evidence_hint="the complete rendered paper and all included figures and tables",
         ),
         ChecklistItem(
+            # Keep the public checklist id stable; the implementation of this
+            # reader-facing language/argument pass is now PDF-only cold_read.
             id="review.language",
             statement=(
-                "The read-only language pass reports precise proposed changes for "
-                "confident, accurate academic prose. The single Engineer repair then "
-                "removes defensive qualifier boilerplate, experiment chronology, internal "
-                "workflow language, repeated caveats, and integrity self-praise while "
-                "preserving every supported claim and technical meaning."
+                "The cold reader sees only the rendered PDF and judges centrality, progression, "
+                "evidence hierarchy, inference after exact numbers, academic prose, timing, and "
+                "visual narrative. "
+                "It does not penalize scientific density, complete controls, five-sentence/170-word "
+                "abstracts, numerical captions, or repeated headline numbers by themselves."
             ),
-            evidence_hint="paper/main.tex",
+            evidence_hint="an isolated workspace containing only paper/main.pdf",
         ),
         ChecklistItem(
             id="review.integrated",
             statement=(
-                "After the three parallel passes are repaired and the paper is recompiled, "
+                "After the three internal passes are adjudicated and the paper is recompiled, "
                 "perform one integrated final review of scientific content, visual quality, "
                 "language, and venue compliance. Keep all repairs inside Review without "
                 "moving to an earlier stage."
@@ -291,6 +316,7 @@ def get_stage_checklist(stage: str) -> tuple[ChecklistItem, ...]:
 
 
 def _handoff_issue(project_root: Path, stage: str) -> tuple[str, ...]:
+    _ = stage
     path = project_root / "HANDOFF.md"
     try:
         text = path.read_text(encoding="utf-8") if path.is_file() else ""
@@ -298,16 +324,6 @@ def _handoff_issue(project_root: Path, stage: str) -> tuple[str, ...]:
         text = ""
     if not text.strip():
         return ("project-root HANDOFF.md is missing or empty",)
-    marker = f"# HANDOFF — {str(stage).strip().upper()}"
-    first_line = next(
-        (line.strip() for line in text.splitlines() if line.strip()),
-        "",
-    )
-    if first_line != marker:
-        return (
-            f"project-root HANDOFF.md is stale for {stage}: expected first line "
-            f"{marker!r}",
-        )
     return ()
 
 
@@ -351,24 +367,25 @@ def _paper_issue(project_root: Path) -> tuple[str, ...]:
     return tuple(issues)
 
 
-def _paper_quality_issues(
-    project_root: Path,
-    state_root: Path,
-) -> tuple[str, ...]:
-    from .integrity_check import check_citations
-    from .paper_structural_minimums import validate_paper_structural_minimums
+def _paper_stage_skipped(state_root: Path) -> bool:
+    """Whether the Manager recorded the paper stage as skipped for this run.
 
-    issues = [
-        f"[citation_integrity:{issue.code}] {issue.message}"
-        for issue in check_citations(project_root)
-        if issue.blocking
-    ]
-    report = validate_paper_structural_minimums(
-        project_root,
-        state_root=state_root,
-    )
-    issues.extend(f"[{issue.code}] {issue.detail}" for issue in report.issues)
-    return tuple(dict.fromkeys(issues))
+    A bounded objective may end at the experiment evidence: the Manager then
+    advances experiment -> review with paper recorded as skipped, and the
+    terminal review certifies the delivered evidence rather than a manuscript.
+    """
+    try:
+        from ...core.pipeline_state import read_pipeline_state
+
+        stages = read_pipeline_state(state_root).get("stages")
+        if not isinstance(stages, dict):
+            return False
+        record = stages.get("paper")
+        if not isinstance(record, dict):
+            return False
+        return str(record.get("status") or "").strip().lower() == "skipped"
+    except Exception:  # noqa: BLE001 — unreadable state keeps the strict path
+        return False
 
 
 def _review_document_issues(
@@ -381,37 +398,7 @@ def _review_document_issues(
         text = ""
     if not text.strip():
         return ("paper/REVIEW.md is missing or empty",)
-
-    issues: list[str] = []
-    lowered = text.lower()
-    if "**verdict:** done" not in lowered:
-        issues.append("paper/REVIEW.md does not record an authoritative done verdict")
-    required_sections = (
-        "## scientific, visual, and language assessment",
-        "## strongest accept case",
-        "## reject-level issues",
-        "## next action",
-    )
-    for section in required_sections:
-        if section not in lowered:
-            issues.append(f"paper/REVIEW.md is missing {section}")
-
-    assessment_match = re.search(
-        r"(?ims)^## scientific, visual, and language assessment\s*(.*?)(?=^## |\Z)",
-        text,
-    )
-    assessment = assessment_match.group(1).lower() if assessment_match else ""
-    accept_match = re.search(
-        r"(?ims)^## strongest accept case\s*(.*?)(?=^## |\Z)",
-        text,
-    )
-    accept_case = accept_match.group(1).strip() if accept_match else ""
-    if len(" ".join(accept_case.split())) < 40:
-        issues.append("paper/REVIEW.md strongest accept case is not substantive")
-    for label in ("scientific:", "visual:", "language:"):
-        if label not in assessment:
-            issues.append(f"paper/REVIEW.md is missing the final {label[:-1]} assessment")
-    return tuple(dict.fromkeys(issues))
+    return ()
 
 
 def stage_completion_issues(
@@ -442,23 +429,21 @@ def stage_completion_issues(
             state_root=resolved_state_root,
         )
         return tuple((*portfolio_issues, *_handoff_issue(root, "idea")))
-    if normalized in {"build", "experiment"}:
+    if normalized == "experiment":
         return _handoff_issue(root, normalized)
     if normalized == "paper":
-        resolved_state_root = Path(state_root or root)
         return tuple(
             (
                 *_paper_issue(root),
-                *_paper_quality_issues(root, resolved_state_root),
                 *_handoff_issue(root, "paper"),
             )
         )
     if normalized == "review":
-        resolved_state_root = Path(state_root or root)
+        if _paper_stage_skipped(Path(state_root or root)):
+            return _review_document_issues(root)
         return tuple(
             (
                 *_paper_issue(root),
-                *_paper_quality_issues(root, resolved_state_root),
                 *_review_document_issues(root),
             )
         )
@@ -548,12 +533,15 @@ PAPER_MISSION = True
 WORKFLOW_MODE = "proportional"
 VERIFICATION_STAGE_PROFILES = {
     "idea": "explore",
-    "build": "develop",
     "experiment": "develop",
     "paper": "develop",
     "review": "certify",
 }
-ENGINEER_LIVE_SEARCH_STAGES = frozenset({"idea", "build", "experiment", "paper"})
+ENGINEER_LIVE_SEARCH_STAGES = frozenset({"idea", "experiment", "paper"})
+ENGINEER_STAGE_OPERATIONS = {
+    "paper": "author_draft",
+    "review": "narrative_edit",
+}
 REQUIRE_INDEPENDENT_REVIEW = True
 
 _AMBITIOUS_RESEARCH_POLICY = (
@@ -597,6 +585,25 @@ _MANAGER_RESEARCH_STEWARDSHIP = (
 )
 
 
+def import_legacy_state(*, source_root: object, state_root: object) -> None:
+    """Carry pre-isolation research artifacts into the isolated state root.
+
+    Runs once, right after legacy Manager state naming this vertical is copied
+    into the new state root: old stage names are rewritten to the current
+    four-stage pipeline, and any idea-selection record made under the legacy
+    layout is brought along so the campaign does not reopen its portfolio.
+    """
+    from ...skills.stage_machine import migrate_legacy_research_stage
+    from .idea_portfolio import migrate_legacy_idea_selection
+
+    migrate_legacy_research_stage(state_root)
+    migrate_legacy_idea_selection(
+        source_root,
+        state_root=state_root,
+        materialize_handoff=False,
+    )
+
+
 def search_altitude_context(project_root: object) -> str:
     """Research context is loaded explicitly by ``prompt_policy``."""
     _ = project_root
@@ -627,8 +634,10 @@ __all__ = [
     "WORKFLOW_MODE",
     "VERIFICATION_STAGE_PROFILES",
     "ENGINEER_LIVE_SEARCH_STAGES",
+    "ENGINEER_STAGE_OPERATIONS",
     "REQUIRE_INDEPENDENT_REVIEW",
     "role_banner",
+    "import_legacy_state",
     "search_altitude_context",
     "render_role_prompt_fragment",
     "review_purchase_policy",

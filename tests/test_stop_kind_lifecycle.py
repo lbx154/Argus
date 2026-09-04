@@ -183,7 +183,7 @@ def test_reviewer_budget_stop_pauses_without_failure_streak(tmp_path: Path) -> N
         ("operator_abort", "aborted"),
     ],
 )
-def test_preliminary_review_stop_kind_reaches_mission_status(
+def test_post_edit_review_stop_kind_reaches_mission_status(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     stop_kind: str,
@@ -194,9 +194,9 @@ def test_preliminary_review_stop_kind_reaches_mission_status(
     state["current_stage"] = "review"
     write_pipeline_state(tmp_path, state)
 
-    class EngineerMustNotRun:
+    class EngineerRunsBeforePostEditPasses:
         def run_exec(self, **_kwargs):
-            raise AssertionError("Engineer must wait for preliminary review")
+            return RunnerResult(exit_code=0, agent_messages=["narrative edit complete"])
 
     class Reviewer:
         runner = object()
@@ -210,6 +210,7 @@ def test_preliminary_review_stop_kind_reaches_mission_status(
             status="blocked",
             reason="preliminary review stopped",
             next_action="resume",
+            backend_unavailable=True,
             backend_stop_kind=stop_kind,  # type: ignore[arg-type]
             input_tokens=6,
             output_tokens=3,
@@ -217,7 +218,7 @@ def test_preliminary_review_stop_kind_reaches_mission_status(
         ),
     )
     engine = SupervisedEngineer(
-        engineer_runner=EngineerMustNotRun(),
+        engineer_runner=EngineerRunsBeforePostEditPasses(),
         reviewer=Reviewer(),
         engineer_config=EngineerConfig(
             model="test",
@@ -237,13 +238,14 @@ def test_preliminary_review_stop_kind_reaches_mission_status(
         supervised_config=SupervisedConfig(
             max_rounds=1,
             background_subagent_advisory=False,
+            narrative_review_enforcement="blocking",
         ),
         workdir=tmp_path,
         on_event=events.append,
     )
 
     assert status == expected_status
-    assert rounds[0].round_index == 0
+    assert rounds[0].round_index == 1
     assert rounds[0].stop_kind == stop_kind
     review_events = [
         event

@@ -1,9 +1,7 @@
 """Venue-awareness of the academic-language model-review prompt.
 
-The audit found the model prompt was venue-blind (hardcoded "EMNLP long paper",
-"ACL/EMNLP standard: abstracts under 170 words", "eight-page body budget") even
-on AAAI runs. EMNLP must stay byte-identical; AAAI must get its persona, the
-advisory (no-hard-floor) abstract policy, and the 7-page body budget.
+Every venue-local string derives from the researched profile, while the shared
+five-sentence and 170-word abstract contract remains venue-independent.
 """
 from __future__ import annotations
 
@@ -11,7 +9,11 @@ from argus_skill.verticals.research.academic_language_review import (
     _parse_review_text,
     _review_prompt,
 )
-from argus_skill.verticals.research.venue_profiles import AAAI_PROFILE, EMNLP_PROFILE
+from tests.skills.researched_venues import (
+    EIGHT_PAGE_CONFERENCE,
+    SEVEN_PAGE_CONFERENCE,
+    SINGLE_COLUMN_JOURNAL,
+)
 
 _SRC = {"paper/main.tex": "x"}
 _DET = {"k": 1}
@@ -23,28 +25,36 @@ def _prompt(venue) -> str:
     )
 
 
-def test_emnlp_prompt_keeps_emnlp_standard() -> None:
-    p = _prompt(EMNLP_PROFILE)
-    assert "final academic-language reviewer for an EMNLP long paper" in p
-    assert "Apply this ACL/EMNLP standard: abstracts under 170 words are too thin" in p
-    assert "eight-page body budget" in p
+def test_prompt_persona_and_budget_come_from_the_researched_profile() -> None:
+    eight = _prompt(EIGHT_PAGE_CONFERENCE)
+    assert "reviewer for a paper submitted to ConfA 2027" in eight
+    assert "8-page body budget" in eight
+
+    seven = _prompt(SEVEN_PAGE_CONFERENCE)
+    assert "a paper submitted to ConfB 2027" in seven
+    assert "7-page body budget" in seven
+    assert "8-page body budget" not in seven
+    assert "ConfA" not in seven
 
 
-def test_aaai_prompt_is_venue_correct() -> None:
-    p = _prompt(AAAI_PROFILE)
-    assert "AAAI paper" in p
-    assert "EMNLP long paper" not in p
-    # AAAI has no official abstract word limit -> advisory wording, no 170 floor.
-    assert "no official abstract word limit" in p
-    assert "abstracts under 170 words are too thin" not in p
-    assert "ACL/EMNLP standard" not in p
-    # AAAI 7-page body budget, not the ACL eight-page one.
-    assert "7-page body budget" in p
-    assert "eight-page body budget" not in p
+def test_prompt_has_no_hardcoded_venue_names_and_keeps_abstract_contract() -> None:
+    for venue in (EIGHT_PAGE_CONFERENCE, SEVEN_PAGE_CONFERENCE, SINGLE_COLUMN_JOURNAL):
+        p = _prompt(venue)
+        for literal in ("EMNLP", "AAAI", "ACL", "NeurIPS"):
+            assert literal not in p
+        assert "exactly 5 evidence-backed sentences" in p
+        assert "at least 170 words" in p
+        assert "flat experiment checklist" in p
+
+
+def test_word_limit_journal_prompt_uses_word_budget_phrasing() -> None:
+    p = _prompt(SINGLE_COLUMN_JOURNAL)
+    assert "12,000" in p
+    assert "-page body budget" not in p
 
 
 def test_language_prompt_requests_prose_without_schema_ceremony() -> None:
-    prompt = _prompt(EMNLP_PROFILE)
+    prompt = _prompt(EIGHT_PAGE_CONFERENCE)
 
     assert "Write a prose review, not JSON" in prompt
     assert "score_1_to_5" not in prompt

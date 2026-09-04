@@ -3,33 +3,26 @@
 This package is the **single authoritative location** for everything that
 assumes the project is producing a research paper:
 
-* the five forward-only paper-pipeline stages (idea → build → experiment →
+* the four forward-only paper-pipeline stages (idea → experiment →
   paper → review), defined in ``stages.py``;
-* the **paper-specific quality gates** — the eleven research-paper-only
-  reviewers/validators that previously lived alongside the generic skills in
-  ``argus_skill.skills`` and now live here as submodules:
+* the model-/vision-backed review passes used in the Review stage:
   ``academic_language_review``, ``paper_layout_review``,
-  ``paper_infrastructure_review``, ``_review_contract_constants``,
-  ``draft_outline``, ``paper_structural_minimums``, ``exemplar_grounding``,
-  ``experiment_audit_gate``, ``method_differentiation``,
-  ``reviewer_simulation``, ``run_evidence_health``, ``contamination_check``,
-  ``artifact_freshness``.
+  ``paper_infrastructure_review``, plus their shared
+  ``_review_contract_constants``;
+* supporting facilities such as ``method_differentiation``, ``method_freeze``
+  and the idea portfolio.
 
-Submodules are imported directly (e.g.
-``from argus_skill.verticals.research import academic_language_review``), and the
-most-used public symbols (validators, generators, report dataclasses, path
-constants) are re-exported here for callers that want one import site. Each
-validator is an agent-callable tool (``python -m ...``); there is no harness
-router deciding which one runs at which stage — that judgment is the
-Reviewer's. The generic anti-fraud gate ``evidence_chain`` stays in
-``argus_skill.skills`` (it is domain-agnostic) and is re-exported here for the
-paper pipeline's convenience.
+Quality judgment belongs to the Reviewer reading the actual paper, code and
+raw results — not to deterministic validators. Submodules are imported
+directly (e.g. ``from argus_skill.verticals.research import
+academic_language_review``), and the most-used public symbols are re-exported
+here for callers that want one import site.
 """
 
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Generic anti-fraud gate (lives in skills/, re-exported for the paper pipeline)
+# Generic evidence-chain helpers (live in skills/, re-exported for convenience)
 # ---------------------------------------------------------------------------
 from ...skills.evidence_chain import (
     ChainIssue,
@@ -63,36 +56,6 @@ from .academic_language_review import (
     AcademicLanguageReviewError,
     generate_academic_language_review,
 )
-
-# ---------------------------------------------------------------------------
-# Draft outline contract
-# ---------------------------------------------------------------------------
-from .draft_outline import (
-    DRAFT_OUTLINE_PATH,
-    DraftOutline,
-    ExperimentPlaceholder,
-    FigurePlaceholder,
-    OutlineIssue,
-    SectionPlaceholder,
-    cross_check_figure_ids,
-    load_outline,
-    parse_outline,
-    validate_outline,
-)
-
-# ---------------------------------------------------------------------------
-# Structural / anti-fabrication gates
-# ---------------------------------------------------------------------------
-from .exemplar_grounding import (
-    GroundingIssue,
-    GroundingReport,
-    validate_exemplar_grounding,
-)
-from .experiment_audit_gate import (
-    AuditIssue,
-    AuditReport,
-    validate_experiment_audit,
-)
 from .method_differentiation import (
     ConditionRun,
     MethodDifferentiationReport,
@@ -118,22 +81,6 @@ from .paper_layout_review import (
     LAYOUT_REVIEW_PAGE_DIR,
     LayoutReviewError,
     generate_layout_review,
-)
-from .paper_structural_minimums import (
-    StructuralIssue,
-    StructuralReport,
-    validate_paper_structural_minimums,
-)
-from .reviewer_simulation import (
-    SimulationIssue,
-    SimulationReport,
-    validate_reviewer_simulation,
-)
-from .run_evidence_health import (
-    BundleHealth,
-    HealthIssue,
-    RunEvidenceHealthReport,
-    validate_run_evidence_health,
 )
 
 # ---------------------------------------------------------------------------
@@ -177,25 +124,6 @@ __all__ = [
     "LAYOUT_REVIEW_PAGE_DIR",
     "LayoutReviewError",
     "generate_layout_review",
-    # draft_outline
-    "DRAFT_OUTLINE_PATH",
-    "DraftOutline",
-    "ExperimentPlaceholder",
-    "FigurePlaceholder",
-    "OutlineIssue",
-    "SectionPlaceholder",
-    "cross_check_figure_ids",
-    "load_outline",
-    "parse_outline",
-    "validate_outline",
-    # exemplar_grounding
-    "GroundingIssue",
-    "GroundingReport",
-    "validate_exemplar_grounding",
-    # experiment_audit_gate
-    "AuditIssue",
-    "AuditReport",
-    "validate_experiment_audit",
     # method_differentiation
     "ConditionRun",
     "MethodDifferentiationReport",
@@ -206,19 +134,6 @@ __all__ = [
     "FREEZE_PATH",
     "declare_method_freeze",
     "record_confirmation_result",
-    # paper_structural_minimums
-    "StructuralIssue",
-    "StructuralReport",
-    "validate_paper_structural_minimums",
-    # reviewer_simulation
-    "SimulationIssue",
-    "SimulationReport",
-    "validate_reviewer_simulation",
-    # run_evidence_health
-    "BundleHealth",
-    "HealthIssue",
-    "RunEvidenceHealthReport",
-    "validate_run_evidence_health",
     # evidence_chain (generic, from skills/)
     "ChainIssue",
     "ChainReport",

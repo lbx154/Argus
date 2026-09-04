@@ -34,7 +34,7 @@ Usage
 -----
     from paper_chart_style import set_pub_style, highlight_ours, figure_size
 
-    colors = set_pub_style(venue="EMNLP", column="double", palette="colorblind")
+    colors = set_pub_style(column="double", palette="colorblind")
     fig, ax = plt.subplots(figsize=figure_size(column="double"))
     ...
     highlight_ours(ax, ours_index=2)   # emphasise the "Ours" series
@@ -75,33 +75,46 @@ DEFAULT_PALETTE = "colorblind"
 # Neutral grey used to de-emphasise baselines when highlighting "Ours".
 BASELINE_GREY = "#9A9A9A"
 
-# Venue families that are SINGLE-column (NeurIPS/ICML/…): a full-page-width
-# text block, no ``figure*`` distinction. Everything else is treated as a
-# two-column venue (EMNLP/ACL/AAAI/CVPR-style).
-_SINGLE_COLUMN_VENUES = {
-    "NEURIPS", "NIPS", "ICML", "ICLR", "JMLR", "TMLR", "COLM", "RLC",
-}
+def _project_two_column() -> bool:
+    """Column layout from the project's researched venue profile.
 
+    The venue-format research step writes ``research/VENUE_PROFILE.json`` from
+    the venue's official author kit; its ``two_column`` field says whether the
+    template is two-column. Walk up from the working directory to find it.
+    Defaults to two-column (the most common conference layout) when no profile
+    is found or it cannot be read.
+    """
+    import json
+    from pathlib import Path
 
-def _is_two_column(venue: str | None) -> bool:
-    if not venue:
-        return True
-    return venue.strip().upper() not in _SINGLE_COLUMN_VENUES
+    for root in [Path.cwd(), *Path.cwd().parents]:
+        path = root / "research" / "VENUE_PROFILE.json"
+        if path.is_file():
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return True
+            if isinstance(payload, dict):
+                return bool(payload.get("two_column", True))
+            return True
+    return True
 
 
 def figure_size(
     column: str = "single",
     *,
-    venue: str | None = None,
+    two_column: bool | None = None,
     aspect: float = 0.66,
 ) -> tuple[float, float]:
     """Physical figure size (inches) matching the LaTeX float it will sit in.
 
     ``column='single'`` → a one-column ``figure``; ``column='double'`` → a
     full-width ``figure*``. Widths follow the real text/column widths so LaTeX
-    does not rescale the graphic (rescaling is what warps the fonts).
+    does not rescale the graphic (rescaling is what warps the fonts). When
+    ``two_column`` is not given, the project's researched venue profile
+    decides.
     """
-    two_col = _is_two_column(venue)
+    two_col = _project_two_column() if two_column is None else bool(two_column)
     if two_col:
         width = 6.9 if column == "double" else 3.3   # \textwidth vs \columnwidth
     else:
@@ -125,10 +138,10 @@ def _apply_scienceplots_style() -> None:
 
 
 def set_pub_style(
-    venue: str | None = None,
     *,
     column: str = "single",
     palette: str = DEFAULT_PALETTE,
+    two_column: bool | None = None,
 ) -> list[str]:
     """Apply the shared publication style and return the active colour list.
 
@@ -144,11 +157,11 @@ def set_pub_style(
     _apply_scienceplots_style()
 
     # Sizes tuned for 8–9pt body text at final print size.
-    two_col = _is_two_column(venue)
+    two_col = _project_two_column() if two_column is None else bool(two_column)
     base = 9 if two_col else 10
     mpl.rcParams.update(
         {
-            "figure.figsize": figure_size(column, venue=venue),
+            "figure.figsize": figure_size(column, two_column=two_col),
             "figure.dpi": 150,
             "savefig.dpi": 600,
             "savefig.bbox": "tight",
@@ -275,7 +288,7 @@ def _demo(out_dir: str = "/tmp") -> list[str]:
     written.append(before)
 
     # AFTER — shared publication style + highlight Ours.
-    set_pub_style(venue="EMNLP", column="single", palette="colorblind")
+    set_pub_style(column="single", palette="colorblind")
     fig, ax = plt.subplots()
     markers = ["o", "s", "D"]
     for (name, ys), m in zip(series.items(), markers):

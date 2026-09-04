@@ -144,7 +144,7 @@ def test_parse_advance_still_rejects_current_or_earlier_stage() -> None:
         assert decision.diagnostic == "illegal_advance_target"
 
 
-def test_research_advances_from_idea_to_build(tmp_path) -> None:
+def test_research_advances_from_idea_to_experiment(tmp_path) -> None:
     from argus_skill.manager import Manager
     from argus_skill.skills.vertical_select import persist_vertical
 
@@ -168,7 +168,7 @@ def test_research_advances_from_idea_to_build(tmp_path) -> None:
         open_ended=False,
         run_exec=lambda _prompt: SimpleNamespace(
             last_agent_message=(
-                '{"action":"advance","target_stage":"build",'
+                '{"action":"advance","target_stage":"experiment",'
                 '"reason":"the selected idea and handoff are complete"}'
             )
         ),
@@ -178,9 +178,9 @@ def test_research_advances_from_idea_to_build(tmp_path) -> None:
         (state_root / ".argus" / "PIPELINE_STATE.json").read_text()
     )
     assert decision.action == "advance"
-    assert decision.target_stage == "build"
+    assert decision.target_stage == "experiment"
     assert decision.source == "manager_llm"
-    assert state["current_stage"] == "build"
+    assert state["current_stage"] == "experiment"
     assert state["stages"]["idea"]["status"] == "done"
 
 

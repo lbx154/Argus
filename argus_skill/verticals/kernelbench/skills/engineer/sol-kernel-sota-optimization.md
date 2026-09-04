@@ -20,7 +20,7 @@ When a real kernel teaches you something sharper, evolve this. (Companion:
 - The task names an editable kernel file, a frozen scorer, and a numeric speed metric.
 
 ## When NOT to use
-- A paper benchmark matrix, multi-family agent evaluation, or EMNLP evidence run.
+- A paper benchmark matrix, multi-family agent evaluation, or publication evidence run.
 - The scorer is missing and cannot be reconstructed — write a setup/blocker report
   first; do not invent a metric.
 

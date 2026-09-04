@@ -252,7 +252,7 @@ def role_banner(role: str = "engineer") -> str:
         "\n"
         "## PIPELINE = OPTIMIZE — hard override of everything below\n"
         "Lean numeric-optimization loop, NOT a research paper. NO paper / draft / "
-        "review / submission / EMNLP / decision gate; the only stages are `run` (edit "
+        "review / submission / publication stages; the only stages are `run` (edit "
         "+ score) and `analysis`; missing paper artifacts are EXPECTED, never a defect "
         "— the stage is never rolled back to research/plan (stage transitions are the "
         "Manager's, not yours), never rebuild a paper literature "

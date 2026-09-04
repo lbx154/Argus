@@ -47,10 +47,9 @@ def _write_state(root: Path, stage: str, *, stages: dict | None = None) -> Path:
     return path
 
 
-def test_research_has_exactly_five_forward_stages() -> None:
+def test_research_has_exactly_four_forward_stages() -> None:
     assert CANONICAL_STAGE_ORDER == (
         "idea",
-        "build",
         "experiment",
         "paper",
         "review",
@@ -62,8 +61,9 @@ def test_research_has_exactly_five_forward_stages() -> None:
     ("legacy", "mapped"),
     [
         ("research", "idea"),
-        ("plan", "build"),
-        ("benchmark", "build"),
+        ("plan", "experiment"),
+        ("benchmark", "experiment"),
+        ("build", "experiment"),
         ("run", "experiment"),
         ("analysis", "experiment"),
         ("draft", "paper"),
@@ -92,21 +92,17 @@ def test_pipeline_reads_are_pure_and_explicit_migration_maps_old_stages(
     assert migrated["stages"][mapped]["status"] == "in_progress"
 
 
-def test_handoff_completion_rejects_a_previous_stage_marker(tmp_path: Path) -> None:
-    (tmp_path / "HANDOFF.md").write_text(
-        "# HANDOFF — IDEA\n\nSelected mechanism.",
-        encoding="utf-8",
-    )
+def test_experiment_completion_requires_a_handoff(tmp_path: Path) -> None:
     assert any(
-        "stale for build" in issue
-        for issue in stage_completion_issues("build", tmp_path)
+        "HANDOFF.md is missing or empty" in issue
+        for issue in stage_completion_issues("experiment", tmp_path)
     )
 
     (tmp_path / "HANDOFF.md").write_text(
-        "# HANDOFF — BUILD\n\nImplementation and evaluator are ready.",
+        "# HANDOFF — EXPERIMENT\n\nImplementation, evaluator, and results are ready.",
         encoding="utf-8",
     )
-    assert stage_completion_issues("build", tmp_path) == ()
+    assert stage_completion_issues("experiment", tmp_path) == ()
 
 
 def test_review_uses_review_not_handoff_or_history(tmp_path: Path) -> None:

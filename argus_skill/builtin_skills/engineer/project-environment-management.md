@@ -32,7 +32,7 @@ These are YOUR resources. Use them for training, inference, reward models, etc.
 
 ```bash
 # Create project venv (run once at project start)
-cd /path/to/agent-emnlp-auto-research-vN
+cd /path/to/agent-auto-research-vN
 python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
 

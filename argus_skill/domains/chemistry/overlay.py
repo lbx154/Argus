@@ -7,9 +7,9 @@ from pathlib import Path
 from ...skills.stage_machine import ChecklistItem
 
 CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
-    "research": (
+    "idea": (
         ChecklistItem(
-            id="research.chemistry-system",
+            id="idea.chemistry-system",
             statement=(
                 "The chemical object, sample, material, framework, cell, crystal, "
                 "reaction, or biological construct and the decision-relevant "
@@ -22,7 +22,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
         ),
         ChecklistItem(
-            id="research.chemistry-evidence-regime",
+            id="idea.chemistry-evidence-regime",
             statement=(
                 "Retrieved, curated, predicted, computed, simulated, measured, and "
                 "inferred evidence are distinguished, with primary-source provenance "
@@ -34,9 +34,9 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
         ),
     ),
-    "plan": (
+    "experiment": (
         ChecklistItem(
-            id="plan.chemistry-capabilities",
+            id="experiment.chemistry-capabilities",
             statement=(
                 "The next action uses the narrowest matched chemistry workflow and "
                 "available project capability, with required inputs, a representative "
@@ -49,7 +49,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
         ),
         ChecklistItem(
-            id="plan.chemistry-control-provenance",
+            id="experiment.chemistry-control-provenance",
             statement=(
                 "Controls, baselines, grouping or split logic, uncertainty, physical "
                 "authorization, and safety boundaries are defined before claim-critical "
@@ -60,10 +60,8 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "authorized action scope, and facility or instrument constraints"
             ),
         ),
-    ),
-    "benchmark": (
         ChecklistItem(
-            id="benchmark.chemistry-input-fidelity",
+            id="experiment.chemistry-input-fidelity",
             statement=(
                 "Benchmark inputs preserve chemically meaningful identity, structure, "
                 "composition, stereochemistry, state, units, conditions, processing, "
@@ -75,7 +73,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
         ),
         ChecklistItem(
-            id="benchmark.chemistry-evaluator-boundary",
+            id="experiment.chemistry-evaluator-boundary",
             statement=(
                 "The evaluator measures the stated chemistry capability with related "
                 "entities, future observations, duplicate sources, and hidden answers "
@@ -86,10 +84,8 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "information available at each decision, and comparable baseline"
             ),
         ),
-    ),
-    "run": (
         ChecklistItem(
-            id="run.chemistry-primary-evidence",
+            id="experiment.chemistry-primary-evidence",
             statement=(
                 "Execution retains original and prepared inputs, exact settings, "
                 "versions, primary outputs, warnings, convergence or calibration "
@@ -101,7 +97,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             ),
         ),
         ChecklistItem(
-            id="run.chemistry-online-control",
+            id="experiment.chemistry-online-control",
             statement=(
                 "Adaptive or agent-guided work records the information, decision owner, "
                 "action, returned observation, budget, and policy-freeze point; physical "
@@ -112,10 +108,8 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "returned evidence, authorization record, and abort behavior"
             ),
         ),
-    ),
-    "analysis": (
         ChecklistItem(
-            id="analysis.chemistry-interpretation",
+            id="experiment.chemistry-interpretation",
             statement=(
                 "Analysis tests controls, residuals, convergence, calibration, "
                 "uncertainty, applicability, alternative explanations, and domain "

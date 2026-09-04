@@ -1,6 +1,6 @@
 ---
 name: "Paper Chart Styling"
-description: "Give every DATA figure in a paper one consistent, journal-grade look instead of default-matplotlib ugliness. Use when generating accuracy/latency/ablation plots, bar/line charts, or any data-driven figure for a paper. Covers a shared publication style (SciencePlots + colour-blind-safe palettes), venue-aware figure sizing (single-column figure vs full-width figure*), redundant colour+marker encoding, highlighting the proposed method, correct PDF font embedding, and learning composition from open-access exemplar papers. Applies to any venue (EMNLP/AAAI/NeurIPS/…)."
+description: "Give every DATA figure in a paper one consistent, journal-grade look instead of default-matplotlib ugliness. Use when generating accuracy/latency/ablation plots, bar/line charts, or any data-driven figure for a paper. Covers a shared publication style (SciencePlots + colour-blind-safe palettes), venue-aware figure sizing (single-column figure vs full-width figure*), redundant colour+marker encoding, highlighting the proposed method, correct PDF font embedding, and learning composition from open-access exemplar papers. Applies to any venue — column layout comes from the project's researched venue profile."
 ---
 
 ## Title
@@ -53,24 +53,26 @@ the research vertical's Research Visualization Router. This skill is only for
    ```
 
 3. **Apply the style once at the top of the analysis script**, before creating
-   any figure. Resolve the venue from the active profile so sizes match the
-   template:
+   any figure. The style reads the column layout (one- vs two-column template)
+   from the project's researched `research/VENUE_PROFILE.json`, so sizes match
+   the venue template automatically:
    ```python
    from paper_chart_style import set_pub_style, figure_size, highlight_ours
    import matplotlib.pyplot as plt
 
-   # venue: "EMNLP" | "AAAI" | the researched key (e.g. "NEURIPS")
-   colors = set_pub_style(venue="EMNLP", column="double", palette="colorblind")
+   colors = set_pub_style(column="double", palette="colorblind")
+   # If the script runs outside the project tree, pass the layout explicitly:
+   # colors = set_pub_style(column="double", two_column=True, palette="colorblind")
    ```
    - `palette` is one of `colorblind` (default), `muted` (cool journal tone), or
      `high_contrast` (talks/posters). All three are colour-blind-safe.
 
 4. **Size each figure for the LaTeX float it will sit in** — this is what keeps
    fonts crisp (LaTeX rescaling a wrongly-sized graphic is what warps text):
-   - Full-width `figure*` (teaser, main results panel): `figure_size("double", venue=...)`.
-   - Single-column `figure` (ablation, per-component): `figure_size("single", venue=...)`.
+   - Full-width `figure*` (teaser, main results panel): `figure_size("double")`.
+   - Single-column `figure` (ablation, per-component): `figure_size("single")`.
    ```python
-   fig, ax = plt.subplots(figsize=figure_size("single", venue="EMNLP"))
+   fig, ax = plt.subplots(figsize=figure_size("single"))
    ```
 
 5. **Encode redundantly and highlight the proposed method** so the figure reads

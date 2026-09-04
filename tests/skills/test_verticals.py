@@ -56,7 +56,7 @@ from argus_skill.verticals._data_domain import write_data_domain
 from argus_skill.verticals.speedrun.stages import role_banner as speedrun_role_banner
 
 RESEARCH_STAGES: tuple[str, ...] = (
-    "idea", "build", "experiment", "paper", "review",
+    "idea", "experiment", "paper", "review",
 )
 SPEEDRUN_STAGES: tuple[str, ...] = ("setup", "optimize", "measure", "report")
 
@@ -284,7 +284,7 @@ def test_force_replacement_resets_inprogress_pipeline_immediately(
     payload = json.loads(state_path.read_text())
     assert payload["current_stage"] == "idea"
     assert payload["stages"]["idea"]["status"] == "in_progress"
-    assert payload["stages"]["build"]["status"] == "pending"
+    assert payload["stages"]["experiment"]["status"] == "pending"
     assert payload["stages"]["review"]["status"] == "pending"
     assert payload["stage_history"][-1]["direction"] == "reset"
 
@@ -455,7 +455,7 @@ def test_speedrun_stage_completion_requires_scored_run_and_report(tmp_path: Path
 # --- format_full_pipeline_checklist is vertical-aware ----------------------
 
 
-def test_full_pipeline_defaults_to_research_five_stages(tmp_path: Path) -> None:
+def test_full_pipeline_defaults_to_research_four_stages(tmp_path: Path) -> None:
     root = _project(tmp_path, "research")
     text = format_full_pipeline_checklist(role="reviewer", project_root=root)
     for stage in RESEARCH_STAGES:

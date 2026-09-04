@@ -24,7 +24,7 @@ hypothesis.
    manufacture twelve routes or a paper commitment.
 3. For a direct Idea-only request, produce the requested source-grounded idea,
    comparison, or critique and stop after independent review. Do not continue
-   into Build, Experiment, Paper, or Review unless the operator requested that
+   into Experiment, Paper, or Review unless the operator requested that
    larger deliverable.
 4. Keep all Idea work source-only. Read papers, official documentation, and
    official source code; do not execute candidate code or run toy, premise,
@@ -48,7 +48,8 @@ route or review and never creates another portfolio.
 
 The selected or locked idea has a consequential thesis, load-bearing mechanism,
 source-backed novelty distinction, strongest baseline, realistic resources,
-explicit kill argument, and a decisive Build/Experiment path. It has a credible
+the strongest argument against it stated plainly, and a decisive Experiment
+path. It has a credible
 route to a paper whose value is obvious before reading implementation details.
 For exploratory work, completion is the requested source-grounded finding rather
 than a fabricated paper direction. Manager alone advances the stage after the
@@ -63,6 +64,12 @@ rejection reason for each of the other eleven routes. A locked or exploratory
 path records only its supplied direction or scoped finding and the next relevant
 work; it does not invent rejected routes or a selector. Do not create another
 project-visible selection report.
+
+Describe the decisive experiment as a direction — which comparison would settle
+the thesis and why it is decisive — in the prose a strong collaborator would
+use. Do not fix numeric success thresholds, decision procedures, or frozen
+design tables in the handoff: those choices belong to Experiment, where they
+are made in contact with real evidence and revised as it accumulates.
 
 A direct Idea-only request returns its reviewed result to the operator and does
 not create a cross-stage handoff.

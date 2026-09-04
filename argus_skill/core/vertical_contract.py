@@ -183,7 +183,14 @@ class VerticalContract:
     # vertical that cannot pick a completion bar on its own. See
     # ``adopt_operator_objective``.
     operator_objective_adopter: Callable[[Path, str], object] | None = None
+    # Optional: carries this vertical's own pre-isolation artifacts (stage
+    # names, selection records) when legacy Manager state is imported into an
+    # isolated state root. Keyword-only forwarding; see ``import_legacy_state``.
+    legacy_state_importer: Callable[..., object] | None = None
     stage_primary_deliverables: dict[str, tuple[str, ...]] | None = None
+    # Optional role-operation routing by canonical stage. The framework keeps
+    # the fallback operation domain-blind; each vertical owns any specialization.
+    engineer_stage_operations: dict[str, str] | None = None
     # Stages whose Engineer round runs with live web search enabled. ``None``
     # means "this vertical declares nothing", which is NOT the same as an
     # explicitly declared empty set ("never search"): the former keeps the
@@ -228,6 +235,9 @@ class VerticalContract:
 
     def primary_deliverables(self, stage: str) -> tuple[str, ...]:
         return tuple((self.stage_primary_deliverables or {}).get(stage, ()))
+
+    def engineer_operation(self, stage: str, *, default: str = "mission") -> str:
+        return str((self.engineer_stage_operations or {}).get(stage, default))
 
     def live_search_stages(
         self,
@@ -396,6 +406,19 @@ class VerticalContract:
             return False
         self.operator_objective_adopter(project_root, str(request or ""))
         return True
+
+    def import_legacy_state(self, *, source_root: Path, state_root: Path) -> None:
+        """Carry this vertical's pre-isolation artifacts into the state root.
+
+        Called once, right after legacy Manager state naming this vertical has
+        been copied into an isolated state root. The framework knows only that
+        an import happened; whatever stage-name or selection migration the
+        vertical needs stays vertical-local behind this hook, so the state
+        importer never has to name a domain.
+        """
+        if self.legacy_state_importer is None:
+            return
+        self.legacy_state_importer(source_root=source_root, state_root=state_root)
 
     def prepare_mission(
         self,
@@ -574,6 +597,11 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         raise VerticalContractError(
             f"vertical {name!r} has a non-callable operator objective adopter"
         )
+    legacy_state_importer = getattr(provider, "import_legacy_state", None)
+    if legacy_state_importer is not None and not callable(legacy_state_importer):
+        raise VerticalContractError(
+            f"vertical {name!r} has a non-callable legacy state importer"
+        )
     raw_primary_deliverables = (
         getattr(provider, "STAGE_PRIMARY_DELIVERABLES", {}) or {}
     )
@@ -596,6 +624,24 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
             if (path := str(value or "").strip())
         )
         for stage, values in raw_primary_deliverables.items()
+    }
+    raw_stage_operations = getattr(provider, "ENGINEER_STAGE_OPERATIONS", {}) or {}
+    if not isinstance(raw_stage_operations, dict):
+        raise VerticalContractError(
+            f"vertical {name!r} Engineer stage operations are not a mapping"
+        )
+    unknown_operation_stages = sorted(
+        set(raw_stage_operations) - set(stage_order)
+    )
+    if unknown_operation_stages:
+        raise VerticalContractError(
+            f"vertical {name!r} has Engineer operations for unknown stages: "
+            f"{', '.join(unknown_operation_stages)}"
+        )
+    engineer_stage_operations = {
+        str(stage): str(operation).strip()
+        for stage, operation in raw_stage_operations.items()
+        if str(operation).strip()
     }
     raw_live_search_stages = getattr(provider, "ENGINEER_LIVE_SEARCH_STAGES", None)
     engineer_live_search_stages: frozenset[str] | None = None
@@ -695,7 +741,9 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         review_purchase_policy=review_purchase_policy,
         iteration_assessor=iteration_assessor,
         operator_objective_adopter=operator_objective_adopter,
+        legacy_state_importer=legacy_state_importer,
         stage_primary_deliverables=stage_primary_deliverables,
+        engineer_stage_operations=engineer_stage_operations,
         engineer_live_search_stages=engineer_live_search_stages,
     )
 

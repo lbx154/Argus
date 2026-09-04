@@ -150,6 +150,19 @@ def vertical_search_altitude(mod: VerticalDefinition, project_root: object) -> s
     return _contract(mod).altitude(project_root)
 
 
+def vertical_import_legacy_state(
+    mod: VerticalDefinition,
+    *,
+    source_root: Path,
+    state_root: Path,
+) -> None:
+    """Let the vertical carry over its own pre-isolation state artifacts."""
+    _contract(mod).import_legacy_state(
+        source_root=source_root,
+        state_root=state_root,
+    )
+
+
 def vertical_prepare_mission(
     mod: VerticalDefinition,
     *,

@@ -111,20 +111,20 @@ def test_replace_of_live_search_field_with_default_marks_it_explicit() -> None:
     assert updated._live_search_stages_explicit is True
 
 
-def test_stage_gate_research_on_others_off():
+def test_stage_gate_on_for_named_stages_off_elsewhere():
     d = tempfile.mkdtemp()
-    os.makedirs(os.path.join(d, "research"), exist_ok=True)
-    stages = frozenset({"research"})
+    os.makedirs(os.path.join(d, ".argus"), exist_ok=True)
+    stages = frozenset({"idea"})
 
     def _set(stage: str) -> None:
-        with open(os.path.join(d, "research", "PIPELINE_STATE.json"), "w") as fh:
+        with open(os.path.join(d, ".argus", "PIPELINE_STATE.json"), "w") as fh:
             json.dump({"current_stage": stage}, fh)
 
-    _set("research")
+    _set("idea")
     assert _engineer_live_search(d, stages) is True
-    _set("plan")
+    _set("experiment")
     assert _engineer_live_search(d, stages) is False
-    _set("run")
+    _set("paper")
     assert _engineer_live_search(d, stages) is False
 
 
@@ -176,11 +176,13 @@ def test_every_math_stage_gets_live_search(tmp_path: Path) -> None:
         ) is True
 
 
-def test_every_research_stage_gets_live_search(tmp_path: Path) -> None:
+def test_research_live_search_covers_working_stages_not_review(tmp_path: Path) -> None:
     contract = load_vertical_contract("research")
-    assert contract.engineer_live_search_stages is None
+    assert contract.engineer_live_search_stages == frozenset(
+        {"idea", "experiment", "paper"}
+    )
     stages = _resolved_stages("research")
-    assert stages == frozenset(contract.stage_order)
+    assert stages == frozenset({"idea", "experiment", "paper"})
 
     persist_vertical(tmp_path, "research")
     state_path = tmp_path / ".argus" / "PIPELINE_STATE.json"
@@ -188,7 +190,7 @@ def test_every_research_stage_gets_live_search(tmp_path: Path) -> None:
         payload = json.loads(state_path.read_text(encoding="utf-8"))
         payload["current_stage"] = stage
         state_path.write_text(json.dumps(payload), encoding="utf-8")
-        assert _engineer_live_search(tmp_path, stages) is True
+        assert _engineer_live_search(tmp_path, stages) is (stage != "review")
 
 
 def test_vertical_without_declaration_takes_the_default_path(tmp_path: Path) -> None:

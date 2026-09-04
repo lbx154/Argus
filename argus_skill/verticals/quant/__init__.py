@@ -3,8 +3,8 @@
 The finance analog of the ``research`` paper vertical: the same domain-agnostic
 harness (planner / engineer / reviewer loop + budget + persistence + gates)
 drives an autonomous factor-mining mission whose deliverable is an
-interpretable, reviewer-certified **factor report** (the analog of an EMNLP
-paper) rather than a numeric speedrun metric.
+interpretable, reviewer-certified **factor report** (the analog of a
+conference paper) rather than a numeric speedrun metric.
 
 This package ships two layers:
 

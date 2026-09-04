@@ -165,11 +165,11 @@ def test_planner_structured_stage_request_advances_before_enqueue(
     pipeline = project_root / ".argus" / "PIPELINE_STATE.json"
     pipeline.parent.mkdir(parents=True)
     pipeline.write_text(
-        json.dumps({"vertical": "research", "current_stage": "build"}),
+        json.dumps({"vertical": "research", "current_stage": "idea"}),
         encoding="utf-8",
     )
     (project_root / "HANDOFF.md").write_text(
-        "# HANDOFF — BUILD\n\nImplementation and evaluator are ready.",
+        "# HANDOFF — IDEA\n\nThe idea is selected and ready to implement.",
         encoding="utf-8",
     )
     supervisor = _make_supervisor(

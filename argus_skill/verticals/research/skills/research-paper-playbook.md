@@ -21,7 +21,9 @@ do not become the narrative.
 ## Work
 
 1. Read `HANDOFF.md`, the selected venue profile, and the current official
-   author kit.
+   author kit. Before prose, classify the complete evidence as headline,
+   mechanism, disambiguating control, scope-changing, or completeness evidence;
+   assign each item a canonical full location and any repeat locations.
 2. Download a small set of strong open-access accepted, Oral, Outstanding Paper,
    or Best Paper examples from the selected venue and closest area. Learn
    argument structure, pacing, Figure 1, table and caption design, typography,
@@ -36,12 +38,18 @@ do not become the narrative.
    milestone, or "Experiment 1/2/3."
 5. Include every claim-bearing experiment, fair comparison, control, ablation,
    citation, figure, table, limitation, and venue-required section needed by the
-   thesis.
-6. Resolve citations against primary sources and keep claims consistent with
+   thesis. Keep complete method and result matrices in Methods, tables, or the
+   Appendix while prose selects and interprets the entries that change the
+   current inference. Selection changes emphasis, never scientific coverage.
+6. Preserve the drafting contract: a five-sentence abstract with at least 170
+   words, exact headline numbers where they establish the claim, and a numerical
+   takeaway in every figure and table caption. Repetition is allowed when it
+   serves a different section role; repeated matrix recitation is not.
+7. Resolve citations against primary sources and keep claims consistent with
    the executed code and raw results.
-7. Produce editable figure sources, publication-size exports, and a readable
+8. Produce editable figure sources, publication-size exports, and a readable
    rendered paper.
-8. Compile successfully with the selected venue's current rules.
+9. Compile successfully with the selected venue's current rules.
 
 Paper performs normal authoring checks, not a separate scientific, visual,
 language, or whole-paper acceptance gate. Those happen together in Review.
@@ -56,8 +64,9 @@ present and mutually consistent. Manager alone advances the stage.
 ## Handoff
 
 Replace project-root `HANDOFF.md` with `# HANDOFF — PAPER`, containing only the
-current manuscript location, central thesis, headline evidence, venue, and any
-known issue Review must inspect. Do not create another drafting or format report.
+current manuscript location, central thesis, evidence roles and placements,
+venue, and any known issue Review must inspect. Do not create another drafting
+or format report.
 
 ## Progressive disclosure
 

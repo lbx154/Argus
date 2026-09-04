@@ -374,7 +374,7 @@ PROTECTED_ITEM_IDS: frozenset[str] = frozenset(
 
 
 #: Quant missions complete on a certified final factor REPORT (report
-#: certification, the research/EMNLP analog) — NOT a numeric metric.
+#: certification, the research-paper analog) — NOT a numeric metric.
 completion_gate = "certified"
 MISSION_KIND = "research"
 

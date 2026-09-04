@@ -59,12 +59,16 @@ def test_router_requires_real_deterministic_figure1_fallback() -> None:
     assert "boxed\nparagraph or table" in content
     assert "\\includegraphics" in body
     studio = texts["engineer/paper-framework-figure-studio.md"]
-    assert "source, target, direction, boundary port" in studio
-    assert "connectors terminate at explicit node boundaries" in studio
-    assert "no shaft or arrowhead enters an unrelated node" in studio
-    assert "actual single- or double-column size" in studio
+    studio_flat = " ".join(studio.split())
+    assert "source, target, direction, boundary port" in studio_flat
+    assert "connectors terminate at explicit node boundaries" in studio_flat
+    assert "no shaft or arrowhead enters an unrelated node" in studio_flat
+    assert "final single- or double-column width" in studio_flat
     assert "PPT Master" in studio
-    assert "Strict page-by-page visual acceptance happens once, in Review" in studio
+    assert (
+        "Strict page-by-page visual acceptance happens once, in Review"
+        in studio_flat
+    )
 
 
 def test_results_figures_keep_claim_checks_agent_owned_and_risk_based() -> None:

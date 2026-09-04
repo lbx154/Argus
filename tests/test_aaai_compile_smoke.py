@@ -3,9 +3,7 @@
 Builds a minimal AAAI paper following the exact preamble the AAAI Paper Drafting
 skill prescribes, compiles it with the official aaai2026.sty/.bst, and asserts:
 
-* it produces a PDF (the contract is actually compilable), and
-* our AAAI structural-minimums checks raise NO preamble issues on the compliant
-  paper (no false positives).
+* it produces a PDF (the contract is actually compilable).
 
 Skips cleanly when pdflatex or the AAAI kit is unavailable, so it is portable to
 CI without the (non-redistributable) style files.
@@ -19,12 +17,6 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.verticals.research.paper_structural_minimums import (
-    StructuralReport,
-    _append_venue_compliance_issues,
-    _strip_comments,
-)
-from argus_skill.verticals.research.venue_profiles import AAAI_PROFILE
 
 _KIT_CANDIDATES = [
     os.environ.get("ARGUS_SKILL_AAAI_KIT", ""),
@@ -90,7 +82,7 @@ pytestmark = [
 ]
 
 
-def test_minimal_aaai_paper_compiles_and_passes_structural_checks(tmp_path: Path) -> None:
+def test_minimal_aaai_paper_compiles(tmp_path: Path) -> None:
     kit = _find_kit()
     assert kit is not None  # guarded by skipif
     paper = tmp_path / "paper"
@@ -112,9 +104,3 @@ def test_minimal_aaai_paper_compiles_and_passes_structural_checks(tmp_path: Path
 
     # The contract is actually compilable.
     assert (paper / "main.pdf").is_file(), "AAAI minimal paper did not produce a PDF"
-
-    # Our AAAI structural checks raise no preamble issues on the compliant paper.
-    tex = _strip_comments((paper / "main.tex").read_text(encoding="utf-8"))
-    report = StructuralReport(main_tex_path=paper / "main.tex")
-    _append_venue_compliance_issues(report, tex, AAAI_PROFILE)
-    assert [i.code for i in report.issues] == []

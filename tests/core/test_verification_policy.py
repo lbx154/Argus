@@ -144,7 +144,6 @@ def test_a_publishable_project_explores_during_the_idea_stage(project: Path) -> 
     "stage,expected",
     [
         ("idea", "explore"),
-        ("build", "develop"),
         ("experiment", "develop"),
         ("paper", "develop"),
         ("review", "certify"),

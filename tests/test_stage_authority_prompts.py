@@ -45,7 +45,7 @@ def test_reviewer_reports_upstream_defects_instead_of_rolling_back() -> None:
     assert "Manager owns rollback" in src
 
 
-def test_build_playbook_does_not_tell_engineer_to_advance_stage() -> None:
-    md = _src("verticals/research/skills/research-build-playbook.md")
+def test_experiment_playbook_does_not_tell_engineer_to_advance_stage() -> None:
+    md = _src("verticals/research/skills/research-experiment-playbook.md")
     assert "advance to the next stage and update" not in md
     assert "Manager alone advances" in md

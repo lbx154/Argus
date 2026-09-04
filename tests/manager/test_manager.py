@@ -443,11 +443,11 @@ def test_manager_without_backend_cannot_be_bypassed_by_vertical_env(
         Manager(project_root=tmp_path).decide_vertical("prove the lemma")
 
 
-def test_plan_stages_research_is_the_five_stage_pipeline():
+def test_plan_stages_research_is_the_four_stage_pipeline():
     stages = Manager().plan_stages("research")
     assert stages == list(RESEARCH_STAGES)
     assert stages[0] == "idea" and stages[-1] == "review"
-    assert len(stages) == 5
+    assert len(stages) == 4
 
 
 def test_plan_stages_propagates_vertical_load_failure(monkeypatch):

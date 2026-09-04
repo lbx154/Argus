@@ -3,8 +3,8 @@
 The loop runs ONE of several *verticals*, selected by a single ``vertical``
 field in ``.argus/PIPELINE_STATE.json``:
 
-* ``"research"`` — the five-stage research-paper pipeline
-  (idea → build → experiment → paper → review). This is the default and the safe fallback
+* ``"research"`` — the four-stage research-paper pipeline
+  (idea → experiment → paper → review). This is the default and the safe fallback
   whenever intent is unclear: producing a paper subsumes the optimize work,
   so over-running is never a correctness hazard, only a cost one.
 * ``"speedrun"`` — the lean numeric-optimization vertical (setup → optimize →
@@ -323,18 +323,13 @@ def migrate_legacy_manager_state(
         return False
     write_pipeline_state(target_root, payload)
     if names_a_vertical:
-        if _known_vertical(named, target_root) == "research":
-            from ..verticals.research.idea_portfolio import (
-                migrate_legacy_idea_selection,
-            )
-            from .stage_machine import migrate_legacy_research_stage
+        from ..verticals._base import load_vertical, vertical_import_legacy_state
 
-            migrate_legacy_research_stage(target_root)
-            migrate_legacy_idea_selection(
-                source_root,
-                state_root=target_root,
-                materialize_handoff=False,
-            )
+        vertical_import_legacy_state(
+            load_vertical(_known_vertical(named, target_root), target_root),
+            source_root=source_root,
+            state_root=target_root,
+        )
         # Warm read that proves the imported decision resolves against the new
         # root. Skipped when undecided: `resolve_vertical` would only log its
         # "no Manager vertical resolved" fallback warning for a project that is

@@ -171,9 +171,52 @@ class RoundReviewerMixin:
             )
             if part
         )
+        from ..reviewer._core import _parallel_final_review_passes
+
+        preliminary_review = _parallel_final_review_passes(
+            getattr(self.reviewer, "runner", self.reviewer),
+            replace(
+                self.reviewer_config,
+                working_dir=str(workdir),
+                artifact_root=str(workdir),
+                narrative_snapshot_root=(
+                    supervised_config.narrative_snapshot_root or None
+                ),
+            ),
+        )
+        if preliminary_review is not None:
+            enforcement = supervised_config.narrative_review_enforcement
+            if preliminary_review.backend_unavailable and enforcement == "blocking":
+                return preliminary_review
+            authority_note = (
+                "Shadow calibration only: these new semantic-loss and cold-read signals "
+                "cannot be the sole reason for a blocking verdict. Independently verify a "
+                "finding under the existing scientific, visual, language, or venue contract "
+                "before using it to continue the round."
+                if enforcement != "blocking"
+                else (
+                    "Enforcement is enabled: a substantiated scientific loss or reject-level "
+                    "cold-read failure may block certification."
+                )
+            )
+            reviewer_background_context = "\n\n".join(
+                part
+                for part in (
+                    reviewer_background_context,
+                    "## Independent final-paper passes\n"
+                    "These fresh read-only assessments are evidence for your integrated "
+                    "verdict. Resolve conflicts yourself; only your verdict controls the "
+                    "round and is persisted to paper/REVIEW.md. "
+                    + authority_note
+                    + "\n"
+                    + preliminary_review.reason,
+                )
+                if part
+            )
         started_at = time.monotonic()
         try:
             review = self.reviewer.evaluate(
+                operation="evaluate",
                 objective=objective,
                 original_objective=original_objective or objective,
                 operator_messages=operator_messages,

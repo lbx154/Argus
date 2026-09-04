@@ -18,8 +18,10 @@ from ..task_contract import (
 from .types import ChecklistMode, RoleName, RolePromptRequest
 
 EVALUATE = "evaluate"
+SCIENCE_LOSS_CHECK = "science_loss_check"
+COLD_READ = "cold_read"
 
-OPERATIONS = frozenset({EVALUATE})
+OPERATIONS = frozenset({EVALUATE, SCIENCE_LOSS_CHECK, COLD_READ})
 
 _REEVALUATE_HEADER = (
     "## NEW ROUND — RE-EVALUATE INDEPENDENTLY (resumed reviewer)\n"
@@ -78,10 +80,11 @@ def evaluate_request(
     stage: str | None = None,
     vertical: str | None = None,
     checklist_mode: ChecklistMode = ChecklistMode.AUTO,
+    operation: str = EVALUATE,
 ) -> RolePromptRequest:
     return RolePromptRequest(
         role=RoleName.REVIEWER,
-        operation=EVALUATE,
+        operation=operation,
         project_root=project_root,
         # The facts are about the work, which lives in the worktree, not in
         # state/projects/<session>/ where the stage is read from.
@@ -224,6 +227,7 @@ def _format_engineer_shared_context(
 def render_reviewer_prompt(
     owner: Any,
     *,
+    operation: str = EVALUATE,
     resumed: bool = False,
     objective: str,
     original_objective: str = "",
@@ -336,6 +340,7 @@ def render_reviewer_prompt(
                 if explicit_vertical and not _persisted
                 else ChecklistMode.AUTO
             ),
+            operation=operation,
         )
     )
     persisted_prompt_context = (
@@ -344,6 +349,7 @@ def render_reviewer_prompt(
                 _proot,
                 vertical=routed_vertical,
                 checklist_mode=ChecklistMode.NONE,
+                operation=operation,
             )
         )
         if routed_vertical is not None
@@ -772,8 +778,10 @@ def assemble_reviewer_prompt(static: str, delta: str) -> str:
 
 
 __all__ = [
+    "COLD_READ",
     "EVALUATE",
     "OPERATIONS",
+    "SCIENCE_LOSS_CHECK",
     "assemble_reviewer_prompt",
     "evaluate_request",
     "render_reviewer_prompt",

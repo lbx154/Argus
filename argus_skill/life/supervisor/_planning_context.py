@@ -292,8 +292,8 @@ class PlanningContextMixin:
             else:
                 lines.append(
                     "- bounded_task: judge this item against its own acceptance criteria; "
-                    "do not require the project-final EMNLP gate unless the objective "
-                    "explicitly asks for it."
+                    "do not hold it to the project-final publication standard unless "
+                    "the objective explicitly asks for that."
                 )
         if context_refs:
             lines.append("")

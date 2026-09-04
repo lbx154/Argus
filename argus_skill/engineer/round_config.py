@@ -33,6 +33,7 @@ _BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
 _COMPACT_CONTINUATION_PROMPTS_ENV = "ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS"
 _ROLE_SESSION_MAX_TURNS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_TURNS"
 _ROLE_SESSION_MAX_INPUT_TOKENS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS"
+_NARRATIVE_REVIEW_ENFORCEMENT_ENV = "ARGUS_SKILL_NARRATIVE_REVIEW_ENFORCEMENT"
 _CONTINUE_WORK_SENTINEL = "CONTINUE_WORK:"
 _CONTINUE_WORK_MAX_CHARS = 500
 _DEFAULT_DECISION_PROGRESS_TIMEOUT_SECONDS = 0
@@ -62,6 +63,11 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw is None or raw.strip() == "":
         return default
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _narrative_review_enforcement() -> str:
+    raw = os.environ.get(_NARRATIVE_REVIEW_ENFORCEMENT_ENV, "shadow")
+    return "blocking" if raw.strip().lower() == "blocking" else "shadow"
 
 
 def parse_continue_work_request(message: str | None) -> str | None:
@@ -289,6 +295,17 @@ class SupervisedConfig:
     # it. The engineer's shell commands still land in the ``text`` field of
     # each ``engineer.progress`` event in this file.
     engineer_log_path: str = ""
+    # Prompt routing operation selected once from the active vertical/stage.
+    # Narrative editing forces a fresh Engineer context so review wording and
+    # authoring chronology cannot leak into the reader-facing pass.
+    engineer_operation: str = "mission"
+    narrative_mission_id: str = ""
+    narrative_snapshot_root: str = ""
+    # New semantic-loss/cold-read signals calibrate in shadow mode first.
+    # Set ARGUS_SKILL_NARRATIVE_REVIEW_ENFORCEMENT=blocking only after evals.
+    narrative_review_enforcement: str = field(
+        default_factory=_narrative_review_enforcement
+    )
     # Ordinary Markdown file edited directly by Engineer and Reviewer. None
     # disables the shared checkpoint for callers that intentionally opt out.
     checkpoint_path: Path | None = None

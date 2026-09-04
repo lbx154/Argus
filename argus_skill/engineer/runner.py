@@ -157,7 +157,11 @@ class SupervisedEngineer(
             getattr(self.engineer_runner, "backend", type(self.engineer_runner).__name__)
         )
         engineer_policy = effective_role_session_policy(
-            supervised_config.role_session_policy,
+            (
+                "fresh"
+                if supervised_config.engineer_operation == "narrative_edit"
+                else supervised_config.role_session_policy
+            ),
             engineer_backend,
             # Pi deliberately uses --no-session in isolated maintenance
             # worktrees, so no persisted thread may be passed there.
@@ -202,84 +206,30 @@ class SupervisedEngineer(
             ),
             mission_context_path=supervised_config.context_packet_path,
         )
-        from ..reviewer._core import (
-            _parallel_final_review_passes,
-            _persist_research_review,
-        )
-
-        reviewer_runner = getattr(self.reviewer, "runner", None)
-        preliminary_review = (
-            _parallel_final_review_passes(
-                reviewer_runner,
-                replace(
-                    self.reviewer_config,
-                    working_dir=str(workdir),
-                    artifact_root=str(workdir),
-                ),
-            )
-            if reviewer_runner is not None
-            else None
-        )
-        if preliminary_review is not None:
-            if preliminary_review.status == "blocked":
-                from ..core.stop_kinds import pause_status_for_stop_kind
-
-                if on_event is not None:
-                    on_event(
-                        _review_event_payload(
-                            preliminary_review,
-                            round_index=0,
-                            round_max=supervised_config.max_rounds,
-                            text=preliminary_review.reason,
-                        )
-                    )
-                state.rounds.append(
-                    RoundRecord(
-                        round_index=0,
-                        engineer_message="",
-                        engineer_exit_code=0,
-                        review=preliminary_review,
-                        fatal_error=preliminary_review.backend_fatal_error or None,
-                        stop_kind=preliminary_review.backend_stop_kind,
-                    )
+        if supervised_config.engineer_operation == "narrative_edit":
+            try:
+                from ..core.manuscript_narrative_runtime import (
+                    prepare_narrative_snapshot,
                 )
-                status = (
-                    "aborted"
-                    if preliminary_review.backend_stop_kind == "operator_abort"
-                    else (
-                        pause_status_for_stop_kind(
-                            preliminary_review.backend_stop_kind
-                        )
-                        or "error"
-                    )
-                )
-                return enforce_terminal_question_policy(
-                    (
-                        status,
-                        state.rounds,
-                        state.last_engineer_message,
-                        preliminary_review.reason,
-                        preliminary_review.thread_id,
+
+                snapshot_root = prepare_narrative_snapshot(
+                    workdir,
+                    self.reviewer_config.vertical_state_root or workdir,
+                    mission_id=(
+                        supervised_config.narrative_mission_id
+                        or supervised_config.session_id
+                        or revision
                     ),
-                    supervised_config,
                 )
-            _persist_research_review(
-                preliminary_review,
-                replace(
-                    self.reviewer_config,
-                    working_dir=str(workdir),
-                    artifact_root=str(workdir),
-                ),
-            )
-            state.reviewer_next_action = preliminary_review.next_action
-            if on_event is not None:
-                on_event(
-                    _review_event_payload(
-                        preliminary_review,
-                        round_index=0,
-                        round_max=supervised_config.max_rounds,
-                        text=preliminary_review.reason,
-                    )
+                supervised_config = replace(
+                    supervised_config,
+                    narrative_snapshot_root=str(snapshot_root),
+                )
+            except Exception as exc:  # noqa: BLE001 - comparison is a hard contract
+                reason = f"Could not preserve the pre-edit paper snapshot: {exc}"
+                return enforce_terminal_question_policy(
+                    ("error", state.rounds, "", reason, None),
+                    supervised_config,
                 )
         round_indices = (
             itertools.count(1)

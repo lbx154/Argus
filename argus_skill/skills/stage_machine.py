@@ -129,7 +129,7 @@ def normalize_stage_for_project(
 
 
 def migrate_legacy_research_stage(project_root: Path | str) -> bool:
-    """Persist the five-stage mapping for one legacy research state."""
+    """Persist the canonical-stage mapping for one legacy research state."""
     root = Path(project_root)
     payload = read_pipeline_state(root)
     if str(payload.get("vertical") or "").strip().lower() != "research":

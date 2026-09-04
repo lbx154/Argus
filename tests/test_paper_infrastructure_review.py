@@ -13,6 +13,11 @@ from argus_skill.verticals.research.paper_infrastructure_review import (
 from argus_skill.verticals.research.paper_infrastructure_review import (
     main as paper_infrastructure_review_main,
 )
+from tests.skills.researched_venues import (
+    EIGHT_PAGE_CONFERENCE,
+    SEVEN_PAGE_CONFERENCE,
+    seed_researched_profile,
+)
 
 
 def test_missing_model_evidence_spans_does_not_become_a_harness_gate(
@@ -21,12 +26,7 @@ def test_missing_model_evidence_spans_does_not_become_a_harness_gate(
     paper_dir = tmp_path / "paper"
     paper_dir.mkdir()
     (paper_dir / "main.tex").write_text("\\section{Intro}\nHello.\n", encoding="utf-8")
-    research_dir = tmp_path / "research"
-    research_dir.mkdir()
-    (research_dir / "PIPELINE_STATE.json").write_text(
-        '{"vertical":"research","target_venue":"EMNLP"}',
-        encoding="utf-8",
-    )
+    seed_researched_profile(tmp_path, EIGHT_PAGE_CONFERENCE)
 
     monkeypatch.setattr(
         "argus_skill.verticals.research.paper_infrastructure_review.collect_latex_source_paths",
@@ -80,12 +80,7 @@ def test_cli_resolves_venue_from_project_root_not_cwd(
     paper_dir = project / "paper"
     paper_dir.mkdir(parents=True)
     (paper_dir / "main.tex").write_text("\\section{Intro}\nHello.\n", encoding="utf-8")
-    research_dir = project / "research"
-    research_dir.mkdir()
-    (research_dir / "PIPELINE_STATE.json").write_text(
-        '{"vertical":"research","target_venue":"AAAI"}',
-        encoding="utf-8",
-    )
+    seed_researched_profile(project, SEVEN_PAGE_CONFERENCE)
     outside = tmp_path / "outside"
     outside.mkdir()
     monkeypatch.chdir(outside)
@@ -128,7 +123,7 @@ def test_cli_resolves_venue_from_project_root_not_cwd(
 
     out = capsys.readouterr().out
     assert rc == 0
-    assert observed["venue"] == "AAAI"
+    assert observed["venue"] == "CONFB"
     assert json.loads(out)["structural_status"] == "ok"
 
 
@@ -142,12 +137,7 @@ def test_runner_failure_produces_blocked_review_artifact(
         "\\section{Intro}\nHello.\n",
         encoding="utf-8",
     )
-    research_dir = tmp_path / "research"
-    research_dir.mkdir()
-    (research_dir / "PIPELINE_STATE.json").write_text(
-        '{"vertical":"research","target_venue":"EMNLP"}',
-        encoding="utf-8",
-    )
+    seed_researched_profile(tmp_path, EIGHT_PAGE_CONFERENCE)
     monkeypatch.setattr(
         "argus_skill.verticals.research.paper_infrastructure_review.collect_latex_source_paths",
         lambda root: (["paper/main.tex"], []),

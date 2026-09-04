@@ -7,6 +7,10 @@ description: "Use maintained training or inference frameworks and size them to t
 
 Use this when the selected method needs model training or large-scale inference.
 Reuse maintained infrastructure unless a custom loop is itself the contribution.
+Hand-rolling a training or serving stack that an established framework already
+provides — an RL trainer, a DPO loop, a distributed launcher, an inference
+server — wastes the run budget and produces results nobody can trust; the
+method's novelty belongs in the method, not in bespoke plumbing.
 
 ## Choose the framework
 

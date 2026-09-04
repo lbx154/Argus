@@ -84,8 +84,12 @@ def _route_task(
             "Choose a mechanism family genuinely distinct from the other routes and "
             "important to the broad research direction. Develop the strongest "
             "source-grounded case for a nontrivial contribution. Record the mechanism, "
-            "primary-source trail, closest work, non-obvious gap, strongest kill "
-            "argument, resource needs, and future decisive experiment. Selection is "
+            "primary-source trail, closest work, non-obvious gap, the strongest "
+            "argument against the idea, resource needs, and future decisive "
+            "experiment. Size the resource needs and the decisive experiment to the "
+            "compute this machine actually has (described in your role context) — "
+            "propose ideas whose experiments can genuinely run here, at a scale that "
+            "would convince a reviewer, not toy demonstrations. Selection is "
             "source-only: inspect papers, documentation, and official source, but do "
             "not execute candidate code or run probe experiments. Create "
             f"`{output}`. {_NO_NESTED_TEAM}"
@@ -974,7 +978,7 @@ def _write_handoff(project_root: Path, selection: dict[str, Any]) -> None:
         f"- Why it won: {selection.get('rationale')}\n"
         f"- Evidence considered: {selection.get('evidence_considered')}\n"
         f"- Resource needs: {selection.get('resource_requirements')}\n\n"
-        "## Unresolved build obligations\n"
+        "## Unresolved implementation obligations\n"
         f"{unresolved_lines}\n\n"
         "## Rejected routes\n"
         f"{rejection_lines}\n"
@@ -1198,7 +1202,7 @@ def migrate_legacy_idea_selection(
                         payload["current_verdict"] = "idea_selected"
                         payload["next_action"] = (
                             "Resume the mapped research stage with the selected idea; "
-                            "mapped stages must be reviewed under the current five-stage "
+                            "mapped stages must be reviewed under the current four-stage "
                             "checklist."
                         )
                         meta = _portfolio_meta(payload)

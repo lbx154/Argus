@@ -39,7 +39,8 @@ def _paper_mission_for_project_root(project_root: Path | str) -> bool:
     Missing/corrupt state is deliberately non-paper.  ``resolve_vertical`` has
     a compatibility fallback to ``research`` for undecided projects; using that
     fallback as a mission-type signal caused ordinary bounded tasks to pay for
-    paper idea search and inherit EMNLP guidance. A persisted Manager decision
+    paper idea search and inherit publication-campaign guidance. A persisted
+    Manager decision
     is required here.
     """
     try:
@@ -148,8 +149,8 @@ def _build_supervisor_config(
     open_ended: bool,
 ) -> LifeSupervisorConfig:
     # Mission type follows a positive Manager-authored vertical decision.  An
-    # undecided or malformed project is bounded/non-paper, never implicitly an
-    # EMNLP campaign.
+    # undecided or malformed project is bounded/non-paper, never implicitly a
+    # publication campaign.
     runtime_root = artifact_root or project_root
     paper_mission = _paper_mission_for_project_root(runtime_root)
     final_certification = _final_certification_for_project_root(runtime_root)

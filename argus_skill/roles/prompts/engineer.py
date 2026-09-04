@@ -14,7 +14,9 @@ from ..task_contract import (
 from .types import RoleName, RolePromptRequest
 
 MISSION = "mission"
-OPERATIONS = frozenset({MISSION})
+AUTHOR_DRAFT = "author_draft"
+NARRATIVE_EDIT = "narrative_edit"
+OPERATIONS = frozenset({MISSION, AUTHOR_DRAFT, NARRATIVE_EDIT})
 _MANAGER_GROUNDING_HEADER = "\n\n## Manager project grounding (advisory evidence)\n"
 
 _POSIX_LONG_EXPERIMENT_RULE = (
@@ -342,20 +344,25 @@ def mission_request(
     *,
     vertical: str | None = None,
     altitude_root: Path | str | None = None,
+    stage: str | None = None,
+    operation: str = MISSION,
 ) -> RolePromptRequest:
     return RolePromptRequest(
         role=RoleName.ENGINEER,
-        operation=MISSION,
+        operation=operation,
         project_root=project_root,
         # Where the work is. The vertical fragment describes the workspace, and
         # project_root here is the vertical state root, which contains no paper.
         altitude_root=altitude_root,
         vertical=vertical,
+        stage=stage,
     )
 
 
 __all__ = [
+    "AUTHOR_DRAFT",
     "MISSION",
+    "NARRATIVE_EDIT",
     "OPERATIONS",
     "append_live_guidance",
     "assemble_round_prompt",

@@ -574,7 +574,10 @@ def test_natural_language_config_change_is_applied_inline(tmp_path: Path, monkey
     r2 = manager_bridge.manager_message("s-cfg00001", "how's it going?", global_root=tmp_path)
     assert r2["kind"] == "chat"
     assert r2["reply"] == "chatted"
-    assert triaged == ["how's it going?"]
+    # The follow-up turn reaches triage wrapped in prior-turn context; the
+    # current operator message rides at the end of the contextualized body.
+    assert len(triaged) == 1
+    assert triaged[0].endswith("how's it going?")
 
 
 def test_active_mission_config_change_is_still_applied_inline(

@@ -147,7 +147,7 @@ def store_items_for_stage(project_root: object, stage: str) -> "tuple[Any, ...] 
         return None
     current = _current_vertical(project_root)
     if current == "research":
-        # Five-stage research keeps its live contract in framework source and
+        # Four-stage research keeps its live contract in framework source and
         # direct evidence. Preserve legacy CHECKLISTS.json on disk, but never
         # load its obsolete eight-stage overrides into current research.
         return None

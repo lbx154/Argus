@@ -1,11 +1,11 @@
 """Live-search VenueProfile construction for an explicitly selected venue.
 
 An absent ``target_venue`` never authorizes venue discovery. When an explicit
-target is non-built-in, the agent researches only that venue and writes
-``research/VENUE_SELECTION.md`` and ``research/VENUE_PROFILE.json`` from official
-sources, cached so the search runs once. Failure leaves venue selection
-unresolved; venue-dependent gates then fail closed instead of silently choosing
-or using an unrelated default.
+target venue has no researched profile yet, the agent researches only that
+venue and writes ``research/VENUE_PROFILE.json`` from official sources, cached
+so the search runs once. Failure leaves the venue unresolved; venue-dependent
+checks then fail closed instead of silently choosing or using an unrelated
+default.
 
 The detailed field playbook lives in the ``engineer/venue-format-research.md``
 skill; the prompt here inlines the essentials so the one-off ``run_exec`` call
@@ -24,7 +24,6 @@ from ...core.run_gateway import run_exec as gateway_run_exec
 from .venue_profiles import (
     _normalize_venue_key,
     _venue_key_from_pipeline_state,
-    is_builtin_venue,
     load_local_venue_profile,
 )
 
@@ -103,7 +102,9 @@ def needs_venue_research(workdir: Any) -> bool:
             return False
         if _completed_attempt_matches(workdir, venue):
             return False
-        return not is_builtin_venue(venue)
+        # No venue is built in: every explicit venue needs a researched
+        # profile from its official author kit.
+        return True
     except Exception as exc:  # noqa: BLE001 — never let the guard raise
         # A recorded completed attempt still short-circuits, so answering
         # "needs research" on a broken probe cannot turn into a retry loop:
@@ -133,13 +134,10 @@ def _build_prompt(venue: str) -> str:
         f"{venue}. Verify only this venue's current submission cycle, deadline, "
         "scope, and official format. Do not search for or select alternatives "
         "unless the operator explicitly requested venue discovery.\n\n"
-        "Write research/VENUE_SELECTION.md with the current UTC date, the explicit "
-        "venue, official CFP/deadline URL, deadline time zone, open/closed "
-        "determination, and scope fit.\n\n"
         "Using LIVE web_search, find the venue's OFFICIAL submission "
         "instructions / author kit (call-for-papers, author guidelines, or the "
         "official LaTeX template). Extract its format facts — do NOT guess from "
-        "memory; cite the official page.\n\n"
+        "memory; use the official page.\n\n"
         "Then WRITE research/VENUE_PROFILE.json (a flat JSON object) with these "
         "fields (fill every format-critical one; omit a field to accept its "
         "default):\n"
@@ -147,30 +145,30 @@ def _build_prompt(venue: str) -> str:
         "  body_page_limit (int), conclusion_max_page (= body_page_limit), "
         "conclusion_underfill_page (usually body-1), references_min_page "
         "(usually body+1),\n"
-        "  two_column (bool; true for EMNLP/AAAI/CVPR-style two-column kits, "
-        "false for single-column kits like NeurIPS/ICML/ICLR),\n"
+        "  two_column (bool; true for two-column kits, false for single-column "
+        "kits),\n"
         "  mandatory_end_sections (list; [] if none), post_reference_sections "
         "(list),\n"
-        "  documentclass, style_package, style_files (list), style_clone_url, "
-        "review_mode_macro, anon_author_string, bib_style,\n"
+        "  documentclass, style_package, style_files (list), style_clone_url "
+        "(the official author-kit URL), review_mode_macro, anon_author_string, "
+        "bib_style,\n"
         "  emit_bibliographystyle (bool; false if the style sets it itself), "
         "forbidden_packages (list),\n"
         "  requires_style_package / requires_pdfinfo / "
         "requires_reproducibility_checklist (bools),\n"
-        '  reviewer_persona (venue name), figure_style_persona (same), '
-        "abstract_word_floor (int), abstract_word_floor_is_hard (bool).\n\n"
+        "  reviewer_persona (venue name), figure_style_persona (same).\n\n"
         "Also update only the descriptive `target_venue` field in "
         ".argus/PIPELINE_STATE.json to the selected profile key. Do not edit "
         "`current_stage` or any stage status.\n\n"
         "Validate it loads:\n"
         "  python -c \"from argus_skill.verticals.research.venue_profiles import "
         "resolve_venue_profile as r; p=r('.'); print(p.key, p.page_budget_line())\"\n\n"
-        "Also write paper/TEMPLATE_SOURCE.md recording the official URLs used, "
-        "the extracted values, and `source: official | mirror (unverified)`. If "
-        "a fact cannot be confirmed, record the uncertainty. If the explicit "
-        "venue cannot be verified, write the blocker to "
-        "research/VENUE_SELECTION.md and do not fabricate a profile. You are done "
-        "only when the venue is source-backed and the profile loads."
+        "Do not create any other venue report or template-source file. If a "
+        "fact cannot be confirmed from official sources, leave that field at "
+        "its default rather than guessing; if the explicit venue cannot be "
+        "verified at all, do not fabricate a profile — report the blocker in "
+        "your final message. You are done only when the venue is source-backed "
+        "and the profile loads."
     )
 
 

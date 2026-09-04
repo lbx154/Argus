@@ -1,16 +1,16 @@
 ---
-name: "Environment Readiness Gate"
+name: "Environment Readiness Check"
 description: "Verify the project environment, public data/evaluator, dependencies, storage, and only the compute/API resources an experiment actually uses before producing evidence."
 ---
 
-# Environment Readiness Gate
+# Environment Readiness Check
 
 ## Purpose
 
 Prevent invalid or wasted runs without assuming every AI research project uses
 CUDA, Hugging Face models, an LLM API, or a training framework.
 
-Run this gate before the first real benchmark/evidence call and before each
+Run these checks before the first real benchmark/evidence call and before each
 substantively different pilot, full, or ablation launch.
 
 ## Applicability rule

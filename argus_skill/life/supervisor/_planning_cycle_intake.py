@@ -464,7 +464,7 @@ class PlanningCycleIntakeMixin:
             return PLAN_ERROR
 
         # Only skip the planner on an operator-only external blocker when the
-        # full EMNLP gate is active. A ``--bounded`` mission
+        # final certification requirement is active. A ``--bounded`` mission
         # (``final_certification_gate=False``) does not require the external benchmark
         # targets, so it must fall through to the planner and reach its own
         # ``project_done`` instead of waiting forever on artifacts it never

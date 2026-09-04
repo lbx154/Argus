@@ -14,24 +14,36 @@ compliance.
 
 ## Inputs
 
-Start with `paper/main.tex`, its rendered output, and `paper/REVIEW.md`. Do not
-load project-root `HANDOFF.md` or recursively inspect historical project files.
-Follow only direct claim-critical references to code, configuration, raw
-results, evaluators, baselines, bibliography, figures, and primary sources.
+Input access depends on the operation. The fresh-context Narrative Editor reads
+the current manuscript, `HANDOFF.md` evidence roles, and drafting contract, but
+not `paper/REVIEW.md` or review history. Scientific loss review reads immutable
+before/after source and PDF snapshots plus a direct claim-critical source only
+for a concrete dispute. The cold reader receives an isolated workspace
+containing only `paper/main.pdf`. The integrated Reviewer may start with
+`paper/main.tex`, its rendered output, and `paper/REVIEW.md`, then follow direct
+claim-critical references without recursively inspecting history.
 
 ## Work
 
-1. Run three independent read-only passes concurrently on the same pre-repair
-   paper:
-   - scientific completeness and claim-to-code fidelity;
-   - strict page-by-page visual quality at publication size;
-   - academic language and full argument flow.
-2. Combine their findings in the single `paper/REVIEW.md`.
-3. Have one Engineer repair the method, evidence, manuscript, figures, tables,
-   citations, and compilation as needed.
-4. Recompile the complete paper.
-5. Have a normal independent Reviewer reassess the repaired paper as a whole,
-   including venue compliance.
+1. Preserve the pre-edit manuscript source closure and rendered PDF in internal
+   mission state; do not use Git as the scientific baseline.
+2. Run `narrative_edit` as a fresh-context Engineer operation. It selects and
+   packages evidence for each section while preserving exact facts, complete
+   coverage, the five-sentence/170-word abstract, and numerical captions.
+3. After the edit, run three independent read-only passes concurrently:
+   - `science_loss_check` compares before/after scientific completeness,
+     meaning, and carriers;
+   - strict page-by-page visual quality inspects the current rendered paper;
+   - `cold_read` judges argument hierarchy and academic language from the
+     isolated rendered PDF only.
+4. Give these internal findings to the normal integrated Reviewer. Only that
+   Reviewer controls the round and overwrites `paper/REVIEW.md`; preliminary
+   passes create no project-visible report or history. Semantic-loss and cold-
+   read findings begin in shadow mode: until calibration explicitly enables
+   enforcement, they may guide or corroborate an existing review criterion but
+   cannot be the sole reason to block.
+5. Have the Engineer resolve any scientific/readability conflict, recompile,
+   and repeat the post-edit passes before integrated certification.
 
 All scientific, experiment, visual, and language defects are repaired inside
 Review. The stage never rolls back.
@@ -66,7 +78,7 @@ finding. Do not preload the table.
 | Scientific completeness is under review | `reviewer/academic-paper-peer-review-benchmark.md` | Judge contribution, evidence, and paper value |
 | A material claim or citation is disputed | `engineer/claims-evidence-audit.md` or `engineer/citation-audit.md` | Trace the claim to raw evidence or a primary source |
 | Visual quality needs venue calibration | `engineer/paper-exemplar-pdf-learning.md` | Compare the rendered paper with strong accepted work |
-| Academic language is under review | `reviewer/venue-academic-language-review.md` | Return precise language repairs in read-only mode |
+| PDF-only argument and language are under review | `reviewer/venue-academic-language-review.md` | Judge evidence hierarchy and prose from the rendered paper without internal context |
 | Private implementation detail may have leaked | `engineer/paper-infrastructure-review.md` | Inspect the current paper for internal leakage |
 | A repaired paper needs venue compilation | `engineer/venue-format-preflight.md` | Recompile under the official author kit |
 

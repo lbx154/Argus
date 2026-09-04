@@ -182,17 +182,19 @@ def test_bounded_planner_rejects_tautological_acceptance_checks() -> None:
     assert "never emit `or True`, `|| true`, unconditional success" in prompt
 
 
-def test_research_submission_prompt_prescribes_final_submission_scope(
+def test_research_prompt_carries_no_final_submission_scope_machinery(
     tmp_path,
     monkeypatch,
 ) -> None:
+    """The final-submission scope block was removed with the rest of the
+    scripted verification machinery; the review stage judges the submission."""
     persist_vertical(
         tmp_path,
         "research",
         research_target_level="publishable",
     )
     state = read_pipeline_state(tmp_path)
-    state["current_stage"] = "submission"
+    state["current_stage"] = "review"
     write_pipeline_state(tmp_path, state)
     monkeypatch.setenv("ARGUS_SKILL_PROJECT_ROOT", str(tmp_path))
 
@@ -207,10 +209,9 @@ def test_research_submission_prompt_prescribes_final_submission_scope(
         open_ended=True,
     )
 
-    assert "## Final-submission task scope" in prompt
-    assert '`scope:"final_submission"`' in prompt
-    assert "`TASK_SCOPE=final_submission`" in prompt
-    assert "verticals without a final-submission or research-target gate" in prompt
+    # The scope marker itself survives (completion accounting reads it); the
+    # prescriptive section that scripted the final-submission workflow is gone.
+    assert "## Final-submission task scope" not in prompt
 
 
 def test_mature_math_prompt_keeps_only_bounded_terminal_history(
@@ -296,11 +297,17 @@ def _research_plan(*, experiment_fill: str = "") -> str:
     )
 
 
-def test_planner_prompt_renders_existing_living_research_plan(
+def test_research_planner_prompt_drops_frozen_plan_block(
     tmp_path,
 ) -> None:
+    """The research vertical no longer plans through a frozen RESEARCH_PLAN.md:
+    the experimental design lives in the experiment stage and is revised in
+    contact with evidence, so the planner prompt carries no plan block even
+    when a plan file exists."""
     from argus_skill.life.research_plan import render_research_plan_for_planner
+    from argus_skill.skills.vertical_select import persist_vertical
 
+    persist_vertical(tmp_path, "research")
     plan = _research_plan()
     (tmp_path / "RESEARCH_PLAN.md").write_text(plan, encoding="utf-8")
     rendered = render_research_plan_for_planner(tmp_path)
@@ -313,11 +320,8 @@ def test_planner_prompt_renders_existing_living_research_plan(
         state_root=tmp_path,
     )
 
-    assert "## Research plan (living document)" in prompt
-    assert plan in prompt
-    assert "PLAN_UPDATE" in prompt
-    assert "never delete a Dead" not in prompt  # guard exact contract wording below
-    assert "Never delete a Dead\nends entry" in prompt
+    assert "## Research plan (living document)" not in prompt
+    assert "PLAN_UPDATE" not in prompt
 
 
 def test_planner_prompt_marks_absent_or_corrupt_plan_for_creation(tmp_path) -> None:

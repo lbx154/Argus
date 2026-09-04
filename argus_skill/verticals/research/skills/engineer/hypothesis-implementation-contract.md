@@ -1,11 +1,11 @@
 ---
 name: "Hypothesis-Implementation Alignment"
-description: "Keep the selected thesis and the code that tests it aligned during Build."
+description: "Keep the selected thesis and the code that tests it aligned during Experiment."
 ---
 
 # Hypothesis-Implementation Alignment
 
-Use this in Build after Idea selection and before claim-bearing execution. Read
+Use this in Experiment after Idea selection and before claim-bearing execution. Read
 the selected thesis from `HANDOFF.md`; do not create a separate contract file.
 
 Map every load-bearing part of the thesis to the actual implementation:
@@ -24,7 +24,6 @@ selected thesis and the reachable call chain and return exactly one conclusion:
 - `MISMATCH`: the code runs but tests a different mechanism or comparison;
 - `NOT_IMPLEMENTED`: the selected mechanism is absent or unreachable.
 
-Fix `MISMATCH` or `NOT_IMPLEMENTED` in Build. Do not reopen Idea selection.
-When Build is complete, replace `HANDOFF.md` with `# HANDOFF — BUILD` and include
-only the implemented mechanism, real entry point, run configuration, baseline,
-evaluator, alignment result, and remaining experiment risks.
+Fix `MISMATCH` or `NOT_IMPLEMENTED` in place before claim-bearing runs. Do not
+reopen Idea selection, and do not write a separate handoff for the alignment
+result — the Experiment playbook's handoff at Paper entry is the only one.
