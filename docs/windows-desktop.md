@@ -80,9 +80,10 @@ Desktop ready 路径只取得已认证 cockpit URL，不在首屏前扫描 Agent
 嵌入模式还避免第二层启动 splash 和持续全屏模糊动画。以上只减少宿主与渲染开销，不改变
 Manager、Planner、Engineer、Reviewer、轮询安全网或任务状态语义。
 
-Desktop 输入框默认显示 **任务** 模式，像 Codex 一样把操作员明确提交的工作直接交给 Manager
-路由，省去一次容易误判且耗时的消息类别模型调用；Planner 签发、Engineer 执行和 Reviewer
-审查仍全部保留。可切换为 **自动**（由 front-door 判断）或 **对话**（保证不入队）。Codex
+Desktop 输入框默认显示 **自动** 模式，由 front-door 区分对话与正式任务，避免问候、状态查询
+等消息误入 Manager → Planner 任务管线。操作员可显式切换为 **任务**，把确定的工作直接交给
+Manager 路由并省去消息类别调用；也可切换为 **对话**，保证消息不入队。Planner 签发、
+Engineer 执行和 Reviewer 审查仍全部保留。Codex
 无工具控制调用继续读取用户的 provider/auth，但临时关闭 plugins、MCP、JS REPL 和 rules
 加载；`workflow_mode=direct` 使用精简但真实的单节点 Planner 签发提示。隔离真实性能探针中，
 严格 Planner-owned dispatch 从 141.160 秒降到 28.025 秒（Manager 10.550 秒、Planner

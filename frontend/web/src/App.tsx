@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
 import { api, isConnectionError, type EventMsg, type MessageRouteOverride } from './api';
+import { initialMessageRoute, MESSAGE_ROUTE_KEY } from './lib/messageRoute';
 import { TopBar } from './components/TopBar';
 import { EventStream, latestConversationDelivery } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
@@ -83,19 +84,6 @@ interface CompletionContext {
   artifacts: ArtifactInfo[];
 }
 let noticeSequence = 0;
-const MESSAGE_ROUTE_KEY = 'argus.message.route.v1';
-
-function initialMessageRoute(): MessageRouteOverride {
-  try {
-    const stored = localStorage.getItem(MESSAGE_ROUTE_KEY);
-    if (stored === 'auto' || stored === 'chat' || stored === 'task') return stored;
-  } catch {
-    // Storage is optional; the context-sensitive default below remains safe.
-  }
-  // Like Codex, Desktop treats the primary composer as work-first. Browser/PWA
-  // keeps remote Auto behavior, and the visible selector can change either.
-  return typeof window !== 'undefined' && window.parent !== window ? 'task' : 'auto';
-}
 
 const ResearchWorkbenchPanel = lazy(async () => {
   const module = await import('./research-workbench/ResearchWorkbenchPanel');
