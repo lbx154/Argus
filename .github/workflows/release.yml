@@ -74,7 +74,9 @@ jobs:
           python -m venv /tmp/argus-wheel-smoke
           /tmp/argus-wheel-smoke/bin/python -m pip install dist/*.whl
           /tmp/argus-wheel-smoke/bin/argus-skill --version
-          /tmp/argus-wheel-smoke/bin/python - <<'PY'
+          # Isolated mode prevents the repository checkout from shadowing the
+          # wheel that was just installed into the clean environment.
+          /tmp/argus-wheel-smoke/bin/python -I - <<'PY'
           from pathlib import Path
           import argus_skill
           root = Path(argus_skill.__file__).parent
