@@ -62,7 +62,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFEMDAwMjA0RUQxMTc5MkEKUldRcWVSSHRCQUlBSFM4ZmJoSU1PRlpyOWVWbUtYUm9iam4zZDVSOXRGNzNCbkszaDE1Yk1rcFUK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg3NDMzMjJCM0I2NkZEQ0QKUldUTi9XWTdLekpEaDhoWEs3YndXK2ZTbVRCcDBHSHlyanAwUjNYR3EzTkEvZFkySXpwaFlWc08K",
       "endpoints": [
         "https://github.com/lbx154/Argus/releases/latest/download/latest.json"
       ]
