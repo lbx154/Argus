@@ -136,14 +136,12 @@ packages = ["argus_skill"]
 
 [tool.hatch.build.targets.sdist]
 # Include checked-in frontend artifacts in source distributions.
-artifacts = [
-  "frontend/web/dist/**",
-]
 include = [
   "argus_doctor.py",
   "argus_skill/**",
   "tests/**",
   "frontend/tui/bundle/**",
+  "frontend/web/dist/**",
   "README.md",
 ]
 

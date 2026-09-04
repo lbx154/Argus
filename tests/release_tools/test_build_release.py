@@ -1,9 +1,26 @@
 from __future__ import annotations
 
 import os
+import tomllib
 from pathlib import Path
 
 from argus_skill.release_tools import build_release
+
+
+def test_sdist_carries_frontends_required_by_the_wheel() -> None:
+    project = tomllib.loads(
+        (build_release.ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    targets = project["tool"]["hatch"]["build"]["targets"]
+
+    assert "frontend/web/dist/**" in targets["sdist"]["include"]
+    assert targets["wheel"]["force-include"] == {
+        "argus_doctor.py": "argus_doctor.py",
+        "frontend/tui/bundle/argus.mjs": (
+            "argus_skill/_frontend/tui/bundle/argus.mjs"
+        ),
+        "frontend/web/dist": "argus_skill/_frontend/web/dist",
+    }
 
 
 def test_release_uses_the_platform_npm_launcher() -> None:
