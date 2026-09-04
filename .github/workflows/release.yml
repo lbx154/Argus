@@ -154,6 +154,8 @@ jobs:
           name: python-dist
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
 
   github:
     name: publish · GitHub Release
@@ -175,6 +177,57 @@ jobs:
         run: |
           test -s release-assets/latest.json
           test -n "$(find release-assets -name '*.sig' -print -quit)"
+      - name: Generate release notes from staged artifacts
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import textwrap
+          import zipfile
+          from pathlib import Path
+
+          assets = Path("release-assets")
+          installers = list(assets.glob("Argus-*-setup.exe"))
+          wheels = list(assets.glob("*.whl"))
+          assert len(installers) == 1, installers
+          assert len(wheels) == 1, wheels
+
+          installer = installers[0]
+          digest = hashlib.sha256(installer.read_bytes()).hexdigest()
+          with zipfile.ZipFile(wheels[0]) as archive:
+              manifest = json.loads(
+                  archive.read("argus_skill/release_manifest.json")
+              )
+          version = str(manifest["package_version"])
+          assert os.environ["GITHUB_REF_NAME"] == f"v{version}"
+          release_id = str(manifest["release_id"])
+          Path("release-body.md").write_text(
+              textwrap.dedent(f"""\
+              ## Argus {version}
+
+              Refreshed signed Tauri Desktop preview release.
+
+              ### Highlights
+
+              - Desktop messages default to Auto routing instead of forcing every input into the task pipeline
+              - Existing installations reset the old implicit Task preference while preserving new explicit choices
+              - Frozen local Python backend with verified runtime ownership
+              - Manager → Planner → Engineer → Reviewer task pipeline
+              - Signed desktop update metadata
+
+              ### Windows
+
+              Download `{installer.name}`.
+
+              SHA-256: `{digest}`
+
+              Release identity: `{release_id}`
+              """),
+              encoding="utf-8",
+          )
+          PY
       - uses: softprops/action-gh-release@v2
         with:
           files: release-assets/**/*
+          body_path: release-body.md
