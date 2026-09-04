@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" data-pptx-page-role="content" data-layout-type-scale="23" data-layout-card-padding-x="17" data-layout-layer-gap="28">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#FBFAF7"/>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0,0 10,5 0,10" fill="#1F2933"/>
+    </marker>
+    <marker id="arrow-highlight" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0,0 10,5 0,10" fill="#D55E00"/>
+    </marker>
+    <symbol id="ic-brain" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15.5 13a3.5 3.5 0 0 0 -3.5 3.5v1a3.5 3.5 0 0 0 7 0v-1.8"/>
+      <path d="M8.5 13a3.5 3.5 0 0 1 3.5 3.5v1a3.5 3.5 0 0 1 -7 0v-1.8"/>
+      <path d="M17.5 16a3.5 3.5 0 0 0 0 -7h-.5"/>
+      <path d="M19 9.3v-2.8a3.5 3.5 0 0 0 -7 0"/>
+      <path d="M6.5 16a3.5 3.5 0 0 1 0 -7h.5"/>
+      <path d="M5 9.3v-2.8a3.5 3.5 0 0 1 7 0v10"/>
+    </symbol>
+    <symbol id="ic-cpu" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 6a1 1 0 0 1 1 -1h12a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-12a1 1 0 0 1 -1 -1l0 -12"/>
+      <path d="M9 9h6v6h-6l0 -6"/>
+      <path d="M3 10h2"/>
+      <path d="M3 14h2"/>
+      <path d="M10 3v2"/>
+      <path d="M14 3v2"/>
+      <path d="M21 10h-2"/>
+      <path d="M21 14h-2"/>
+      <path d="M14 21v-2"/>
+      <path d="M10 21v-2"/>
+    </symbol>
+    <symbol id="ic-database" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0"/>
+      <path d="M4 6v6a8 3 0 0 0 16 0v-6"/>
+      <path d="M4 12v6a8 3 0 0 0 16 0v-6"/>
+    </symbol>
+    <symbol id="ic-world" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"/>
+      <path d="M3.6 9h16.8"/>
+      <path d="M3.6 15h16.8"/>
+      <path d="M11.5 3a17 17 0 0 0 0 18"/>
+      <path d="M12.5 3a17 17 0 0 1 0 18"/>
+    </symbol>
+  </defs>
+  <g id="groups" data-pptx-bounds="25.25 121.85 1229.5 169.85">
+    <g id="decentralized-actors" data-pptx-bounds="26 173.35 1228 117.6" data-group-id="decentralized-actors" data-figure-role="group">
+      <rect x="26" y="173.35" width="1228" height="117.6" rx="16" fill="#F0FAEE" fill-opacity="0.35" stroke="#9CA3AF" stroke-width="1.5" data-figure-role="group" stroke-dasharray="7 5"/>
+      <rect x="42" y="122.35" width="299.94" height="45" rx="22.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true"/>
+      <text x="55" y="152.95" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="27" font-weight="600" fill="#111827" text-anchor="start" data-figure-role="group-label" data-text-role="group-label">Decentralized Actors</text>
+    </g>
+  </g>
+  <g id="edges" data-pptx-bounds="31 72.34 1135 550.31">
+    <path id="e-observation-1" d="M 640 73.35 L 640 92.85 L 32 92.85 L 32 177.35 L 125 177.35 L 125 215.35" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="observation-1" data-edge-from="environment" data-edge-to="agent-1" data-edge-source="environment" data-edge-target="agent-1" data-figure-role="edge"/>
+    <path id="e-observation-2" d="M 640 73.35 L 640 92.85 L 468.33 92.85 L 468.33 215.35" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="observation-2" data-edge-from="environment" data-edge-to="agent-2" data-edge-source="environment" data-edge-target="agent-2" data-figure-role="edge"/>
+    <path id="e-observation-3" d="M 640 73.35 L 640 92.85 L 811.67 92.85 L 811.67 215.35" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="observation-3" data-edge-from="environment" data-edge-to="agent-3" data-edge-source="environment" data-edge-target="agent-3" data-figure-role="edge"/>
+    <path id="e-observation-4" d="M 640 73.35 L 640 92.85 L 1155 92.85 L 1155 215.35" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="observation-4" data-edge-from="environment" data-edge-to="agent-4" data-edge-source="environment" data-edge-target="agent-4" data-figure-role="edge"/>
+    <path id="e-trajectory-1" d="M 125 268.95 L 125 312.45 L 640 312.45 L 640 340.45" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="trajectory-1" data-edge-from="agent-1" data-edge-to="experience-buffer" data-edge-source="agent-1" data-edge-target="experience-buffer" data-figure-role="edge"/>
+    <path id="e-trajectory-2" d="M 468.33 268.95 L 468.33 312.45 L 640 312.45 L 640 340.45" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="trajectory-2" data-edge-from="agent-2" data-edge-to="experience-buffer" data-edge-source="agent-2" data-edge-target="experience-buffer" data-figure-role="edge"/>
+    <path id="e-trajectory-3" d="M 811.67 268.95 L 811.67 312.45 L 640 312.45 L 640 340.45" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="trajectory-3" data-edge-from="agent-3" data-edge-to="experience-buffer" data-edge-source="agent-3" data-edge-target="experience-buffer" data-figure-role="edge"/>
+    <path id="e-trajectory-4" d="M 1155 268.95 L 1155 312.45 L 640 312.45 L 640 340.45" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="trajectory-4" data-edge-from="agent-4" data-edge-to="experience-buffer" data-edge-source="agent-4" data-edge-target="experience-buffer" data-figure-role="edge"/>
+    <path id="e-batch" d="M 640 421.65 L 640 488.65" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="batch" data-edge-from="experience-buffer" data-edge-to="centralized-critic" data-edge-source="experience-buffer" data-edge-target="centralized-critic" data-figure-role="edge"/>
+    <path id="e-value-estimate" d="M 640 552.65 L 640 619.65" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="value-estimate" data-edge-from="centralized-critic" data-edge-to="policy-network" data-edge-source="centralized-critic" data-edge-target="policy-network" data-figure-role="edge" stroke-dasharray="4 4"/>
+  </g>
+  <g id="nodes" data-pptx-bounds="53 8.35 1174 676.3">
+    <g id="environment" data-pptx-bounds="529.31 8.35 221.39 66" data-node-id="environment" data-figure-role="node">
+      <rect fill="#FFE2D1" stroke="#1F2933" stroke-width="2" data-node-id="environment" x="530.31" y="9.35" width="219.39" height="64" rx="12"/>
+      <rect x="541.31" y="22.35" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-world" x="547.31" y="28.35" width="26" height="26"/>
+      <text x="661" y="49.17" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="23" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="environment">Environment</text>
+    </g>
+    <g id="agent-1" data-pptx-bounds="53 214.35 144 55.6" data-node-id="agent-1" data-figure-role="node">
+      <rect fill="#E2F7DF" stroke="#1F2933" stroke-width="2" data-node-id="agent-1" x="54" y="215.35" width="142" height="53.6" rx="12"/>
+      <text x="125" y="249.97" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="23" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="agent-1">Agent 1</text>
+    </g>
+    <g id="agent-2" data-pptx-bounds="396.33 214.35 144 55.6" data-node-id="agent-2" data-figure-role="node">
+      <rect fill="#E2F7DF" stroke="#1F2933" stroke-width="2" data-node-id="agent-2" x="397.33" y="215.35" width="142" height="53.6" rx="12"/>
+      <text x="468.33" y="249.97" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="23" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="agent-2">Agent 2</text>
+    </g>
+    <g id="agent-3" data-pptx-bounds="739.67 214.35 144 55.6" data-node-id="agent-3" data-figure-role="node">
+      <rect fill="#E2F7DF" stroke="#1F2933" stroke-width="2" data-node-id="agent-3" x="740.67" y="215.35" width="142" height="53.6" rx="12"/>
+      <text x="811.67" y="249.97" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="23" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="agent-3">Agent 3</text>
+    </g>
+    <g id="agent-4" data-pptx-bounds="1083 214.35 144 55.6" data-node-id="agent-4" data-figure-role="node">
+      <rect fill="#E2F7DF" stroke="#1F2933" stroke-width="2" data-node-id="agent-4" x="1084" y="215.35" width="142" height="53.6" rx="12"/>
+      <text x="1155" y="249.97" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="23" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="agent-4">Agent 4</text>
+    </g>
+    <g id="experience-buffer" data-pptx-bounds="538.41 339.45 207.18 87.2" data-node-id="experience-buffer" data-figure-role="node">
+      <rect fill="#DCECFF" stroke="#1F2933" stroke-width="2" data-node-id="experience-buffer" x="543.41" y="344.45" width="201.18" height="81.2" rx="12" fill-opacity="0.6"/>
+      <rect fill="#DCECFF" stroke="#1F2933" stroke-width="2" data-node-id="experience-buffer" x="539.41" y="340.45" width="201.18" height="81.2" rx="12"/>
+      <rect x="550.41" y="362.05" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-database" x="556.41" y="368.05" width="26" height="26"/>
+      <text x="661" y="375.07" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="23" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="experience-buffer">
+        <tspan x="661" y="375.07">Experience </tspan>
+        <tspan x="661" dy="27.6">Buffer</tspan>
+      </text>
+    </g>
+    <g id="centralized-critic" data-pptx-bounds="504.53 487.65 270.94 66" data-node-id="centralized-critic" data-figure-role="node">
+      <rect fill="#FFF2BD" stroke="#1F2933" stroke-width="2" data-node-id="centralized-critic" x="505.53" y="488.65" width="268.94" height="64" rx="12"/>
+      <rect x="516.53" y="501.65" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-brain" x="522.53" y="507.65" width="26" height="26"/>
+      <text x="661" y="528.47" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="23" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="centralized-critic">Centralized Critic</text>
+    </g>
+    <g id="policy-network" data-pptx-bounds="516.91 618.65 246.18 66" data-node-id="policy-network" data-figure-role="node">
+      <rect fill="#FFF2BD" stroke="#1F2933" stroke-width="2" data-node-id="policy-network" x="517.91" y="619.65" width="244.18" height="64" rx="12"/>
+      <rect x="528.91" y="632.65" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-cpu" x="534.91" y="638.65" width="26" height="26"/>
+      <text x="661" y="659.47" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="23" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="policy-network">Policy Network</text>
+    </g>
+  </g>
+  <g id="edge-labels" data-pptx-bounds="474.5 74.84 266.67 521.31">
+    <rect x="475.09" y="75.35" width="162.91" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="observation-1"/>
+    <text x="556.54" y="103.35" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="observation-1" data-shared-label="true" data-expected-count="1">observation</text>
+    <rect x="475" y="294.95" width="150.1" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="trajectory-1"/>
+    <text x="550.05" y="322.95" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="trajectory-1" data-shared-label="true" data-expected-count="1">trajectory</text>
+    <rect x="596.98" y="429.65" width="86.05" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="batch"/>
+    <text x="640" y="457.65" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="batch">batch</text>
+    <rect x="539.33" y="560.65" width="201.34" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="value-estimate"/>
+    <text x="640" y="588.65" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="value-estimate">value estimate</text>
+  </g>
+  <g id="legend" data-pptx-bounds="47 666.15 324.42 25.2">
+    <path d="M 48 678 L 82 678" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round"/>
+    <text x="94" y="684" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="400" fill="#4B5563" text-anchor="start" data-figure-role="legend" data-text-role="legend">Data flow</text>
+    <path d="M 226.46 678 L 260.46 678" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-dasharray="4 4"/>
+    <text x="272.46" y="684" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="400" fill="#4B5563" text-anchor="start" data-figure-role="legend" data-text-role="legend">Feedback</text>
+  </g>
+</svg>

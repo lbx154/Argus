@@ -1,0 +1,36 @@
+{
+  "figure_id": "scenario_3_federated_protocol",
+  "venue": "ICML",
+  "takeaway": "A central server broadcasts one model, clients train locally in parallel, and uploaded gradients drive aggregation and update.",
+  "final_width_mm": 178,
+  "canvas": {"width": 1280, "height": 720},
+  "layout": {"variant": "sequence", "direction": "TB", "show_title": false},
+  "groups": [],
+  "nodes": [],
+  "edges": [],
+  "sequence": {
+    "participants": [
+      {"id": "central-server", "label": "Central Server", "role": "process", "icon": "server"},
+      {"id": "client-1", "label": "Client 1", "role": "agent", "icon": "device-laptop"},
+      {"id": "client-2", "label": "Client 2", "role": "agent", "icon": "device-laptop"},
+      {"id": "client-3", "label": "Client 3", "role": "agent", "icon": "device-laptop"}
+    ],
+    "messages": [
+      {"id": "broadcast-client-1", "from": "central-server", "to": "client-1", "label": "Broadcast Model", "kind": "broadcast", "step": 1},
+      {"id": "broadcast-client-2", "from": "central-server", "to": "client-2", "label": "Broadcast Model", "kind": "broadcast", "step": 1},
+      {"id": "broadcast-client-3", "from": "central-server", "to": "client-3", "label": "Broadcast Model", "kind": "broadcast", "step": 1},
+      {"id": "local-training", "from": "client-1", "to": "client-1", "label": "Local Training", "kind": "self", "step": 2},
+      {"id": "upload-client-1", "from": "client-1", "to": "central-server", "label": "Upload Gradients", "kind": "message", "step": 3},
+      {"id": "upload-client-2", "from": "client-2", "to": "central-server", "label": "Upload Gradients", "kind": "message", "step": 3},
+      {"id": "upload-client-3", "from": "client-3", "to": "central-server", "label": "Upload Gradients", "kind": "message", "step": 3},
+      {"id": "aggregate", "from": "central-server", "to": "central-server", "label": "Aggregate", "kind": "self", "step": 4},
+      {"id": "update-global-model", "from": "central-server", "to": "central-server", "label": "Update Global Model", "kind": "self", "step": 5}
+    ],
+    "activations": [
+      {"participant": "client-1", "from_step": 2, "to_step": 2, "label": "Local Training"},
+      {"participant": "client-2", "from_step": 2, "to_step": 2, "label": "Local Training"},
+      {"participant": "client-3", "from_step": 2, "to_step": 2, "label": "Local Training"}
+    ]
+  },
+  "legend": "auto"
+}

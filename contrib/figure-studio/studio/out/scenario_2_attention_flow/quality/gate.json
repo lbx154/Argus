@@ -1,0 +1,59 @@
+{
+  "gate_version": "2.0",
+  "mode": "contract",
+  "contract": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/contract.json",
+  "pptx": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_2_attention_flow/scenario_2_attention_flow.pptx",
+  "thresholds": {
+    "minimum_font_size_px": 12.0,
+    "minimum_physical_font_pt": 7.0,
+    "preferred_physical_font_pt": 8.0,
+    "bbox_overlap_tolerance_px": 1.0
+  },
+  "summary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "files": [
+    {
+      "file": "studio/out/scenario_2_attention_flow/svg_output/P01.svg",
+      "status": "pass",
+      "canvas": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1280.0,
+        "height": 720.0
+      },
+      "counts": {
+        "nodes": 7,
+        "texts": 14,
+        "edges": 8,
+        "errors": 0,
+        "warnings": 0
+      },
+      "minimum_font_size": 21.0,
+      "minimum_physical_font_pt": 8.278,
+      "expected_labels": {
+        "Multi-Head Processing": 1,
+        "Input Embedding": 1,
+        "Query Projection": 1,
+        "Key Projection": 1,
+        "Value Projection": 1,
+        "Scaled Dot-Product": 1,
+        "Attention × h": 1,
+        "Concat": 1,
+        "Linear Output": 1,
+        "Q": 1,
+        "K": 1,
+        "V": 1,
+        "Attention Weights": 1,
+        "Context Vector": 1
+      },
+      "issue_counts": {},
+      "issues": [],
+      "warnings": []
+    }
+  ]
+}

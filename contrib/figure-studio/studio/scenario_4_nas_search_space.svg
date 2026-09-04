@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" data-pptx-page-role="content">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#FBFAF7"/>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0,0 10,5 0,10" fill="#1F2933"/>
+    </marker>
+    <marker id="arrow-highlight" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0,0 10,5 0,10" fill="#D55E00"/>
+    </marker>
+    <symbol id="ic-login" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2"/>
+      <path d="M21 12h-13l3 -3"/>
+      <path d="M11 15l-3 -3"/>
+    </symbol>
+    <symbol id="ic-logout" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2"/>
+      <path d="M9 12h12l-3 -3"/>
+      <path d="M18 15l3 -3"/>
+    </symbol>
+  </defs>
+  <g id="layer-containers" data-pptx-bounds="181.08 24.5 897.45 553.25">
+    <g id="group-layer-1" data-pptx-bounds="181.83 77 205.99 500" data-group-id="layer-1" data-figure-role="group">
+      <rect x="181.83" y="77" width="205.99" height="500" rx="16" fill="#F8F9FA" fill-opacity="0.35" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="7 5" data-figure-role="group"/>
+      <rect x="223.6" y="25" width="122.45" height="45" rx="22.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true"/>
+      <text x="284.82" y="55.6" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="27" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="group-label" data-text-role="group-label">Layer 1</text>
+    </g>
+    <g id="group-layer-2" data-pptx-bounds="411.82 77 205.99 500" data-group-id="layer-2" data-figure-role="group">
+      <rect x="411.82" y="77" width="205.99" height="500" rx="16" fill="#F8F9FA" fill-opacity="0.35" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="7 5" data-figure-role="group"/>
+      <rect x="453.59" y="25" width="122.45" height="45" rx="22.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true"/>
+      <text x="514.81" y="55.6" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="27" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="group-label" data-text-role="group-label">Layer 2</text>
+    </g>
+    <g id="group-layer-3" data-pptx-bounds="641.8 77 205.99 500" data-group-id="layer-3" data-figure-role="group">
+      <rect x="641.8" y="77" width="205.99" height="500" rx="16" fill="#F8F9FA" fill-opacity="0.35" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="7 5" data-figure-role="group"/>
+      <rect x="683.58" y="25" width="122.45" height="45" rx="22.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true"/>
+      <text x="744.8" y="55.6" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="27" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="group-label" data-text-role="group-label">Layer 3</text>
+    </g>
+    <g id="group-layer-4" data-pptx-bounds="871.79 77 205.99 500" data-group-id="layer-4" data-figure-role="group">
+      <rect x="871.79" y="77" width="205.99" height="500" rx="16" fill="#F8F9FA" fill-opacity="0.35" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="7 5" data-figure-role="group"/>
+      <rect x="913.56" y="25" width="122.45" height="45" rx="22.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true"/>
+      <text x="974.79" y="55.6" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="27" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="group-label" data-text-role="group-label">Layer 4</text>
+    </g>
+  </g>
+  <g id="feasible-transitions" data-pptx-bounds="118.64 141.37 1030.77 385.26">
+    <path d="M 119.27 301 L 240.26 184.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 153.63 301 L 199.83 278.82" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 153.83 334 L 199.83 334" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 153.63 367 L 199.83 389.18" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 119.27 367 L 240.26 483.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 142 L 429.82 142" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 177.48 L 429.82 202.52" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 336.09 184.8 L 463.54 291.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 319 184.8 L 480.63 387.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 310.46 184.8 L 489.18 483.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 202.52 L 429.82 177.48" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 238 L 429.82 238" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 273.48 L 429.82 298.52" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 336.09 280.8 L 463.54 387.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 319 280.8 L 480.63 483.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 336.09 291.2 L 463.54 184.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 298.52 L 429.82 273.48" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 334 L 429.82 334" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 369.48 L 429.82 394.52" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 336.09 376.8 L 463.54 483.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 319 387.2 L 480.63 184.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 336.09 387.2 L 463.54 280.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 394.52 L 429.82 369.48" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 430 L 429.82 430" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 465.48 L 429.82 490.52" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 310.46 483.2 L 489.18 184.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 319 483.2 L 480.63 280.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 336.09 483.2 L 463.54 376.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 490.52 L 429.82 465.48" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 369.82 526 L 429.82 526" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 142 L 659.8 142" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 177.48 L 659.8 202.52" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 566.08 184.8 L 693.53 291.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 548.99 184.8 L 710.62 387.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 540.44 184.8 L 719.16 483.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 202.52 L 659.8 177.48" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 238 L 659.8 238" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 273.48 L 659.8 298.52" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 566.08 280.8 L 693.53 387.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 548.99 280.8 L 710.62 483.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 566.08 291.2 L 693.53 184.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 298.52 L 659.8 273.48" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 334 L 659.8 334" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 369.48 L 659.8 394.52" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 566.08 376.8 L 693.53 483.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 548.99 387.2 L 710.62 184.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 566.08 387.2 L 693.53 280.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 394.52 L 659.8 369.48" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 430 L 659.8 430" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 465.48 L 659.8 490.52" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 540.44 483.2 L 719.16 184.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 548.99 483.2 L 710.62 280.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 566.08 483.2 L 693.53 376.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 490.52 L 659.8 465.48" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 599.8 526 L 659.8 526" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 142 L 889.79 142" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 177.48 L 889.79 202.52" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 796.07 184.8 L 923.52 291.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 778.98 184.8 L 940.61 387.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 770.43 184.8 L 949.15 483.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 202.52 L 889.79 177.48" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 238 L 889.79 238" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 273.48 L 889.79 298.52" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 796.07 280.8 L 923.52 387.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 778.98 280.8 L 940.61 483.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 796.07 291.2 L 923.52 184.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 298.52 L 889.79 273.48" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 334 L 889.79 334" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 369.48 L 889.79 394.52" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 796.07 376.8 L 923.52 483.2" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 778.98 387.2 L 940.61 184.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 796.07 387.2 L 923.52 280.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 394.52 L 889.79 369.48" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 430 L 889.79 430" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 465.48 L 889.79 490.52" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 770.43 483.2 L 949.15 184.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 778.98 483.2 L 940.61 280.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 796.07 483.2 L 923.52 376.8" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 490.52 L 889.79 465.48" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 829.79 526 L 889.79 526" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 1021.62 184.8 L 1148.78 301" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 1059.78 276.84 L 1112.67 301" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 1059.78 334 L 1105.78 334" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 1059.78 391.16 L 1112.67 367" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+    <path d="M 1021.62 483.2 L 1148.78 367" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9" stroke-linecap="round"/>
+  </g>
+  <g id="selected-path" data-pptx-bounds="152.33 125.5 957.95 472.8">
+    <path id="e-selected-1" d="M 153.83 334 L 167.83 334 L 167.83 142 L 199.83 142" fill="none" stroke="#D55E00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-highlight)" data-edge-id="selected-1" data-edge-from="input" data-edge-to="layer-1--3x3-conv" data-edge-source="input" data-edge-target="layer-1--3x3-conv" data-figure-role="edge"/>
+    <path id="e-selected-2" d="M 369.82 142 L 399.82 142 L 399.82 238 L 429.82 238" fill="none" stroke="#D55E00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-highlight)" data-edge-id="selected-2" data-edge-from="layer-1--3x3-conv" data-edge-to="layer-2--5x5-conv" data-edge-source="layer-1--3x3-conv" data-edge-target="layer-2--5x5-conv" data-figure-role="edge"/>
+    <path id="e-selected-3" d="M 599.8 238 L 629.8 238 L 629.8 334 L 659.8 334" fill="none" stroke="#D55E00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-highlight)" data-edge-id="selected-3" data-edge-from="layer-2--5x5-conv" data-edge-to="layer-3--max-pool" data-edge-source="layer-2--5x5-conv" data-edge-target="layer-3--max-pool" data-figure-role="edge"/>
+    <path id="e-selected-4" d="M 829.79 334 L 859.79 334 L 859.79 596.8 L 917.79 596.8 L 917.79 568.8" fill="none" stroke="#D55E00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-highlight)" data-edge-id="selected-4" data-edge-from="layer-3--max-pool" data-edge-to="layer-4--skip-connection" data-edge-source="layer-3--max-pool" data-edge-target="layer-4--skip-connection" data-figure-role="edge"/>
+    <path id="e-selected-5" d="M 1059.78 526 L 1077.78 526 L 1077.78 334 L 1105.78 334" fill="none" stroke="#D55E00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-highlight)" data-edge-id="selected-5" data-edge-from="layer-4--skip-connection" data-edge-to="output" data-edge-source="layer-4--skip-connection" data-edge-target="output" data-figure-role="edge"/>
+  </g>
+  <g id="nodes" data-pptx-bounds="15 98.2 1250 471.6">
+    <g id="input" data-pptx-bounds="15 300 139.83 68" data-node-id="input" data-figure-role="node">
+      <rect fill="#FFE2D1" stroke="#1F2933" stroke-width="2" data-node-id="input" x="16" y="301" width="137.83" height="66" rx="33"/>
+      <rect x="36" y="315" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-login" x="42" y="321" width="26" height="26"/>
+      <text x="105.91" y="342.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="input">Input</text>
+    </g>
+    <g id="layer-1--3x3-conv" data-pptx-bounds="198.83 98.2 171.99 87.6" data-node-id="layer-1--3x3-conv" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-1--3x3-conv" x="199.83" y="99.2" width="169.99" height="85.6" rx="12"/>
+      <text x="284.82" y="150.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-1--3x3-conv">3x3 Conv</text>
+    </g>
+    <g id="layer-1--5x5-conv" data-pptx-bounds="198.83 194.2 171.99 87.6" data-node-id="layer-1--5x5-conv" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-1--5x5-conv" x="199.83" y="195.2" width="169.99" height="85.6" rx="12"/>
+      <text x="284.82" y="246.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-1--5x5-conv">5x5 Conv</text>
+    </g>
+    <g id="layer-1--max-pool" data-pptx-bounds="198.83 290.2 171.99 87.6" data-node-id="layer-1--max-pool" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-1--max-pool" x="199.83" y="291.2" width="169.99" height="85.6" rx="12"/>
+      <text x="284.82" y="342.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-1--max-pool">Max Pool</text>
+    </g>
+    <g id="layer-1--avg-pool" data-pptx-bounds="198.83 386.2 171.99 87.6" data-node-id="layer-1--avg-pool" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-1--avg-pool" x="199.83" y="387.2" width="169.99" height="85.6" rx="12"/>
+      <text x="284.82" y="438.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-1--avg-pool">Avg Pool</text>
+    </g>
+    <g id="layer-1--skip-connection" data-pptx-bounds="198.83 482.2 171.99 87.6" data-node-id="layer-1--skip-connection" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-1--skip-connection" x="199.83" y="483.2" width="169.99" height="85.6" rx="12"/>
+      <text x="284.82" y="519.76" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-1--skip-connection">
+        <tspan x="284.82" y="519.76">Skip </tspan>
+        <tspan x="284.82" dy="28.8">Connection</tspan>
+      </text>
+    </g>
+    <g id="layer-2--3x3-conv" data-pptx-bounds="428.82 98.2 171.99 87.6" data-node-id="layer-2--3x3-conv" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-2--3x3-conv" x="429.82" y="99.2" width="169.99" height="85.6" rx="12"/>
+      <text x="514.81" y="150.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-2--3x3-conv">3x3 Conv</text>
+    </g>
+    <g id="layer-2--5x5-conv" data-pptx-bounds="428.82 194.2 171.99 87.6" data-node-id="layer-2--5x5-conv" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-2--5x5-conv" x="429.82" y="195.2" width="169.99" height="85.6" rx="12"/>
+      <text x="514.81" y="246.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-2--5x5-conv">5x5 Conv</text>
+    </g>
+    <g id="layer-2--max-pool" data-pptx-bounds="428.82 290.2 171.99 87.6" data-node-id="layer-2--max-pool" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-2--max-pool" x="429.82" y="291.2" width="169.99" height="85.6" rx="12"/>
+      <text x="514.81" y="342.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-2--max-pool">Max Pool</text>
+    </g>
+    <g id="layer-2--avg-pool" data-pptx-bounds="428.82 386.2 171.99 87.6" data-node-id="layer-2--avg-pool" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-2--avg-pool" x="429.82" y="387.2" width="169.99" height="85.6" rx="12"/>
+      <text x="514.81" y="438.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-2--avg-pool">Avg Pool</text>
+    </g>
+    <g id="layer-2--skip-connection" data-pptx-bounds="428.82 482.2 171.99 87.6" data-node-id="layer-2--skip-connection" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-2--skip-connection" x="429.82" y="483.2" width="169.99" height="85.6" rx="12"/>
+      <text x="514.81" y="519.76" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-2--skip-connection">
+        <tspan x="514.81" y="519.76">Skip </tspan>
+        <tspan x="514.81" dy="28.8">Connection</tspan>
+      </text>
+    </g>
+    <g id="layer-3--3x3-conv" data-pptx-bounds="658.8 98.2 171.99 87.6" data-node-id="layer-3--3x3-conv" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-3--3x3-conv" x="659.8" y="99.2" width="169.99" height="85.6" rx="12"/>
+      <text x="744.8" y="150.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-3--3x3-conv">3x3 Conv</text>
+    </g>
+    <g id="layer-3--5x5-conv" data-pptx-bounds="658.8 194.2 171.99 87.6" data-node-id="layer-3--5x5-conv" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-3--5x5-conv" x="659.8" y="195.2" width="169.99" height="85.6" rx="12"/>
+      <text x="744.8" y="246.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-3--5x5-conv">5x5 Conv</text>
+    </g>
+    <g id="layer-3--max-pool" data-pptx-bounds="658.8 290.2 171.99 87.6" data-node-id="layer-3--max-pool" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-3--max-pool" x="659.8" y="291.2" width="169.99" height="85.6" rx="12"/>
+      <text x="744.8" y="342.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-3--max-pool">Max Pool</text>
+    </g>
+    <g id="layer-3--avg-pool" data-pptx-bounds="658.8 386.2 171.99 87.6" data-node-id="layer-3--avg-pool" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-3--avg-pool" x="659.8" y="387.2" width="169.99" height="85.6" rx="12"/>
+      <text x="744.8" y="438.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-3--avg-pool">Avg Pool</text>
+    </g>
+    <g id="layer-3--skip-connection" data-pptx-bounds="658.8 482.2 171.99 87.6" data-node-id="layer-3--skip-connection" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-3--skip-connection" x="659.8" y="483.2" width="169.99" height="85.6" rx="12"/>
+      <text x="744.8" y="519.76" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-3--skip-connection">
+        <tspan x="744.8" y="519.76">Skip </tspan>
+        <tspan x="744.8" dy="28.8">Connection</tspan>
+      </text>
+    </g>
+    <g id="layer-4--3x3-conv" data-pptx-bounds="888.79 98.2 171.99 87.6" data-node-id="layer-4--3x3-conv" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-4--3x3-conv" x="889.79" y="99.2" width="169.99" height="85.6" rx="12"/>
+      <text x="974.79" y="150.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-4--3x3-conv">3x3 Conv</text>
+    </g>
+    <g id="layer-4--5x5-conv" data-pptx-bounds="888.79 194.2 171.99 87.6" data-node-id="layer-4--5x5-conv" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-4--5x5-conv" x="889.79" y="195.2" width="169.99" height="85.6" rx="12"/>
+      <text x="974.79" y="246.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-4--5x5-conv">5x5 Conv</text>
+    </g>
+    <g id="layer-4--max-pool" data-pptx-bounds="888.79 290.2 171.99 87.6" data-node-id="layer-4--max-pool" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-4--max-pool" x="889.79" y="291.2" width="169.99" height="85.6" rx="12"/>
+      <text x="974.79" y="342.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-4--max-pool">Max Pool</text>
+    </g>
+    <g id="layer-4--avg-pool" data-pptx-bounds="888.79 386.2 171.99 87.6" data-node-id="layer-4--avg-pool" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-4--avg-pool" x="889.79" y="387.2" width="169.99" height="85.6" rx="12"/>
+      <text x="974.79" y="438.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-4--avg-pool">Avg Pool</text>
+    </g>
+    <g id="layer-4--skip-connection" data-pptx-bounds="888.79 482.2 171.99 87.6" data-node-id="layer-4--skip-connection" data-figure-role="node" data-shared-label="true" data-expected-count="4">
+      <rect fill="#F3F4F6" stroke="#1F2933" stroke-width="2" data-node-id="layer-4--skip-connection" x="889.79" y="483.2" width="169.99" height="85.6" rx="12"/>
+      <text x="974.79" y="519.76" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="layer-4--skip-connection">
+        <tspan x="974.79" y="519.76">Skip </tspan>
+        <tspan x="974.79" dy="28.8">Connection</tspan>
+      </text>
+    </g>
+    <g id="output" data-pptx-bounds="1104.78 300 160.22 68" data-node-id="output" data-figure-role="node">
+      <rect fill="#EADFFF" stroke="#1F2933" stroke-width="2" data-node-id="output" x="1105.78" y="301" width="158.22" height="66" rx="33"/>
+      <rect x="1125.78" y="315" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-logout" x="1131.78" y="321" width="26" height="26"/>
+      <text x="1205.89" y="342.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="output">Output</text>
+    </g>
+  </g>
+  <g id="legend" data-pptx-bounds="430.5 607.5 577.59 33">
+    <path d="M 432 624 L 474 624" fill="none" stroke="#D55E00" stroke-width="3" marker-end="url(#arrow-highlight)"/>
+    <text x="490" y="630" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#D55E00" text-anchor="start" data-figure-role="legend" data-text-role="legend">Selected optimal path</text>
+    <path d="M 746 624 L 788 624" fill="none" stroke="#9CA3AF" stroke-width="1.25" stroke-opacity="0.9"/>
+    <text x="802" y="630" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="400" fill="#4B5563" text-anchor="start" data-figure-role="legend" data-text-role="legend">Feasible transition</text>
+  </g>
+  <g id="footnote" data-pptx-bounds="83.59 679.15 1112.82 25.2">
+    <text x="640" y="697" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="400" fill="#4B5563" text-anchor="middle" data-figure-role="footnote" data-text-role="footnote">The scenario does not specify an operator sequence; the highlighted route is a plausible optimal path.</text>
+  </g>
+</svg>

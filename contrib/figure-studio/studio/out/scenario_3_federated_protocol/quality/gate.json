@@ -1,0 +1,54 @@
+{
+  "gate_version": "2.0",
+  "mode": "contract",
+  "contract": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_3_federated_protocol/contract.json",
+  "pptx": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_3_federated_protocol/scenario_3_federated_protocol.pptx",
+  "thresholds": {
+    "minimum_font_size_px": 12.0,
+    "minimum_physical_font_pt": 7.0,
+    "preferred_physical_font_pt": 8.0,
+    "bbox_overlap_tolerance_px": 1.0
+  },
+  "summary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "files": [
+    {
+      "file": "studio/out/scenario_3_federated_protocol/svg_output/P01.svg",
+      "status": "pass",
+      "canvas": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1280.0,
+        "height": 720.0
+      },
+      "counts": {
+        "nodes": 4,
+        "texts": 18,
+        "edges": 8,
+        "errors": 0,
+        "warnings": 0
+      },
+      "minimum_font_size": 21.0,
+      "minimum_physical_font_pt": 8.278,
+      "expected_labels": {
+        "Central Server": 1,
+        "Client 1": 1,
+        "Client 2": 1,
+        "Client 3": 1,
+        "Broadcast Model": 3,
+        "Local Training": 4,
+        "Upload Gradients": 3,
+        "Aggregate": 1,
+        "Update Global Model": 1
+      },
+      "issue_counts": {},
+      "issues": [],
+      "warnings": []
+    }
+  ]
+}

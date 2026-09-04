@@ -1,0 +1,37 @@
+{
+  "figure_id": "scenario_2_attention_flow",
+  "venue": "NeurIPS",
+  "takeaway": "Query, key, and value projections are processed in parallel heads before concatenation and output projection.",
+  "final_width_mm": 178,
+  "canvas": {"width": 1280, "height": 720},
+  "layout": {"variant": "layered-dag", "direction": "LR", "show_title": false},
+  "groups": [
+    {
+      "id": "multi-head-processing",
+      "label": "Multi-Head Processing",
+      "role": "agent",
+      "node_ids": ["query-projection", "key-projection", "value-projection", "scaled-dot-product"],
+      "style": "phase"
+    }
+  ],
+  "nodes": [
+    {"id": "input-embedding", "label": "Input Embedding", "role": "input", "kind": "card"},
+    {"id": "query-projection", "label": "Query Projection", "role": "process", "kind": "card", "icon": "letter-q"},
+    {"id": "key-projection", "label": "Key Projection", "role": "process", "kind": "card", "icon": "letter-k"},
+    {"id": "value-projection", "label": "Value Projection", "role": "process", "kind": "card", "icon": "letter-v"},
+    {"id": "scaled-dot-product", "label": "Scaled Dot-Product", "sublabel": "Attention × h", "role": "agent", "kind": "operator", "icon": "brain"},
+    {"id": "concat", "label": "Concat", "role": "process", "kind": "operator", "icon": "brackets"},
+    {"id": "linear-output", "label": "Linear Output", "role": "output", "kind": "card"}
+  ],
+  "edges": [
+    {"id": "query", "from": "input-embedding", "to": "query-projection", "label": "Q", "kind": "data"},
+    {"id": "key", "from": "input-embedding", "to": "key-projection", "label": "K", "kind": "data"},
+    {"id": "value", "from": "input-embedding", "to": "value-projection", "label": "V", "kind": "data"},
+    {"id": "query-to-attention", "from": "query-projection", "to": "scaled-dot-product", "label": "Attention Weights", "kind": "data"},
+    {"id": "key-to-attention", "from": "key-projection", "to": "scaled-dot-product", "kind": "data"},
+    {"id": "value-to-attention", "from": "value-projection", "to": "scaled-dot-product", "kind": "data"},
+    {"id": "attention-to-concat", "from": "scaled-dot-product", "to": "concat", "label": "Context Vector", "kind": "data"},
+    {"id": "concat-to-output", "from": "concat", "to": "linear-output", "kind": "data"}
+  ],
+  "legend": "auto"
+}
