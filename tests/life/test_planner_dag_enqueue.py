@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from argus_skill.core.event_catalog import EventType
 from argus_skill.life.memory import Backlog, BacklogItem
 from argus_skill.life.supervisor._constants import PLAN_RETRY
 from argus_skill.life.supervisor._helpers import (
@@ -246,6 +247,70 @@ def test_commit_resolves_dependency_from_existing_backlog_item_id(
     assert Harness()._pc_commit_pending_items(state) is None
     persisted = next(item for item in backlog.all() if item.id == review.id)
     assert persisted.deps == [implementation.id]
+
+
+def test_commit_releases_dependency_on_durable_background_job(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A planner dependency naming a durable background job must not poison
+    the verdict: the key is not a backlog dependency, so the task is enqueued
+    without it and the mission coordinates with the job directly through the
+    external-work protocol."""
+    from argus_skill.engineer import external_work
+
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    events: list[dict[str, object]] = []
+
+    class Harness(PlanningCycleEnqueueMixin):
+        _planning_cycles = 3
+        _suggested_sleep_s = 0.0
+        memory = SimpleNamespace(backlog=backlog)
+
+        def _project_workdir(self) -> Path:
+            return tmp_path
+
+        def _emit(self, event: dict[str, object]) -> None:
+            events.append(event)
+
+        def _emit_status(self, _text: str) -> None:
+            return None
+
+        def _enter_idle_backoff(self) -> float:
+            raise AssertionError("a running durable job is not a planner error")
+
+    state = _PlanCycleState(None)
+    state.existing_items = backlog.all()
+    state.manager_intent = {}
+    adjudicate = BacklogItem.new(
+        title="Adjudicate the frozen confirmation results",
+        objective="Judge the finalized method set once confirmation lands.",
+        node_key="adjudicate-confirmation",
+    )
+    task = SimpleNamespace(
+        deps=["confirm-finalize-methodset-v2"],
+        impact_score=0,
+        impact_area="",
+    )
+    state.pending_items = [(task, adjudicate)]
+
+    monkeypatch.setattr(
+        external_work,
+        "inspect_external_work",
+        lambda _workdir, _key: SimpleNamespace(waitable=True),
+    )
+
+    harness = Harness()
+    assert harness._pc_commit_pending_items(state) is None
+    persisted = next(iter(backlog.all()))
+    assert persisted.title == "Adjudicate the frozen confirmation results"
+    assert persisted.deps == []
+    added = next(
+        event
+        for event in events
+        if event["type"] == EventType.LIFE_PLANNER_TASK_ADDED
+    )
+    assert added["external_work_deps"] == ["confirm-finalize-methodset-v2"]
 
 
 def test_planner_task_inherits_manager_routing_without_optional_fields() -> None:

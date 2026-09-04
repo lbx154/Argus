@@ -1090,6 +1090,53 @@ class PlanningCycleEnqueueMixin:
             return PLAN_TERMINAL_IDLE
         return nonterminal_result
 
+    def _pc_split_external_work_deps(
+        self, keys: list[str]
+    ) -> tuple[list[str], list[tuple[str, str]]]:
+        """Partition unresolved dep keys against the external-work registry.
+
+        A planner may legitimately name a durable background job as a task
+        dependency: the job outlives daemon restarts and never appears in the
+        backlog, so plain key resolution cannot see it. Returns
+        ``(unknown, external)`` where ``external`` pairs each recognized job
+        id with a short description of its current state. Recognized jobs are
+        not backlog dependencies at all — the depending task is enqueued
+        without them and the mission coordinates with the job directly
+        through the external-work protocol, which already handles durable
+        waiting, health checks, and resumption. Any failure to consult the
+        registry fails closed: every key is reported unknown so the existing
+        whole-batch rejection still applies.
+        """
+        try:
+            from ...engineer.external_work import inspect_external_work
+
+            workdir = self._project_workdir()
+        except Exception:  # noqa: BLE001
+            log.warning(
+                "external-work registry unavailable while resolving planner deps",
+                exc_info=True,
+            )
+            return list(keys), []
+        unknown: list[str] = []
+        external: list[tuple[str, str]] = []
+        for key in keys:
+            try:
+                status = inspect_external_work(workdir, key)
+            except Exception:  # noqa: BLE001
+                log.warning(
+                    "external-work lookup failed for planner dependency %r",
+                    key,
+                    exc_info=True,
+                )
+                status = None
+            if status is None:
+                unknown.append(key)
+            elif status.waitable:
+                external.append((key, "still running"))
+            else:
+                external.append((key, "already settled"))
+        return unknown, external
+
     def _pc_commit_pending_items(self, state: _PlanCycleState) -> Any | None:
         revision_request = state.revision_request
         expected_plan_id = state.expected_plan_id
@@ -1115,31 +1162,59 @@ class PlanningCycleEnqueueMixin:
             + [(str(key), str(item_id)) for key, item_id in state.key_map.items()]
         )
         unresolved: list[tuple[str, list[str]]] = []
+        released_external: dict[str, list[str]] = {}
         for task, item in state.pending_items:
             task_deps = list(getattr(task, "deps", []) or [])
-            if task_deps:
-                resolved_ids, unresolved_keys = _resolve_task_dep_ids(
-                    task_deps,
-                    known_key_map,
-                    normalized_key_map,
+            if not task_deps:
+                continue
+            resolved_ids, unresolved_keys = _resolve_task_dep_ids(
+                task_deps,
+                known_key_map,
+                normalized_key_map,
+            )
+            item.deps = resolved_ids
+            normalized_deps = [
+                dep
+                for dep in task_deps
+                if dep not in known_key_map
+                and dep not in unresolved_keys
+            ]
+            if normalized_deps:
+                log.info(
+                    "planner dependency keys normalized",
+                    extra={
+                        "task_title": item.title,
+                        "dependency_keys": normalized_deps,
+                    },
                 )
-                item.deps = resolved_ids
-                normalized_deps = [
-                    dep
-                    for dep in task_deps
-                    if dep not in known_key_map
-                    and dep not in unresolved_keys
+            if not unresolved_keys:
+                continue
+            # A dep key the backlog cannot resolve may still name a durable
+            # background job. Such a job is not a backlog dependency: the
+            # task is enqueued without it and its mission coordinates with
+            # the job directly through the external-work protocol, which
+            # already knows how to wait durably, watch health, and resume.
+            unknown_keys, external_deps = self._pc_split_external_work_deps(
+                unresolved_keys
+            )
+            if unknown_keys:
+                unresolved.append((item.title, unknown_keys))
+                continue
+            if external_deps:
+                released_external[str(item.id)] = [
+                    key for key, _state_desc in external_deps
                 ]
-                if normalized_deps:
-                    log.info(
-                        "planner dependency keys normalized",
-                        extra={
-                            "task_title": item.title,
-                            "dependency_keys": normalized_deps,
-                        },
-                    )
-                if unresolved_keys:
-                    unresolved.append((item.title, unresolved_keys))
+                log.info(
+                    "planner dependencies resolved to durable background "
+                    "jobs; the mission will coordinate with them directly",
+                    extra={
+                        "task_title": item.title,
+                        "background_jobs": [
+                            f"{key} ({state_desc})"
+                            for key, state_desc in external_deps
+                        ],
+                    },
+                )
         if unresolved:
             details = "; ".join(
                 f"{title!r}: {keys}" for title, keys in unresolved
@@ -1198,6 +1273,9 @@ class PlanningCycleEnqueueMixin:
                         "plan_id": item.plan_id,
                         "plan_version": item.plan_version,
                         "node_key": item.node_key,
+                        "external_work_deps": released_external.get(
+                            str(item.id), []
+                        ),
                     }
                 )
 
@@ -1263,6 +1341,9 @@ class PlanningCycleEnqueueMixin:
                         "plan_id": item.plan_id,
                         "plan_version": item.plan_version,
                         "node_key": item.node_key,
+                        "external_work_deps": released_external.get(
+                            str(item.id), []
+                        ),
                     }
                 )
             challenge = revision_request.get("plan_challenge")
