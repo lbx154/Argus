@@ -194,3 +194,30 @@ external-work 协议直接和后台任务协调(等待、健康检查、恢复�
 四个缺陷(修订挂起永不重放、烧重规划计数导致节点被误判无进展、每次唤醒
 都全量调用规划器模型、静默丢弃子树),遂改为上述"放行 + mission 侧等待"
 方案——规划器不等任何东西,等待交给已有机制。
+
+## 八、追加(2026-09-04 上午):过滤反馈被文件抖动冲掉导致的重规划空转
+
+**问题(上一节修复部署后 run-08 实测发现)**:依赖放行修复生效后,裁决
+任务正常入队,但规划器仍每 ~100 秒做一次完整模型调用。链条:规划器每轮
+重新提出同一个裁决任务 → 去重过滤器丢弃("与现有待办重复")→ 全部被过滤
+时留存反馈(diagnostic 为 planner_tasks_filtered)并进入空闲退避 → 下一轮
+intake 用"证据签名"校验反馈,而该签名摘要整个项目文件树——GPU 上的三个
+worker 和 finalizer 不停写文件,签名每周期都变 → 反馈 45 秒即被判失效清除,
+退避同时归零 → 规划器以 15 秒的底线间隔无限盲目重规划。反馈的重复上限
+(MANAGER_FEEDBACK_REPLAN_LIMIT=3,达到即零成本终止空闲)因此永远够不着。
+
+**修复**:planner_tasks_filtered 这一类反馈的"证据"改为 backlog 自身状态
+的摘要(各条目 id+status),不再看项目文件树——后台任务写文件不构成
+"重新规划会有不同结果"的新证据;此外该类反馈的连续性判定不再要求 reason
+文本逐字相同(规划器每轮会换措辞复述被过滤的标题,逐字比对使计数永远
+停在 1)。效果:backlog 不变时尝试计数正常累积,三次后进入终止空闲,
+此后每个巡检周期零模型调用;一旦 backlog 变化(暂停任务恢复、条目完成),
+intake 的签名比对立即清除反馈并唤醒规划器。安全性核对过三点:守护进程
+的空闲自动退出默认关闭(ARGUS_SKILL_DAEMON_IDLE_EXIT_MIN 未设,cap≤0
+即禁用),终止空闲后外层循环照常重入、每轮巡检开头仍会自动恢复已结算的
+外部等待任务,intake 的签名检查先于次数上限检查(backlog 一变就能把
+规划器从终止空闲里叫醒)。改动集中在 `_planning_context.py`
+(`_backlog_planning_signature` / `_manager_feedback_signature_for`)、
+`_planning_cycle_intake.py`(按 diagnostic 选签名)、`_constants.py`
+(共享 diagnostic 常量);配一个回归测试
+`tests/life/test_filtered_feedback_survives_file_churn.py`。

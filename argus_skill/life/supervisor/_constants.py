@@ -39,6 +39,13 @@ VERIFICATION_PROBE_COOLDOWN_SECONDS = 1800.0
 STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS = 3
 REPLAN_FILTER_REJECTION_LIMIT = 3
 MANAGER_FEEDBACK_REPLAN_LIMIT = 3
+# Diagnostic recorded when every task in a planner verdict was filtered
+# (duplicates of existing backlog items, etc.). Feedback with this diagnostic
+# is validated against the backlog's own state, not the project-file evidence
+# signature: live background jobs rewrite project files constantly, and that
+# churn says nothing about whether a fresh plan would stop duplicating the
+# backlog.
+PLANNER_TASKS_FILTERED_DIAGNOSTIC = "planner_tasks_filtered"
 FULL_PAPER_GATE_DESCRIPTION = (
     "the L2 reviewer's active vertical final-stage checklist"
 )

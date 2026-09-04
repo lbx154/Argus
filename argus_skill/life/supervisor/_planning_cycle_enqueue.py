@@ -27,6 +27,7 @@ from ._constants import (
     PLANNER_DEDUP_STATUSES,
     PLANNER_SCOPE_BOUNDED,
     PLANNER_SCOPE_FINAL_SUBMISSION,
+    PLANNER_TASKS_FILTERED_DIAGNOSTIC,
     REPLAN_FILTER_REJECTION_LIMIT,
 )
 from ._helpers import (
@@ -1418,7 +1419,7 @@ class PlanningCycleEnqueueMixin:
                 if not self._persist_manager_planner_feedback(
                     stage=stage,
                     reason=filter_feedback,
-                    diagnostic="planner_tasks_filtered",
+                    diagnostic=PLANNER_TASKS_FILTERED_DIAGNOSTIC,
                 ):
                     self._emit_status(
                         "failed to persist filtered-task feedback; retry later"

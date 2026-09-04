@@ -217,7 +217,11 @@ class PlanningCycleIntakeMixin:
                 recorded_signature = str(
                     feedback.get("evidence_signature") or ""
                 )
-                current_signature = self._manager_feedback_evidence_signature()
+                # Filtered-task feedback is judged against the backlog's own
+                # state; everything else against the project evidence tree.
+                current_signature = self._manager_feedback_signature_for(
+                    str(feedback.get("diagnostic") or "")
+                )
                 if (
                     recorded_signature
                     and current_signature

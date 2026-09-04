@@ -20,6 +20,7 @@ from ._constants import (
     PLAN_AWAITING,
     PLAN_RETRY,
     PLANNER_SCOPE_BOUNDED,
+    PLANNER_TASKS_FILTERED_DIAGNOSTIC,
     PLANNER_SCOPE_FINAL_SUBMISSION,
     STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS,
     VERIFICATION_PROBE_AFTER_IDLE_CYCLES,
@@ -850,6 +851,27 @@ class PlanningContextMixin:
             except FileNotFoundError:
                 pass
 
+    def _backlog_planning_signature(self) -> str:
+        """Digest of live backlog item ids and statuses.
+
+        Feedback recorded because every proposed task duplicated existing
+        backlog work stays true exactly as long as those items keep their
+        status. Project files rewritten by live background jobs are not new
+        planning evidence for that kind of feedback — judging it by the
+        whole-tree signature made the feedback evaporate every cycle and the
+        planner replan blind at the base backoff indefinitely.
+        """
+        rows = sorted(
+            f"{item.id}:{item.status}" for item in self.memory.backlog.active()
+        )
+        digest = hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
+        return f"backlog:{digest}"
+
+    def _manager_feedback_signature_for(self, diagnostic: str) -> str:
+        if diagnostic == PLANNER_TASKS_FILTERED_DIAGNOSTIC:
+            return self._backlog_planning_signature()
+        return self._manager_feedback_evidence_signature()
+
     def _persist_manager_planner_feedback(
         self,
         *,
@@ -860,14 +882,21 @@ class PlanningContextMixin:
         stage = str(stage or "").strip()
         reason = str(reason or "").strip()
         diagnostic = str(diagnostic or "").strip()
-        evidence_signature = self._manager_feedback_evidence_signature()
+        evidence_signature = self._manager_feedback_signature_for(diagnostic)
         previous = self._load_manager_planner_feedback()
+        # For filtered-task feedback the reason text embeds the planner's own
+        # phrasing of the rejected titles, which shifts between otherwise
+        # identical verdicts — an exact-reason match would restart the attempt
+        # count every cycle, so the repeat limit could never engage.
         same_feedback = bool(
             previous is not None
             and str(previous.get("stage") or "") == stage
-            and str(previous.get("reason") or "") == reason
             and str(previous.get("diagnostic") or "") == diagnostic
             and str(previous.get("evidence_signature") or "") == evidence_signature
+            and (
+                diagnostic == PLANNER_TASKS_FILTERED_DIAGNOSTIC
+                or str(previous.get("reason") or "") == reason
+            )
         )
         attempts = int(previous.get("attempts") or 0) + 1 if same_feedback else 1
         created_at = (
