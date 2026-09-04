@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://argus.local/schemas/figure-contract-v2.json",
+  "title": "Argus Figure Studio v2 Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "figure_id",
+    "venue",
+    "takeaway",
+    "final_width_mm",
+    "canvas",
+    "layout",
+    "groups",
+    "nodes",
+    "edges",
+    "legend"
+  ],
+  "properties": {
+    "figure_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$"},
+    "venue": {"type": "string", "minLength": 1},
+    "takeaway": {"type": "string", "minLength": 1},
+    "final_width_mm": {"enum": [178, 84]},
+    "canvas": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "width": {"type": "number", "const": 1280, "default": 1280},
+        "height": {"type": "number", "const": 720, "default": 720}
+      },
+      "required": ["width", "height"],
+      "default": {"width": 1280, "height": 720}
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["variant", "direction"],
+      "properties": {
+        "variant": {
+          "enum": [
+            "layered-dag",
+            "nested-containers",
+            "pipeline-numbered",
+            "sequence",
+            "search-space-grid"
+          ]
+        },
+        "direction": {"enum": ["LR", "TB"]},
+        "show_title": {"type": "boolean", "default": false}
+      }
+    },
+    "groups": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/group"},
+      "default": []
+    },
+    "nodes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/node"},
+      "default": []
+    },
+    "edges": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/edge"},
+      "default": []
+    },
+    "sequence": {"$ref": "#/$defs/sequence"},
+    "grid": {"$ref": "#/$defs/grid"},
+    "legend": {"enum": ["auto", "none"], "default": "auto"},
+    "footnote": {"type": "string"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"layout": {"properties": {"variant": {"const": "sequence"}}}}},
+      "then": {"required": ["sequence"]}
+    },
+    {
+      "if": {"properties": {"layout": {"properties": {"variant": {"const": "search-space-grid"}}}}},
+      "then": {"required": ["grid"]}
+    }
+  ],
+  "$defs": {
+    "role": {
+      "enum": ["input", "process", "memory", "agent", "output", "benchmark", "neutral"]
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "role", "node_ids", "style"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "label": {"type": "string", "minLength": 1},
+        "role": {"$ref": "#/$defs/role"},
+        "node_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "style": {"enum": ["phase", "panel", "lane"]}
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "role", "kind"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "label": {"type": "string", "minLength": 1},
+        "sublabel": {"type": "string", "minLength": 1},
+        "role": {"$ref": "#/$defs/role"},
+        "kind": {"enum": ["card", "store", "chip", "operator", "decision"]},
+        "icon": {
+          "oneOf": [
+            {"type": "string", "pattern": "^[a-z0-9-]+$"},
+            {"type": "null"}
+          ]
+        },
+        "badge_number": {"oneOf": [{"type": "integer", "minimum": 0}, {"type": "string", "minLength": 1}]},
+        "emphasis": {"type": "boolean"}
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "to", "kind"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "from": {"type": "string"},
+        "to": {"type": "string"},
+        "label": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["data", "control", "feedback", "gradient", "broadcast"]},
+        "emphasis": {"type": "boolean"}
+      }
+    },
+    "participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "role"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "label": {"type": "string", "minLength": 1},
+        "role": {"$ref": "#/$defs/role"},
+        "icon": {"type": "string", "pattern": "^[a-z0-9-]+$"}
+      }
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "to", "label", "kind", "step"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "from": {"type": "string"},
+        "to": {"type": "string"},
+        "label": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["message", "self", "broadcast"]},
+        "step": {"type": "integer", "minimum": 1}
+      }
+    },
+    "activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["participant", "from_step", "to_step"],
+      "properties": {
+        "participant": {"type": "string"},
+        "from_step": {"type": "integer", "minimum": 1},
+        "to_step": {"type": "integer", "minimum": 1},
+        "label": {"type": "string", "minLength": 1}
+      }
+    },
+    "sequence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["participants", "messages", "activations"],
+      "properties": {
+        "participants": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/participant"}},
+        "messages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/message"}},
+        "activations": {"type": "array", "items": {"$ref": "#/$defs/activation"}}
+      }
+    },
+    "gridLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "label": {"type": "string", "minLength": 1}
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layer", "candidate"],
+      "properties": {
+        "layer": {"type": "string"},
+        "candidate": {"type": "string"}
+      }
+    },
+    "grid": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layers", "candidates", "selected"],
+      "properties": {
+        "layers": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/gridLayer"}},
+        "candidates": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "selected": {"type": "array", "items": {"$ref": "#/$defs/selection"}}
+      }
+    }
+  }
+}

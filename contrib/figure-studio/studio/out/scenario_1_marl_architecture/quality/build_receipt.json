@@ -1,0 +1,106 @@
+{
+  "receipt_version": "2.0",
+  "figure_id": "scenario_1_marl_architecture",
+  "route": "ppt-master",
+  "contract_source": "/data/v-boxiuli/argus_figure_test/studio/contracts/scenario_1_marl_architecture.json",
+  "validation": "/data/v-boxiuli/argus_figure_test/studio/figure_contract.schema.json",
+  "artifacts": {
+    "contract": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/contract.json",
+      "sha256": "cbf68b6231091cae60efbe84cff0522f0f17dc0fadb516674478a18f55020147"
+    },
+    "svg": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.svg",
+      "sha256": "283e8a87969f914ed9e8f423d4f92fc06969f1a2aa5c28456ac91cf2901d04c2"
+    },
+    "png": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.png",
+      "sha256": "facccdede8e378d09de296a8ffd3ba9b0fc5dba030bedc41a097a4cf1dc86153"
+    },
+    "pdf": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.pdf",
+      "sha256": "4dbaf2e501af45ec7d5d98c5042624c4cfe83a3834e3766266e928ef47949dd3"
+    },
+    "pptx": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.pptx",
+      "sha256": "9f0ea312f97e502a6b09ae99238165d7c6f07146f72839ea1090a1c4e6a93582"
+    }
+  },
+  "steps": [
+    {
+      "name": "load_validate_contract",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/build_figure.py build --contract /data/v-boxiuli/argus_figure_test/studio/contracts/scenario_1_marl_architecture.json --out-root /data/v-boxiuli/argus_figure_test/studio/out",
+      "duration_seconds": 0.073487
+    },
+    {
+      "name": "render_svg",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/figma_figure_renderer.py render /data/v-boxiuli/argus_figure_test/studio/contracts/scenario_1_marl_architecture.json --output /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.svg",
+      "duration_seconds": 0.293964
+    },
+    {
+      "name": "ensure_pptmaster_project",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/pptmaster_bridge.py ensure-project /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture scenario_1_marl_architecture 178",
+      "duration_seconds": 0.00198
+    },
+    {
+      "name": "pptmaster_checker",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/pptmaster_bridge.py check-svg /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/svg_output/P01.svg",
+      "duration_seconds": 0.26201
+    },
+    {
+      "name": "gate_pre_export",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/figure_quality_gate_v2.py check /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/svg_output/P01.svg --contract /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/contract.json --output /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/quality/gate_pre.json",
+      "duration_seconds": 0.446902
+    },
+    {
+      "name": "export_pptx",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/pptmaster_bridge.py export-pptx /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.pptx",
+      "duration_seconds": 0.572825
+    },
+    {
+      "name": "pptx_roundtrip",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/pptmaster_bridge.py roundtrip /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.pptx /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/roundtrip",
+      "duration_seconds": 0.338877
+    },
+    {
+      "name": "gate_pptx_editability",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/figure_quality_gate_v2.py check /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/svg_output/P01.svg --contract /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/contract.json --pptx /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.pptx --output /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/quality/gate.json",
+      "duration_seconds": 0.470189
+    },
+    {
+      "name": "publication_exports",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python -m cairosvg /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.svg -o /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.png -f png --output-width 2560 && /data/v-boxiuli/argus_test_env/bin/python -m cairosvg /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.svg -o /data/v-boxiuli/argus_figure_test/studio/out/scenario_1_marl_architecture/scenario_1_marl_architecture.pdf -f pdf",
+      "png_dimensions": {
+        "width": 2560,
+        "height": 1440
+      },
+      "duration_seconds": 0.88041
+    },
+    {
+      "name": "copy_finals",
+      "status": "passed",
+      "repro": "copy final SVG/PNG/PPTX/PDF to /data/v-boxiuli/argus_figure_test/studio",
+      "duration_seconds": 0.002503
+    }
+  ],
+  "gate_summary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "tool_revisions": {
+    "ppt_master_git": "2e29f3d3cfc379c689b07027d0fa776b9ff79291",
+    "python": "3.12.3"
+  }
+}

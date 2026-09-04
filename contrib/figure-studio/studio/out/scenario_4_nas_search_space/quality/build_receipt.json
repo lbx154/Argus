@@ -1,0 +1,106 @@
+{
+  "receipt_version": "2.0",
+  "figure_id": "scenario_4_nas_search_space",
+  "route": "ppt-master",
+  "contract_source": "/data/v-boxiuli/argus_figure_test/studio/contracts/scenario_4_nas_search_space.json",
+  "validation": "/data/v-boxiuli/argus_figure_test/studio/figure_contract.schema.json",
+  "artifacts": {
+    "contract": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/contract.json",
+      "sha256": "dfd3b994cc0d529efbcd762ef8bcd0b1104df4b73bd2856a7d144e38638879a0"
+    },
+    "svg": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.svg",
+      "sha256": "43368a0cc83389568360d19aa8073e6c8ca3c95de0139eeb6c203b7c4e72ff9f"
+    },
+    "png": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.png",
+      "sha256": "c7b37678f7a9044294deae363743a35a7eee010e82f9a785d94f3e988112a885"
+    },
+    "pdf": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.pdf",
+      "sha256": "8e57225e66bfcdee34b2ee0fc11309afc2b0f1d62886851fb28940db8dd8a636"
+    },
+    "pptx": {
+      "path": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.pptx",
+      "sha256": "2929e20c29fe7527329cbc9f83eac5758b00e2ef946f35aeb95873e053d9762c"
+    }
+  },
+  "steps": [
+    {
+      "name": "load_validate_contract",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/build_figure.py build --contract /data/v-boxiuli/argus_figure_test/studio/contracts/scenario_4_nas_search_space.json --out-root /data/v-boxiuli/argus_figure_test/studio/out",
+      "duration_seconds": 0.069329
+    },
+    {
+      "name": "render_svg",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/figma_figure_renderer.py render /data/v-boxiuli/argus_figure_test/studio/contracts/scenario_4_nas_search_space.json --output /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.svg",
+      "duration_seconds": 0.198845
+    },
+    {
+      "name": "ensure_pptmaster_project",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/pptmaster_bridge.py ensure-project /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space scenario_4_nas_search_space 178",
+      "duration_seconds": 0.004454
+    },
+    {
+      "name": "pptmaster_checker",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/pptmaster_bridge.py check-svg /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/svg_output/P01.svg",
+      "duration_seconds": 0.285611
+    },
+    {
+      "name": "gate_pre_export",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/figure_quality_gate_v2.py check /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/svg_output/P01.svg --contract /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/contract.json --output /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/quality/gate_pre.json",
+      "duration_seconds": 0.479116
+    },
+    {
+      "name": "export_pptx",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/pptmaster_bridge.py export-pptx /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.pptx",
+      "duration_seconds": 0.602411
+    },
+    {
+      "name": "pptx_roundtrip",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/pptmaster_bridge.py roundtrip /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.pptx /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/roundtrip",
+      "duration_seconds": 0.442662
+    },
+    {
+      "name": "gate_pptx_editability",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python /data/v-boxiuli/argus_figure_test/studio/figure_quality_gate_v2.py check /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/svg_output/P01.svg --contract /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/contract.json --pptx /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.pptx --output /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/quality/gate.json",
+      "duration_seconds": 0.509225
+    },
+    {
+      "name": "publication_exports",
+      "status": "passed",
+      "repro": "/data/v-boxiuli/argus_test_env/bin/python -m cairosvg /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.svg -o /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.png -f png --output-width 2560 && /data/v-boxiuli/argus_test_env/bin/python -m cairosvg /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.svg -o /data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.pdf -f pdf",
+      "png_dimensions": {
+        "width": 2560,
+        "height": 1440
+      },
+      "duration_seconds": 0.940186
+    },
+    {
+      "name": "copy_finals",
+      "status": "passed",
+      "repro": "copy final SVG/PNG/PPTX/PDF to /data/v-boxiuli/argus_figure_test/studio",
+      "duration_seconds": 0.001635
+    }
+  ],
+  "gate_summary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "tool_revisions": {
+    "ppt_master_git": "2e29f3d3cfc379c689b07027d0fa776b9ff79291",
+    "python": "3.12.3"
+  }
+}

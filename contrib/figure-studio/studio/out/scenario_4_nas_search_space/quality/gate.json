@@ -1,0 +1,56 @@
+{
+  "gate_version": "2.0",
+  "mode": "contract",
+  "contract": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/contract.json",
+  "pptx": "/data/v-boxiuli/argus_figure_test/studio/out/scenario_4_nas_search_space/scenario_4_nas_search_space.pptx",
+  "thresholds": {
+    "minimum_font_size_px": 12.0,
+    "minimum_physical_font_pt": 7.0,
+    "preferred_physical_font_pt": 8.0,
+    "bbox_overlap_tolerance_px": 1.0
+  },
+  "summary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "files": [
+    {
+      "file": "studio/out/scenario_4_nas_search_space/svg_output/P01.svg",
+      "status": "pass",
+      "canvas": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1280.0,
+        "height": 720.0
+      },
+      "counts": {
+        "nodes": 22,
+        "texts": 29,
+        "edges": 5,
+        "errors": 0,
+        "warnings": 0
+      },
+      "minimum_font_size": 21.0,
+      "minimum_physical_font_pt": 8.278,
+      "expected_labels": {
+        "Input": 1,
+        "Output": 1,
+        "Layer 1": 1,
+        "Layer 2": 1,
+        "Layer 3": 1,
+        "Layer 4": 1,
+        "3x3 Conv": 1,
+        "5x5 Conv": 1,
+        "Max Pool": 1,
+        "Avg Pool": 1,
+        "Skip Connection": 1
+      },
+      "issue_counts": {},
+      "issues": [],
+      "warnings": []
+    }
+  ]
+}

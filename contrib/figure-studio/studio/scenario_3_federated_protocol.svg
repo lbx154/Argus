@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" data-pptx-page-role="content">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#FBFAF7"/>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0,0 10,5 0,10" fill="#1F2933"/>
+    </marker>
+    <marker id="arrow-highlight" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <polygon points="0,0 10,5 0,10" fill="#D55E00"/>
+    </marker>
+    <symbol id="ic-device-laptop" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 19l18 0"/>
+      <path d="M5 7a1 1 0 0 1 1 -1h12a1 1 0 0 1 1 1v8a1 1 0 0 1 -1 1h-12a1 1 0 0 1 -1 -1l0 -8"/>
+    </symbol>
+    <symbol id="ic-server" viewBox="0 0 24 24" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 7a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3"/>
+      <path d="M3 15a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3l0 -2"/>
+      <path d="M7 8l0 .01"/>
+      <path d="M7 16l0 .01"/>
+    </symbol>
+  </defs>
+  <g id="lifelines" data-pptx-bounds="37.75 111.25 1093 545.5">
+    <path d="M 46 128 L 46 651" fill="none" stroke="#1F2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="60" y="154" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="start" data-figure-role="axis" data-text-role="axis">Time</text>
+    <path d="M 150 112 L 150 656" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="7 6" data-lifeline-for="central-server"/>
+    <path d="M 476.67 112 L 476.67 656" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="7 6" data-lifeline-for="client-1"/>
+    <path d="M 803.33 112 L 803.33 656" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="7 6" data-lifeline-for="client-2"/>
+    <path d="M 1130 112 L 1130 656" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="7 6" data-lifeline-for="client-3"/>
+  </g>
+  <g id="activations" data-pptx-bounds="467.92 274.25 670.83 57.5">
+    <rect x="468.67" y="275" width="16" height="56" rx="5" fill="#FFF2BD" stroke="#D55E00" stroke-width="1.5" data-activation-for="client-1"/>
+    <rect x="795.33" y="275" width="16" height="56" rx="5" fill="#FFF2BD" stroke="#D55E00" stroke-width="1.5" data-activation-for="client-2"/>
+    <rect x="1122" y="275" width="16" height="56" rx="5" fill="#FFF2BD" stroke="#D55E00" stroke-width="1.5" data-activation-for="client-3"/>
+  </g>
+  <g id="messages" data-pptx-bounds="61.31 120.5 1071.69 524.5">
+    <path id="e-broadcast-client-1" d="M 150 170 L 476.67 170" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="broadcast-client-1" data-edge-from="central-server" data-edge-to="client-1" data-edge-source="central-server" data-edge-target="client-1" data-figure-role="edge" stroke-dasharray="2 5"/>
+    <path id="e-broadcast-client-2" d="M 150 194 L 803.33 194" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="broadcast-client-2" data-edge-from="central-server" data-edge-to="client-2" data-edge-source="central-server" data-edge-target="client-2" data-figure-role="edge" stroke-dasharray="2 5"/>
+    <path id="e-broadcast-client-3" d="M 150 218 L 1130 218" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="broadcast-client-3" data-edge-from="central-server" data-edge-to="client-3" data-edge-source="central-server" data-edge-target="client-3" data-figure-role="edge" stroke-dasharray="2 5"/>
+    <circle cx="509.92" cy="138.5" r="15" fill="#D55E00"/>
+    <text x="509.92" y="145.64" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="700" fill="#FFFFFF" text-anchor="middle" data-figure-role="badge" data-text-role="badge">1</text>
+    <rect x="532.92" y="121" width="214.15" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="broadcast-client-1"/>
+    <text x="640" y="149" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="broadcast-client-1" data-shared-label="true" data-expected-count="1">Broadcast Model</text>
+    <circle cx="679.66" cy="253.5" r="15" fill="#D55E00"/>
+    <text x="679.66" y="260.64" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="700" fill="#FFFFFF" text-anchor="middle" data-figure-role="badge" data-text-role="badge">2</text>
+    <rect x="702.66" y="236" width="201.34" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="local-training"/>
+    <text x="803.33" y="264" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="local-training" data-shared-label="true" data-expected-count="1">Local Training</text>
+    <path id="e-upload-client-1" d="M 476.67 388 L 150 388" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="upload-client-1" data-edge-from="client-1" data-edge-to="central-server" data-edge-source="client-1" data-edge-target="central-server" data-figure-role="edge"/>
+    <path id="e-upload-client-2" d="M 803.33 412 L 150 412" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="upload-client-2" data-edge-from="client-2" data-edge-to="central-server" data-edge-source="client-2" data-edge-target="central-server" data-figure-role="edge"/>
+    <path id="e-upload-client-3" d="M 1130 436 L 150 436" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="upload-client-3" data-edge-from="client-3" data-edge-to="central-server" data-edge-source="client-3" data-edge-target="central-server" data-figure-role="edge"/>
+    <circle cx="176.85" cy="356.5" r="15" fill="#D55E00"/>
+    <text x="176.85" y="363.64" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="700" fill="#FFFFFF" text-anchor="middle" data-figure-role="badge" data-text-role="badge">3</text>
+    <rect x="199.85" y="339" width="226.96" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="upload-client-1"/>
+    <text x="313.33" y="367" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="upload-client-1" data-shared-label="true" data-expected-count="1">Upload Gradients</text>
+    <path id="e-aggregate" d="M 150 493 L 278 493 L 278 535 L 162 535" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="aggregate" data-edge-from="central-server" data-edge-to="central-server" data-edge-source="central-server" data-edge-target="central-server" data-figure-role="edge" stroke-dasharray="8 5"/>
+    <circle cx="140.36" cy="471.5" r="15" fill="#D55E00"/>
+    <text x="140.36" y="478.64" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="700" fill="#FFFFFF" text-anchor="middle" data-figure-role="badge" data-text-role="badge">4</text>
+    <rect x="163.36" y="454" width="137.29" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="aggregate"/>
+    <text x="232" y="482" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="aggregate">Aggregate</text>
+    <path id="e-update-global-model" d="M 150 592 L 278 592 L 278 634 L 162 634" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)" data-edge-id="update-global-model" data-edge-from="central-server" data-edge-to="central-server" data-edge-source="central-server" data-edge-target="central-server" data-figure-role="edge" stroke-dasharray="8 5"/>
+    <circle cx="76.31" cy="570.5" r="15" fill="#D55E00"/>
+    <text x="76.31" y="577.64" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="700" fill="#FFFFFF" text-anchor="middle" data-figure-role="badge" data-text-role="badge">5</text>
+    <rect x="99.31" y="553" width="265.39" height="35" rx="17.5" fill="#FBFAF7" stroke="#9CA3AF" stroke-width="1" data-label-background="true" data-edge-id="update-global-model"/>
+    <text x="232" y="581" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="600" fill="#4B5563" text-anchor="middle" data-figure-role="edge-label" data-text-role="edge-label" data-edge-id="update-global-model">Update Global Model</text>
+  </g>
+  <g id="participants" data-pptx-bounds="39 39 1202 74">
+    <g id="central-server" data-pptx-bounds="39 39 222 74" data-node-id="central-server" data-figure-role="node">
+      <rect fill="#FFF2BD" stroke="#1F2933" stroke-width="2" data-node-id="central-server" x="40" y="40" width="220" height="72" rx="12"/>
+      <rect x="52" y="57" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-server" x="58" y="63" width="26" height="26"/>
+      <text x="171" y="69.76" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="central-server">
+        <tspan x="171" y="69.76">Central </tspan>
+        <tspan x="171" dy="28.8">Server</tspan>
+      </text>
+    </g>
+    <g id="client-1" data-pptx-bounds="365.67 39 222 74" data-node-id="client-1" data-figure-role="node">
+      <rect fill="#E2F7DF" stroke="#1F2933" stroke-width="2" data-node-id="client-1" x="366.67" y="40" width="220" height="72" rx="12"/>
+      <rect x="378.67" y="57" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-device-laptop" x="384.67" y="63" width="26" height="26"/>
+      <text x="497.67" y="84.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="client-1">Client 1</text>
+    </g>
+    <g id="client-2" data-pptx-bounds="692.33 39 222 74" data-node-id="client-2" data-figure-role="node">
+      <rect fill="#E2F7DF" stroke="#1F2933" stroke-width="2" data-node-id="client-2" x="693.33" y="40" width="220" height="72" rx="12"/>
+      <rect x="705.33" y="57" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-device-laptop" x="711.33" y="63" width="26" height="26"/>
+      <text x="824.33" y="84.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="client-2">Client 2</text>
+    </g>
+    <g id="client-3" data-pptx-bounds="1019 39 222 74" data-node-id="client-3" data-figure-role="node">
+      <rect fill="#E2F7DF" stroke="#1F2933" stroke-width="2" data-node-id="client-3" x="1020" y="40" width="220" height="72" rx="12"/>
+      <rect x="1032" y="57" width="38" height="38" rx="9" fill="#FBFAF7" fill-opacity="0.75" stroke="#CBD5E1" stroke-width="1"/>
+      <use href="#ic-device-laptop" x="1038" y="63" width="26" height="26"/>
+      <text x="1151" y="84.16" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="24" font-weight="600" fill="#111827" text-anchor="middle" data-figure-role="node-label" data-text-role="node-label" data-label-for="client-3">Client 3</text>
+    </g>
+  </g>
+  <g id="legend" data-pptx-bounds="363.91 680.15 545.06 25.2">
+    <path d="M 364.91 692 L 398.91 692" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-dasharray="2 5"/>
+    <text x="410.91" y="698" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="400" fill="#4B5563" text-anchor="start" data-figure-role="legend" data-text-role="legend">Broadcast</text>
+    <path d="M 544.54 692 L 578.54 692" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round" stroke-dasharray="8 5"/>
+    <text x="590.54" y="698" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="400" fill="#4B5563" text-anchor="start" data-figure-role="legend" data-text-role="legend">Local operation</text>
+    <path d="M 771.79 692 L 805.79 692" fill="none" stroke="#1F2933" stroke-width="2" stroke-linecap="round"/>
+    <text x="817.79" y="698" font-family="Helvetica, Arial, 'Liberation Sans', sans-serif" font-size="21" font-weight="400" fill="#4B5563" text-anchor="start" data-figure-role="legend" data-text-role="legend">Message</text>
+  </g>
+</svg>
