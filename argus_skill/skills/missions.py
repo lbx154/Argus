@@ -30,11 +30,11 @@ class RoleMission:
         force_empty_match: bool = False,
         required_relative_paths: tuple[str, ...] = (),
     ) -> RoleSkillLibraries:
-        # Method name is retained for role-call compatibility; no selection occurs.
-        _ = (task, extra_exclude, force_empty_match)
+        _ = (extra_exclude, force_empty_match)
         return role_skill_libraries(
             self.skill_store,
             role=self.role,
+            task=task,
             on_event=self.on_event,
             required_relative_paths=required_relative_paths,
         )

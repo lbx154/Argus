@@ -1,9 +1,4 @@
-"""Path-only layered Skill libraries.
-
-Project, workflow/domain, and global libraries remain separate filesystem roots.
-Agents receive those roots and search them directly; the runtime does not parse,
-match, rank, copy, or rewrite Skill documents.
-"""
+"""Layered Skill-library roots used by bounded recall and native discovery."""
 from __future__ import annotations
 
 from pathlib import Path

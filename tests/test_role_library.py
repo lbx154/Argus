@@ -1,4 +1,4 @@
-"""Role Agents receive library paths and perform their own discovery."""
+"""Role Agents receive bounded recall plus library paths for discovery."""
 from pathlib import Path
 
 from argus_skill.adapters.memory_backend import MemoryBackend
@@ -31,6 +31,53 @@ def test_role_receives_path_without_matcher_call_or_content(tmp_path: Path) -> N
     assert "PRIVATE BODY" not in result.block
     assert "Your first action, before any repository tool" in result.block
     assert backend.history == []
+
+
+def test_relevant_skill_is_recalled_into_mandatory_context(tmp_path: Path) -> None:
+    root = tmp_path / "skills"
+    skill = root / "engineer" / "runtime" / "aiter-cache.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\n"
+        'name: "Persist AITER compilation"\n'
+        'description: "Reuse AITER JIT artifacts for ROCm model startup."\n'
+        "---\n\n"
+        "# AITER cache\n\nSet `AITER_JIT_DIR` before launching vLLM.\n",
+        encoding="utf-8",
+    )
+
+    result = role_skill_libraries(
+        SkillStore(root),
+        role="engineer",
+        task="Speed up ROCm vLLM startup by avoiding repeated AITER compilation.",
+    )
+
+    assert result.recalled_paths == [skill.resolve()]
+    assert "Recalled Skills — mandatory execution context" in result.block
+    assert "Set `AITER_JIT_DIR` before launching vLLM." in result.block
+
+
+def test_irrelevant_skill_body_is_not_injected(tmp_path: Path) -> None:
+    root = tmp_path / "skills"
+    skill = root / "engineer" / "database-migration.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\n"
+        'name: "Database migration"\n'
+        'description: "Apply PostgreSQL schema migrations safely."\n'
+        "---\n\n"
+        "PRIVATE DATABASE BODY\n",
+        encoding="utf-8",
+    )
+
+    result = role_skill_libraries(
+        SkillStore(root),
+        role="engineer",
+        task="Optimize ROCm model compilation.",
+    )
+
+    assert result.recalled_paths == []
+    assert "PRIVATE DATABASE BODY" not in result.block
 
 
 def test_project_agent_skills_are_first_for_every_runtime_role(tmp_path: Path) -> None:

@@ -21,10 +21,9 @@ class SkillLibraryMixin:
         required_skill_paths = self._prepare_vertical_libraries(mission)
         state = SkillLibraryState()
         state.skill_libraries = self.engineer_mission.libraries(
+            task=mission.skill_task,
             required_relative_paths=required_skill_paths,
         )
-        # Paths and discovery instructions only: no runtime matching, adaptation,
-        # copying, or Skill-body injection.
         state.skill_text = state.skill_libraries.block
         state.reviewer_skill_block = self.reviewer.mission.libraries().block
         return state
