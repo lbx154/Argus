@@ -154,8 +154,43 @@ rewrite、plan preview、self,共 11 项)。档位经 knob 层解析
 - 启动:`argus --daemon --new --continuous --bounded --mission-width 1
   --project-root <PATH> --objective "..."`(tui_launcher 不转发
   --objective-file,目标要内联)。
-- playbook 的 .md 每轮从磁盘读取,改动即刻生效;.py 改动需重启守护进程
-  (`kill <pid>` 后 `argus --resume <session> --daemon --resume-continuous`)。
+- playbook 的 .md 每轮从磁盘读取,改动即刻生效;.py 改动的生效路径见下一条——
+  **只重启守护进程不会加载新代码**。
+- **部署机制(2026-09-04 补,吃过一次亏)**:守护进程经
+  `~/.local/bin/argus` 启动,其 shebang 指向
+  `/data/v-boxiuli/argus-runtime-latest/.venv/bin/python`,该 venv 以
+  editable 方式(`_editable_impl_argus_skill.pth`)指向
+  `/data/v-boxiuli/argus-runtime-latest` 这个独立的 detached git checkout,
+  **而不是** `/data/v-boxiuli/Argus` 开发仓库。所以让 .py 改动生效的完整
+  流程是:在开发仓库 commit 并 push 到 main → 在 argus-runtime-latest 里
+  `git fetch origin && git checkout --detach <新 rev>`(先 kill 守护进程;
+  依赖未变时 venv 直接复用)→ 从各任务的项目目录重启
+  (`cd <workdir> && setsid nohup argus --daemon --backend copilot
+  --resume <session> --resume-continuous &`)→ 用
+  `daemon.status.json` 的 `runtime.revision` 字段核对确实换到了新 rev。
+  之前一轮"重启换新代码"因为漏了中间的 checkout 更新而实际无效。
+- 验证导入版本时不要在开发仓库目录里跑 `python -c "import argus_skill"`——
+  cwd 会先于 .pth 命中,打印出误导的路径;换到无关目录再验。
 - 给运行中的任务发操作员消息:`argus_skill.core.transcript.append_turn(
   life_dir, "operator", text, message_id=...)`,life_dir 为
   `~/.argus-skill/projects/<session>/`。
+
+## 七、追加(2026-09-04 上午):规划器对后台任务的依赖
+
+**问题(run-08 实测发现)**:规划器把一个 durable 后台任务的 job ID
+(`route09-confirm-finalize-methodset-v2`)写进了任务的 `deps`。这类任务
+登记在项目目录的 `.argus_subagents/` 注册表里,不在 backlog 里,依赖解析
+认不出这个键,于是整个 verdict 被拒,规划器每个周期重复同一个
+`planner_error`,空转烧 token(GPU 上的实际工作不受影响)。
+
+**修复(7bba00906)**:`_planning_cycle_enqueue.py` 的依赖解析在遇到
+backlog 解析不了的键时查询 external-work 注册表;查到的 job 不算 backlog
+依赖——从 `deps` 里放行,任务照常入队,由 mission 里的 engineer 走既有的
+external-work 协议直接和后台任务协调(等待、健康检查、恢复都是现成的、
+经实战验证的机制)。查不到的键仍拒绝整批;注册表不可用时保守回退为全部
+未知。放行的 job ID 记入 task_added 事件的 `external_work_deps` 字段留痕。
+
+设计取舍:第一版实现让规划器自己"挂起等待",经 10 agent 对抗评审确认了
+四个缺陷(修订挂起永不重放、烧重规划计数导致节点被误判无进展、每次唤醒
+都全量调用规划器模型、静默丢弃子树),遂改为上述"放行 + mission 侧等待"
+方案——规划器不等任何东西,等待交给已有机制。
