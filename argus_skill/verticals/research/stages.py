@@ -63,15 +63,17 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             id="idea.selection",
             statement=(
                 "For a staged broad paper mission, the selector makes one resumable "
-                "choice and project-root `HANDOFF.md` describes the winner plus one "
-                "single-line rejection reason for every other route. For a staged "
-                "operator-locked paper direction, `HANDOFF.md` instead validates and "
-                "positions the supplied idea without inventing a selector or rejected "
-                "routes. It replaces prior handoff text rather than appending history. "
+                "choice; project-root `HANDOFF.md` carries the winner plus one "
+                "single-line rejection reason for every other route into Experiment. "
+                "For a staged operator-locked paper direction, `HANDOFF.md` instead "
+                "validates and positions the supplied idea without inventing a selector "
+                "or rejected routes. It replaces prior handoff text rather than appending "
+                "history. The selection itself is what completes this stage; a missing "
+                "or thin handoff note is written on the way out, not a reason to hold. "
                 "A direct Idea-only request returns its independently reviewed result "
                 "without a cross-stage handoff."
             ),
-            evidence_hint="HANDOFF.md and the selected idea in internal pipeline state",
+            evidence_hint="the selected idea in internal pipeline state",
         ),
     ),
     "experiment": _checklist(
@@ -154,9 +156,12 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "limits, figures/data to use, and the minimum reproducibility pointers "
                 "needed to write the paper. Classify the complete evidence as headline, "
                 "mechanism, disambiguating control, scope-changing, or completeness "
-                "evidence, and name its canonical and repeat locations."
+                "evidence, and name its canonical and repeat locations. The evidence "
+                "decides whether Experiment is done; a missing or stale handoff note "
+                "is written by the round that advances, never a reason to hold a stage "
+                "whose science is complete."
             ),
-            evidence_hint="HANDOFF.md",
+            evidence_hint="HANDOFF.md, written when advancing",
         ),
     ),
     "paper": _checklist(
@@ -207,9 +212,10 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Keep project-root `HANDOFF.md` as the single upstream context for Paper, "
                 "rewritten rather than accumulated. Do not create parallel project-visible "
-                "handoff files."
+                "handoff files. Its presence or wording never decides whether Paper is "
+                "done; the manuscript does."
             ),
-            evidence_hint="HANDOFF.md",
+            evidence_hint="HANDOFF.md as context only",
         ),
     ),
     "review": _checklist(
@@ -324,18 +330,6 @@ def get_stage_checklist(stage: str) -> tuple[ChecklistItem, ...]:
     return STAGE_CHECKLISTS.get(str(stage).strip().lower(), ())
 
 
-def _handoff_issue(project_root: Path, stage: str) -> tuple[str, ...]:
-    _ = stage
-    path = project_root / "HANDOFF.md"
-    try:
-        text = path.read_text(encoding="utf-8") if path.is_file() else ""
-    except OSError:
-        text = ""
-    if not text.strip():
-        return ("project-root HANDOFF.md is missing or empty",)
-    return ()
-
-
 def _paper_issue(project_root: Path) -> tuple[str, ...]:
     paper = project_root / "paper"
     issues: list[str] = []
@@ -437,16 +431,13 @@ def stage_completion_issues(
             root,
             state_root=resolved_state_root,
         )
-        return tuple((*portfolio_issues, *_handoff_issue(root, "idea")))
+        return tuple(portfolio_issues)
     if normalized == "experiment":
-        return _handoff_issue(root, normalized)
+        # Experiment is judged on its evidence by the Reviewer and Manager; the
+        # handoff note is context for Paper, not a completion condition.
+        return ()
     if normalized == "paper":
-        return tuple(
-            (
-                *_paper_issue(root),
-                *_handoff_issue(root, "paper"),
-            )
-        )
+        return _paper_issue(root)
     if normalized == "review":
         if _paper_stage_skipped(Path(state_root or root)):
             return _review_document_issues(root)
@@ -590,7 +581,12 @@ _REVIEWER_RESEARCH_JUDGEMENT = (
 _MANAGER_RESEARCH_STEWARDSHIP = (
     _AMBITIOUS_RESEARCH_POLICY
     + " Keep the current stage while scheduling repairs. Never move a research project "
-    "backward. Advance only when the active checklist is satisfied; Review is terminal."
+    "backward. Advance when the stage's scientific work is done and independently "
+    "reviewed; Review is terminal. Judge the science, not the bookkeeping: a missing "
+    "or outdated HANDOFF.md, review note, template detail, or file marker is repair "
+    "work for the next round, never by itself a reason to hold a stage. A Reviewer "
+    "verdict rendered on the current mission is the current review of the work it "
+    "inspected; do not demand a separate re-review of edits the Reviewer already read."
 )
 
 

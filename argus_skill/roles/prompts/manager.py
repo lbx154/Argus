@@ -899,7 +899,11 @@ def build_stage_decision_prompt(
         + rollback_rule
         + completion_rule
         + "- A weak proxy or one failed attempt is not completion. Do not repeat the "
-        "Reviewer's checks without a contradiction. When unsure, HOLD.\n\n"
+        "Reviewer's checks without a contradiction. When unsure, HOLD.\n"
+        "- Judge the science, not the bookkeeping. A missing or outdated handoff "
+        "note, review file, template detail, or file marker is repair work for the "
+        "next round; it is never by itself a reason to HOLD a stage whose work "
+        "the Reviewer accepted.\n\n"
         + decision_footer_instruction(
             "ACTION=hold\n"
             "TARGET_STAGE=current stage\n"

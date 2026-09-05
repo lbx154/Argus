@@ -92,17 +92,27 @@ def test_pipeline_reads_are_pure_and_explicit_migration_maps_old_stages(
     assert migrated["stages"][mapped]["status"] == "in_progress"
 
 
-def test_experiment_completion_requires_a_handoff(tmp_path: Path) -> None:
-    assert any(
-        "HANDOFF.md is missing or empty" in issue
-        for issue in stage_completion_issues("experiment", tmp_path)
-    )
+def test_experiment_completion_does_not_depend_on_a_handoff_file(
+    tmp_path: Path,
+) -> None:
+    # The handoff note is context for the next stage, not a completion
+    # condition: a stage whose science is reviewed must not be held because a
+    # file is missing.
+    assert stage_completion_issues("experiment", tmp_path) == ()
 
     (tmp_path / "HANDOFF.md").write_text(
         "# HANDOFF — EXPERIMENT\n\nImplementation, evaluator, and results are ready.",
         encoding="utf-8",
     )
     assert stage_completion_issues("experiment", tmp_path) == ()
+
+
+def test_paper_completion_issues_do_not_mention_the_handoff_file(
+    tmp_path: Path,
+) -> None:
+    issues = stage_completion_issues("paper", tmp_path)
+    assert issues
+    assert not any("HANDOFF" in issue for issue in issues)
 
 
 def test_review_uses_review_not_handoff_or_history(tmp_path: Path) -> None:
