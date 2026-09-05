@@ -927,6 +927,25 @@ class PlanningContextMixin:
         state["resolved_at"] = time.time()
         self._write_manager_planner_feedback(state)
 
+    def _planner_dropped_dependency_runtime_note(self) -> str:
+        """Tell the planner once which dependency keys its last DAG got wrong."""
+        dropped = list(getattr(self, "_planner_dropped_dependency_keys", []) or [])
+        if not dropped:
+            return ""
+        self._planner_dropped_dependency_keys = []
+        lines = "\n".join(
+            f"- {title!r} named {', '.join(repr(key) for key in keys)}"
+            for title, keys in dropped
+        )
+        return (
+            "DEPENDENCY KEYS DROPPED FROM YOUR LAST PLAN:\n"
+            f"{lines}\n"
+            "Those keys matched no backlog node and no durable background job, so "
+            "the tasks were enqueued without them. Team ids, task labels quoted "
+            "in evidence, and nodes you have not created are not dependencies. "
+            "Depend only on node keys from this plan or on existing backlog items."
+        )
+
     def _manager_planner_feedback_runtime_note(self) -> str:
         state = self._load_manager_planner_feedback()
         if state is None:

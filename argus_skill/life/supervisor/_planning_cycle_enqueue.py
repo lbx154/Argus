@@ -1214,8 +1214,25 @@ class PlanningCycleEnqueueMixin:
                 unresolved_keys
             )
             if unknown_keys:
+                # The planner named something that is neither a backlog node
+                # nor a durable job: usually a team id, a task label it saw in
+                # evidence, or a node it meant to create. Rejecting the whole
+                # plan over it used to stall campaigns for dozens of identical
+                # cycles. Drop the key, enqueue the task, and tell the planner.
                 unresolved.append((item.title, unknown_keys))
-                continue
+                self._emit(
+                    {
+                        "type": EventType.LIFE_PLANNER_DEPENDENCY_DROPPED,
+                        "item_id": str(item.id),
+                        "title": item.title,
+                        "dependency_keys": list(unknown_keys),
+                        "text": (
+                            "planner dependency keys matched no backlog item or "
+                            "durable job and were dropped; the task is enqueued "
+                            "without them"
+                        ),
+                    }
+                )
             if external_deps:
                 released_external[str(item.id)] = [
                     key for key, _state_desc in external_deps
@@ -1232,30 +1249,7 @@ class PlanningCycleEnqueueMixin:
                     },
                 )
         if unresolved:
-            details = "; ".join(
-                f"{title!r}: {keys}" for title, keys in unresolved
-            )
-            self._emit(
-                {
-                    "type": EventType.LIFE_PLANNER_ERROR,
-                    "cycle": self._planning_cycles,
-                    "error": f"planner DAG has unresolved dependencies: {details}",
-                }
-            )
-            self._emit_status(
-                "planner DAG rejected because dependencies became unresolved"
-            )
-            self._enter_idle_backoff()
-            if revision_request is not None:
-                return self._pc_record_revision_rejection(
-                    state,
-                    reason=(
-                        "replacement DAG rejected because dependencies became "
-                        f"unresolved: {details}"
-                    ),
-                    nonterminal_result=PLAN_ERROR,
-                )
-            return PLAN_ERROR
+            self._planner_dropped_dependency_keys = list(unresolved)
         if revision_request is None and state.pending_items:
             try:
                 self.memory.backlog.add_many([item for _task, item in state.pending_items])

@@ -84,6 +84,7 @@ class PlannerOrchestrationMixin:
         resolution_note = self._planner_wait_resolution_runtime_note()
         contract_note = self._planner_waiting_contract_runtime_note()
         manager_feedback = self._manager_planner_feedback_runtime_note()
+        dropped_deps = self._planner_dropped_dependency_runtime_note()
         n = int(getattr(self, "_consecutive_idle_planner_cycles", 0))
         if n < 2:
             return "\n\n".join(
@@ -91,6 +92,7 @@ class PlannerOrchestrationMixin:
                 for part in (
                     resolution_note,
                     manager_feedback,
+                    dropped_deps,
                     contract_note,
                     base,
                 )
@@ -110,6 +112,7 @@ class PlannerOrchestrationMixin:
             for part in (
                 resolution_note,
                 manager_feedback,
+                dropped_deps,
                 contract_note,
                 note,
                 base,

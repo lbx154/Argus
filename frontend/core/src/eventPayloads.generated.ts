@@ -357,6 +357,15 @@ export interface LifePlannerTaskAddedEvent extends EventMsg {
   "parent_branch_id"?: string | null;
 }
 
+export interface LifePlannerDependencyDroppedEvent extends EventMsg {
+  type: "life.planner.dependency_dropped";
+  payload_schema_version?: 1;
+  "item_id"?: string;
+  "title": string;
+  "dependency_keys": Array<string>;
+  "text"?: string;
+}
+
 export interface LifePlannerTaskSkippedEvent extends EventMsg {
   type: "life.planner.task_skipped";
   payload_schema_version?: 1;
@@ -1198,6 +1207,7 @@ export interface EventPayloadByType {
   "life.runtime_failure.circuit_blocked": LifeRuntimeFailureCircuitBlockedEvent;
   "life.runtime_failure.canary_passed": LifeRuntimeFailureCanaryPassedEvent;
   "life.planner.task_added": LifePlannerTaskAddedEvent;
+  "life.planner.dependency_dropped": LifePlannerDependencyDroppedEvent;
   "life.planner.task_skipped": LifePlannerTaskSkippedEvent;
   "life.manager.intent.completed": LifeManagerIntentCompletedEvent;
   "life.manager.intent.failed": LifeManagerIntentFailedEvent;

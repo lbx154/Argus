@@ -314,6 +314,83 @@ def test_commit_releases_dependency_on_durable_background_job(
     assert added["external_work_deps"] == ["confirm-finalize-methodset-v2"]
 
 
+def test_commit_drops_unknown_dependency_keys_and_tells_the_planner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A dependency key that is neither a backlog node nor a durable job is
+    dropped: the task is enqueued without it, an event records the dropped
+    keys, and the next planner prompt carries the correction once. Rejecting
+    the whole plan used to repeat the identical error for dozens of cycles."""
+    from argus_skill.engineer import external_work
+    from argus_skill.life.supervisor._planning_context import (
+        PlanningContextMixin,
+    )
+
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    events: list[dict[str, object]] = []
+
+    class Harness(PlanningCycleEnqueueMixin, PlanningContextMixin):
+        _planning_cycles = 3
+        _suggested_sleep_s = 0.0
+        _planner_dropped_dependency_keys: list[tuple[str, list[str]]] = []
+        memory = SimpleNamespace(backlog=backlog)
+
+        def _project_workdir(self) -> Path:
+            return tmp_path
+
+        def _emit(self, event: dict[str, object]) -> None:
+            events.append(event)
+
+        def _emit_status(self, _text: str) -> None:
+            return None
+
+        def _enter_idle_backoff(self) -> float:
+            raise AssertionError("a dropped dependency key is not a planner error")
+
+    state = _PlanCycleState(None)
+    state.existing_items = backlog.all()
+    state.manager_intent = {}
+    select = BacklogItem.new(
+        title="Select one build-ready research direction",
+        objective="Pick the route the reviews support.",
+        node_key="select-direction",
+    )
+    task = SimpleNamespace(
+        deps=["research-idea-pipeline-v8-g1-settlement-gate"],
+        impact_score=0,
+        impact_area="",
+    )
+    state.pending_items = [(task, select)]
+
+    monkeypatch.setattr(
+        external_work,
+        "inspect_external_work",
+        lambda _workdir, _key: None,
+    )
+
+    harness = Harness()
+    assert harness._pc_commit_pending_items(state) is None
+    persisted = next(iter(backlog.all()))
+    assert persisted.title == "Select one build-ready research direction"
+    assert persisted.deps == []
+    dropped = next(
+        event
+        for event in events
+        if event["type"] == EventType.LIFE_PLANNER_DEPENDENCY_DROPPED
+    )
+    assert dropped["dependency_keys"] == [
+        "research-idea-pipeline-v8-g1-settlement-gate"
+    ]
+    assert not any(event["type"] == EventType.LIFE_PLANNER_ERROR for event in events)
+
+    note = harness._planner_dropped_dependency_runtime_note()
+    assert "research-idea-pipeline-v8-g1-settlement-gate" in note
+    assert "Select one build-ready research direction" in note
+    # The correction is delivered once, then cleared.
+    assert harness._planner_dropped_dependency_runtime_note() == ""
+
+
 def test_planner_task_inherits_manager_routing_without_optional_fields() -> None:
     assert PlanningCycleEnqueueMixin._manager_decision_evidence({}) == {
         "routed": True,

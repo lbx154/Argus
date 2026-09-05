@@ -47,6 +47,7 @@
     "life.plan.revision.proposed",
     "life.plan.revision.rejected",
     "life.planner.backend_resolved",
+    "life.planner.dependency_dropped",
     "life.planner.error",
     "life.planner.normalized",
     "life.planner.stall_escalation",
@@ -111,7 +112,7 @@
       "counts": {
         "handled": 21,
         "hidden": 0,
-        "missing": 84
+        "missing": 85
       },
       "fallback": "greppable",
       "handled": [
@@ -177,6 +178,7 @@
         "life.plan.revision.proposed",
         "life.plan.revision.rejected",
         "life.planner.backend_resolved",
+        "life.planner.dependency_dropped",
         "life.planner.normalized",
         "life.planner.stall_escalation",
         "life.planner.terminal_idle",
@@ -229,7 +231,7 @@
       "counts": {
         "handled": 33,
         "hidden": 0,
-        "missing": 72
+        "missing": 73
       },
       "fallback": "hide",
       "handled": [
@@ -300,6 +302,7 @@
         "life.plan.revision.proposed",
         "life.plan.revision.rejected",
         "life.planner.backend_resolved",
+        "life.planner.dependency_dropped",
         "life.planner.normalized",
         "life.planner.terminal_idle",
         "life.planner.verification_probe",
@@ -347,7 +350,7 @@
       "counts": {
         "handled": 30,
         "hidden": 1,
-        "missing": 74
+        "missing": 75
       },
       "fallback": "hide",
       "handled": [
@@ -418,6 +421,7 @@
         "life.plan.revision.proposed",
         "life.plan.revision.rejected",
         "life.planner.backend_resolved",
+        "life.planner.dependency_dropped",
         "life.planner.normalized",
         "life.planner.terminal_idle",
         "life.planner.verification_probe",

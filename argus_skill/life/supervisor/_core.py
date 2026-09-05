@@ -232,6 +232,10 @@ class LifeSupervisor(
         # the moment a real mission runs.
         self._consecutive_idle_planner_cycles = 0
         self._suggested_sleep_s = 0.0
+        # Dependency keys the last planner DAG named that matched no backlog
+        # item or durable job. They were dropped rather than rejecting the
+        # plan; the next planner prompt says so once, then this clears.
+        self._planner_dropped_dependency_keys: list[tuple[str, list[str]]] = []
         self._parallel_plan_fingerprint: tuple[tuple[str, ...], ...] | None = None
         self._parallel_plan_after = 0.0
         # Wall-clock (monotonic) of the first idle pass in the current idle
