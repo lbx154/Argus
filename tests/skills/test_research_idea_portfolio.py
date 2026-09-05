@@ -8,7 +8,6 @@ from argus_skill.core.vertical_contract import VerticalLibraryContext
 from argus_skill.skills.vertical_select import reset_stage_for_new_intent
 from argus_skill.team import task_board
 from argus_skill.verticals.research.idea_portfolio import (
-    MAX_HANDOFF_CHARS,
     SELECTION_POLICY,
     TEAM_ID,
     ensure_idea_portfolio,
@@ -191,7 +190,7 @@ def test_team_local_owner_ids_and_compact_handoff(tmp_path: Path) -> None:
     handoff = (tmp_path / "HANDOFF.md").read_text(encoding="utf-8")
     assert handoff.startswith("# HANDOFF — IDEA\n")
     assert handoff.count("\n- **route-") == 11
-    assert len(handoff) <= MAX_HANDOFF_CHARS
+    assert ("evidence " * 4000).strip() in handoff
 
 
 def test_first_valid_selection_remains_authoritative(tmp_path: Path) -> None:

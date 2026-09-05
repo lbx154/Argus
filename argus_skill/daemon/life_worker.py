@@ -231,6 +231,7 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
         self._running_stall_stop = threading.Event()
         self._running_stall_thread: threading.Thread | None = None
         self._supervisor_execution_active = threading.Event()
+        self._supervisor_execution_threads: dict[str, threading.Thread] = {}
 
     # -- signal handling ------------------------------------------------
 

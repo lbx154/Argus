@@ -29,13 +29,6 @@ _LEGACY_STATE_PATH = Path("research") / "IDEA_PORTFOLIO.json"
 _LEGACY_SELECTION_PATH = Path("research") / "IDEA_SELECTION.json"
 _REVIEW_VERDICTS = frozenset({"qualified", "rejected"})
 _TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
-MAX_WINNER_EXPLANATION_CHARS = 1000
-MAX_EVIDENCE_TEXT_CHARS = 1000
-MAX_RESOURCE_TEXT_CHARS = 600
-MAX_RISK_COUNT = 6
-MAX_RISK_TEXT_CHARS = 240
-MAX_REJECTION_TEXT_CHARS = 220
-MAX_HANDOFF_CHARS = 9000
 _NO_NESTED_TEAM = (
     "This task is already one worker in the parent idea portfolio. Do not create, "
     "ensure, launch, or delegate another Team or idea portfolio."
@@ -334,49 +327,33 @@ def _one_line(value: object) -> str:
     return " ".join(str(value or "").split())
 
 
-def _bounded_text(value: object, limit: int) -> str:
-    text = _one_line(value)
-    if len(text) <= limit:
-        return text
-    return text[: max(1, limit - 1)].rstrip() + "…"
-
-
 def _compact_selection(payload: dict[str, Any]) -> dict[str, Any]:
-    route_id = _bounded_text(payload.get("route_id"), 120)
+    route_id = _one_line(payload.get("route_id"))
     rejections = payload.get("rejections")
     compact_rejections = {
-        _bounded_text(key, 120): _bounded_text(value, MAX_REJECTION_TEXT_CHARS)
+        _one_line(key): _one_line(value)
         for key, value in (
             rejections.items() if isinstance(rejections, dict) else ()
         )
-        if _bounded_text(key, 120) != route_id and _one_line(value)
+        if _one_line(key) != route_id and _one_line(value)
     }
     risks = payload.get("unresolved_risks")
     compact_risks = [
-        _bounded_text(item, MAX_RISK_TEXT_CHARS)
+        _one_line(item)
         for item in (risks if isinstance(risks, list) else ())
         if _one_line(item)
-    ][:MAX_RISK_COUNT]
+    ]
     compact: dict[str, Any] = {
         "schema_version": _SELECTION_SCHEMA_VERSION,
         "policy": SELECTION_POLICY,
         "route_id": route_id,
-        "route_task_id": _bounded_text(payload.get("route_task_id"), 240),
-        "review_task_id": _bounded_text(payload.get("review_task_id"), 240),
-        "route_artifact": _bounded_text(payload.get("route_artifact"), 500),
-        "review_artifact": _bounded_text(payload.get("review_artifact"), 500),
-        "rationale": _bounded_text(
-            payload.get("rationale"),
-            MAX_WINNER_EXPLANATION_CHARS,
-        ),
-        "evidence_considered": _bounded_text(
-            payload.get("evidence_considered"),
-            MAX_EVIDENCE_TEXT_CHARS,
-        ),
-        "resource_requirements": _bounded_text(
-            payload.get("resource_requirements"),
-            MAX_RESOURCE_TEXT_CHARS,
-        ),
+        "route_task_id": _one_line(payload.get("route_task_id")),
+        "review_task_id": _one_line(payload.get("review_task_id")),
+        "route_artifact": _one_line(payload.get("route_artifact")),
+        "review_artifact": _one_line(payload.get("review_artifact")),
+        "rationale": _one_line(payload.get("rationale")),
+        "evidence_considered": _one_line(payload.get("evidence_considered")),
+        "resource_requirements": _one_line(payload.get("resource_requirements")),
         "unresolved_risks": compact_risks,
         "rejections": compact_rejections,
     }
@@ -384,7 +361,7 @@ def _compact_selection(payload: dict[str, Any]) -> dict[str, Any]:
         "team_id",
         "selection_team_id",
     ):
-        value = _bounded_text(payload.get(key), 240)
+        value = _one_line(payload.get(key))
         if value:
             compact[key] = value
     for key in ("selected_at", "research_intent_generation"):
@@ -422,7 +399,7 @@ def _selection_payload(
         return None
     route_id = str(payload["route_id"])
     rejections = {
-        _bounded_text(key, 120): _bounded_text(value, MAX_REJECTION_TEXT_CHARS)
+        _one_line(key): _one_line(value)
         for key, value in payload["rejections"].items()
         if str(key) != route_id and _one_line(value)
     }
@@ -983,10 +960,6 @@ def _write_handoff(project_root: Path, selection: dict[str, Any]) -> None:
         "## Rejected routes\n"
         f"{rejection_lines}\n"
     )
-    if len(text) > MAX_HANDOFF_CHARS:
-        raise ValueError(
-            f"compact research HANDOFF exceeds {MAX_HANDOFF_CHARS} characters"
-        )
     atomic_write(project_root / _HANDOFF_PATH, text)
 
 
@@ -1280,11 +1253,6 @@ def idea_portfolio_completion_issues(
 
 __all__ = [
     "DEFAULT_PORTFOLIO_SIZE",
-    "MAX_HANDOFF_CHARS",
-    "MAX_REJECTION_TEXT_CHARS",
-    "MAX_RISK_COUNT",
-    "MAX_RISK_TEXT_CHARS",
-    "MAX_WINNER_EXPLANATION_CHARS",
     "SELECTION_POLICY",
     "TEAM_ID",
     "ensure_idea_portfolio",

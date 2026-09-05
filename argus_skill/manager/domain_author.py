@@ -663,7 +663,7 @@ def _stated_requirements(
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     """The operator-stated constraints, exclusions and open questions.
 
-    Bounded and de-duplicated but otherwise passed through verbatim. The harness
+    De-duplicated but otherwise passed through verbatim. The harness
     must not reword a constraint: the operator's phrasing is the thing that was
     agreed to, and a paraphrase is already a revision.
     """
@@ -674,11 +674,11 @@ def _stated_requirements(
             return ()
         return tuple(
             dict.fromkeys(
-                " ".join(str(value).split())[:400]
+                " ".join(str(value).split())
                 for value in raw
                 if isinstance(value, str) and str(value).strip()
             )
-        )[:12]
+        )
 
     return _clean("precise_constraints"), _clean("exclusions"), _clean("ambiguities")
 

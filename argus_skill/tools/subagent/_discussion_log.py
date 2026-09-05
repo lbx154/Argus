@@ -21,9 +21,6 @@ except ImportError:  # pragma: no cover - non-POSIX fallback
 # only imports discussion mirroring lazily inside function bodies.
 from ._registry import _task_log_dir
 
-# Keep a single JSONL line well under PIPE_BUF safety.
-_DISCUSSION_MSG_CAP = 3000
-
 
 # ---------------------------------------------------------------------------
 # Transcript paths
@@ -45,7 +42,7 @@ def _append_discussion(task_id: str, role: str, message: str) -> Path:
     entry = {
         "ts": time.time(),
         "role": "supervisor" if role == "supervisor" else "engineer",
-        "message": " ".join(str(message or "").split())[:_DISCUSSION_MSG_CAP],
+        "message": " ".join(str(message or "").split()),
     }
     line = json.dumps(entry) + "\n"
     with path.open("a") as f:

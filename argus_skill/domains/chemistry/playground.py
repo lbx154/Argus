@@ -515,10 +515,7 @@ def _is_placeholder_section(content: str) -> bool:
 
 def _has_substantive_section(content: str) -> bool:
     visible_content = _strip_markdown_code(content)
-    if _is_placeholder_section(visible_content):
-        return False
-    visible = _canonical_visible_text(visible_content)
-    return sum(character.isalnum() for character in visible) >= 24
+    return not _is_placeholder_section(visible_content)
 
 
 def _canonical_section_text(content: str) -> str:

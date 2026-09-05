@@ -638,7 +638,7 @@ def test_nonzero_exit_is_safe_default() -> None:
     assert failures == ["Forced restart after hard idle timeout (120s)"]
 
 
-def test_oversized_fast_reply_emits_delivery_diagnostic() -> None:
+def test_oversized_fast_reply_is_delivered() -> None:
     replies: list[str] = []
     diagnostics: list[str] = []
     oversized = "x" * 1601
@@ -654,13 +654,11 @@ def test_oversized_fast_reply_emits_delivery_diagnostic() -> None:
     )
 
     assert (intent, control, route) == (None, None, "simple")
-    assert replies == []
-    assert diagnostics == [
-        "reply exceeded 1600 chars; not delivered (length=1601)"
-    ]
+    assert replies == [oversized]
+    assert diagnostics == []
 
 
-def test_oversized_steer_directive_emits_delivery_diagnostic() -> None:
+def test_oversized_steer_directive_is_delivered() -> None:
     directives: list[str] = []
     diagnostics: list[str] = []
     oversized = "x" * 1601
@@ -678,10 +676,8 @@ def test_oversized_steer_directive_emits_delivery_diagnostic() -> None:
     )
 
     assert (intent, control, route) == (None, "steer", "simple")
-    assert directives == []
-    assert diagnostics == [
-        "steer_directive exceeded 1600 chars; not delivered (length=1601)"
-    ]
+    assert directives == [oversized]
+    assert diagnostics == []
 
 
 def test_invalid_route_token_preserves_parsed_control() -> None:

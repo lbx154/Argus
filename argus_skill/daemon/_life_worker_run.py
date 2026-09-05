@@ -15,6 +15,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from pathlib import Path
+from typing import Any
 
 from ._life_worker_boot import _RunForeverState
 from ._life_worker_identity import _effective_runner_backend, _worker_vault_preflight_routes
@@ -28,7 +29,6 @@ from .state import (
 
 log = logging.getLogger(__name__)
 
-_RUNNING_STALL_SECONDS = 30.0
 _RUNNING_STALL_ERROR = "executor exited without completing the task"
 _RUNNING_STALL_POLL_SECONDS = 1.0
 
@@ -37,7 +37,7 @@ class LifeWorkerRunMixin:
     """``run_forever``'s post-boot phases: main loop and shutdown."""
 
     def _fail_stalled_running_items(self, rf_state: _RunForeverState) -> list[str]:
-        """Fail durable running claims after every role has gone quiet."""
+        """Fail durable running claims whose executor thread is no longer alive."""
         from ..core.event_catalog import EventType
         from ..life.mission_outcome import mission_outcome_class
         from ..life.role_activity import role_activity
@@ -49,20 +49,15 @@ class LifeWorkerRunMixin:
         activities = role_activity(rf_state.runtime_root, now=now)
         if any(activity.active for activity in activities.values()):
             return []
-        role_ages = [
-            float(activity.age_s)
-            for activity in activities.values()
-            if activity.age_s is not None
-        ]
 
+        executor_threads = self._supervisor_execution_threads
         failed: list[str] = []
         for item in rf_state.mem.backlog.active():
             if item.status != "running" or item.started_ts is None:
                 continue
-            quiet_seconds = max(0.0, now - float(item.started_ts))
-            if role_ages:
-                quiet_seconds = min(quiet_seconds, min(role_ages))
-            if quiet_seconds <= _RUNNING_STALL_SECONDS:
+            owner = str(getattr(item, "running_owner", "") or "") or "primary"
+            executor_thread = executor_threads.get(owner)
+            if executor_thread is None or executor_thread.is_alive():
                 continue
             if rf_state.mem.backlog.mark_failed(
                 item.id,
@@ -85,6 +80,14 @@ class LifeWorkerRunMixin:
             })
             log.error("daemon: failed stalled running item %s", item.id)
         return failed
+
+    def _run_supervisor_pass(self, supervisor: Any) -> dict:
+        worker_id = str(
+            getattr(getattr(supervisor, "config", None), "worker_id", "primary")
+            or "primary"
+        )
+        self._supervisor_execution_threads[worker_id] = threading.current_thread()
+        return supervisor.run()
 
     def _start_running_stall_watcher(self, rf_state: _RunForeverState) -> None:
         def _watch() -> None:
@@ -305,14 +308,17 @@ class LifeWorkerRunMixin:
                                 "suggested_sleep": rf_state.cfg.poll_interval,
                             }
                         elif len(supervisors) == 1:
-                            summary = rf_state.sup.run()
+                            summary = self._run_supervisor_pass(rf_state.sup)
                         else:
                             with ThreadPoolExecutor(
                                 max_workers=len(supervisors),
                                 thread_name_prefix="argus-mission",
                             ) as executor:
                                 futures = [
-                                    executor.submit(supervisor.run)
+                                    executor.submit(
+                                        self._run_supervisor_pass,
+                                        supervisor,
+                                    )
                                     for supervisor in supervisors
                                 ]
                                 summary = futures[0].result()

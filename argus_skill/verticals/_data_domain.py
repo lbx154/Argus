@@ -482,10 +482,10 @@ def revise_data_domain_stages(
         for stage in stages
         if str(stage or "").strip()
     ))
-    if not (2 <= len(revised) <= 10) or any(
+    if len(revised) < 2 or any(
         not is_valid_domain_name(stage) for stage in revised
     ):
-        raise ValueError("a revised data domain needs 2-10 valid stage slugs")
+        raise ValueError("a revised data domain needs at least 2 valid stage slugs")
     if revised == list(current.STAGE_ORDER):
         return path
 

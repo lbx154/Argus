@@ -179,7 +179,6 @@ def test_review_prompt_preserves_complete_middle_source() -> None:
 
     prompt = _review_prompt(
         source_text_by_path={"paper/main.tex": source},
-        threshold=4.0,
         venue=DummyVenue(),  # type: ignore[arg-type]
     )
 

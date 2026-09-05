@@ -7,6 +7,7 @@ import logging
 import subprocess
 from typing import Any
 
+from ._config import LifeSupervisorConfig
 from ._helpers import (
     _entry_task_signature,
     _is_recent_no_progress_failure,
@@ -237,16 +238,24 @@ class PlannerOrchestrationMixin:
         """Return subagent-job families stuck in an unresolved failure streak."""
         try:
             streak_limit = int(
-                getattr(self.config, "subagent_family_failure_streak_limit", 3)
+                getattr(
+                    self.config,
+                    "subagent_family_failure_streak_limit",
+                    LifeSupervisorConfig.subagent_family_failure_streak_limit,
+                )
             )
         except (TypeError, ValueError):
-            streak_limit = 3
+            streak_limit = LifeSupervisorConfig.subagent_family_failure_streak_limit
         try:
             window_hours = float(
-                getattr(self.config, "subagent_family_failure_window_hours", 72.0)
+                getattr(
+                    self.config,
+                    "subagent_family_failure_window_hours",
+                    LifeSupervisorConfig.subagent_family_failure_window_hours,
+                )
             )
         except (TypeError, ValueError):
-            window_hours = 72.0
+            window_hours = LifeSupervisorConfig.subagent_family_failure_window_hours
         if streak_limit <= 0:
             return {}
         try:

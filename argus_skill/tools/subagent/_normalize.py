@@ -68,10 +68,10 @@ _CONCERN_SIGNAL_TOKENS = (
 
 def _has_real_signal(low: str) -> bool:
     """True if a prefix-matched note still carries a real alarm — a contrast/
-    alarm token, or notable extra length beyond the bland opener. Prevents
-    ``startswith()`` from swallowing "no anomaly ... but reward collapsed to
-    zero". Fails SAFE: when unsure, treat as a real concern (stop the run)."""
-    return len(low) > 40 or any(t in low for t in _CONCERN_SIGNAL_TOKENS)
+    alarm token. Prevents ``startswith()`` from swallowing "no anomaly ... but
+    reward collapsed to zero". Fails SAFE: when unsure, treat as a real concern
+    (stop the run)."""
+    return any(t in low for t in _CONCERN_SIGNAL_TOKENS)
 
 
 def _clean_concern(value: object) -> str:
@@ -91,5 +91,5 @@ def _clean_concern(value: object) -> str:
     # keep burning GPU.
     if low.startswith(_EMPTY_CONCERN_PREFIXES) and not _has_real_signal(low):
         return ""
-    return text[:600]
+    return text
 

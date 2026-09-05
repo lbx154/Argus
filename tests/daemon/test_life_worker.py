@@ -901,7 +901,7 @@ def test_daemon_sink_counts_life_mission_completed() -> None:
     assert worker._missions_completed == 1
 
 
-def test_daemon_fails_running_item_after_roles_go_idle(
+def test_daemon_fails_running_item_when_executor_thread_dead(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -910,9 +910,12 @@ def test_daemon_fails_running_item_after_roles_go_idle(
     item = BacklogItem.new(title="stalled", objective="finish the task")
     memory.backlog.add(item)
     memory.backlog.mark_running(item.id)
-    memory.backlog.update(item.id, started_ts=time.time() - 31.0)
     events: list[dict[str, Any]] = []
     worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
+    dead_executor = threading.Thread(target=lambda: None)
+    dead_executor.start()
+    dead_executor.join()
+    worker._supervisor_execution_threads = {"primary": dead_executor}
     state = SimpleNamespace(
         mem=memory,
         runtime_root=tmp_path,

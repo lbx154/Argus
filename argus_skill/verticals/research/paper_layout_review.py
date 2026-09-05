@@ -43,7 +43,6 @@ PAPER_MAIN_LOG_PATH = Path("paper/main.log")
 LAYOUT_REVIEW_JSON_PATH = Path("paper/LAYOUT_REVIEW.json")
 LAYOUT_REVIEW_MD_PATH = Path("paper/LAYOUT_REVIEW.md")
 LAYOUT_REVIEW_PAGE_DIR = Path("paper/layout_review/pages")
-MIN_LAYOUT_SCORE = 3.5
 DEFAULT_DPI = 120
 DEFAULT_TIMEOUT_SECONDS: float | None = None
 MAX_RESEARCH_MD_OVERFULL_HBOX_PT = 5.0
@@ -93,7 +92,7 @@ def generate_layout_review(
     project_root: Path,
     *,
     review_mode: str = "vision",
-    threshold: float = MIN_LAYOUT_SCORE,
+    threshold: float = 3.5,
     max_pages: int | None = None,
     dpi: int = DEFAULT_DPI,
     timeout: float | None = DEFAULT_TIMEOUT_SECONDS,
@@ -107,7 +106,6 @@ def generate_layout_review(
     root = Path(project_root)
     reviewed_manuscript_sha = manuscript_sha256(root)
     profile = venue or resolve_venue_profile(root)
-    threshold = max(float(threshold), MIN_LAYOUT_SCORE)
     iteration = iteration or _next_iteration(root)
     issues: list[dict[str, Any]] = []
     pdf_path = root / PAPER_MAIN_PDF_PATH
@@ -1305,7 +1303,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--review-mode", choices=("vision", "heuristic"), default="vision")
-    parser.add_argument("--threshold", type=float, default=MIN_LAYOUT_SCORE)
+    parser.add_argument("--threshold", type=float, default=3.5)
     parser.add_argument(
         "--max-pages", type=int, default=None,
         help="explicit page ceiling; omitted reviews the complete PDF",

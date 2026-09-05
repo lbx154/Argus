@@ -58,7 +58,6 @@ from ._registry import (
 
 # Discussion transcript
 from ._discussion_log import (
-    _DISCUSSION_MSG_CAP,
     _append_discussion,
     _discussion_path,
     _engineer_turn_count,

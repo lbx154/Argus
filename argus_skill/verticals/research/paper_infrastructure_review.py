@@ -46,7 +46,6 @@ from .venue_profiles import VenueProfile, resolve_venue_profile
 
 PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH = Path("paper/PAPER_INFRASTRUCTURE_REVIEW.json")
 PAPER_INFRASTRUCTURE_REVIEW_MD_PATH = Path("paper/PAPER_INFRASTRUCTURE_REVIEW.md")
-MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE = 4.0
 DEFAULT_TIMEOUT_SECONDS: float | None = None
 PAPER_INFRASTRUCTURE_REVIEW_SOURCE_CHAR_LIMIT = 140000
 REQUIRED_CHECKED_SCOPES: tuple[str, ...] = (
@@ -65,7 +64,6 @@ def generate_paper_infrastructure_review(
     project_root: Path,
     *,
     review_mode: str = "model",
-    threshold: float = MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE,
     timeout: float | None = DEFAULT_TIMEOUT_SECONDS,
     iteration: int | None = None,
     write: bool = True,
@@ -80,7 +78,6 @@ def generate_paper_infrastructure_review(
 
     root = Path(project_root)
     reviewed_manuscript_sha = manuscript_sha256(root)
-    threshold = max(float(threshold), MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE)
     venue = None
     venue_error: KeyError | None = None
     try:
@@ -136,7 +133,6 @@ def generate_paper_infrastructure_review(
             model_review = _run_model_review(
                 root=root,
                 source_text_by_path=source_text_by_path,
-                threshold=threshold,
                 env=env,
                 timeout=timeout,
                 venue=venue,
@@ -218,14 +214,11 @@ def _run_model_review(
     *,
     root: Path,
     source_text_by_path: Mapping[str, str],
-    threshold: float,
     env: Mapping[str, str] | None,
     timeout: float | None,
     venue: VenueProfile,
 ) -> dict[str, Any]:
-    prompt = _review_prompt(
-        source_text_by_path=source_text_by_path, threshold=threshold, venue=venue
-    )
+    prompt = _review_prompt(source_text_by_path=source_text_by_path, venue=venue)
     prompt_sha256 = review_sha256_text(prompt)
     try:
         route = _require_route("reviewer", env)
@@ -285,16 +278,14 @@ def _run_model_review(
                 path: review_sha256_text(text)
                 for path, text in sorted(source_text_by_path.items())
             },
-            "threshold": threshold,
         }
     )
     return parsed
 
 
 def _review_prompt(
-    *, source_text_by_path: Mapping[str, str], threshold: float, venue: VenueProfile
+    *, source_text_by_path: Mapping[str, str], venue: VenueProfile
 ) -> str:
-    _ = threshold
     numbered_source = _complete_numbered_source(source_text_by_path)
     return (
         f"You are a strict {venue.reviewer_persona} paper reviewer checking only whether reader-facing "
@@ -453,7 +444,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--review-mode", choices=("model",), default="model")
-    parser.add_argument("--threshold", type=float, default=MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--iteration", type=int)
     parser.add_argument(
@@ -467,7 +457,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = generate_paper_infrastructure_review(
             args.project_root,
             review_mode=args.review_mode,
-            threshold=args.threshold,
             timeout=args.timeout,
             iteration=args.iteration,
             write=bool(args.write),

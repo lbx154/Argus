@@ -52,7 +52,6 @@ from ._review_contract_constants import (
 from .academic_language_review import (
     ACADEMIC_LANGUAGE_REVIEW_JSON_PATH,
     ACADEMIC_LANGUAGE_REVIEW_MD_PATH,
-    MIN_ACADEMIC_LANGUAGE_SCORE,
     AcademicLanguageReviewError,
     generate_academic_language_review,
 )
@@ -69,7 +68,6 @@ from .method_freeze import (
     record_confirmation_result,
 )
 from .paper_infrastructure_review import (
-    MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE,
     PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH,
     PAPER_INFRASTRUCTURE_REVIEW_MD_PATH,
     PaperInfrastructureReviewError,
@@ -109,11 +107,9 @@ __all__ = [
     # academic_language_review
     "ACADEMIC_LANGUAGE_REVIEW_JSON_PATH",
     "ACADEMIC_LANGUAGE_REVIEW_MD_PATH",
-    "MIN_ACADEMIC_LANGUAGE_SCORE",
     "AcademicLanguageReviewError",
     "generate_academic_language_review",
     # paper_infrastructure_review
-    "MIN_PAPER_INFRASTRUCTURE_REVIEW_SCORE",
     "PAPER_INFRASTRUCTURE_REVIEW_JSON_PATH",
     "PAPER_INFRASTRUCTURE_REVIEW_MD_PATH",
     "PaperInfrastructureReviewError",

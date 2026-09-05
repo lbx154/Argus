@@ -85,8 +85,8 @@ def recent_subagent_family_failures(
     workdir: Path | str,
     *,
     now: float | None = None,
-    window_seconds: float = 72 * 3600.0,
-    min_streak: int = 3,
+    window_seconds: float,
+    min_streak: int,
 ) -> dict[str, SubagentFamilyFailure]:
     """Scan ``<workdir>/.argus_subagents/*.json`` for experiment families that
     have failed ``min_streak`` or more times in a row, most-recent-first,

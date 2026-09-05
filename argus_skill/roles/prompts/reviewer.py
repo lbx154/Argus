@@ -33,8 +33,6 @@ _REEVALUATE_HEADER = (
     "still bind.\n\n"
 )
 
-_MAX_SHARED_CTX_CHARS = 100_000_000
-
 # Acceptance settles effort, never truth. Once one round accepted a 6% score on
 # a benchmark where the model publishes ~80%, this boundary forbade every later
 # round from looking again, and the campaign reproduced its own broken baseline
@@ -217,8 +215,6 @@ def _format_engineer_shared_context(
     if skill:
         parts.append(f"- skill_used: {skill}")
     if prev:
-        if len(prev) > _MAX_SHARED_CTX_CHARS:
-            prev = prev[:_MAX_SHARED_CTX_CHARS].rstrip() + "..."
         indented = "\n".join("    " + line for line in prev.splitlines())
         parts.append("- previous_review_summary:\n" + indented)
     return "\n".join(parts) + "\n\n"

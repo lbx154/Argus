@@ -1,7 +1,7 @@
 """Venue-awareness of the academic-language model-review prompt.
 
 Every venue-local string derives from the researched profile, while the shared
-five-sentence and 170-word abstract contract remains venue-independent.
+abstract guidance remains venue-independent.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ _DET = {"k": 1}
 
 def _prompt(venue) -> str:
     return _review_prompt(
-        source_text_by_path=_SRC, deterministic=_DET, threshold=4.0, venue=venue
+        source_text_by_path=_SRC, deterministic=_DET, venue=venue
     )
 
 
@@ -42,8 +42,6 @@ def test_prompt_has_no_hardcoded_venue_names_and_keeps_abstract_contract() -> No
         p = _prompt(venue)
         for literal in ("EMNLP", "AAAI", "ACL", "NeurIPS"):
             assert literal not in p
-        assert "exactly 5 evidence-backed sentences" in p
-        assert "at least 170 words" in p
         assert "flat experiment checklist" in p
 
 

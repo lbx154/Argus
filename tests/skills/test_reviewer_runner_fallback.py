@@ -252,7 +252,6 @@ def test_gate_converts_runner_failure_to_handled_review_error(
     with pytest.raises(error_type, match="runner failed"):
         module._run_model_review(
             root=tmp_path,
-            threshold=4.0,
             env={},
             timeout=7.0,
             venue=EIGHT_PAGE_CONFERENCE,

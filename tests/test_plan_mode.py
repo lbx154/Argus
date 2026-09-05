@@ -293,11 +293,11 @@ def test_draft_plan_resolves_backend_wrapper() -> None:
     assert [s.title for s in plan.steps] == ["Step one"]
 
 
-def test_draft_plan_trims_to_eight_steps() -> None:
+def test_draft_plan_keeps_every_step() -> None:
     many = [{"title": f"Step {i}"} for i in range(20)]
     runner = _StubRunner(json.dumps(many))
     plan = draft_plan(runner, "obj")
-    assert len(plan.steps) == 8
+    assert len(plan.steps) == 20
 
 
 def test_draft_plan_runner_error_sets_explicit_error() -> None:

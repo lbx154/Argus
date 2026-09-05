@@ -317,7 +317,6 @@ class PlanningCycleMixin(
         return TaskSpec(
             title=title,
             objective=objective,
-            impact_score=5,
             impact_area="throughput",
             evidence=f"live self-watched jobs: {job_ids}",
             hypothesis=(

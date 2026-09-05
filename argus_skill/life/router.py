@@ -487,12 +487,7 @@ def classify_front_door(
         and reply.upper() != "NONE"
         and len(reply) > 0
     )
-    if reply_eligible and len(reply) > 1600:
-        _routing_diagnostic(
-            f"reply exceeded 1600 chars; not delivered (length={len(reply)})",
-            failure_sink,
-        )
-    elif reply_eligible:
+    if reply_eligible:
         try:
             reply_sink(reply)
         except Exception:  # noqa: BLE001 - optional fast reply only
@@ -548,13 +543,7 @@ def classify_front_door(
         and steering
         and steering_token not in {"NONE", "N/A", "NA", "NULL"}
     )
-    if steering_eligible and len(steering) > 1600:
-        _routing_diagnostic(
-            "steer_directive exceeded 1600 chars; not delivered "
-            f"(length={len(steering)})",
-            failure_sink,
-        )
-    elif steering_eligible:
+    if steering_eligible:
         try:
             steering_sink(steering)
         except Exception:  # noqa: BLE001 - advisory metadata never owns routing

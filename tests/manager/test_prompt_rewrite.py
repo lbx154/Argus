@@ -75,14 +75,14 @@ def test_empty_or_unusable_reply_yields_no_rewrite() -> None:
     assert parse_rewrite_text('{"unrelated": 1}').rewritten == ""
 
 
-def test_advisory_lists_are_bounded() -> None:
+def test_advisory_lists_pass_through_in_full() -> None:
     parsed = parse_rewrite_text(
         _payload(
             rewritten="do the thing",
             questions=[f"q{i}" for i in range(20)],
         )
     )
-    assert len(parsed.questions) == 6
+    assert len(parsed.questions) == 20
 
 
 # --- the prompt contract ---------------------------------------------------

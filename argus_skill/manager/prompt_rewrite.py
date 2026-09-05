@@ -27,11 +27,6 @@ from typing import Any
 
 from ..roles.prompts.manager import build_prompt_rewrite_prompt
 
-# A rewrite is a brief, not a specification: keep the advisory lists short so
-# the cockpit can show the whole thing without scrolling.
-_MAX_LIST_ITEMS = 6
-_MAX_REWRITE_CHARS = 4000
-
 
 @dataclass
 class PromptRewrite:
@@ -103,7 +98,7 @@ def _string_list(value: Any) -> list[str]:
                 cleaned = _clean(item)
                 if cleaned:
                     out.append(cleaned)
-        return out[:_MAX_LIST_ITEMS]
+        return out
     return []
 
 
@@ -135,9 +130,9 @@ def _named_rewrite(raw: str) -> PromptRewrite | None:
         return None
     return PromptRewrite(
         original="",
-        rewritten=rewritten[:_MAX_REWRITE_CHARS],
-        changes=list(read_list(values, "CHANGES"))[:_MAX_LIST_ITEMS],
-        questions=list(read_list(values, "QUESTIONS"))[:_MAX_LIST_ITEMS],
+        rewritten=rewritten,
+        changes=list(read_list(values, "CHANGES")),
+        questions=list(read_list(values, "QUESTIONS")),
     )
 
 
@@ -171,7 +166,7 @@ def parse_rewrite_text(text: str) -> PromptRewrite:
         if rewritten:
             return PromptRewrite(
                 original="",
-                rewritten=rewritten[:_MAX_REWRITE_CHARS],
+                rewritten=rewritten,
                 changes=changes,
                 questions=questions,
             )
@@ -180,7 +175,7 @@ def parse_rewrite_text(text: str) -> PromptRewrite:
     body = _strip_fence(raw)
     if body.startswith("{") or not body:
         return PromptRewrite(original="", rewritten="")
-    return PromptRewrite(original="", rewritten=body[:_MAX_REWRITE_CHARS])
+    return PromptRewrite(original="", rewritten=body)
 
 
 def _extract_text(result: Any) -> str:

@@ -396,7 +396,6 @@ def _start_keepalive(cfg: dict) -> dict:
                         "started_at": time.time()}),
             encoding="utf-8",
         )
-    time.sleep(2.0)  # let it spawn per-GPU workers before reporting
     return {"started": True, "pid": proc.pid,
             "pids": find_keepalive_pids(cfg["match"]), "log": str(log_path)}
 

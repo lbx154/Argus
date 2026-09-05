@@ -40,11 +40,7 @@ from .venue_profiles import VenueProfile, resolve_venue_profile
 PAPER_MAIN_TEX_PATH = Path("paper/main.tex")
 ACADEMIC_LANGUAGE_REVIEW_JSON_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.json")
 ACADEMIC_LANGUAGE_REVIEW_MD_PATH = Path("paper/ACADEMIC_LANGUAGE_REVIEW.md")
-MIN_ACADEMIC_LANGUAGE_SCORE = 4.0
 DEFAULT_TIMEOUT_SECONDS: float | None = None
-MAX_SOURCE_FILES = 120
-REQUIRED_ABSTRACT_SENTENCES = 5
-MIN_REVIEW_ABSTRACT_WORDS = 170
 REVIEW_SOURCE_CONTEXT_CHAR_LIMIT = 70000
 PINNED_REVIEW_CONTEXT_CHAR_LIMIT = 32000
 NUMBERED_REVIEW_CONTEXT_CHAR_LIMIT = 42000
@@ -181,7 +177,6 @@ def generate_academic_language_review(
     project_root: Path,
     *,
     review_mode: str = "model",
-    threshold: float = MIN_ACADEMIC_LANGUAGE_SCORE,
     timeout: float | None = DEFAULT_TIMEOUT_SECONDS,
     iteration: int | None = None,
     write: bool = False,
@@ -192,7 +187,6 @@ def generate_academic_language_review(
     root = Path(project_root)
     reviewed_manuscript_sha = manuscript_sha256(root)
     venue = resolve_venue_profile(root)
-    threshold = max(float(threshold), MIN_ACADEMIC_LANGUAGE_SCORE)
     iteration = iteration or _next_iteration(root)
     source_paths, missing_sources = collect_latex_source_paths(root)
     source_snapshots = [
@@ -251,7 +245,6 @@ def generate_academic_language_review(
                 root=root,
                 source_text_by_path=source_text_by_path,
                 deterministic=deterministic,
-                threshold=threshold,
                 env=env,
                 timeout=timeout,
                 venue=venue,
@@ -425,7 +418,7 @@ def collect_latex_source_paths(
     seen: set[str] = set()
     ordered: list[str] = []
     missing: list[str] = []
-    while pending and len(seen) < MAX_SOURCE_FILES:
+    while pending:
         rel_path = pending.pop(0)
         if rel_path in seen:
             continue
@@ -654,7 +647,6 @@ def _run_model_review(
     root: Path,
     source_text_by_path: Mapping[str, str],
     deterministic: dict[str, Any],
-    threshold: float,
     env: Mapping[str, str] | None,
     timeout: float | None,
     venue: VenueProfile,
@@ -662,7 +654,6 @@ def _run_model_review(
     prompt = _review_prompt(
         source_text_by_path=source_text_by_path,
         deterministic=deterministic,
-        threshold=threshold,
         venue=venue,
     )
     prompt_sha256 = review_sha256_text(prompt)
@@ -725,7 +716,6 @@ def _run_model_review(
                 path: review_sha256_text(text)
                 for path, text in sorted(source_text_by_path.items())
             },
-            "threshold": threshold,
         }
     )
     return parsed
@@ -735,7 +725,6 @@ def _review_prompt(
     *,
     source_text_by_path: Mapping[str, str],
     deterministic: dict[str, Any],
-    threshold: float,
     venue: VenueProfile,
 ) -> str:
     source_context = _review_source_context(source_text_by_path)
@@ -743,10 +732,9 @@ def _review_prompt(
     # a hardcoded special path.
     intro_label = venue.reviewer_persona
     abstract_standard = (
-        f"Require exactly {REQUIRED_ABSTRACT_SENTENCES} evidence-backed sentences and "
-        f"at least {MIN_REVIEW_ABSTRACT_WORDS} words in the abstract. Use that space to "
-        "connect the problem, gap, method, selected headline result, and implication; "
-        "do not turn the five sentences into a flat experiment checklist. "
+        "Judge the abstract on whether its evidence-backed sentences connect the "
+        "problem, gap, method, selected headline result, and implication; "
+        "do not turn the abstract into a flat experiment checklist. "
     )
     body_budget_phrase = (
         f"{venue.body_page_limit}-page body budget"
@@ -1176,36 +1164,6 @@ def _abstract_quality_issue_specs(
     issues: list[tuple[str, str, float, float]] = []
     abstract_without_comments = _strip_latex_comments(abstract)
     abstract_plain = _latex_to_plain_text(abstract)
-
-    sentence_count = _sentence_count(abstract_plain)
-    if sentence_count != REQUIRED_ABSTRACT_SENTENCES:
-        issues.append(
-            (
-                "weak_abstract_shape",
-                (
-                    f"abstract has {sentence_count} sentence(s); require exactly "
-                    f"{REQUIRED_ABSTRACT_SENTENCES} evidence-backed sentences with distinct "
-                    "problem, gap, method, headline-result, and implication roles"
-                ),
-                0.6,
-                3.5,
-            )
-        )
-
-    abstract_words = _word_count(abstract_plain)
-    if abstract_words < MIN_REVIEW_ABSTRACT_WORDS:
-        issues.append(
-            (
-                "thin_abstract",
-                (
-                    f"abstract has {abstract_words} words; require at least "
-                    f"{MIN_REVIEW_ABSTRACT_WORDS} words so the five-sentence argument can "
-                    "connect problem, method, selected evidence, and implication"
-                ),
-                0.6,
-                3.5,
-            )
-        )
 
     if re.search(r"(?m)%\s*(?:evidence|artifact|validator|review|gate|source)\s*:", abstract, re.I):
         issues.append(
@@ -1715,7 +1673,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--review-mode", choices=("model", "heuristic"), default="model")
-    parser.add_argument("--threshold", type=float, default=MIN_ACADEMIC_LANGUAGE_SCORE)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--iteration", type=int)
     parser.add_argument(
@@ -1729,7 +1686,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = generate_academic_language_review(
             args.project_root,
             review_mode=args.review_mode,
-            threshold=args.threshold,
             timeout=args.timeout,
             iteration=args.iteration,
             write=bool(args.write),

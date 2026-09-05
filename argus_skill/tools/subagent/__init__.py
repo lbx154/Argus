@@ -47,7 +47,6 @@ from ._discuss_run import (
     _supervisor_discuss,
 )
 from ._discussion_log import (
-    _DISCUSSION_MSG_CAP,
     _append_discussion,
     _discussion_path,
     _engineer_turn_count,
@@ -156,7 +155,6 @@ __all__ = [
     "_parse_launch_flags",
     "_supervisor_preflight",
     "_next_monitor_interval",
-    "_DISCUSSION_MSG_CAP",
     "_discussion_path",
     "_append_discussion",
     "_reset_discussion",

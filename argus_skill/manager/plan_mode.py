@@ -32,11 +32,6 @@ from typing import Any
 
 from ..roles.prompts.manager import build_plan_prompt
 
-# Product contract: a preview plan has a bounded number of steps;
-# :func:`draft_plan` trims to this ceiling. :func:`parse_plan_text` stays
-# uncapped so it faithfully reports whatever it parsed (tests target it).
-_MAX_STEPS = 8
-
 # Separators that split a single list line into "title — detail", in priority
 # order (em dash, en dash, spaced hyphen, then colon as a last resort).
 _TITLE_DETAIL_SEPS = (" — ", " – ", " -- ", " - ", ": ")
@@ -421,8 +416,6 @@ def draft_plan(
             notes=notes,
         )
 
-    # Enforce the product contract: a preview plan has a bounded number of steps.
-    steps = steps[:_MAX_STEPS]
     _emit(sink, "plan.draft.done", steps=len(steps), notes=len(notes))
     return Plan(objective=objective, steps=steps, notes=notes)
 

@@ -306,7 +306,7 @@ def test_language_review_persistence_is_explicit_opt_in() -> None:
     assert generate_academic_language_review.__kwdefaults__["write"] is False
 
 
-def test_abstract_shape_and_word_floor_remain_real_checks() -> None:
+def test_abstract_shape_and_word_floor_are_reviewer_judgment() -> None:
     venue = SimpleNamespace(reviewer_persona="Test venue")
     short_five = " ".join(
         f"Sentence {index} has selected evidence and meaning."
@@ -330,7 +330,7 @@ def test_abstract_shape_and_word_floor_remain_real_checks() -> None:
         )
     }
 
-    assert "thin_abstract" in short_codes
+    assert "thin_abstract" not in short_codes
     assert "weak_abstract_shape" not in short_codes
-    assert "weak_abstract_shape" in long_codes
+    assert "weak_abstract_shape" not in long_codes
     assert "thin_abstract" not in long_codes
