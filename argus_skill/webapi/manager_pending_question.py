@@ -239,6 +239,7 @@ def _resolved_decision_replay(
             "resume_requested": False,
             "reply": str(card.get("reply") or ""),
             "deployment": dict(card.get("deployment") or {}),
+            "maintenance_cleanup": dict(card.get("maintenance_cleanup") or {}),
         }
     continuation_id = str(card.get("continuation_item_id") or "").strip()
     continuation = next(
@@ -317,9 +318,15 @@ def _apply_framework_deployment_decision(
     """Resolve a reviewed maintenance card without creating another mission."""
     from ..life.event_log import JsonlEventSink
     from ..life.supervisor._mission_execution_runtime import (
+        _maintenance_sidecar_path,
         dispose_maintenance_worktree,
     )
 
+    # The producer writes beneath global memory; keep existing project-scoped
+    # cards readable, and use the same selected path for adoption and cleanup.
+    sidecar = _maintenance_sidecar_path(
+        mem.global_root, item.id, fallback_root=mem.project_root,
+    )
     card = dict(item.operator_decision)
     revision = int(card.get("revision", 1) or 1)
     card.update({
@@ -338,12 +345,6 @@ def _apply_framework_deployment_decision(
         status = "aborted"
         last_error = "operator declined the reviewed framework change"
     else:
-        sidecar = (
-            Path(mem.project_root)
-            / "maintenance"
-            / "pending"
-            / f"{item.id}.json"
-        )
         metadata = json.loads(sidecar.read_text(encoding="utf-8"))
         approval_binding = metadata["approval_binding"]
         from ..maintenance.deploy_boundary import (
@@ -457,11 +458,24 @@ def _apply_framework_deployment_decision(
         pending_question=pending_question,
         operator_decision=stored_card,
     )
-    dispose_maintenance_worktree(
-        mem.project_root,
-        item.id,
-        keep_sidecar=bool(deployment.get("partial_publication")),
-    )
+    cleanup: dict[str, Any] = {"status": "not_found", "sidecar_path": str(sidecar)}
+    had_sidecar = sidecar.is_file()
+    try:
+        dispose_maintenance_worktree(
+            sidecar.parents[2],
+            item.id,
+            keep_sidecar=bool(deployment.get("partial_publication")),
+        )
+    except (OSError, KeyError, RuntimeError, ValueError) as exc:
+        # The decision is already durable. Preserve authoring evidence and
+        # report cleanup separately, rather than failing a resolved decision.
+        cleanup.update(status="retained", reason=str(exc))
+    else:
+        if had_sidecar:
+            cleanup["status"] = "removed"
+    cleanup["sidecar_retained"] = sidecar.is_file()
+    stored_card["maintenance_cleanup"] = cleanup
+    mem.backlog.update(item.id, operator_decision=stored_card)
     JsonlEventSink(None, life_dir=Path(mem.project_root)).append({
         "type": "life.operator_question.answered",
         "item_id": item.id,
@@ -471,6 +485,7 @@ def _apply_framework_deployment_decision(
         "decision_id": decision_id,
         "decision_revision": revision,
         "deployment": deployment,
+        "maintenance_cleanup": cleanup,
     })
     if pending_question:
         from ..life.supervisor.pending_notify import notify_pending_question
@@ -493,6 +508,7 @@ def _apply_framework_deployment_decision(
         "resolution_id": resolution_id,
         "resume_requested": False,
         "reply": reply,
+        "maintenance_cleanup": cleanup,
         "deployment": deployment,
     }
 
@@ -826,7 +842,7 @@ def manager_answer_pending_question(
             or result.get("error")
             or "Manager could not resolve the pending question."
         )
-        if result.get("resolved"):
+        if result.get("resolved") and result.get("resume_requested", True):
             resumed, projection_error = _reconcile_campaign_after_decision(
                 mem,
                 stopped=False,
@@ -890,7 +906,9 @@ def manager_resolve_operator_decision(
             note=note,
         )
         if replay is not None:
-            if replay.get("application_status") == "already_applied":
+            if replay.get("application_status") == "already_applied" and (
+                option_id == "stop" or replay.get("resume_requested", True)
+            ):
                 resumed, projection_error = _reconcile_campaign_after_decision(
                     mem,
                     stopped=option_id == "stop",

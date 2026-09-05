@@ -39,8 +39,44 @@ def _run_hidden(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
     return subprocess.run(*args, **kwargs)
 
 
-def _maintenance_sidecar_path(life_root: Path | str, item_id: str) -> Path:
-    return Path(life_root) / "maintenance" / "pending" / f"{item_id}.json"
+def _maintenance_sidecar_path(
+    life_root: Path | str, item_id: str, *, fallback_root: Path | str | None = None,
+) -> Path:
+    sidecar = Path(life_root) / "maintenance" / "pending" / f"{item_id}.json"
+    if not sidecar.is_file() and fallback_root is not None:
+        legacy = Path(fallback_root) / "maintenance" / "pending" / f"{item_id}.json"
+        if legacy.is_file():
+            return legacy
+    return sidecar
+
+
+def _remove_clean_maintenance_worktree(repository: Path, worktree: Path) -> None:
+    """Remove an authoring worktree only when all local evidence is committed."""
+    if worktree.exists():
+        # Git can remove ignored logs even without --force. Preserve those
+        # alongside tracked changes and untracked authoring evidence.
+        status = _run_hidden(
+            ["git", "status", "--porcelain", "--untracked-files=all", "--ignored"],
+            cwd=worktree,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if status.returncode or status.stdout.strip():
+            raise RuntimeError(
+                "maintenance authoring worktree retained: "
+                "uncommitted/ignored files exist or cleanliness could not be verified"
+            )
+        result = _run_hidden(
+            ["git", "worktree", "remove", str(worktree)],
+            cwd=repository,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode:
+            detail = (result.stderr or result.stdout or "git refused removal").strip()
+            raise RuntimeError(f"maintenance authoring worktree retained: {detail}")
 
 
 def dispose_maintenance_worktree(
@@ -57,16 +93,7 @@ def dispose_maintenance_worktree(
         return
     repository = Path(metadata["repository"]).expanduser().resolve(strict=True)
     worktree = Path(metadata["worktree"]).expanduser().resolve()
-    if worktree.exists():
-        result = _run_hidden(
-            ["git", "worktree", "remove", "--force", str(worktree)],
-            cwd=repository,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode:
-            raise RuntimeError("maintenance authoring worktree could not be removed")
+    _remove_clean_maintenance_worktree(repository, worktree)
     if not keep_sidecar:
         sidecar.unlink(missing_ok=True)
 
@@ -190,13 +217,14 @@ class MissionExecutionRuntimeMixin:
                     encoding="utf-8",
                 )
             except (OSError, subprocess.CalledProcessError):
-                _run_hidden(
-                    ["git", "worktree", "remove", "--force", str(worktree)],
-                    cwd=repository,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
+                try:
+                    _remove_clean_maintenance_worktree(repository, worktree)
+                except (OSError, RuntimeError):
+                    log.warning(
+                        "maintenance creation rollback retained worktree %s",
+                        worktree,
+                        exc_info=True,
+                    )
                 raise
             self.memory.backlog.update(
                 item.id,

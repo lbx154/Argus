@@ -89,7 +89,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
             raise HTTPException(status_code=404, detail="unknown backlog item")
         if result.get("error"):
             raise HTTPException(status_code=409, detail=result["error"])
-        if result.get("resolved"):
+        if result.get("resolved") and result.get("resume_requested", True):
             result["daemon"] = await run_in_threadpool(
                 server_mod.start_project_daemon,
                 sid,
@@ -120,7 +120,10 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
             raise HTTPException(status_code=404, detail="unknown decision")
         if result.get("error"):
             raise HTTPException(status_code=409, detail=result["error"])
-        if result.get("resolved") and not result.get("stopped"):
+        if (
+            result.get("resolved") and not result.get("stopped")
+            and result.get("resume_requested", True)
+        ):
             result["daemon"] = await run_in_threadpool(
                 server_mod.start_project_daemon,
                 sid,

@@ -478,9 +478,75 @@ def test_framework_maintenance_uses_private_worktree_and_review(
         row for row in memory.backlog.history() if row.id == rejected.id
     )
     assert rejected_row.operator_decision == {}
-    assert rejected_row.execution_workdir == ""
-    assert not (memory.root / "maintenance" / "pending" / f"{rejected.id}.json").exists()
-    assert not Path(runner.kwargs["working_dir_override"]).exists()
+    rejected_worktree = Path(runner.kwargs["working_dir_override"])
+    assert rejected_row.execution_workdir == str(rejected_worktree)
+    assert (memory.root / "maintenance" / "pending" / f"{rejected.id}.json").is_file()
+    assert (rejected_worktree / "reviewed-change.txt").is_file()
+
+
+@pytest.mark.parametrize("evidence_path", ["", "tracked.txt", "untracked.txt", "evidence.log"])
+def test_maintenance_creation_failure_preserves_checkout_hook_evidence(
+    tmp_path, monkeypatch, evidence_path,
+) -> None:
+    import subprocess
+
+    source = tmp_path / "framework"
+    source.mkdir()
+    origin = tmp_path / "origin.git"
+
+    def git(*args):
+        return subprocess.run(
+            ["git", *args], cwd=source, check=True, capture_output=True, text=True,
+        )
+
+    git("init", "--bare", "-q", str(origin))
+    git("init", "-q")
+    git("checkout", "-qb", "main")
+    git("config", "user.name", "test")
+    git("config", "user.email", "test@example.invalid")
+    (source / "tracked.txt").write_text("reviewed content\n")
+    (source / ".gitignore").write_text("evidence.log\n")
+    git("add", ".")
+    git("commit", "-qm", "baseline")
+    git("remote", "add", "origin", str(origin))
+    git("push", "-qu", "origin", "main")
+    if evidence_path:
+        hook = source / ".git" / "hooks" / "post-checkout"
+        hook.write_text(
+            "#!/bin/sh\n" + f"printf 'checkout hook evidence\\n' > {evidence_path}\n",
+        )
+        hook.chmod(0o755)
+    monkeypatch.setattr("argus_skill.core.runtime_identity.source_root", lambda: source)
+    memory = LifeMemory.open(tmp_path / "life")
+    project = tmp_path / "project"
+    project.mkdir()
+    supervisor = LifeSupervisor(
+        memory=memory, runner=_MaintenanceRunner(), sink=_RecordingSink(memory.root),
+        config=LifeSupervisorConfig(project_worktree=project, artifact_root=project),
+    )
+    item = memory.backlog.add(BacklogItem.new(
+        title="framework maintenance", objective="repair", tags=["framework_maintenance"],
+    ))
+    worktree = memory.root / "maintenance" / "worktrees" / item.id
+    sidecar = memory.root / "maintenance" / "pending" / f"{item.id}.json"
+    write_text = Path.write_text
+
+    def fail_sidecar(path, *args, **kwargs):
+        if path == sidecar:
+            raise OSError("simulated sidecar write failure")
+        return write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_sidecar)
+
+    with pytest.raises(OSError, match="simulated sidecar write failure"):
+        supervisor._resolve_mission_workdir(item)
+
+    assert not sidecar.exists()
+    if evidence_path:
+        assert (worktree / evidence_path).read_text() == "checkout hook evidence\n"
+        assert str(worktree) in git("worktree", "list", "--porcelain").stdout
+    else:
+        assert not worktree.exists()
 
 
 def test_skill_changes_require_explicit_mission_permission(tmp_path) -> None:
