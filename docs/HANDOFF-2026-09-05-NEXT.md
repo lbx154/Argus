@@ -1,5 +1,15 @@
 # Argus 交接(2026-09-05 收盘)
 
+> **2026-09-05 17:50 UTC 恢复更新：**以下正文保留原停机快照。后续已将遗漏的
+> CI 修复、认证状态根/稿件根分离、Copilot 新认证字段同步、维护决策保留停机与脏树
+> 四项修复推送到 main（`820b7e556`、`4eaa23591`、`2e365ed70`、`6cd6cf547`），
+> 合并验证 929 passed。两张维护卡已 decline，原工作树保留，维护 daemon 仍停止。
+> 仅 FuseHead 在独立恢复 checkout `/data/v-boxiuli/argus-runtime-recovery-20260905`
+> 启动，运行代码 `6cd6cf547929`、源码根匹配、mission_width=1；另外三个会话保持停止。
+> 原共享 runtime checkout 未改动。“重启即可结项”“CI 卡早已被 main 覆盖”不再成立。
+> 本机完整恢复步骤、启动环境和论文复核记录见
+> `/data/v-boxiuli/argus-recovery-notes-20260905/HANDOFF.md`，接手时先读该文件。
+
 > 独立交接文档,自包含:按本文即可开工,不必先读完 1000+ 行的
 > `docs/handoff-2026-09-04-capability-tests.md`(需要考证细节时再按节号回查)。
 
