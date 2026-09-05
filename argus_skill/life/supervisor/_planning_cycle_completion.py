@@ -323,6 +323,7 @@ class PlanningCycleCompletionMixin:
             research_done_issue = _research_project_done_issue(
                 self._artifact_root(),
                 self.memory.journal.all(),
+                current_signature=self._final_submission_signature(),
             )
             if research_done_issue:
                 return reject_completion(

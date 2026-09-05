@@ -426,7 +426,8 @@ class PlanningCycleMixin(
 
         from ...skills.stage_machine import current_stage
 
-        stage = current_stage(self._artifact_root()).strip().lower()
+        root = Path(self._artifact_root())
+        stage = current_stage(root).strip().lower()
         if not stage:
             return None
         items = sorted(
@@ -491,6 +492,56 @@ class PlanningCycleMixin(
                     or not str(review.get("reason") or "").strip()
                 ):
                     continue
+                mission_scope = str(mission.get("scope") or "").strip().lower()
+                manuscript_binding = review.get("manuscript_snapshot")
+                if (
+                    mission_scope == "final_submission"
+                    and not isinstance(manuscript_binding, dict)
+                ):
+                    from ...core.stage_certificate import latest_stage_review
+
+                    stage_review = latest_stage_review(self.memory.root, stage)
+                    if (
+                        not isinstance(stage_review, dict)
+                        or str(stage_review.get("task_id") or "") != item.id
+                        or str(stage_review.get("review_status") or "") != "done"
+                        or Path(
+                            str(stage_review.get("project_root") or "")
+                        ).resolve()
+                        != Path(root).resolve()
+                    ):
+                        continue
+                    manuscript_binding = stage_review.get("manuscript_snapshot")
+                    try:
+                        reviewed_at = float(stage_review.get("recorded_at") or 0.0)
+                        rendered_at = (root / "paper" / "main.pdf").stat().st_mtime
+                    except (OSError, TypeError, ValueError):
+                        continue
+                    if reviewed_at <= 0.0 or rendered_at > reviewed_at:
+                        continue
+                if mission_scope == "final_submission":
+                    if not isinstance(manuscript_binding, dict):
+                        continue
+                    try:
+                        from ...core.manuscript_snapshot import (
+                            manuscript_review_status,
+                        )
+
+                        if manuscript_review_status(
+                            {"manuscript_snapshot": manuscript_binding},
+                            root,
+                        ).get("status") != "current":
+                            continue
+                    except Exception:  # noqa: BLE001 - exact binding fails closed
+                        continue
+                    reviewed_signature = str(
+                        review.get("final_submission_signature") or ""
+                    )
+                    if (
+                        reviewed_signature
+                        and reviewed_signature != self._final_submission_signature()
+                    ):
+                        continue
                 return (
                     item,
                     SimpleNamespace(
@@ -501,8 +552,9 @@ class PlanningCycleMixin(
                             review.get("operator_question") or ""
                         ).strip(),
                         review_source="reviewer",
+                        manuscript_snapshot=manuscript_binding,
                     ),
-                    str(mission.get("scope") or ""),
+                    mission_scope,
                 )
             return None
         return None
@@ -552,6 +604,29 @@ class PlanningCycleMixin(
             "trigger": "reviewed_stage_empty_plan_reconciliation",
             "recovered_item_id": item.id,
         })
+        if (
+            decision.action == "complete"
+            and mission_scope.strip().lower() == "final_submission"
+        ):
+            manuscript_binding = getattr(review, "manuscript_snapshot", None)
+            if not isinstance(manuscript_binding, dict):
+                return ""
+            if not self._emit({
+                "type": EventType.LIFE_MISSION_COMPLETED,
+                "item_id": item.id,
+                "title": item.title,
+                "objective": item.objective,
+                "scope": "final_submission",
+                "independent_review_required": True,
+                "success": True,
+                "status": "done",
+                "summary": "Recovered the existing independent final certification.",
+                "final_submission_certified": True,
+                "final_submission_signature": self._final_submission_signature(),
+                "manuscript_snapshot": dict(manuscript_binding),
+                "certification_recovered": True,
+            }):
+                return ""
         if decision.source in {"manager_llm", "stage_completion_gate_hold"}:
             outcome = dict(item.outcome)
             outcome["stage_certification"] = {

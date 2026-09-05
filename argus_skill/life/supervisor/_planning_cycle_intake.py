@@ -171,6 +171,7 @@ class PlanningCycleIntakeMixin:
             and _research_project_done_issue(
             artifact_root,
             self.memory.journal.all(),
+            current_signature=self._final_submission_signature(),
             )
         ):
             return ""

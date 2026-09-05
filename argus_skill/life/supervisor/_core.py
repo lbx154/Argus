@@ -1553,7 +1553,10 @@ class LifeSupervisor(
             event_type = str(event.get("type") or "")
             if event_type == EventType.LIFE_BUDGET_PAUSE:
                 self._publish_budget_pause_message(event)
-            elif event_type == EventType.LIFE_MISSION_COMPLETED:
+            elif (
+                event_type == EventType.LIFE_MISSION_COMPLETED
+                and event.get("certification_recovered") is not True
+            ):
                 self._publish_mission_completion_message(event)
             elif (
                 event_type == EventType.LIFE_PLANNER_VERDICT

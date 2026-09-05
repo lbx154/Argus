@@ -399,6 +399,28 @@ def record_reviewed_handoff(
         "next_action": str(getattr(review, "next_action", "") or "")[:4000],
         "operator_question": str(getattr(review, "operator_question", "") or "")[:1000],
     }
+    review_source = str(getattr(review, "review_source", "") or "").strip()
+    if review_source:
+        review_payload["review_source"] = review_source
+    manuscript_binding = getattr(review, "manuscript_snapshot", None)
+    if isinstance(manuscript_binding, dict):
+        review_payload["manuscript_snapshot"] = dict(manuscript_binding)
+    mission = _read_json_object(mission_path)
+    if (
+        str(mission.get("scope") or "").strip().lower() == "final_submission"
+        and isinstance(manuscript_binding, dict)
+    ):
+        candidate_root_text = str(mission.get("execution_workdir") or "").strip()
+        candidate_root = Path(candidate_root_text).expanduser()
+        if candidate_root_text and candidate_root.is_dir():
+            from .terminal_state import build_project_state_signature
+
+            review_payload["final_submission_signature"] = (
+                build_project_state_signature(
+                    project_root=candidate_root,
+                    state_root=root,
+                )
+            )
     frontier_path = root / FRONTIER_FILENAME
     from ..core.task_frontier import load_task_frontier, save_task_frontier
 

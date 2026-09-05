@@ -74,6 +74,8 @@ def _render_revision_request(
 def _research_project_done_issue(
     project_root: object,
     journal_entries: list[Any],
+    *,
+    current_signature: str = "",
 ) -> str:
     """Require a current-target final Reviewer ``done`` before Planner success."""
     from ...core.research_contract import (
@@ -98,6 +100,10 @@ def _research_project_done_issue(
     if target_contract.required and target_level is None:
         return "missing_research_target_level"
     target_set_at = resolve_research_target_set_at(project_root) or 0.0
+    submission_candidate_exists = any(
+        (Path(str(project_root)) / relative).is_file()
+        for relative in ("paper/main.tex", "paper/main.pdf")
+    )
     for entry in reversed(journal_entries):
         if str(getattr(entry, "kind", "") or "") not in {
             "mission_complete",
@@ -117,6 +123,20 @@ def _research_project_done_issue(
             str(extra.get("scope") or "").strip().lower() == "final_submission"
             and extra.get("final_submission_certified") is True
         ):
+            if submission_candidate_exists:
+                certified_signature = str(
+                    extra.get("final_submission_signature") or ""
+                )
+                if not certified_signature:
+                    continue
+                if not current_signature:
+                    from ..terminal_state import build_project_state_signature
+
+                    current_signature = build_project_state_signature(
+                        project_root=Path(str(project_root)),
+                    )
+                if certified_signature != current_signature:
+                    continue
             manuscript_binding = extra.get("manuscript_snapshot")
             if (
                 (Path(str(project_root)) / "paper/main.tex").is_file()

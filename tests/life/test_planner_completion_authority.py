@@ -30,6 +30,9 @@ class _CompletionHarness(PlanningCycleCompletionMixin):
     def _journal_has_final_certification(self) -> bool:
         return False
 
+    def _final_submission_signature(self) -> str:
+        return ""
+
     def _persist_manager_planner_feedback(self, **payload) -> bool:
         self.feedback.append(payload)
         return True
