@@ -92,6 +92,48 @@ def test_writable_roots_includes_research_caches():
     assert ".nv" in names       # NVIDIA ptxas/nvrtc cache
 
 
+def test_forbidden_roots_include_user_site_and_local_bin():
+    """2026-09-05 escape: with the system site unwritable, pip inside the
+    maintenance worktree silently fell back to a *user* install, rewriting
+    ~/.local/bin/argus and planting an editable .pth in the user
+    site-packages — both auto-load into the next un-sandboxed interpreter.
+    Both roots must be forbidden and never granted via --add-dir. ~/.local/lib
+    covers the user site of EVERY interpreter version — the incident pip ran
+    under the system 3.11, not this venv's 3.12 — while the per-interpreter
+    user site stays forbidden for a PYTHONUSERBASE outside home. (The
+    worktree itself stays writable: it is the -C / bwrap bind root, which
+    forbidden_write_roots never filters.)"""
+    import site
+    home = Path.home()
+    forbidden = {Path(root) for root in sandbox.forbidden_write_roots()}
+    assert home / ".local" / "lib" in forbidden
+    assert home / ".local" / "bin" in forbidden
+    assert Path(site.getusersitepackages()) in forbidden
+    roots = [Path(root) for root in sandbox.writable_roots()]
+    assert not any(root.is_relative_to(home / ".local" / "lib") for root in roots)
+    assert not any(root.is_relative_to(home / ".local" / "bin") for root in roots)
+    assert not any(
+        root.is_relative_to(site.getusersitepackages()) for root in roots
+    )
+
+
+def test_forbidden_user_site_follows_substituted_home(tmp_path, monkeypatch):
+    """site.getusersitepackages() is resolved once against the startup HOME;
+    when a test substitutes Path.home(), the forbidden user-site root must
+    move with the other home-derived roots instead of pointing at the real
+    home."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(sandbox.Path, "home", classmethod(lambda cls: home))
+    forbidden = [Path(root) for root in sandbox.forbidden_write_roots()]
+    assert home / ".local" / "lib" in forbidden
+    assert home / ".local" / "bin" in forbidden
+    assert any(
+        root.name == "site-packages" and root.is_relative_to(home)
+        for root in forbidden
+    )
+
+
 def test_writable_roots_never_grants_the_venv():
     """CRITICAL escape invariant: the active venv (sys.prefix) must NEVER be in
     the --add-dir allowlist and MUST be forbidden. Its site-packages auto-runs
@@ -307,6 +349,34 @@ def test_sandboxed_child_env_scrubs_vcs_creds(monkeypatch):
     assert "COPILOT_GITHUB_TOKEN" not in env
     assert env["PYTHONSAFEPATH"] == "1"
     assert env["PATH"] == "/usr/bin"
+
+
+def test_sandboxed_child_env_pins_pip_user_off(monkeypatch):
+    """pip's silent user-install fallback is the 2026-09-05 escape; PIP_USER=0
+    makes an unwritable-site install fail loudly (Errno 13) instead. An
+    inherited opt-in must not survive."""
+    monkeypatch.setenv("PIP_USER", "1")
+    env = sandbox.sandboxed_child_env()
+    assert env["PIP_USER"] == "0"
+
+
+def test_pip_user_pinned_off_on_the_yolo_inherit_path(gate_off):
+    """The maintenance engineer runs dangerous_yolo by default
+    (apps/_runtime_execute.py): _child_env returns None and the codex child
+    inherits the parent env untouched, so sandboxed_child_env() never runs.
+    PIP_USER=0 therefore rides the parent env via
+    configure_framework_python_env, which the daemon life worker
+    (_rf_bootstrap_environment) and the CLI main both run before spawning any
+    child shell."""
+    from argus_skill.core.runtime_env import configure_framework_python_env
+
+    runner = _codex_runner()
+    options = runner._apply_sandbox_policy(
+        RunnerOptions(dangerous_yolo=True, working_dir="/wd")
+    )
+    assert runner._child_env(options) is None  # yolo child inherits parent env
+    parent = configure_framework_python_env({"PATH": "/usr/bin", "PIP_USER": "1"})
+    assert parent["PIP_USER"] == "0"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="requires POSIX worktree isolation")

@@ -182,6 +182,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_MEASURED_MODE", "off", "measured-mode evaluation gating", "lifecycle"),
     Knob("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "off", "bypass the capability-vault preflight on daemon start", "lifecycle"),
     Knob("ARGUS_SKILL_REQUIRE_RELEASE_MATCH", "off", "refuse daemon/WebAPI startup when source and built release artifacts differ", "lifecycle"),
+    Knob("ARGUS_SKILL_SOURCE_ROOT", "(unset)", "expected deployment source root: when set, daemon/WebAPI startup refuses a process whose loaded package resolves to a different checkout (rewritten-launcher guard)", "lifecycle"),
     # --- telemetry / notify ---
     Knob("ARGUS_SKILL_ENABLE_TELEGRAM", "off", "enable the Telegram inbound/outbound bridge", "telemetry", cockpit=True),
     Knob("ARGUS_SKILL_TELEGRAM_BOT_TOKEN", "(unset)", "Telegram bot token", "telemetry"),
@@ -254,6 +255,13 @@ _NON_NEGATIVE_INT_KNOBS = frozenset(
 _NON_NEGATIVE_FLOAT_KNOBS = frozenset({
     "ARGUS_SKILL_COPILOT_DAILY_PREMIUM_CAP",
 })
+# A path knob names one absolute filesystem location. ``~`` expands at persist
+# time; a relative path would silently depend on whichever cwd the reading
+# process was started from. Existence is deliberately NOT required: the
+# source-root preflight compares resolved paths and fail-closes, so a
+# configured root that never materializes can only refuse startup, never
+# admit the wrong checkout.
+_PATH_KNOBS = frozenset({"ARGUS_SKILL_SOURCE_ROOT"})
 _SENSITIVE_MARKERS = ("TOKEN", "KEY", "SECRET", "PASSWORD", "AUTH")
 _TRUE_VALUES = frozenset(
     {"1", "true", "yes", "on", "enable", "enabled", "开", "开启", "打开", "启用"}
@@ -477,6 +485,13 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
     if name in _NON_NEGATIVE_FLOAT_KNOBS:
         number = _parse_budget_value(name, raw)
         return f"{number:g}"
+    if name in _PATH_KNOBS:
+        from pathlib import Path
+
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            raise ValueError(f"{name} must be an absolute path; got {raw!r}")
+        return str(path)
     if name in _BACKEND_KNOBS:
         backend = raw.lower()
         if backend == "opencod":

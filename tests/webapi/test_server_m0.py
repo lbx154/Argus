@@ -562,6 +562,26 @@ def test_web_serve_refuses_strict_release_mismatch(monkeypatch) -> None:
         server.serve()
 
 
+def test_web_serve_refuses_a_mismatched_source_root(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "argus_skill.core.runtime_identity.source_root_preflight_error",
+        lambda: "source-root mismatch",
+    )
+
+    with pytest.raises(RuntimeError, match="webapi refused mismatched source root"):
+        server.serve()
+
+
+def test_web_serve_refuses_a_configured_root_the_launcher_did_not_load(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_SOURCE_ROOT", str(tmp_path / "other-worktree"))
+
+    with pytest.raises(RuntimeError, match="webapi refused mismatched source root"):
+        server.serve()
+
+
 def test_static_web_cache_policy_keeps_shell_fresh_and_hashes_immutable() -> None:
     assert server._web_cache_control("/") == "no-store"
     assert server._web_cache_control("/index.html") == "no-store"

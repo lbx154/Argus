@@ -7,6 +7,7 @@ subcommand.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -36,6 +37,22 @@ def test_version_reports_package_version(capsys) -> None:
         build_parser().parse_args(["--version"])
     rendered = capsys.readouterr().out
     assert rendered == "argus-skill 0.1.1\n"
+
+
+def test_main_pins_pip_user_off_before_any_child_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI counterpart of the daemon boot pin: the default engineer spawn is
+    dangerous_yolo, whose codex child inherits this process env untouched, so
+    main() itself must neutralize pip's silent user-install fallback (the
+    2026-09-05 launcher hijack) before any command runs. Dropping the
+    configure_framework_python_env call from main must fail HERE."""
+    monkeypatch.setenv("PIP_USER", "1")
+
+    with pytest.raises(SystemExit, match="0"):
+        main(["--version"])
+
+    assert os.environ["PIP_USER"] == "0"
 
 
 def test_debug_help_still_exposes_internal_flags(monkeypatch: pytest.MonkeyPatch) -> None:

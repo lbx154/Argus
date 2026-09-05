@@ -78,10 +78,12 @@ def _isolate_argus_state_roots(
     # that deliberately exercise a custom provider.
     monkeypatch.setenv("CODEX_HOME", str(root / "codex-home"))
 
-    # A test must never mistake the developer's checkout for its loaded source.
-    source = root / "source"
-    source.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("ARGUS_SKILL_SOURCE_ROOT", str(source))
+    # ARGUS_SKILL_SOURCE_ROOT deliberately stays UNSET (the loop above already
+    # dropped any developer-shell value). Setting it now ARMS the source-root
+    # startup preflight, so an ambient throwaway path would make every real
+    # daemon/WebAPI boot in the suite refuse startup; the self-maintenance
+    # machine that once read it as a maintenance source tree is gone. A test
+    # that exercises the preflight sets its own root.
 
 
 

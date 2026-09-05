@@ -394,3 +394,118 @@ CLI 参数移除(仓库内无调用者)。单监督者模式下执行线程就�
   盖掉。
 - 本文档第八至十节的修复思路都是从 run-08 一个项目的现场推出来的;其他项目的
   规划器行为模式可能不同。
+
+## 十二、追加(2026-09-05 上午):启动器劫持——接手实施
+
+承接第十一节第 1 条。本节先更正两处事实,再记录已落地的修复。
+
+### 两处事实更正
+
+- **启动器并没有"修回"**。第十一节的口径给人的印象是启动器已恢复,不实:
+  `~/.local/bin/argus` 至今未动(mtime 09-05 01:44,shebang
+  `#!/usr/bin/python3.11`),经 user-site 的
+  `~/.local/lib/python3.11/site-packages/_editable_impl_argus_skill.pth`
+  仍指向旧 worktree
+  `~/.argus-skill/maintenance/worktrees/4211b892264d`。当时的验证被 cwd
+  误导(在开发仓库目录里 import,cwd 先于 .pth 命中——正是第六节备忘里
+  提醒过的那个陷阱)。在启动器修好之前,**不要用 `~/.local/bin/argus`
+  重启任何守护进程**,用 `argus-runtime-latest/.venv/bin/argus`。
+- **肇事命令不是部署步骤,也不是显式 `--user`**。取证:维护任务的
+  Engineer 执行的是 `python3.11 -m pip install -e .`(没有 `--user`),
+  系统 site-packages 不可写,pip 静默回退 "Defaulting to user
+  installation" 落进 user-site 并重写 `~/.local/bin` 下的启动器。第十一节
+  写的 `pip install -e --user` 口径不准——正因为回退是静默的,单靠"别加
+  --user"教育不了它,要在环境层面封死。
+
+### 本次落地的四件事
+
+1. **源码根预检 knob `ARGUS_SKILL_SOURCE_ROOT`**(`core/runtime_identity.py`
+   的 `configured_source_root()` / `source_root_preflight_error()`,
+   `core/knobs.py` 注册为 path knob)。解析顺序:进程 env > 持久化 knob
+   (`~/.argus-skill/config.json`)> 未配置(严格 no-op,行为与现在一致)。
+   一旦配置,daemon 启动预检发现加载的包 resolve 到别的 checkout 即拒启
+   (rc=2,在 knob-store 门之后、backend probe 之前,
+   `daemon/_life_worker_run.py`),webapi `serve()` 同样拒绝
+   (RuntimeError,`webapi/server.py`)。两侧路径都 resolve 后再比较,
+   经 symlink 到达同一部署根不误伤;配置的目录不存在也接受——预检
+   fail-close,写错只会把启动拒掉,不会放行错误的 checkout。被劫持的
+   启动器从此**起不来**,而不是安静地跑旧代码。
+2. **sandbox 加固**(`core/sandbox.py`)。`forbidden_write_roots()` 新增
+   `~/.local/lib`(封死**所有** python 版本的 user-site——肇事 pip 跑在
+   系统 3.11 下而非本 venv 的解释器;`~/.local/state`、`~/.local/share`
+   是兄弟目录不受影响)、`~/.local/bin`(启动器本体),并保留
+   per-interpreter 的 `_user_site_packages`(覆盖 PYTHONUSERBASE 指到
+   home 之外的情形)。`sandboxed_child_env()` 与
+   `configure_framework_python_env()`(`core/runtime_env.py`)都钉
+   `PIP_USER=0`,后者接在 daemon boot(`_rf_bootstrap_environment`)和
+   CLI `main()` 入口的 `os.environ` 上——默认的 dangerous_yolo 子进程
+   原样继承 `os.environ`,只有进程级钉扎能到达它。两处接线各有真实调用
+   bootstrap 入口的测试(`tests/daemon/test_life_worker.py`、
+   `tests/apps/test_cli_parser.py`),删掉任一处调用即红。
+3. **维护 playbook 明令**(engineer 执行第 6-8 条、reviewer 检查项)。
+   禁止对框架做任何 pip install(`-e .`、`--user`、任何写 user-site 或
+   `~/.local/bin` 的形式);测试的正确姿势是 worktree 根下
+   `"${ARGUS_SKILL_PYTHON:-python3}" -m pytest <target> -q`(默认 cwd
+   就能遮住部署包;若环境设了 PYTHONSAFEPATH——safe-mode 沙箱会设——
+   前缀 `PYTHONPATH="$PWD"`);确需第三方依赖时进一次性 venv 或
+   `pip install --target`。
+4. **`tests/test_math_lean_async.py` 判死 fast-fail**。`_settle` /
+   `_wait_until` 增加 doomed 探针:worker 死了(锁不在、submit 记录的
+   pid 也不在)立即失败并引用 worker.log 尾部,不再把 60 秒 deadline
+   白等完——第十一节第 1 条 (c) 的 14×60 秒消除;附一条复现测试
+   (PYTHONPATH 影子 portalocker,断言快速失败且报根因)。
+
+### 启用防护(需操作员执行一次,knob 默认未配置即不设防)
+
+- 持久化(推荐,重启不丢):
+  `/data/v-boxiuli/argus-runtime-latest/.venv/bin/python -c "from
+  argus_skill.core.knob_store import write_persisted_knob;
+  write_persisted_knob('ARGUS_SKILL_SOURCE_ROOT',
+  '/data/v-boxiuli/argus-runtime-latest')"`
+- 或按进程 env:启动命令前
+  `export ARGUS_SKILL_SOURCE_ROOT=/data/v-boxiuli/argus-runtime-latest`
+  (显式 env 优先于持久化值,与其余 knob 的先例一致)。
+
+### 运维注意
+
+- knob 配置后,从 dev checkout(`/data/v-boxiuli/Argus`)起 daemon /
+  webapi 会被拒(这是预期的)。要在 dev checkout 上调试,
+  `export ARGUS_SKILL_SOURCE_ROOT=/data/v-boxiuli/Argus` 或用独立的
+  `ARGUS_SKILL_HOME`。
+- canary / 多根部署:按进程 env 覆盖各自的根即可,持久化值只作缺省。
+- 部署交接(handoff)自带 env 覆盖,不受持久化 knob 影响(评审时已验证)。
+
+### 残余风险(诚实)
+
+- **显式 `pip install --user` 在默认 yolo 模式下技术上仍拦不住**:
+  `PIP_USER=0` 只封"静默回退",pip 的 CLI 旗标优先于 env。现有防线是
+  playbook 禁令 + reviewer 检查项,加上源码根预检兜底——真装了,损害
+  止于下一次启动被拒,而不是安静跑旧代码。
+- safe-mode 沙箱设 PYTHONSAFEPATH,worktree cwd 不再自动遮住部署包;
+  正确的测试姿势(`PYTHONPATH="$PWD"`)已写进 playbook,但跑错了的
+  症状是"测的部署包而非 worktree 代码",不易察觉。
+- `config.json` 损坏时:诊断路径(`runtime_identity()`,供 webapi
+  /api/meta、daemon status 消费,它们只 catch OSError)宽容回退为
+  "未配置";预检保持严格,KnobStoreCorruptError 本身就是拒启理由。
+
+### 测试
+
+定向合跑 9 个受影响文件(engineer_sandbox / runtime_identity /
+runtime_env / knob_store / life_worker / server_m0 / maintenance
+vertical / config_help / cli_parser):318 passed,0 failed(18.5s,
+`.venv/bin/python -m pytest`)。全量 `tests/`:3 failed 全部为已知预存
+(`tests/apps/test_cli_ask.py` 两条顺序相关、`tests/test_role_library.py`),
+quant 系列缺依赖已排除;第十一节列的 `tests/webapi/test_pairing.py`
+本次通过。
+
+### 未代答、未动的事
+
+- 两张 `paused_operator` 的维护决策卡未代答,留给操作员:
+  `690fb430f6b6`(终稿认证消费修复本体,即那份 WIP 对应的任务)、
+  `6062621ef4e9`(CI 基线恢复)。
+- worktree `4211b892264d` 的 WIP 已完整保存为提交 `385ad3c1a`
+  (在 argus-runtime-latest 的对象库里),worktree 本体未动。
+- 维护积压共 14 个 pending(含一个指向 `/data/chenxi/argus-skill` 的,
+  未动)。
+
+启动器本体的修复与重新部署记录见下一提交追加。

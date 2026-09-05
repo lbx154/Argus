@@ -65,8 +65,32 @@ def source_worktree_state() -> dict[str, Any]:
     }
 
 
+def configured_source_root() -> str:
+    """Return the deployment source root the operator expects, or ``""``.
+
+    Explicit process env wins over the persisted cockpit knob — the standard
+    ``env > core.knob_store > unset`` precedence every operator knob uses —
+    so a supervised deployment can pin the root once in ``config.json`` and
+    every later daemon/WebAPI boot still honors it.
+    """
+    from .knob_store import persisted_knob
+
+    return persisted_knob("ARGUS_SKILL_SOURCE_ROOT").strip()
+
+
 def runtime_identity() -> dict[str, Any]:
-    configured_root = os.environ.get("ARGUS_SKILL_SOURCE_ROOT", "").strip()
+    from .knob_store import KnobStoreCorruptError
+
+    try:
+        configured_root = configured_source_root()
+    except KnobStoreCorruptError:
+        # This payload is pure diagnostics, and its consumers (webapi
+        # /api/meta, the daemon status writer, handoff-candidate reads) catch
+        # only OSError — a corrupt config.json must degrade to "unconfigured"
+        # here, not take the status surfaces down with it. Enforcement stays
+        # strict in source_root_preflight_error(), where the corruption is
+        # itself a fail-closed startup refusal.
+        configured_root = ""
     loaded_root = source_root()
     return {
         "package_version": __version__,
@@ -108,10 +132,36 @@ def release_match_preflight_error() -> str:
     return ""
 
 
+def source_root_preflight_error() -> str:
+    """Return a strict-startup error for a process loaded from the wrong checkout.
+
+    Unconfigured operation stays permissive. Once ``ARGUS_SKILL_SOURCE_ROOT``
+    is set (env or persisted knob) it is a startup contract: a rewritten
+    launcher that imports Argus from some other worktree — the user-site
+    editable-install hijack — is refused here instead of silently serving
+    stale code. Both sides are compared fully resolved so a deploy root
+    reached through a symlink still counts as the same checkout.
+    """
+    configured = configured_source_root()
+    if not configured:
+        return ""
+    loaded = source_root()
+    if Path(configured).expanduser().resolve() == loaded:
+        return ""
+    return (
+        f"process loaded source root {loaded} but ARGUS_SKILL_SOURCE_ROOT "
+        f"expects {configured}; the launcher resolves to the wrong checkout — "
+        "reinstall with `pip install -e .` from the configured root, or fix "
+        "the configured root"
+    )
+
+
 __all__ = [
+    "configured_source_root",
     "release_match_preflight_error",
     "runtime_identity",
     "source_revision",
     "source_root",
+    "source_root_preflight_error",
     "source_worktree_state",
 ]

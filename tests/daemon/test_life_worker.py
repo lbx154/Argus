@@ -113,6 +113,55 @@ def test_daemon_strict_release_preflight_fails_before_backend_probe(
     assert result == 2
 
 
+def test_daemon_source_root_preflight_fails_before_backend_probe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
+    monkeypatch.setattr(
+        "argus_skill.core.runtime_identity.source_root_preflight_error",
+        lambda: "source-root mismatch",
+    )
+
+    result = worker._rf_vault_preflight(SimpleNamespace(cfg=worker.config))
+
+    assert result == 2
+
+
+def test_daemon_refuses_a_mismatched_configured_source_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End to end through the real preflight: a hijacked launcher loads some
+    other worktree, so the configured deployment root no longer matches the
+    loaded package and the daemon must not come up."""
+    monkeypatch.setenv("ARGUS_SKILL_SOURCE_ROOT", str(tmp_path / "other-worktree"))
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
+
+    assert worker._rf_vault_preflight(SimpleNamespace(cfg=worker.config)) == 2
+
+
+def test_daemon_bootstrap_pins_pip_user_off_for_inherited_child_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 7x24 maintenance engineer runs dangerous_yolo by default: the codex
+    child inherits os.environ untouched, so PIP_USER=0 (the guard against
+    pip's silent user-install launcher hijack, 2026-09-05) only reaches it if
+    the daemon's own boot pins it. Exercise the real boot entry — dropping the
+    configure_framework_python_env call from _rf_bootstrap_environment must
+    fail HERE, not only in unit tests of the helper."""
+    monkeypatch.setenv("PIP_USER", "1")
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+    # The env wiring is under test; keep the pytest process's own handlers.
+    monkeypatch.setattr(LifeWorker, "_install_signal_handlers", lambda self: None)
+    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
+
+    worker._rf_bootstrap_environment()
+
+    assert os.environ["PIP_USER"] == "0"
+
+
 def test_max_active_daemons_preserves_env_and_persisted_overrides(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

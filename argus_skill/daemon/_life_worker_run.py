@@ -133,7 +133,10 @@ class LifeWorkerRunMixin:
 
     def _rf_vault_preflight(self, rf_state: _RunForeverState) -> int | None:
         """Validate backend/auth before constructing providers or mutating state."""
-        from ..core.runtime_identity import release_match_preflight_error
+        from ..core.runtime_identity import (
+            release_match_preflight_error,
+            source_root_preflight_error,
+        )
 
         release_error = release_match_preflight_error()
         if release_error:
@@ -153,6 +156,13 @@ class LifeWorkerRunMixin:
             read_persisted_knobs()
         except KnobStoreCorruptError as exc:
             log.error("daemon refused before Manager/provider/state mutation: %s", exc)
+            return 2
+
+        # After the knob-store gate above: the configured root may live in
+        # that same file, and a corrupt store must keep its own diagnosis.
+        source_error = source_root_preflight_error()
+        if source_error:
+            log.error("daemon refused mismatched source root: %s", source_error)
             return 2
 
         from ..core.backend_readiness import (

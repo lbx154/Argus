@@ -6,6 +6,7 @@ grep-the-source exercise. These pin the curated control-surface registry and the
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -54,6 +55,7 @@ def test_registry_covers_the_key_operator_knobs() -> None:
         "ARGUS_SKILL_PLAN_PREVIEW_REASONING_EFFORT",
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
         "ARGUS_SKILL_REQUIRE_RELEASE_MATCH",
+        "ARGUS_SKILL_SOURCE_ROOT",
     ):
         assert must in names
     # HAPI's per-role backend knobs are registered too (so they stop being invisible).
@@ -185,6 +187,24 @@ def test_cockpit_value_normalization_is_typed() -> None:
         normalize_cockpit_knob_value("ARGUS_SKILL_MAX_ACTIVE_DAEMONS", "-1")
     with pytest.raises(ValueError, match="cautious, pragmatic, or autonomous"):
         normalize_cockpit_knob_value("ARGUS_SKILL_AUTONOMY_MODE", "reckless")
+
+
+def test_cockpit_path_knob_requires_an_absolute_path(tmp_path: Path) -> None:
+    checkout = tmp_path / "checkout"
+    assert normalize_cockpit_knob_value(
+        "ARGUS_SKILL_SOURCE_ROOT", f"{checkout}{os.sep}"
+    ) == str(checkout)
+    assert normalize_cockpit_knob_value("ARGUS_SKILL_SOURCE_ROOT", "~/argus") == str(
+        Path("~/argus").expanduser()
+    )
+    # A missing directory is accepted on purpose: the startup preflight
+    # fail-closes on it, so a typo refuses startup loudly instead of being
+    # rejected only on hosts where the path happens to exist.
+    assert normalize_cockpit_knob_value(
+        "ARGUS_SKILL_SOURCE_ROOT", str(tmp_path / "not-yet-deployed")
+    ) == str(tmp_path / "not-yet-deployed")
+    with pytest.raises(ValueError, match="absolute path"):
+        normalize_cockpit_knob_value("ARGUS_SKILL_SOURCE_ROOT", "relative/checkout")
 
 
 def test_shared_model_default_feeds_role_model_resolution() -> None:

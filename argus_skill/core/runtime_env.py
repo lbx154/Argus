@@ -42,6 +42,14 @@ def configure_framework_python_env(
         target_env.get("ARGUS_SKILL_PYTHON") or executable or sys.executable
     ).strip()
     target_env["ARGUS_SKILL_PYTHON"] = framework_python
+    # A child pip must never silently fall back to a user install: with the
+    # system site unwritable it rewrites the ~/.local/bin launchers and plants
+    # a user-site ``.pth`` that every later interpreter auto-runs (2026-09-05
+    # incident). Pinned here because the legacy dangerous_yolo spawn — the 7x24
+    # maintenance default — inherits this env untouched (its ``_child_env``
+    # returns ``None``); ``sandbox.sandboxed_child_env`` re-pins it for the
+    # sandboxed path.
+    target_env["PIP_USER"] = "0"
     if os.name == "nt":
         target_env.setdefault("PYTHONUTF8", "1")
         target_env.setdefault("PYTHONIOENCODING", "utf-8")

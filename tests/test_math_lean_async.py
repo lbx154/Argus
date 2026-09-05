@@ -191,11 +191,21 @@ def _run_dir(handle: str) -> Path:
     return lean_async._runs_root() / handle
 
 
-def _wait_until(condition, what: str = "the background run") -> None:
+def _wait_until(condition, what: str = "the background run", *, doomed=None) -> None:
+    """Poll for ``condition``; ``doomed`` returns why waiting can no longer help.
+
+    Once ``doomed`` gives a reason, ``condition`` is probed once more before
+    failing: the worker publishes its outcome and only then exits, so "dead"
+    observed between those two steps has to lose to the record it just wrote.
+    """
     deadline = time.monotonic() + _SETTLE_SECONDS
     while time.monotonic() < deadline:
         if condition():
             return
+        if doomed is not None:
+            reason = doomed()
+            if reason and not condition():
+                raise AssertionError(f"{what} can no longer happen: {reason}")
         time.sleep(0.02)
     raise AssertionError(f"{what} never reached the state under test")
 
@@ -210,15 +220,40 @@ def _lock_is_held(handle: str) -> bool:
     return lock.is_file() and lock.stat().st_size > 0
 
 
+def _worker_died(handle: str) -> str | None:
+    """A reason once the worker is gone without an answer, or ``None``.
+
+    Liveness is the library's own probe, so it means what ``reclaim`` means by
+    it: the worker's lock is held, or — before the worker has reached its lock —
+    the pid recorded at submit is still running. A worker still starting up is
+    therefore alive through its pid, never mistaken for dead.
+    """
+    run_dir = _run_dir(handle)
+    if lean_async._worker_alive(run_dir, lean_async._read_run(run_dir)):
+        return None
+    try:
+        log = (run_dir / "worker.log").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        log = ""
+    return (
+        "the worker exited without publishing an outcome; worker.log ends "
+        f"with:\n{log[-2000:] or '<empty>'}"
+    )
+
+
 def _settle(handle: str) -> None:
-    """Wait until the background run has published a terminal record."""
+    """Wait until the background run has published a terminal record.
+
+    A worker that dies before publishing — the incident shape is an interpreter
+    whose imports no longer resolve — fails this wait at once with its log,
+    rather than burning the whole deadline into a bare timeout.
+    """
     outcome = _run_dir(handle) / "outcome.json"
-    deadline = time.monotonic() + _SETTLE_SECONDS
-    while time.monotonic() < deadline:
-        if outcome.is_file():
-            return
-        time.sleep(0.02)
-    raise AssertionError(f"the background compile for {handle} never finished")
+    _wait_until(
+        lambda: outcome.is_file(),
+        f"the background compile for {handle}",
+        doomed=lambda: _worker_died(handle),
+    )
 
 
 def _artifacts(root: Path) -> set[str]:
@@ -572,7 +607,11 @@ def test_a_lost_run_is_reported_as_lost_and_never_as_a_verdict(
     )["handle"]
     record = json.loads((_run_dir(handle) / "run.json").read_text(encoding="utf-8"))
 
-    _wait_until(lambda: _lock_is_held(handle))
+    _wait_until(
+        lambda: _lock_is_held(handle),
+        "the worker taking its lock",
+        doomed=lambda: _worker_died(handle),
+    )
     os.kill(int(record["pid"]), getattr(signal, "SIGKILL", signal.SIGTERM))
     _wait_until(lambda: [run["state"] for run in outstanding_runs()] == ["lost"])
 
@@ -611,6 +650,49 @@ def test_the_cli_words_a_lost_run_as_a_refusal(tmp_path: Path, capsys) -> None:
     assert "status" not in payload
     assert "environment failure" in payload["error"]
     assert _artifacts(root) == {"Main.lean", "statement_fidelity.md"}
+
+
+def test_a_worker_that_dies_on_import_fails_the_wait_at_once_with_its_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker whose interpreter cannot resolve an import dies before its lock.
+
+    The 2026-09-05 incident had exactly this shape: a launcher rewritten to an
+    interpreter whose user-site could no longer resolve ``portalocker``, so the
+    child fell over during import and published nothing. Waiting a wait like
+    ``_settle`` out to its deadline would cost a minute per call and report a
+    bare timeout; the dead worker has to fail it immediately, root cause quoted.
+    """
+    sabotage = tmp_path / "sabotage"
+    sabotage.mkdir()
+    # `_launch_worker` prepends the package root to PYTHONPATH but keeps what
+    # was already there, and site-packages come after both — so this shadows
+    # portalocker for the worker alone; this process imported the real one long
+    # ago, and env changes do not reach its sys.path.
+    (sabotage / "portalocker.py").write_text(
+        "raise ImportError('portalocker deliberately unresolvable')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTHONPATH", str(sabotage))
+
+    root = _project(tmp_path / "p")
+    source, fidelity = _formalized(root)
+    handle = submit_lean_run(
+        source,
+        statement_fidelity=fidelity,
+        project_root=root,
+        lean_bin=_instant_lean(tmp_path),
+    )["handle"]
+
+    started = time.monotonic()
+    with pytest.raises(AssertionError) as raised:
+        _settle(handle)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < _SETTLE_SECONDS / 2, elapsed
+    assert "portalocker deliberately unresolvable" in str(raised.value)
+    assert [run["state"] for run in outstanding_runs()] == ["lost"]
 
 
 # -- handles -----------------------------------------------------------------

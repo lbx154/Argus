@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import site
 import subprocess
 import sys
 import tempfile
@@ -54,6 +55,19 @@ def _package_root() -> str | None:
         return None
 
 
+def _user_site_packages(home: Path) -> Path:
+    """User-scheme site-packages for the running interpreter, re-anchored
+    under ``home``: ``site.getusersitepackages()`` is resolved once against
+    the process's startup HOME, and tests substitute ``Path.home()``, so the
+    forbidden root must move with the other home-derived roots. A user site
+    outside the startup home (``PYTHONUSERBASE``) is forbidden where it is."""
+    user_site = Path(site.getusersitepackages())
+    try:
+        return home / user_site.relative_to(Path(os.path.expanduser("~")))
+    except ValueError:
+        return user_site
+
+
 def forbidden_write_roots(*, life_root: str | os.PathLike[str] | None = None) -> list[str]:
     """Paths a sandboxed builder must NEVER be able to write."""
     from .paths import global_root
@@ -66,11 +80,27 @@ def forbidden_write_roots(*, life_root: str | os.PathLike[str] | None = None) ->
     # un-sandboxed interpreter (the daemon worker, the gate-check subprocess,
     # the reviewer/planner). On a non-editable install ``sys.prefix`` also *is*
     # where the package source lives.
+    # The *user* scheme is the same ``.pth`` escape one directory over: with
+    # the system site unwritable, pip silently falls back to it ("Defaulting
+    # to user installation", 2026-09-05 incident), planting an editable
+    # ``.pth`` in the user site-packages and rewriting the ~/.local/bin
+    # launchers that later restart the daemon on old code. ``~/.local/lib``
+    # forbids the user site of EVERY interpreter version — the incident pip
+    # ran under the system 3.11, not this venv's 3.12, so the per-interpreter
+    # ``_user_site_packages`` alone misses it; that helper stays for a
+    # ``PYTHONUSERBASE`` relocated outside home. ``~/.local/state`` and
+    # ``~/.local/share`` are siblings, not children, and stay unaffected.
+    # (The maintenance worktree under ~/.argus-skill stays writable
+    # regardless: it is the codex ``-C`` / bwrap bind root, which this list
+    # never filters.)
     roots = [
         str(global_root()),
         str(home / ".argus-skill"),
         str(home / ".codex"),
         str(Path(sys.prefix)),
+        str(_user_site_packages(home)),
+        str(home / ".local" / "lib"),
+        str(home / ".local" / "bin"),
     ]
     pkg = _package_root()
     if pkg:
@@ -188,12 +218,18 @@ def sandboxed_child_env(base: dict[str, str] | None = None) -> dict[str, str]:
         truth (the local-FS sandbox does not police network egress).
     (2) Sets ``PYTHONSAFEPATH=1`` so a workdir ``code/sitecustomize.py`` or an
         earlier ``sys.path`` entry cannot shadow the package at import time.
+    (3) Sets ``PIP_USER=0`` so pip against an unwritable site fails loudly
+        (Errno 13) instead of silently "Defaulting to user installation",
+        which rewrites the ~/.local/bin launchers and plants a user-site
+        ``.pth`` (the 2026-09-05 escape); ``--target`` and in-venv installs
+        are unaffected.
     """
     env = dict(os.environ if base is None else base)
     for key in list(env):
         if key in _VCS_CRED_ENV_KEYS or key.startswith(("GH_", "GITHUB_")):
             env.pop(key, None)
     env["PYTHONSAFEPATH"] = "1"
+    env["PIP_USER"] = "0"
     return env
 
 
