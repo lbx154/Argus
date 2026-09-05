@@ -46,7 +46,7 @@ _COPILOT_HOME_DIR = "copilot-home"
 # Behaviour lives in these; a home without them would silently run with Copilot
 # defaults instead of the operator's settings.
 _SEEDED_CONFIG_FILES = ("config.json", "settings.json", "permissions-config.json")
-_AUTH_CONFIG_KEYS = ("copilotTokens", "loggedInUsers", "lastLoggedInUser")
+_AUTH_CONFIG_KEYS = ("copilotTokens", "authTokens", "loggedInUsers", "lastLoggedInUser")
 _CONFIG_HEADER = (
     "// User settings belong in settings.json.\n"
     "// This file is managed automatically.\n"
@@ -183,7 +183,12 @@ def _write_managed_config(path: Path, value: dict[str, object]) -> bool:
 
 
 def _sync_operator_auth(personal: Path, target: Path) -> bool:
-    """Mirror login identity into the isolated home without copying state."""
+    """Mirror login identity into the isolated home without copying state.
+
+    Replace each auth field whole, including newer ``authTokens`` account maps.
+    Merging would retain removed accounts or expired token metadata; a field
+    absent from the operator config must also disappear from the isolated home.
+    """
     source = _read_managed_config(personal)
     current = _read_managed_config(target)
     if source is None or current is None:
