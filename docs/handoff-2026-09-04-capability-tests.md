@@ -822,3 +822,28 @@ secret scans past the size cap")推到 main。
 四处(`_planner_orchestration.py:21` 隔离窗口、`research_contract.py:239`
 evidence 截断、`task_frontier.py:55/:158` 上限规整、`secret_guard.py:187`
 32 MiB 覆盖缺口)已标注 done(2026-09-05,随本次提交)。
+
+### 部署记录(2026-09-05 UTC 14:06-14:12)
+
+- 运行时 `/data/v-boxiuli/argus-runtime-latest` 已 fetch 并
+  `git checkout --detach d9b0c518b`(0377ebdc0 → d9b0c518b,worktree
+  clean)。
+- 四个 session daemon 逐个滚动重启(kill 旧 pid → 原 workdir setsid
+  重启 → 轮询 status 确认后再下一个),全部成功:
+  - s-72fa9517:3235314 → **264154**(started 14:06:14Z)
+  - s-3e28f79c:3237693 → **267726**(started 14:06:41Z)
+  - s-80c507d6:3239216 → **272132**(started 14:07:07Z)
+  - s-0b1c7fa1:3240272 → **279922**(started 14:07:32Z)
+  - 四者 status 均为 revision `d9b0c518b64b`、
+    `source_root_matches_config: true`。
+- ps 归属核查:四个 `argus-skill --web` 进程(709686:8799 父为
+  systemd --user;3280292:8800 与 3303448:8801 父为各自 papermaker
+  TUI 会话;3595390:8802 孤儿进程,cwd 已删除的 /tmp 目录)均**不是**
+  四个 session daemon 的子进程,滚动重启未触碰、未受影响。
+- 重启后观察约 5 分钟:四个项目 events.jsonl 各新增 145-213 条事件,
+  无 Traceback、无启动即退(s-72fa9517 中唯一 "Traceback" 命中是
+  agent 自身 rg 搜索模式串,非真实异常)。
+- s-3e28f79c 预期的两个新隔离(planner task_skipped
+  category=recent_no_progress_failure)在观察窗口内尚未出现——需等
+  下一次 planner 选择周期,属正常;历史 task_skipped(cycle 2,旧
+  语义)仍在,留待后续巡检确认新事件落盘。
