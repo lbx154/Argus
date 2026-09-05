@@ -960,3 +960,19 @@ events.jsonl,滚动后的旧代不可见。
 `_core.py:1302` 回执 lookback、`_planning_cycle_enqueue.py:90`
 forward-progress lookback、`memory.py:592` tail 默认值、`memory.py:2354`
 recency_n)已标注 done(2026-09-05,随本次提交)。
+
+### 部署记录(批四,2026-09-05)
+
+- `/data/v-boxiuli/argus-runtime-latest` fetch 后 `git checkout --detach
+  e48e5573d553db7a73030a6ccdc507f9ffdb4dd3`(自 d9b0c518b),工作树干净。
+- 四个 daemon 逐个滚动重启(kill 前均 ps 核对命令行,等退出后在各自
+  workdir 以 setsid nohup 重启,轮询 daemon.status.json 至 alive 且
+  revision==e48e5573d553、source_root_matches_config==true,一个成功再
+  下一个):
+  - s-72fa9517(argus-iclr-observation-v2/run-08):264154 → 714762
+  - s-3e28f79c(ai-research-open-20260902):267726 → 716049
+  - s-80c507d6(argus-capability-tests/write-01):272132 → 719950
+  - s-0b1c7fa1(argus-capability-tests/idea-01):279922 → 722025
+- 重启后等 3 分钟抽查:四进程均存活,各 events.jsonl 尾部 200 行零
+  Traceback,事件持续写入(engineer.progress / usage.recorded /
+  budget.reservation.settled 等),无启动即退。
