@@ -664,3 +664,26 @@ handling")推到 main。
 `docs/audits/magic-hyperparameters-adaptive-followups.md` 里已完成的
 两条(`_constants.py:35` 重规划窗口、`_planning_context.py:1409`
 等待节奏复用)已标注 done(2026-09-05,随本次提交)。
+
+### 部署记录(2026-09-05 下午)
+
+- runtime:/data/v-boxiuli/argus-runtime-latest 已 fetch 并
+  `checkout --detach 0377ebdc0bf18e261f716f6ca025c889c57d91b0`,
+  依赖未变,venv 复用。
+- 四个主守护进程逐个滚动重启(读 status 取 pid/workdir → ps 核对
+  命令行 → kill 等退出 → 原 workdir setsid nohup 以 venv argus
+  --resume 重启),新 status 均 alive、revision==0377ebdc0bf1、
+  source_root_matches_config==true:
+  - s-72fa9517:222557 → 3235314
+  - s-3e28f79c:261014 → 3237693
+  - s-80c507d6:269163 → 3239216
+  - s-0b1c7fa1:280295 → 3240272
+- 维护守护进程 pid 3554795(会话 5860caf309de)**未重启**:其
+  daemon.status.json 不含 command/argv 字段,无记录在案的可复用
+  resume 方式;ps 显示原始启动为 /home/v-boxiuli/.local/bin/argus
+  --daemon --continuous --bounded --objective <长文本>,无 --resume,
+  照原 argv 重跑会开新任务而非续接该会话,自造 --resume 调用不符合
+  既定判据,故按预案跳过。backlog.jsonl 中两张 paused_operator 决策卡
+  (690fb430f6b6、6062621ef4e9)只读核对仍在,status==paused_operator、
+  operator_decision.status==pending,未做任何改动。旧代码守护进程
+  3658737/3596321/3623289/3629391/409548 一律未动。
