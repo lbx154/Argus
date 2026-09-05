@@ -13,7 +13,6 @@ from argus_skill.verticals.research.paper_layout_review import (
     _parse_review_text,
     _vision_prompt,
 )
-
 from tests.skills.researched_venues import (
     EIGHT_PAGE_CONFERENCE,
     SEVEN_PAGE_CONFERENCE,

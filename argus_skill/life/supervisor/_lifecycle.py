@@ -11,9 +11,6 @@ from typing import Any
 
 from ...core.event_catalog import EventType
 from ..memory import BacklogItem
-from ._constants import (
-    LIFECYCLE_BLOCK_HEARTBEAT_SECONDS as _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS,
-)
 from ..project_lifecycle import (
     LifecycleEvent,
     ProjectState,
@@ -29,6 +26,9 @@ from ..project_lifecycle_io import (
 from ..project_lifecycle_io import append_event as _lifecycle_append_event
 from ..project_lifecycle_io import lifecycle_path as _lifecycle_path
 from ..project_lifecycle_io import load_persisted as _lifecycle_load_persisted
+from ._constants import (
+    LIFECYCLE_BLOCK_HEARTBEAT_SECONDS as _LIFECYCLE_BLOCK_HEARTBEAT_SECONDS,
+)
 
 log = logging.getLogger(__name__)
 

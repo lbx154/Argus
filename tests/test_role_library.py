@@ -29,7 +29,8 @@ def test_role_receives_path_without_matcher_call_or_content(tmp_path: Path) -> N
 
     assert str(root.resolve()) in result.block
     assert "PRIVATE BODY" not in result.block
-    assert "Your first action, before any repository tool" in result.block
+    assert "before repository work" in result.block
+    assert "make one native Skill decision" in result.block
     assert backend.history == []
 
 

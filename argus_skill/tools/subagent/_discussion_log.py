@@ -21,7 +21,6 @@ except ImportError:  # pragma: no cover - non-POSIX fallback
 # only imports discussion mirroring lazily inside function bodies.
 from ._registry import _task_log_dir
 
-
 # ---------------------------------------------------------------------------
 # Transcript paths
 # ---------------------------------------------------------------------------

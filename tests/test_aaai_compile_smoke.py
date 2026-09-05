@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-
 _KIT_CANDIDATES = [
     os.environ.get("ARGUS_SKILL_AAAI_KIT", ""),
     "/tmp/aaaikit",

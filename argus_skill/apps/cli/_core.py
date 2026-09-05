@@ -1262,7 +1262,6 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         global_root=bundle.global_root,
     )
     chat_state["_frontdoor_credential_imported"] = credential is not None
-    _front_door_classify(bundle, question, chat_state)
     runner = _ensure_manager_runner(chat_state, bundle)
     if runner is None:
         reason = str(chat_state.get("manager_runner_error") or "").strip()
@@ -1272,6 +1271,12 @@ def _cmd_ask(args: argparse.Namespace) -> int:
             + " — nothing was queued\n"
         )
         return 1
+    _front_door_classify(
+        bundle,
+        question,
+        chat_state,
+        ensure_runner=lambda _state, _bundle: runner,
+    )
     operator_context, _revision = build_operator_context_block(
         "manager", bundle.project.root, consume_once=False
     )

@@ -25,8 +25,8 @@ from ..core.session import (
     normalize_session_name,
     read_session_meta,
     resolve_session_workdir,
-    session_workdir_is_bound,
     session_lifecycle_lock,
+    session_workdir_is_bound,
     update_session_meta,
     write_session_meta,
 )

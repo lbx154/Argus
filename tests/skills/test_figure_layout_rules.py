@@ -16,7 +16,6 @@ from argus_skill.verticals.research.paper_layout_review import (
     _vision_prompt,
 )
 from argus_skill.verticals.research.venue_profiles import VenueProfile
-
 from tests.skills.researched_venues import (
     EIGHT_PAGE_CONFERENCE,
     SEVEN_PAGE_CONFERENCE,
