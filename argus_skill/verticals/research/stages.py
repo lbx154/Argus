@@ -191,7 +191,13 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "The manuscript, bibliography, figures, included source files, and rendered "
                 "output are present, mutually consistent, and compile under the selected "
-                "venue's current official rules. Final scientific review, strict visual "
+                "venue's current official rules. Method pipelines use an editable SVG "
+                "grounded in the manuscript and executed code, compact horizontal and "
+                "staggered geometry, Times New Roman, and an included vector PDF export. "
+                "Reuse a suitable existing figure; draw only when needed. Default PDF "
+                "placement is after Introduction, preferably on page 2 or 3, subject to "
+                "the author kit and actual Introduction length. "
+                "Final scientific review, strict visual "
                 "inspection, and academic-language polishing happen only in Review."
             ),
             evidence_hint="paper/main.tex, rendered output, bibliography, figures, and includes",
@@ -267,7 +273,10 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "scale. Any visible overlap, clipping, overflow, connector penetration, "
                 "wrong arrow, unreadable label, malformed table, misleading plot, abnormal "
                 "whitespace, broken float placement, or inconsistent typography blocks "
-                "acceptance. The whole paper must look publication-ready."
+                "acceptance. Method pipelines must match the manuscript and executed "
+                "code, with compact horizontal, staggered SVG geometry, Times New Roman, "
+                "and a legible included vector export. A successful render alone is not "
+                "visual acceptance. The whole paper must look publication-ready."
             ),
             evidence_hint="the complete rendered paper and all included figures and tables",
         ),

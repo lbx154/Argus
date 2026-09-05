@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1560 982">
+<title>Argus: campaign control, reviewed execution and reusable domain knowledge</title>
+<desc>Based on the current Argus implementation and technical report. The Manager commits intent and stage policy; the Planner defines bounded tasks and dependencies; LifeSupervisor schedules durable missions. The Engineer uses real tools and produces artifacts for an independent Reviewer. Outcomes return to campaign scheduling, while continue repairs the current mission and plan challenges go to the Manager. Shared Skill/Wiki memory, vertical contracts, runner backends and durable records support these roles. The Research vertical requires independent review and invokes SVG drawing only when Paper needs a figure.</desc>
+<defs>
+ <marker id="flow" markerWidth="8" markerHeight="8" refX="7.5" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0L8 4L0 8Z" fill="#344d62"/></marker>
+ <marker id="policy" markerWidth="8" markerHeight="8" refX="7.5" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0L8 4L0 8Z" fill="#77719b"/></marker>
+ <marker id="repair" markerWidth="8" markerHeight="8" refX="7.5" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0L8 4L0 8Z" fill="#a47033"/></marker>
+ <style>
+ text{font-family:'Times New Roman';font-size:27px;fill:#20394e}
+ .title{font-size:34px;font-weight:bold}
+ .sub{font-size:29px;font-weight:bold}
+ .role{font-size:27px;fill:#556c7c}
+ .flow{fill:none;stroke:#344d62;stroke-width:2;marker-end:url(#flow);stroke-linejoin:round}
+ .policy{fill:none;stroke:#77719b;stroke-width:1.8;stroke-dasharray:6 4;marker-end:url(#policy)}
+ .repair{fill:none;stroke:#a47033;stroke-width:2;marker-end:url(#repair);stroke-linejoin:round}
+ </style>
+</defs><g id="pipeline-content">
+<text x="15" y="36" class="sub" text-anchor="start">Operator intent + authority</text>
+<path d="M213 48V77" class="flow" />
+<path d="M535 29H582" class="flow" />
+<text x="594" y="37" class="" text-anchor="start">Task / evidence</text>
+<path d="M827 29H874" class="policy" />
+<text x="886" y="37" class="" text-anchor="start">Policy / memory</text>
+<text x="1539" y="37" class="title" text-anchor="end">ARGUS</text>
+<rect x="14" y="80" width="458" height="184" rx="7" fill="#f0f4fa" stroke="#8ba6c0" />
+<path d="M15 135H471" stroke="#8ba6c0" stroke-width="1"/>
+<text x="34" y="119" class="title" text-anchor="start">Manager</text>
+<text x="452" y="117" class="role" text-anchor="end">CAMPAIGN</text>
+<rect x="34" y="148" width="202" height="99" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="135.0" y="181" class="sub" text-anchor="middle">Intent</text>
+<text x="135.0" y="213" class="" text-anchor="middle">Goal contract</text>
+<text x="135.0" y="243" class="" text-anchor="middle">Constraints</text>
+<rect x="250" y="148" width="202" height="99" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="351.0" y="181" class="sub" text-anchor="middle">Stage policy</text>
+<text x="351.0" y="213" class="" text-anchor="middle">Vertical / scope</text>
+<text x="351.0" y="243" class="" text-anchor="middle">Admit / advance</text>
+<rect x="518" y="80" width="458" height="184" rx="7" fill="#f0f4fa" stroke="#8ba6c0" />
+<path d="M519 135H975" stroke="#8ba6c0" stroke-width="1"/>
+<text x="538" y="119" class="title" text-anchor="start">Planner</text>
+<text x="956" y="117" class="role" text-anchor="end">NEXT WORK</text>
+<rect x="538" y="148" width="184" height="99" rx="5" fill="white" stroke="#bbc8d2" />
+<rect x="559" y="196" width="37" height="33" rx="3" fill="#f0f4fa" stroke="#9ab0c2" />
+<text x="577.5" y="221" class="" text-anchor="middle">1</text>
+<rect x="662" y="150" width="37" height="33" rx="3" fill="#f0f4fa" stroke="#9ab0c2" />
+<text x="680.5" y="175" class="" text-anchor="middle">2</text>
+<rect x="662" y="196" width="37" height="33" rx="3" fill="#f0f4fa" stroke="#9ab0c2" />
+<text x="680.5" y="221" class="" text-anchor="middle">3</text>
+<path d="M596 214H633V168H660" class="flow" />
+<path d="M633 214H660" class="flow" />
+<text x="553" y="178" class="" text-anchor="start">Tasks</text>
+<rect x="738" y="148" width="218" height="99" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="847.0" y="181" class="sub" text-anchor="middle">Bounded task</text>
+<text x="847.0" y="213" class="" text-anchor="middle">Scope + evidence</text>
+<text x="847.0" y="243" class="" text-anchor="middle">Next action</text>
+<rect x="1022" y="80" width="522" height="184" rx="7" fill="#edf3f3" stroke="#93adad" />
+<path d="M1023 135H1543" stroke="#93adad" stroke-width="1"/>
+<text x="1042" y="119" class="title" text-anchor="start">LifeSupervisor</text>
+<text x="1524" y="117" class="role" text-anchor="end">RUNTIME</text>
+<rect x="1042" y="148" width="218" height="99" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="1151.0" y="181" class="sub" text-anchor="middle">Backlog</text>
+<text x="1151.0" y="213" class="" text-anchor="middle">Claim / execute</text>
+<text x="1151.0" y="243" class="" text-anchor="middle">Settle / resume</text>
+<rect x="1274" y="148" width="250" height="99" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="1399.0" y="181" class="sub" text-anchor="middle">Budget + lifecycle</text>
+<text x="1399.0" y="213" class="" text-anchor="middle">Pause / recovery</text>
+<text x="1399.0" y="243" class="" text-anchor="middle">Mission boundaries</text>
+<path d="M472 183H516" class="flow" />
+<path d="M976 183H1020" class="flow" />
+<path d="M1044 264V296H219V328" class="flow" />
+<rect x="472" y="278" width="330" height="33" rx="0" fill="white" stroke="none" />
+<text x="637.0" y="303" class="" text-anchor="middle">One bounded mission</text>
+<path d="M1250 330V266" class="flow" />
+<text x="1280" y="303" class="" text-anchor="start">Outcome</text>
+<rect x="14" y="330" width="742" height="283" rx="7" fill="#eef5f7" stroke="#91acba" />
+<path d="M15 385H755" stroke="#91acba" stroke-width="1"/>
+<text x="34" y="369" class="title" text-anchor="start">Engineer</text>
+<text x="736" y="367" class="role" text-anchor="end">EXECUTION</text>
+<text x="34" y="414" class="" text-anchor="start">Executes work; self-review only if policy allows</text>
+<rect x="34" y="435" width="218" height="113" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="143.0" y="468" class="sub" text-anchor="middle">Implement</text>
+<text x="143.0" y="500" class="" text-anchor="middle">Code + configs</text>
+<text x="143.0" y="530" class="" text-anchor="middle">Training / eval</text>
+<rect x="270" y="435" width="218" height="113" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="379.0" y="468" class="sub" text-anchor="middle">Tools + workers</text>
+<text x="379.0" y="500" class="" text-anchor="middle">Shell / GPU</text>
+<text x="379.0" y="530" class="" text-anchor="middle">Durable subagents</text>
+<rect x="506" y="435" width="230" height="113" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="621" y="468" class="sub" text-anchor="middle">Artifacts + checks</text>
+<rect x="522" y="485" width="58" height="27" rx="2" fill="#f0f4f6" stroke="#a8bac6" />
+<path d="M530 494H570M530 502H561" stroke="#a0b2bf"/>
+<text x="551" y="539" class="" text-anchor="middle">Code</text>
+<rect x="590" y="485" width="58" height="27" rx="2" fill="#f0f4f6" stroke="#a8bac6" />
+<path d="M598 494H638M598 502H629" stroke="#a0b2bf"/>
+<text x="619" y="539" class="" text-anchor="middle">Rows</text>
+<rect x="658" y="485" width="58" height="27" rx="2" fill="#f0f4f6" stroke="#a8bac6" />
+<path d="M666 494H706M666 502H697" stroke="#a0b2bf"/>
+<text x="687" y="539" class="" text-anchor="middle">PDF</text>
+<path d="M252 491H268" class="flow" />
+<path d="M488 491H504" class="flow" />
+<rect x="34" y="563" width="702" height="33" rx="4" fill="#e3edf1" stroke="none" />
+<text x="385" y="588" class="" text-anchor="middle">Skill paths + Wiki · checkpoint · role session</text>
+<rect x="804" y="330" width="494" height="317" rx="7" fill="#eff5ef" stroke="#95af9a" />
+<path d="M805 385H1297" stroke="#95af9a" stroke-width="1"/>
+<text x="824" y="369" class="title" text-anchor="start">Reviewer</text>
+<text x="1278" y="367" class="role" text-anchor="end">INDEPENDENT</text>
+<text x="824" y="414" class="" text-anchor="start">Required or requested · read-only</text>
+<rect x="824" y="435" width="220" height="94" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="934.0" y="468" class="sub" text-anchor="middle">Inspect</text>
+<text x="934.0" y="500" class="" text-anchor="middle">Code + raw rows</text>
+<text x="934.0" y="530" class="" text-anchor="middle">Run evidence</text>
+<rect x="1058" y="435" width="220" height="94" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="1168.0" y="468" class="sub" text-anchor="middle">Judge</text>
+<text x="1168.0" y="500" class="" text-anchor="middle">Stage checklist</text>
+<text x="1168.0" y="530" class="" text-anchor="middle">Claim support</text>
+<rect x="824" y="549" width="454" height="47" rx="4" fill="#e0ecdf" stroke="#a1b89b" />
+<text x="1051" y="581" class="" text-anchor="middle">done · continue · blocked</text>
+<path d="M756 489H802" class="flow" />
+<rect x="1340" y="330" width="204" height="283" rx="7" fill="#f7f4ee" stroke="#bbad96" />
+<path d="M1341 385H1543" stroke="#bbad96" stroke-width="1"/>
+<text x="1360" y="369" class="title" text-anchor="start">Deliverables</text>
+<rect x="1402" y="428" width="96" height="89" rx="3" fill="#f1e9db" stroke="#b6a78d" />
+<rect x="1391" y="417" width="96" height="89" rx="3" fill="#faf6ee" stroke="#b6a78d" />
+<rect x="1380" y="406" width="96" height="89" rx="3" fill="white" stroke="#b6a78d" />
+<path d="M1393 426h63" stroke="#b8ad9c" stroke-width="2.5"/>
+<path d="M1393 441h58" stroke="#b8ad9c" stroke-width="2.5"/>
+<path d="M1393 456h64" stroke="#b8ad9c" stroke-width="2.5"/>
+<path d="M1393 471h45" stroke="#b8ad9c" stroke-width="2.5"/>
+<text x="1442" y="553" class="" text-anchor="middle">Reviewed</text>
+<text x="1442" y="584" class="" text-anchor="middle">artifacts</text>
+<path d="M1298 489H1338" class="flow" />
+<path d="M1080 647V677H390V615" class="repair" />
+<rect x="489" y="660" width="492" height="33" rx="0" fill="white" stroke="none" />
+<text x="735.0" y="685" class="" text-anchor="middle">continue: repair the current mission</text>
+<text x="1051" y="632" class="" text-anchor="middle" style="fill:#566f7b">Plan challenge → Manager</text>
+<path d="M108 710V615" class="policy" marker-start="url(#policy)"/>
+<text x="127" y="693" class="" text-anchor="start" style="fill:#77719b">Read / write</text>
+<path d="M1060 710V698H1240V649" class="policy" />
+<text x="1258" y="704" class="" text-anchor="start" style="fill:#77719b">Policy</text>
+<rect x="14" y="710" width="480" height="252" rx="7" fill="#f3f0f7" stroke="#aaa0bc" />
+<path d="M15 765H493" stroke="#aaa0bc" stroke-width="1"/>
+<text x="34" y="749" class="title" text-anchor="start">Skill + Wiki memory</text>
+<rect x="34" y="778" width="214" height="102" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="141.0" y="811" class="sub" text-anchor="middle">Skills</text>
+<text x="141.0" y="843" class="" text-anchor="middle">Procedures</text>
+<text x="141.0" y="873" class="" text-anchor="middle">Checklists</text>
+<rect x="264" y="778" width="210" height="102" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="369.0" y="811" class="sub" text-anchor="middle">Wiki</text>
+<text x="369.0" y="843" class="" text-anchor="middle">Facts + sources</text>
+<text x="369.0" y="873" class="" text-anchor="middle">Scope / limits</text>
+<rect x="34" y="898" width="440" height="45" rx="4" fill="#e9e3f0" stroke="#b6acc6" />
+<text x="254" y="929" class="" text-anchor="middle">Project → Vertical → Global</text>
+<rect x="530" y="710" width="548" height="252" rx="7" fill="#f5f1e8" stroke="#b6a37e" />
+<path d="M531 765H1077" stroke="#b6a37e" stroke-width="1"/>
+<text x="550" y="749" class="title" text-anchor="start">Vertical contracts</text>
+<text x="1058" y="747" class="role" text-anchor="end">PLUG-IN</text>
+<text x="550" y="798" class="" text-anchor="start">Research:</text>
+<rect x="550" y="814" width="68" height="44" rx="4" fill="white" stroke="#c1b298" />
+<text x="584.0" y="845" class="" text-anchor="middle">Idea</text>
+<rect x="643" y="814" width="140" height="44" rx="4" fill="white" stroke="#c1b298" />
+<text x="713.0" y="845" class="" text-anchor="middle">Experiment</text>
+<rect x="808" y="814" width="82" height="44" rx="4" fill="white" stroke="#c1b298" />
+<text x="849.0" y="845" class="" text-anchor="middle">Paper</text>
+<rect x="915" y="814" width="143" height="44" rx="4" fill="white" stroke="#c1b298" />
+<text x="986.5" y="845" class="" text-anchor="middle">Review</text>
+<path d="M618 836H641" class="flow" />
+<path d="M783 836H806" class="flow" />
+<path d="M890 836H913" class="flow" />
+<path d="M850 858V874" class="policy" />
+<rect x="550" y="876" width="508" height="39" rx="4" fill="#eaf2f7" stroke="#a2b9cd" />
+<text x="568" y="904" class="" text-anchor="start">Paper: SVG → PDF</text>
+<text x="1042" y="904" class="" text-anchor="end">on demand</text>
+<text x="804" y="947" class="" text-anchor="middle">Other domains: Math · Kernels · …</text>
+<rect x="1114" y="710" width="430" height="252" rx="7" fill="#f1f3f4" stroke="#a5b1b9" />
+<path d="M1115 765H1543" stroke="#a5b1b9" stroke-width="1"/>
+<text x="1134" y="749" class="title" text-anchor="start">Runtime + record</text>
+<rect x="1134" y="778" width="182" height="166" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="1225.0" y="811" class="sub" text-anchor="middle">Runners</text>
+<text x="1225.0" y="843" class="" text-anchor="middle">Per-role LLMs</text>
+<text x="1225.0" y="873" class="" text-anchor="middle">Agent CLIs</text>
+<text x="1225.0" y="903" class="" text-anchor="middle">Shell / GPU</text>
+<text x="1225.0" y="933" class="" text-anchor="middle">Job recovery</text>
+<rect x="1330" y="778" width="194" height="166" rx="5" fill="white" stroke="#bbc8d2" />
+<text x="1427.0" y="811" class="sub" text-anchor="middle">Durable state</text>
+<text x="1427.0" y="843" class="" text-anchor="middle">Events</text>
+<text x="1427.0" y="873" class="" text-anchor="middle">Checkpoints</text>
+<text x="1427.0" y="903" class="" text-anchor="middle">Role sessions</text>
+<text x="1427.0" y="933" class="" text-anchor="middle">Replay / resume</text>
+</g></svg>

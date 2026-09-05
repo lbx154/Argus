@@ -56,7 +56,9 @@ method-by-dataset-by-metric recital into every location.
 
 Every figure and table must carry a scientific claim. Figure 1 should explain
 the method or central mechanism. Table 1 should normally present the main
-quantitative result. Use readable publication-scale typography and conventional
+quantitative result. For a method pipeline, open `research-svg-pipeline.md` and
+draw the current code and paper as a compact, horizontal, staggered SVG with
+Times New Roman; include its vector PDF export. Use readable publication-scale typography and conventional
 axes, units, captions, and uncertainty. Package a caption as the question the
 figure answers, the necessary comparison conditions, the decisive exact number,
 and what that number establishes. The visual carries the complete matrix; the

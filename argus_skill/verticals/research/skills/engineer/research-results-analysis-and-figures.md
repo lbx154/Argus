@@ -23,7 +23,10 @@ figure sources, and final exports used by `paper/main.tex`.
 
 - Use the single SciencePlots/Matplotlib data-figure path for quantitative paper
   charts.
-- Use PPT Master, HTML/SVG, ECharts, Recharts, Vega, or FigureSpec for conceptual
+- Use Research SVG Pipeline (`research-svg-pipeline.md`) for method/architecture
+  pipelines: synthesize compact horizontal, staggered SVG from code and paper,
+  with Times New Roman and an included vector PDF.
+- Use PPT Master, HTML/SVG, ECharts, Recharts, Vega, or FigureSpec for other conceptual
   and interactive-source figures when appropriate.
 - Use real measured values, correct units, conventional axes, readable labels,
   and uncertainty when scientifically relevant.

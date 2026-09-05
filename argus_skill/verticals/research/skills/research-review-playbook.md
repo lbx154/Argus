@@ -48,6 +48,17 @@ claim-critical references without recursively inspecting history.
 All scientific, experiment, visual, and language defects are repaired inside
 Review. The stage never rolls back.
 
+For the method pipeline, compare the actual drawing against the executed code
+and manuscript: labels, branches, training/inference arrows and the highlighted
+mechanism must agree. Inspect its compact horizontal, staggered layout and Times
+New Roman at the included publication size. Inspect the existing PDF; do not
+invoke the drawing component merely because Review started. Default placement
+is after Introduction, preferably on page 2 or 3; fix float placement in LaTeX
+without redrawing. Reject surplus whitespace, unreadable
+labels, clipping and connector collisions; repair the editable SVG with
+`engineer/research-svg-pipeline.md` and regenerate the included PDF. A successful
+render or font check alone is not visual acceptance.
+
 Reject a paper that is technically compliant but unimportant, timid, visually
 unfinished, or organized around caveats instead of contribution. Do not demand
 defensive qualifications that the evidence does not require.
@@ -78,6 +89,7 @@ finding. Do not preload the table.
 | Scientific completeness is under review | `reviewer/academic-paper-peer-review-benchmark.md` | Judge contribution, evidence, and paper value |
 | A material claim or citation is disputed | `engineer/claims-evidence-audit.md` or `engineer/citation-audit.md` | Trace the claim to raw evidence or a primary source |
 | Visual quality needs venue calibration | `engineer/paper-exemplar-pdf-learning.md` | Compare the rendered paper with strong accepted work |
+| The method pipeline needs repair | `engineer/research-svg-pipeline.md` | Repair SVG fidelity, compact geometry, typography and the included PDF |
 | PDF-only argument and language are under review | `reviewer/venue-academic-language-review.md` | Judge evidence hierarchy and prose from the rendered paper without internal context |
 | Private implementation detail may have leaked | `engineer/paper-infrastructure-review.md` | Inspect the current paper for internal leakage |
 | A repaired paper needs venue compilation | `engineer/venue-format-preflight.md` | Recompile under the official author kit |

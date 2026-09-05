@@ -41,10 +41,11 @@ fits the paper's actual claim before drawing anything:
    and matched to the results charts. If a legend line cannot state what a
    color means, remove the color. Stay within about six categorical colors,
    color-blind safe, and legible in grayscale.
-5. Budget on-canvas text by role: a teaser carries almost no words; a pipeline
-   or contrast diagram stays under roughly a hundred — module names, symbols,
-   one short expression. Dense text is legitimate only when the text itself is
-   the evidence, as with verbatim prompts or trajectories.
+5. Budget on-canvas text by role and architectural depth: keep module labels
+   short, but expose the important internal components, interfaces, and feedback
+   in a complex system. Do not impose a fixed word cap that erases its mechanism.
+   Use compact nested groups and additional horizontal bands when needed;
+   preserve readable type and move explanatory prose into the caption.
 6. Where it helps comprehension, run one concrete example through the diagram —
    an actual input and its intermediate artifacts — rather than only abstract
    labels.
@@ -84,7 +85,8 @@ Decompose complex figures — build panels and modules separately, then compose.
 
 | Composition | Primary route |
 |---|---|
-| Pipeline strip, contrast diptych, lineage panels | Editable native objects through PPT Master; for a contrast diptych draw one diagram and apply the delta programmatically so the panels are guaranteed identical except the edit |
+| Pipeline strip or method architecture | Research SVG Pipeline (`research-svg-pipeline.md`): model-authored compact horizontal SVG grounded in code and paper, staggered geometry, Times New Roman, cropped vector PDF export |
+| Contrast diptych, lineage panels | Editable native objects through PPT Master; for a contrast diptych draw one diagram and apply the delta programmatically so the panels are guaranteed identical except the edit |
 | Panels of verbatim text (prompts, trajectories, rubrics) | HTML/CSS with inline SVG rendered headlessly to vector PDF — the only route with a real text-layout engine; verify the render visually since headless failures are silent |
 | Exact load-bearing topology, taxonomy trees | Graphviz for layout coordinates, restyled through SVG; or FigureSpec, Draw.io, browser SVG |
 | Results teaser | Matplotlib through Paper Chart Styling |

@@ -48,7 +48,12 @@ do not become the narrative.
 7. Resolve citations against primary sources and keep claims consistent with
    the executed code and raw results.
 8. Produce editable figure sources, publication-size exports, and a readable
-   rendered paper.
+   rendered paper. For the method pipeline, use `engineer/research-svg-pipeline.md`:
+   synthesize the drawing from the current manuscript and executed code, with
+   compact horizontal, staggered geometry and Times New Roman. Include its
+   vector PDF after Introduction, targeting page 2 or 3, and keep the editable
+   SVG source. Invoke the drawing component only when a figure is needed;
+   reuse an existing suitable figure across writing rounds and prose-only edits.
 9. Compile successfully with the selected venue's current rules.
 
 Paper performs normal authoring checks, not a separate scientific, visual,
@@ -80,6 +85,7 @@ task, then return here. Do not preload the table.
 | Strong paper structure or visual calibration is needed | `engineer/paper-exemplar-pdf-learning.md` | Study open-access Oral, Outstanding, or Best Papers |
 | A material citation is uncertain | `engineer/citation-audit.md` | Resolve and repair it from primary sources |
 | Data results need paper figures | `engineer/paper-chart-styling.md` | Produce consistent publication-size data charts |
+| A method pipeline or architecture overview is needed | `engineer/research-svg-pipeline.md` | Draw a compact horizontal SVG from code and paper, with Times New Roman |
 | A conceptual or method figure is needed | `engineer/research-visualization-router.md` | Select the faithful rendering route |
 | Figure 1 needs an editable composition | `engineer/paper-framework-figure-studio.md` | Build the conceptual figure and final export |
 | Compilation or venue structure is uncertain | `engineer/venue-format-preflight.md` | Compile against the official author kit |

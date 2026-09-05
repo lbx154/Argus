@@ -20,7 +20,8 @@ paragraph or table inside a figure environment does not count.
 | Need | Route |
 |---|---|
 | Any paper data/metric/result chart, including uncertainty or ablation | Matplotlib/SciencePlots through Paper Chart Styling |
-| Conceptual, method, architecture, or teaser figure | Paper Framework Figure Studio, normally editable native PPTX through PPT Master |
+| Method pipeline or architecture overview | Research SVG Pipeline: synthesize compact horizontal SVG from the current code and paper, with staggered layout and Times New Roman |
+| Other conceptual or teaser figure | Paper Framework Figure Studio; editable native PPTX through PPT Master when appropriate |
 | Exact load-bearing topology | FigureSpec, Draw.io, Graphviz, or browser SVG |
 | Rich browser composition | Self-contained HTML/CSS/SVG rendered with `research_visual_scripts/browser_render.py` |
 | Non-claim-bearing illustrative asset | image-2 only when configured; compose it inside an editable deterministic figure |
@@ -28,6 +29,15 @@ paragraph or table inside a figure environment does not count.
 Topology fidelity takes priority over decorative richness. A polished Figure 1
 does not need depth, icons, or decorative complexity. Never use generated image
 text or geometry for scientific labels, arrows, values, or branch conditions.
+
+For the default method-pipeline route, open `research-svg-pipeline.md` and use
+`python -m argus_skill.verticals.research.pipeline_figure`. The active model
+designs the SVG; the tool crops outside whitespace, verifies Times New Roman,
+and exports a vector PDF for the manuscript. Image-generation credentials and
+PPT software are unnecessary for this route.
+Use it only when the figure actually needs drawing; reuse an existing suitable
+SVG/PDF across rounds. Include the PDF after Introduction, preferably on page
+2 or 3; a LaTeX placement adjustment does not require redrawing the figure.
 
 ## Shared requirements
 

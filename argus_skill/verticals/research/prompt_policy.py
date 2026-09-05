@@ -256,6 +256,18 @@ def _engineer_fragment(
             context,
             _hardware_block_for_stage(stage),
             narrative_packaging,
+            (
+                "## On-demand method figure\n"
+                "Only when a method pipeline needs drawing, open "
+                "engineer/research-svg-pipeline.md and use "
+                "python -m argus_skill.verticals.research.pipeline_figure. "
+                "Reuse an existing suitable figure; do not invoke the component every "
+                "round or for prose-only edits. The current Engineer designs the SVG "
+                "from code and manuscript; no separate model call is needed. Include "
+                "the vector PDF after the Introduction, targeting page 2 or 3 in the "
+                "compiled paper, and keep the editable SVG source."
+                if stage == "paper" and not narrative_edit else ""
+            ),
             _narrative_editor_block() if narrative_edit else "",
             stage_policy,
         )

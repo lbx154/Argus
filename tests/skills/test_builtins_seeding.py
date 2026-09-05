@@ -59,6 +59,7 @@ RESEARCH_BASE_SKILLS = {
     "engineer/suspect-the-setup.md",
     "engineer/figure_spec_scripts/paper_chart_style.py",
     "engineer/paper-framework-figure-studio.md",
+    "engineer/research-svg-pipeline.md",
     "engineer/research-visualization-router.md",
     "engineer/research_visual_scripts/browser_render.py",
     "research-idea-playbook.md",
