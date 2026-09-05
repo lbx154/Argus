@@ -76,8 +76,13 @@ def _research_project_done_issue(
     journal_entries: list[Any],
     *,
     current_signature: str = "",
+    evidence_root: object | None = None,
 ) -> str:
-    """Require a current-target final Reviewer ``done`` before Planner success."""
+    """Require final review for the state's target and current execution files.
+
+    ``project_root`` owns the target contract; a daemon's manuscript may live
+    separately under ``evidence_root``.
+    """
     from ...core.research_contract import (
         research_target_contract,
         resolve_research_target_level,
@@ -100,8 +105,11 @@ def _research_project_done_issue(
     if target_contract.required and target_level is None:
         return "missing_research_target_level"
     target_set_at = resolve_research_target_set_at(project_root) or 0.0
+    candidate_root = Path(
+        str(evidence_root if evidence_root is not None else project_root)
+    )
     submission_candidate_exists = any(
-        (Path(str(project_root)) / relative).is_file()
+        (candidate_root / relative).is_file()
         for relative in ("paper/main.tex", "paper/main.pdf")
     )
     for entry in reversed(journal_entries):
@@ -133,13 +141,14 @@ def _research_project_done_issue(
                     from ..terminal_state import build_project_state_signature
 
                     current_signature = build_project_state_signature(
-                        project_root=Path(str(project_root)),
+                        project_root=candidate_root,
+                        state_root=Path(str(project_root)),
                     )
                 if certified_signature != current_signature:
                     continue
             manuscript_binding = extra.get("manuscript_snapshot")
             if (
-                (Path(str(project_root)) / "paper/main.tex").is_file()
+                (candidate_root / "paper/main.tex").is_file()
                 and not isinstance(manuscript_binding, dict)
             ):
                 continue
@@ -147,7 +156,7 @@ def _research_project_done_issue(
                 try:
                     from ...core.manuscript_snapshot import manuscript_review_status
 
-                    if manuscript_review_status(extra, project_root).get("status") != "current":
+                    if manuscript_review_status(extra, candidate_root).get("status") != "current":
                         continue
                 except Exception:  # noqa: BLE001 - unreadable binding fails closed
                     continue

@@ -324,6 +324,7 @@ class PlanningCycleCompletionMixin:
                 self._artifact_root(),
                 self.memory.journal.all(),
                 current_signature=self._final_submission_signature(),
+                evidence_root=self._project_workdir(),
             )
             if research_done_issue:
                 return reject_completion(

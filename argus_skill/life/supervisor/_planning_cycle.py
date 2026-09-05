@@ -427,6 +427,7 @@ class PlanningCycleMixin(
         from ...skills.stage_machine import current_stage
 
         root = Path(self._artifact_root())
+        candidate_root = Path(self._project_workdir())
         stage = current_stage(root).strip().lower()
         if not stage:
             return None
@@ -508,13 +509,13 @@ class PlanningCycleMixin(
                         or Path(
                             str(stage_review.get("project_root") or "")
                         ).resolve()
-                        != Path(root).resolve()
+                        != candidate_root.resolve()
                     ):
                         continue
                     manuscript_binding = stage_review.get("manuscript_snapshot")
                     try:
                         reviewed_at = float(stage_review.get("recorded_at") or 0.0)
-                        rendered_at = (root / "paper" / "main.pdf").stat().st_mtime
+                        rendered_at = (candidate_root / "paper" / "main.pdf").stat().st_mtime
                     except (OSError, TypeError, ValueError):
                         continue
                     if reviewed_at <= 0.0 or rendered_at > reviewed_at:
@@ -529,7 +530,7 @@ class PlanningCycleMixin(
 
                         if manuscript_review_status(
                             {"manuscript_snapshot": manuscript_binding},
-                            root,
+                            candidate_root,
                         ).get("status") != "current":
                             continue
                     except Exception:  # noqa: BLE001 - exact binding fails closed

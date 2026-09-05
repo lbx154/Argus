@@ -169,9 +169,10 @@ class PlanningCycleIntakeMixin:
         if (
             resolve_workflow_mode(artifact_root) != "direct"
             and _research_project_done_issue(
-            artifact_root,
-            self.memory.journal.all(),
-            current_signature=self._final_submission_signature(),
+                artifact_root,
+                self.memory.journal.all(),
+                current_signature=self._final_submission_signature(),
+                evidence_root=self._project_workdir(),
             )
         ):
             return ""

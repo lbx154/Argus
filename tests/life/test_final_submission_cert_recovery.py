@@ -16,9 +16,11 @@ from argus_skill.life.event_log import JsonlEventSink
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus_skill.life.supervisor._planning_cycle_helpers import (
+    _PlanCycleState,
     _research_project_done_issue,
 )
 from argus_skill.life.terminal_state import build_project_state_signature
+from argus_skill.planner import PlannerVerdict
 from argus_skill.skills.vertical_select import persist_vertical
 from argus_skill.verticals.research.review_purchase import (
     paper_review_purchase_defer_reason,
@@ -51,8 +53,11 @@ def _make_final_review(
     *,
     scope: str,
     bind_handoff: bool = False,
+    separate_roots: bool = False,
 ) -> tuple[LifeSupervisor, Path, BacklogItem]:
     project = tmp_path / "project"
+    life = tmp_path / "life"
+    state_root = life if separate_roots else project
     paper = project / "paper"
     paper.mkdir(parents=True)
     (paper / "main.tex").write_text("final source\n", encoding="utf-8")
@@ -61,13 +66,12 @@ def _make_final_review(
         "Decision: done\nThe final submission satisfies the review gate.\n",
         encoding="utf-8",
     )
-    persist_vertical(project, "research", research_target_level="exploratory")
-    state_path = project / ".argus" / "PIPELINE_STATE.json"
+    persist_vertical(state_root, "research", research_target_level="exploratory")
+    state_path = state_root / ".argus" / "PIPELINE_STATE.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     state["current_stage"] = "review"
     state_path.write_text(json.dumps(state), encoding="utf-8")
 
-    life = tmp_path / "life"
     memory = LifeMemory.open(life)
     sink = JsonlEventSink(None, life_dir=life, verbosity="full")
     supervisor = LifeSupervisor(
@@ -80,7 +84,7 @@ def _make_final_review(
             open_ended=True,
             final_certification_gate=True,
             project_worktree=project,
-            artifact_root=project,
+            artifact_root=state_root,
         ),
     )
     item = memory.backlog.add(
@@ -156,6 +160,80 @@ def _make_final_review(
     return supervisor, project, item
 
 
+@pytest.mark.parametrize("bind_handoff", [False, True])
+def test_certification_recovery_uses_separate_execution_workdir(
+    tmp_path: Path,
+    bind_handoff: bool,
+) -> None:
+    supervisor, project, _item = _make_final_review(
+        tmp_path,
+        scope="final_submission",
+        bind_handoff=bind_handoff,
+        separate_roots=True,
+    )
+    assert not (supervisor._artifact_root() / "paper" / "main.tex").exists()
+    assert not (project / ".argus" / "PIPELINE_STATE.json").exists()
+
+    assert supervisor._reconcile_reviewed_stage_empty_plan(None) == "complete"
+    assert supervisor._journal_has_final_certification() is True
+
+
+@pytest.mark.parametrize("completion_path", ["planner", "bounded"])
+@pytest.mark.parametrize("changed_path", ["paper/main.tex", "paper/main.pdf"])
+def test_completion_uses_separate_execution_workdir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    completion_path: str,
+    changed_path: str,
+) -> None:
+    supervisor, project, item = _make_final_review(
+        tmp_path,
+        scope="final_submission",
+        bind_handoff=True,
+        separate_roots=True,
+    )
+    # A final Reviewer/Manager settlement already exists. Only its consumption
+    # is under test here; no recovery or LLM stage decision is needed.
+    assert supervisor._emit({
+        "type": "life.mission.completed",
+        "item_id": item.id,
+        "scope": "final_submission",
+        "success": True,
+        "status": "done",
+        "final_submission_certified": True,
+        "final_submission_signature": supervisor._final_submission_signature(),
+        "manuscript_snapshot": manuscript_snapshot(project),
+    })
+    assert supervisor._journal_has_final_certification() is True
+    supervisor.config.final_certification_gate = False
+    if completion_path == "bounded":
+        from argus_skill.skills import vertical_select
+
+        supervisor.config.open_ended = False
+        monkeypatch.setattr(
+            vertical_select,
+            "vertical_has_current_completion_certificate",
+            lambda *_args: True,
+        )
+
+    def certification_consumed() -> bool:
+        if completion_path == "bounded":
+            return bool(supervisor._bounded_completion_reason())
+        state = _PlanCycleState(None)
+        state.verdict = PlannerVerdict(
+            project_done=True,
+            waiting=False,
+            new_tasks=[],
+            reason="The current final submission is independently certified.",
+        )
+        supervisor._pc_normalize_project_done(state)
+        return state.verdict.project_done
+
+    assert certification_consumed() is True
+    (project / changed_path).write_bytes(b"changed after certification\n")
+    assert certification_consumed() is False
+
+
 @pytest.mark.parametrize("changed_path", ["paper/main.tex", "paper/main.pdf"])
 def test_existing_final_review_closes_gate_without_repurchase(
     tmp_path: Path,
@@ -210,27 +288,35 @@ def test_bounded_review_cannot_be_recovered_as_final_certification(
     ) == "missing_exploratory_reviewer_certification"
 
 
+@pytest.mark.parametrize("separate_roots", [False, True])
 def test_legacy_review_rejects_pdf_changed_before_recovery(
     tmp_path: Path,
+    separate_roots: bool,
 ) -> None:
     supervisor, project, _item = _make_final_review(
         tmp_path,
         scope="final_submission",
+        separate_roots=separate_roots,
     )
     (project / "paper" / "main.pdf").write_bytes(b"changed before recovery")
 
     assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
     assert _research_project_done_issue(
-        project, supervisor.memory.journal.all()
+        supervisor._artifact_root(),
+        supervisor.memory.journal.all(),
+        evidence_root=project,
     ) == "missing_exploratory_reviewer_certification"
 
 
+@pytest.mark.parametrize("separate_roots", [False, True])
 def test_legacy_review_without_pdf_timing_proof_fails_closed(
     tmp_path: Path,
+    separate_roots: bool,
 ) -> None:
     supervisor, project, _item = _make_final_review(
         tmp_path,
         scope="final_submission",
+        separate_roots=separate_roots,
     )
     certificate_path = tmp_path / "life" / "stage-certificates.json"
     certificates = json.loads(certificate_path.read_text(encoding="utf-8"))
@@ -239,19 +325,24 @@ def test_legacy_review_without_pdf_timing_proof_fails_closed(
 
     assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
     assert _research_project_done_issue(
-        project, supervisor.memory.journal.all()
+        supervisor._artifact_root(),
+        supervisor.memory.journal.all(),
+        evidence_root=project,
     ) == "missing_exploratory_reviewer_certification"
 
 
 @pytest.mark.parametrize("changed_path", ["paper/main.tex", "paper/main.pdf"])
+@pytest.mark.parametrize("separate_roots", [False, True])
 def test_changed_candidate_is_rejected_before_certification_recovery(
     tmp_path: Path,
     changed_path: str,
+    separate_roots: bool,
 ) -> None:
     supervisor, project, _item = _make_final_review(
         tmp_path,
         scope="final_submission",
         bind_handoff=True,
+        separate_roots=separate_roots,
     )
     candidate = project / changed_path
     if candidate.suffix == ".pdf":
@@ -261,7 +352,9 @@ def test_changed_candidate_is_rejected_before_certification_recovery(
 
     assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
     assert _research_project_done_issue(
-        project, supervisor.memory.journal.all()
+        supervisor._artifact_root(),
+        supervisor.memory.journal.all(),
+        evidence_root=project,
     ) == "missing_exploratory_reviewer_certification"
 
 
