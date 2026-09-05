@@ -10,6 +10,27 @@
 > 本机完整恢复步骤、启动环境和论文复核记录见
 > `/data/v-boxiuli/argus-recovery-notes-20260905/HANDOFF.md`，接手时先读该文件。
 
+> **2026-09-05 晚（Claude 会话）四项框架修复已推 main，尚未部署：**
+> `803d5c7ea` 研究阶段不再因根目录 HANDOFF.md 缺失/过薄而保持（FuseHead 64 次
+> 阶段决策里 24 次是这个理由，实验阶段只跑了 97 分钟）；`e68bb88dd` 删除
+> `daemon/foreground_waits.py` 前台等待守卫（它把 Engineer 任何 ≥15 秒的 sleep
+> 连同 shell 子树 SIGTERM，FuseHead 391 次、run-08 278 次，每次一个白费回合）；
+> `904b855e2` planner 写了不存在的依赖键时改为丢弃该依赖、照常入队、发
+> `life.planner.dependency_dropped` 事件并在下一轮 planner 提示词里说明一次
+> （此前整批 DAG 被拒并 idle backoff，FuseHead 原样重复 27 次、run-08 17 次）；
+> `9e39270ba` 把面向模型的提示词、任务标题、拒绝理由里的 "gate" 措辞改成
+> 自然语言（它已经渗进 planner 任务 id 和 selected_idea 记录）。
+> 相关测试：tests/life、manager、planner、roles、skills、core、daemon 全绿
+> （除已知预存失败）。**FuseHead 当前跑在恢复 checkout `6cd6cf547`，共享
+> runtime 在 `600c013af`，都在这四个提交之前**；下次重启前把对应 checkout
+> `git checkout --detach` 到 `9e39270ba` 或更新。
+> 另外两点更正/未处理：本文"今日花费约 $1,148"实为 cost-control.jsonl
+> 自 08-28 起的累计（09-05 当天约 $111，FuseHead 当天 $7.9）；FuseHead 的
+> `selected_idea` 与工作区 `.argus/PIPELINE_STATE.json`（停在 09-03 的
+> build/in_progress）仍写着已被十次 plan replace 换掉的 CLDE 选题，而论文
+> 已是 8 核 CPU、Qwen2.5-0.5B 的 LM-head 筛选实验，端到端 0.957×，这一条
+> 需要操作员决定是否继续。
+
 > 独立交接文档,自包含:按本文即可开工,不必先读完 1000+ 行的
 > `docs/handoff-2026-09-04-capability-tests.md`(需要考证细节时再按节号回查)。
 
