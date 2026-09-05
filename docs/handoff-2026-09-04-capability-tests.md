@@ -281,7 +281,7 @@ vertical_task_policy 两个跳过点补上 `_record_filtered_task`,让"全部任
 承重保留)。分诊原则沿用操作者的判断:会杀死正常长任务的墙钟超时、把主观
 判断编码成数字的验收门槛、静默截断操作者或智能体沟通内容的上限,是最坏的
 一类,尽量删;防止模型无限烧钱的止损器(重规划次数上限、退避封顶、探测
-冷却)是承重的,保留。结果:233 处承重保留,102 处建议改自适应(留作后续),
+冷却)是承重的,保留。结果:285 处承重保留,129 处建议改自适应(留作后续,清单见 docs/audits/),
 28 处本次直接删除(实施中又顺手删了第 29 处:选题组合精简交接的
 9000 字符硬上限——去掉截断后它会让理由较长的合法交接直接崩溃)。
 
@@ -326,7 +326,71 @@ CLI 参数移除(仓库内无调用者)。单监督者模式下执行线程就�
 及两个单文件)全部通过;`tests/apps/test_cli_ask.py` 里有一个顺序相关的
 预存失败,在未改动的 checkout 上同样失败,与本次无关。
 
-**留作后续的 102 处"改自适应"**:典型如重规划连击的日志窗口 100 条(应按
+**留作后续的 129 处"改自适应"**:典型如重规划连击的日志窗口 100 条(应按
 条目 id 直接计数而非依赖日志密度)、空闲退避封顶被复用为无关的操作者等待
 再授权节奏(复用是问题,数值不是)。完整清单在审计输出里,按文件和类别
 可检索。
+
+## 十一、交接清单(2026-09-05 上午,本人工作到此为止,后续由他人接手)
+
+### 当前状态
+- GitHub main = `0f85d2c41`;四个守护进程(run-08 s-72fa9517、FuseHead s-3e28f79c、
+  write-01 s-80c507d6、idea-01 s-0b1c7fa1)均运行该版本,源码根
+  `/data/v-boxiuli/argus-runtime-latest`。
+- 审计原始数据:`docs/audits/magic-hyperparameters-2026-09-05.json`(442 条);
+  待办清单:`docs/audits/magic-hyperparameters-adaptive-followups.md`(129 条)。
+
+### 未完成的事(按重要性排序)
+
+1. **Argus 的自我维护机制会劫持启动器(最紧急,部署完整性风险)**。今天 01:39
+   一个维护任务(`~/.argus-skill/maintenance/pending/4211b892264d.json`)基于
+   b11101ab0 建了 worktree,01:44 执行 `pip install -e --user`,把
+   `~/.local/bin/argus` 重写为 `#!/usr/bin/python3.11` 并指向该 worktree。任何人
+   之后用 `~/.local/bin/argus` 重启守护进程,都会加载**旧代码**(我第一次重启就
+   中招)。该 worktree 里还有 6 个 `life/supervisor` 文件的未提交改动和一个新测试
+   `test_final_submission_cert_recovery.py`,像是在做"最终提交证书恢复"——我没动
+   它。需要决定:(a) 这份 WIP 合并还是丢弃;(b) 维护机制以后不许改写用户级
+   启动器,或者部署脚本固定使用 `argus-runtime-latest/.venv/bin/argus`;
+   (c) 它的测试在 HOME 被换成临时目录时找不到 portalocker,子进程立即失败但
+   `tests/test_math_lean_async.py:213` 的等待只查结果文件不查进程退出,每次白等
+   60 秒——这是它自己 venv 的问题,也是等待逻辑的问题。
+2. **29 处删除只跑了相关测试目录,没有完整全量**。全量跑被失控测试(见第十节
+   修复)和预存失败打断。接手人最好在一个依赖齐全的环境里跑一遍完整 `tests/`,
+   已知预存失败:`tests/apps/test_cli_ask.py` 两条(顺序相关,未改动版本同样失败)、
+   quant 系列(venv 缺依赖)、`tests/webapi/test_pairing.py`、`tests/test_role_library.py`。
+3. **看门狗语义变化需要在长运行中观察**(`_life_worker_run.py`)。单监督者模式下
+   执行线程就是主循环线程、永远存活,所以"任务返回后仍处于 running"不再由看门狗
+   兜底,只靠监督者错误路径清理和启动时孤儿回收。如果看到 backlog 里有长期
+   `running` 但没人在跑的条目,就是这里。
+4. **前门长消息现在一律投递**(`router.py`)。依据是聊天传输层 `chunk_html` 会分片;
+   如果某个传输通道不分片,超长 Manager 回复会在那儿失败——之前是静默丢弃,现在
+   会看到错误,这是有意的,但要盯一下。
+5. **监督者关切判定现在只看信号词**(`_normalize.py`)。措辞平静、不含任何信号词的
+   真实异常若跟在"无异常"前缀后会被清空,依赖 LLM 二次确认兜底。若发现该杀的
+   run 没被杀,检查 `_CONCERN_SIGNAL_TOKENS`。
+6. **评审输入哈希变了**(语言评审、基础设施评审去掉 threshold 字段),历史记录的
+   哈希不再可比;两个模块的 `--threshold` CLI 参数已删,仓库外脚本若用到会报错。
+7. **`daemon/config.py` 里仍有 3 / 72.0 两个字面量**作为它自己 dataclass 的默认值,
+   与 `LifeSupervisorConfig` 的默认值重复,本次未统一。
+8. **129 处"改自适应"**未动。优先级最高的几条:重规划连击的日志窗口 100(应按
+   条目 id 计数);空闲退避封顶被复用为操作者等待再授权节奏(拆开);各处"最近 N
+   条"窗口随日志密度失真。
+9. **烧钱家族四处修复的长运行验证**。单元测试和一次健康观察通过,但要看几天:
+   `events.jsonl` 里若再出现 `planner returned waiting instead of revision tasks`
+   或 `planner.start` 间隔稳定在 1-5 分钟且无 task_added,就是又冒头了。规划器的
+   等待输出目前不带 `wait_mode`(解析默认 poll)、`wake_on` 填的是作业名——若契约
+   轮询过密,考虑规范化。
+10. **run-08 的两件搁置事项**:把新颖性审计发现(PredictaBoard、QueRE、PromptEval、
+    PromptSET)注入 `inputs/` 需操作者确认;"Adjudicate" 任务目标引用了已删的
+    validator 模块——run-08 现已推进到 TICC/量化深度状态的新阶段,可能已无关。
+
+### 我的疑虑(诚实版)
+- 29 处删除由 12 个并行 agent 各用几分钟完成,我逐条审了 diff,但对每处的
+  下游消费者只做了 grep 级别的核实,没有逐一运行真实场景。风险最大的是第 3、4、5 条。
+- 我对 Argus 维护机制的了解仅限今天的取证,不知道它还会做什么(是否会在下次
+  重启时再把守护进程切回旧代码)。在弄清之前,每次重启后务必核对
+  `daemon.status.json` 的 `runtime.source_root` 和 `runtime.revision`。
+- 维护 worktree 基于 b11101ab0,若它完成后自行安装/部署,会把 0f85d2c41 的改动
+  盖掉。
+- 本文档第八至十节的修复思路都是从 run-08 一个项目的现场推出来的;其他项目的
+  规划器行为模式可能不同。
