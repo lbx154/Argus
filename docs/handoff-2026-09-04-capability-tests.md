@@ -509,3 +509,38 @@ quant 系列缺依赖已排除;第十一节列的 `tests/webapi/test_pairing.py`
   未动)。
 
 启动器本体的修复与重新部署记录见下一提交追加。
+
+### 部署记录(2026-09-05,`12ba2a8b7` 上线)
+
+- **启动器隔离**:被劫持的 user-site 安装整套 mv 进
+  `~/.local/share/argus-quarantine-2026-09-05/`(未 rm)。按 dist-info
+  RECORD 移的不止交办清单三样,而是该次安装拥有的全部文件:
+  `~/.local/bin/{argus,argus-doctor,argus-plugin-server,argus-skill}`、
+  site-packages 下的 `_editable_impl_argus_skill.pth`(指向
+  `~/.argus-skill/maintenance/worktrees/4211b892264d`)、
+  `argus_skill-0.1.1.dist-info/`、`argus_skill/`(仅 `_frontend` 资产,
+  但作为 namespace package 仍可被 import,不移则劫持不解)、
+  `argus_doctor.py` 及其 pyc。验证:`/usr/bin/python3.11 -c "import
+  argus_skill"` 报 `ModuleNotFoundError`。
+- **启动器重建**:`~/.local/bin/argus` 重写为两行 shim
+  (`#!/bin/sh` + `exec /data/v-boxiuli/argus-runtime-latest/.venv/bin/argus "$@"`),
+  `argus --help` 正常出 usage。
+- **knob 落盘**:`config.json` 先备份为
+  `~/.argus-skill/config.json.bak-2026-09-05`,再经
+  `normalize_cockpit_knob_value` + `write_persisted_knob` 写入
+  `ARGUS_SKILL_SOURCE_ROOT=/data/v-boxiuli/argus-runtime-latest`;
+  与备份 diff 仅多此一键(外加文件尾换行),既有键一字未动。
+- **runtime 切换**:`/data/v-boxiuli/argus-runtime-latest` fetch 后
+  detach 到 `12ba2a8b7`(自 `0f85d2c41`),依赖未变,venv 复用。
+- **四守护进程滚动重启**(逐个 kill → 原参数 `--daemon --backend
+  copilot --resume <sid> --resume-continuous` 从各自 project_workdir
+  重起 → 轮询 status 核对),四个全部
+  `revision=12ba2a8b7b0c`、`source_root=configured_source_root=
+  /data/v-boxiuli/argus-runtime-latest`、`source_root_matches_config=true`:
+  - `s-72fa9517`(argus-iclr-observation-v2/run-08):74995 → 222557
+  - `s-3e28f79c`(ai-research-open-20260902):77837 → 261014
+  - `s-80c507d6`(argus-capability-tests/write-01):83390 → 269163
+  - `s-0b1c7fa1`(argus-capability-tests/idea-01):92077 → 280295
+- 未触碰:pid 3554795 / 3658737(第 5/6 个守护进程,含持有待批
+  operator 决策卡者)与 objective 守护进程 409548,事后 ps 确认三者
+  仍存活;两张 `paused_operator` 决策卡、maintenance worktrees 均未动。
