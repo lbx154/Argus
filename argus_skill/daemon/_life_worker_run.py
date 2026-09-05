@@ -271,17 +271,6 @@ class LifeWorkerRunMixin:
         if self._curator is not None:
             self._curator.start()
 
-        self._foreground_wait_guard = None
-        if rf_state.cfg.project_workdir:
-            from .foreground_waits import ForegroundWaitGuard
-
-            self._foreground_wait_guard = ForegroundWaitGuard(
-                project_workdir=Path(rf_state.cfg.project_workdir),
-                stop_event=self._stop,
-                on_event=rf_state.sink.handle_event,
-            )
-            self._foreground_wait_guard.start()
-
         # Protect a resumed running claim before the main loop reaches its first
         # supervisor call. The loop clears this guard as soon as that call
         # returns, which is the only point where executor-loss detection is safe.
@@ -412,13 +401,6 @@ class LifeWorkerRunMixin:
                 )
         finally:
             self._stop_running_stall_watcher()
-            foreground_wait_guard = getattr(
-                self,
-                "_foreground_wait_guard",
-                None,
-            )
-            if foreground_wait_guard is not None:
-                foreground_wait_guard.stop()
             if self._curator is not None:
                 self._curator.stop()
             if self._control_started_at_iso:
