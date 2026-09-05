@@ -57,7 +57,7 @@ do not become the narrative.
 9. Compile successfully with the selected venue's current rules.
 
 Paper performs normal authoring checks, not a separate scientific, visual,
-language, or whole-paper acceptance gate. Those happen together in Review.
+language, or whole-paper acceptance. Those happen together in Review.
 Limitations remain accurate and specific, but they do not dominate the title,
 abstract, introduction, or conclusion when the evidence supports a strong claim.
 

@@ -272,7 +272,7 @@ def build_steer_confirmation_prompt(text: str, *, active_mission: bool) -> str:
     """Render the second, mutation-only LLM gate for a proposed STEER."""
     return (
         "Decide whether the current operator message explicitly commands changing "
-        "the active mission. This is a mutation authorization gate, not general intent "
+        "the active mission. This is a mutation authorization check, not general intent "
         "classification.\n\n"
         "Return STEER only when ACTIVE_MISSION=YES and the message itself clearly "
         "orders a change to that mission's direction, priority, method, evidence, or "
@@ -780,7 +780,7 @@ def build_stage_decision_prompt(
             "itself is not evidence: inspect CHECKPOINT.md and the project artifacts "
             "against every applicable current-stage checklist item. You "
             "MAY ADVANCE when that evidence genuinely satisfies the stage; HOLD "
-            "otherwise. A final-submission or explicitly independent-review gate "
+            "otherwise. A final-submission or explicitly independent-review task "
             "still requires a real Reviewer checklist.\n"
         )
 

@@ -155,7 +155,7 @@ def test_concept_figures_leave_strict_acceptance_to_review() -> None:
 
     assert "editable native PPTX through PPT Master" in router
     assert "source and final included export" in router
-    assert "not a separate visual gate" in router
+    assert "not a separate visual check" in router
     assert "Create only the editable figure source and the final" in studio
     assert "Strict page-by-page visual acceptance happens once, in Review" in studio
     assert "visual-review\nfiles" in studio

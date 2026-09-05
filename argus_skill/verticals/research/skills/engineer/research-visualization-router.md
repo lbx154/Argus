@@ -68,6 +68,6 @@ An SVG output requires an SVG in the page; a CSS composition should export PDF
 rather than trigger `figure root contains no SVG`.
 
 Paper is responsible for complete figures and a successful manuscript compile,
-not a separate visual gate. During final Review, inspect every page and every
+not a separate visual check. During final Review, inspect every page and every
 figure at actual publication size; repair the source and rerender until the
 strict visual pass and integrated review accept the paper.

@@ -111,7 +111,7 @@ def _stage_playbook_block(stage: str) -> str:
         "## Authoritative stage playbook\n"
         f"Playbook: `{playbook}`. Open `{resolved}` before acting. It is "
         f"the single workflow playbook for `{stage}`. Other Skills are optional "
-        "tools: they cannot redefine the stage, completion gate, handoff, or "
+        "tools: they cannot redefine the stage, its completion bar, the handoff, or "
         "project-visible artifacts."
     )
 

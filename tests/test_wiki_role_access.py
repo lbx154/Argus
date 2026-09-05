@@ -103,4 +103,4 @@ def test_direct_workflow_planner_has_no_stage_gate(tmp_path: Path) -> None:
     assert "## Stage checklist" not in prompt
     assert "Downstream stages (LOCKED" not in prompt
     assert "## Current workflow stage" in prompt
-    assert "semantic context, not a hard gate" in prompt
+    assert "semantic context, not a hard boundary" in prompt

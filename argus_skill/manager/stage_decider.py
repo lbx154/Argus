@@ -488,7 +488,7 @@ def final_stage_completion_blockers(
             f"{_STAGE_POSITION_BLOCKER} ({order[-1]!r}); this "
             f"project is at {cur!r}. Advance through the remaining stages "
             f"({', '.join(order[order.index(cur) + 1:])}) instead — each one "
-            "runs its own completion gate on the way past"
+            "has its own completion bar on the way past"
         )
     blocker = str(completion_blocker or "").strip()
     if blocker:
@@ -500,9 +500,8 @@ def final_stage_completion_blockers(
     ):
         blockers.append(
             f"a mission scoped {mission_scope or '(unset)'!r} cannot close a "
-            f"{vertical or 'this'!r} project: its completion gate is "
-            "'certified', so only a 'final_submission' mission carries the "
-            "authority to end it"
+            f"{vertical or 'this'!r} project: its completion is certified, "
+            "so only a 'final_submission' mission carries the authority to end it"
         )
     missing = str(
         _review_certifies_completion(

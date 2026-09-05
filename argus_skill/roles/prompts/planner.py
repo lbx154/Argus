@@ -109,8 +109,9 @@ Current document:
 
 _EXTERNAL_TARGET_CONTRACT = (
     "## External-target optimization\n"
-    "Operator success / external gate outranks public/reference baseline, current "
-    "local incumbent, and secondary metrics. A material gate gap requires "
+    "The operator's success criterion or external scorer outranks public/reference "
+    "baseline, current local incumbent, and secondary metrics. A material shortfall "
+    "against that criterion requires "
     "primary-score work or a proven enabler; runtime, kernels, serialization, "
     "calibration, documentation, and status copying are secondary. Public "
     "task-specific papers, discussions, and source are allowed when operator "
@@ -124,7 +125,7 @@ _EXTERNAL_TARGET_CONTRACT = (
     "Every task needs "
     "`TASK_IMPACT_SCORE=1..5`, `TASK_IMPACT_AREA`, and `TASK_EVIDENCE`; reserve "
     "4-5 for direct target movement or a proven prerequisite. Controller "
-    "gate/feedback files are live truth."
+    "feedback files are live truth."
 )
 
 
@@ -513,7 +514,7 @@ def build_continuous_prompt(
             "## Current workflow stage\n"
             "## Direct workflow — objective first\n"
             f"`workflow_mode=direct`; `{stage}` is semantic context, not a mandatory "
-            "artifact phase. Treat it as semantic context, not a hard gate. This "
+            "artifact phase. Treat it as semantic context, not a hard boundary. This "
             "overrides the generic instruction to work only the "
             "active stage. Delegate the implementation, experiment, or "
             "verification that directly advances the operator objective, and "
@@ -530,7 +531,7 @@ def build_continuous_prompt(
             "## Current workflow stage\n"
             f"- current: `{stage}`\n"
             f"- sequence: {', '.join(_vstage_order) or '(none)'}\n"
-            "Treat the stage as semantic context, not a hard gate. Choose the most "
+            "Treat the stage as semantic context, not a hard boundary. Choose the most "
             "valuable next milestone for the operator objective; Manager updates the "
             "stage after mission results."
         )
@@ -584,7 +585,7 @@ def build_continuous_prompt(
         "## Immutable objective acceptance contract\n"
         "The operator's hard success criteria and explicit non-qualifying "
         "outcomes are acceptance constraints, not an optimization hint. The "
-        "current-stage gate controls ordering but never lowers those criteria. "
+        "current stage controls ordering but never lowers those criteria. "
         "Do not perform work whose acceptance can be satisfied entirely "
         "by an outcome the operator says does not count. Supporting searches, "
         "probes, computation, and literature work may be internal steps inside "
@@ -625,9 +626,9 @@ def build_continuous_prompt(
             "For the active vertical's final independent certification task, "
             "the Planner structured task must emit `scope:\"final_submission\"` "
             "(legacy key-value: `TASK_SCOPE=final_submission`) so the successful "
-            "Reviewer verdict can satisfy the final gate. Use `scope:\"bounded\"` "
+            "Reviewer verdict can close the final stage. Use `scope:\"bounded\"` "
             "for ordinary prerequisite work, and do not use final_submission for "
-            "verticals without a certified final-stage or research-target gate."
+            "verticals without a certified final stage or research target."
         )
 
     planner_hygiene_block = (

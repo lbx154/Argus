@@ -328,7 +328,7 @@ class PlanningCycleCompletionMixin:
             )
             if research_done_issue:
                 return reject_completion(
-                    "Research project completion gate held: "
+                    "Research project completion held: "
                     f"{research_done_issue}. A completed report or bounded cycle "
                     "does not satisfy the persisted research target.",
                     "research_target_incomplete",
@@ -341,7 +341,7 @@ class PlanningCycleCompletionMixin:
             if external_gate_issue:
                 return reject_completion(
                     f"Project completion held: {external_gate_issue}. The external "
-                    "controller alone owns this gate.",
+                    "controller alone decides it.",
                     "external_completion_gate_held",
                 )
 
@@ -355,7 +355,7 @@ class PlanningCycleCompletionMixin:
                 return reject_completion(
                     f"{goal_gate_task_title(self._artifact_root())}: "
                     f"{goal_gate_issue}. "
-                    "Planner project_done cannot replace the Goal Gate.",
+                    "Planner project_done cannot replace stage certification.",
                     "staged_goal_gate_incomplete",
                 )
 

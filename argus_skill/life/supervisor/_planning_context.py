@@ -967,7 +967,7 @@ class PlanningContextMixin:
             )
         elif prescribes_stage_closing:
             task_instruction = (
-                "The missing invariant is the current stage Goal Gate. Describe the "
+                "The missing invariant is the current stage's certified completion. Describe the "
                 "next executable verification task naturally; the Host will record "
                 "it as stage-closing work requiring independent review."
             )

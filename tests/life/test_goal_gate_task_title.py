@@ -67,7 +67,7 @@ def test_a_stage_read_that_raises_falls_back_to_the_generic_title(
     monkeypatch.setattr("argus_skill.skills.stage_machine.current_stage", _boom)
 
     assert goal_gate_task_title(tmp_path) == (
-        "Complete and certify the current Goal Gate"
+        "Finish and certify the current stage"
     )
 
 
@@ -79,7 +79,7 @@ def test_the_planner_uses_it(tmp_path: Path) -> None:
 
     source = inspect.getsource(_planning_cycle_completion)
     assert "goal_gate_task_title(" in source
-    assert 'title="Complete and certify the current Goal Gate"' not in source
+    assert 'title="Finish and certify the current stage"' not in source
 
 
 def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path) -> None:

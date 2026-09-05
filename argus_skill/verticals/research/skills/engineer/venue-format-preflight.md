@@ -20,7 +20,7 @@ do not infer rules from another conference.
   warnings.
 - Avoid material overflow and layout overrides forbidden by the author kit.
 - Every included figure and table has a caption, label, and reader-facing
-  reference. This is a completeness check, not the final visual gate.
+  reference. This is a completeness check, not the final visual inspection.
 
 Compile from the project root with the official toolchain. For LaTeX venues,
 prefer:

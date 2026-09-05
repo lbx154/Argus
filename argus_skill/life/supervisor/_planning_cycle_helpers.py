@@ -216,11 +216,11 @@ def _staged_goal_completion_issue(project_root: object) -> str:
                 "to restamp it"
             )
         return (
-            f"{vertical} final-stage Goal Gate is not Reviewer-certified "
+            f"{vertical} final stage is not Reviewer-certified "
             f"({detail}{f'; {reason}' if reason else ''}){remedy}"
         )
     except Exception:  # noqa: BLE001
-        return "staged Goal Gate could not be resolved"
+        return "staged completion could not be resolved"
 
 
 def goal_gate_task_title(project_root: object) -> str:
@@ -239,7 +239,7 @@ def goal_gate_task_title(project_root: object) -> str:
     return (
         f"Finish and certify the {stage} stage"
         if stage
-        else "Complete and certify the current Goal Gate"
+        else "Finish and certify the current stage"
     )
 
 

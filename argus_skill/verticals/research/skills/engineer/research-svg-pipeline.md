@@ -120,7 +120,7 @@ Default to inserting the **PDF** after the end of Introduction, with a top float
 on page **2 or 3**. Check the compiled PDF and adjust the float location in LaTeX
 if needed. Respect the actual Introduction length and author kit; do not add
 blank pages, force a page break or shrink text merely to hit a page number.
-This is a preferred placement, not an independent acceptance gate.
+This is a preferred placement, not an independent acceptance step.
 
 Adapt the caption to the actual paper and its drafting contract; use `figure*`
 if a two-column paper needs full width. Use the exported PDF for normal
