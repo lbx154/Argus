@@ -687,3 +687,138 @@ handling")推到 main。
   (690fb430f6b6、6062621ef4e9)只读核对仍在,status==paused_operator、
   operator_decision.status==pending,未做任何改动。旧代码守护进程
   3658737/3596321/3623289/3629391/409548 一律未动。
+
+## 十四、追加(2026-09-05 下午):交接后续项第三批
+
+承接第十三节,继续消化审计清单:规划器隔离的错误计量单位
+(`_planner_orchestration.py:21`)、evidence 12/500 静默削薄
+(`research_contract.py:239`)、frontier 记忆上限(`task_frontier.py:55/:158`)、
+secret_guard 的 32 MiB 覆盖缺口(`secret_guard.py:187`)。改动随本次提交
+("Time-base planner quarantine, unclip research evidence, and stream
+secret scans past the size cap")推到 main。
+
+### 本批落地的四件事
+
+1. **隔离存续改为时间与结算驱动**(`_planner_orchestration.py`、
+   `_constants.py`、`memory.py`)。原来 no_progress 隔离的寿命以
+   `journal.tail(20)` 原始条目计——journal 聊天密度决定隔离寿命:
+   chatty journal 几分钟就把隔离洗掉重烧已知死路,安静 journal 则近乎
+   永久隔离。现改三重界定:(a) 窗口经新的
+   `EventJournal.tail_settlements(n, kinds=...)` 只装
+   mission_failed / mission_complete 两类结算——paused_*(预算、供应商
+   冷却)与 iterated 的中性噪声不再占名额(现网 s-3e28f79c 约每小时一条
+   pause 结算,旧窗口下光噪声就能把失败挤出去);(b) 失败按墙钟 72 小时
+   上限老化(`PLANNER_QUARANTINE_MAX_AGE_HOURS`),安静 journal 不再
+   隔离到永远;(c) 释放只认 `mission_complete`——`mission_iterated`
+   从释放集合移除:requeue 是重新规划而不是完成,s-3e28f79c 曾靠
+   requeue 在 48 分钟内误放一个 no_progress 签名。三个参数均有 env
+   覆盖访问器(窗口 20 / 上限 72h / 释放 3 次成功)。
+
+2. **evidence/limitations 去编辑性截断**(`research_contract.py`)。
+   `normalize_research_result` 旧的 [:12] 条 / [:500] 字符静默削薄的是
+   认证科学记录本身(下游结项检查和 certified result 都建在它上面)。
+   现网分布实测 p99 = 9 条 / 365 字符,旧上限只真实触顶过 3 次——但
+   每次都吞掉了真实证据且无任何留痕。现删除编辑性截断,换成
+   `_bounded_result_list` 的响亮 sanity 护栏:200 条 / 10,000 字符,
+   正常记录逐字通过,病态输出(把整个日志文件塞进一条)截断并
+   `log.warning` 留痕;空串在计数之前过滤,不占预算。
+
+3. **frontier 死路径规整**(`task_frontier.py`)。审计点名的 80 条
+   累积上限与 100 条历史上限,核实为死路径:Reviewer prompt 有意不
+   请求 FRONTIER_* 行,现网所有持久化 frontier 的 transition_count
+   均为 0,上限们从未吃到过数据。本批不做自适应改造,只做规整:三处
+   魔数收成命名常量单一来源(`FRONTIER_TRANSITION_ITEM_LIMIT` /
+   `FRONTIER_CUMULATIVE_FIELD_LIMIT` / `FRONTIER_HISTORY_LIMIT`,注释
+   写明死路径现状),顺带修一处真实漂移:`from_mapping` 装载原来对每个
+   累积字段取最旧 80 条,而运行时 `_merge` 保最新 80 条——一次重启
+   状态就漂;现装载走同一 newest-tail(`_cumulative_texts`)。配三个
+   测试:驱逐方向、装载/运行时一致、上限单一来源。
+
+4. **secret_guard 流式化**(`secret_guard.py`、`round_signals.py`)。
+   32 MiB 不再是覆盖上限:其上的文本工件改为分块流式扫描(重叠段防
+   跨界匹配),硬护栏升到 4 GiB。配套原则:**skipped_paths 永不静默**
+   ——超硬护栏、单行超 carry 上限、时间预算耗尽、NUL 后现,一律记入
+   skipped_paths 并渲染进 SECURITY GUARD note("NOT scanned for
+   secrets: <文件 (大小)>. Inspect these files manually...")。要点:
+   NUL 嗅探只看文件头,修掉大 .ipynb(头部纯 JSON、尾部 base64 输出
+   触发旧的全文件 NUL 判定)既不扫也零留痕的洞;HF content-addressed
+   cache(`cache/huggingface` 或 `models--*` 等旗下的 `blobs/`)整树
+   剪枝,不再逐文件白扫(排除、不算 skip);每轮流式扫描共享 60 秒
+   时间预算(`_STREAMING_SCAN_TIME_BUDGET_SECONDS`),耗尽后剩余大
+   文件转 skipped_paths;单行无换行累积超 64 MiB 抛错跳过并留痕,
+   防单行超大文件 OOM;bearer 正则 `\s+` 改 `[ \t]+` 行内匹配(见
+   下文 F3)。
+
+### 评审发现与修复(F1-F8 择要)
+
+合入前过了一轮逐项评审,第一版上抓到八处,均已修复并配红/绿验证:
+
+1. **F1 — 流式 carry 重拼 O(n²)**。段迭代器每读一块就 `carry + chunk`
+   整体重拷,单行大文件把扫描拖成平方级且峰值内存约 2× 文件大小。
+   改 bytearray 原地 extend + `del buffer[:boundary]` 消费;无换行
+   累积超 64 MiB 抛 `_OversizedLineError`,记 "(oversized line)" 入
+   skipped_paths。实测 128 MiB 单行文件:0.15s、峰值 RSS 127 MiB。
+2. **F2 — 预算耗尽后其余候选静默消失**。文件数预算烧完即停 walk,
+   没扫的文件无任何留痕。现继续 walk,对其余候选(经同款便宜过滤:
+   symlink、git-changed、mtime)逐个记入 skipped_paths,50 条封顶后
+   追加 `("+N more files", 0)` 汇总项;round_signals 对 size=0 条目
+   不渲染 "0.0 MiB"。
+3. **F3 — bearer 模式跨换行,流式与内存路径结果不一致**。`\s+` 可
+   吃换行:裸 "bearer" 行 + 次行 token 在内存路径被 redact、在流式
+   (按行分段)路径漏掉。改 `[ \t]+` 行内匹配并注释行内不变量;语义
+   变化:该跨行形态从此任何路径都不 redact。修前红(两路径不一致)、
+   修后绿。
+4. **F4 — 流式重写吃掉 CRLF**。redact 后的段以裸 `\n` 结尾而原段是
+   `\r\n`,CRLF 文件被顺手改行尾;现还原 CRLF。
+5. **F5 — vault 已知值未过滤多行**。collect() 与 env 源不一致,多行
+   值在流式按行分段下永远匹配不上,白拖慢每次扫描;补
+   `"\n" not in obj` 过滤并注释换行对齐不变量。
+6. **F6 — 干净大文件也付一次全量重写**。`_scrub_streaming` 改两遍式:
+   第一遍只扫 + blake2b,零命中直接返回(干净大文件 1 次读、0 次写,
+   以 time_ns spy 证明不建 tmp);命中才第二遍重写 tmp,重写 digest
+   与扫描 digest 比对 + chmod 后第三次 recheck,并发防护语义保留。
+7. **F7 — 隔离窗口与释放语义定形**(上文第 1 件)。mission_iterated
+   误放与 pause 噪声占坑各有修前红测试
+   (tests/life/test_planner_quarantine_lifetime.py);memory 层新增
+   tail_settlements 的 kinds 过滤测试。
+8. **F8 — 两个 0 值方向相反**。MAX_AGE_HOURS=0 = 立即全过期 = 隔离
+   整体关闭;RELEASE_SUCCESSES=0 = 禁用释放 = 更强隔离。两个访问器
+   docstring 互相指认("Mind the direction"),`_constants.py` 模块
+   注释同步去掉 mission_iterated。
+
+### 运行时实测要点
+
+- 部署后,s-3e28f79c 现存的两个认证类任务签名将被新隔离约 59 小时
+  ——**属预期**:它们是真实的 no_progress 失败,72h 上限未到、窗口内
+  也没有 3 次 mission_complete,新语义下本就该继续隔离。
+- 对今日现网 journal 模拟:72h 墙钟上限今日零释放——换算法不会立即
+  放出任何现役隔离,无"释放风暴"。
+- 真实 36 MiB JSON(超旧 32 MiB 上限,修前整个跳过)流式扫描 10.3s,
+  在 60s 预算内,秘密命中与内存路径一致。
+
+### 测试
+
+- 指定套件(test_secret_guard / test_planner_quarantine_lifetime /
+  test_supervisor / test_memory / test_research_result_vocabulary /
+  test_task_frontier / test_process_stop_reaches_external_work_wait):
+  **168 passed**(round_signals 接线经 engineer/runner 由前后两个文件
+  覆盖)。
+- 扩面回归 tests/life + tests/core:1497 passed,1 skipped(既有
+  release-digest skip,与本次无关);test_event_format +
+  test_architecture_invariants:39 passed。
+- 全量 tests/:仅第十二节口径的 3 个已知预存失败,零新引入。
+
+### 残余知情项(诚实)
+
+- evidence 护栏防的是病态爆炸,不是累积:200 条 × 10,000 字符的极端
+  组合仍可能把 Manager prompt 顶过上下文——彼时走既有的 prompt 超限
+  软降级路径,不再是静默削证据,但值得知道上限组合没有硬性联动。
+- UTF-16 文本文件天然含 NUL 字节,按二进制嗅探跳过——现在会留痕于
+  skipped_paths,但依然不扫;如需覆盖要加编码探测。
+
+### 审计清单同步
+
+`docs/audits/magic-hyperparameters-adaptive-followups.md` 里本批完成的
+四处(`_planner_orchestration.py:21` 隔离窗口、`research_contract.py:239`
+evidence 截断、`task_frontier.py:55/:158` 上限规整、`secret_guard.py:187`
+32 MiB 覆盖缺口)已标注 done(2026-09-05,随本次提交)。

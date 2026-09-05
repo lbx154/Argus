@@ -37,6 +37,18 @@ PLANNER_DEDUP_STATUSES = frozenset({
     "done",
 })
 PLANNER_RECENT_FAILURE_STATUS = "no_progress"
+# The planner failure quarantine reasons over the last N mission SETTLEMENTS
+# (life.mission.completed events), not the last N journal entries of any kind,
+# so planner_cycle/planner_waiting chatter can never dilute the lookback. The
+# window is a safety bound on how far back the settlement scan reaches.
+PLANNER_QUARANTINE_SETTLEMENT_WINDOW = 20
+# A quarantined signature expires after this many hours regardless of journal
+# traffic, so a quiet journal no longer quarantines a task forever.
+PLANNER_QUARANTINE_MAX_AGE_HOURS = 72.0
+# This many successful settlements (mission_complete only — an iterated
+# mission was requeued, not finished) after a no-progress failure release its
+# signature from quarantine; 0 disables the success-release path.
+PLANNER_QUARANTINE_RELEASE_SUCCESSES = 3
 CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD = 3
 VERIFICATION_PROBE_AFTER_IDLE_CYCLES = 4
 MANAGER_RECONCILE_AFTER_IDLE_CYCLES = 4
@@ -78,6 +90,69 @@ def consecutive_replan_escalation_threshold() -> int:
     return CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD
 
 
+def planner_quarantine_settlement_window() -> int:
+    """How many recent mission settlements the failure quarantine scans.
+
+    Env-overridable via ``ARGUS_SKILL_PLANNER_QUARANTINE_SETTLEMENT_WINDOW``;
+    defaults to ``PLANNER_QUARANTINE_SETTLEMENT_WINDOW``.
+    """
+    raw = os.environ.get(
+        "ARGUS_SKILL_PLANNER_QUARANTINE_SETTLEMENT_WINDOW", ""
+    ).strip()
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            pass
+    return PLANNER_QUARANTINE_SETTLEMENT_WINDOW
+
+
+def planner_quarantine_max_age_hours() -> float:
+    """Hours after which a no-progress failure ages out of quarantine.
+
+    ``0`` makes every failure expire immediately — it switches the quarantine
+    OFF entirely. Mind the direction: this is the OPPOSITE of setting
+    ``planner_quarantine_release_successes`` to ``0``, which disables the
+    release path and therefore makes quarantine STRONGER.
+
+    Env-overridable via ``ARGUS_SKILL_PLANNER_QUARANTINE_MAX_AGE_HOURS``;
+    defaults to ``PLANNER_QUARANTINE_MAX_AGE_HOURS``.
+    """
+    raw = os.environ.get(
+        "ARGUS_SKILL_PLANNER_QUARANTINE_MAX_AGE_HOURS", ""
+    ).strip()
+    if raw:
+        try:
+            return max(0.0, float(raw))
+        except ValueError:
+            pass
+    return PLANNER_QUARANTINE_MAX_AGE_HOURS
+
+
+def planner_quarantine_release_successes() -> int:
+    """Successful settlements after a failure that release its quarantine.
+
+    Only ``mission_complete`` settlements count; iteration requeues do not.
+    ``0`` disables the success-release path — signatures then survive until
+    the wall-clock age-out, i.e. a STRONGER quarantine. Mind the direction:
+    this is the OPPOSITE of setting ``planner_quarantine_max_age_hours`` to
+    ``0``, which expires everything immediately and switches quarantine OFF.
+
+    Env-overridable via
+    ``ARGUS_SKILL_PLANNER_QUARANTINE_RELEASE_SUCCESSES``; defaults to
+    ``PLANNER_QUARANTINE_RELEASE_SUCCESSES``.
+    """
+    raw = os.environ.get(
+        "ARGUS_SKILL_PLANNER_QUARANTINE_RELEASE_SUCCESSES", ""
+    ).strip()
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            pass
+    return PLANNER_QUARANTINE_RELEASE_SUCCESSES
+
+
 __all__ = [
     "IDLE_BACKOFF_BASE_SECONDS",
     "IDLE_BACKOFF_CAP_SECONDS",
@@ -92,6 +167,12 @@ __all__ = [
     "PLAN_RETRY",
     "PLANNER_DEDUP_STATUSES",
     "PLANNER_RECENT_FAILURE_STATUS",
+    "PLANNER_QUARANTINE_SETTLEMENT_WINDOW",
+    "PLANNER_QUARANTINE_MAX_AGE_HOURS",
+    "PLANNER_QUARANTINE_RELEASE_SUCCESSES",
+    "planner_quarantine_settlement_window",
+    "planner_quarantine_max_age_hours",
+    "planner_quarantine_release_successes",
     "CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD",
     "consecutive_replan_escalation_threshold",
     "VERIFICATION_PROBE_AFTER_IDLE_CYCLES",

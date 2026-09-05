@@ -465,6 +465,13 @@ class EventJournal:
         r'"(?:type|canonical_type)"\s*:\s*"(?:user\.note|'
         r'mission\.(?:started|completed)|life\.(?:mission|planner|budget|lifecycle)\.[^"]+)"'
     )
+    # Mission settlements only. Retained histories carry both the canonical
+    # ``life.mission.completed`` spelling and the legacy ``mission.completed``
+    # alias, so the sparse fast paths must match either.
+    _SETTLEMENT_RAW_MARKERS = (b"mission.completed",)
+    _SETTLEMENT_RG_PATTERN = (
+        r'"(?:type|canonical_type)"\s*:\s*"(?:life\.)?mission\.completed"'
+    )
     _TOTAL_COST_CACHE_MAX_ENTRIES = 32
 
     def __init__(self, path: Path) -> None:
@@ -599,6 +606,55 @@ class EventJournal:
             raw_predicate=self._might_be_journal_event,
             raw_markers=self._RAW_EVENT_MARKERS,
             rg_pattern=self._RG_PATTERN,
+        )
+        return [
+            entry for row in events
+            if (entry := self._entry_from_event(row)) is not None
+        ]
+
+    def tail_settlements(
+        self,
+        n: int,
+        *,
+        kinds: Iterable[str] | None = None,
+    ) -> list[JournalEntry]:
+        """Last ``n`` mission-settlement entries across the whole journal.
+
+        Only ``life.mission.completed`` events occupy window slots: the
+        planner failure quarantine reasons over mission settlements, and its
+        lookback must not shrink because journal-level chatter (planner
+        cycles, waiting heartbeats) landed in between. When ``kinds`` is
+        given, only settlements whose projected :class:`JournalEntry` ``kind``
+        is in it occupy window slots — the failure quarantine passes exactly
+        its quarantine-or-release kinds so neutral settlements (budget or
+        provider pauses, iteration requeues) cannot evict an older failure
+        out of a threshold-sized window. Spans every retained rollover
+        generation and covers both the canonical spelling and the legacy
+        ``mission.completed`` alias.
+        """
+        if n <= 0:
+            return []
+        wanted = None if kinds is None else frozenset(kinds)
+
+        def _is_settlement(row: dict[str, Any]) -> bool:
+            etype = canonical_event_type(
+                row.get("canonical_type") or row.get("type")
+            )
+            if etype != EventType.LIFE_MISSION_COMPLETED:
+                return False
+            if wanted is None:
+                return True
+            # Derive the same kind projection the returned entries carry, so
+            # the filter and the caller reason about identical labels.
+            entry = self._entry_from_event(row)
+            return entry is not None and entry.kind in wanted
+
+        events = _read_jsonl_tail_history(
+            self.path,
+            n,
+            predicate=_is_settlement,
+            raw_markers=self._SETTLEMENT_RAW_MARKERS,
+            rg_pattern=self._SETTLEMENT_RG_PATTERN,
         )
         return [
             entry for row in events

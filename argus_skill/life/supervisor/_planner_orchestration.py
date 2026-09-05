@@ -5,9 +5,15 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import time
 from typing import Any
 
 from ._config import LifeSupervisorConfig
+from ._constants import (
+    planner_quarantine_max_age_hours,
+    planner_quarantine_release_successes,
+    planner_quarantine_settlement_window,
+)
 from ._helpers import (
     _entry_task_signature,
     _is_recent_no_progress_failure,
@@ -19,7 +25,22 @@ from ._subagent_family_failures import (
 
 log = logging.getLogger(__name__)
 
-_PLANNER_RECENT_HISTORY_WINDOW = 20
+# Settlement kinds that count as forward progress for quarantine release.
+# ``mission_iterated`` is deliberately NOT here: an iterated mission was
+# requeued — re-planned, not finished — and production run s-3e28f79c released
+# a no_progress signature after 48 minutes on the strength of requeues alone.
+# Only a genuinely completed mission proves the campaign can move forward.
+_QUARANTINE_RELEASE_SUCCESS_KINDS = frozenset({
+    "mission_complete",
+})
+# Only these settlement kinds occupy quarantine window slots: the failures the
+# quarantine reasons about plus the successes that release it. paused_* and
+# iterated settlements are neutral noise — production journals show one pause
+# settlement per hour (s-3e28f79c) — and must not evict a real failure out of
+# a fixed-size window.
+_QUARANTINE_WINDOW_KINDS = frozenset({"mission_failed"}) | (
+    _QUARANTINE_RELEASE_SUCCESS_KINDS
+)
 
 
 class PlannerOrchestrationMixin:
@@ -218,15 +239,38 @@ class PlannerOrchestrationMixin:
         )
 
     def _recent_no_progress_failures(self) -> dict[tuple[str, str], Any]:
-        """Return recent failed task signatures quarantined from replanning."""
+        """Return recent failed task signatures quarantined from replanning.
+
+        Quarantine survival is bounded three ways: the lookback spans only the
+        last N QUALIFYING settlements — mission_failed/mission_complete; the
+        paused_*/iterated chatter a live campaign emits hourly cannot dilute
+        the window — a failure ages out after a wall-clock maximum (a quiet
+        journal no longer quarantines forever), and enough genuinely completed
+        missions after the failure release it early (requeues do not count).
+        """
         try:
-            recent_entries = self.memory.journal.tail(_PLANNER_RECENT_HISTORY_WINDOW)
+            entries = self.memory.journal.tail_settlements(
+                planner_quarantine_settlement_window(),
+                kinds=_QUARANTINE_WINDOW_KINDS,
+            )
         except Exception:  # noqa: BLE001
             log.exception("life supervisor: failed to read recent journal for planner")
             return {}
+        max_age_seconds = planner_quarantine_max_age_hours() * 3600.0
+        release_after = planner_quarantine_release_successes()
+        now = time.time()
         matches: dict[tuple[str, str], Any] = {}
-        for entry in reversed(recent_entries):
+        successes_seen = 0
+        for entry in reversed(entries):
+            if now - entry.ts > max_age_seconds:
+                # Entries are chronological, so everything older has expired.
+                break
+            if entry.kind in _QUARANTINE_RELEASE_SUCCESS_KINDS:
+                successes_seen += 1
+                continue
             if not _is_recent_no_progress_failure(entry):
+                continue
+            if release_after > 0 and successes_seen >= release_after:
                 continue
             signature = _entry_task_signature(entry)
             if signature is None or signature in matches:

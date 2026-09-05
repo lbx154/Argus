@@ -62,6 +62,10 @@ def _apply_round_secret_guard(
             "scanned_files": report.scanned_files,
             "scan_errors": list(report.errors),
             "truncated": report.truncated,
+            "skipped_paths": [
+                {"path": path, "bytes": size}
+                for path, size in report.skipped_paths
+            ],
             "operator_alert": bool(report.errors or report.truncated),
         })
     lines = ["SECURITY GUARD (authoritative artifact hygiene):"]
@@ -72,10 +76,16 @@ def _apply_round_secret_guard(
             "- Files: " + ", ".join(report.redacted_paths),
             "- Revalidate dependent hashes or provenance before completion.",
         ))
-    if report.truncated:
+    if report.skipped_paths:
         lines.append(
-            "- Coverage incomplete: at least one recent text artifact exceeded "
-            "the live-scan size limit."
+            "- Coverage incomplete: NOT scanned for secrets: "
+            + ", ".join(
+                # Size-0 entries are summaries ("+N more files") or files
+                # whose stat failed; a "0.0 MiB" suffix would misread both.
+                f"{path} ({size / (1024 * 1024):.1f} MiB)" if size else path
+                for path, size in report.skipped_paths
+            )
+            + ". Inspect these files manually or split them before sharing."
         )
     if report.errors:
         lines.append("- Secret scan errors: " + "; ".join(report.errors))

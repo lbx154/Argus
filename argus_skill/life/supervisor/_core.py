@@ -95,10 +95,7 @@ from ._evolution import EvolutionMixin
 from ._idle_cycle import IdleCycleMixin, _idle_exit_seconds  # noqa: F401
 from ._lifecycle import LifecycleMixin
 from ._mission_execution import MissionExecutionMixin
-from ._planner_orchestration import (
-    _PLANNER_RECENT_HISTORY_WINDOW,  # noqa: F401
-    PlannerOrchestrationMixin,
-)
+from ._planner_orchestration import PlannerOrchestrationMixin
 from ._planner_rendering import PlannerRenderingMixin
 from ._planning_context import PlanningContextMixin
 from ._planning_cycle import PlanningCycleMixin

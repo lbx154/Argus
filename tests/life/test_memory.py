@@ -269,6 +269,122 @@ def test_event_journal_tail_for_item_spans_rollovers_and_truncates(
     assert journal.tail_for_item("", n=5) == []
 
 
+def test_event_journal_tail_settlements_skips_journal_chatter(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.jsonl"
+    _append_settlement_event(
+        path, item_id="aaaa1111bbbb", status="no_progress", success=False,
+        title="failed",
+    )
+    # Journal-level chatter between settlements must not occupy window slots:
+    # settlements from ANY item survive an arbitrarily talkative planner.
+    with path.open("a", encoding="utf-8") as fh:
+        for _ in range(30):
+            fh.write(json.dumps({
+                "type": "life.planner.waiting",
+                "ts": time.time(),
+                "reason": "waiting on external dependency",
+            }) + "\n")
+    _append_settlement_event(
+        path, item_id="cccc2222dddd", status="done", success=True, title="ok",
+    )
+
+    entries = EventJournal(path).tail_settlements(2)
+
+    assert [entry.title for entry in entries] == ["failed", "ok"]
+    assert [entry.kind for entry in entries] == ["mission_failed", "mission_complete"]
+
+
+def test_event_journal_tail_settlements_kinds_filter_owns_window_slots(
+    tmp_path: Path,
+) -> None:
+    """With ``kinds``, only matching settlements occupy window slots.
+
+    Mirrors ``tail_for_item``: the planner failure quarantine passes exactly
+    its quarantine-or-release kinds, so pause/requeue settlements cannot evict
+    an older failure out of a threshold-sized window.
+    """
+    path = tmp_path / "events.jsonl"
+    _append_settlement_event(
+        path, item_id="aaaa1111bbbb", status="no_progress", success=False,
+        title="failed",
+    )
+    # Neutral settlements: a budget pause and an iteration requeue.
+    _append_settlement_event(
+        path, item_id="bbbb2222cccc", status="paused_budget", success=False,
+        title="paused",
+    )
+    _append_settlement_event(
+        path, item_id="cccc3333dddd", status="done", success=True,
+        iteration={"requeued": True}, title="requeued",
+    )
+    _append_settlement_event(
+        path, item_id="dddd4444eeee", status="done", success=True, title="ok",
+    )
+
+    journal = EventJournal(path)
+    filtered = journal.tail_settlements(
+        2, kinds={"mission_failed", "mission_complete"}
+    )
+    unfiltered = journal.tail_settlements(2)
+
+    assert [entry.title for entry in filtered] == ["failed", "ok"]
+    assert [entry.kind for entry in filtered] == [
+        "mission_failed", "mission_complete",
+    ]
+    # Without the filter the same window is spent on the neutral noise.
+    assert [entry.title for entry in unfiltered] == ["requeued", "ok"]
+
+
+def test_event_journal_tail_settlements_spans_rollovers_and_truncates(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.jsonl"
+    # A different item per generation: the settlement tail is journal-wide,
+    # unlike tail_for_item.
+    for target, title, item_id in (
+        (path.with_suffix(".jsonl.2"), "oldest", "item2222aaaa"),
+        (path.with_suffix(".jsonl.3"), "older", "item3333bbbb"),
+        (path.with_suffix(".jsonl.1"), "recent", "item1111cccc"),
+        (path, "live", "item0000dddd"),
+    ):
+        _append_settlement_event(
+            target, item_id=item_id, status="no_progress", success=False,
+            title=title,
+        )
+
+    journal = EventJournal(path)
+    assert [entry.title for entry in journal.tail_settlements(10)] == [
+        "oldest", "older", "recent", "live",
+    ]
+    assert [entry.title for entry in journal.tail_settlements(2)] == [
+        "recent", "live",
+    ]
+    assert journal.tail_settlements(0) == []
+
+
+def test_event_journal_tail_settlements_reads_legacy_spelling(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.jsonl"
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "mission.completed",
+            "item_id": "legacy1111aa",
+            "ts": time.time(),
+            "success": False,
+            "status": "no_progress",
+            "title": "legacy settlement",
+            "summary": "no progress",
+        }) + "\n")
+
+    entries = EventJournal(path).tail_settlements(5)
+
+    assert [entry.title for entry in entries] == ["legacy settlement"]
+    assert entries[0].kind == "mission_failed"
+
+
 # ---------- Backlog --------------------------------------------------------
 
 def test_backlog_add_pending_order(tmp_path: Path) -> None:

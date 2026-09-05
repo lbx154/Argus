@@ -42,7 +42,23 @@ _REGRESSION_CHANGES = frozenset({
 })
 
 
-def _texts(value: Any, *, limit: int = 40) -> list[str]:
+# Stop-loss bounds against a runaway state file. The production path currently
+# feeds no data into them: the Reviewer prompt deliberately does not request
+# the FRONTIER_* lines, so every persisted frontier still has
+# transition_count == 0 (magic-hyperparameters audit 2026-09-05).
+# Items accepted per field from one Reviewer-authored transition.
+FRONTIER_TRANSITION_ITEM_LIMIT = 40
+# Items retained per cumulative field across transitions. Runtime merges and
+# from_mapping loads must both keep the newest tail so state does not drift
+# across a restart.
+FRONTIER_CUMULATIVE_FIELD_LIMIT = 80
+# Transition records retained in history.
+FRONTIER_HISTORY_LIMIT = 100
+
+
+def _texts(
+    value: Any, *, limit: int | None = FRONTIER_TRANSITION_ITEM_LIMIT
+) -> list[str]:
     if not isinstance(value, (list, tuple, set, frozenset)):
         return []
     return list(dict.fromkeys(
@@ -52,8 +68,18 @@ def _texts(value: Any, *, limit: int = 40) -> list[str]:
     ))[:limit]
 
 
-def _merge(existing: list[str], incoming: list[str], *, limit: int = 80) -> list[str]:
+def _merge(
+    existing: list[str],
+    incoming: list[str],
+    *,
+    limit: int = FRONTIER_CUMULATIVE_FIELD_LIMIT,
+) -> list[str]:
     return list(dict.fromkeys([*existing, *incoming]))[-limit:]
+
+
+def _cumulative_texts(value: Any) -> list[str]:
+    """Load one cumulative field, keeping the same newest tail _merge keeps."""
+    return _merge([], _texts(value, limit=None))
 
 
 @dataclass(frozen=True)
@@ -136,13 +162,13 @@ class TaskFrontier:
             objective=str(value.get("objective") or ""),
             invariants=_texts(value.get("invariants")),
             current_hypothesis=str(value.get("current_hypothesis") or ""),
-            artifacts=_texts(value.get("artifacts"), limit=80),
-            evidence=_texts(value.get("evidence"), limit=80),
-            resolved_obligations=_texts(value.get("resolved_obligations"), limit=80),
-            new_obligations=_texts(value.get("new_obligations"), limit=80),
-            regressed_obligations=_texts(value.get("regressed_obligations"), limit=80),
-            remaining_work=_texts(value.get("remaining_work"), limit=80),
-            proxy_changes=_texts(value.get("proxy_changes"), limit=80),
+            artifacts=_cumulative_texts(value.get("artifacts")),
+            evidence=_cumulative_texts(value.get("evidence")),
+            resolved_obligations=_cumulative_texts(value.get("resolved_obligations")),
+            new_obligations=_cumulative_texts(value.get("new_obligations")),
+            regressed_obligations=_cumulative_texts(value.get("regressed_obligations")),
+            remaining_work=_cumulative_texts(value.get("remaining_work")),
+            proxy_changes=_cumulative_texts(value.get("proxy_changes")),
             uncertainty=str(value.get("uncertainty") or ""),
             next_decision_point=str(value.get("next_decision_point") or ""),
             active_regression={
@@ -155,7 +181,7 @@ class TaskFrontier:
             transition_count=max(0, int(value.get("transition_count") or 0)),
             history=[
                 dict(item)
-                for item in (value.get("history") or [])[-100:]
+                for item in (value.get("history") or [])[-FRONTIER_HISTORY_LIMIT:]
                 if isinstance(item, dict)
             ],
             updated_at=float(value.get("updated_at") or 0.0),
@@ -222,7 +248,7 @@ class TaskFrontier:
             "regression": dict(self.active_regression),
             "recorded_at": time.time(),
         }
-        self.history = [*self.history, record][-100:]
+        self.history = [*self.history, record][-FRONTIER_HISTORY_LIMIT:]
         self.updated_at = record["recorded_at"]
         return record
 
@@ -264,6 +290,9 @@ def save_task_frontier(path: Path | str, frontier: TaskFrontier) -> None:
 
 __all__ = [
     "FRONTIER_CHANGES",
+    "FRONTIER_CUMULATIVE_FIELD_LIMIT",
+    "FRONTIER_HISTORY_LIMIT",
+    "FRONTIER_TRANSITION_ITEM_LIMIT",
     "RegressionEnvelope",
     "TASK_FRONTIER_VERSION",
     "TaskFrontier",

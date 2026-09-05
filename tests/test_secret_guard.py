@@ -290,13 +290,16 @@ def test_scrub_only_matches_known_secrets_in_project_huggingface_cache(
     recent = tmp_path / "response.headers"
     recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
 
+    # ``blobs/`` under a hub-layout repo dir is now excluded outright as a
+    # content-addressed cache; ``snapshots/`` stays on the known-secret-only
+    # path this test covers.
     cache_file = (
         tmp_path
         / "models"
         / "huggingface"
         / "hub"
         / "models--example--model"
-        / "blobs"
+        / "snapshots"
         / "upstream.json"
     )
     cache_file.parent.mkdir(parents=True)
@@ -652,10 +655,313 @@ def test_large_recent_text_artifact_surfaces_incomplete_coverage(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 8)
-    (tmp_path / "large.txt").write_text(
-        "x-api-key: response-secret-value\n",
+    monkeypatch.setattr(secret_guard, "_HARD_MAX_ARTIFACT_BYTES", 8)
+    payload = "x-api-key: response-secret-value\n"
+    (tmp_path / "large.txt").write_text(payload, encoding="utf-8")
+    events: list[dict] = []
+
+    report, reviewer_note = _apply_round_secret_guard(
+        workdir=tmp_path,
+        modified_since=time.time() - 5,
+        round_index=1,
+        round_max=10,
+        on_event=events.append,
+    )
+
+    assert report.skipped_paths == (("large.txt", len(payload)),)
+    assert report.truncated is True
+    assert "Coverage incomplete" in reviewer_note
+    assert f"large.txt ({len(payload) / (1024 * 1024):.1f} MiB)" in reviewer_note
+    assert events[0]["skipped_paths"] == [
+        {"path": "large.txt", "bytes": len(payload)}
+    ]
+    assert events[0]["operator_alert"] is True
+    # The guardrail skip must leave the artifact untouched.
+    assert (tmp_path / "large.txt").read_text(encoding="utf-8") == payload
+
+
+def test_oversized_ipynb_notebook_secret_is_scrubbed(tmp_path: Path) -> None:
+    # Regression: >32 MiB non-whitelisted suffixes (.ipynb) used to be skipped
+    # with zero trace. The streamed scan must now cover them at real size.
+    notebook = tmp_path / "analysis.ipynb"
+    secret = "ghp_" + "a" * 36
+    pad_line = '    "pad": "' + "x" * 118 + '",\n'
+    target = 33 * 1024 * 1024
+    with notebook.open("w", encoding="utf-8") as handle:
+        handle.write("{\n")
+        written = 0
+        while written < target:
+            handle.write(pad_line)
+            written += len(pad_line)
+        handle.write(f'    "leak": "{secret}"\n}}\n')
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+    )
+
+    assert report.redacted_paths == ("analysis.ipynb",)
+    assert report.skipped_paths == ()
+    assert report.truncated is False
+    rendered = notebook.read_text(encoding="utf-8")
+    assert secret not in rendered
+    assert "<REDACTED:github-token>" in rendered
+
+
+def test_streaming_scrub_redacts_secret_across_chunk_boundary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 64)
+    monkeypatch.setattr(secret_guard, "_STREAM_CHUNK_BYTES", 64)
+    artifact = tmp_path / "trace.ipynb"
+    content = (
+        "padding-line\n" * 4
+        + "x-api-key: chunk-straddling-secret-value\n"
+        + "trailer: ok\n"
+    )
+    artifact.write_text(content, encoding="utf-8")
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+    )
+
+    rendered = artifact.read_text(encoding="utf-8")
+    assert report.redacted_paths == ("trace.ipynb",)
+    assert "chunk-straddling-secret-value" not in rendered
+    assert "x-api-key: <REDACTED:secret>" in rendered
+    assert rendered.startswith("padding-line\n" * 4)
+    assert rendered.endswith("trailer: ok\n")
+
+
+def test_streaming_scrub_preserves_crlf_without_blank_lines(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 64)
+    monkeypatch.setattr(secret_guard, "_STREAM_CHUNK_BYTES", 64)
+    artifact = tmp_path / "response.html"
+    padding = b"<p>padding padding padding padding</p>\r\n" * 3
+    artifact.write_bytes(
+        padding
+        + b"x-api-key: live-crlf-secret-value\r\ncontent-type: text/plain\r\n"
+    )
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+        known_values=("live-crlf-secret-value",),
+    )
+
+    assert report.redacted_paths == ("response.html",)
+    assert artifact.read_bytes() == (
+        padding
+        + b"x-api-key: <REDACTED:known-secret>\r\ncontent-type: text/plain\r\n"
+    )
+
+
+def test_streaming_scrub_refuses_to_overwrite_concurrent_change(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    artifact = tmp_path / "large.log"
+    artifact.write_text(
+        "x-api-key: streamed-secret-value\nstatus: 200\n",
         encoding="utf-8",
     )
+    mode = artifact.stat().st_mode
+    real_chmod = secret_guard.os.chmod
+
+    def mutate_then_chmod(target, bits):
+        # Runs between the scanning pass and the recheck pass.
+        with artifact.open("ab") as handle:
+            handle.write(b"appended-after-scan\n")
+        real_chmod(target, bits)
+
+    monkeypatch.setattr(secret_guard.os, "chmod", mutate_then_chmod)
+
+    with pytest.raises(ArtifactChangedDuringScrubError):
+        secret_guard._scrub_streaming(artifact, mode)
+
+    assert b"streamed-secret-value" in artifact.read_bytes()
+
+
+def test_oversized_binary_artifact_is_sniffed_and_skipped(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 16)
+    weights = tmp_path / "model.bin"
+    payload = b"\x00\x01\x02" * 64
+    weights.write_bytes(payload)
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+    )
+
+    # A NUL in the head marks a binary artifact: quietly excluded from the
+    # text scrub, exactly like the in-memory whole-file NUL check.
+    assert report.redacted_paths == ()
+    assert report.skipped_paths == ()
+    assert report.errors == ()
+    assert weights.read_bytes() == payload
+
+
+def test_oversized_artifact_turning_binary_mid_stream_leaves_trace(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 1024)
+    mixed = tmp_path / "mixed.log"
+    payload = (
+        b"x-api-key: buried-secret-value\n"
+        + b"text line\n" * 900
+        + b"\x00binary tail"
+    )
+    assert b"\0" not in payload[: secret_guard._TEXT_SNIFF_BYTES]
+    mixed.write_bytes(payload)
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+    )
+
+    assert report.skipped_paths == (("mixed.log", len(payload)),)
+    assert report.truncated is True
+    assert mixed.read_bytes() == payload
+
+
+def test_scan_file_budget_exhaustion_is_reported_not_silent(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(secret_guard, "_MAX_SCANNED_FILES", 1)
+    (tmp_path / "a.txt").write_text("alpha: ok\n", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("beta: ok\n", encoding="utf-8")
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+    )
+
+    assert report.scanned_files == 1
+    assert len(report.skipped_paths) == 1
+    skipped_path, skipped_size = report.skipped_paths[0]
+    assert skipped_path in {"a.txt", "b.txt"}
+    assert skipped_size > 0
+    assert report.truncated is True
+
+
+def test_single_line_above_carry_cap_is_skipped_with_trace(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A newline-free oversized artifact must not OOM the streamed scan.
+
+    The carry used to be rebuilt as ``carry + chunk`` bytes objects, so a
+    single huge line was O(n^2) in memcpy and held twice its size in memory.
+    A line above the cap now aborts that file with a skipped_paths trace.
+    """
+    monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 1024)
+    monkeypatch.setattr(secret_guard, "_STREAM_CHUNK_BYTES", 1024)
+    monkeypatch.setattr(secret_guard, "_MAX_STREAM_LINE_BYTES", 4096)
+    artifact = tmp_path / "single_line.json"
+    payload = b'{"blob":"' + b"a" * (64 * 1024) + b'"}'  # 64 KiB, no newline
+    artifact.write_bytes(payload)
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+    )
+
+    assert report.skipped_paths == (
+        ("single_line.json (oversized line)", len(payload)),
+    )
+    assert report.truncated is True
+    assert report.redacted_paths == ()
+    assert artifact.read_bytes() == payload
+
+
+def test_scrub_excludes_hf_content_addressed_cache_trees(tmp_path: Path) -> None:
+    """HuggingFace content-addressed caches are immutable upstream bytes.
+
+    run-08's workspace carried 4.5 GiB of datasets blobs under
+    ``results/*/cache/huggingface/*/blobs/*``; scanning them burns the file
+    and time budgets for nothing. Both spellings — an adjacent
+    ``cache/huggingface`` pair at any depth and a ``blobs`` dir under a
+    hub-layout repo dir — are excluded outright, not surfaced as skips.
+    """
+    recent = tmp_path / "response.headers"
+    recent.write_text("x-api-key: new-secret-value\n", encoding="utf-8")
+    run_cache_blob = (
+        tmp_path / "results" / "run-08" / "cache" / "huggingface"
+        / "datasets" / "downloads" / "0a1b2c3d"
+    )
+    hub_blob = (
+        tmp_path / "outputs" / "hf_home" / "hub" / "datasets--org--corpus"
+        / "blobs" / "9f8e7d6c"
+    )
+    for blob in (run_cache_blob, hub_blob):
+        blob.parent.mkdir(parents=True)
+        blob.write_text(
+            "x-api-key: upstream-cache-header\n"
+            "download_auth=live-cache-secret-value\n",
+            encoding="utf-8",
+        )
+        blob.touch()
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+        known_values=("live-cache-secret-value",),
+    )
+
+    assert report.redacted_paths == ("response.headers",)
+    # Excluded rather than skipped: the cache is not a coverage gap to alert on.
+    assert report.skipped_paths == ()
+    assert report.scanned_files == 1
+    for blob in (run_cache_blob, hub_blob):
+        assert "live-cache-secret-value" in blob.read_text(encoding="utf-8")
+
+
+def test_streaming_time_budget_exhaustion_skips_remaining_large_files(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 64)
+    monkeypatch.setattr(
+        secret_guard, "_STREAMING_SCAN_TIME_BUDGET_SECONDS", 0.0
+    )
+    payload = "padding line of text\n" * 8
+    for name in ("large_a.log", "large_b.log"):
+        (tmp_path / name).write_text(payload, encoding="utf-8")
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+    )
+
+    # The spent time is compared strictly, so a zero budget still admits the
+    # first streamed scan; every further oversized artifact is surfaced.
+    assert report.scanned_files == 1
+    assert len(report.skipped_paths) == 1
+    skipped_path, skipped_size = report.skipped_paths[0]
+    assert skipped_path in {"large_a.log", "large_b.log"}
+    assert skipped_size == len(payload)
+    assert report.truncated is True
+
+
+def test_file_budget_exhaustion_enumerates_remaining_candidates(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Budget exhaustion used to record only the one file it stopped at."""
+    monkeypatch.setattr(secret_guard, "_MAX_SCANNED_FILES", 1)
+    line = "status: ok\n"
+    for index in range(60):
+        (tmp_path / f"file_{index:02d}.txt").write_text(line, encoding="utf-8")
 
     report, reviewer_note = _apply_round_secret_guard(
         workdir=tmp_path,
@@ -665,8 +971,132 @@ def test_large_recent_text_artifact_surfaces_incomplete_coverage(
         on_event=None,
     )
 
+    assert report.scanned_files == 1
+    # 59 unscanned candidates: 50 enumerated individually, 9 summarized.
+    assert len(report.skipped_paths) == 51
+    for path, size in report.skipped_paths[:-1]:
+        assert path.startswith("file_")
+        assert size == len(line)
+    assert report.skipped_paths[-1] == ("+9 more files", 0)
     assert report.truncated is True
-    assert "Coverage incomplete" in reviewer_note
+    assert "+9 more files" in reviewer_note
+    # The summary entry names a count, not a file; no "0.0 MiB" suffix.
+    assert "+9 more files (0.0" not in reviewer_note
+
+
+def test_bearer_redaction_is_line_local_and_stream_consistent(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """The bearer pattern must not span a newline (red before the fix).
+
+    ``bearer\\s+`` let the token half of a match start on the next line, so
+    the in-memory path redacted "bearer\\n<token>" while the newline-aligned
+    streamed path silently missed it whenever a segment boundary fell between
+    the two lines. All artifact patterns now match within a single line, so
+    both paths agree by construction.
+    """
+    monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 64)
+    monkeypatch.setattr(secret_guard, "_STREAM_CHUNK_BYTES", 64)
+    cross_line_token = "A" * 70
+    same_line_token = "B" * 24
+    content = (
+        "seed bearer\n"
+        + cross_line_token + "\n"
+        + f"auth bearer {same_line_token}\n"
+    )
+    artifact = tmp_path / "trace.log"
+    artifact.write_text(content, encoding="utf-8")
+
+    scrub_recent_text_artifacts(tmp_path, modified_since=time.time() - 5)
+    rendered = artifact.read_text(encoding="utf-8")
+
+    # The streamed result equals the in-memory redaction of the same text.
+    assert rendered == redact_secrets_text(content)
+    # Same-line bearer tokens are still redacted...
+    assert same_line_token not in rendered
+    assert "auth <REDACTED:token>\n" in rendered
+    # ...and a bare "bearer" line no longer swallows the following line.
+    assert cross_line_token + "\n" in rendered
+
+
+def test_streaming_scrub_restores_crlf_on_whole_json_document_segment(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A segment that is exactly one JSON document must keep its CRLF ending."""
+    monkeypatch.setattr(secret_guard, "_MAX_ARTIFACT_BYTES", 64)
+    artifact = tmp_path / "payload.json"
+    secret = "streamed-crlf-json-secret-value"
+    artifact.write_bytes(
+        json.dumps({"api_key": secret, "pad": "x" * 64}).encode("utf-8")
+        + b"\r\n"
+    )
+
+    report = scrub_recent_text_artifacts(
+        tmp_path,
+        modified_since=time.time() - 5,
+    )
+
+    raw = artifact.read_bytes()
+    assert report.redacted_paths == ("payload.json",)
+    assert secret.encode("utf-8") not in raw
+    assert raw.endswith(b"\r\n")
+    assert not raw.endswith(b"\r\r\n")
+    assert json.loads(raw.decode("utf-8"))["api_key"] == "<REDACTED:secret>"
+
+
+def test_streaming_scrub_skips_rewrite_pass_for_clean_files(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Two-pass streaming: a clean file costs one read and zero tmp writes.
+
+    ``time.time_ns`` is only consulted to name the rewrite temp file, so the
+    spy proves the rewrite pass never started for a hit-free artifact.
+    """
+    calls: list[int] = []
+    real_time_ns = secret_guard.time.time_ns
+
+    def spy() -> int:
+        calls.append(1)
+        return real_time_ns()
+
+    monkeypatch.setattr(secret_guard.time, "time_ns", spy)
+    clean = tmp_path / "clean.log"
+    clean.write_text("status: ok\n" * 100, encoding="utf-8")
+    assert secret_guard._scrub_streaming(clean, clean.stat().st_mode) == 0
+    assert calls == []
+
+    dirty = tmp_path / "dirty.log"
+    dirty.write_text("x-api-key: streamed-secret-value\n", encoding="utf-8")
+    assert secret_guard._scrub_streaming(dirty, dirty.stat().st_mode) == 1
+    assert calls == [1]
+    assert "<REDACTED:secret>" in dirty.read_text(encoding="utf-8")
+
+
+def test_vault_known_values_exclude_multiline_strings(tmp_path: Path) -> None:
+    """Vault strings follow the env-source contract: no newlines in a secret.
+
+    The streamed scrub's newline-aligned coverage proof assumes known secret
+    values never contain a newline; a multi-line vault "value" is
+    configuration prose, and replacing it would rewrite line structure.
+    """
+    vault = tmp_path / "model_api.json"
+    vault.write_text(
+        json.dumps({
+            "api_key": "vault-secret-value-123",
+            "backup_token": "first-line-secret\nsecond-line",
+        }),
+        encoding="utf-8",
+    )
+
+    values = known_secret_values({
+        "ARGUS_SKILL_CAPABILITY_VAULT": str(vault),
+    })
+
+    assert "vault-secret-value-123" in values
+    assert all("\n" not in value for value in values)
 
 
 def test_atomic_scrub_refuses_to_overwrite_concurrent_change(

@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 from argus_skill.core.task_frontier import (
+    FRONTIER_CUMULATIVE_FIELD_LIMIT,
+    FRONTIER_HISTORY_LIMIT,
+    FRONTIER_TRANSITION_ITEM_LIMIT,
     TaskFrontier,
+    _merge,
+    _texts,
     load_task_frontier,
     save_task_frontier,
 )
@@ -132,3 +139,102 @@ def test_representative_long_horizon_transitions_remain_coherent(
     assert frontier.disposition == expected
     assert frontier.history[-1]["summary"] == summary
     assert frontier.remaining_work == ["take the next evidence-based decision"]
+
+
+def _apply_evidence_batches(frontier: TaskFrontier, items: list[str]) -> None:
+    for start in range(0, len(items), FRONTIER_TRANSITION_ITEM_LIMIT):
+        frontier.apply(
+            {
+                "change": "information_gain",
+                "summary": "one more batch of evidence",
+                "evidence": items[start:start + FRONTIER_TRANSITION_ITEM_LIMIT],
+            },
+            round_index=start // FRONTIER_TRANSITION_ITEM_LIMIT + 1,
+        )
+
+
+def test_cumulative_fields_evict_oldest_and_keep_newest() -> None:
+    frontier = TaskFrontier.initial(
+        mission_id="m-cap", objective="exceed the cumulative cap"
+    )
+    items = [
+        f"evidence {index}"
+        for index in range(FRONTIER_CUMULATIVE_FIELD_LIMIT + FRONTIER_TRANSITION_ITEM_LIMIT)
+    ]
+
+    _apply_evidence_batches(frontier, items)
+
+    assert len(frontier.evidence) == FRONTIER_CUMULATIVE_FIELD_LIMIT
+    assert frontier.evidence == items[-FRONTIER_CUMULATIVE_FIELD_LIMIT:]
+    assert items[0] not in frontier.evidence
+
+
+def test_load_keeps_the_same_newest_tail_as_runtime_merge(tmp_path) -> None:
+    items = [
+        f"evidence {index}"
+        for index in range(FRONTIER_CUMULATIVE_FIELD_LIMIT + FRONTIER_TRANSITION_ITEM_LIMIT)
+    ]
+    frontier = TaskFrontier.initial(
+        mission_id="m-restart", objective="survive a restart without drift"
+    )
+    _apply_evidence_batches(frontier, items)
+    path = tmp_path / "frontier.json"
+    save_task_frontier(path, frontier)
+
+    restored = load_task_frontier(path)
+    assert restored is not None
+    assert restored.evidence == frontier.evidence
+
+    # Direction lock: an over-cap payload fed straight to from_mapping must
+    # keep the newest tail, exactly as the runtime _merge path does.
+    oversized = TaskFrontier.from_mapping({
+        "mission_id": "m-oversized",
+        "objective": "load an over-cap payload",
+        "evidence": items,
+        "remaining_work": items,
+    })
+    assert oversized.evidence == items[-FRONTIER_CUMULATIVE_FIELD_LIMIT:]
+    assert oversized.remaining_work == items[-FRONTIER_CUMULATIVE_FIELD_LIMIT:]
+
+
+def test_caps_have_a_single_named_source() -> None:
+    assert (
+        inspect.signature(_texts).parameters["limit"].default
+        == FRONTIER_TRANSITION_ITEM_LIMIT
+    )
+    assert (
+        inspect.signature(_merge).parameters["limit"].default
+        == FRONTIER_CUMULATIVE_FIELD_LIMIT
+    )
+
+    frontier = TaskFrontier.initial(
+        mission_id="m-history", objective="bound the history ledger"
+    )
+    frontier.apply(
+        {
+            "change": "information_gain",
+            "summary": "one oversize transition",
+            "evidence": [
+                f"item {index}"
+                for index in range(FRONTIER_TRANSITION_ITEM_LIMIT + 5)
+            ],
+        },
+        round_index=1,
+    )
+    assert len(frontier.evidence) == FRONTIER_TRANSITION_ITEM_LIMIT
+
+    for index in range(FRONTIER_HISTORY_LIMIT + 5):
+        frontier.apply(
+            {"change": "information_gain", "summary": f"round {index}"},
+            round_index=index + 2,
+        )
+    assert len(frontier.history) == FRONTIER_HISTORY_LIMIT
+
+    reloaded = TaskFrontier.from_mapping({
+        "mission_id": "m-history",
+        "objective": "bound the history ledger",
+        "history": [
+            {"round": index} for index in range(FRONTIER_HISTORY_LIMIT + 5)
+        ],
+    })
+    assert len(reloaded.history) == FRONTIER_HISTORY_LIMIT

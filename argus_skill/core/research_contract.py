@@ -1,11 +1,14 @@
 """Vertical-agnostic research target and reviewer-assessment contract."""
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any
 
 from .pipeline_state import read_pipeline_state
+
+log = logging.getLogger(__name__)
 
 RESEARCH_TARGET_LEVELS = ("exploratory", "publishable", "doctoral")
 RESEARCH_DIRECTION_MODES = ("broad", "locked")
@@ -228,29 +231,61 @@ def research_result_rejection(value: Any) -> str:
     return "invalid_research_result_fields:" + ",".join(offenders)
 
 
+# Loose sanity guardrails, not editorial limits. Evidence and limitations are
+# the certified scientific record and normally pass through verbatim (the old
+# 12-item/500-char clips silently dropped real evidence three times in
+# production). These bounds exist only so a pathological emission — a model
+# dumping thousands of rows or a whole log file into one item — cannot blow
+# up the Manager prompt and events lines. Hitting either bound truncates AND
+# leaves a ``log.warning`` trace; never a silent edit.
+_RESULT_LIST_MAX_ITEMS = 200
+_RESULT_ITEM_MAX_CHARS = 10_000
+
+
+def _bounded_result_list(value: Any, *, field: str) -> list[str]:
+    """Normalize one evidence-like list under the loose sanity guardrails.
+
+    Blank entries are filtered BEFORE the item count is taken, so leading
+    blanks can never consume the budget ahead of real content.
+    """
+    if not isinstance(value, list):
+        return []
+    items = [
+        text
+        for item in value
+        if (text := str(item or "").strip())
+    ]
+    if len(items) > _RESULT_LIST_MAX_ITEMS:
+        log.warning(
+            "research result %s truncated from %d to %d items",
+            field,
+            len(items),
+            _RESULT_LIST_MAX_ITEMS,
+        )
+        items = items[:_RESULT_LIST_MAX_ITEMS]
+    bounded: list[str] = []
+    for item in items:
+        if len(item) > _RESULT_ITEM_MAX_CHARS:
+            log.warning(
+                "research result %s item truncated from %d to %d characters",
+                field,
+                len(item),
+                _RESULT_ITEM_MAX_CHARS,
+            )
+            item = item[:_RESULT_ITEM_MAX_CHARS]
+        bounded.append(item)
+    return bounded
+
+
 def normalize_research_result(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
     fields = _resolve_research_result_fields(value)
     if any(fields[name] not in choices for name, choices in RESULT_FIELD_CHOICES):
         return None
-    evidence = (
-        [
-            str(item or "").strip()[:500]
-            for item in value.get("evidence", [])[:12]
-            if str(item or "").strip()
-        ]
-        if isinstance(value.get("evidence"), list)
-        else []
-    )
-    limitations = (
-        [
-            str(item or "").strip()[:500]
-            for item in value.get("limitations", [])[:12]
-            if str(item or "").strip()
-        ]
-        if isinstance(value.get("limitations"), list)
-        else []
+    evidence = _bounded_result_list(value.get("evidence"), field="evidence")
+    limitations = _bounded_result_list(
+        value.get("limitations"), field="limitations"
     )
     return {**fields, "evidence": evidence, "limitations": limitations}
 
