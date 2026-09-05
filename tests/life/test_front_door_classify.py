@@ -680,6 +680,49 @@ def test_oversized_steer_directive_is_delivered() -> None:
     assert diagnostics == []
 
 
+def test_sink_exception_records_routing_diagnostic() -> None:
+    diagnostics: list[str] = []
+
+    def _boom_reply(_reply: str) -> None:
+        raise RuntimeError("reply pipe closed")
+
+    def _boom_steer(_directive: str) -> None:
+        raise RuntimeError("steer pipe closed")
+
+    intent, control, route = classify_front_door(
+        "say hello",
+        run_exec=_exec(
+            "CONFIG: NONE\nCONTROL: NONE\nROUTE: SELF\n"
+            "SELF_MODE: REPLY\nREPLY: hello"
+        ),
+        reply_sink=_boom_reply,
+        failure_sink=diagnostics.append,
+    )
+    assert (intent, control, route) == (None, None, "simple")
+    assert any(
+        "reply sink failed" in entry and "reply pipe closed" in entry
+        for entry in diagnostics
+    )
+
+    diagnostics.clear()
+    intent, control, route = classify_front_door(
+        "change the active mission",
+        run_exec=_exec_sequence(
+            "CONFIG: NONE\nCONTROL: STEER\nROUTE: SELF\n"
+            "STEER_DIRECTIVE: focus on the docs",
+            "STEER",
+        ),
+        steering_sink=_boom_steer,
+        failure_sink=diagnostics.append,
+        active_mission=True,
+    )
+    assert (intent, control, route) == (None, "steer", "simple")
+    assert any(
+        "steering sink failed" in entry and "steer pipe closed" in entry
+        for entry in diagnostics
+    )
+
+
 def test_invalid_route_token_preserves_parsed_control() -> None:
     diagnostics: list[str] = []
 

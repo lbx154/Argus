@@ -544,3 +544,123 @@ quant 系列缺依赖已排除;第十一节列的 `tests/webapi/test_pairing.py`
 - 未触碰:pid 3554795 / 3658737(第 5/6 个守护进程,含持有待批
   operator 决策卡者)与 objective 守护进程 409548,事后 ps 确认三者
   仍存活;两张 `paused_operator` 决策卡、maintenance worktrees 均未动。
+
+## 十三、追加(2026-09-05 上午):交接后续项第二批
+
+承接第十一节的清单:第 8 条的前两项(重规划连击窗口、操作者等待节奏
+复用)、第 4 条要"盯一下"的前门投递、第 5 条点名的关切清空风险、第 7
+条的默认值重复,本节一并落地。改动随本次提交("Count replan streaks
+exactly, decouple operator-wait cadence, and fix supervisor concern
+handling")推到 main。
+
+### 本批落地的五件事
+
+1. **重规划连击断路器精确计数**(`_mission_execution_settlement.py`、
+   `memory.py`)。迁移回退原来扫 `journal.tail(100)` 再按 item 过滤:
+   聊天式 campaign 里无关流量塞满 100 条窗口,连击静默欠计数,升级
+   断路器永远够不着(审计条目 `_constants.py:35`)。现改为
+   `EventJournal.tail_for_item`——按 item_id 精确取该条目自己的结算
+   记录(ripgrep 预过滤、跨 rollover 代际),窗口只需 threshold 大小,
+   `_REPLAN_STREAK_JOURNAL_WINDOW` 常量删除。两点验证:回退到旧窗口
+   逻辑时新测试上红(欠计数如实复现);对存量 journal 数据模拟精确
+   计数,没有任何现役条目会在换算法后立即触发升级——无"升级风暴"。
+
+2. **操作者等待再授权节奏拆出独立常量**(`_constants.py`、
+   `_planning_context.py:1409`)。审计点名的常量复用:操作者等待期间
+   规划器的再授权节奏借用 IDLE_BACKOFF_CAP_SECONDS,调空闲睡眠会静默
+   改 LLM 调用频率。现拆为 `OPERATOR_WAIT_TURN_REGRANT_SECONDS = 300.0`
+   (值未变,行为零差异);该计时器只是三条事件唤醒路径(契约首授、
+   backlog 修订、授权事件本身)之外的兜底,而每次再授权都是一次完整
+   规划器调用,后续可议调到 1800(与生命周期心跳同阶)进一步压兜底
+   开销。`_core.py` 的空闲并行规划节流语义上属于空闲轮询,注释注明
+   留在原常量上。tests/life/test_durable_wait_poll_suppression.py 新增
+   解耦回归(patch 新常量,验证节奏跟它走、不再跟空闲封顶走)。
+
+3. **前门 sink 诊断 + 聊天 API 失败日志升级**(`router.py`、
+   `feishu_bot.py`、`telegram_bot.py`)。**如实更正第十一节第 4 条**:
+   那里说超长回复投递失败"现在会看到错误",不实——当时
+   `classify_front_door` 的 reply/steering sink 异常仍被裸 `pass`
+   吞掉,feishu/telegram 的 API 失败也只记 log.debug(默认级别下
+   不可见),失败依旧是静默的。本批把两个 sink 的异常记入 routing
+   diagnostic(带异常类型与消息,tests/life/test_front_door_classify.py
+   配测试),聊天 API 失败升为 log.warning。从这批起"会看到错误"
+   才成立。
+
+4. **监督者关切逐子句清空 + 确认分支健康门**(`_normalize.py`、
+   `_supervised_run.py`)。第十一节第 5 条的风险实测证实:措辞平静、
+   不含信号词的真实异常跟在安抚前缀后整条被清空("No anomalies in
+   the harness; training is stable. Reward has stayed at 0.0 for 4000
+   steps"),LLM 二次确认根本没有机会跑。修复:安抚前缀只买来逐子句
+   复查,整条只有在每个子句都是已知安抚语时才清空;不认识的子句一律
+   保留整条(fail-safe 朝复查方向,误报由本就存在的二次确认消化)。
+   配套收紧确认分支:旧条件是二次确认只要 concern 非空就停机,两轮
+   安抚措辞就能杀掉健康 run;现在停机要求确认轮自己给出 early_stop,
+   或 concern 伴随恶化健康(degrading/stuck/diverging;unknown、
+   supervisor_unavailable 不触发)。两个方向各有在旧代码上红过的测试。
+
+5. **F6 家族熔断默认值单一来源 + 显式 0 修复**(`daemon/config.py`,
+   第十一节第 7 条)。3 / 72.0 两个字面量不再与 `LifeSupervisorConfig`
+   重复:dataclass 默认经 default_factory 读该类(函数级 import 避开
+   import 环);payload 往返从 `or 3` / `or 72.0` 改为 `is None` 判定,
+   显式 0(熔断关闭)不再被静默还原成默认值。
+
+### 评审发现与修复
+
+合入前过了一轮逐项评审,在第一版上抓到五处,均已修复并配红/绿验证:
+
+1. **迁移窗口被中性结算占坑**。`tail_for_item` 初版取该条目全部结算的
+   threshold 窗口,但预算/供应商/研究暂停这类中性结算既不计数也不断
+   连击,却占窗口名额:[replan, replan, paused_budget,
+   paused_provider_cooldown] 在 threshold=3 下把旧 replan 挤出窗口,
+   欠计数换个形态复活。修复:`tail_for_item` 增加 `kinds=` 过滤(谓词
+   与返回条目用同一投影),调用方只传 count-or-break 三种 kind,窗口
+   里全是能判定的条目,threshold 条必然充分。先证旧改动上红(去掉
+   `kinds=` 时 assert 1 == 2)再恢复绿(tests/life/test_supervisor.py
+   `test_neutral_pause_settlements_do_not_evict_replans_from_window`)。
+
+2. **多句纯安抚的清空方向**。逐子句判定须让 "No anomalies. All
+   good."、"no issues; none"、"No anomalies!!" 这类多句纯安抚照旧
+   清空,且小数不切句("No anomalies detected in epoch 1.5")、换行
+   算句界、空子句不否决;词表未扩,保持保守。清空/保留双向测试
+   (tests/tools/test_subagent_supervisor.py)。
+
+3. **确认分支的健康门**(上文第 4 件的后半)在评审中定形:早停条件从
+   "concern 非空即停"收紧为 "early_stop 或 concern+恶化健康",旧条件
+   下"两轮安抚杀健康 run"的测试上红验证过。
+
+4. **payload 非法值回退默认**。`_number` 对 `float()` 解析不了的值
+   ("", "abc", 列表)回退 factory 默认而不是抛异常——这条路在 daemon
+   恢复路径上,一个坏的 handoff 字段不该拦下整次启动;显式 0/0.0/False
+   语义不变(tests/daemon/test_protocol.py)。
+
+5. **两条插入路径漏置 replan_streak_tracked**。`apply_plan_revision`
+   的替换行与 `continue_with_operator_reply` 的续行是全新行,零连击
+   本就权威,漏置标志会让首次结算白走一次日志迁移扫描;现与
+   `Backlog.add` 一致逐项置 True(tests/life/test_memory.py)。
+
+### 全量测试与宿主隔离
+
+- 受影响的 7 个测试文件一次合跑:**346 passed,0 failed**(20.5s)。
+- 全量 tests/:除第十二节口径的 3 个已知预存失败外,
+  `tests/daemon/test_life_worker.py` 曾 19 连挂——不是本批引入,而是
+  第十二节的源码根防护 knob 落盘后泄入测试:该文件的 autouse fixture
+  只 delenv ARGUS_SKILL_HOME,`global_root()` 回落真实 ~/.argus-skill,
+  读到宿主机持久化的 ARGUS_SKILL_SOURCE_ROOT,预检按设计拒启(rc=2)。
+  修复:fixture delenv 后再把 ARGUS_SKILL_HOME setenv 到每测试的
+  tmp_path,宿主机 config.json 一字未动(生产防护不受影响);需要
+  默认根解析/导出语义的两个用例本就自带隔离。修后该文件 100 全绿。
+  这也算防护 knob 的第一次实弹:它确实把跑在错误源码根下的进程拒了,
+  只是这次拦到的是缺隔离的测试。
+
+### 运行验证快照
+
+- 第十二节滚动重启的 4 个守护进程(12ba2a8b7 上):烧钱症状零复发。
+- 未重启的 5860caf309de:仍每 ~5.5 分钟一次规划器空调用,约 $1/小时
+  ——旧代码上的现行病例,正是这族修复针对的症状还活着的证据;部署
+  本批后应把它也滚动重启。
+
+### 审计清单同步
+
+`docs/audits/magic-hyperparameters-adaptive-followups.md` 里已完成的
+两条(`_constants.py:35` 重规划窗口、`_planning_context.py:1409`
+等待节奏复用)已标注 done(2026-09-05,随本次提交)。

@@ -69,9 +69,19 @@ _ENV_VARS_TO_CLEAR = (
 
 
 @pytest.fixture(autouse=True)
-def _clear_ambient_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _clear_ambient_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     for name in _ENV_VARS_TO_CLEAR:
         monkeypatch.delenv(name, raising=False)
+    # Deleting ARGUS_SKILL_HOME alone makes core.paths.global_root() fall back
+    # to the REAL ~/.argus-skill, so persisted host knobs (e.g. a pinned
+    # ARGUS_SKILL_SOURCE_ROOT in config.json) leak into every test — the
+    # daemon's source-root preflight then refuses to boot (rc=2). Point the
+    # runtime root at an empty per-test directory instead; tests that
+    # exercise default-root resolution or the worker's own export override
+    # this (monkeypatching global_root, or delenv'ing again themselves).
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "ambient-home"))
 
 
 def test_max_active_daemons_defaults_to_64(

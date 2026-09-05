@@ -177,6 +177,98 @@ def test_event_journal_tail_prefilters_non_journal_json_before_decoding(
     assert calls <= 2
 
 
+def _append_settlement_event(
+    path: Path,
+    *,
+    item_id: str,
+    status: str = "done",
+    success: bool = True,
+    iteration: dict[str, Any] | None = None,
+    title: str = "node",
+) -> None:
+    row: dict[str, Any] = {
+        "type": "life.mission.completed",
+        "item_id": item_id,
+        "ts": time.time(),
+        "success": success,
+        "status": status,
+        "title": title,
+        "summary": status,
+    }
+    if iteration is not None:
+        row["iteration"] = iteration
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row) + "\n")
+
+
+def test_event_journal_tail_for_item_returns_only_that_items_settlements(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.jsonl"
+    mine = "aaaa1111bbbb"
+    other = "cccc2222dddd"
+    _append_settlement_event(
+        path, item_id=mine, status="replan_requested", success=False,
+    )
+    _append_settlement_event(
+        path, item_id=other, status="replan_requested", success=False,
+    )
+    # Journal-level events for the SAME item are not settlements and must not
+    # appear in (or dilute) the per-item settlement tail.
+    with path.open("a", encoding="utf-8") as fh:
+        for row in (
+            {"type": "life.mission.started", "item_id": mine, "title": "node"},
+            {"type": "life.planner.waiting", "item_id": mine, "reason": "wait"},
+            {"type": "user.note", "id": mine, "text": "note"},
+        ):
+            fh.write(json.dumps({**row, "ts": time.time()}) + "\n")
+    _append_settlement_event(
+        path, item_id=mine, status="done", success=True,
+        iteration={"requeued": True},
+    )
+    _append_settlement_event(path, item_id=mine, status="done", success=True)
+
+    entries = EventJournal(path).tail_for_item(mine, n=10)
+
+    # Same kind mapping as tail(): replan/iterated/complete are distinguished.
+    assert [entry.kind for entry in entries] == [
+        "mission_replan_requested", "mission_iterated", "mission_complete",
+    ]
+    assert all(entry.id == mine for entry in entries)
+    assert EventJournal(path).tail_for_item(other, n=10)[0].id == other
+
+
+def test_event_journal_tail_for_item_spans_rollovers_and_truncates(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.jsonl"
+    item_id = "feed3333cafe"
+    for target, title in (
+        (path.with_suffix(".jsonl.2"), "oldest"),
+        (path.with_suffix(".jsonl.3"), "older"),
+        (path.with_suffix(".jsonl.1"), "recent"),
+        (path, "live"),
+    ):
+        _append_settlement_event(
+            target,
+            item_id=item_id,
+            status="replan_requested",
+            success=False,
+            title=title,
+        )
+
+    journal = EventJournal(path)
+    assert [entry.title for entry in journal.tail_for_item(item_id, n=10)] == [
+        "oldest", "older", "recent", "live",
+    ]
+    assert [entry.title for entry in journal.tail_for_item(item_id, n=2)] == [
+        "recent", "live",
+    ]
+    assert journal.tail_for_item(item_id, n=0) == []
+    assert journal.tail_for_item("", n=5) == []
+
+
 # ---------- Backlog --------------------------------------------------------
 
 def test_backlog_add_pending_order(tmp_path: Path) -> None:
@@ -650,3 +742,56 @@ def test_legacy_mixed_backlog_lazily_splits_terminal_archive(tmp_path: Path) -> 
     ]
     assert {row["status"] for row in active_rows} == {"pending"}
     assert {row["status"] for row in archive_rows} == {"done", "failed"}
+
+
+def test_plan_revision_replacements_start_streak_tracked(tmp_path: Path) -> None:
+    """Rows inserted through ``apply_plan_revision`` are brand new, exactly
+    like ``Backlog.add`` rows: their zero replan streak is authoritative, so
+    the first settlement must not fall back to the journal migration scan."""
+    b = Backlog(tmp_path / "backlog.jsonl")
+    original = b.add(BacklogItem.new(
+        title="v1 node", objective="first cut",
+        plan_id="plan-1", plan_version=1, node_key="root",
+    ))
+    replacement = BacklogItem.new(
+        title="v2 node", objective="second cut",
+        plan_id="plan-2", plan_version=2, node_key="root",
+    )
+    # Simulate a pre-upgrade in-memory row: apply_plan_revision itself must
+    # stamp the flag, not inherit it from the constructor path.
+    replacement.replan_streak_tracked = False
+
+    b.apply_plan_revision(
+        expected_plan_id="plan-1",
+        expected_version=1,
+        new_plan_id="plan-2",
+        new_version=2,
+        supersede_item_ids=[original.id],
+        new_items=[replacement],
+        reason="refuted",
+    )
+
+    stored = next(row for row in b.all() if row.id == replacement.id)
+    assert stored.replan_streak_tracked is True
+    assert stored.consecutive_replans == 0
+
+
+def test_operator_reply_continuation_starts_streak_tracked(
+    tmp_path: Path,
+) -> None:
+    """The continuation created for an operator answer is a brand-new row, so
+    it must start with an authoritative zero replan streak (no journal scan)."""
+    b = Backlog(tmp_path / "backlog.jsonl")
+    blocked = BacklogItem.new(title="blocked", objective="choose a GPU")
+    blocked.status = "failed"
+    blocked.pending_question = "Which GPU?"
+    b.add(blocked)
+
+    original, continuation = b.continue_with_operator_reply(
+        blocked.id, "Use GPU 1",
+    )
+
+    assert original is not None and continuation is not None
+    stored = next(row for row in b.all() if row.id == continuation.id)
+    assert stored.replan_streak_tracked is True
+    assert stored.consecutive_replans == 0

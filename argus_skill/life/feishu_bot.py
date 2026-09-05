@@ -120,7 +120,7 @@ def _request(
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as exc:  # noqa: BLE001
-        log.debug("feishu api %s %s failed: %s", method, url, exc)
+        log.warning("feishu api %s %s failed: %s", method, url, exc)
         return None
 
 

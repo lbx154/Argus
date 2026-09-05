@@ -1,6 +1,8 @@
 """Normalization helpers for model-supplied supervisor fields."""
 from __future__ import annotations
 
+import re
+
 _VALID_DECISIONS = {"continue", "early_stop", "save_checkpoint"}
 
 _VALID_HEALTH = {"healthy", "degrading", "stuck", "diverging"}
@@ -65,6 +67,11 @@ _CONCERN_SIGNAL_TOKENS = (
     "但", "不过", "然而", "却", "失败", "报错", "异常", "崩", "塌", "为零",
 )
 
+# Sentence/clause boundaries (English + CJK), plus newlines: a two-line note
+# is two claims even without terminal punctuation. A dot BETWEEN two digits is
+# a decimal point ("epoch 1.5", "reward 0.0"), never a sentence boundary.
+_CLAUSE_DELIMITERS = re.compile(r"(?<!\d)\.|\.(?!\d)|[;。;!?!?\n\r]")
+
 
 def _has_real_signal(low: str) -> bool:
     """True if a prefix-matched note still carries a real alarm — a contrast/
@@ -74,6 +81,29 @@ def _has_real_signal(low: str) -> bool:
     return any(t in low for t in _CONCERN_SIGNAL_TOKENS)
 
 
+def _split_clauses(raw_low: str) -> list[str]:
+    """Split a lowercased note into whitespace-normalized clauses."""
+    return [
+        " ".join(part.split())
+        for part in _CLAUSE_DELIMITERS.split(raw_low)
+    ]
+
+
+def _is_reassuring_clause(clause: str) -> bool:
+    """True only for a clause that IS a known "nothing to report" phrasing.
+
+    Conservative on purpose: a clause that carries an alarm token, or that
+    simply is not a recognized reassurance, counts as a REAL claim and keeps
+    the whole note (fail-safe toward review, never toward silently swallowing
+    an anomaly). Empty clauses (split artifacts like ``"!!"``) never veto.
+    """
+    if not clause:
+        return True
+    if _has_real_signal(clause):
+        return False
+    return clause in _EMPTY_CONCERNS or clause.startswith(_EMPTY_CONCERN_PREFIXES)
+
+
 def _clean_concern(value: object) -> str:
     """Normalize a supervisor concern note; empty when nothing noteworthy.
 
@@ -81,15 +111,22 @@ def _clean_concern(value: object) -> str:
     supervisor only fills it for a genuine stop-worthy anomaly. Treat the common
     "nothing to report" phrasings as empty so a healthy run is never stopped.
     """
-    text = " ".join(str(value or "").split())
+    raw = str(value or "")
+    text = " ".join(raw.split())
     low = text.lower().strip(".")
     if low in _EMPTY_CONCERNS:
         return ""
-    # Prefix match clears ONLY when the whole note is that reassurance — NOT
-    # "no anomaly ... but reward collapsed" (reassure-then-pivot real alarm),
-    # which startswith() alone would have swallowed into "" and let the bad run
-    # keep burning GPU.
-    if low.startswith(_EMPTY_CONCERN_PREFIXES) and not _has_real_signal(low):
-        return ""
+    # A reassuring opener earns a clause-by-clause review of the WHOLE note:
+    # the note clears only when EVERY clause is itself a recognized
+    # reassurance. "No anomalies. All good." clears; "No anomalies in the
+    # harness; training is stable. Reward has stayed at 0.0 for 4000 steps"
+    # keeps the pivot VERBATIM even without a contrast token, because
+    # "reward has stayed ..." is not a recognized reassurance — fail-safe,
+    # since the downstream LLM re-confirmation only runs on a non-empty
+    # concern and owns the false positives. Splitting the RAW note preserves
+    # newline boundaries the whitespace-collapse above would erase.
+    if low.startswith(_EMPTY_CONCERN_PREFIXES):
+        if all(_is_reassuring_clause(c) for c in _split_clauses(raw.lower())):
+            return ""
     return text
 

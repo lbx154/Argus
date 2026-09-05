@@ -490,8 +490,11 @@ def classify_front_door(
     if reply_eligible:
         try:
             reply_sink(reply)
-        except Exception:  # noqa: BLE001 - optional fast reply only
-            pass
+        except Exception as exc:  # noqa: BLE001 - optional fast reply only
+            _routing_diagnostic(
+                f"reply sink failed ({type(exc).__name__}: {exc})",
+                failure_sink,
+            )
     lifetime: LifetimeIntent | None = None
     lifetime_parts = fields["lifetime"].split(maxsplit=1)
     lifetime_token = (
@@ -546,8 +549,11 @@ def classify_front_door(
     if steering_eligible:
         try:
             steering_sink(steering)
-        except Exception:  # noqa: BLE001 - advisory metadata never owns routing
-            pass
+        except Exception as exc:  # noqa: BLE001 - advisory metadata never owns routing
+            _routing_diagnostic(
+                f"steering sink failed ({type(exc).__name__}: {exc})",
+                failure_sink,
+            )
     question_policy = fields["operator_question_policy"].strip().lower()
     if (
         callable(operator_question_policy_sink)

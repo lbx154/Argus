@@ -11,6 +11,7 @@ from argus_skill.life.memory import LifeMemory
 from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
 from argus_skill.life.supervisor._constants import (
     IDLE_BACKOFF_CAP_SECONDS,
+    OPERATOR_WAIT_TURN_REGRANT_SECONDS,
     PLAN_AWAITING,
 )
 from argus_skill.life.supervisor._planning_cycle import PlanningCycleMixin
@@ -471,7 +472,9 @@ def test_repersisted_operator_event_wait_keeps_idle_turn_throttle(
     assert planner_waiting[-1]["model_call_skipped"] is True
 
     wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
-    wait_state["idle_capacity_turn_ts"] = time.time() - IDLE_BACKOFF_CAP_SECONDS - 1
+    wait_state["idle_capacity_turn_ts"] = (
+        time.time() - OPERATOR_WAIT_TURN_REGRANT_SECONDS - 1
+    )
     supervisor._write_planner_waiting_contract_state(wait_state)
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 3
@@ -479,6 +482,115 @@ def test_repersisted_operator_event_wait_keeps_idle_turn_throttle(
     monkeypatch.setattr(supervisor, "_waiting_backlog_revision", lambda: "changed")
     assert supervisor._plan_next_work() == PLAN_AWAITING
     assert calls == 4
+
+
+def test_operator_wait_regrant_cadence_is_decoupled_from_idle_backoff_cap(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    calls = 0
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return PlannerVerdict(
+            project_done=False,
+            reason="venue submission needs operator authorization",
+            waiting=True,
+            waiting_reason="venue submission needs operator authorization",
+            waiting_contract=WaitingContract(
+                blocker_fingerprint=(
+                    "submission_gate_closed_no_external_submission_authorized_8d2b840c"
+                ),
+                recheck_condition="operator authorizes venue submission",
+                recheck_token="token-v1",
+                wait_mode="event",
+                wake_on=("authorization",),
+                operator_action_required=True,
+            ),
+        )
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    # The regrant check reads the module-level name in _planning_context (a
+    # from-import), so the consuming module is what must be patched.
+    monkeypatch.setattr(
+        "argus_skill.life.supervisor._planning_context."
+        "OPERATOR_WAIT_TURN_REGRANT_SECONDS",
+        4 * IDLE_BACKOFF_CAP_SECONDS,
+    )
+    supervisor = _supervisor(project, life)
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 1
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+
+    # Aged just past the idle backoff cap but short of the regrant cadence:
+    # if the two were still coupled this would grant a turn.
+    wait_path = next(life.glob("planner-waiting-contract-*.json"))
+    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
+    wait_state["idle_capacity_turn_ts"] = time.time() - IDLE_BACKOFF_CAP_SECONDS - 1
+    supervisor._write_planner_waiting_contract_state(wait_state)
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+
+    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
+    wait_state["idle_capacity_turn_ts"] = (
+        time.time() - 4 * IDLE_BACKOFF_CAP_SECONDS - 1
+    )
+    supervisor._write_planner_waiting_contract_state(wait_state)
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 3
+
+
+def test_non_operator_event_wait_never_regrants_on_turn_age(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    life = tmp_path / "life"
+    calls = 0
+
+    def _plan_next(_planner, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return PlannerVerdict(
+            project_done=False,
+            reason="awaiting external authorization event",
+            waiting=True,
+            waiting_reason="awaiting external authorization event",
+            waiting_contract=WaitingContract(
+                blocker_fingerprint="authorization_event_wait_8d2b840c",
+                recheck_condition="the authorization event arrives",
+                recheck_token="token-v1",
+                wait_mode="event",
+                wake_on=("authorization",),
+                operator_action_required=False,
+            ),
+        )
+
+    monkeypatch.setattr("argus_skill.planner.Planner.plan_next", _plan_next)
+    supervisor = _supervisor(project, life)
+
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 1
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
+
+    # Without operator_action_required the timed regrant path never applies:
+    # a turn timestamp aged far past the cadence still grants nothing.
+    wait_path = next(life.glob("planner-waiting-contract-*.json"))
+    wait_state = json.loads(wait_path.read_text(encoding="utf-8"))
+    wait_state["idle_capacity_turn_ts"] = (
+        time.time() - 100 * OPERATOR_WAIT_TURN_REGRANT_SECONDS
+    )
+    supervisor._write_planner_waiting_contract_state(wait_state)
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    assert calls == 2
 
 
 def test_wait_persistence_rejects_state_change_after_discovery(

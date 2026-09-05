@@ -160,7 +160,8 @@
   建议:The number is a hardcoded shadow of another component's timeout (45 min + 5 margin, per its own comment). If the runner's idle window changes, this silently drifts and the panel lies again — derive it from the runner's configured value instead of re-encoding it here.
 - `argus_skill/life/supervisor/_constants.py:35` · _REPLAN_STREAK_JOURNAL_WINDOW = 100  
   后果:If more than 100 journal entries land between an item's replans (chatty campaign, many parallel missions), earlier replans fall out of the window and the streak silently undercounts, delaying or defeating the escalation breaker.  
-  建议:The breaker's correctness depends on journal chattiness, which varies by campaign. Counting replans per item id directly (or scanning until the item's last non-replan outcome) would make the breaker exact instead of window-dependent.
+  建议:The breaker's correctness depends on journal chattiness, which varies by campaign. Counting replans per item id directly (or scanning until the item's last non-replan outcome) would make the breaker exact instead of window-dependent.  
+  状态:**已完成(done, 2026-09-05)** — 提交 "Count replan streaks exactly, decouple operator-wait cadence, and fix supervisor concern handling":按建议改为按 item id 精确计数——backlog 行上的持久 `consecutive_replans` 计数器为主,迁移回退走 `EventJournal.tail_for_item` 的 kind 过滤精确扫描(窗口即 threshold,中性结算不占名额);`_REPLAN_STREAK_JOURNAL_WINDOW` 已删除。
 - `argus_skill/life/supervisor/_core.py:1302` · delivery receipt lookback = journal.tail(80)  
   后果:If more than 80 journal entries landed after the last successful mission (long wind-down, chatty settlement), the terminal receipt silently reports no completed mission found despite one existing.  
   建议:A terminal artifact — the campaign's final receipt — should not depend on journal chattiness. Query by event type without an arbitrary window, or persist the last-success pointer as it happens.
@@ -199,7 +200,8 @@
   建议:600 chars is very tight for a 'context packet'; either enforce the cap where the packet is authored (so authors know the budget) or raise it to a token-budgeted share of the prompt. Silent mid-packet truncation is the worst option.
 - `argus_skill/life/supervisor/_planning_context.py:1409` · operator-wait turn re-grant cadence = IDLE_BACKOFF_CAP_SECONDS (300.0)  
   后果:While operator-blocked, the planner gets a fresh turn at most every 5 minutes — but only because that happens to be the idle backoff cap.  
-  建议:Constant reuse across unrelated policies: retuning idle poll latency would silently change operator-wait re-grant cadence (an LLM-call-frequency policy). Give this its own named constant even if the value stays 300.
+  建议:Constant reuse across unrelated policies: retuning idle poll latency would silently change operator-wait re-grant cadence (an LLM-call-frequency policy). Give this its own named constant even if the value stays 300.  
+  状态:**已完成(done, 2026-09-05)** — 同上提交:拆出独立常量 `OPERATOR_WAIT_TURN_REGRANT_SECONDS = 300.0`(`_constants.py`,值未变);空闲退避封顶不再兼任操作者等待再授权节奏,后续调 1800 可单独议。
 - `argus_skill/life/supervisor/_planning_cycle_enqueue.py:90` · forward-progress lookback = memory.journal.tail(32)  
   后果:Progress older than 32 entries is invisible to the check; on chatty journals genuine recent progress can be missed and on quiet ones stale progress can look fresh.  
   建议:Another entry-count window standing in for a time/semantic horizon; same fix as the other tail() windows — filter to the relevant typed events or use a time bound.

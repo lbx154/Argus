@@ -16,7 +16,7 @@ from ...core.planner_verdict import PlannerVerdictStatus
 from ...core.wake_sources import normalize_wake_sources
 from ..memory import BacklogItem
 from ._constants import (
-    IDLE_BACKOFF_CAP_SECONDS,
+    OPERATOR_WAIT_TURN_REGRANT_SECONDS,
     PLAN_AWAITING,
     PLAN_RETRY,
     PLANNER_SCOPE_BOUNDED,
@@ -1315,9 +1315,12 @@ class PlanningContextMixin:
         # its paper sat finished-looking at 8,107 words with four of its
         # thirty-one figures used. run-05 parked the same way on an
         # authentication decision. So for those, and only those, the turn is
-        # re-granted on the idle cadence the supervisor already backs off to --
-        # the same rate this short circuit is willing to wake for anyway, not a
-        # new poll.
+        # re-granted on OPERATOR_WAIT_TURN_REGRANT_SECONDS. That timer is only
+        # the backstop behind the three wake paths that already exist -- the
+        # first per-contract grant, a backlog revision change, and the
+        # authorization event itself -- and each re-grant is a full Planner LLM
+        # call, so its cadence is an LLM-call-rate policy, deliberately not
+        # tied to the idle sleep cap.
         if self._planner_turn_available_during_wait(state):
             state["idle_capacity_turn_used"] = True
             state["idle_capacity_turn_ts"] = time.time()
@@ -1406,7 +1409,7 @@ class PlanningContextMixin:
         if not state.get("operator_action_required"):
             return False
         granted = float(state.get("idle_capacity_turn_ts") or 0.0)
-        return time.time() - granted >= IDLE_BACKOFF_CAP_SECONDS
+        return time.time() - granted >= OPERATOR_WAIT_TURN_REGRANT_SECONDS
 
     def _confined_planner_wait_paths(self, values: list[str]) -> list[str]:
         """Validate watched paths before they can influence revision reads."""

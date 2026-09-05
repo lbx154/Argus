@@ -1820,3 +1820,235 @@ def test_stage_reconciled_replan_is_untouched_by_convergence_guard(
         and e.extra.get("terminal_status") == "no_progress"
     ]
     assert not no_progress
+
+
+def test_untracked_replan_streak_survives_journal_dilution(
+    tmp_path, monkeypatch,
+) -> None:
+    """A legacy (untracked) row's replan streak must be reconstructed from the
+    item's OWN settlement history. A shared fixed-size journal window can be
+    washed out by unrelated journal-level traffic (planner cycles, parallel
+    missions), silently under-counting the streak and never escalating."""
+    monkeypatch.setenv(
+        "ARGUS_SKILL_CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD", "3"
+    )
+    mem = LifeMemory.open(tmp_path / "life")
+    runner = _CountingReplanRunner()
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=_RecordingSink(mem.root),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=10),
+            poll_interval_seconds=0.01,
+        ),
+    )
+    item = mem.backlog.add(BacklogItem.new(
+        title="unsatisfiable node", objective="drain an impossible obligation",
+    ))
+
+    # Two replans are journaled for this item...
+    assert sup.tick()["status"] == "replan_requested"
+    assert sup.tick()["status"] == "replan_requested"
+    # ...on a row that predates the persisted streak counter and therefore
+    # still needs migration from the journal.
+    mem.backlog.update(
+        item.id, consecutive_replans=0, replan_streak_tracked=False,
+    )
+    # Unrelated journal-level events push both replans far past any
+    # fixed-size shared journal window.
+    events_path = Path(mem.root) / "events.jsonl"
+    with events_path.open("a", encoding="utf-8") as fh:
+        for index in range(120):
+            fh.write(json.dumps({
+                "type": "life.planner.waiting",
+                "ts": time.time(),
+                "reason": f"waiting on external dependency {index}",
+            }) + "\n")
+
+    third = sup.tick()
+
+    assert third is not None and third["status"] == "no_progress"
+    stored = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert stored.status == "failed"
+    assert runner.calls == 3
+
+
+def test_fresh_backlog_items_never_scan_the_journal_for_replan_streaks(
+    tmp_path, monkeypatch,
+) -> None:
+    """``Backlog.add`` marks new items streak-tracked (they have zero journal
+    history), so the journal-scan migration fallback must never run on the
+    first replan settlement of a freshly added item."""
+    calls: list[str] = []
+
+    def _record_scan(self: Any, item_id: str) -> int:
+        calls.append(item_id)
+        raise AssertionError("journal migration scan ran for a fresh item")
+
+    monkeypatch.setattr(
+        LifeSupervisor, "_count_consecutive_item_replans", _record_scan,
+    )
+    mem = LifeMemory.open(tmp_path / "life")
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_CountingReplanRunner(),
+        sink=_RecordingSink(mem.root),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+            poll_interval_seconds=0.01,
+        ),
+    )
+    item = mem.backlog.add(BacklogItem.new(
+        title="fresh node", objective="settle the first replan from the counter",
+    ))
+
+    result = sup.tick()
+
+    assert result is not None and result["status"] == "replan_requested"
+    assert calls == []
+    stored = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert stored.status == "pending"
+    assert stored.consecutive_replans == 1
+
+
+def test_iteration_requeue_resets_replan_streak(tmp_path, monkeypatch) -> None:
+    """replan -> accepted iteration cycle -> replan is a streak of ONE.
+    ``requeue_for_iteration`` is forward progress and must reset the persisted
+    counter, so the second replan does not escalate at threshold 2."""
+    monkeypatch.setenv(
+        "ARGUS_SKILL_CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD", "2"
+    )
+    mem = LifeMemory.open(tmp_path / "life")
+    runner = _CountingReplanRunner()
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=_RecordingSink(mem.root),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=10),
+            poll_interval_seconds=0.01,
+        ),
+    )
+    item = mem.backlog.add(BacklogItem.new(
+        title="converging node", objective="alternate replans with progress",
+    ))
+
+    assert sup.tick()["status"] == "replan_requested"
+    streaked = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert streaked.consecutive_replans == 1
+
+    # An accepted cycle re-arms the same item (the supervisor journals this
+    # as mission_iterated) — forward progress that restarts the streak.
+    requeued = mem.backlog.requeue_for_iteration(
+        item.id, new_objective="polish pass", cost_delta_usd=0.0,
+    )
+    assert requeued is not None
+    assert requeued.consecutive_replans == 0
+    assert requeued.replan_streak_tracked is True
+
+    second = sup.tick()
+
+    assert second is not None and second["status"] == "replan_requested"
+    stored = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert stored.status == "pending"
+    assert stored.consecutive_replans == 1
+    assert runner.calls == 2
+
+
+def test_untracked_streak_migration_breaks_at_iteration_progress(
+    tmp_path,
+) -> None:
+    """The journal-scan migration for legacy rows must treat an intervening
+    ``mission_iterated`` settlement as forward progress, exactly like
+    ``mission_complete`` — 'replan, iterate, replan' is a prior streak of 1."""
+    mem = LifeMemory.open(tmp_path / "life")
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=_CountingReplanRunner(),
+        sink=_RecordingSink(mem.root),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=2),
+            poll_interval_seconds=0.01,
+        ),
+    )
+    item_id = BacklogItem.new_id()
+    events_path = Path(mem.root) / "events.jsonl"
+    settlements = [
+        {"success": False, "status": "replan_requested"},
+        {"success": True, "status": "done", "iteration": {"requeued": True}},
+        {"success": False, "status": "replan_requested"},
+    ]
+    with events_path.open("a", encoding="utf-8") as fh:
+        for row in settlements:
+            fh.write(json.dumps({
+                "type": "life.mission.completed",
+                "item_id": item_id,
+                "ts": time.time(),
+                "title": "legacy node",
+                "summary": row["status"],
+                **row,
+            }) + "\n")
+
+    assert sup._count_consecutive_item_replans(item_id) == 1
+
+
+def test_neutral_pause_settlements_do_not_evict_replans_from_window(
+    tmp_path, monkeypatch,
+) -> None:
+    """Settlement history [replan, replan, pause, pause] at threshold 3: pause
+    settlements neither count toward the streak nor break it, so they must not
+    occupy slots in the threshold-sized per-item journal window and push the
+    older replans out. The THIRD replan settlement escalates the untracked
+    legacy row to a terminal no_progress failure."""
+    monkeypatch.setenv(
+        "ARGUS_SKILL_CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD", "3"
+    )
+    mem = LifeMemory.open(tmp_path / "life")
+    runner = _CountingReplanRunner()
+    sup = LifeSupervisor(
+        memory=mem,
+        runner=runner,
+        sink=_RecordingSink(mem.root),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(global_daily_cap_usd=0.0, max_missions=10),
+            poll_interval_seconds=0.01,
+        ),
+    )
+    item = mem.backlog.add(BacklogItem.new(
+        title="unsatisfiable node", objective="drain an impossible obligation",
+    ))
+
+    # Two replans are journaled for this item...
+    assert sup.tick()["status"] == "replan_requested"
+    assert sup.tick()["status"] == "replan_requested"
+    # ...on a row that predates the persisted streak counter and therefore
+    # still needs migration from the journal.
+    mem.backlog.update(
+        item.id, consecutive_replans=0, replan_streak_tracked=False,
+    )
+    # Two NEUTRAL settlements for the SAME item land after the replans
+    # (mid-mission budget breaker, then a provider cooldown). They neither
+    # count nor break the streak, so they must not consume window slots.
+    events_path = Path(mem.root) / "events.jsonl"
+    with events_path.open("a", encoding="utf-8") as fh:
+        for status in ("paused_budget", "paused_provider_cooldown"):
+            fh.write(json.dumps({
+                "type": "life.mission.completed",
+                "item_id": item.id,
+                "ts": time.time(),
+                "success": False,
+                "status": status,
+                "title": "unsatisfiable node",
+                "summary": status,
+            }) + "\n")
+
+    # Both prior replans are still visible through the pause noise.
+    assert sup._count_consecutive_item_replans(item.id) == 2
+
+    third = sup.tick()
+
+    assert third is not None and third["status"] == "no_progress"
+    stored = next(row for row in mem.backlog.all() if row.id == item.id)
+    assert stored.status == "failed"
+    assert runner.calls == 3

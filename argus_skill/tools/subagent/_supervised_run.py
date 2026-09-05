@@ -428,7 +428,17 @@ def _supervised_do_one_check(
             )
         with supervisor_log.open("a") as sl:
             sl.write(json.dumps(confirmation_entry) + "\n")
-        if c_concern or c_decision == "early_stop":
+        # Asymmetric confirmation (second layer of defence behind
+        # ``_clean_concern``): the confirming read must either escalate to
+        # ``early_stop`` itself, or corroborate the concern with degraded
+        # health (``degrading``/``stuck``/``diverging`` — the non-healthy
+        # members of ``_VALID_HEALTH``). A re-affirmed note on a run the
+        # supervisor still calls healthy is reassurance phrasing the
+        # normalizer did not recognize, not a stop-worthy anomaly; a REAL
+        # anomaly keeps firing on later checks and stops the run as soon as
+        # health degrades or the supervisor decides early_stop.
+        c_health_degraded = c_health in {"degrading", "stuck", "diverging"}
+        if c_decision == "early_stop" or (c_concern and c_health_degraded):
             stop_now = True
             concern = c_concern or concern
             health = c_health or health
@@ -438,9 +448,11 @@ def _supervised_do_one_check(
             _apply_supervisor_usage_fields(task, model=model, totals=supervisor_usage_totals)
             _write_task(task_id, task)
         else:
-            # False alarm: the second read cleared it. Keep running, and clear
-            # the stale concern from the task record so status/reporting does
-            # not show a phantom anomaly.
+            # False alarm: the second read cleared the concern, or repeated it
+            # without degraded health or an early_stop (two rounds of
+            # reassurance phrasing must not kill a healthy run). Keep running,
+            # and clear the stale concern from the task record so
+            # status/reporting does not show a phantom anomaly.
             concern = ""
             health = c_health or health
             task["last_supervisor_concern"] = ""

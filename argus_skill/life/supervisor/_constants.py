@@ -7,6 +7,12 @@ PLANNER_SCOPE_FINAL_SUBMISSION = "final_submission"
 IDLE_BACKOFF_BASE_SECONDS = 15.0
 # This caps event-poll latency while idle; it never limits mission work.
 IDLE_BACKOFF_CAP_SECONDS = 300.0
+# How often the Planner is re-granted a turn while an operator-only wait
+# holds. Each grant is a full Planner LLM call, so this is an LLM-call-rate
+# policy, not a poll-latency bound: it is deliberately decoupled from
+# IDLE_BACKOFF_CAP_SECONDS so retuning idle sleep never retunes token spend
+# (magic-hyperparameters audit 2026-09-05).
+OPERATOR_WAIT_TURN_REGRANT_SECONDS = 300.0
 # These are fact-emission cadences so indefinite waits remain observable.
 PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS = 1800.0
 LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
@@ -32,7 +38,6 @@ PLANNER_DEDUP_STATUSES = frozenset({
 })
 PLANNER_RECENT_FAILURE_STATUS = "no_progress"
 CONSECUTIVE_REPLAN_ESCALATION_THRESHOLD = 3
-_REPLAN_STREAK_JOURNAL_WINDOW = 100
 VERIFICATION_PROBE_AFTER_IDLE_CYCLES = 4
 MANAGER_RECONCILE_AFTER_IDLE_CYCLES = 4
 VERIFICATION_PROBE_COOLDOWN_SECONDS = 1800.0
@@ -76,6 +81,7 @@ def consecutive_replan_escalation_threshold() -> int:
 __all__ = [
     "IDLE_BACKOFF_BASE_SECONDS",
     "IDLE_BACKOFF_CAP_SECONDS",
+    "OPERATOR_WAIT_TURN_REGRANT_SECONDS",
     "PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS",
     "LIFECYCLE_BLOCK_HEARTBEAT_SECONDS",
     "PLANNER_SCOPE_BOUNDED",

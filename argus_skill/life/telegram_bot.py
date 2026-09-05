@@ -78,7 +78,7 @@ def _api_call(token: str, method: str, payload: dict[str, Any] | None = None, *,
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as exc:  # noqa: BLE001
-        log.debug("telegram api %s failed: %s", method, exc)
+        log.warning("telegram api %s failed: %s", method, exc)
         return None
 
 

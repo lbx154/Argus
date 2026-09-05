@@ -605,6 +605,60 @@ class EventJournal:
             if (entry := self._entry_from_event(row)) is not None
         ]
 
+    def tail_for_item(
+        self,
+        item_id: str,
+        n: int,
+        *,
+        kinds: Iterable[str] | None = None,
+    ) -> list[JournalEntry]:
+        """Last ``n`` mission-settlement entries journaled for one backlog item.
+
+        Only ``life.mission.completed`` events count: those are the entries the
+        replan-streak guard reasons about, and a per-item tail must not shrink
+        just because unrelated journal-level traffic (planner cycles, parallel
+        missions) landed in between. When ``kinds`` is given, only settlements
+        whose projected :class:`JournalEntry` ``kind`` is in it occupy window
+        slots — the replan-streak guard passes exactly its count-or-break kinds
+        so neutral settlements (budget/provider/research pauses) cannot evict
+        an older replan out of a threshold-sized window. Spans every retained
+        rollover generation.
+        """
+        item_id = str(item_id or "")
+        if n <= 0 or not item_id:
+            return []
+        raw_marker = item_id.encode("utf-8")
+        wanted = None if kinds is None else frozenset(kinds)
+
+        def _is_item_settlement(row: dict[str, Any]) -> bool:
+            etype = canonical_event_type(
+                row.get("canonical_type") or row.get("type")
+            )
+            if etype != EventType.LIFE_MISSION_COMPLETED:
+                return False
+            if str(row.get("item_id") or row.get("id") or "") != item_id:
+                return False
+            if wanted is None:
+                return True
+            # Derive the same kind projection the returned entries carry, so
+            # the filter and the caller reason about identical labels.
+            entry = self._entry_from_event(row)
+            return entry is not None and entry.kind in wanted
+
+        events = _read_jsonl_tail_history(
+            self.path,
+            n,
+            predicate=_is_item_settlement,
+            raw_predicate=lambda raw: raw_marker in raw,
+            # Item ids are plain uuid hex (``BacklogItem.new_id``), so the id
+            # itself is a regex-safe ripgrep pattern for sparse per-item rows.
+            rg_pattern=item_id,
+        )
+        return [
+            entry for row in events
+            if (entry := self._entry_from_event(row)) is not None
+        ]
+
     def total_cost_since(self, ts: float) -> float:
         paths = _jsonl_history_paths(self.path)
         signature = _history_signature(paths)
@@ -1269,6 +1323,10 @@ class Backlog:
     def add(self, item: BacklogItem) -> BacklogItem:
         with self._locked():
             items = self._load()
+            # A freshly enqueued item has no journal history to migrate, so
+            # its zero streak is authoritative from the start. The dataclass
+            # default stays False: it marks pre-upgrade rows loaded from disk.
+            item.replan_streak_tracked = True
             items.append(item)
             self._validate_no_dependency_cycles(items)
             self._save(items)
@@ -1289,6 +1347,9 @@ class Backlog:
             duplicate = next((item_id for item_id in ids if item_id in existing), None)
             if duplicate is not None:
                 raise ValueError(f"backlog item already exists: {duplicate}")
+            for item in batch:
+                # Same as add(): new rows never need journal migration.
+                item.replan_streak_tracked = True
             items.extend(batch)
             self._validate_no_dependency_cycles(items)
             self._save(items)
@@ -1474,6 +1535,11 @@ class Backlog:
                 archived.superseded_reason = reason
                 terminal_updates.append(archived)
             items.extend(terminal_updates)
+            for item in replacements:
+                # Same as Backlog.add(): a freshly inserted replacement row has
+                # no journal history to migrate, so its zero replan streak is
+                # authoritative and the first settlement skips the journal scan.
+                item.replan_streak_tracked = True
             items.extend(replacements)
             self._save(items)
 
@@ -1778,6 +1844,10 @@ class Backlog:
                 # Append the resolved terminal revision; history() selects the
                 # latest row for this stable id.
                 items.append(blocked)
+            # Same as Backlog.add(): the continuation is a brand-new row with
+            # no journal history, so its zero replan streak is authoritative
+            # and the first settlement skips the journal migration scan.
+            continuation.replan_streak_tracked = True
             items.append(continuation)
             self._validate_no_dependency_cycles(items)
             self._save(items)
@@ -1986,6 +2056,11 @@ class Backlog:
                     it.started_ts = None
                     it.finished_ts = None
                     it.last_error = ""
+                    # An accepted cycle re-armed the item, which the settlement
+                    # journals as mission_iterated — forward progress, so the
+                    # replan streak restarts from an authoritative zero.
+                    it.consecutive_replans = 0
+                    it.replan_streak_tracked = True
                     out = it
                     break
             if out is not None:

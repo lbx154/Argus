@@ -1970,6 +1970,9 @@ class LifeSupervisor(
                 return
             self._parallel_plan_after = now + max(
                 float(self.config.poll_interval_seconds),
+                # Spare-slot planning throttles on idle-poll semantics, so it
+                # deliberately stays on this cap rather than the operator-wait
+                # turn re-grant constant that was split out of it.
                 _IDLE_BACKOFF_CAP_SECONDS,
             )
             self._plan_next_work()

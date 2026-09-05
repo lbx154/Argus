@@ -26,7 +26,6 @@ from ..mission_outcome import (
     review_keeps_mission_resumable,
 )
 from ._constants import (
-    _REPLAN_STREAK_JOURNAL_WINDOW,
     PLANNER_RECENT_FAILURE_STATUS,
     PLANNER_SCOPE_BOUNDED,
     PLANNER_SCOPE_FINAL_SUBMISSION,
@@ -37,6 +36,19 @@ from ._mission_execution_helpers import _MissionRunState
 from .pending_notify import notify_pending_question
 
 log = logging.getLogger(__name__)
+
+# JournalEntry kinds the replan-streak migration scan reasons about (see
+# ``memory.EventJournal._entry_from_event`` for the projection):
+# ``mission_replan_requested`` counts toward the streak, ``mission_complete``
+# and ``mission_iterated`` break it as forward progress. Every other
+# ``life.mission.completed`` projection (budget/provider/research pauses,
+# ``mission_failed``) neither counts nor breaks and therefore must not occupy
+# slots in the threshold-sized ``tail_for_item`` window.
+_REPLAN_STREAK_SETTLEMENT_KINDS = frozenset({
+    "mission_replan_requested",
+    "mission_complete",
+    "mission_iterated",
+})
 
 
 class MissionExecutionSettlementMixin:
@@ -500,14 +512,25 @@ class MissionExecutionSettlementMixin:
     def _count_consecutive_item_replans(self, item_id: str) -> int:
         """Trailing consecutive replan_requested missions journaled for one item.
 
-        Walks the journal newest-first and counts ``mission_replan_requested``
-        entries for ``item_id``, stopping at the first forward-progress marker
-        (``mission_complete``) for that item. The current mission's own replan
-        has not been journaled yet, so this is the count of PRIOR consecutive
-        replans; the caller adds one for the in-flight outcome.
+        Migration fallback for pre-counter backlog rows only. Walks the item's
+        OWN settlement entries newest-first and counts
+        ``mission_replan_requested``, stopping at the first forward-progress
+        marker (``mission_complete`` or ``mission_iterated``). The journal
+        window holds exactly the last ``threshold`` settlements OF THOSE KINDS
+        (``kinds=`` pushes the filter into the tail read): neutral settlements
+        — budget/provider/research pauses, ``mission_failed`` — neither count
+        nor break the streak, so letting them occupy window slots would push
+        an older replan out and under-count. With only count-or-break entries
+        in the window, and the current mission's own replan not journaled yet
+        (the caller adds one for the in-flight outcome), ``threshold`` prior
+        entries always suffice to decide escalation.
         """
         try:
-            entries = self.memory.journal.tail(_REPLAN_STREAK_JOURNAL_WINDOW)
+            entries = self.memory.journal.tail_for_item(
+                item_id,
+                n=consecutive_replan_escalation_threshold(),
+                kinds=_REPLAN_STREAK_SETTLEMENT_KINDS,
+            )
         except Exception:  # noqa: BLE001 - guard degrades to current behavior
             log.exception(
                 "life supervisor: failed to read journal for replan streak"
@@ -515,10 +538,8 @@ class MissionExecutionSettlementMixin:
             return 0
         count = 0
         for entry in reversed(entries):
-            if str(getattr(entry, "id", "") or "") != item_id:
-                continue
             kind = str(getattr(entry, "kind", "") or "")
-            if kind == "mission_complete":
+            if kind in {"mission_complete", "mission_iterated"}:
                 break
             if kind == "mission_replan_requested":
                 count += 1
