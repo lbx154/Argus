@@ -385,6 +385,79 @@ def test_event_journal_tail_settlements_reads_legacy_spelling(
     assert entries[0].kind == "mission_failed"
 
 
+def test_event_journal_tail_kinds_window_ignores_other_journal_kinds(
+    tmp_path: Path,
+) -> None:
+    """Only entries of the requested kinds occupy window slots.
+
+    Mirrors ``tail_settlements``: journal-level chatter between matches must
+    not shrink the window. Unlike ``tail_settlements``, ``budget_pause`` from
+    its independent ``life.budget.pause`` source (not a settlement) still
+    qualifies when asked for.
+    """
+    path = tmp_path / "events.jsonl"
+    _append_settlement_event(
+        path, item_id="aaaa1111bbbb", status="no_progress", success=False,
+        title="failed",
+    )
+    with path.open("a", encoding="utf-8") as fh:
+        for _ in range(30):
+            fh.write(json.dumps({
+                "type": "life.planner.waiting",
+                "ts": time.time(),
+                "reason": "waiting on external dependency",
+            }) + "\n")
+        # Independent (non-settlement) budget_pause event source.
+        fh.write(json.dumps({
+            "type": "life.budget.pause",
+            "ts": time.time(),
+            "title": "cap reached",
+            "reason": "daily cap reached",
+        }) + "\n")
+    _append_settlement_event(
+        path, item_id="cccc2222dddd", status="done", success=True, title="ok",
+    )
+
+    journal = EventJournal(path)
+    entries = journal.tail_kinds(
+        3, kinds={"mission_failed", "mission_complete", "budget_pause"},
+    )
+
+    assert [entry.title for entry in entries] == ["failed", "cap reached", "ok"]
+    assert [entry.kind for entry in entries] == [
+        "mission_failed", "budget_pause", "mission_complete",
+    ]
+    # Kind filtering: unrequested kinds neither appear nor occupy slots.
+    assert [entry.title for entry in journal.tail_kinds(
+        2, kinds={"mission_failed", "mission_complete"},
+    )] == ["failed", "ok"]
+
+
+def test_event_journal_tail_kinds_spans_rollovers_and_truncates(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "events.jsonl"
+    for target, title, item_id in (
+        (path.with_suffix(".jsonl.2"), "oldest", "item2222aaaa"),
+        (path.with_suffix(".jsonl.3"), "older", "item3333bbbb"),
+        (path.with_suffix(".jsonl.1"), "recent", "item1111cccc"),
+        (path, "live", "item0000dddd"),
+    ):
+        _append_settlement_event(
+            target, item_id=item_id, status="no_progress", success=False,
+            title=title,
+        )
+
+    journal = EventJournal(path)
+    assert [entry.title for entry in journal.tail_kinds(
+        10, kinds={"mission_failed"},
+    )] == ["oldest", "older", "recent", "live"]
+    assert [entry.title for entry in journal.tail_kinds(
+        2, kinds={"mission_failed"},
+    )] == ["recent", "live"]
+    assert journal.tail_kinds(0, kinds={"mission_failed"}) == []
+
+
 # ---------- Backlog --------------------------------------------------------
 
 def test_backlog_add_pending_order(tmp_path: Path) -> None:

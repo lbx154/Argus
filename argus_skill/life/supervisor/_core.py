@@ -1297,13 +1297,18 @@ class LifeSupervisor(
         """Promote the last verified mission output only after project_done."""
         latest: dict[str, Any] = {}
         try:
-            for entry in reversed(self.memory.journal.tail(80)):
+            # Settlement-scoped tail: journal chatter (planner cycles, waiting
+            # heartbeats) must not push the winning settlement out of view.
+            # The ``success is True`` check stays literal: the kind projection
+            # defaults a missing ``success`` to complete, and a delivery must
+            # only ever promote an explicitly successful settlement.
+            for entry in reversed(
+                self.memory.journal.tail_settlements(
+                    8, kinds=("mission_complete",)
+                )
+            ):
                 extra = getattr(entry, "extra", None)
-                if (
-                    getattr(entry, "kind", "") == "mission_complete"
-                    and isinstance(extra, dict)
-                    and extra.get("success") is True
-                ):
+                if isinstance(extra, dict) and extra.get("success") is True:
                     latest = extra
                     break
         except Exception:  # noqa: BLE001 - delivery presentation is optional

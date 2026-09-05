@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
+from argus_skill.life.memory import EventJournal
 from argus_skill.life.supervisor import LifeSupervisor
 from argus_skill.planner import Planner
 from argus_skill.roles.prompts.planner import _RESEARCH_PLAN_CONTRACT
@@ -267,7 +269,17 @@ def test_planner_journal_uses_latest_three_terminal_outcomes() -> None:
         ),
     ]
     supervisor = LifeSupervisor.__new__(LifeSupervisor)
-    supervisor.memory = SimpleNamespace(journal=SimpleNamespace(tail=lambda _count: entries))
+    supervisor.memory = SimpleNamespace(
+        journal=SimpleNamespace(
+            tail_kinds=lambda _count, *, kinds: [
+                entry for entry in entries if entry.kind in kinds
+            ][-_count:],
+            tail_settlements=lambda _count, *, kinds=None: [
+                entry for entry in entries
+                if kinds is None or entry.kind in kinds
+            ][-_count:],
+        ),
+    )
 
     rendered = supervisor._render_journal_for_planner()
 
@@ -278,6 +290,49 @@ def test_planner_journal_uses_latest_three_terminal_outcomes() -> None:
     assert all(f"terminal-{index}" in rendered for index in range(2, 4))
     assert "paused-methods" in rendered
     assert len(rendered) <= 3 * 1_800 + 2
+
+
+def test_planner_journal_window_survives_waiting_heartbeat_floods(tmp_path) -> None:
+    """Journal chatter after a settlement must not hide the settlement.
+
+    The window used to be ``tail(64)`` post-filtered by kind, so 70 waiting
+    heartbeats systematically evicted every terminal outcome the Planner was
+    supposed to reason over. An independent ``life.budget.pause`` event (which
+    has no settlement source) must also stay visible so the Planner can see
+    why nothing is running.
+    """
+    path = tmp_path / "events.jsonl"
+    with path.open("w", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "life.mission.completed",
+            "item_id": "aaaa1111bbbb",
+            "ts": 1.0,
+            "success": True,
+            "status": "done",
+            "title": "settled mission",
+            "summary": "landed the result",
+        }) + "\n")
+        for index in range(70):
+            fh.write(json.dumps({
+                "type": "life.planner.waiting",
+                "ts": 2.0 + index,
+                "reason": "waiting on external dependency",
+            }) + "\n")
+        fh.write(json.dumps({
+            "type": "life.budget.pause",
+            "ts": 100.0,
+            "title": "budget pause",
+            "reason": "daily cap reached",
+        }) + "\n")
+
+    supervisor = LifeSupervisor.__new__(LifeSupervisor)
+    supervisor.memory = SimpleNamespace(journal=EventJournal(path))
+
+    rendered = supervisor._render_journal_for_planner()
+
+    assert "settled mission" in rendered
+    assert "budget pause" in rendered
+    assert "waiting on external dependency" not in rendered
 
 
 def _research_plan(*, experiment_fill: str = "") -> str:

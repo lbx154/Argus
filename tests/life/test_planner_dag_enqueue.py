@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from argus_skill.core.event_catalog import EventType
-from argus_skill.life.memory import Backlog, BacklogItem
+from argus_skill.life.memory import Backlog, BacklogItem, EventJournal
 from argus_skill.life.supervisor._constants import PLAN_RETRY
 from argus_skill.life.supervisor._helpers import (
     _resolve_task_dep_ids,
@@ -15,6 +15,7 @@ from argus_skill.life.supervisor._helpers import (
 from argus_skill.life.supervisor._planning_cycle_enqueue import (
     PlanningCycleEnqueueMixin,
     _apply_planner_stage_request,
+    _latest_planner_forward_progress,
 )
 from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
 
@@ -428,7 +429,9 @@ def test_enqueued_task_resets_idle_backoff_only_after_forward_progress(
     class Harness(PlanningCycleEnqueueMixin):
         _planning_cycles = 3
         memory = SimpleNamespace(
-            journal=SimpleNamespace(tail=lambda _count: [entry]),
+            journal=SimpleNamespace(
+                tail_settlements=lambda _count, *, kinds=None: [entry],
+            ),
         )
         resets = 0
 
@@ -456,6 +459,42 @@ def test_enqueued_task_resets_idle_backoff_only_after_forward_progress(
     harness = Harness()
     assert harness._pc_emit_final_verdict(state) is True
     assert harness.resets == expected_resets
+
+
+def test_forward_progress_reads_the_latest_settlement_through_heartbeat_floods(
+    tmp_path: Path,
+) -> None:
+    """32+ heartbeats after the settlement must not erase forward progress.
+
+    The lookup used to be ``journal.tail(32)`` — enough waiting heartbeats
+    landed after the settlement to push it out of the window entirely, and the
+    supervisor conservatively judged "no forward progress" against the
+    Reviewer's explicit verdict.
+    """
+    import json
+
+    path = tmp_path / "events.jsonl"
+    with path.open("w", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "life.mission.completed",
+            "item_id": "aaaa1111bbbb",
+            "ts": 1.0,
+            "success": True,
+            "status": "done",
+            "title": "settled",
+            "summary": "landed",
+            "planner_report": {"forward_progress": True},
+        }) + "\n")
+        for index in range(40):
+            fh.write(json.dumps({
+                "type": "life.planner.waiting",
+                "ts": 2.0 + index,
+                "reason": "heartbeat",
+            }) + "\n")
+
+    memory = SimpleNamespace(journal=EventJournal(path))
+
+    assert _latest_planner_forward_progress(memory, None) is True
 
 
 def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:

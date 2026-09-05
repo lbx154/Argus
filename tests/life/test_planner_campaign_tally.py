@@ -16,15 +16,31 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from argus_skill.life.supervisor._planner_rendering import PlannerRenderingMixin
+from argus_skill.life.supervisor._planner_rendering import (
+    _TALLY_WINDOW_MISSIONS,
+    PlannerRenderingMixin,
+)
 
 
 class _Journal:
+    """Mirror of ``EventJournal``'s kind-scoped tails over in-memory entries."""
+
     def __init__(self, entries):
         self._entries = entries
 
-    def tail(self, n):
-        return self._entries[-n:]
+    def tail_settlements(self, n, *, kinds=None):
+        rows = [
+            entry for entry in self._entries
+            if kinds is None or getattr(entry, "kind", "") in kinds
+        ]
+        return rows[-n:]
+
+    def tail_kinds(self, n, *, kinds):
+        rows = [
+            entry for entry in self._entries
+            if getattr(entry, "kind", "") in kinds
+        ]
+        return rows[-n:]
 
 
 def _entry(
@@ -111,11 +127,36 @@ def test_tally_survives_a_broken_journal() -> None:
     obj = PlannerRenderingMixin()
 
     class _Boom:
-        def tail(self, n):
+        def tail_settlements(self, n, *, kinds=None):
             raise RuntimeError("journal unavailable")
 
     obj.memory = SimpleNamespace(journal=_Boom())
     assert obj._render_campaign_tally() == ""
+
+
+def test_tally_degrades_its_claims_when_the_window_saturates() -> None:
+    """A full window cannot claim to have seen the whole campaign.
+
+    ``no mission has EVER requested a replacement plan`` is an absolute fact.
+    Once ``len(missions)`` equals the window, older settlements exist that the
+    tally cannot see, so both the headline and the never-replanned claim must
+    become window-scoped statements.
+    """
+    entries = [_entry("mission_complete") for _ in range(_TALLY_WINDOW_MISSIONS)]
+    line = _renderer(entries)._render_campaign_tally()
+    assert f"last {_TALLY_WINDOW_MISSIONS} terminal missions" in line
+    assert "no mission has ever requested a replacement plan" not in line
+    assert (
+        f"no replacement plan requested in the last {_TALLY_WINDOW_MISSIONS} "
+        "terminal missions"
+    ) in line
+
+
+def test_tally_keeps_absolute_claims_below_the_window() -> None:
+    entries = [_entry("mission_complete") for _ in range(_TALLY_WINDOW_MISSIONS - 1)]
+    line = _renderer(entries)._render_campaign_tally()
+    assert f"({_TALLY_WINDOW_MISSIONS - 1} terminal missions)" in line
+    assert "no mission has ever requested a replacement plan" in line
 
 
 def test_tally_shows_a_stalled_objective_behind_locally_complete_missions() -> None:

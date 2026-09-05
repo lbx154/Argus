@@ -596,13 +596,47 @@ class EventJournal:
     def all(self) -> list[JournalEntry]:
         return [JournalEntry.from_jsonable(r) for r in self._rows()]
 
-    def tail(self, n: int = 20) -> list[JournalEntry]:
+    def tail(self, n: int) -> list[JournalEntry]:
         if n <= 0:
             return []
         events = _read_jsonl_tail_history(
             self.path,
             n,
             predicate=self._is_journal_event,
+            raw_predicate=self._might_be_journal_event,
+            raw_markers=self._RAW_EVENT_MARKERS,
+            rg_pattern=self._RG_PATTERN,
+        )
+        return [
+            entry for row in events
+            if (entry := self._entry_from_event(row)) is not None
+        ]
+
+    def tail_kinds(self, n: int, *, kinds: Iterable[str]) -> list[JournalEntry]:
+        """Last ``n`` journal entries whose projected ``kind`` is in ``kinds``.
+
+        Only matching entries occupy window slots, so journal-level chatter
+        (planner cycles, waiting heartbeats) landing in between cannot shrink
+        the window — a plain ``tail(n)`` + post-filter systematically loses
+        older matches to that noise. Unlike :meth:`tail_settlements`, this
+        spans the full journal projection, so kinds with non-settlement event
+        sources (e.g. ``budget_pause`` from ``life.budget.pause``) still
+        qualify. Spans every retained rollover generation.
+        """
+        if n <= 0:
+            return []
+        wanted = frozenset(kinds)
+
+        def _is_wanted_kind(row: dict[str, Any]) -> bool:
+            # Derive the same kind projection the returned entries carry, so
+            # the filter and the caller reason about identical labels.
+            entry = self._entry_from_event(row)
+            return entry is not None and entry.kind in wanted
+
+        events = _read_jsonl_tail_history(
+            self.path,
+            n,
+            predicate=_is_wanted_kind,
             raw_predicate=self._might_be_journal_event,
             raw_markers=self._RAW_EVENT_MARKERS,
             rg_pattern=self._RG_PATTERN,
@@ -2483,14 +2517,9 @@ class LifeMemory:
         self,
         *,
         max_entries: int = 3,
-        recency_n: int = 30,
     ) -> list[JournalEntry]:
         """Return the newest journal entries as non-authoritative context."""
-        return _recent_journal(
-            self.journal,
-            max_entries=max_entries,
-            recency_n=recency_n,
-        )
+        return _recent_journal(self.journal, max_entries=max_entries)
 
     @property
     def failure_experiences(self):
@@ -2869,13 +2898,8 @@ class ProjectMemory:
         self,
         *,
         max_entries: int = 3,
-        recency_n: int = 30,
     ) -> list[JournalEntry]:
-        return _recent_journal(
-            self.memory,
-            max_entries=max_entries,
-            recency_n=recency_n,
-        )
+        return _recent_journal(self.memory, max_entries=max_entries)
 
     @property
     def failure_experiences(self):
@@ -3052,13 +3076,10 @@ def _recent_journal(
     journal: EventJournal,
     *,
     max_entries: int,
-    recency_n: int,
 ) -> list[JournalEntry]:
-    # Return the most recent entries (newest first), bounded by both
-    # ``recency_n`` (how far back to look) and ``max_entries`` (how many to
-    # surface).
-    recent = journal.tail(recency_n)
+    # Return the most recent ``max_entries`` entries, newest first.
+    recent = journal.tail(max_entries)
     if not recent:
         return []
     # tail() yields oldest→newest; surface newest first.
-    return list(reversed(recent))[:max_entries]
+    return list(reversed(recent))

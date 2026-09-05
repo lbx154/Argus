@@ -847,3 +847,116 @@ evidence 截断、`task_frontier.py:55/:158` 上限规整、`secret_guard.py:187
   category=recent_no_progress_failure)在观察窗口内尚未出现——需等
   下一次 planner 选择周期,属正常;历史 task_skipped(cycle 2,旧
   语义)仍在,留待后续巡检确认新事件落盘。
+
+## 十五、追加(2026-09-05 下午):journal 窗口单位族
+
+承接第十四节,消化审计清单中同一族的五处遗留:所有以"原始 journal 条目
+数"为单位的读取窗口。这个单位族的共同病根在于 journal 的聊天密度
+(planner_waiting 心跳、planner_cycle、pause 结算等噪声)决定了窗口的
+语义宽度——同一个 `tail(N)` 在安静战役里覆盖数天、在心跳泛滥的战役里
+只剩几分钟,而消费方(战役统计、规划器证据、终局回执、forward-progress
+判定)要的从来都是"最近 N 条**某类**事件",不是"最近 N 条随便什么"。
+改动随本次提交("Count planner windows in settlements, not journal
+chatter")推到 main。
+
+### 新原语:EventJournal.tail_kinds
+
+`memory.py` 新增 `tail_kinds(n, kinds=...)`,机制照抄第十四节引入的
+`tail_settlements`:只有投影后 `entry.kind in kinds` 的行占窗口名额,
+夹在中间的噪声行不消耗;raw_predicate/raw_markers/rg_pattern 用 journal
+超集的通道,跨全部滚动代。与 `tail_settlements` 的区别:谓词跨完整
+journal 投影而非仅结算事件——`budget_pause` 这类既有结算源又有独立
+事件源(`life.budget.pause`,`_core.py:1113`)的 kind 也能装进窗口。
+测试新增噪声不占位 + 独立源可见 + 跨滚动代 + n 截断用例。
+
+### 五处修复及动机
+
+1. **战役 tally 假事实 / 花费低估**(`_planner_rendering.py`)。原
+   `tail(4096)` 后过滤:journal 超过 4096 条后统计静默低估——总数、
+   累计花费都变假,且 "no mission has ever requested a replacement
+   plan" 这类绝对化断言可能在窗口外早已为假。现改
+   `tail_settlements(_TALLY_WINDOW_MISSIONS=4096, kinds=_PLANNER_TALLY_KINDS)`
+   ——只有终局结算占名额,4096 条**结算**远超任何现实战役;并加饱和
+   护栏:`len(missions) >= 窗口` 时首行降级为 "Campaign totals (last N
+   terminal missions)",绝对化断言降级为 "no replacement plan requested
+   in the last N terminal missions"。配饱和降级 + 窗口下沿(4095)保留
+   绝对表述两个用例。
+
+2. **规划器近期证据被心跳挤空**(`_planner_rendering.py:180`)。原
+   `tail(64)` 后过滤再取末 3 条:64 条原始窗口在 planner_waiting 心跳
+   泛滥时被整个挤空,规划器失去全部近期结算证据。现 collapse 为
+   `tail_kinds(_PLANNER_HISTORY_COUNT, kinds=_PLANNER_HISTORY_KINDS)`,
+   64 这个中间魔数删除;代码注释写明必须 tail_kinds 而非
+   tail_settlements(budget_pause 有独立事件源,规划器需要看到"为什么
+   什么都没在跑")。新回归测试用真 EventJournal:结算 + 70 条
+   planner_waiting + 独立源 budget_pause,结算与 budget_pause 均可见
+   ——已验证旧代码红。
+
+3. **终局交付回执丢工件**(`_core.py:1306`)。原 `reversed(tail(80))`
+   找最近一条成功结算:收尾期聊天超 80 条后回执静默丢 final.md/summary。
+   现 `reversed(tail_settlements(8, kinds=("mission_complete",)))`;
+   `extra.get("success") is True` 字面校验保留并注释(kind 投影对缺省
+   success 归 complete,交付只认显式成功),冗余的 kind 判断删除。新增
+   90 条 waiting 噪声后回执仍取到工件(旧代码红)+ 成功之后的
+   failed/paused_budget/无 success 字段结算不顶替成功那条,两组用例。
+
+4. **forward-progress 误判**(`_planning_cycle_enqueue.py:92`)。原
+   `tail(32)` + 反向扫描找最近终局结算:噪声超 32 条后判定失明,恒回
+   False。现 `tail_settlements(1, kinds=(complete/failed/replan))` 直取
+   最近一条终局结算,窗口不再受聊天密度影响。新增 40 条心跳压顶的真
+   EventJournal 回归(旧代码红)。残余知情项:回看不再有 32 条上限,
+   一条陈旧 fp=True 结算会在下一条终局结算落地前持续重置 idle backoff
+   ——实际有界:重复提案会被去重 → added_titles 空 → 仍走
+   _enter_idle_backoff。
+
+5. **两个零语义旋钮删除**(`memory.py`)。(a) `tail` 的默认值 `n=20`
+   去掉,改为必传——全仓生产代码零裸调用(已 grep 确认),默认值只是
+   在静默塑造"最近历史"的含义;(b) `recent_journal` 的 `recency_n`
+   参数三处(:2516/:2897/:3075)删除,`_recent_journal` 改为
+   `tail(max_entries)` 后 reversed——"先看 30 条再取 3 条"与"直接取
+   3 条"逐条等价(评审注:严格等价的例外仅限尾部堆积历史遗留
+   `benign: true` planner.error 行的旧 journal,消费端 fail-soft,
+   已记为可选加固项)。
+
+### 副发现:inbox 渲染死过滤(`apps/cli/_core.py:2006`)
+
+清点 tail 调用方时发现 `_render_inbox_injection_lines` 过滤
+`kind == "inbox.injected"` 恒空:`--notify` 注入由 supervisor
+`_drain_user_inbox`(_idle_cycle.py:127)与 engineer 每轮 drain
+(skills/loop_prompt.py:56)发射 `life.inbox.drained` 进 events.jsonl,
+但该类型不在 `EventJournal.JOURNAL_EVENT_TYPES`,投影永不产生对应
+kind——该节从上线起从未渲染过任何内容。处置选择**修过滤而非删函数**:
+事件确实落在同一 events.jsonl,只是 journal 投影可见性问题;功能有明确
+操作员价值(确认 --notify 被看到),且不宜为 CLI 展示把 inbox.drained
+塞进喂给规划器的 journal 投影(会把操作员消息漏进规划器记忆上下文)。
+改为按邻函数 `_render_mid_mission_progress_lines` 同款模式读
+events.jsonl 原始尾部(256KB),按 canonical_type/type ==
+"life.inbox.drained" 过滤并渲染 messages。已验证 JsonlEventSink 在默认
+"signal" 详度下也持久化该类型(LIFE_INBOX_DRAINED ∈
+SIGNAL_EVENT_TYPES)。新增注入后 --status 显示消息(旧代码红)+ 无注入
+时该节静默,两个用例。已知局限(与邻函数先例一致):只读活跃
+events.jsonl,滚动后的旧代不可见。
+
+### 测试
+
+- 合跑指定套件(tests/life 16 个文件 + tests/apps 6 个文件 +
+  test_planner_prompt_budget + test_harbor_integration +
+  test_runtime_native_project_skills):**326 passed,exit 0**。
+- 旧代码红验证:stash 生产文件后 4 个新回归测试全部 FAILED,恢复后
+  全绿。
+- 附带发现(未改):全量 tests/life + tests/apps 同进程合跑时
+  tests/apps/test_cli_ask.py 有 2 个既存的测试顺序污染失败,在干净
+  HEAD 临时 worktree 复现相同失败,与本次改动无关(单跑/本合跑集均
+  通过)。
+- 评审结论:无 merge-blocking 缺陷;tail_kinds 超集谓词对全部调用方
+  所需 kind 完备(rg 通道与 marker 通道 parity 探针一致);继承一处
+  既存缺口(legacy "life.team.waiting" 别名不进 rg 快速通道,tail()
+  同病,无调用方受影响)。
+
+### 审计清单同步
+
+`docs/audits/magic-hyperparameters-adaptive-followups.md` 里本批完成的
+六处(`_planner_rendering.py:128` 战役 tally 窗口、`:166` recency 窗口、
+`_core.py:1302` 回执 lookback、`_planning_cycle_enqueue.py:90`
+forward-progress lookback、`memory.py:592` tail 默认值、`memory.py:2354`
+recency_n)已标注 done(2026-09-05,随本次提交)。

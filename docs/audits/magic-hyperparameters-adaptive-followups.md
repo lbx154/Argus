@@ -146,10 +146,12 @@
   建议:Same prompt-budget family as memory.py's 6_000 defaults (memory.py lines 2375/2899 pass the same number). One knob derived from model context should govern these, not four copies of 6_000.
 - `argus_skill/life/memory.py:592` · EventJournal.tail default n = 20  
   后果:Callers relying on the default see only the 20 newest journal entries; older history exists on disk but is not surfaced.  
-  建议:A read-window default that silently shapes what 'recent history' means to every default caller (status cards, layer detection). Callers with real needs already pass n; the default should be derived from the consuming surface (e.g. how many entries the prompt/display budget can hold) rather than a fixed 20.
+  建议:A read-window default that silently shapes what 'recent history' means to every default caller (status cards, layer detection). Callers with real needs already pass n; the default should be derived from the consuming surface (e.g. how many entries the prompt/display budget can hold) rather than a fixed 20.  
+  状态:**已完成(done, 2026-09-05)** — 提交 "Count planner windows in settlements, not journal chatter":默认值删除,`tail(n)` 改为必传——全仓生产代码本就零裸调用(grep 确认),"recent history" 的宽度改由各消费面显式声明;同批新增 `tail_kinds(n, kinds=...)` 原语(仅指定 kind 的投影行占窗口名额,聊天噪声不消耗,跨滚动代)。
 - `argus_skill/life/memory.py:2354` · LifeMemory.recent_journal defaults (max_entries=3, recency_n=30) = 3 entries surfaced, scanning the last 30 journal events  
   后果:Everything older than the 3 newest entries is invisible to the agent's memory context — silently, with no marker that history was elided.  
-  建议:How much memory an autonomous researcher gets is a consequential judgment call encoded as '3'. It should scale with the consuming model's context budget and the campaign's length (a 200-mission campaign and a 5-mission one get identical memory), or at minimum be configured alongside the other prompt-budget knobs.
+  建议:How much memory an autonomous researcher gets is a consequential judgment call encoded as '3'. It should scale with the consuming model's context budget and the campaign's length (a 200-mission campaign and a 5-mission one get identical memory), or at minimum be configured alongside the other prompt-budget knobs.  
+  状态:**已完成(done, 2026-09-05,以零语义旋钮删除口径)** — 提交 "Count planner windows in settlements, not journal chatter":`recency_n` 参数三处调用(:2516/:2897/:3075)删除,`_recent_journal` 收敛为 `tail(max_entries)` 后 reversed——"先看 30 条再取 3 条"与"直接取 3 条"逐条等价;`max_entries=3` 默认的自适应改造缓议。
 - `argus_skill/life/memory.py:2391` · render_prelude identity_chars = 600  
   后果:Identity/policy text beyond 600 chars is silently cut — an operator who writes a detailed identity card has the tail dropped from every prompt with no indication.  
   建议:Silent truncation of operator-authored directives is the kind of quiet data loss the audit targets. The cap should derive from the overall prompt budget, and truncation should at least be marked so the agent (and operator) know the card was cut.
@@ -168,7 +170,8 @@
   状态:**已完成(done, 2026-09-05)** — 提交 "Count replan streaks exactly, decouple operator-wait cadence, and fix supervisor concern handling":按建议改为按 item id 精确计数——backlog 行上的持久 `consecutive_replans` 计数器为主,迁移回退走 `EventJournal.tail_for_item` 的 kind 过滤精确扫描(窗口即 threshold,中性结算不占名额);`_REPLAN_STREAK_JOURNAL_WINDOW` 已删除。
 - `argus_skill/life/supervisor/_core.py:1302` · delivery receipt lookback = journal.tail(80)  
   后果:If more than 80 journal entries landed after the last successful mission (long wind-down, chatty settlement), the terminal receipt silently reports no completed mission found despite one existing.  
-  建议:A terminal artifact — the campaign's final receipt — should not depend on journal chattiness. Query by event type without an arbitrary window, or persist the last-success pointer as it happens.
+  建议:A terminal artifact — the campaign's final receipt — should not depend on journal chattiness. Query by event type without an arbitrary window, or persist the last-success pointer as it happens.  
+  状态:**已完成(done, 2026-09-05)** — 提交 "Count planner windows in settlements, not journal chatter":按建议改按事件类型查询——`reversed(tail(80))` 改 `reversed(tail_settlements(8, kinds=("mission_complete",)))`,只有成功类结算占窗口名额,回执不再随收尾期聊天密度丢工件;`extra.get("success") is True` 字面校验保留(kind 投影对缺省 success 归 complete,交付只认显式成功)。配 90 条 waiting 噪声回归(旧代码红)与"后继非成功结算不顶替成功那条"用例。
 - `argus_skill/life/supervisor/_mission_execution_settlement.py:1179` · mission_summary truncation = [:1200]  
   后果:The durable record of what a mission accomplished loses everything past 1200 chars, with no ellipsis and no full-text copy; downstream planner history rendering then truncates further to 1800 chars per entry.  
   建议:This truncation is at the storage layer, so the data is unrecoverable — unlike rendering-time caps. Store the full summary (or a pointer to it) and truncate only at render time where token budgets actually apply.
@@ -196,10 +199,12 @@
   建议:Silent tail-drop of decision context. Prefer structure-aware compression (keep outcome/verdict fields whole, truncate the middle) or a token budget shared with _PLANNER_HISTORY_COUNT.
 - `argus_skill/life/supervisor/_planner_rendering.py:128` · campaign tally journal window = journal.tail(4096)  
   后果:Campaigns whose journal exceeds 4096 entries get a silently understated tally; the planner believes fewer missions have run than actually have.  
-  建议:Correctness of a count should not depend on a tail window. Maintain running counters incrementally (or persist the tally) so the window is only a rendering concern; long campaigns are exactly when accurate tallies matter most.
+  建议:Correctness of a count should not depend on a tail window. Maintain running counters incrementally (or persist the tally) so the window is only a rendering concern; long campaigns are exactly when accurate tallies matter most.  
+  状态:**已完成(done, 2026-09-05)** — 提交 "Count planner windows in settlements, not journal chatter":改 `tail_settlements(_TALLY_WINDOW_MISSIONS=4096, kinds=_PLANNER_TALLY_KINDS)`——只有终局结算占名额,journal 聊天不再压缩统计窗口;另加饱和护栏:窗口打满时首行降级为 "Campaign totals (last N terminal missions)",绝对化断言("no mission has ever requested a replacement plan")降级为窗口限定表述,统计永不静默谎报全战役。running counters 缓议(4096 条结算远超现实战役长度,饱和降级已封住谎报路径)。
 - `argus_skill/life/supervisor/_planner_rendering.py:166` · recency scan window = journal.tail(64)  
   后果:Activity older than 64 entries is treated as absent; on chatty journals the recency horizon shrinks to minutes.  
-  建议:Entry-count windows conflate chattiness with time. A time-based horizon (or typed-event filter before windowing) gives stable semantics across campaigns.
+  建议:Entry-count windows conflate chattiness with time. A time-based horizon (or typed-event filter before windowing) gives stable semantics across campaigns.  
+  状态:**已完成(done, 2026-09-05)** — 提交 "Count planner windows in settlements, not journal chatter":按建议做 typed-event filter——collapse 为 `tail_kinds(_PLANNER_HISTORY_COUNT, kinds=_PLANNER_HISTORY_KINDS)`,64 这个中间魔数删除;planner_waiting 心跳泛滥不再挤空规划器近期证据(真 EventJournal 回归:结算 + 70 条心跳 + 独立源 budget_pause 均可见,旧代码红)。注意必须 tail_kinds 而非 tail_settlements:budget_pause 另有独立事件源 life.budget.pause(supervisor/_core.py:1113)。
 - `argus_skill/life/supervisor/_planner_rendering.py:187` · context packet truncation = context_packet[:600]  
   后果:Everything past 600 chars of the packet is silently invisible to the planner — the packet exists precisely to carry decision context forward.  
   建议:600 chars is very tight for a 'context packet'; either enforce the cap where the packet is authored (so authors know the budget) or raise it to a token-budgeted share of the prompt. Silent mid-packet truncation is the worst option.
@@ -209,7 +214,8 @@
   状态:**已完成(done, 2026-09-05)** — 同上提交:拆出独立常量 `OPERATOR_WAIT_TURN_REGRANT_SECONDS = 300.0`(`_constants.py`,值未变);空闲退避封顶不再兼任操作者等待再授权节奏,后续调 1800 可单独议。
 - `argus_skill/life/supervisor/_planning_cycle_enqueue.py:90` · forward-progress lookback = memory.journal.tail(32)  
   后果:Progress older than 32 entries is invisible to the check; on chatty journals genuine recent progress can be missed and on quiet ones stale progress can look fresh.  
-  建议:Another entry-count window standing in for a time/semantic horizon; same fix as the other tail() windows — filter to the relevant typed events or use a time bound.
+  建议:Another entry-count window standing in for a time/semantic horizon; same fix as the other tail() windows — filter to the relevant typed events or use a time bound.  
+  状态:**已完成(done, 2026-09-05)** — 提交 "Count planner windows in settlements, not journal chatter":`tail(32)` + 反向扫描改 `tail_settlements(1, kinds=(mission_complete/mission_failed/mission_replan_requested))` 直取最近一条终局结算,判定不再受聊天密度影响(40 条心跳压顶回归,旧代码红)。回看改为无界是有意为之;残余行为:陈旧 fp=True 在下一条终局结算落地前会持续重置 idle backoff,由提案去重(added_titles 空 → 仍入退避)实际兜底。
 - `argus_skill/life/supervisor/_subagent_family_failures.py:80` · failure reason truncation = [:300]  
   后果:Long failure reasons lose their tail in the durable record; distinct root causes with identical first 300 chars become indistinguishable when reviewing why a family was quarantined.  
   建议:Silent data drop from a diagnostic record. Cheap fix: keep a short prefix for display but store a hash or full reason for identity/forensics, or truncate at a size that preserves tracebacks (a few KB).

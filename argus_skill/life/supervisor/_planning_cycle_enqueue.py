@@ -87,18 +87,21 @@ def _latest_planner_forward_progress(
         if isinstance(value, bool):
             return value
     try:
-        entries = memory.journal.tail(32)
+        # The single most recent terminal settlement: journal chatter (planner
+        # cycles, waiting heartbeats) must not hide it behind a fixed window.
+        entries = memory.journal.tail_settlements(
+            1,
+            kinds=(
+                "mission_complete",
+                "mission_failed",
+                "mission_replan_requested",
+            ),
+        )
     except Exception:  # noqa: BLE001 - backoff remains conservative on read failure
         return False
-    for entry in reversed(entries):
-        if str(getattr(entry, "kind", "") or "") not in {
-            "mission_complete",
-            "mission_failed",
-            "mission_replan_requested",
-        }:
-            continue
-        return _forward_progress(entry) is True
-    return False
+    if not entries:
+        return False
+    return _forward_progress(entries[-1]) is True
 
 
 def _independent_review_forced() -> bool:
