@@ -1046,3 +1046,5 @@ recency_n)已标注 done(2026-09-05,随本次提交)。
 - 新隔离(批三 d9b0c518b 时间基隔离)在 s-3e28f79c 的落地情况:重启后
   若完成门空转复发,观察 `recent_no_progress_failure` 是否按预期出现。
 - `release_matches_source` 若要启用,需先重新生成 manifest(见第十二节)。
+- 追记(2026-09-05 晚):终稿认证消费修复移植已 ship,commit 1194aa07d。
+- 追记(2026-09-05 晚):tests/skills/test_paper_chart_style.py 失败系 ebddbbf28 预存(router md 改写未同步测试断言),与本次移植无关。
