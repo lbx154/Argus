@@ -976,3 +976,73 @@ recency_n)已标注 done(2026-09-05,随本次提交)。
 - 重启后等 3 分钟抽查:四进程均存活,各 events.jsonl 尾部 200 行零
   Traceback,事件持续写入(engineer.progress / usage.recorded /
   budget.reservation.settled 等),无启动即退。
+
+## 十六、收尾(2026-09-05 下午,本轮接手工作到此为止)
+
+### 本轮四批一览(第十二至十五节)
+
+| 批次 | 提交 | 部署记录 | 主题一句话 |
+| --- | --- | --- | --- |
+| 批一(第十二节) | `12ba2a8b7` | `881ef6fd6` | 启动器劫持修复:source root 不匹配即拒启,封堵 user-site 安装劫持 |
+| 批二(第十三节) | `0377ebdc0` | `6c14b4262` | 重规划连击精确计数、操作者等待节奏与空闲退避解耦、监督者关切判定修复 |
+| 批三(第十四节) | `d9b0c518b` | `951ee2853` | 规划器隔离改按时间基、研究证据去截断、密钥扫描流式越过大小上限 |
+| 批四(第十五节) | `e48e5573d` | `e274dd161` | journal 窗口单位族:规划器窗口按 settlements 计数而非日志噪声 |
+
+四守护进程(s-72fa9517 / s-3e28f79c / s-80c507d6 / s-0b1c7fa1)现于
+`e48e5573d`,今日四轮滚动重启无事故。
+
+### 最终健康快照(2026-09-05 15:47 UTC,只读巡检)
+
+- **四守护进程已于 15:36 UTC 全部被干净停止(非崩溃)**。四 pid
+  714762/716049/719950/722025 与 15:28-29Z boot 日志一致,但 /proc 核实
+  均已不存活;daemon.commands.jsonl 显示 issuer=cli 的 `stop`
+  (drain=false),日志均记 "quiesced continuous mode on operator stop
+  (clock out)" 并 "stopping cleanly"——操作员下班式停止,末次会话
+  uptime 442-505s,missions 4/0/1/1。停止前运行版本确为
+  `e48e5573d553`(argus-runtime-latest HEAD)✓。
+- **稳定性**:15:00Z 起四项目 events.jsonl 零 Traceback;每项目仅 1 次
+  boot(15:28-29Z 换版重启),无重启循环。
+- **s-3e28f79c 预期新隔离未出现**:全项目 0 次
+  `recent_no_progress_failure`;15:00 后唯一 task_skipped 为
+  "duplicate pending/running task"。
+- **planner 健康**:s-72fa9517 2/2、s-80c507d6 2/1、s-0b1c7fa1 4/4
+  (planner.start/task_added)正常;**s-3e28f79c 35/1 异常空转**——
+  15:00:30-15:36:40 每 60-90s 一轮 planner.start→completion_rejected
+  共 33 次,原因均为完成门
+  "missing_publishable_reviewer_certification",该会话 missions=0。
+- **费用**:15:00Z 起四会话合计 ≈$69;今日(00:00Z 起)合计
+  ≈$1,148($298/$125/$353/$371),远低于 $20,000 日上限,无异常烧钱;
+  s-3e28f79c 空转成本约 $0.10/轮,金额小但零产出。
+- **维护守护进程 3554795 已死**:metrics.jsonl 末次心跳 15:36:44 UTC,
+  与集体 clock-out 同时停止;存活相关进程仅剩 spawn_helper(3623289)
+  与 web UI(709686)。
+- **两张 paused_operator 决策卡状态未变**:
+  `~/.argus-skill/maintenance/pending/690fb430f6b6.json` 与
+  `6062621ef4e9.json` 仍在 pending/,reviewer_verdict=done,仍等
+  operator approval。
+- **需关注**:a) 四守护进程与维护进程当前全部停机(15:36Z cli stop),
+  若非计划内下班窗口需重新拉起;b) s-3e28f79c planner 完成门空转循环
+  且预期隔离未生效;c) 场外噪音:s-0ebfd18c 于 15:47:43Z 在
+  cost-control.jsonl 记录 planner 错误 "Process exited with code 1 …
+  Error: Model \"gp…"(不在本次四项目范围内)。
+
+### 未尽事项
+
+- (a) **批五设计已备齐未实施**:top-10 审计条目第 1-5、8、10 条的完整
+  设计稿(事实核查、现网测量、改动点与测试设计)见
+  `docs/audits/batch5-designs-2026-09-05.md`,锚点基于 e274dd161,
+  实施前需按届时 HEAD 对位。
+- (b) 两张 paused_operator 决策卡仍待操作者 adopt/decline(见上)。
+- (c) 维护守护进程 3554795 等 5 个旧代码进程未滚动(理由见第十三节);
+  3554795 的 ~$1/小时规划器空转将持续到决策卡处理或重启。
+- (d) 剩余审计条目见
+  `docs/audits/magic-hyperparameters-adaptive-followups.md` 未标 done
+  部分。
+- (e) 已知预存测试失败 3 条(test_cli_ask×2 顺序相关、
+  test_role_library)未处理。
+
+### 观察点提醒
+
+- 新隔离(批三 d9b0c518b 时间基隔离)在 s-3e28f79c 的落地情况:重启后
+  若完成门空转复发,观察 `recent_no_progress_failure` 是否按预期出现。
+- `release_matches_source` 若要启用,需先重新生成 manifest(见第十二节)。
