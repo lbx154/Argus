@@ -171,18 +171,34 @@ class PlannerRenderingMixin:
             facts.append(price)
         return "; ".join(facts)
 
-    def _render_journal_for_planner(self) -> str:
-        """Render a bounded recency window of terminal mission evidence."""
+    def _planner_journal_window(self) -> list[Any] | None:
+        """The bounded recency window of Planner-visible journal entries.
+
+        ``None`` means the journal could not be read this cycle; callers must
+        then fall back to the full-context path rather than pretend the window
+        is empty.
+        """
         try:
             # tail_kinds (not tail_settlements): ``budget_pause`` also has a
             # non-settlement event source (``life.budget.pause``), and the
             # Planner must still see why nothing is running.
-            entries = self.memory.journal.tail_kinds(
+            return self.memory.journal.tail_kinds(
                 _PLANNER_HISTORY_COUNT,
                 kinds=_PLANNER_HISTORY_KINDS,
             )
         except Exception:  # noqa: BLE001
-            return ""
+            return None
+
+    @staticmethod
+    def _planner_journal_entry_key(entry: Any) -> str:
+        """Stable identity for one rendered journal entry."""
+        return (
+            f"{float(getattr(entry, 'ts', 0.0) or 0.0):.6f}:"
+            f"{getattr(entry, 'kind', '')}:{getattr(entry, 'title', '')}"
+        )
+
+    def _render_journal_entries_for_planner(self, entries: list[Any]) -> str:
+        """Render given journal entries plus the campaign tally and failures."""
         lines: list[str] = []
         for e in entries:
             from datetime import datetime
@@ -215,5 +231,38 @@ class PlannerRenderingMixin:
             body += "\n\n" + failure_context
         tally = self._render_campaign_tally()
         return f"{tally}\n{body}" if tally else body
+
+    def _render_journal_for_planner(self) -> str:
+        """Render a bounded recency window of terminal mission evidence."""
+        entries = self._planner_journal_window()
+        if entries is None:
+            return ""
+        return self._render_journal_entries_for_planner(entries)
+
+    def _render_journal_delta_for_planner(
+        self,
+        entries: list[Any] | None,
+    ) -> tuple[str | None, frozenset[str] | None]:
+        """What the current Planner session has not been shown yet.
+
+        Returns ``(delta_text, window_keys)``. ``delta_text`` is ``None`` when
+        no prior render exists for this supervisor (first cycle, or after a
+        restart), so the caller must send the full journal; an empty string
+        means the session already holds every entry in the window. The keys
+        are recorded by the caller after a successful Planner call so the next
+        cycle can diff against them.
+        """
+        if entries is None:
+            return None, None
+        keys = frozenset(self._planner_journal_entry_key(e) for e in entries)
+        seen = getattr(self, "_planner_session_journal_keys", None)
+        if seen is None:
+            return None, keys
+        fresh = [
+            e for e in entries if self._planner_journal_entry_key(e) not in seen
+        ]
+        if not fresh:
+            return "", keys
+        return self._render_journal_entries_for_planner(fresh), keys
 
 __all__ = ["PlannerRenderingMixin"]

@@ -8,6 +8,7 @@ happens before any waiting/project_done interpretation.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import replace
 from typing import Any
@@ -118,7 +119,22 @@ class PlanningCycleVerdictMixin:
         if state.verdict is not None:
             return None
         revision_request = state.revision_request
-        journal_tail = self._render_journal_for_planner()
+        journal_window = self._planner_journal_window()
+        journal_tail = (
+            ""
+            if journal_window is None
+            else self._render_journal_entries_for_planner(journal_window)
+        )
+        journal_delta, journal_window_keys = self._render_journal_delta_for_planner(
+            journal_window
+        )
+        research_plan = self._render_research_plan_for_planner()
+        research_plan_digest = hashlib.sha256(
+            research_plan.encode("utf-8")
+        ).hexdigest()
+        research_plan_unchanged = research_plan_digest == str(
+            getattr(self, "_planner_session_research_plan_digest", "") or ""
+        )
 
         runtime_note = self._planner_runtime_with_idle_note()
         revision_note = (
@@ -160,10 +176,13 @@ class PlanningCycleVerdictMixin:
             if stream_ctx:
                 stream_ctx.__enter__()
             try:
+                state.planner_invoked = True
                 state.verdict = planner.plan_next(
                     continuous_objective=self.config.continuous_objective,
                     journal_tail=journal_tail,
-                    research_plan=self._render_research_plan_for_planner(),
+                    research_plan=research_plan,
+                    journal_delta=journal_delta,
+                    research_plan_unchanged=research_plan_unchanged,
                     planning_cycle=self._planning_cycles - 1,
                     runtime_change_summary="\n\n".join(
                         part
@@ -184,6 +203,17 @@ class PlanningCycleVerdictMixin:
                 self._apply_research_plan_update(
                     getattr(state.verdict, "raw_text", "") or ""
                 )
+                # The role session (fresh or resumed) has now been shown this
+                # window and this plan, so the next resumed cycle may send only
+                # what settles after them. A backend error leaves the record
+                # untouched: that session rotates, and a rotated session always
+                # receives the full context again.
+                if not getattr(state.verdict, "error", ""):
+                    if journal_window_keys is not None:
+                        self._planner_session_journal_keys = journal_window_keys
+                    self._planner_session_research_plan_digest = (
+                        research_plan_digest
+                    )
             finally:
                 if stream_ctx:
                     stream_ctx.__exit__(None, None, None)

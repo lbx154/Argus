@@ -22,6 +22,7 @@ from ._constants import (
     PLANNER_SCOPE_BOUNDED,
     PLANNER_SCOPE_FINAL_SUBMISSION,
     PLANNER_TASKS_FILTERED_DIAGNOSTIC,
+    PLANNER_UNCHANGED_SKIP_MAX_SECONDS,
     STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS,
     VERIFICATION_PROBE_AFTER_IDLE_CYCLES,
     VERIFICATION_PROBE_COOLDOWN_SECONDS,
@@ -851,6 +852,160 @@ class PlanningContextMixin:
             except FileNotFoundError:
                 pass
 
+    def _planner_visible_input_signature(
+        self,
+        *,
+        operator_context_revision: int = 0,
+    ) -> str:
+        """Digest of the decision inputs a fresh Planner call would read now.
+
+        Two cycles with the same digest would hand the Planner the same
+        objective, backlog, journal window, research plan, standing operator
+        context, Manager feedback, persisted wait, and background-job states —
+        so a second model call can only repeat the first answer. Wall-clock
+        facts (operator presence, log churn from healthy live jobs, git status
+        noise) are deliberately not part of the digest: live jobs rewrite their
+        own files continuously, and ``PLANNER_UNCHANGED_SKIP_MAX_SECONDS``
+        bounds how long an unchanged digest may keep the Planner silent.
+
+        Fail-soft: an empty string disables the unchanged-input skip for this
+        cycle rather than guessing.
+        """
+        try:
+            entries = self._planner_journal_window()
+            if entries is None:
+                return ""
+            feedback = self._load_manager_planner_feedback()
+            contract_state = self._load_planner_waiting_contract_state()
+            payload = {
+                "objective": str(self.config.continuous_objective or ""),
+                "stage": str(self._current_pipeline_stage() or ""),
+                "backlog": self._backlog_planning_signature(),
+                "journal": sorted(
+                    self._planner_journal_entry_key(entry) for entry in entries
+                ),
+                "research_plan": hashlib.sha256(
+                    self._render_research_plan_for_planner().encode("utf-8")
+                ).hexdigest(),
+                "operator_context_revision": int(operator_context_revision),
+                "manager_feedback": (
+                    None
+                    if feedback is None
+                    else [
+                        str(feedback.get("stage") or ""),
+                        str(feedback.get("diagnostic") or ""),
+                        str(feedback.get("reason") or ""),
+                        int(feedback.get("attempts") or 0),
+                    ]
+                ),
+                "waiting_contract": (
+                    None
+                    if contract_state is None
+                    else [
+                        bool(contract_state.get("active")),
+                        str(contract_state.get("blocker_fingerprint") or ""),
+                        str(contract_state.get("recheck_token") or ""),
+                        isinstance(contract_state.get("manager_resolution"), dict),
+                    ]
+                ),
+                "external_jobs": self._external_work_state_rows(
+                    self._project_workdir()
+                ),
+                "dropped_dependency_note": bool(
+                    getattr(self, "_planner_dropped_dependency_keys", []) or []
+                ),
+            }
+        except Exception:  # noqa: BLE001 - an unreadable input disables the skip
+            log.debug("planner input signature failed; skip disabled", exc_info=True)
+            return ""
+        blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return "planner-input:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    def _maybe_skip_unchanged_planner_cycle(self, state: Any) -> str | None:
+        """Keep the last waiting decision when nothing the Planner reads moved.
+
+        The previous Planner call already answered exactly this input state
+        with an intentional wait; asking again buys the same answer at model
+        price. This gate runs only after every earlier intake short circuit
+        (operator drain, event waits, in-flight dependency waits) has declined,
+        and only while the previous call is recent enough that elapsed time is
+        not itself news. Returns the plan-cycle outcome when skipping, else
+        ``None`` — and always leaves the freshly computed signature on
+        ``state`` so the cycle's real outcome can arm the next skip.
+        """
+        current = self._planner_visible_input_signature(
+            operator_context_revision=int(
+                getattr(state, "operator_context_revision", 0) or 0
+            )
+        )
+        state.planner_input_signature = current
+        if not current:
+            return None
+        armed = str(getattr(self, "_planner_unchanged_skip_signature", "") or "")
+        armed_at = getattr(self, "_planner_unchanged_skip_armed_at", None)
+        if not armed or armed_at is None or current != armed:
+            return None
+        if (
+            time.monotonic() - float(armed_at)
+            >= PLANNER_UNCHANGED_SKIP_MAX_SECONDS
+        ):
+            # A long silence is itself worth a real look; disarm so the next
+            # cycles call the Planner until it waits again on fresh evidence.
+            self._planner_unchanged_skip_signature = ""
+            self._planner_unchanged_skip_armed_at = None
+            return None
+        # Preserve whichever backoff family the campaign is already in: an
+        # armed idle-exit clock keeps running, a recoverable pause stays one.
+        if getattr(self, "_idle_since", None) is not None:
+            sleep_s = self._enter_idle_backoff()
+        else:
+            sleep_s = self._enter_pause_backoff()
+        self._emit(
+            {
+                "type": EventType.LIFE_PLANNER_WAITING,
+                "cycle": self._planning_cycles,
+                "reason": (
+                    "nothing the Planner reads has changed since its last "
+                    "decision; keeping that decision without another model call"
+                ),
+                "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
+                "suggested_sleep_s": sleep_s,
+                "model_call_skipped": True,
+            }
+        )
+        self._emit_status(
+            "planner inputs unchanged; keeping the previous decision "
+            "without a model call"
+        )
+        return PLAN_AWAITING
+
+    def _arm_unchanged_planner_skip(self, state: Any, result: Any) -> None:
+        """Record or clear the unchanged-input skip after a real Planner call.
+
+        Armed only when the model was actually called this cycle and answered
+        with an intentional wait: that is the one outcome a byte-identical
+        input state is guaranteed to reproduce. Every other invoked outcome —
+        tasks enqueued, retirements, completion, errors (which may be
+        transient) — clears the record. Cycles that never reached the model,
+        including the skip itself, leave the record untouched so consecutive
+        unchanged cycles keep skipping until the time ceiling forces a call.
+        """
+        if not bool(getattr(state, "planner_invoked", False)):
+            return
+        verdict = state.verdict
+        if (
+            result == PLAN_AWAITING
+            and str(getattr(state, "planner_input_signature", "") or "")
+            and verdict is not None
+            and not getattr(verdict, "error", "")
+            and bool(getattr(verdict, "waiting", False))
+        ):
+            self._planner_unchanged_skip_signature = state.planner_input_signature
+            self._planner_unchanged_skip_armed_at = time.monotonic()
+        else:
+            self._planner_unchanged_skip_signature = ""
+            self._planner_unchanged_skip_armed_at = None
+
     def _backlog_planning_signature(self) -> str:
         """Digest of live backlog item ids and statuses.
 
@@ -1348,6 +1503,10 @@ class PlanningContextMixin:
             )
             state["updated_at"] = time.time()
             self._write_planner_waiting_contract_state(state)
+            # This grant IS the decision to spend one Planner call — the
+            # unchanged-input gate downstream must not answer it from memory.
+            self._planner_unchanged_skip_signature = ""
+            self._planner_unchanged_skip_armed_at = None
             return ""
 
         # Event waits otherwise bypass the Planner entirely. Still feed each

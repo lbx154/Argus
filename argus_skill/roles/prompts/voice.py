@@ -22,4 +22,14 @@ RESEARCHER_VOICE = (
     "specific noun to the abstract one."
 )
 
-__all__ = ["RESEARCHER_VOICE"]
+# The one-sentence form of the same standard, for narrow high-frequency
+# prompts (classifiers that emit a label and at most a line or two of prose)
+# where the full paragraph would double the prompt's cost. A prompt that uses
+# the brief must state its own ban on protocol labels next to the prose field
+# it defines, the way the front-door prompt does for REPLY.
+RESEARCHER_VOICE_BRIEF = (
+    "Write anything meant for a person as a researcher writes to a "
+    "colleague: precise, natural, plain."
+)
+
+__all__ = ["RESEARCHER_VOICE", "RESEARCHER_VOICE_BRIEF"]

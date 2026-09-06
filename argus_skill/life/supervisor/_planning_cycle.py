@@ -1035,9 +1035,10 @@ class PlanningCycleMixin(
                 break
         if state.verdict is not None and not state.verdict.error:
             self._pc_retire_tasks(state)
-        if result is not None:
-            return result
-        return self._pc_emit_final_verdict(state)
+        if result is None:
+            result = self._pc_emit_final_verdict(state)
+        self._arm_unchanged_planner_skip(state, result)
+        return result
 
     def _pc_reconcile_reviewed_stage(
         self,

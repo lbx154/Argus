@@ -147,6 +147,39 @@ def test_project_completion_events_are_typed_cross_component_signals() -> None:
     assert EventType.PROJECT_COMPLETION_REFUSED.value in SIGNAL_EVENT_TYPES
 
 
+def test_planner_wait_family_events_accept_cycle_zero_from_a_fresh_boot() -> None:
+    # A daemon that resumes a durable wait, or restores an already delivered
+    # terminal conclusion from the outbox, emits these before any planning
+    # cycle has run in the new process. There, cycle == 0 is the honest count
+    # of cycles completed so far -- the same convention life.planner.start
+    # already allows.
+    waiting = normalize_event_envelope({
+        "type": EventType.LIFE_PLANNER_WAITING,
+        "cycle": 0,
+        "reason": "awaiting declared event",
+        "model_call_skipped": True,
+        "wait_mode": "event",
+    })
+    assert "event_validation" not in waiting
+
+    terminal_idle = normalize_event_envelope({
+        "type": EventType.LIFE_PLANNER_TERMINAL_IDLE,
+        "cycle": 0,
+        "reason": "open-ended project_done unchanged since last planner run",
+        "consecutive_idle_cycles": 0,
+        "suggested_sleep_s": 30.0,
+    })
+    assert "event_validation" not in terminal_idle
+
+    # A negative cycle is still a defect, never a boot-time value.
+    negative = validate_event_envelope({
+        "type": "life.planner.waiting",
+        "cycle": -1,
+    })
+    assert negative.valid is False
+    assert "field cycle must be >= 0" in negative.errors
+
+
 def test_unknown_vertical_events_remain_extensible_and_legacy_aliases_are_explicit() -> None:
     unknown = validate_event_envelope({"type": "research.custom_evidence.ready"})
     assert unknown.valid is True

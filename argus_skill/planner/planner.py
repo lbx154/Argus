@@ -225,8 +225,20 @@ class Planner:
         planning_cycle: int = 0,
         runtime_change_summary: str = "",
         config: PlannerConfig | None = None,
+        journal_delta: str | None = None,
+        research_plan_unchanged: bool = False,
     ) -> PlannerVerdict:
-        """Inspect the active objective and delegate the next concrete work."""
+        """Inspect the active objective and delegate the next concrete work.
+
+        ``journal_delta`` and ``research_plan_unchanged`` describe what this
+        role session has already been shown: the delta holds only the journal
+        entries that settled after the previous planning turn (empty string
+        means nothing new), and the flag marks the research plan as identical
+        to the one the session already read. Both apply only when the session
+        actually resumes — a fresh or rotated session ignores them and
+        receives the full ``journal_tail`` and ``research_plan``, so a stale
+        caller-side record can never starve a new thread of context.
+        """
         cfg = config or PlannerConfig()
         workdir = Path(cfg.working_dir).resolve() if cfg.working_dir else Path.cwd()
         backend_name = str(getattr(self.runner, "backend", type(self.runner).__name__))
@@ -270,6 +282,8 @@ class Planner:
             memory_maintenance_enabled=self.memory_maintenance_enabled,
             project_root=workdir,
             state_root=cfg.state_root,
+            journal_delta=journal_delta,
+            research_plan_unchanged=research_plan_unchanged,
         )
         if session.prompt_block():
             prompt = session.prompt_block() + "\n\n" + prompt
@@ -432,18 +446,23 @@ class Planner:
         memory_maintenance_enabled: bool = True,  # noqa: ARG004 - same contract
         project_root: Path | str | None = None,
         state_root: Path | str | None = None,
+        journal_delta: str | None = None,
+        research_plan_unchanged: bool = False,
     ) -> str:
         from ..roles.prompts.planner import build_continuous_resume_prompt
 
+        journal_is_delta = journal_delta is not None
         return build_continuous_resume_prompt(
             continuous_objective=continuous_objective,
-            journal_tail=journal_tail,
+            journal_tail=journal_delta if journal_is_delta else journal_tail,
             research_plan=research_plan,
             planning_cycle=planning_cycle,
             runtime_change_summary=runtime_change_summary,
             mission=mission,
             project_root=project_root,
             state_root=state_root,
+            journal_is_delta=journal_is_delta,
+            research_plan_unchanged=research_plan_unchanged,
         )
 
     @staticmethod
@@ -459,6 +478,8 @@ class Planner:
         memory_maintenance_enabled: bool = True,
         project_root: Path | str | None = None,
         state_root: Path | str | None = None,
+        journal_delta: str | None = None,  # noqa: ARG004 - resume-only context
+        research_plan_unchanged: bool = False,  # noqa: ARG004 - resume-only context
     ) -> str:
         from ..roles.prompts.planner import build_continuous_prompt
 

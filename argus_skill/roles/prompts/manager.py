@@ -13,7 +13,7 @@ from ...core.model_visible_text import (
 from ...core.role_decision import decision_footer_instruction
 from ..task_contract import format_native_shell_command
 from .types import ChecklistMode, RoleName, RolePromptRequest
-from .voice import RESEARCHER_VOICE
+from .voice import RESEARCHER_VOICE, RESEARCHER_VOICE_BRIEF
 
 FRONT_DOOR = "front_door"
 SELF_REPLY = "self_reply"
@@ -214,15 +214,15 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
     """Merged cockpit front door: classify once and reuse every cheap decision."""
     cleaned = (text or "").strip()
     return (
-        "Classify this message; do not choose a vertical or plan.\n"
+        "Classify this message; never choose a vertical or plan.\n"
         "INTAKE_TYPE: EPHEMERAL=chat/status; OBJECTIVE_AMENDMENT=finite/task-local; "
         "else STANDING_DIRECTIVE|PREFERENCE|CREDENTIAL_GRANT|REVOCATION.\n\n"
         "CONFIG: SET only an explicit standing setting: role backend|model|effort "
         "for manager,planner,engineer,reviewer or ALL; global: "
         "global_daily_cap,max_daemons,codex_daily_requests,"
         "copilot_daily_requests,copilot_daily_premium,safe_mode,show_reasoning,"
-        "telegram. Questions, suggestions, and task-local settings are NONE. Separate "
-        "multiple SET clauses with `; `.\n\n"
+        "telegram. Questions, suggestions, and task-local settings are NONE. Join "
+        "SET clauses with `; `.\n\n"
         "CONTROL: PAUSE stops the campaign; ABORT ends the current mission; "
         "NO_DISPATCH forbids new work. STEER explicitly changes an "
         "active mission. Questions, requests for an explanation/status/capability "
@@ -230,12 +230,12 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "explicit continue/resume after a pause is not a control token; resumed "
         "paused tasks with those effects are TEAM. Ambiguity defaults to no control. "
         "Controls use ROUTE SELF.\n\n"
-        "AUTHORIZATION: AUTHORIZE only an explicit grant addressing what currently prevents progress: "
+        "AUTHORIZATION: AUTHORIZE only an explicit grant for the current obstacle: "
         "validator_repair,"
         "acceptance_retry,provenance_repair,artifact_refresh,resume_blocked_work. "
-        "Questions/quotes are NONE. Use SELF.\n\n"
-        "STEER_DIRECTIVE: for STEER, state the changed direction or constraint; else NONE.\n\n"
-        "OPERATOR_QUESTION_POLICY: STEER: FORBID only for an explicit command "
+        "Questions/quotes are NONE.\n\n"
+        "STEER_DIRECTIVE: the changed direction or constraint for STEER; else NONE.\n\n"
+        "OPERATOR_QUESTION_POLICY: FORBID only for an explicit command "
         "against questions; ALLOW only when explicitly re-enabled; else "
         "UNCHANGED.\n\n"
         "ROUTE: SELF for conversation, status, a quick inspection, or one finite local "
@@ -244,12 +244,12 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         "SELF; live research, ambiguity, parallel, or review-sensitive work is TEAM.\n\n"
         "SELF_MODE: REPLY=no tools; INSPECT=grounded answer; MICRO=tiny checked mutation; "
         "IMPLEMENT=local implementation+tests; DEBUG=diagnosis/fix+tests; "
-        "REVIEW=local review report; SYNTHESIZE=one synthesis "
-        "from supplied sources. Prefer DEBUG over IMPLEMENT for fixes/regressions. "
-        "TEAM uses NONE. REPLY is the complete human-facing answer for SELF/REPLY. "
-        "Write it in the operator's language. Lead with the answer in ordinary words; "
+        "REVIEW=local review report; SYNTHESIZE=synthesis "
+        "from supplied sources. Prefer DEBUG for fixes/regressions; TEAM=NONE. "
+        "REPLY is the complete human-facing answer for SELF/REPLY, "
+        "in the operator's language: lead with the answer in ordinary words; "
         "never expose route, control, lifetime, or role-protocol labels.\n\n"
-        f"{RESEARCHER_VOICE}\n\n"
+        f"{RESEARCHER_VOICE_BRIEF}\n\n"
         "LIFETIME: TEAM: default BOUNDED for finite or casual unscoped work absent "
         "ongoing intent; BOUNDED_INCREMENT for a limited stage; STANDING only with "
         "ongoing intent. SELF: NONE.\n\n"
@@ -268,7 +268,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
             "OPERATOR_QUESTION_POLICY: unchanged\n"
             "ROUTE: SELF\n"
             "SELF_MODE: REPLY\n"
-            "REPLY: full user-facing answer\n"
+            "REPLY: the full answer\n"
             "LIFETIME: NONE\n"
             "GREETING: NONE\n"
             "NAME: short title"
@@ -276,7 +276,7 @@ def build_front_door_prompt(text: str, *, active_mission: bool = False) -> str:
         + "\n"
         f"ACTIVE_MISSION: {'YES' if active_mission else 'NO'}\n\n"
         f"Message:\n{cleaned}\n\n"
-        "Decide and record the event now.\n"
+        "Decide now.\n"
     )
 
 

@@ -13,6 +13,7 @@ from argus_skill.life.router import (
     classify_front_door,
 )
 from argus_skill.roles.prompts.planner import build_continuous_prompt
+from argus_skill.roles.prompts.voice import RESEARCHER_VOICE, RESEARCHER_VOICE_BRIEF
 
 
 class _FakeResult:
@@ -66,13 +67,13 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget(tmp_path) -> Non
         ).split()
     )
 
-    # Cost budget for the highest-frequency model call. The old 3,000-char bar
-    # predates the shared how-to-write paragraph (RESEARCHER_VOICE, ~725 chars)
-    # that this prompt now carries so REPLY reads like a person wrote it; the
-    # rest of the prompt (~3,000 chars) is already the compact classifier body.
-    # 3,800 chars is roughly 950 input tokens per classify call, about 200
-    # tokens more than the old budget. Trim the prompt before raising this.
-    assert len(prompt) <= 3_800
+    # Cost budget for the highest-frequency model call: ~750 input tokens per
+    # classify call. The classifier reads one message and emits labels plus at
+    # most a line or two of prose, so it carries RESEARCHER_VOICE_BRIEF (one
+    # sentence) rather than the full RESEARCHER_VOICE paragraph; the REPLY
+    # definition itself bans protocol labels in prose. Trim the prompt before
+    # raising this.
+    assert len(prompt) <= 3_000
     assert "live research" in prompt
     assert all(
         field in prompt
@@ -114,6 +115,20 @@ def test_front_door_prompt_has_a_strict_token_efficiency_budget(tmp_path) -> Non
             ("behavior reachable through a real entry point", standing),
         )
     )
+
+
+def test_front_door_prompt_carries_the_brief_voice_not_the_full_paragraph() -> None:
+    # The classifier's only person-facing prose is REPLY, STEER_DIRECTIVE, and
+    # NAME, so it carries the one-sentence writing standard; the full paragraph
+    # stays with the roles that write whole documents. The ban on protocol
+    # labels in prose lives in the REPLY definition and must survive the swap.
+    prompt = build_front_door_prompt("项目现在进展如何？", active_mission=False)
+
+    assert RESEARCHER_VOICE not in prompt
+    assert RESEARCHER_VOICE_BRIEF in prompt
+    assert "complete human-facing answer" in prompt
+    assert "never expose route, control, lifetime, or role-protocol labels" in prompt
+    assert "ACTIVE_MISSION: NO" in prompt
 
 
 def test_front_door_uses_process_decision_without_final_message() -> None:

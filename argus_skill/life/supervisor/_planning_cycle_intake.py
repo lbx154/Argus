@@ -506,6 +506,12 @@ class PlanningCycleIntakeMixin:
             event_wait_outcome = self._planner_event_wait_outcome()
             if event_wait_outcome:
                 return event_wait_outcome
+            if not state.had_operator_messages:
+                unchanged_outcome = self._maybe_skip_unchanged_planner_cycle(
+                    state
+                )
+                if unchanged_outcome is not None:
+                    return unchanged_outcome
 
         self._planning_cycles += 1
         state.manager_intent = self._manager_intent_context()

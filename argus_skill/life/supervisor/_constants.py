@@ -16,6 +16,13 @@ OPERATOR_WAIT_TURN_REGRANT_SECONDS = 300.0
 # These are fact-emission cadences so indefinite waits remain observable.
 PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS = 1800.0
 LIFECYCLE_BLOCK_HEARTBEAT_SECONDS = 1800.0
+# A cycle whose Planner-visible inputs are byte-identical to those of the last
+# Planner call keeps that call's waiting decision without a new model call.
+# After this much wall clock the Planner is called anyway: elapsed time is
+# itself an input a standing campaign may act on (a long silence can justify
+# escalation or a probe), so unchanged files must not silence it forever. The
+# cadence matches the idle journal heartbeat above.
+PLANNER_UNCHANGED_SKIP_MAX_SECONDS = 1800.0
 PLAN_TERMINAL_IDLE = "planner_terminal_idle"
 PLAN_AWAITING = "awaiting_external"
 PLAN_ERROR = "planner_error"
@@ -171,6 +178,7 @@ __all__ = [
     "IDLE_BACKOFF_CAP_SECONDS",
     "OPERATOR_WAIT_TURN_REGRANT_SECONDS",
     "PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS",
+    "PLANNER_UNCHANGED_SKIP_MAX_SECONDS",
     "LIFECYCLE_BLOCK_HEARTBEAT_SECONDS",
     "PLANNER_SCOPE_BOUNDED",
     "PLANNER_SCOPE_FINAL_SUBMISSION",

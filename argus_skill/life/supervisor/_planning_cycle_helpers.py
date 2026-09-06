@@ -414,6 +414,11 @@ class _PlanCycleState:
         # Set by the planner-invocation phase.
         self.subagent_family_failures: dict[str, Any] = {}
         self.verdict: Any = None
+        self.planner_invoked = False
+
+        # Set by the unchanged-input gate in the intake phase; empty when the
+        # cycle's inputs could not be fingerprinted (skip stays disabled).
+        self.planner_input_signature: str = ""
 
         # Set by the dedupe/enqueue phases.
         self.existing_items: list[BacklogItem] = []

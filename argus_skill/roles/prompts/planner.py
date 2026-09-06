@@ -677,6 +677,8 @@ def build_continuous_resume_prompt(
     project_root: Path | str | None = None,
     state_root: Path | str | None = None,
     trailing_policy: str = "",
+    journal_is_delta: bool = False,
+    research_plan_unchanged: bool = False,
 ) -> str:
     """Render only the changing Planner delta for a resumable role session.
 
@@ -684,6 +686,12 @@ def build_continuous_resume_prompt(
     vertical policy, and tool boundary.  Repeating that large preamble on every
     cycle defeats provider prompt caching; this delta still carries the current
     stage/checklist, durable objective, journal, and fresh runtime facts.
+
+    ``journal_is_delta`` marks ``journal_tail`` as only the entries that
+    settled after this session's previous planning turn — the earlier turns of
+    the same thread already hold the older ones, so repeating them buys
+    nothing. ``research_plan_unchanged`` likewise stands in for a plan document
+    the session has already read in full.
     """
     from ...core.project import resolve_project_root
     from .registry import resolve_role_prompt
@@ -693,15 +701,40 @@ def build_continuous_resume_prompt(
     prompt_context = resolve_role_prompt(
         continuous_request(state, altitude_root=workspace)
     )
-    research_plan_context = (
-        _RESEARCH_PLAN_CONTRACT
-        + sanitize_model_visible_text(
+    if prompt_context.vertical == "research":
+        research_plan_context = ""
+    elif research_plan_unchanged:
+        research_plan_context = (
+            "## Research plan\n"
+            "RESEARCH_PLAN.md is unchanged since your previous planning turn; "
+            "the copy already in this session is still current. `PLAN_UPDATE=` "
+            "in your closing lines still replaces it when the direction changes."
+        )
+    else:
+        research_plan_context = _RESEARCH_PLAN_CONTRACT + sanitize_model_visible_text(
             research_plan.strip()
             or "(no plan yet — create RESEARCH_PLAN.md in this planning cycle)"
         )
-        if prompt_context.vertical != "research"
-        else ""
-    )
+    if journal_is_delta:
+        journal_block = (
+            "## Newly settled work since your previous planning turn "
+            "(most recent last)\n"
+            + sanitize_model_visible_text(
+                journal_tail.strip()
+                or (
+                    "(nothing new has settled since your previous planning "
+                    "turn; the journal you already hold is still current)"
+                )
+            )
+        )
+    else:
+        journal_block = (
+            "## Journal of completed work (most recent last)\n"
+            + sanitize_model_visible_text(
+                journal_tail.strip()
+                or "(no completed work yet — this is the first cycle)"
+            )
+        )
     skill_block = ""
     if mission is not None:
         try:
@@ -736,11 +769,7 @@ def build_continuous_resume_prompt(
         # disk for a paper campaign. Each vertical still renders only its own.
         sanitize_model_visible_text(prompt_context.search_altitude or ""),
         "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
-        "## Journal of completed work (most recent last)\n"
-        + sanitize_model_visible_text(
-            journal_tail.strip()
-            or "(no completed work yet — this is the first cycle)"
-        ),
+        journal_block,
         research_plan_context,
         "## Current reality (authoritative over the journal above)\n"
         + sanitize_model_visible_text(
