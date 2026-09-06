@@ -89,6 +89,10 @@ const ResearchWorkbenchPanel = lazy(async () => {
   const module = await import('./research-workbench/ResearchWorkbenchPanel');
   return { default: module.ResearchWorkbenchPanel };
 });
+const MapPanel = lazy(async () => {
+  const module = await import('./map/MapPanel');
+  return { default: module.MapPanel };
+});
 
 export default function App() {
   const { locale, t } = useI18n();
@@ -142,6 +146,7 @@ export default function App() {
       setWorkbenchOpened(true);
       return;
     }
+    if (workspaceView === 'map') return;
     setStandardWorkspaceView(workspaceView);
   }, [workspaceView]);
   // Publishes --keyboard-inset so the composer clears the software keyboard.
@@ -870,7 +875,7 @@ export default function App() {
         {snap ? (
           <>
             <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
-              <TopBar
+              {workspaceView !== 'map' && <TopBar
                 snap={snap}
                 streamOk={connected}
                 onStart={requestStartDaemon}
@@ -880,18 +885,20 @@ export default function App() {
                 snapshotStale={snapQ.isError}
                 readOnly={kiosk}
                 missionView={missionView}
-              />
+              />}
               <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line/60 px-3">
                 <div className="workspace-tabs" data-active={workspaceView}>
                   <span className="workspace-tab-indicator" aria-hidden="true" />
                   <button type="button" onClick={() => setWorkspaceView('mission')} className="workspace-tab" data-selected={workspaceView === 'mission'}>{t('mobile.mission')}</button>
                   <button type="button" onClick={() => setWorkspaceView('activity')} className="workspace-tab" data-selected={workspaceView === 'activity'}>{t('mobile.activity')}</button>
                   <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{t('mobile.workbench')}</button>
+                  <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{t('mobile.map')}</button>
                 </div>
                 {workspaceView === 'mission' ? <span className="ml-auto hidden max-w-72 truncate text-[10px] text-ink-faint sm:block">{missionView?.active_role ? t('mission.roleActive', { role: missionView.active_role }) : t('mission.overview')}</span> : <span className="ml-auto" />}
-                {!kiosk ? <button type="button" onClick={() => setOverlay('operations')} className="rounded border border-line/60 px-2 py-1 text-[10px] text-ink-faint hover:border-blue/50 hover:text-blue">{t('mission.operations')}</button> : null}
+                {!kiosk && workspaceView !== 'map' ? <button type="button" onClick={() => setOverlay('operations')} className="rounded border border-line/60 px-2 py-1 text-[10px] text-ink-faint hover:border-blue/50 hover:text-blue">{t('mission.operations')}</button> : null}
               </div>
-              <div className={`${workspaceView === 'workbench' ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`}>
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={events} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')} /></Suspense>}
+              <div className={`${workspaceView === 'workbench' || workspaceView === 'map' ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`}>
                 <GuardianBanner alert={guardianAlert} />
                 {standardWorkspaceView === 'mission' && missionView ? (
                   <MissionControl
@@ -957,7 +964,7 @@ export default function App() {
                 </div>
               ) : null}
             </section>
-            {rightPanelOpen ? (
+            {rightPanelOpen && workspaceView !== 'map' ? (
               <SplitHandle
                 label={t('common.resizePreview')}
                 value={rightWidth}
@@ -969,7 +976,7 @@ export default function App() {
               />
             ) : null}
 
-            <aside
+            {(workspaceView !== 'map' || mobileView === 'preview') && <aside
               data-resizable-panel="right"
               className={`${mobileView === 'preview' ? 'flex' : 'hidden'} relative min-w-0 flex-1 flex-col overflow-hidden border-l border-line/60 bg-panel transition-[width] duration-[250ms] ease-panel lg:flex lg:flex-none ${
               rightPanelOpen ? 'lg:w-[var(--preview-width)]' : 'lg:w-14'
@@ -1007,7 +1014,7 @@ export default function App() {
                   </button>
                 </div>
               ) : null}
-            </aside>
+            </aside>}
           </>
         ) : (
           <Landing
@@ -1093,7 +1100,7 @@ export default function App() {
       />
       <PendingReplyDialog
         reply={pendingReply}
-        open={pendingReplyOpen}
+        open={pendingReplyOpen && workspaceView !== 'map'}
         busy={pendingReplyBusy}
         onClose={() => setPendingReplyOpen(false)}
         onSubmit={answerPendingReply}

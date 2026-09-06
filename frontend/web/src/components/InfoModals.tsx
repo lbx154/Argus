@@ -1,3 +1,5 @@
+import { useQueryClient } from '@tanstack/react-query';
+import { MapModelSettings } from '../map/MapModelSettings';
 import { useDoctor, useConfig, useIdentity, useTranscript } from '../hooks';
 import { Modal, ModalHeader } from './Modal';
 import { Spinner, EmptyHint } from './primitives';
@@ -160,6 +162,7 @@ export function ConfigModal({
   onThemeStyleChange: (style: ThemeStyle) => void;
 }) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const { data, isLoading, isError, isFetching, refetch } = useConfig(sid, open);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [quickModelValue, setQuickModelValue] = useState('');
@@ -184,6 +187,10 @@ export function ConfigModal({
       BUDGET_FIELDS.map((field) => [field.alias, byName.get(field.env) ?? '']),
     ));
   }, [data, open]);
+  const refreshSettings = async () => {
+    await refetch();
+    await queryClient.invalidateQueries({ queryKey: ['map-copy'] });
+  };
   const currentBackend = configuredBackend(data);
   const setBackend = async (backend: BackendOption) => {
     if (quickConfigBusy) return;
@@ -192,7 +199,7 @@ export function ConfigModal({
     setQuickConfigError(false);
     try {
       await api.setConfig(sid, 'ARGUS_SKILL_RUNNER_BACKEND', backend);
-      await refetch();
+      await refreshSettings();
       setQuickConfigMsg(t('settings.backendSwitched', { backend: backendLabel(backend, t) }));
     } catch (error) {
       setQuickConfigError(true);
@@ -208,7 +215,7 @@ export function ConfigModal({
     setQuickConfigError(false);
     try {
       await api.setConfig(sid, 'ARGUS_SKILL_MODEL', quickModelValue.trim() || 'auto');
-      await refetch();
+      await refreshSettings();
       setQuickConfigMsg(t('settings.applied'));
     } catch (error) {
       setQuickConfigError(true);
@@ -228,7 +235,7 @@ export function ConfigModal({
         return [field.alias, value];
       }));
       await api.setBudgets(sid, values);
-      await refetch();
+      await refreshSettings();
       setBudgetResult(t('settings.budgetSaved'));
     } catch (error) {
       setBudgetResult(error instanceof Error ? error.message : String(error));
@@ -243,7 +250,7 @@ export function ConfigModal({
     setResult('');
     try {
       await api.setConfig(sid, name.trim(), value.trim());
-      await refetch();
+      await refreshSettings();
       setResult(t('settings.applied'));
     } catch (error) {
       setResult(error instanceof Error ? error.message : String(error));
@@ -338,6 +345,8 @@ export function ConfigModal({
                 </div>
               )}
             </section>
+
+            <MapModelSettings sid={sid} config={data} onSaved={refreshSettings} />
 
             <section className="rounded-lg border border-gold/40 bg-gold/5 p-3">
               <div className="flex items-center justify-between gap-3">

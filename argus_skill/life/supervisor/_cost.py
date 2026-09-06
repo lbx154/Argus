@@ -55,6 +55,7 @@ class _CostTrackingSink:
         on_phase_change: Any = None,  # Callable[[str, dict], None] | None
         usage_ledger: UsageLedger | None = None,
         mission_id: str | None = None,
+        item_id: str | None = None,
     ) -> None:
         self.downstream = downstream
         self.engineer_model = engineer_model
@@ -91,8 +92,13 @@ class _CostTrackingSink:
         ] = {}
         self._usage_ledger = usage_ledger
         self._mission_id = str(mission_id or "") or None
+        self._item_id = str(item_id or "") or None
 
     def handle_event(self, event: dict[str, Any]) -> None:
+        # Keep the durable task identity separate from the per-attempt usage key.
+        # A copy avoids mutating payloads also observed by other sinks.
+        if self._item_id and isinstance(event, dict):
+            event = {**event, "item_id": event.get("item_id") or self._item_id}
         try:
             kind = event.get("type") if isinstance(event, dict) else None
             if kind == EventType.ROUND_MAIN_COMPLETED:

@@ -486,7 +486,12 @@ def set_operator_config(
     if not write_persisted_knob(env_name, val):
         raise RuntimeError(f"config setting could not be persisted: {env_name}")
     os.environ[env_name] = val
-    return {"name": env_name, "value": val, "restart_required": True}
+    return {
+        "name": env_name, "value": val,
+        "restart_required": env_name not in {
+            "ARGUS_SKILL_MAP_MODEL", "ARGUS_SKILL_MAP_REASONING_EFFORT",
+        },
+    }
 
 
 _BUDGET_BATCH_ALIASES = frozenset(

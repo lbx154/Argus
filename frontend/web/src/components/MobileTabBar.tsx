@@ -9,7 +9,7 @@ import {
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { useI18n } from '../i18n';
 
-export type MobileTab = 'sessions' | 'mission' | 'activity' | 'workbench' | 'preview';
+export type MobileTab = 'sessions' | 'mission' | 'activity' | 'workbench' | 'map' | 'preview';
 
 /** Bottom navigation for phones.
  *
@@ -34,6 +34,7 @@ export function MobileTabBar({
     { id: 'mission', label: t('mobile.mission'), icon: faDiagramProject },
     { id: 'activity', label: t('mobile.activity'), icon: faListUl },
     { id: 'workbench', label: t('mobile.workbench'), icon: faFlask },
+    { id: 'map', label: t('mobile.map'), icon: faDiagramProject },
     { id: 'preview', label: t('mobile.preview'), icon: faWindowMaximize },
   ];
 

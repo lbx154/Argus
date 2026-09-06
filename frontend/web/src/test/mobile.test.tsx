@@ -25,7 +25,7 @@ describe('MobileTabBar', () => {
     const html = markup();
 
     // 3.25rem = 52px, past Apple's 44pt and Material's 48dp.
-    expect(html.match(/min-h-\[3\.25rem\]/g)).toHaveLength(5);
+    expect(html.match(/min-h-\[3\.25rem\]/g)).toHaveLength(6);
   });
 
   it('respects the safe area and rides above the keyboard', () => {
@@ -43,7 +43,7 @@ describe('MobileTabBar', () => {
     );
 
     expect(html).not.toContain('>Sessions<');
-    expect(html.match(/min-h-\[3\.25rem\]/g)).toHaveLength(4);
+    expect(html.match(/min-h-\[3\.25rem\]/g)).toHaveLength(5);
   });
 });
 

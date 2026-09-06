@@ -428,8 +428,8 @@ select optgroup {
 .workspace-tabs {
   position: relative;
   display: grid;
-  width: 222px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 284px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 2px;
   border: 0;
   border-radius: 8px;
@@ -456,7 +456,7 @@ select optgroup {
   top: 2px;
   bottom: 2px;
   left: 2px;
-  width: calc((100% - 4px) / 3);
+  width: calc((100% - 4px) / 4);
   border: 0;
   border-radius: 6px;
   background: rgb(var(--panel-raised));
@@ -470,6 +470,9 @@ select optgroup {
 
 .workspace-tabs[data-active='workbench'] .workspace-tab-indicator {
   transform: translateX(200%);
+}
+.workspace-tabs[data-active='map'] .workspace-tab-indicator {
+  transform: translateX(300%);
 }
 
 .workbench-module-tab {

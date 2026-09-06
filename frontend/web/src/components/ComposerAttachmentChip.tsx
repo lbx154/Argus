@@ -6,10 +6,12 @@ export function ComposerAttachmentChip({
   file,
   removeLabel,
   onRemove,
+  disabled = false,
 }: {
   file: File;
   removeLabel: string;
   onRemove: () => void;
+  disabled?: boolean;
 }) {
   const [previewUrl, setPreviewUrl] = useState('');
 
@@ -45,6 +47,7 @@ export function ComposerAttachmentChip({
       <button
         type="button"
         onClick={onRemove}
+        disabled={disabled}
         aria-label={removeLabel}
         title={removeLabel}
         className="send-control h-8 w-8 shrink-0 rounded-full border-line/60 text-ink-faint hover:border-err/50 hover:bg-err/10 hover:text-err"

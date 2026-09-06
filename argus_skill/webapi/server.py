@@ -681,6 +681,9 @@ def create_app(
     register_manager_routes(app, ctx, server_mod)
     register_meta_routes(app, ctx, server_mod)
     register_workspace_v2_routes(app, ctx, server_mod)
+    from .routes.map_datasets import register_map_dataset_routes
+
+    register_map_dataset_routes(app, ctx)
 
     # ── static web UI (optional) ──────────────────────────────────────────
     # When the React frontend has been built (`npm run build` in frontend/web),

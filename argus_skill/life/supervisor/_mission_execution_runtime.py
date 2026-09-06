@@ -488,6 +488,7 @@ class MissionExecutionRuntimeMixin:
             on_phase_change=_phase_cb,
             usage_ledger=state.usage_ledger,
             mission_id=state.usage_attempt_id,
+            item_id=item.id,
         )
 
         state.item_tags = {
