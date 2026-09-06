@@ -14,10 +14,12 @@ actually being spent by a vertical's checklist. Either side could then exhaust
 the other's headroom, and the cheapest way out of a red build was to raise the
 cap — which is how a guard against growth becomes a record of it.
 
-Task-specific content (stage checklist, matched Skills, Wiki, research target,
-objective and operator text) is subtracted out. Those blocks are owned by a
-vertical or by the round and are meant to vary; what must stay compact is the
-role/routing and named-verdict prose this file was written to protect.
+Task-specific content (stage checklist, matched Skills, Wiki, research target)
+is subtracted out. Those blocks are owned by a vertical and are meant to vary;
+what must stay compact is the role/routing and named-verdict prose this file
+was written to protect. The objective, the Planner's guidance, and the operator
+text need no subtraction: they ride in the round delta so the static preamble
+stays byte-identical — and its fingerprint valid — across missions.
 """
 
 from __future__ import annotations
@@ -28,7 +30,9 @@ from argus_skill.reviewer import Reviewer
 from argus_skill.roles.prompts import reviewer as reviewer_prompt
 from argus_skill.roles.task_contract import NATIVE_WINDOWS_SHELL_SUMMARY
 
-#: Blocks that belong to a vertical or to the round, not to the fixed contract.
+#: Blocks a vertical owns inside the static preamble, not the fixed contract.
+#: The objective/operator/planner text ("objective_context") is absent here
+#: because it lives in the round delta, outside ``static_total``.
 _TASK_OWNED_BLOCKS = (
     "stage_checklist",
     "matched_skill",
@@ -36,7 +40,6 @@ _TASK_OWNED_BLOCKS = (
     "wiki_curator",
     "research_target",
     "surprise_judgment",
-    "objective_context",
 )
 
 # Measured at 4_546 for the representative build. The margin is for one more

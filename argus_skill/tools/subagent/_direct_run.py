@@ -83,9 +83,21 @@ def _rl_collapse_guidance() -> str:
     return text
 
 
-# Cheap gate: only spend a preflight LLM call when the launch command actually
+def _rl_collapse_guidance_for(command: str) -> str:
+    """RL-collapse guidance body, but only when the launch looks like RL training.
+
+    The guidance file is ~12k characters of RL-specific criteria; attaching it to
+    an eval, data-prep, or SFT run adds nothing to the judgment and pays for the
+    tokens on every check. Non-RL commands get an empty string.
+    """
+    if not _looks_like_rl_training(command):
+        return ""
+    return _rl_collapse_guidance()
+
+
+# Cheap filter: only spend a preflight LLM call when the launch command actually
 # looks like RL / post-training. Non-RL supervised launches (evals, data prep,
-# generic scripts) skip preflight so we never pay for or risk a false block on
+# generic scripts) skip preflight so we never pay for or risk a false refusal on
 # work the preflight has no opinion about.
 _RL_TRAINING_HINTS = (
     "--num-generations", "--num_generations", "--rollouts", "--reward",
@@ -98,7 +110,7 @@ _RL_TRAINING_HINTS = (
 def _looks_like_rl_training(command: str) -> bool:
     """True when the command looks like an RL/post-training launch worth a
     pre-launch config preflight. Deliberately permissive — the preflight itself
-    is conservative and only hard-blocks mechanically-degenerate configs."""
+    is conservative and only refuses mechanically-degenerate configs."""
     if not command:
         return False
     c = command.lower()
@@ -186,7 +198,7 @@ def _run_contract_preflight(command: str, cwd: str) -> tuple[bool, str, str]:
     Refuses a full-scale launch that is not a faithful, feasibility-probed
     execution of the frozen ``research/RUN_CONTRACT.json`` (drift in LR / group
     size / steps / curriculum, or a missing/invalid feasibility packet). This is
-    provenance/consistency enforcement, NOT a scientific verdict — adequacy stays
+    provenance/consistency enforcement, NOT a scientific judgment — adequacy stays
     with the L2 reviewer. An unreadable or malformed contract is itself a
     provenance failure and rejects the launch. Unexpected framework errors remain
     fail-soft, returning status ``"skipped"`` so they cannot wedge a launch but

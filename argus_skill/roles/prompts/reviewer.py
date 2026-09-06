@@ -653,6 +653,12 @@ def render_reviewer_prompt(
     # CHECKPOINT_RECOMMENDED, and SESSION_SIGNAL lines remain readable, but the
     # Reviewer is not asked to fill them in. The fields below each feed round
     # settlement, operator routing, research certification, or plan adjudication.
+    #
+    # Nothing here may vary with the mission. The static preamble is
+    # fingerprinted, and a same-role session resumes only when the fingerprint
+    # matches; when the objective and the Planner's guidance lived here, every
+    # new mission rotated the fingerprint, forced a cold start, and re-sent the
+    # full rubric — so those blocks ride in the delta below instead.
     static = (
         EFFECTIVE_TASK_CONTRACT
         + "\n\n"
@@ -704,7 +710,6 @@ def render_reviewer_prompt(
         + "Give Engineer instructions only in next_action; neither read nor edit "
         "checkpoint or context records.\n\n"
         + ("" if _requires_engineering_audit else _verification_directive())
-        + audit_integrity_block
         + verification_instruction
         + wiki_curator_skill_block
         + direct_memory_edit_block
@@ -718,15 +723,19 @@ def render_reviewer_prompt(
         + "\n\n## Completion\n"
         + handoff_policy
         + "\n\n"
+        + (optimize_banner + "\n\n" if optimize_banner else "")
+    )
+    # Per-round DELTA — everything that varies with the mission or the round.
+    # Fresh Reviewers receive this after the full static rubric every time.
+    # The objective, the Planner's guidance, and the record-integrity note its
+    # text can call for are necessary context every round; they open the delta
+    # so a resumed session still reads the mission before the round's facts.
+    delta = (
+        (_REEVALUATE_HEADER if resumed else "")
         + objective_block
         + "Planner guidance:\n"
         f"{planner_review_instruction or 'none'}\n\n"
-        + (optimize_banner + "\n\n" if optimize_banner else "")
-    )
-    # Per-round DELTA — everything that changes round to round. Fresh
-    # Reviewers receive this after the full static rubric every time.
-    delta = (
-        (_REEVALUATE_HEADER if resumed else "")
+        + audit_integrity_block
         + research_context_block
         + ("\n\n" if research_context_block else "")
         + review_validity_block

@@ -159,6 +159,20 @@ def fatal_error_looks_like_recoverable_reconnect(fatal_error: str | None) -> boo
     return bool(match)
 
 
+def fatal_error_looks_like_provider_turn_cap(fatal_error: str | None) -> bool:
+    """True when a call ended at its per-call provider-turn allowance.
+
+    Matches only the runner's own receipt (see ``agent_cli._run_exec``), never
+    model prose. This ending is routine housekeeping — the work done so far is
+    kept, and the round loop continues the task in a fresh session — so callers
+    must route it around the backend-failure accounting.
+    """
+    if not fatal_error:
+        return False
+    low = str(fatal_error).strip().casefold()
+    return low.startswith("provider turn cap reached")
+
+
 def fatal_error_looks_like_daemon_stop_request(fatal_error: str | None) -> bool:
     """Return True for intentional daemon shutdown interrupts."""
     if not fatal_error:
@@ -240,6 +254,53 @@ def runner_result_is_backend_failure(result: RunnerResult) -> bool:
     return fatal_error_looks_like_backend_failure(result.fatal_error)
 
 
+# Consecutive backend failures with one normalized signature before the round
+# loop stops treating them as independent accidents: it then holds the mission
+# with exponential backoff (capped at an hour) and an operator-visible event
+# instead of failing into a paid replanning cycle. In one 48-hour window, 353
+# error/denied outcomes — most of them the same failure repeated — cost $123
+# in retries that could never succeed faster than the provider recovered.
+BACKEND_FAILURE_SAME_CAUSE_THRESHOLD = 3
+BACKEND_FAILURE_BACKOFF_CAP_SECONDS = 3600.0
+
+_SIGNATURE_NUMBER_RE = re.compile(r"\d+")
+_SIGNATURE_HEX_RE = re.compile(r"\b[0-9a-f]{8,}\b")
+
+
+def backend_failure_signature(fatal_error: str | None, *, exit_code: int = 0) -> str:
+    """Normalize one backend failure into a stable comparison key.
+
+    Two failures share a signature when they differ only in numbers, long hex
+    identifiers (thread/request ids), or whitespace — e.g. two 429 responses
+    with different retry-after seconds, or the same "model X is not available"
+    message across attempts.
+    """
+    text = str(fatal_error or f"exit={exit_code}").strip().casefold()
+    text = _SIGNATURE_HEX_RE.sub("#", text)
+    text = _SIGNATURE_NUMBER_RE.sub("#", text)
+    return _WHITESPACE_SIGNATURE_RE.sub(" ", text)[:300]
+
+
+_WHITESPACE_SIGNATURE_RE = re.compile(r"\s+")
+
+
+def backend_failure_hold_backoff_seconds(
+    *,
+    same_cause_streak: int,
+    base_backoff_seconds: float,
+) -> float:
+    """Exponential backoff for a repeating identical backend failure.
+
+    Starts doubling once the same cause has been seen
+    ``BACKEND_FAILURE_SAME_CAUSE_THRESHOLD`` times and is capped at
+    ``BACKEND_FAILURE_BACKOFF_CAP_SECONDS`` (hour scale): retrying faster than
+    the underlying cause can change only costs money.
+    """
+    base = max(1.0, float(base_backoff_seconds or 0.0) or 15.0)
+    exponent = max(0, int(same_cause_streak) - BACKEND_FAILURE_SAME_CAUSE_THRESHOLD)
+    return float(min(base * (2 ** (exponent + 2)), BACKEND_FAILURE_BACKOFF_CAP_SECONDS))
+
+
 def should_clear_thread_id_after_outcome(
     *,
     status: str,
@@ -276,6 +337,45 @@ def backend_failure_review_decision(
             f"error={error_text}"
         ),
         next_action=retry_text,
+    )
+
+
+def provider_turn_cap_review_decision(
+    *,
+    fatal_error: str | None,
+    exit_code: int,
+    wind_down_summary: str,
+    streak: int,
+    streak_limit: int,
+) -> ReviewDecision:
+    """The skipped-review record for a call that used its whole turn allowance.
+
+    ``status="continue"`` on purpose: nothing failed. The Engineer's work up to
+    the allowance is kept, the checkpoint carries the state forward, and the
+    next round runs the same task in a fresh session. ``next_action`` is what
+    that fresh session reads first, so it carries the wind-down summary.
+    """
+    error_text = str(fatal_error or f"exit={exit_code}").strip()
+    summary = str(wind_down_summary or "").strip()
+    next_action = (
+        "Continue the same task in a fresh session; the previous session ended "
+        "at its per-call provider-turn allowance, not because anything went "
+        "wrong. Read the continuation note (CHECKPOINT.md) first and pick up "
+        "the next action recorded there."
+    )
+    if summary:
+        next_action += (
+            " The previous session left this summary before pausing:\n" + summary
+        )
+    return ReviewDecision(
+        status="continue",
+        reason=(
+            "One Engineer call used its whole per-call provider-turn allowance "
+            f"({streak}/{streak_limit} in a row); reviewer skipped. The work so "
+            "far is kept and the task continues in a fresh session from the "
+            f"checkpoint. Runner receipt: {error_text}"
+        ),
+        next_action=next_action,
     )
 
 
@@ -412,8 +512,13 @@ def operator_abort_review_decision(
 
 
 __all__ = [
+    "BACKEND_FAILURE_SAME_CAUSE_THRESHOLD",
+    "BACKEND_FAILURE_BACKOFF_CAP_SECONDS",
+    "backend_failure_signature",
+    "backend_failure_hold_backoff_seconds",
     "fatal_error_looks_like_backend_failure",
     "fatal_error_looks_like_model_configuration",
+    "fatal_error_looks_like_provider_turn_cap",
     "fatal_error_looks_like_recoverable_reconnect",
     "fatal_error_looks_like_daemon_stop_request",
     "fatal_error_looks_like_operator_abort_request",
@@ -422,6 +527,7 @@ __all__ = [
     "backend_failure_review_decision",
     "external_pause_review_decision",
     "model_configuration_review_decision",
+    "provider_turn_cap_review_decision",
     "daemon_stop_review_decision",
     "operator_abort_review_decision",
 ]

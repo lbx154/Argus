@@ -56,6 +56,19 @@ VERIFICATION_PROBE_COOLDOWN_SECONDS = 1800.0
 STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS = 3
 REPLAN_FILTER_REJECTION_LIMIT = 3
 MANAGER_FEEDBACK_REPLAN_LIMIT = 3
+# Consecutive planner completion attempts turned back for the SAME reason
+# before the supervisor stops asking and tells the operator. This is keyed on
+# the rejection reason alone (not the project evidence signature), because a
+# requirement the Planner cannot satisfy survives any amount of file churn:
+# one live project burned 58 identical turn-backs in 48 hours before this
+# stop-loss existed. Persisted next to the backlog state so a daemon restart
+# does not reset the count.
+COMPLETION_REJECTION_CIRCUIT_THRESHOLD = 3
+# Consecutive provider-cooldown pauses of one mission with the SAME normalized
+# error before a model-configuration failure is treated as permanent (a wrong
+# model name, not a provider blip) and the mission is parked on the operator
+# instead of being resumed and re-billed forever.
+PROVIDER_COOLDOWN_SAME_CAUSE_LIMIT = 3
 # Diagnostic recorded when every task in a planner verdict was filtered
 # (duplicates of existing backlog items, etc.). Feedback with this diagnostic
 # is validated against the backlog's own state, not the project-file evidence
@@ -181,5 +194,7 @@ __all__ = [
     "STALL_ESCALATION_AFTER_NO_PROGRESS_MISSIONS",
     "REPLAN_FILTER_REJECTION_LIMIT",
     "MANAGER_FEEDBACK_REPLAN_LIMIT",
+    "COMPLETION_REJECTION_CIRCUIT_THRESHOLD",
+    "PROVIDER_COOLDOWN_SAME_CAUSE_LIMIT",
     "FULL_PAPER_GATE_DESCRIPTION",
 ]

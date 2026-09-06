@@ -1,6 +1,6 @@
 """Supervised monitoring loop: fork + Popen + periodic LLM health checks.
 
-Owns: per-check supervisor verdict, concern double-confirmation, early-stop
+Owns: the per-check supervisor judgment, concern double-confirmation, early-stop
 dispatch, and the `_run_supervised` entry point. Pre-launch config preflight
 and health-adaptive interval backoff live in `_supervised_preflight.py` (split
 out to keep both modules under the size target).
@@ -26,7 +26,7 @@ from typing import Any
 from ._direct_run import (
     _is_full_scale_rl,
     _looks_like_rl_training,
-    _rl_collapse_guidance,
+    _rl_collapse_guidance_for,
     _run_contract_preflight,
     _terminate_proc,
 )
@@ -67,6 +67,12 @@ log = logging.getLogger(__name__)
 
 _SUPERVISOR_FAILURE_THRESHOLD = 3
 
+# A resumed supervisor thread already carries the judgment rules from an earlier
+# check, so later checks send only the fresh run signals. Every Nth check the
+# full rules go out again, so a long thread never drifts far from the current
+# wording and a mid-thread summary in the backend cannot silently lose them.
+_RUBRIC_REPIN_EVERY = 10
+
 
 @dataclass(frozen=True)
 class SupervisorCheck:
@@ -92,80 +98,19 @@ def _norm_health(value: object) -> str:
     return _normalize_health(value)
 
 # ---------------------------------------------------------------------------
-# Supervisor check (one LLM call + verdict parsing)
+# Supervisor check (one LLM call + judgment parsing)
 # ---------------------------------------------------------------------------
 
-def _supervisor_check_with_usage(
-    task_id: str,
-    command: str,
-    description: str,
-    stdout_path: Path,
-    stderr_path: Path,
-    elapsed: float,
-    check_number: int,
-    model: str,
-    cwd: str,
-    run_dir: str | None = None,
-    thread_id: str | None = None,
-) -> SupervisorCheck:
-    """Call codex to check training/eval progress.
+def _supervisor_check_rules(command: str) -> str:
+    """The full judgment rules for a supervisor health check.
 
-    Returns a :class:`SupervisorCheck` where decision is
-    ``continue`` / ``early_stop`` / ``save_checkpoint``, health is
-    ``healthy`` / ``degrading`` / ``stuck`` / ``diverging`` / ``unknown`` /
-    ``supervisor_unavailable``, and concern is a free-text note (possibly empty)
-    the supervisor wants the engineer to re-discuss even when the run is
-    progressing normally. ``supervisor_unavailable`` specifically means the
-    backend never answered; ``unknown`` means it answered without usable health.
-
-    ``thread_id`` resumes a persistent backend session so the supervisor keeps the
-    whole run's observation history in context across checks; the (possibly new)
-    thread id is returned for the next check.
+    Sent whole on a new thread and re-sent every ``_RUBRIC_REPIN_EVERY``-th
+    check; checks in between resume the thread and rely on these staying in its
+    context. The RL-collapse reference rides along only when the launch command
+    itself looks like RL training — an eval or SFT run gains nothing from ~12k
+    characters of RL criteria on every check.
     """
-    stdout_tail = _tail_file(stdout_path, 2000)
-    stderr_tail = _tail_file(stderr_path, 1000)
-
-    # Structured run signals live in the run directory (experiment_io.RunWriter
-    # contract). Resolve run_dir relative to the task cwd; fall back to cwd.
-    if run_dir:
-        signal_base = Path(run_dir)
-        if not signal_base.is_absolute():
-            signal_base = Path(cwd) / signal_base
-    else:
-        signal_base = Path(cwd)
-    progress_tail = ""
-    progress_path = signal_base / "progress.jsonl"
-    if progress_path.exists():
-        progress_tail = _tail_file(progress_path, 1500)
-    status_tail = ""
-    status_path = signal_base / "status.json"
-    if status_path.exists():
-        status_tail = _tail_file(status_path, 800)
-
-    prompt = (
-        f"You are a training/eval supervisor agent. Check #{check_number} on task '{task_id}'.\n"
-        f"Task: {description}\n"
-        f"Command: {command}\n"
-        f"Running for: {elapsed:.0f}s\n\n"
-        f"=== stdout (last 2000 chars) ===\n{stdout_tail}\n\n"
-        f"=== stderr (last 1000 chars) ===\n{stderr_tail}\n\n"
-    )
-    if progress_tail:
-        prompt += f"=== progress.jsonl (last 1500 chars) ===\n{progress_tail}\n\n"
-    if status_tail:
-        prompt += f"=== status.json ===\n{status_tail}\n\n"
-    yield_requests = yield_facts_for_task(task_id)
-    if yield_requests:
-        prompt += (
-            "=== resource yield requests (facts, never an automatic command) ===\n"
-            + json.dumps(yield_requests, ensure_ascii=False, indent=2)
-            + "\nSomeone asks for the card. Judge whether this run should checkpoint "
-            "and release it or continue; a request alone never authorizes a kill. "
-            "If continuing, give the Engineer a concrete reason to record with "
-            "resource-ledger yield-response.\n\n"
-        )
-
-    prompt += (
+    rules = (
         "Judge health by whatever signals appear — this may be supervised\n"
         "fine-tuning, RL (PPO/GRPO/RLVR), or a benchmark eval run:\n"
         "- SFT/pretrain: training loss should trend DOWN; watch for NaN/inf.\n"
@@ -179,9 +124,9 @@ def _supervisor_check_with_usage(
 
     # Arm the supervisor with concrete RL-collapse criteria. This is reference
     # knowledge, not a hard rule engine: the decision below is still yours.
-    rl_guidance = _rl_collapse_guidance()
+    rl_guidance = _rl_collapse_guidance_for(command)
     if rl_guidance:
-        prompt += (
+        rules += (
             "=== reference: when an RL run has COLLAPSED (read before deciding) ===\n"
             "Use this only when the run is RL post-training (PPO/GRPO/RLVR/DPO-style).\n"
             "It tells you which signals mean a dead learning signal vs. normal noise,\n"
@@ -192,7 +137,7 @@ def _supervisor_check_with_usage(
             "=== end reference ===\n\n"
         )
 
-    prompt += (
+    rules += (
         "IMPORTANT — raising a 'concern' now STOPS the run immediately and opens a\n"
         "discussion with the engineer. So a concern is no longer a soft 'FYI' — it\n"
         "is a decision to HALT and re-plan. Only raise a concern when the run is\n"
@@ -230,7 +175,102 @@ def _supervisor_check_with_usage(
         "- save_checkpoint: a notable improvement milestone reached.\n"
         "Only output the JSON, nothing else."
     )
+    return rules
 
+
+def _supervisor_check_with_usage(
+    task_id: str,
+    command: str,
+    description: str,
+    stdout_path: Path,
+    stderr_path: Path,
+    elapsed: float,
+    check_number: int,
+    model: str,
+    cwd: str,
+    run_dir: str | None = None,
+    thread_id: str | None = None,
+) -> SupervisorCheck:
+    """Call codex to check training/eval progress.
+
+    Returns a :class:`SupervisorCheck` where decision is
+    ``continue`` / ``early_stop`` / ``save_checkpoint``, health is
+    ``healthy`` / ``degrading`` / ``stuck`` / ``diverging`` / ``unknown`` /
+    ``supervisor_unavailable``, and concern is a free-text note (possibly empty)
+    the supervisor wants the engineer to re-discuss even when the run is
+    progressing normally. ``supervisor_unavailable`` specifically means the
+    backend never answered; ``unknown`` means it answered without usable health.
+
+    ``thread_id`` resumes a persistent backend session so the supervisor keeps the
+    whole run's observation history in context across checks; the (possibly new)
+    thread id is returned for the next check. On a resumed thread only the fresh
+    run signals are sent — the full judgment rules go out on a new thread and
+    again on every ``_RUBRIC_REPIN_EVERY``-th check.
+    """
+    stdout_tail = _tail_file(stdout_path, 2000)
+    stderr_tail = _tail_file(stderr_path, 1000)
+
+    # Structured run signals live in the run directory (experiment_io.RunWriter
+    # contract). Resolve run_dir relative to the task cwd; fall back to cwd.
+    if run_dir:
+        signal_base = Path(run_dir)
+        if not signal_base.is_absolute():
+            signal_base = Path(cwd) / signal_base
+    else:
+        signal_base = Path(cwd)
+    progress_tail = ""
+    progress_path = signal_base / "progress.jsonl"
+    if progress_path.exists():
+        progress_tail = _tail_file(progress_path, 1500)
+    status_tail = ""
+    status_path = signal_base / "status.json"
+    if status_path.exists():
+        status_tail = _tail_file(status_path, 800)
+
+    full_rules = thread_id is None or check_number % _RUBRIC_REPIN_EVERY == 0
+
+    if full_rules:
+        prompt = (
+            f"You are a training/eval supervisor agent. Check #{check_number} on task '{task_id}'.\n"
+            f"Task: {description}\n"
+            f"Command: {command}\n"
+            f"Running for: {elapsed:.0f}s\n\n"
+        )
+    else:
+        prompt = (
+            f"Supervisor check #{check_number} on task '{task_id}' "
+            f"(running for {elapsed:.0f}s). The newest run signals follow.\n\n"
+        )
+    prompt += (
+        f"=== stdout (last 2000 chars) ===\n{stdout_tail}\n\n"
+        f"=== stderr (last 1000 chars) ===\n{stderr_tail}\n\n"
+    )
+    if progress_tail:
+        prompt += f"=== progress.jsonl (last 1500 chars) ===\n{progress_tail}\n\n"
+    if status_tail:
+        prompt += f"=== status.json ===\n{status_tail}\n\n"
+    yield_requests = yield_facts_for_task(task_id)
+    if yield_requests:
+        prompt += (
+            "=== resource yield requests (facts, never an automatic command) ===\n"
+            + json.dumps(yield_requests, ensure_ascii=False, indent=2)
+            + "\nSomeone asks for the card. Judge whether this run should checkpoint "
+            "and release it or continue; a request alone is never a reason to stop. "
+            "If continuing, give the Engineer a concrete reason to record with "
+            "resource-ledger yield-response.\n\n"
+        )
+
+    if full_rules:
+        prompt += _supervisor_check_rules(command)
+    else:
+        prompt += (
+            "The judgment rules from earlier in this conversation still apply,\n"
+            "unchanged — weigh these signals the same way. Respond with EXACTLY the\n"
+            "same single JSON object as before (keys: decision, reason, concern,\n"
+            "metrics, health), and nothing else."
+        )
+
+    sent_thread_id = thread_id
     try:
         messages, thread_id, usage = _run_supervisor_with_usage(
             prompt,
@@ -240,8 +280,13 @@ def _supervisor_check_with_usage(
             run_label=f"subagent:{task_id}:health",
             mission_id=str((_read_task(task_id) or {}).get("run_id") or "") or None,
         )
+        if not full_rules and sent_thread_id and thread_id != sent_thread_id:
+            # The resumed conversation was gone, so the backend answered on a
+            # fresh thread that never saw the judgment rules. Drop the thread so
+            # the next check starts clean and sends the rules in full.
+            thread_id = None
         # codex emits JSONL; pull the assistant messages and accept the most
-        # recent one that parses into a verdict (tolerates trailing chatter
+        # recent one that parses into a judgment (tolerates trailing chatter
         # after the JSON object the prompt asks for).
         for message in reversed(messages):
             try:
@@ -497,7 +542,7 @@ def _supervised_handle_early_stop(
 
     Called when the supervisor decides to halt the run. Writes the STOP file
     into the run directory (experiment_io.RunWriter watches <run_dir>/STOP),
-    kills the process group, sends the handoff report to the engineer inbox,
+    kills the process group, sends the report to the engineer inbox,
     parks in the discussion loop, and persists the experiment record.
     """
     # Write STOP into the run dir. Scope the flag to the run dir so a
@@ -545,7 +590,7 @@ def _supervised_handle_early_stop(
     }
     _apply_supervisor_usage_fields(td, model=model, totals=supervisor_usage_totals)
     _write_task(task_id, td)
-    # The handoff report tells the engineer the run is stopped and to reply on
+    # The report tells the engineer the run is stopped and to reply on
     # the discussion thread; then we park and discuss.
     report = _alert_engineer(task_id, "EARLY-STOPPED", td)
     _run_discussion(
@@ -655,10 +700,11 @@ def _run_supervised(
                 report,
             )
             return
-        # Pre-launch config preflight: hard-block a mechanically-unlearnable RL
+        # Pre-launch config preflight: refuse a mechanically-unlearnable RL
         # config BEFORE spending any GPU, and hand the engineer the exact fix via
-        # the same stop+discussion machinery a metric-based early-stop uses. Gated
-        # to RL-ish commands and fail-soft, so it never blocks a normal launch.
+        # the same stop+discussion machinery a metric-based early-stop uses.
+        # Reserved for RL-ish commands and fail-soft, so it never holds up a
+        # normal launch.
         if preflight and _looks_like_rl_training(command):
             # Mark a distinct state so a duplicate submit during the (~30-60s)
             # LLM call sees this task as busy, not idle.
@@ -745,10 +791,10 @@ def _run_supervised(
                     "last_supervisor_decision": "early_stop",
                     "started_at": start_time, "completed_at": time.time(),
                     "elapsed_seconds": 0.0,
-                    # Heartbeat now so the forced-discussion gate sees a LIVE
+                    # Heartbeat now so the forced-discussion check sees a LIVE
                     # parked supervisor immediately — before _run_discussion's
                     # first loop heartbeat — closing the window where a duplicate
-                    # submit could slip past the gate and launch GPU work.
+                    # submit could slip past it and launch GPU work.
                     "last_heartbeat": time.time(),
                     "discussion_path": str(_discussion_path(task_id)),
                     "supervisor_log": str(supervisor_log),
@@ -818,7 +864,7 @@ def _run_supervised(
             _write_task(task_id, running_task)
 
             check_number = 0
-            # Latest supervisor verdict, kept in scope for the terminal records
+            # Latest supervisor judgment, kept in scope for the terminal records
             # below (the loop may never run if the process exits immediately).
             decision, health, concern = "continue", "unknown", ""
             consecutive_supervisor_failures = 0

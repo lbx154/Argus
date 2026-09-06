@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.event_catalog import EventType
+from ..core.knobs import env_int
 from ..core.models import RunnerOptions
 from ..core.ports import RunnerBackend
 from ..core.role_decision import (
@@ -38,6 +39,16 @@ OPEN_ENDED_PROJECT_DONE_ERROR = (
 PLANNER_SUPERSEDED_ERROR = "planner superseded by newer continuous generation"
 _PLANNER_REPAIR_ATTEMPTS = 1
 _PLANNER_REPAIR_TEXT_LIMIT = 8000
+# One deployment-wide knob for the rolling-session input budget, shared with
+# the Engineer (round_config) and the loop entry so all three move together.
+_ROLE_SESSION_MAX_INPUT_TOKENS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS"
+
+
+def configured_role_session_max_input_tokens() -> int:
+    """Read the shared rolling-session input budget, in non-cached tokens."""
+    return env_int(_ROLE_SESSION_MAX_INPUT_TOKENS_ENV, 120_000)
+
+
 @dataclass
 class PlannerConfig:
     """Knobs the supervisor passes down to a Planner.plan_next() call."""
@@ -57,8 +68,15 @@ class PlannerConfig:
     external_interrupt_reason_provider: Any = None
     role_session_policy: str = field(default_factory=configured_role_session_policy)
     # Rolling-session caps rotate context; they never stop the Planner's work.
-    role_session_max_turns: int = 6
-    role_session_max_input_tokens: int = 120_000
+    # Six turns proved far too short for a long campaign: one 48-hour run
+    # rotated the Planner 403 times on turn_limit alone, and every rotation
+    # re-paid the full static prompt (~15k characters) with a cold provider
+    # cache. Twenty turns keeps the session warm while the token budget below
+    # and the objective_revision rotation still guard against real drift.
+    role_session_max_turns: int = 20
+    role_session_max_input_tokens: int = field(
+        default_factory=configured_role_session_max_input_tokens
+    )
     role_session_path: Path | None = None
     objective_revision: str = ""
     on_event: Any = None

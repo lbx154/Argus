@@ -89,11 +89,17 @@ def test_external_stops_do_not_enter_backend_failure_retry(
     ]
 
 
-def test_backend_unavailable_keeps_existing_retry_policy(tmp_path: Path) -> None:
+def test_backend_unavailable_holds_identical_failures_until_the_round_budget(
+    tmp_path: Path,
+) -> None:
     status, backend, _events = _run_engineer(tmp_path, "backend_unavailable")
 
+    # A run of IDENTICAL backend failures is one continuing cause: instead of
+    # failing fast at the threshold (which fed a paid replanning cycle for the
+    # same failure), the round loop holds and retries until the round budget
+    # (max_rounds=3 here) ends the mission.
     assert status == "error"
-    assert backend.calls == 2
+    assert backend.calls == 3
 
 
 def test_provider_max_budget_is_a_fence_not_backend_failure() -> None:

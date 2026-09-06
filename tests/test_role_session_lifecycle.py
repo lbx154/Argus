@@ -290,6 +290,72 @@ def test_rolling_capsule_rotates_when_branch_changes(tmp_path: Path) -> None:
     assert capsule.rotation_reason == "branch_changed"
 
 
+def test_cached_tokens_do_not_count_against_the_rotation_budget(tmp_path: Path) -> None:
+    capsule = RoleSessionCapsule.open(
+        role="engineer",
+        policy="rolling",
+        objective_revision="v1",
+        workdir=tmp_path,
+        backend="codex",
+        model="model",
+        checkpoint_path=None,
+        path=tmp_path / "state" / "engineer.json",
+    )
+
+    capsule.complete(
+        RunnerResult(
+            exit_code=0,
+            thread_id="thread-1",
+            input_tokens=100_000,
+            cached_input_tokens=90_000,
+        )
+    )
+
+    # Only the 10k tokens the provider read fresh count toward rotation; the
+    # raw billed input alone would already exhaust this budget on turn one.
+    assert capsule.input_tokens == 10_000
+    assert capsule.prepare(max_turns=20, max_input_tokens=15_000) == "thread-1"
+    assert capsule.action == "resumed"
+
+    capsule.complete(
+        RunnerResult(
+            exit_code=0,
+            thread_id="thread-1",
+            input_tokens=100_000,
+            cached_input_tokens=95_000,
+        )
+    )
+
+    assert capsule.input_tokens == 15_000
+    assert capsule.prepare(max_turns=20, max_input_tokens=15_000) is None
+    assert capsule.action == "rotated"
+    assert capsule.rotation_reason == "context_limit"
+
+
+def test_result_without_cache_data_counts_its_full_input(tmp_path: Path) -> None:
+    class LegacyResult:
+        exit_code = 0
+        thread_id = "thread-legacy"
+        input_tokens = 50_000
+
+    capsule = RoleSessionCapsule.open(
+        role="engineer",
+        policy="rolling",
+        objective_revision="v1",
+        workdir=tmp_path,
+        backend="codex",
+        model="model",
+        checkpoint_path=None,
+        path=tmp_path / "state" / "engineer.json",
+    )
+
+    capsule.complete(LegacyResult())
+
+    # A result that reports nothing about caching counts in full, which errs
+    # toward rotating sooner rather than trusting an absent number.
+    assert capsule.input_tokens == 50_000
+
+
 def test_planner_mission_session_survives_new_planner_instance(tmp_path: Path) -> None:
     backend = MemoryBackend()
     backend.queue(

@@ -81,6 +81,13 @@ class RoundSelfReviewMixin:
         on_event: Callable[[dict], None] | None,
     ) -> RoundControl:
         state.backend_failure_streak = 0
+        # A turn that reached this phase was not a backend failure, so it ends
+        # any run of identical failures: the same-cause count restarts from
+        # one if that signature ever returns. Without this reset, scattered
+        # rate-limit failures across a long task would read as one continuing
+        # outage and open the hold on an isolated accident.
+        state.backend_failure_signature = ""
+        state.backend_failure_same_cause_streak = 0
         successful_work = _runner_result_has_successful_work_signal(
             outcome.engineer_result,
             engineer_message=outcome.engineer_message,
@@ -137,7 +144,7 @@ class RoundSelfReviewMixin:
             return self._settle_round(
                 review=ReviewDecision(
                     status="blocked",
-                    reason=result or "Engineer reported an unresolved blocker.",
+                    reason=result or "Engineer reported an obstacle it could not clear.",
                     next_action="",
                     review_source="engineer_self_review",
                 ),

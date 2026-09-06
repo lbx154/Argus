@@ -20,6 +20,12 @@ class AgentRunResult:
     turn_failed: bool = False
     fatal_error: str | None = None
     stop_kind: str | None = None
+    # Provider request/response round trips observed inside this ONE call, and
+    # whether the per-call allowance (ARGUS_SKILL_PROVIDER_TURN_CAP) ended it.
+    # An allowance stop is routine housekeeping, not a failure: the round loop
+    # keeps the work and continues in a fresh session from the checkpoint.
+    provider_turns: int = 0
+    provider_turn_cap_hit: bool = False
     tool_activity_observed: bool = False
     usage_model: str = ""
     orphan_process_group_id: int = 0

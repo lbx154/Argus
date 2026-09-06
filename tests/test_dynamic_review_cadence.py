@@ -645,7 +645,7 @@ def test_no_review_legacy_blocked_marker_settles_immediately(
     assert [label for label, _prompt, _options in backend.history] == ["engineer-r1"]
     assert len(rounds) == 1
     assert rounds[0].review.operator_question == ""
-    assert reason == "Engineer reported an unresolved blocker."
+    assert reason == "Engineer reported an obstacle it could not clear."
 
 
 def test_legacy_reviewer_request_without_owner_reaches_reviewer(

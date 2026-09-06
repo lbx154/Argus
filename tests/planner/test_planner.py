@@ -1344,3 +1344,22 @@ def test_planner_zero_exit_fatal_error_preserves_actionable_reason() -> None:
         "ignored old stderr\n"
         "recent stderr detail"
     )
+
+
+def test_planner_config_reads_the_shared_rolling_session_budget(monkeypatch) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", raising=False)
+    assert PlannerConfig().role_session_max_input_tokens == 120_000
+
+    # The same environment knob that budgets Engineer rolling sessions in
+    # round_config and the loop entry now budgets the Planner's session.
+    monkeypatch.setenv("ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", "42000")
+    assert PlannerConfig().role_session_max_input_tokens == 42_000
+
+    monkeypatch.setenv("ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS", "not-a-number")
+    assert PlannerConfig().role_session_max_input_tokens == 120_000
+
+
+def test_planner_turn_budget_outlives_a_long_campaign() -> None:
+    # Six turns rotated the Planner hundreds of times across one 48-hour run,
+    # each rotation re-paying the full static prompt with a cold cache.
+    assert PlannerConfig().role_session_max_turns == 20

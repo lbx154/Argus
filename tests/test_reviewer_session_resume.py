@@ -73,6 +73,43 @@ def test_static_preamble_byte_stable_across_main_summary() -> None:
     assert _STATIC_MARKER in s1 and _STATIC_MARKER not in d1
 
 
+def test_static_preamble_byte_stable_across_missions() -> None:
+    """A new objective or new Planner guidance must not move the static bytes.
+
+    These two blocks vary with every mission; while they lived in the static
+    preamble, every mission rotated the sha256 fingerprint, so a same-role
+    session never resumed and each round re-sent the full rubric cold. They
+    now travel in the delta — still delivered every round, just not
+    fingerprinted.
+    """
+    r = Reviewer(runner=None, skill_store=None)
+    base = dict(
+        operator_messages=[], round_index=1, session_id=None,
+        main_summary="S", main_error=None, prior_checkpoint={},
+    )
+    s1 = r._build_static_preamble(
+        objective="MISSION ALPHA objective",
+        planner_review_instruction="watch the ALPHA evidence",
+        **base,
+    )
+    s2 = r._build_static_preamble(
+        objective="MISSION BETA is wholly different",
+        planner_review_instruction="watch the BETA evidence",
+        **base,
+    )
+    assert s1 == s2, "static preamble drifted when only the mission changed"
+    assert "MISSION ALPHA" not in s1 and "ALPHA evidence" not in s1
+    # Both blocks are necessary context and must still reach every round.
+    d1 = r._build_round_delta(
+        resumed=False,
+        objective="MISSION ALPHA objective",
+        planner_review_instruction="watch the ALPHA evidence",
+        **base,
+    )
+    assert "Task objective:\nMISSION ALPHA objective" in d1
+    assert "Planner guidance:\nwatch the ALPHA evidence" in d1
+
+
 def test_round1_reviewer_prompt_carries_full_rubric() -> None:
     backend = MemoryBackend()
     backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
@@ -196,16 +233,59 @@ def test_live_gpu_and_checkpoint_changes_keep_reviewer_session(tmp_path: Path, m
     assert [tid for label, tid in backend.resume_history if label == "reviewer"] == [None, "rv1"]
 
 
-def test_stage_change_still_uses_a_fresh_full_prompt() -> None:
+def test_new_objective_keeps_the_fingerprint_and_resumes() -> None:
+    """Same role, two missions with different objectives: one static fingerprint.
+
+    This is the failure the 48-hour bill made measurable: 172 fingerprint
+    rotations, 1,222 cold starts against 452 resumes, because the objective
+    lived in the fingerprinted preamble. A mission change must now ride in the
+    delta and let the session resume.
+    """
+    backend = MemoryBackend()
+    backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
+    backend.queue("reviewer", CannedResponse(message=_review_json("done"), thread_id="rv1"))
+    r = Reviewer(backend, skill_store=None)
+    first = _evaluate(
+        r, objective="objective A",
+        planner_review_instruction="judge mission A on its own evidence",
+    )
+    second = _evaluate(
+        r, round_index=2, objective="objective B is wholly different",
+        planner_review_instruction="judge mission B on its own evidence",
+        resume_thread_id="rv1", prior_static_fingerprint=first.static_fingerprint,
+    )
+    assert first.static_fingerprint == second.static_fingerprint
+    resumes = [t for label, t in backend.resume_history if label == "reviewer"]
+    assert resumes == [None, "rv1"]            # 2nd call resumed
+    r2 = [p for label, p, _ in backend.history if label == "reviewer"][1]
+    assert _STATIC_MARKER not in r2            # rubric not re-sent
+    # The new mission's context still arrived in the delta.
+    assert "objective B is wholly different" in r2
+    assert "judge mission B on its own evidence" in r2
+
+
+def test_stage_change_still_uses_a_fresh_full_prompt(tmp_path: Path) -> None:
+    from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    persist_vertical(tmp_path, "research")
+    state = read_pipeline_state(tmp_path)
+    state["current_stage"] = "experiment"
+    write_pipeline_state(tmp_path, state)
     backend = MemoryBackend()
     backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
     backend.queue("reviewer", CannedResponse(message=_review_json(), thread_id="rv1"))
     r = Reviewer(backend, skill_store=None)
-    first = _evaluate(r, objective="objective A")
-    _evaluate(
-        r, round_index=2, objective="objective B is wholly different",
+    config = ReviewerConfig(working_dir=str(tmp_path), active_vertical="research")
+    first = _evaluate(r, config=config)
+    state = read_pipeline_state(tmp_path)
+    state["current_stage"] = "review"
+    write_pipeline_state(tmp_path, state)
+    second = _evaluate(
+        r, config=config, round_index=2,
         resume_thread_id="rv1", prior_static_fingerprint=first.static_fingerprint,
     )
+    assert first.static_fingerprint != second.static_fingerprint
     resumes = [t for label, t in backend.resume_history if label == "reviewer"]
     assert resumes == [None, None]             # 2nd call did NOT resume
     r2 = [p for label, p, _ in backend.history if label == "reviewer"][1]

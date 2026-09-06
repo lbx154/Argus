@@ -13,10 +13,17 @@ requests and the persisted research-target completion gate; they have no
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
+import os
+import time
 from pathlib import Path
 from typing import Any
 
 from ..memory import BacklogItem
+
+log = logging.getLogger(__name__)
 
 
 def _revision_reason(revision_request: dict[str, Any]) -> str:
@@ -243,6 +250,148 @@ def goal_gate_task_title(project_root: object) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Completion-rejection stop-loss
+#
+# When the Planner keeps declaring the project done and the completion
+# requirement keeps turning it back for the same reason, neither side can
+# resolve the disagreement alone: every further cycle is a paid model call that
+# reproduces the same exchange. These helpers persist a consecutive count of
+# same-reason turn-backs (keyed on the reason alone, so background file churn
+# cannot reset it) and a paused flag once the count reaches the threshold. The
+# pause lifts when the backlog itself changes or the operator replies.
+# ---------------------------------------------------------------------------
+
+
+def completion_rejection_circuit_path(root: Path | str, objective: str) -> Path:
+    """State file for the completion-rejection stop-loss of one objective."""
+    fingerprint = hashlib.sha256(
+        str(objective or "").encode("utf-8")
+    ).hexdigest()[:16]
+    return Path(root) / f"completion-rejection-circuit-{fingerprint}.json"
+
+
+def completion_rejection_reason_key(diagnostic: str, reason: str) -> str:
+    """Stable key for one rejection cause, insensitive to whitespace churn."""
+    normalized_reason = " ".join(str(reason or "").split())
+    canonical = f"{str(diagnostic or '').strip()}\n{normalized_reason}"
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def load_completion_rejection_circuit(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, TypeError, ValueError):
+        log.warning("completion-rejection record is unreadable: %s", path)
+        return None
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        return None
+    return payload
+
+
+def _write_completion_rejection_circuit(path: Path, payload: dict[str, Any]) -> bool:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+    try:
+        tmp.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        log.exception("failed to persist completion-rejection record: %s", path)
+        return False
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def record_completion_rejection(
+    path: Path,
+    *,
+    diagnostic: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Count one more completion turn-back; a different reason restarts at 1.
+
+    Returns the persisted state (best effort — an unwritable disk still
+    returns the computed state so the caller's threshold decision is made on
+    this process's own observation).
+    """
+    key = completion_rejection_reason_key(diagnostic, reason)
+    previous = load_completion_rejection_circuit(path)
+    same_cause = bool(previous is not None and previous.get("reason_key") == key)
+    now = time.time()
+    state: dict[str, Any] = {
+        "version": 1,
+        "reason_key": key,
+        "diagnostic": str(diagnostic or "").strip(),
+        "reason": str(reason or "").strip()[:2000],
+        "consecutive_rejections": (
+            int(previous.get("consecutive_rejections") or 0) + 1 if same_cause else 1
+        ),
+        "first_at": (
+            float(previous.get("first_at") or now) if same_cause else now
+        ),
+        "updated_at": now,
+        "paused": False,
+        "pause_backlog_signature": "",
+    }
+    _write_completion_rejection_circuit(path, state)
+    return state
+
+
+def pause_completion_rejection_circuit(
+    path: Path,
+    *,
+    backlog_signature: str,
+) -> dict[str, Any] | None:
+    """Stop further completion attempts until the backlog moves or the
+    operator replies."""
+    state = load_completion_rejection_circuit(path)
+    if state is None:
+        return None
+    state["paused"] = True
+    state["pause_backlog_signature"] = str(backlog_signature or "")
+    state["paused_at"] = time.time()
+    _write_completion_rejection_circuit(path, state)
+    return state
+
+
+def resume_completion_rejection_circuit(
+    path: Path,
+    *,
+    reason: str,
+) -> dict[str, Any] | None:
+    """Allow one more completion attempt; the count survives so an identical
+    turn-back pauses again immediately."""
+    state = load_completion_rejection_circuit(path)
+    if state is None or not state.get("paused"):
+        return None
+    state["paused"] = False
+    state["pause_backlog_signature"] = ""
+    state["resumed_at"] = time.time()
+    state["resume_reason"] = str(reason or "")[:200]
+    _write_completion_rejection_circuit(path, state)
+    return state
+
+
+def clear_completion_rejection_circuit(path: Path) -> None:
+    """Forget the whole history — the project completed, or the cause is gone."""
+    try:
+        Path(path).unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        log.exception("failed to clear completion-rejection record: %s", path)
+
+
 class _PlanCycleState:
     """Mutable scratch state threaded through one ``_plan_next_work`` call."""
 
@@ -293,4 +442,11 @@ __all__ = [
     "_research_project_done_issue",
     "_staged_goal_completion_issue",
     "_revision_reason",
+    "completion_rejection_circuit_path",
+    "completion_rejection_reason_key",
+    "load_completion_rejection_circuit",
+    "record_completion_rejection",
+    "pause_completion_rejection_circuit",
+    "resume_completion_rejection_circuit",
+    "clear_completion_rejection_circuit",
 ]

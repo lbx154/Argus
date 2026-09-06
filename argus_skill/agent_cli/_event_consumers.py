@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from .runner_backend import (
     BACKEND_COPILOT,
     BACKEND_CURSOR,
+    BACKEND_DSH,
     BACKEND_GROK,
     BACKEND_OPENCODE,
     BACKEND_PI,
@@ -169,6 +170,52 @@ class EventConsumerMixin:
                 return True
             stack.extend(value.values())
         return False
+
+    def _event_ends_provider_turn(self, event: dict) -> bool:
+        """True when this event marks the end of ONE provider request.
+
+        A "provider turn" here is one request/response round trip inside a
+        single CLI call — the unit the CLI resends the whole transcript for,
+        and therefore the unit the per-call allowance counts. Each dialect
+        exposes a different receipt for it:
+
+        - copilot: ``model.call_finished`` fires once per model request
+          (verified against a persisted engineer call: 43 of them).
+        - claude family / cursor / grok: one ``assistant`` frame per assistant
+          message, carrying that request's ``message.usage``.
+        - opencode: one ``step_finish`` per step (reason ``tool-calls`` for the
+          intermediate rounds, ``stop`` for the last).
+        - pi: one assistant ``message_end`` per provider turn.
+        - codex: one ``item.completed`` per settled item; the reasoning item
+          rides along with the same response as the message/tool item, so only
+          non-reasoning items count.
+        - dsh: no per-turn events at all, so nothing ever counts (its calls
+          stay bounded by the wall-clock and idle watchdogs instead).
+        """
+        event_type = str(event.get("type") or "").strip()
+        if self.backend == BACKEND_COPILOT:
+            return event_type == "model.call_finished"
+        if self.backend in CLAUDE_FAMILY or self.backend in (
+            BACKEND_CURSOR,
+            BACKEND_GROK,
+        ):
+            return event_type == "assistant"
+        if self.backend == BACKEND_OPENCODE:
+            return event_type == "step_finish"
+        if self.backend == BACKEND_PI:
+            if event_type != "message_end":
+                return False
+            message = event.get("message")
+            return (
+                isinstance(message, dict)
+                and str(message.get("role") or "").strip() == "assistant"
+            )
+        if self.backend == BACKEND_DSH:
+            return False
+        if event_type != "item.completed":
+            return False
+        item = event.get("item")
+        return isinstance(item, dict) and str(item.get("type") or "") != "reasoning"
 
     def _consume_event(
         self,

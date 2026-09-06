@@ -951,6 +951,13 @@ class BacklogItem:
     superseded_reason: str = ""
     # Persisted so daemon restarts cannot reset a filtered-replan livelock.
     replan_rejections: int = 0
+    # Consecutive provider-cooldown pauses of this item whose stop reason
+    # normalized to the same signature. Persisted so daemon restarts cannot
+    # reset the count; at the limit a model-configuration failure is treated
+    # as permanent and the mission is parked on the operator instead of being
+    # auto-resumed and re-billed forever.
+    provider_cooldown_streak: int = 0
+    provider_cooldown_signature: str = ""
     # Persisted so a configurable convergence threshold is not bounded by the
     # finite journal tail used only to migrate older backlog rows.
     consecutive_replans: int = 0
@@ -1116,6 +1123,13 @@ class BacklogItem:
             superseded_by_plan_id=str(row.get("superseded_by_plan_id", "")),
             superseded_reason=str(row.get("superseded_reason", "")),
             replan_rejections=max(0, int(row.get("replan_rejections", 0) or 0)),
+            provider_cooldown_streak=max(
+                0,
+                int(row.get("provider_cooldown_streak", 0) or 0),
+            ),
+            provider_cooldown_signature=str(
+                row.get("provider_cooldown_signature", "")
+            ),
             consecutive_replans=max(
                 0,
                 int(row.get("consecutive_replans", 0) or 0),

@@ -273,7 +273,7 @@ def test_soft_limit_prompt_states_enforced_rule_in_one_sentence(tmp_path) -> Non
     ]
     assert (
         "After round 2, the harness settles the mission as stalled when neither "
-        "of the last two Reviewer verdicts has `forward_progress=true`; genuine "
+        "of your last two judgments carries `forward_progress=true`; genuine "
         "progress continues normally."
     ) in reviewer_prompts[1]
     assert "GPU quota / preemption" not in reviewer_prompts[1]

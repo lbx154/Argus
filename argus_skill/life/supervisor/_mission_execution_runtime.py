@@ -1010,6 +1010,10 @@ class MissionExecutionRuntimeMixin:
             pause_status = state.status
         if not pause_status:
             return None
+        if pause_status == "paused_provider_cooldown":
+            parked = self._maybe_park_permanent_provider_failure(state)
+            if parked is not None:
+                return parked
         pause_outcome = mission_outcome_dimensions(
             status=pause_status,
             success=False,
@@ -1062,6 +1066,156 @@ class MissionExecutionRuntimeMixin:
                 if state.context_packet_path is not None
                 else ""
             ),
+        }
+
+    def _maybe_park_permanent_provider_failure(
+        self, state: _MissionRunState,
+    ) -> dict[str, Any] | None:
+        """Stop resuming a mission whose provider cooldowns repeat identically.
+
+        Auto-resume treats every provider cooldown as a passing outage. A wrong
+        model name produces the same "model is not available" failure on every
+        resume — one configuration ("gpt-5.6-sol") was retried 89 times in 48
+        hours because nothing distinguished a standing misconfiguration from a
+        provider having a bad minute. The distinction is repetition: count
+        consecutive same-signature cooldown pauses on the item itself
+        (restart-safe, like ``consecutive_replans``); at the limit, when the
+        failure is a model-configuration one, stop using that configuration
+        and put the question to the operator instead of paying for another
+        retry. Genuine outages clear within a retry or two and never reach the
+        limit; non-model cooldowns (provider capacity, cost control) keep the
+        ordinary auto-resume forever.
+        """
+        from ...engineer.round_stop_signals import (
+            backend_failure_signature,
+            fatal_error_looks_like_model_configuration,
+        )
+        from ._constants import PROVIDER_COOLDOWN_SAME_CAUSE_LIMIT
+
+        item = state.item
+        signature = backend_failure_signature(state.stop_reason)
+        prior_streak = (
+            int(getattr(item, "provider_cooldown_streak", 0) or 0)
+            if signature
+            == str(getattr(item, "provider_cooldown_signature", "") or "")
+            else 0
+        )
+        streak = prior_streak + 1
+        stop_reason_low = str(state.stop_reason or "").casefold()
+        model_configuration = (
+            "configured model is unavailable" in stop_reason_low
+            or fatal_error_looks_like_model_configuration(state.stop_reason)
+        )
+        if streak < PROVIDER_COOLDOWN_SAME_CAUSE_LIMIT or not model_configuration:
+            self.memory.backlog.update(
+                item.id,
+                provider_cooldown_streak=streak,
+                provider_cooldown_signature=signature,
+            )
+            return None
+
+        from ...core.operator_decision import build_operator_decision
+        from .pending_notify import notify_pending_question
+
+        question = (
+            "The model configuration for this task has failed the same way "
+            f"{streak} times in a row: {state.stop_reason} "
+            "I have stopped retrying this configuration so the failures stop "
+            "costing money. Fix the model name or provider access, then reply "
+            "here to resume this task — or tell me to drop it."
+        )
+        decision_card = build_operator_decision(
+            item_id=item.id,
+            title=item.title,
+            reason=str(state.stop_reason or ""),
+            question=question,
+            options=[
+                {
+                    "id": "resume",
+                    "label": "Resume after fixing the configuration",
+                    "description": (
+                        "Retry this task once the model name or provider "
+                        "access has been corrected."
+                    ),
+                },
+                {
+                    "id": "drop",
+                    "label": "Drop this task",
+                    "description": (
+                        "Stop pursuing this task under the current "
+                        "configuration."
+                    ),
+                },
+            ],
+            evidence=list(getattr(item, "context_refs", None) or []),
+            project_id=self.memory.root.name,
+        )
+        pause_outcome = mission_outcome_dimensions(
+            status="paused_operator",
+            success=False,
+            review_status=str(
+                getattr(state.outcome, "final_review_status", "") or ""
+            ),
+            stop_kind=state.stop_kind,
+            resumable=True,
+        )
+        self.memory.backlog.update(
+            item.id,
+            status="paused_operator",
+            finished_ts=time.time(),
+            last_error=state.stop_reason,
+            outcome=pause_outcome,
+            pending_question=question,
+            operator_decision=decision_card,
+            provider_cooldown_streak=streak,
+            provider_cooldown_signature=signature,
+        )
+        item.pending_question = question
+        item.operator_decision = decision_card
+        notify_pending_question(self.memory.root, item)
+        self._emit({
+            "type": "life.mission.provider_configuration_disabled",
+            "item_id": item.id,
+            "title": item.title,
+            "streak": streak,
+            "signature": signature,
+            "error": state.stop_reason,
+            "operator_alert": True,
+            "text": question,
+        })
+        self._emit({
+            "type": EventType.LIFE_OPERATOR_QUESTION_PENDING,
+            "item_id": item.id,
+            "title": item.title,
+            "question": question,
+            "agent_layer": "manager",
+        })
+        self._emit({
+            "type": EventType.LIFE_MISSION_COMPLETED,
+            "item_id": item.id,
+            "success": False,
+            "status": "paused_operator",
+            "outcome_class": mission_outcome_class(
+                status="paused_operator",
+                success=False,
+            ),
+            "outcome": pause_outcome,
+            "stop_kind": state.stop_kind,
+            "recoverable": True,
+            "cost_usd": state.usd,
+            "known_cost_usd": state.known_usd,
+            "pricing_status": state.usage_summary.pricing_status,
+            "spent_usd": state.known_usd,
+        })
+        return {
+            "status": "paused_operator",
+            "item_id": item.id,
+            "success": False,
+            "stop_kind": state.stop_kind,
+            "recoverable": True,
+            "cost_usd": state.usd,
+            "known_cost_usd": state.known_usd,
+            "pricing_status": state.usage_summary.pricing_status,
         }
 
 

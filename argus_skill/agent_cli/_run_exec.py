@@ -30,6 +30,7 @@ from ._env import (
     _incomplete_turn_error,
     _is_manager_turn_label,
     _positive_env_int,
+    _provider_turn_cap,
     _turn_wall_clock_seconds,
 )
 from ._event_consumers import _OpenCodeWriteState
@@ -72,6 +73,8 @@ class _StreamState:
     turn_completed: bool = False
     turn_failed: bool = False
     fatal_error: str | None = None
+    provider_turns: int = 0
+    provider_turn_cap_hit: bool = False
     tool_activity_observed: bool = False
     usage_model: str = ""
     watchdog_terminated: bool = False
@@ -312,6 +315,7 @@ class RunExecMixin:
         last_activity_at = time.monotonic()
         turn_started_at = last_activity_at
         turn_wall_clock_seconds = _turn_wall_clock_seconds(run_label)
+        provider_turn_cap = _provider_turn_cap(run_label)
         last_soft_check_at = last_activity_at
         provider_exited_at: float | None = None
         stdout_closed = False
@@ -556,6 +560,39 @@ class RunExecMixin:
                 if event is None:
                     continue
                 state.json_event_count += 1
+                if (
+                    provider_turn_cap > 0
+                    and not state.watchdog_terminated
+                    and self._event_ends_provider_turn(event)
+                ):
+                    state.provider_turns += 1
+                    if (
+                        state.provider_turns >= provider_turn_cap
+                        and process.poll() is None
+                    ):
+                        # The allowance is a housekeeping boundary, not an
+                        # error: the caller reads this exact prefix, keeps the
+                        # work, and continues the task in a fresh session with
+                        # the checkpoint and a summary.
+                        state.provider_turn_cap_hit = True
+                        state.watchdog_reason = (
+                            "Provider turn cap reached: this "
+                            f"{run_label or 'agent'} call used "
+                            f"{state.provider_turns} provider turns (allowance "
+                            f"{provider_turn_cap}, ARGUS_SKILL_PROVIDER_TURN_CAP). "
+                            "Each further turn would resend the whole grown "
+                            "transcript; the harness continues this work in a "
+                            "fresh session instead."
+                        )
+                        self._emit(
+                            self._stream_name("stderr", run_label),
+                            f"[watchdog] {state.watchdog_reason}",
+                        )
+                        self._terminate_process(
+                            process,
+                            include_detached_children=self.backend == BACKEND_OPENCODE,
+                        )
+                        state.watchdog_terminated = True
                 if self._event_has_tool_activity(event):
                     state.tool_activity_observed = True
                 observed_model = self._event_usage_model(event)
@@ -765,6 +802,8 @@ class RunExecMixin:
             turn_completed=state.turn_completed,
             turn_failed=state.turn_failed,
             fatal_error=state.fatal_error,
+            provider_turns=state.provider_turns,
+            provider_turn_cap_hit=state.provider_turn_cap_hit,
             tool_activity_observed=state.tool_activity_observed,
             usage_model=state.usage_model,
             orphan_process_group_id=state.orphan_process_group_id,

@@ -1,16 +1,16 @@
 """LLM-judged pre-launch config sanity check and health-adaptive polling backoff.
 
 Split out of ``_supervised_run.py`` to keep that module under the size target.
-Owns: PRE-LAUNCH config preflight (structural-only, fail-soft hard-block
-detection for RL/training runs) and the health-adaptive monitor interval
-backoff used by the supervised polling loop.
+Owns: the PRE-LAUNCH config preflight (structural-only, fail-soft refusal of
+mechanically-degenerate RL/training configs) and the health-adaptive monitor
+interval backoff used by the supervised polling loop.
 """
 from __future__ import annotations
 
 import json
 import logging
 
-from ._direct_run import _parse_launch_flags, _rl_collapse_guidance
+from ._direct_run import _parse_launch_flags, _rl_collapse_guidance_for
 from ._llm import _run_supervisor_with_usage
 from ._normalize import _clean_concern
 from ._registry import _ZERO_USAGE_TUPLE, _read_task
@@ -33,19 +33,19 @@ def _supervisor_preflight_with_usage(
 
     Returns ``(reject, concern, usage, preflight_status)``. ``reject`` is True
     ONLY for a config that is mechanically unlearnable regardless of the data or
-    run length — the kind of structural flaw a senior RL researcher rejects at a
+    run length — the kind of structural flaw a senior RL researcher declines at a
     glance, before any GPU is spent. Merely-suspicious or data-dependent settings
-    (e.g. a possibly-short ``max_completion_length``) are NOT blocked here — those
-    are left to the in-flight supervisor, which can see real metrics. Unparseable
-    verdicts and rejects without actionable fixes still fail soft normally. A
-    backend exception also permits launch but returns status ``"unavailable"`` so
-    the missing preflight remains visible.
+    (e.g. a possibly-short ``max_completion_length``) are NOT refused here — those
+    are left to the in-flight supervisor, which can see real metrics. A reply that
+    does not parse, or a refusal without an actionable fix, still fails soft
+    normally. A backend exception also permits launch but returns status
+    ``"unavailable"`` so the missing preflight remains visible.
     """
     flags = _parse_launch_flags(command)
     flag_table = "\n".join(
         f"  {k} = {v}" for k, v in sorted(flags.items())
     ) or "  (no --flags parsed)"
-    rl_guidance = _rl_collapse_guidance()
+    rl_guidance = _rl_collapse_guidance_for(command)
     prompt = (
         "You are an RL post-training config reviewer doing a PRE-LAUNCH preflight.\n"
         "No metrics exist yet — judge ONLY the launch configuration below.\n\n"
@@ -65,9 +65,9 @@ def _supervisor_preflight_with_usage(
             f"{rl_guidance}\n\n=== end reference ===\n\n"
         )
     prompt += (
-        "HARD-BLOCK the launch ONLY if the config is MECHANICALLY UNLEARNABLE\n"
+        "REFUSE the launch ONLY if the config is MECHANICALLY UNLEARNABLE\n"
         "regardless of the data or how long it runs — the learning signal is\n"
-        "degenerate by construction. Concrete hard-fails:\n"
+        "degenerate by construction. Concrete cases that fail this bar:\n"
         "- A group-relative RL method (GRPO/RLVR/RLOO/GRPO-style) with group size\n"
         "  (num_generations / rollouts-per-prompt) <= 1: no within-group reward\n"
         "  contrast is possible, so the advantage is identically zero. This applies\n"
@@ -76,18 +76,19 @@ def _supervisor_preflight_with_usage(
         "  clearly omits it in a way that makes the objective ill-defined.\n"
         "- A learning rate absurd by ORDERS OF MAGNITUDE for the setup (e.g. a\n"
         "  full-model RL run at 1e-4 / 1e-3) — NOT merely 'a bit high'. If it is\n"
-        "  clearly a LoRA / smoke / debug run, do NOT block on learning rate.\n"
+        "  clearly a LoRA / smoke / debug run, do NOT refuse over learning rate.\n"
         "- A reward that is provably constant for every sample (zero variance by\n"
         "  construction) — e.g. a pure fixed-format reward for a task whose\n"
         "  objective is reasoning correctness, with no correctness/verifier term.\n\n"
-        "Do NOT hard-block on merely SUSPICIOUS or data-dependent settings — those\n"
+        "Do NOT refuse over merely SUSPICIOUS or data-dependent settings — those\n"
         "belong to the in-flight supervisor once real metrics exist:\n"
         "- max_completion_length possibly too short: you CANNOT know the answer\n"
-        "  length distribution pre-launch, so DO NOT block on it here.\n"
-        "- num_generations small but >= 2 (e.g. 2): weak, but NOT a hard block.\n"
-        "- temperature, max_steps, batch size, warmup, lora rank: NOT hard blocks.\n"
+        "  length distribution pre-launch, so DO NOT refuse over it here.\n"
+        "- num_generations small but >= 2 (e.g. 2): weak, but NOT a reason to refuse.\n"
+        "- temperature, max_steps, batch size, warmup, lora rank: never reasons\n"
+        "  to refuse.\n"
         "If this is not a group-relative RL training run, or you are not certain\n"
-        "the config is mechanically degenerate, DO NOT reject.\n\n"
+        "the config is mechanically degenerate, answer reject=false.\n\n"
         "Respond with EXACTLY one JSON object:\n"
         '{"reject": true or false,\n'
         ' "reason": "one sentence",\n'
@@ -114,7 +115,7 @@ def _supervisor_preflight_with_usage(
             if isinstance(data, dict) and "reject" in data:
                 # Strict-bool only: a non-bool "reject" (e.g. "false", 1, null)
                 # is an LLM formatting hiccup and must fail-soft to a launch,
-                # never hard-block.
+                # never refuse it.
                 if data.get("reject") is not True:
                     return (False, "", usage, "")
                 concern = _clean_concern(data.get("concern", ""))

@@ -11,6 +11,7 @@ fast path.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
@@ -26,6 +27,9 @@ from ._planning_cycle_helpers import (
     _PlanCycleState,
     _research_project_done_issue,
     _revision_reason,
+    completion_rejection_circuit_path,
+    load_completion_rejection_circuit,
+    resume_completion_rejection_circuit,
 )
 
 _TERMINAL_TASK_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
@@ -252,6 +256,52 @@ class PlanningCycleIntakeMixin:
                     "entering terminal idle for operator/new-evidence wake-up"
                 )
                 return PLAN_TERMINAL_IDLE
+            # Completion turn-back stop-loss: while it is paused, a fresh
+            # Planner call can only reproduce the same exchange. An operator
+            # reply or a real backlog change lifts the pause; the count itself
+            # survives so an identical turn-back pauses again immediately.
+            circuit_path = completion_rejection_circuit_path(
+                Path(
+                    str(
+                        getattr(self.config, "project_state_dir", None)
+                        or getattr(self.memory, "root", None)
+                        or "."
+                    )
+                ),
+                str(getattr(self.config, "continuous_objective", "") or ""),
+            )
+            circuit = load_completion_rejection_circuit(circuit_path)
+            if circuit is not None and circuit.get("paused"):
+                if state.had_operator_messages:
+                    resume_completion_rejection_circuit(
+                        circuit_path, reason="operator_reply"
+                    )
+                    self._reset_idle_backoff()
+                elif (
+                    self._backlog_planning_signature()
+                    != str(circuit.get("pause_backlog_signature") or "")
+                ):
+                    resume_completion_rejection_circuit(
+                        circuit_path, reason="backlog_changed"
+                    )
+                    self._reset_idle_backoff()
+                else:
+                    sleep_s = self._enter_idle_backoff()
+                    self._emit({
+                        "type": "life.planner.completion_circuit_holding",
+                        "diagnostic": str(circuit.get("diagnostic") or ""),
+                        "reason": str(circuit.get("reason") or ""),
+                        "consecutive_rejections": int(
+                            circuit.get("consecutive_rejections") or 0
+                        ),
+                        "suggested_sleep_s": sleep_s,
+                    })
+                    self._emit_status(
+                        "completion attempts stay paused: the same reason "
+                        "turned them back repeatedly and neither the backlog "
+                        "nor the operator has spoken since"
+                    )
+                    return PLAN_TERMINAL_IDLE
 
         if revision_request is not None:
             state.expected_plan_id = str(

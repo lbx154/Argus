@@ -1,4 +1,4 @@
-"""Reviewer sub-agent: graded "done / continue / blocked" verdict.
+"""Reviewer sub-agent: graded "done / continue / blocked" judgment.
 
 Provenance: vendored from ``ArgusBot/agent_cli/reviewer.py``. The
 substantive change is decoupling: the original took a ``AgentCliRunner``
@@ -182,7 +182,7 @@ def _parallel_final_review_passes(
             ),
         }
 
-    # These two passes judge the rendered artifact. Isolating both makes their
+    # These two passes judge the rendered paper. Isolating both makes their
     # entire evidence boundary explicit, so reuse never hides changed code or
     # raw evidence from the integrated scientific Reviewer.
     if pdf_only_visual:
@@ -420,7 +420,7 @@ def _parallel_final_review_passes(
             premium_requests=premium_requests,
             **usage,
         )
-    # A provider may have run while another process updated the artifact.
+    # A provider may have run while another process updated the rendered paper.
     # Keep its result for adjudication, but never reuse it under the new bytes.
     if pdf_digest and pdf_sha256(workdir) == pdf_digest:
         for label, key in pass_keys.items():
@@ -442,7 +442,7 @@ def _persist_research_review(
     decision: ReviewDecision,
     config: "ReviewerConfig",
 ) -> None:
-    """Overwrite the sole research review artifact at the Review stage."""
+    """Overwrite the one research review file at the Review stage."""
     workdir = Path(config.working_dir or ".").expanduser().resolve()
     artifact_root = Path(
         config.artifact_root or workdir
@@ -474,7 +474,7 @@ def _persist_research_review(
     ).strip()
     text = (
         "# Authoritative review\n\n"
-        f"**Verdict:** {decision.status}\n\n"
+        f"**Judgment:** {decision.status}\n\n"
         "## Scientific, visual, and language assessment\n"
         f"{decision.reason or 'Not assessed.'}\n\n"
         "## Strongest accept case\n"
@@ -513,7 +513,7 @@ class ReviewerConfig:
     vertical_state_root: str | None = None
     narrative_snapshot_root: str | None = None
     review_policy_context: str = ""
-    # Host memory only: project/agent-writable artifacts cannot forge reuse.
+    # Host memory only: project/agent-writable files cannot forge reuse.
     # One latest entry per PDF-only pass; cached calls incur zero new usage.
     paper_pass_cache: dict[str, tuple[str, str]] = field(
         default_factory=dict, repr=False, compare=False
@@ -557,7 +557,7 @@ def _engineer_log_audit_block(
 
 
 class Reviewer:
-    """One independent verdict per round, with optional same-role resume."""
+    """One independent judgment per round, with optional same-role resume."""
 
     def __init__(
         self,
@@ -567,7 +567,7 @@ class Reviewer:
         memory_maintenance_enabled: bool = True,
     ) -> None:
         self.runner = runner
-        # The Reviewer speaks normally and ends with named verdict lines. JSON
+        # The Reviewer speaks normally and ends with named decision lines. JSON
         # remains parser-only backward compatibility for already-running old
         # sessions; no backend receives an output schema.
         self._last_prompt_block_stats: dict[str, dict[str, int]] = {}
@@ -730,7 +730,7 @@ class Reviewer:
         )
         if fatal or result.exit_code != 0:
             reason = (
-                "Reviewer backend returned no complete verdict "
+                "Reviewer backend returned no complete judgment "
                 f"(exit={result.exit_code}"
                 + (f", fatal_error={fatal}" if fatal else "")
                 + ")."
@@ -739,7 +739,7 @@ class Reviewer:
                 status="blocked",
                 reason=reason,
                 next_action=(
-                    "Reviewer backend ended before a complete verdict — do NOT "
+                    "Reviewer backend ended before reaching a judgment — do NOT "
                     "treat partial output as evidence about the engineer's work."
                 ),
                 backend_unavailable=True,
@@ -822,7 +822,7 @@ class Reviewer:
         parsed.static_fingerprint = new_fp
         parsed.session_resumed = bool(resume)
         parsed.manuscript_snapshot = reviewed_manuscript_snapshot
-        # The L2 reviewer's verdict is authoritative — the harness must not
+        # The L2 reviewer's judgment is authoritative — the harness must not
         # second-guess its scientific judgment from structured result labels or
         # keyword heuristics on the engineer's summary.
         # If a generic role-acknowledgment turn slips through, that is a

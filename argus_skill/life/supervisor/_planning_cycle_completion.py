@@ -12,12 +12,14 @@ returned a non-error verdict but before any backlog dedupe/enqueue.
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
 from ..memory import BacklogItem
 from ._constants import (
+    COMPLETION_REJECTION_CIRCUIT_THRESHOLD,
     PLAN_ERROR,
     PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
@@ -27,12 +29,109 @@ from ._planning_cycle_helpers import (
     _PlanCycleState,
     _research_project_done_issue,
     _staged_goal_completion_issue,
+    clear_completion_rejection_circuit,
+    completion_rejection_circuit_path,
     goal_gate_task_title,
+    pause_completion_rejection_circuit,
+    record_completion_rejection,
 )
 
 
 class PlanningCycleCompletionMixin:
     """Waiting handling + project_done normalization + no-tasks rejection."""
+
+    def _completion_rejection_circuit_file(self) -> Path:
+        root = (
+            getattr(self.config, "project_state_dir", None)
+            or getattr(getattr(self, "memory", None), "root", None)
+            or self._artifact_root()
+        )
+        return completion_rejection_circuit_path(
+            Path(str(root)),
+            str(getattr(self.config, "continuous_objective", "") or ""),
+        )
+
+    def _completion_rejection_stop_loss(
+        self,
+        *,
+        stage: str,
+        reason: str,
+        diagnostic: str,
+    ) -> str | None:
+        """Stop the completion loop once one reason has turned it back 3 times.
+
+        Every completion attempt is a paid Planner call. When the standing
+        requirement and the Planner cannot satisfy each other, the exchange
+        repeats verbatim — one live project produced 58 identical turn-backs
+        (missing_publishable_reviewer_certification) in 48 hours. Count the
+        consecutive same-reason turn-backs durably; at the threshold, tell the
+        operator in plain language and stop attempting completion until the
+        backlog changes or the operator replies (the intake phase lifts the
+        pause — the same wake conditions the feedback hold already uses).
+        Returns ``PLAN_TERMINAL_IDLE`` when paused, else ``None``.
+        """
+        record = record_completion_rejection(
+            self._completion_rejection_circuit_file(),
+            diagnostic=diagnostic,
+            reason=reason,
+        )
+        count = int(record.get("consecutive_rejections") or 0)
+        if count < COMPLETION_REJECTION_CIRCUIT_THRESHOLD:
+            return None
+        try:
+            backlog_signature = self._backlog_planning_signature()
+        except Exception:  # noqa: BLE001 - the pause must still engage
+            backlog_signature = ""
+        pause_completion_rejection_circuit(
+            self._completion_rejection_circuit_file(),
+            backlog_signature=backlog_signature,
+        )
+        message = (
+            f"I have tried to close out this project {count} times in a row, "
+            "and each attempt was turned back for the same reason: "
+            f"{reason} "
+            "I am pausing completion attempts so this exchange stops costing "
+            "money. I will try again when the backlog changes or when you "
+            "reply here; if the requirement itself is wrong, say so and I "
+            "will take a different path."
+        )
+        try:
+            from ...core.operator_messages import publish_operator_message
+
+            publish_operator_message(
+                self.memory.root,
+                text=message,
+                message_id=(
+                    "completion-rejection-circuit-"
+                    f"{record.get('reason_key')}-{count}"
+                ),
+                event_fields={
+                    "completion_rejection_circuit": True,
+                    "stage": stage,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - the pause must still engage
+            self._emit({
+                "type": "life.planner.completion_circuit.notify_failed",
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+        self._emit({
+            "type": "life.planner.completion_circuit_opened",
+            "stage": stage,
+            "diagnostic": diagnostic,
+            "reason": reason,
+            "consecutive_rejections": count,
+            "threshold": COMPLETION_REJECTION_CIRCUIT_THRESHOLD,
+            "operator_alert": True,
+            "text": message,
+        })
+        self._emit_status(
+            f"the same completion requirement has turned the Planner back "
+            f"{count} times in a row; pausing completion attempts until the "
+            "backlog changes or the operator replies"
+        )
+        self._enter_idle_backoff()
+        return PLAN_TERMINAL_IDLE
 
     def _manager_project_completion_context(self) -> dict[str, Any]:
         """Collect every stage and transition for Manager's completion report."""
@@ -291,13 +390,20 @@ class PlanningCycleCompletionMixin:
                     "failed to persist completion rejection; retry later"
                 )
                 return PLAN_ERROR
-            self._reset_idle_backoff()
             self._emit({
                 "type": "life.planner.completion_rejected",
                 "stage": stage,
                 "reason": reason,
                 "diagnostic": diagnostic,
             })
+            paused = self._completion_rejection_stop_loss(
+                stage=stage,
+                reason=reason,
+                diagnostic=diagnostic,
+            )
+            if paused is not None:
+                return paused
+            self._reset_idle_backoff()
             self._emit_status(
                 "planner completion rejected; returning the invariant to Planner"
             )
@@ -402,6 +508,13 @@ class PlanningCycleCompletionMixin:
                     diagnostic="manager_final_stage_not_completed",
                 ):
                     return PLAN_ERROR
+                paused = self._completion_rejection_stop_loss(
+                    stage=stage,
+                    reason=reason,
+                    diagnostic="manager_final_stage_not_completed",
+                )
+                if paused is not None:
+                    return paused
                 self._emit_status(reason)
                 return PLAN_RETRY
             delivered = self._emit_planner_verdict(
@@ -420,6 +533,11 @@ class PlanningCycleCompletionMixin:
             )
             if not delivered:
                 return PLAN_RETRY
+            # The requirement was satisfied for real: forget the turn-back
+            # history so a future campaign starts with a clean count.
+            clear_completion_rejection_circuit(
+                self._completion_rejection_circuit_file()
+            )
             self._emit_status(f"planner: project done — {verdict.reason}")
             return False
 

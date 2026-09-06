@@ -42,6 +42,18 @@ class RoundLoopState:
     last_decision_progress_at: float = field(default_factory=lambda: time.monotonic())
     backend_failure_streak: int = 0
     reviewer_backend_failure_streak: int = 0
+    # Normalized signature of the most recent Engineer backend failure and the
+    # count of consecutive failures sharing it. A run of identical failures is
+    # one continuing cause, so the round loop holds and backs off (up to an
+    # hour) instead of failing the mission into a paid replanning cycle.
+    backend_failure_signature: str = ""
+    backend_failure_same_cause_streak: int = 0
+    # Consecutive Engineer calls that each used their whole per-call
+    # provider-turn allowance without a completed turn. One or two in a row are
+    # routine on a long task; a run of them means the fresh sessions are not
+    # converging and the mission should stop instead of burning the allowance
+    # forever. Reset by any Engineer call that ends any other way.
+    provider_turn_cap_streak: int = 0
     pending_secret_guard_notes: list[str] = field(default_factory=list)
     engineer_session: RoleSessionCapsule | None = None
     reviewer_session: RoleSessionCapsule | None = None

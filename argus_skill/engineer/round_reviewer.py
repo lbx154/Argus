@@ -41,6 +41,7 @@ from .round_stop_signals import (
     daemon_stop_review_decision,
     fatal_error_looks_like_daemon_stop_request,
     fatal_error_looks_like_operator_abort_request,
+    fatal_error_looks_like_provider_turn_cap,
     operator_abort_review_decision,
 )
 
@@ -153,10 +154,10 @@ class RoundReviewerMixin:
             rotation_block = (
                 "## Reviewer session rotation — judge the current round\n"
                 f"This is Reviewer round {round_index}, not round 1. Provider context "
-                "was rotated. Do not reenact an earlier Engineer stage, create its "
-                "artifacts, or ask for an approval already recorded in the canonical "
-                "checkpoint. Verify the current Engineer summary and artifacts, then "
-                "return the verdict for this round."
+                "was rotated. Do not reenact an earlier Engineer stage, recreate the "
+                "files it produced, or ask for an approval already recorded in the "
+                "canonical checkpoint. Read the current Engineer summary and the "
+                "files it points to, then give your judgment on this round."
             )
         mission_brief = render_mission_brief(supervised_config.context_packet_path)
         reviewer_background_context = "\n\n".join(
@@ -193,13 +194,15 @@ class RoundReviewerMixin:
                 return preliminary_review
             authority_note = (
                 "Shadow calibration only: these new semantic-loss and cold-read signals "
-                "cannot be the sole reason for a blocking verdict. Independently verify a "
-                "finding under the existing scientific, visual, language, or venue contract "
-                "before using it to continue the round."
+                "cannot be the sole reason to rule that the work does not hold. "
+                "Independently confirm a finding against the existing scientific, "
+                "visual, language, or venue standards before using it to continue "
+                "the round."
                 if enforcement != "blocking"
                 else (
-                    "Enforcement is enabled: a substantiated scientific loss or reject-level "
-                    "cold-read failure may block certification."
+                    "Enforcement is enabled: a substantiated scientific loss, or a "
+                    "cold-read failure a venue reviewer would reject the paper over, "
+                    "can be the reason the work does not hold yet."
                 )
             )
             reviewer_background_context = "\n\n".join(
@@ -207,13 +210,14 @@ class RoundReviewerMixin:
                 for part in (
                     reviewer_background_context,
                     "## Independent final-paper passes\n"
-                    "These current host-provided read-only assessments are evidence for your integrated "
-                    "verdict. Resolve conflicts yourself; only your verdict controls the "
-                    "round and is persisted to paper/REVIEW.md. The host reuses PDF-only "
-                    "assessments only when their exact rendered input and policy match. "
-                    "Do not launch duplicate specialist passes or repeat a complete PDF "
-                    "inspection; use targeted checks for a concrete contradiction. Always "
-                    "independently check material changes to code, raw evidence, and claims. "
+                    "These current host-provided read-only assessments are evidence for "
+                    "your own integrated judgment. Resolve conflicts yourself; only your "
+                    "judgment settles the round and is persisted to paper/REVIEW.md. The "
+                    "host reuses PDF-only assessments only when their exact rendered "
+                    "input and policy match. Do not launch duplicate specialist passes "
+                    "or repeat a complete PDF inspection; use targeted checks for a "
+                    "concrete contradiction. Always independently check material "
+                    "changes to code, raw evidence, and claims. "
                     + authority_note
                     + "\n"
                     + preliminary_review.reason,
@@ -394,8 +398,8 @@ class RoundReviewerMixin:
         ):
             escalate_hint = (
                 f"After round {supervised_config.soft_round_limit}, the harness "
-                "settles the mission as stalled when neither of the last two "
-                "Reviewer verdicts has `forward_progress=true`; genuine progress "
+                "settles the mission as stalled when neither of your last two "
+                "judgments carries `forward_progress=true`; genuine progress "
                 "continues normally."
             )
             if on_event and round_index == supervised_config.soft_round_limit:
@@ -406,8 +410,8 @@ class RoundReviewerMixin:
                     "hard_escalate_rounds": supervised_config.hard_escalate_rounds,
                     "text": (
                         f"round {round_index} reached soft limit "
-                        f"{supervised_config.soft_round_limit}: reviewer told the "
-                        "enforced two-verdict progress rule"
+                        f"{supervised_config.soft_round_limit}: the Reviewer was "
+                        "told the enforced two-round progress rule"
                     ),
                 })
         # Evaluate the reviewer, retrying ONLY the reviewer on an infra flake.
@@ -416,6 +420,7 @@ class RoundReviewerMixin:
         # the (cheap) reviewer leg — NOT discard the round and re-run the
         # (xhigh) engineer turn. We leave this inner loop with a real verdict,
         # or by failing loud once the reviewer-backend streak hits threshold.
+        reviewer_turn_cap_restarts = 0
         while True:
             review = self._call_reviewer_once(
                 objective=objective,
@@ -572,6 +577,31 @@ class RoundReviewerMixin:
             # model decision and follows normal classification.
             if not review.backend_unavailable:
                 break
+            if (
+                fatal_error_looks_like_provider_turn_cap(reviewer_fatal_error)
+                and reviewer_turn_cap_restarts < 1
+            ):
+                # The Reviewer call ended at its per-call provider-turn
+                # allowance — housekeeping, not a backend failure. Its inputs
+                # (the Engineer summary, the checkpoint, the files on disk) are
+                # all still on hand, so retry the review once in a fresh
+                # session without touching the failure streak. A second capped
+                # attempt falls through to the ordinary failure accounting so
+                # a review that simply cannot finish still fails loud.
+                reviewer_turn_cap_restarts += 1
+                if on_event:
+                    on_event({
+                        "type": "round.provider_turn_cap.reviewer_restart",
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "text": (
+                            f"Round {round_index}: the Reviewer's session used "
+                            "its whole per-call provider-turn allowance — a "
+                            "routine pause, not an error. The review of the "
+                            "same Engineer round restarts in a fresh session."
+                        ),
+                    })
+                continue
             state.reviewer_backend_failure_streak += 1
             rb_threshold = max(
                 1, int(supervised_config.backend_failure_threshold or 1)
@@ -597,7 +627,7 @@ class RoundReviewerMixin:
                     "text": (
                         "reviewer backend unavailable "
                         f"{state.reviewer_backend_failure_streak}/{rb_threshold}: no "
-                        "verdict rendered — NOT continuing blind. "
+                        "judgment was rendered — not continuing blind. "
                         + review.reason
                     ),
                 })
@@ -624,8 +654,8 @@ class RoundReviewerMixin:
                     (
                         "Reviewer backend unavailable for "
                         f"{state.reviewer_backend_failure_streak} consecutive "
-                        "attempt(s); failing loud rather than running the "
-                        "completion gate without a real review. "
+                        "attempt(s); failing loud rather than settling the "
+                        "round without a real review. "
                         + review.reason
                     ),
                     None,

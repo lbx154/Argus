@@ -416,11 +416,8 @@ def test_supervisor_check_concern_now_means_stop_in_prompt(monkeypatch, tmp_path
     assert "EMPTY" in prompt
 
 
-def test_supervisor_check_injects_rl_collapse_guidance(monkeypatch, tmp_path) -> None:
-    # The supervisor prompt must carry the RL-collapse-diagnosis skill so the
-    # model's stop/continue call is grounded in concrete collapse signatures
-    # (e.g. tail-window reward-variance death) rather than vibes.
-    monkeypatch.chdir(tmp_path)
+def _capture_supervisor_prompt(monkeypatch, tmp_path) -> dict[str, str]:
+    """Install a fake codex that records the supervisor prompt it receives."""
     captured: dict[str, str] = {}
 
     class _Result:
@@ -435,13 +432,108 @@ def test_supervisor_check_injects_rl_collapse_guidance(monkeypatch, tmp_path) ->
     _install_fake_codex(monkeypatch, fake_run)
     out = tmp_path / "stdout.log"
     err = tmp_path / "stderr.log"
-    out.write_text("step 1\n")
+    out.write_text("step 42: loss 0.5\n")
     err.write_text("")
-    _supervisor_check("t", "python train.py", "run", out, err, 60.0, 1, "gpt-5.5", str(tmp_path))
+    captured["stdout_path"] = str(out)
+    captured["stderr_path"] = str(err)
+    return captured
+
+
+def test_supervisor_check_injects_rl_collapse_guidance(monkeypatch, tmp_path) -> None:
+    # For an RL launch, the supervisor prompt must carry the
+    # RL-collapse-diagnosis skill so the model's stop/continue call is grounded
+    # in concrete collapse signatures (e.g. tail-window reward-variance death)
+    # rather than vibes.
+    monkeypatch.chdir(tmp_path)
+    captured = _capture_supervisor_prompt(monkeypatch, tmp_path)
+    _supervisor_check(
+        "t", "python train.py --num-generations 4", "run",
+        Path(captured["stdout_path"]), Path(captured["stderr_path"]),
+        60.0, 1, "gpt-5.5", str(tmp_path),
+    )
     prompt = captured["prompt"]
     assert "when an RL run has COLLAPSED" in prompt
     # The transient-vs-sustained judgement is the crux of the skill.
     assert "tail-window" in prompt or "tail window" in prompt.lower()
+
+
+def test_supervisor_check_omits_rl_guidance_for_non_rl_run(monkeypatch, tmp_path) -> None:
+    # An eval / SFT / generic launch gains nothing from ~12k characters of
+    # RL-collapse criteria on every check, so the reference stays home.
+    monkeypatch.chdir(tmp_path)
+    captured = _capture_supervisor_prompt(monkeypatch, tmp_path)
+    _supervisor_check(
+        "t", "python code/eval.py --benchmark math500", "eval run",
+        Path(captured["stdout_path"]), Path(captured["stderr_path"]),
+        60.0, 1, "gpt-5.5", str(tmp_path),
+    )
+    prompt = captured["prompt"]
+    assert "when an RL run has COLLAPSED" not in prompt
+    assert "reward-variance death" not in prompt.lower()
+    # The generic health rules and the concern policy still go out in full.
+    assert "STOPS the run" in prompt
+    assert "Decision rules:" in prompt
+
+
+def test_resumed_thread_check_sends_only_new_signals(monkeypatch, tmp_path) -> None:
+    # On a resumed thread the rules are already in the backend's context, so a
+    # later check sends just the fresh signals plus one line saying the earlier
+    # rules still apply — not the ~20k-character full prompt every 120s.
+    monkeypatch.chdir(tmp_path)
+    captured = _capture_supervisor_prompt(monkeypatch, tmp_path)
+    decision, health, _concern, thread_id = _supervisor_check(
+        "t", "python train.py --num-generations 4", "run",
+        Path(captured["stdout_path"]), Path(captured["stderr_path"]),
+        180.0, 3, "gpt-5.5", str(tmp_path), None, "t1",
+    )
+    prompt = captured["prompt"]
+    # The fresh signals still go out...
+    assert "step 42: loss 0.5" in prompt
+    assert "=== stdout" in prompt
+    # ...but none of the full rules are re-sent.
+    assert "You are a training/eval supervisor agent" not in prompt
+    assert "when an RL run has COLLAPSED" not in prompt
+    assert "STOPS the run" not in prompt
+    assert "Decision rules:" not in prompt
+    # One line points back at the rules already pinned on the thread.
+    assert "judgment rules from earlier in this conversation still apply" in prompt
+    # The reply still parses and the thread survives for the next check.
+    assert decision == "continue"
+    assert health == "healthy"
+    assert thread_id == "t1"
+
+
+def test_tenth_check_repins_full_rules_on_resumed_thread(monkeypatch, tmp_path) -> None:
+    # Every 10th check re-sends the full rules even on a live thread, so a long
+    # run can never drift arbitrarily far from the current wording.
+    monkeypatch.chdir(tmp_path)
+    captured = _capture_supervisor_prompt(monkeypatch, tmp_path)
+    _supervisor_check(
+        "t", "python train.py --num-generations 4", "run",
+        Path(captured["stdout_path"]), Path(captured["stderr_path"]),
+        1200.0, 10, "gpt-5.5", str(tmp_path), None, "t1",
+    )
+    prompt = captured["prompt"]
+    assert "You are a training/eval supervisor agent" in prompt
+    assert "STOPS the run" in prompt
+    assert "Decision rules:" in prompt
+    assert "when an RL run has COLLAPSED" in prompt
+
+
+def test_resume_recovery_on_lean_check_drops_thread(monkeypatch, tmp_path) -> None:
+    # If the resumed session is gone, the backend answers on a fresh thread that
+    # never saw the rules. The check must drop that thread so the NEXT check
+    # starts clean and sends the rules in full.
+    monkeypatch.chdir(tmp_path)
+    captured = _capture_supervisor_prompt(monkeypatch, tmp_path)
+    # The fake backend always reports thread "t1"; resuming "OLD" therefore
+    # looks exactly like a resume that fell back to a fresh conversation.
+    _decision, _health, _concern, thread_id = _supervisor_check(
+        "t", "python train.py --num-generations 4", "run",
+        Path(captured["stdout_path"]), Path(captured["stderr_path"]),
+        180.0, 3, "gpt-5.5", str(tmp_path), None, "OLD",
+    )
+    assert thread_id is None
 
 
 def test_rl_collapse_guidance_loads_and_strips_frontmatter() -> None:
@@ -451,6 +543,16 @@ def test_rl_collapse_guidance_loads_and_strips_frontmatter() -> None:
     assert guidance, "RL collapse guidance should load from the bundled skill"
     assert not guidance.startswith("---"), "YAML frontmatter must be stripped"
     assert "reward-variance death" in guidance.lower()
+
+
+def test_rl_collapse_guidance_for_attaches_only_to_rl_commands() -> None:
+    from argus_skill.tools.subagent import _rl_collapse_guidance_for
+
+    assert _rl_collapse_guidance_for("python train.py --num-generations 4")
+    assert _rl_collapse_guidance_for("python t.py --method MGR_RLVR --rollouts 8")
+    assert _rl_collapse_guidance_for("python code/eval.py --benchmark geneval") == ""
+    assert _rl_collapse_guidance_for("python sft_train.py --epochs 3") == ""
+    assert _rl_collapse_guidance_for("") == ""
 
 
 def test_supervisor_verdict_parses_concern_alongside_decision() -> None:

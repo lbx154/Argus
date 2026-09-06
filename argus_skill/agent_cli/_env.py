@@ -19,6 +19,19 @@ _DEFAULT_CAPTURE_JSON_EVENTS = 2048
 _DEFAULT_STREAM_QUEUE_LINES = 4096
 _ENGINEER_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS"
 _DEFAULT_ENGINEER_TURN_MAX_SECONDS = 0
+# One CLI call is one conversation with the provider, and the CLI resends the
+# whole grown transcript on every provider turn inside it, so a single call
+# left alone can spend more than a whole mission should (a measured worst case:
+# 430 provider turns and 59.9M input tokens in ONE Engineer call). None of the
+# driven CLIs exposes a per-call turn limit, so the runner counts provider
+# turns from the event stream and winds the call down at this allowance; the
+# round loop then continues the task in a fresh session from the checkpoint.
+_PROVIDER_TURN_CAP_ENV = "ARGUS_SKILL_PROVIDER_TURN_CAP"
+_DEFAULT_PROVIDER_TURN_CAP = 40
+# The wind-down call ("write the checkpoint, reply with a summary") resumes the
+# very conversation that just used its whole allowance, so it gets only a small
+# allowance of its own.
+_WIND_DOWN_PROVIDER_TURN_ALLOWANCE = 8
 _SCIENTIST_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS"
 _DEFAULT_SCIENTIST_TURN_MAX_SECONDS = 0
 _MANAGER_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_MANAGER_TURN_MAX_SECONDS"
@@ -85,6 +98,26 @@ def _turn_wall_clock_seconds(run_label: str | None) -> int:
         _ENGINEER_TURN_MAX_SECONDS_ENV,
         _DEFAULT_ENGINEER_TURN_MAX_SECONDS,
     )
+
+
+def _provider_turn_cap(run_label: str | None) -> int:
+    """Per-call provider-turn allowance for this run label; 0 = no allowance.
+
+    Applies only to Engineer and Reviewer calls (``engineer-r3``, ``reviewer``,
+    ``reviewer-cold-read``, …): those are the two roles whose calls run long
+    tool conversations, and the supervised round loop knows how to continue
+    them in a fresh session. Control-plane labels (manager/planner/subagent)
+    keep their existing bounds and are never cut here.
+    """
+    label = str(run_label or "").strip().lower()
+    if not label.startswith(("engineer", "reviewer")):
+        return 0
+    cap = _nonnegative_env_int(_PROVIDER_TURN_CAP_ENV, _DEFAULT_PROVIDER_TURN_CAP)
+    if cap <= 0:
+        return 0
+    if label.endswith(".winddown"):
+        return min(cap, _WIND_DOWN_PROVIDER_TURN_ALLOWANCE)
+    return cap
 
 
 def _incomplete_turn_error(stderr_lines: list[str]) -> str:
