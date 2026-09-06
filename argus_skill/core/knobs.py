@@ -168,6 +168,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS", "0", "optional round-boundary limit without reviewer-classified decision/evidence progress; disabled by default", "mission"),
     Knob("ARGUS_SKILL_CHECKPOINT_PERSIST", "true", "persist the reviewer checkpoint across missions/restarts", "mission"),
     Knob("ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS", "true", "send the full Engineer task/skill contract only on round 1; later rounds use reviewer guidance plus CHECKPOINT.md", "mission"),
+    Knob("ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY", "session", "when an Engineer round re-sends the full static task text: session sends it only to a new or rotated provider session (plus a stage change, or a first round resuming a session with no sealed prior round for the mission); legacy also re-sends it on every round 1", "mission"),
     Knob("ARGUS_SKILL_AUTOCOMMIT_SKILLS", "off", "compatibility gate for explicitly operator-approved source promotions such as generated data-domain verticals", "lifecycle"),
     Knob("ARGUS_SKILL_CROSS_PROJECT_PROPAGATION", "on", "Manager-promote changed reviewed Skills into shared global/vertical runtime layers after each successful mission", "lifecycle"),
     Knob("ARGUS_SKILL_WIKI", "on", "enable the shared direct-edit project knowledge wiki", "lifecycle"),

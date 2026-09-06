@@ -31,6 +31,11 @@ _DECISION_PROGRESS_TIMEOUT_ENV = "ARGUS_SKILL_DECISION_PROGRESS_TIMEOUT_SECONDS"
 # does not babysit a self-watched run. Set to 0 to disable (e.g. tests).
 _BG_SUBAGENT_ADVISORY_ENV = "ARGUS_SKILL_BG_SUBAGENT_ADVISORY"
 _COMPACT_CONTINUATION_PROMPTS_ENV = "ARGUS_SKILL_COMPACT_CONTINUATION_PROMPTS"
+_ENGINEER_FULL_ROUND_POLICY_ENV = "ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY"
+#: ``session`` re-sends the full static task text only to a provider session
+#: that cannot already hold it; ``legacy`` also re-sends it on every round 1
+#: (the historical behavior, kept for rollback).
+ENGINEER_FULL_ROUND_POLICIES = frozenset({"session", "legacy"})
 _ROLE_SESSION_MAX_TURNS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_TURNS"
 _ROLE_SESSION_MAX_INPUT_TOKENS_ENV = "ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS"
 _NARRATIVE_REVIEW_ENFORCEMENT_ENV = "ARGUS_SKILL_NARRATIVE_REVIEW_ENFORCEMENT"
@@ -68,6 +73,23 @@ def _env_bool(name: str, default: bool) -> bool:
 def _narrative_review_enforcement() -> str:
     raw = os.environ.get(_NARRATIVE_REVIEW_ENFORCEMENT_ENV, "shadow")
     return "blocking" if raw.strip().lower() == "blocking" else "shadow"
+
+
+def configured_engineer_full_round_policy() -> str:
+    """Which Engineer rounds re-send the full static task text.
+
+    A provider session receives the full text on the round that creates it,
+    so ``session`` (the default) re-sends it only when the session cannot
+    already hold the current terms: a newly created or rotated session, a
+    fresh-only policy, a stage that changed since the last full prompt, or a
+    first round whose resumed session has no sealed prior round for this
+    mission. ``legacy`` additionally re-sends it on every round 1 — the
+    historical behavior, kept for rollback. Anything else falls back to
+    ``session``, same shape as ``_narrative_review_enforcement`` above:
+    prompt-mode selection must never break a round over a typo.
+    """
+    raw = os.environ.get(_ENGINEER_FULL_ROUND_POLICY_ENV, "").strip().lower()
+    return raw if raw in ENGINEER_FULL_ROUND_POLICIES else "session"
 
 
 def parse_continue_work_request(message: str | None) -> str | None:
@@ -250,6 +272,12 @@ class SupervisedConfig:
     compact_continuation_prompts: bool = field(
         default_factory=lambda: _env_bool(_COMPACT_CONTINUATION_PROMPTS_ENV, True)
     )
+    # When a round must re-send that full contract rather than the compact
+    # continuation: see ``configured_engineer_full_round_policy``. ``legacy``
+    # restores the historical round-1-always-full behavior.
+    engineer_full_round_policy: str = field(
+        default_factory=configured_engineer_full_round_policy
+    )
     # Safe round-boundary budget since the last Reviewer-classified decision or
     # evidence increment. This never interrupts a live provider call.
     decision_progress_timeout_seconds: int = field(
@@ -367,6 +395,8 @@ class SupervisedConfig:
         """
         if self.role_session_policy not in ROLE_SESSION_POLICIES:
             raise ValueError("role_session_policy must be auto, fresh, mission, or rolling")
+        if self.engineer_full_round_policy not in ENGINEER_FULL_ROUND_POLICIES:
+            raise ValueError("engineer_full_round_policy must be session or legacy")
         budget = int(self.max_rounds)
         if budget <= 0:
             return
