@@ -228,7 +228,7 @@ def _apply_model_judgment_policy(decision: ReviewDecision) -> ReviewDecision:
             )
         elif change == "expanding_regression" and decision.status == "done":
             decision.reason += (
-                " Note: the same verdict reports an expanding regression."
+                " Note: the same judgment reports an expanding regression."
             )
     return decision
 
@@ -515,7 +515,7 @@ def describe_unparsed_verdict(messages: list[str]) -> str:
 
     text = "\n".join(str(m or "") for m in messages).strip()
     if not text:
-        return "Reviewer produced no output to read a verdict from."
+        return "Reviewer produced no output to read a judgment from."
     values = read_key_values(text, _VERDICT_KEYS)
     status = str(values.get("STATUS") or "").strip().lower()
     if not status:
@@ -530,8 +530,8 @@ def describe_unparsed_verdict(messages: list[str]) -> str:
             f"{', '.join(sorted(_STATUSES))}."
         )
     if not read_block(text, "REASON", _VERDICT_KEYS).strip():
-        return f"Reviewer STATUS={status} carried no REASON; a verdict needs one."
-    return "Reviewer output did not contain a valid named verdict footer."
+        return f"Reviewer STATUS={status} carried no REASON; a judgment needs one."
+    return "Reviewer output did not state a readable judgment on its named closing lines."
 
 
 def _find_decision_in_messages(

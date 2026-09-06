@@ -350,7 +350,7 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       started_at: ts,
       completed_at: null,
     };
-    setRole(view, 'reviewer', 'waiting', 'Awaiting engineer handoff', ts);
+    setRole(view, 'reviewer', 'waiting', 'Waiting for the Engineer to finish', ts);
     setRole(view, 'engineer', 'active', 'Starting mission', ts);
     addTimeline(view, event, 'engineer', 'Mission started', S(event, 'title'), 'info');
     addRoleWork(view, event, 'engineer', 'task', S(event, 'title') || 'Mission started', S(event, 'objective'), 'active');
@@ -383,13 +383,13 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       addTimeline(view, event, role, label, S(event, 'action_summary') || S(event, 'text'));
     }
   } else if (type === EVENT_TYPES.ROUND_MAIN_COMPLETED) {
-    setRole(view, 'engineer', 'done', 'Engineer handoff ready', ts);
+    setRole(view, 'engineer', 'done', 'Work ready for review', ts);
     addRoleWork(
       view,
       event,
       'engineer',
       'handoff',
-      'Engineer handoff ready',
+      'Work ready for review',
       S(event, 'text') || S(event, 'summary'),
       'done',
     );

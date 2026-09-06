@@ -93,7 +93,7 @@ class MissionExecutionSettlementMixin:
                 state.stop_kind = "permanent_error"
                 guard_errors = list(repair_settlement.get("guard_errors") or [])
                 state.stop_reason = (
-                    "restricted validator repair rejected"
+                    "restricted validator repair was declined"
                     + (": " + "; ".join(guard_errors) if guard_errors else "")
                 )
         elif state.repair_capability is not None and state.repair_store is not None:
@@ -128,7 +128,7 @@ class MissionExecutionSettlementMixin:
                 state.stop_kind = "permanent_error"
                 guard_errors = list(repair_settlement.get("guard_errors") or [])
                 state.stop_reason = (
-                    "restricted validator repair rejected"
+                    "restricted validator repair was declined"
                     + (": " + "; ".join(guard_errors) if guard_errors else "")
                 )
         state.repair_settlement = repair_settlement
@@ -815,15 +815,16 @@ class MissionExecutionSettlementMixin:
             status = "paused_operator"
             resumable = True
             operator_question = (
-                f"The change for “{item.title}” passed review. Should I run repository CI "
-                f"and the acceptance check ({item.acceptance_check}), then apply it?"
+                f"The Reviewer read the change for “{item.title}” and it holds. "
+                f"Should I run the repository CI and the agreed check "
+                f"({item.acceptance_check}), then apply it?"
             )
             decision_card = build_operator_decision(
                 item_id=item.id,
                 title=f"Adopt reviewed change: {item.title}",
                 reason=str(
                     getattr(outcome, "final_review_reason", "")
-                    or "Reviewer accepted the maintenance change."
+                    or "The Reviewer read the maintenance change and it holds."
                 ),
                 question=operator_question,
                 options=[
@@ -1236,7 +1237,7 @@ class MissionExecutionSettlementMixin:
                 path for path in referenced if path not in known_artifacts
             )
         except Exception:  # noqa: BLE001 - receipt construction remains fail-soft
-            log.debug("completion artifact links could not be resolved", exc_info=True)
+            log.debug("completion file links could not be resolved", exc_info=True)
         try:
             from ..delivery import build_delivery_receipt
 

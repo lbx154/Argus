@@ -422,6 +422,6 @@ def test_supervisor_rejects_interrupted_acceptance_without_rerunning(
     assert result["status"] == "error"
     stored = next(row for row in memory.backlog.all() if row.id == item.id)
     assert stored.status == "failed"
-    assert "restricted validator repair rejected" in stored.last_error
+    assert "restricted validator repair was declined" in stored.last_error
     assert store.authorization_events()[-1]["event"] == "closed"
     assert store.authorization_events()[-1]["accepted"] is False

@@ -21,10 +21,11 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="inspect.current_behavior",
             statement=(
-                "Read the real call path and closest reusable implementation. Run the "
-                "maintenance audit and decide which relevant findings are actual problems."
+                "Read the real call path and the closest reusable implementation. Run "
+                "the repository architecture scan and decide which of the relevant "
+                "findings are actual problems."
             ),
-            evidence_hint="source locations, callers, and audit output",
+            evidence_hint="source locations, callers, and the architecture scan output",
         ),
     ),
     "change": (
@@ -54,8 +55,9 @@ def role_banner(role: str) -> str:
     common = (
         "ARGUS MAINTENANCE: improve Argus itself with coherent, reusable changes. "
         "Core owns generic orchestration and long-running state; verticals own "
-        "domain tools, Skills, stages, checklists, and workflow. Audit matches are "
-        "candidates, not automatic edits. Remove code that has no behavior or caller."
+        "domain tools, Skills, stages, the questions each stage asks, and workflow. "
+        "Architecture-scan matches are candidates, not automatic edits. Remove code "
+        "that has no behavior or caller."
     )
     if role == "reviewer":
         return (

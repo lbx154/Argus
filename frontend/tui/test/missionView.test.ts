@@ -333,7 +333,7 @@ test('live snapshot preserves authoritative completed pipeline roles', () => {
   });
   Object.assign(live.mission_view.roles.find((role) => role.role === 'reviewer')!, {
     status: 'waiting',
-    label: 'Awaiting engineer handoff',
+    label: 'Waiting for the Engineer to finish',
   });
 
   const view = projectMissionView(live);
@@ -344,7 +344,7 @@ test('live snapshot preserves authoritative completed pipeline roles', () => {
       ['manager', 'done', 'Goal framed'],
       ['planner', 'done', 'Research branch added'],
       ['engineer', 'active', 'editing manuscript'],
-      ['reviewer', 'waiting', 'Awaiting engineer handoff'],
+      ['reviewer', 'waiting', 'Waiting for the Engineer to finish'],
     ],
   );
 });

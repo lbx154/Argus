@@ -17,8 +17,10 @@ from ..core.secret_guard import redact_secrets_text
 from ..life.mission_outcome import mission_outcome_class
 
 # Canonical live events with dedicated presentation. Unknown/internal events
-# fall back to ``[event.type]`` so they remain grep-able. ``match.info`` is an
-# intentionally non-persisted matcher diagnostic retained for stderr sinks.
+# fall back to a short plain-English description with the machine name kept in
+# parentheses so they remain grep-able (``[event.type]`` when no description
+# applies). ``match.info`` is an intentionally non-persisted matcher
+# diagnostic retained for stderr sinks.
 _EVENT_ICONS: dict[str, str] = {
     EventType.LOOP_START: "🚀",
     EventType.LOOP_DONE: "🏁",
@@ -33,6 +35,22 @@ _EVENT_ICONS: dict[str, str] = {
     EventType.LIFE_PLANNER_VERDICT: "📋",
     "match.info": "🎯",
 }
+
+# Plain-English descriptions for event families that have no dedicated
+# renderer. The machine name rides along in parentheses so operators can still
+# grep the logs for it.
+_UNKNOWN_EVENT_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("life.", "an update from the project"),
+    ("round.", "an update from the current round"),
+    ("team.", "an update from the team"),
+)
+
+
+def _describe_unknown_event(kind: str) -> str:
+    for prefix, description in _UNKNOWN_EVENT_FAMILIES:
+        if kind.startswith(prefix):
+            return f"{description} ({kind})"
+    return f"[{kind}]"
 
 
 def _truncate_display(text: str, limit: int) -> str:
@@ -226,14 +244,19 @@ def format_event_message(event: dict[str, Any]) -> str:
     if renderer is not None:
         body = renderer(event)
         if not body:
-            return icon or f"[{kind}]"
+            return icon or _describe_unknown_event(kind)
         return f"{icon} {body}".lstrip()
 
     text = str(event.get("text", "")).strip()
     if not text:
-        return icon or f"[{kind}]"
+        return icon or _describe_unknown_event(kind)
     text = _trunc(text, 300 if icon else 200)
-    return f"{icon} {text}".lstrip() if icon else f"[{kind}] {text}"
+    if icon:
+        return f"{icon} {text}"
+    label = _describe_unknown_event(kind)
+    if label.startswith("["):
+        return f"{label} {text}"
+    return f"{label}: {text}"
 
 
 # ---------------------------------------------------------------------------
@@ -257,10 +280,12 @@ def _render_loop_start(event: dict[str, Any]) -> str:
     objective = _trunc(str(event.get("objective") or ""), 120)
     if objective:
         details = []
-        if event.get("max_rounds") is not None:
-            details.append(f"max_rounds={event['max_rounds']}")
+        max_rounds = event.get("max_rounds")
+        if max_rounds is not None:
+            noun = "round" if max_rounds == 1 else "rounds"
+            details.append(f"up to {max_rounds} {noun}")
         if event.get("plan_mode"):
-            details.append(f"plan_mode={event['plan_mode']}")
+            details.append(f"planning mode {event['plan_mode']}")
         suffix = f" — {', '.join(details)}" if details else ""
         return f"task: {objective}{suffix}"
 
@@ -284,14 +309,12 @@ def _render_round_main_completed(event: dict[str, Any]) -> str:
     fatal = (event.get("fatal_error") or "").strip()
     turn_completed = event.get("turn_completed")
     turn_failed = event.get("turn_failed")
-    flags = []
     if turn_failed:
-        flags.append("turn_failed")
+        head = f"{label}: the Engineer's turn failed before it finished"
     elif turn_completed is False:
-        flags.append("incomplete")
-    head = f"{label}: main agent finished"
-    if flags:
-        head += f" ({', '.join(flags)})"
+        head = f"{label}: the Engineer stopped before finishing the turn"
+    else:
+        head = f"{label}: the Engineer finished this turn"
     body = ""
     if last:
         body = f"\n   ↳ {last}"
@@ -323,8 +346,12 @@ def _render_round_review_completed(event: dict[str, Any]) -> str:
 def _render_loop_done(event: dict[str, Any]) -> str:
     text = str(event.get("text") or "").strip()
     if "success" not in event:
-        return _trunc(text, 200) if text else "loop done"
-    head = "loop done — success" if event.get("success") else "loop done — FAILED"
+        return _trunc(text, 200) if text else "the work here has wrapped up"
+    head = (
+        "the work here ended in success"
+        if event.get("success")
+        else "the work here stopped without success"
+    )
     reason = _trunc(str(event.get("stop_reason") or ""), 400)
     return head + (f"\n   ↳ {reason}" if reason else "")
 
@@ -363,8 +390,8 @@ def _render_engineer_progress(event: dict[str, Any]) -> str:
 def _render_life_mission_started(event: dict[str, Any]) -> str:
     title = (event.get("title") or event.get("objective") or "").strip()
     if title:
-        return f"mission start — {_trunc(title, 100)}"
-    return "mission start"
+        return f"Starting: {_trunc(title, 100)}"
+    return "Starting the next piece of work."
 
 
 def _render_life_mission_completed(event: dict[str, Any]) -> str:

@@ -3,11 +3,12 @@
 Argus writes for two readers: the person who set it to work, and its own later
 turns. Both deserve the language of a thoughtful researcher speaking to a
 colleague: precise, natural, unhurried, and free of the machinery that produced
-it. This document is the standard for every sentence Argus reads or writes in
-the research vertical: playbooks, stage descriptions, role prompts, the notes it
-leaves in a project, the reasons it gives for a decision, and the questions it
-asks. It is not a request for brevity. A sentence may be long when every word is
-doing work. It is a request for accuracy and grace.
+it. This document is the standard for every sentence Argus reads or writes,
+anywhere in the system: playbooks, stage descriptions, role prompts, the
+prompts the round loop assembles, decision cards, event lines, status messages,
+the notes it leaves in a project, the reasons it gives for a decision, and the
+questions it asks. It is not a request for brevity. A sentence may be long when
+every word is doing work. It is a request for accuracy and grace.
 
 ## Principles
 
@@ -92,12 +93,52 @@ Vocabulary that belongs to the field stays: a paper is accepted; a unit test;
 a data pipeline in a method figure; a training run; a checkpoint of a model;
 an artifact in the sense of a measurement artifact.
 
+## The disciplines keep their words
+
+The word map retires process jargon, not the vocabulary of a field. When a
+retired word is the field's own term for a real thing, it stays, in that sense
+and only that sense:
+
+- **gate** — a logic gate in digital circuit or chip design ("an AND gate",
+  "gate count", "clock gating"). Never a process gate.
+- **sign-off** — the EDA sense in chip design: timing sign-off, design
+  sign-off before tape-out. Never "the Reviewer's sign-off".
+- **artifact** — a measurement or imaging artifact: an aliasing artifact in a
+  spectrogram, a compression artifact in an image, a stain artifact on a
+  slide. Never a file or a result.
+- **pipeline** — a data or method pipeline described in a paper or drawn in a
+  figure, or a CPU pipeline in an architecture discussion. Never the sequence
+  of stages, rounds, or roles.
+- **accepted / rejected** — a paper at a venue, and what a reviewer at that
+  venue would object to. Never the harness deciding a round.
+- **checkpoint** — of a model during training, and `CHECKPOINT.md` between
+  rounds, which is an ordinary word.
+- **unit** — a unit test, a unit of measurement. Never a "unit of work".
+
+When a new field needs its own use of a retired word, add it here first, then
+use it; `tests/test_voice_wordlist.py` reads its allowances from the same list.
+
 ## Where this applies
 
-- Every `.md` under `argus_skill/verticals/research/skills/` and the role
+Everywhere. The standard began in the research vertical and now covers the
+whole system: every vertical, the shared round loop, and the harness itself.
+In particular:
+
+- Every `.md` under `argus_skill/verticals/*/skills/` and the role
   descriptions under `argus_skill/builtin_skills/`.
-- Every prose string in `argus_skill/verticals/research/*.py` and
-  `argus_skill/roles/prompts/*.py` that a model reads.
+- Every prose string a model reads: `argus_skill/verticals/*/stages.py` and
+  the other vertical modules, `argus_skill/roles/prompts/*.py`, and the
+  prompt blocks assembled at runtime by the round loop
+  (`argus_skill/engineer/round_*.py`, `argus_skill/reviewer/*.py`) and the
+  supervisor (`argus_skill/apps/`, `argus_skill/life/`).
 - Everything Argus writes for a person: `RESEARCH_NOTES.md`, `paper/REVIEW.md`,
-  the reason lines of the Manager, Planner, Reviewer, and Engineer, questions to
-  the operator, and status messages.
+  the reason lines of the Manager, Planner, Reviewer, and Engineer, decision
+  cards and questions to the operator, event texts, and status messages
+  (`argus_skill/cli/event_format.py`, `argus_skill/core/operator_messages.py`).
+
+The machine's own tokens (principle 9) are the one standing exception: parsed
+lines, field names, enum values, paths, and identifiers stay exactly as the
+code expects them, and no sentence written for a person mentions them as if
+they were words. `tests/test_voice_wordlist.py` holds the line: it scans the
+operator-visible template files that have been brought up to this standard and
+fails when a retired word reappears in their prose.

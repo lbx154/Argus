@@ -412,25 +412,42 @@ def _format_follow_agent_message(layer: str, text: str, *, full: bool = False) -
     data = _json_object_from_text(text)
     if data:
         if layer == "reviewer":
-            status = data.get("status", "?")
+            status = str(data.get("status") or "").strip().lower()
             reason = _clean_follow_text(str(data.get("reason") or ""), limit=None)
-            return f"💭 reviewer verdict: {status}" + (
-                f" · {reason}" if reason else ""
+            reading = {
+                "done": "the work holds",
+                "continue": "another pass is needed",
+                "blocked": "it cannot move without an outside decision",
+            }.get(status, f"finished reading ({status or '?'})")
+            return f"💭 the reviewer's read: {reading}." + (
+                f" {reason}" if reason else ""
             )
         if layer == "critic":
             stop = bool(data.get("stop"))
             improvements = data.get("improvements") or []
             count = len(improvements) if isinstance(improvements, list) else 0
             reason = _clean_follow_text(str(data.get("reason") or ""), limit=None)
-            verdict = "stop" if stop else f"continue · {count} improvement(s)"
-            return f"💭 critic verdict: {verdict}" + (f" · {reason}" if reason else "")
+            if stop:
+                reading = "nothing more worth changing"
+            else:
+                noun = "improvement" if count == 1 else "improvements"
+                reading = f"keep going, with {count} {noun} to make"
+            return f"💭 the critic's read: {reading}." + (
+                f" {reason}" if reason else ""
+            )
         if layer == "planner":
             done = bool(data.get("project_done"))
             tasks = data.get("new_tasks") or []
             count = len(tasks) if isinstance(tasks, list) else 0
             reason = _clean_follow_text(str(data.get("reason") or ""), limit=None)
-            verdict = "project done" if done else f"queue {count} task(s)"
-            return f"💭 planner verdict: {verdict}" + (f" · {reason}" if reason else "")
+            if done:
+                decision = "the project is complete"
+            else:
+                noun = "task" if count == 1 else "tasks"
+                decision = f"queue {count} new {noun}"
+            return f"💭 the planner decided: {decision}." + (
+                f" {reason}" if reason else ""
+            )
     body = _clean_follow_text(
         strip_named_lines(
             text,
@@ -785,14 +802,23 @@ def _format_follow_event_body(
 
     if etype == "life.planner.start":
         obj = _clean_follow_text(str(event.get("objective") or ""), limit=None)
-        return f"\n📋 [{_follow_layer_label('planner')}] planning" + (
-            f" · {obj}" if obj else ""
+        return f"\n📋 [{_follow_layer_label('planner')}] Planning what comes next" + (
+            f": {obj}" if obj else "."
         )
 
     if etype == "life.planner.verdict":
         if event.get("project_done"):
-            return f"🏁 [{_follow_layer_label('planner')}] project done"
-        return f"📋 [{_follow_layer_label('planner')}] queued {event.get('enqueued_tasks', event.get('task_count', '?'))} task(s)"
+            return (
+                f"🏁 [{_follow_layer_label('planner')}] "
+                "The planner decided the project is complete."
+            )
+        count = event.get("enqueued_tasks", event.get("task_count"))
+        if isinstance(count, int):
+            noun = "task" if count == 1 else "tasks"
+            queued = f"{count} new {noun}"
+        else:
+            queued = "new tasks"
+        return f"📋 [{_follow_layer_label('planner')}] Queued {queued}."
 
     if etype == "life.planner.task_added":
         return _format_follow_planner_task_added(event)
@@ -801,7 +827,13 @@ def _format_follow_event_body(
         return _format_follow_planner_task_skipped(event)
 
     if etype == "life.planner.error":
-        return f"⚠️ [{_follow_layer_label('planner')}] planner error · {_clean_follow_text(str(event.get('error') or event.get('text') or ''), limit=None)}"
+        detail = _clean_follow_text(
+            str(event.get("error") or event.get("text") or ""), limit=None,
+        )
+        return (
+            f"⚠️ [{_follow_layer_label('planner')}] Planning hit a problem"
+            + (f": {detail}" if detail else ".")
+        )
 
     if etype == "life.mission.completed":
         raw_iteration = event.get("iteration")
@@ -849,7 +881,10 @@ def _format_follow_event_body(
         return f"{icon} {text}"
 
     if etype == "life.mission.failed":
-        return f"❌ mission failed · {_clean_follow_text(str(event.get('reason') or event.get('error') or ''), limit=None)}"
+        detail = _clean_follow_text(
+            str(event.get("reason") or event.get("error") or ""), limit=None,
+        )
+        return "❌ The mission failed" + (f": {detail}" if detail else ".")
 
     if etype == "loop.start":
         return f"▶️ [{_follow_layer_label('engineer')}] {_clean_follow_text(str(event.get('text') or ''), limit=180)}"
@@ -858,7 +893,10 @@ def _format_follow_event_body(
         return f"▶️ [{_follow_layer_label('engineer')}] {event.get('text', 'round started')}"
 
     if etype == "loop.done":
-        return f"🏁 loop done · {_clean_follow_text(str(event.get('text') or ''), limit=None)}"
+        detail = _clean_follow_text(str(event.get("text") or ""), limit=None)
+        return "🏁 This piece of work has wrapped up" + (
+            f": {detail}" if detail else "."
+        )
 
     return None
 

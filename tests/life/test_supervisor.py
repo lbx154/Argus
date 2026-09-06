@@ -436,8 +436,9 @@ def test_framework_maintenance_uses_private_worktree_and_review(
     ] == ["adopt", "decline"]
     assert settled.operator_decision["decision_kind"] == "framework_deployment"
     assert settled.pending_question == (
-        "The change for “repair framework” passed review. Should I run repository CI "
-        "and the acceptance check (python -c \"from pathlib import Path; "
+        "The Reviewer read the change for “repair framework” and it holds. "
+        "Should I run the repository CI and the agreed check (python -c \"from "
+        "pathlib import Path; "
         "raise SystemExit(not Path('reviewed-change.txt').is_file())\"), then apply it?"
     )
     sidecar = json.loads(

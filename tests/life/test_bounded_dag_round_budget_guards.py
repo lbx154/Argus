@@ -220,7 +220,7 @@ def test_soft_limit_stalls_after_two_verdicts_without_true_progress(
     assert status == "no_progress"
     assert len(rounds) == 3
     assert "Soft round limit 2 passed" in reason
-    assert "neither of the last two Reviewer verdicts" in reason
+    assert "neither of the Reviewer's last two judgments" in reason
 
 
 def test_true_progress_in_last_two_verdicts_continues_past_soft_limit(

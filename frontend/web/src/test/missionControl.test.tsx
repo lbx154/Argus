@@ -240,7 +240,7 @@ describe('MissionControl', () => {
     expect(view.review).toEqual({ status: '', reason: '', rejected_attempts: 0 });
     expect(view.roles.find((role) => role.role === 'reviewer')).toMatchObject({
       status: 'waiting',
-      label: 'Awaiting engineer handoff',
+      label: 'Waiting for the Engineer to finish',
     });
   });
 

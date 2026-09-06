@@ -275,7 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--notify-stage",
         default="",
         metavar="STAGE",
-        help="deliver --notify only when the active pipeline reaches this stage "
+        help="deliver --notify only when the running project reaches this stage "
              "(vertical aliases such as profiling→optimize are canonicalized)",
     )
     cockpit_grp.add_argument(
@@ -330,7 +330,7 @@ def build_parser() -> argparse.ArgumentParser:
     capability_grp.add_argument(
         "--setup",
         action="store_true",
-        help="configure and validate an explicit backend/auth mode",
+        help="configure an explicit backend/auth mode and confirm it works",
     )
     capability_grp.add_argument(
         "--doctor",
@@ -373,7 +373,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--auth-mode",
         choices=("subscription_cli", "model_api"),
         default=None,
-        help="authentication contract (model_api is supported with codex)",
+        help="authentication mode (model_api is supported with codex)",
     )
     capability_grp.add_argument(
         "--non-interactive",
@@ -443,54 +443,54 @@ def build_parser() -> argparse.ArgumentParser:
         help="override skills directory (default: global skills root)",
     )
 
-    gates_grp = parser.add_argument_group("research-factory gates")
-    gates_grp.add_argument(
+    checks_grp = parser.add_argument_group("research-factory checks")
+    checks_grp.add_argument(
         "--evidence-chain-check",
         action="store_true",
-        help="run F4 evidence-chain validator on a project root and exit; "
+        help="read the F4 evidence chain of a project root and exit; "
              "prints broken chains and exits non-zero if any claim ↔ "
              "evidence ↔ bundle link is broken",
     )
-    gates_grp.add_argument(
+    checks_grp.add_argument(
         "--anti-mediocrity-check",
         action="store_true",
-        help="run F3 anti-mediocrity gates (baseline-reproduction, "
-             "Δ-reward, benchmark-diversity) and exit; requires "
-             "--proposed-condition and --baseline-condition to enable "
-             "the comparison gates",
+        help="run the F3 anti-mediocrity checks (baseline reproduction, "
+             "Δ-reward, benchmark diversity) and exit; the checks that "
+             "compare two conditions also need --proposed-condition and "
+             "--baseline-condition",
     )
-    gates_grp.add_argument(
+    checks_grp.add_argument(
         "--lifecycle-status",
         action="store_true",
         help="print F5 project-lifecycle state derived from project memory "
              "(incubating/running/writing/quarantined/done/archived) and exit",
     )
-    gates_grp.add_argument(
+    checks_grp.add_argument(
         "--lifecycle-resume",
         action="store_true",
         help="resume a quarantined, done, or archived project; restores a "
              "working state in <life-dir>/lifecycle.json so the supervisor "
              "will dispatch missions again",
     )
-    gates_grp.add_argument(
+    checks_grp.add_argument(
         "--lifecycle-archive",
         action="store_true",
         help="archive the project; supervisor will refuse to "
              "dispatch missions until --lifecycle-resume is called",
     )
-    gates_grp.add_argument(
+    checks_grp.add_argument(
         "--project-root",
         default=".",
         help="project root for management commands such as --status when run "
              "outside the workdir, and for evidence/lifecycle checks (default cwd)",
     )
-    gates_grp.add_argument(
+    checks_grp.add_argument(
         "--proposed-condition",
         default=None,
         help="condition name to evaluate against the baseline for "
              "--anti-mediocrity-check",
     )
-    gates_grp.add_argument(
+    checks_grp.add_argument(
         "--baseline-condition",
         default=None,
         help="baseline condition name for --anti-mediocrity-check",

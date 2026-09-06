@@ -566,13 +566,13 @@ function ArtifactsPanel({ rows, selected, pageSize }: { rows: ArtifactInfo[]; se
   const view = pageSlice(rows, Math.floor(safeSelection / pageSize), pageSize);
   return (
     <Frame
-      title="/artifacts — latest reviewed result"
+      title="/artifacts — files from the latest reviewed result"
       page={view.page}
       pages={view.pages}
       hint={`↑/k ↓/j select${view.pages > 1 ? ` · page ${view.page + 1}/${view.pages}` : ''} · Enter preview · Esc close`}
     >
       {rows.length === 0 ? (
-        <Text dimColor>(the latest result has no reviewer-approved files)</Text>
+        <Text dimColor>(the latest result has no files the Reviewer has checked)</Text>
       ) : (
         view.shown.map((artifact, index) => {
           const focused = view.page * pageSize + index === safeSelection;

@@ -77,9 +77,9 @@ def _enforce_operator_question_policy(
         status="blocked" if repeated else "continue",
         reason=(
             "Operator questions are forbidden and the autonomous continuation did "
-            "not remove the blocker; state is preserved."
+            "not clear the obstacle; state is preserved."
             if repeated
-            else "Operator questions are forbidden; the blocker remains owned by "
+            else "Operator questions are forbidden; the obstacle remains owned by "
             "the autonomous mission."
         ),
         next_action="" if repeated else OPERATOR_QUESTION_FORBIDDEN_NEXT_ACTION,
@@ -231,7 +231,7 @@ class RoundSettlementMixin:
             return (
                 "no_progress",
                 f"Soft round limit {soft_round_limit} passed and neither of the "
-                "last two Reviewer verdicts reported forward progress."
+                "Reviewer's last two judgments reported forward progress."
                 + _STALL_REDIRECT,
             )
         if (

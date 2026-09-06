@@ -200,6 +200,29 @@ def test_follow_progress_hides_structured_handoff_fields() -> None:
     assert "OPERATOR_QUESTION" not in rendered
 
 
+def test_follow_role_judgments_read_as_prose_not_verdict_labels() -> None:
+    reviewer = _follow._format_follow_agent_message(
+        "reviewer",
+        json.dumps({"status": "done", "reason": "The regression test passes."}),
+    )
+    critic = _follow._format_follow_agent_message(
+        "critic",
+        json.dumps({"stop": False, "improvements": ["a", "b"], "reason": ""}),
+    )
+    planner = _follow._format_follow_agent_message(
+        "planner",
+        json.dumps({"project_done": False, "new_tasks": [{"title": "x"}]}),
+    )
+
+    assert reviewer == (
+        "💭 the reviewer's read: the work holds. The regression test passes."
+    )
+    assert critic == "💭 the critic's read: keep going, with 2 improvements to make."
+    assert planner == "💭 the planner decided: queue 1 new task."
+    for line in (reviewer, critic, planner):
+        assert "verdict" not in line
+
+
 def test_follow_renderer_uses_one_process_then_falls_back_after_its_exit(
     monkeypatch,
     capsys,

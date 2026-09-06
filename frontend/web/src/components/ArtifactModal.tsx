@@ -12,7 +12,7 @@ import { PdfPreview } from './PdfPreview';
 import { setDesktopLargePreview } from '../lib/desktopBridge';
 import { isMarkdownArtifact } from '../lib/artifactPresentation';
 
-/** Authenticated preview/download for one reviewer-approved result file. */
+/** Authenticated preview/download for one result file the Reviewer has checked. */
 export function ArtifactModal({
   sid,
   path,

@@ -78,7 +78,7 @@ export function ResultSummary({
       ) : null}
       {artifactError ? (
         <p className="mt-2 text-[10px] text-warn" role="status">
-          Artifact preview unavailable · check the connection or Web token.
+          Result preview unavailable · check the connection or Web token.
         </p>
       ) : null}
     </section>

@@ -265,7 +265,8 @@ def run_life_supervisor(
                     print(division.headline(), file=sys.stderr)
             except Exception as exc:  # noqa: BLE001 — fail closed, preserve bounded work
                 log.error(
-                    "Manager handoff failed; continuous objective not dispatched: %s",
+                    "Manager front-door decision failed; continuous objective "
+                    "not dispatched: %s",
                     exc,
                 )
                 continuous = False
@@ -373,9 +374,10 @@ def _invoke_supervisor(
         f"- Host-global daily budget cap: ${global_daily_cap_usd:.2f}\n"
         f"- Mode: {mode_label}\n"
         f"- Command workdir: {Path.cwd()}\n"
-        f"- Harness artifact root: {_memory_project_root(mem)}\n"
-        "- Keep pipeline/checklist/domain/audit artifacts in the harness artifact "
-        "root; do not reuse stale `research/` state from the command workdir.\n"
+        f"- Harness state root: {_memory_project_root(mem)}\n"
+        "- Keep the run's own working files — stage records, review notes, domain "
+        "files, inspection output — under the harness state root; do not reuse "
+        "stale `research/` state from the command workdir.\n"
     )
     from ..life.research_profile import render_research_profile_context
 
