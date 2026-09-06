@@ -90,5 +90,16 @@ class RoundWaitsMixin:
                     "daemon shutdown requested during external-work wait",
                     str(getattr(session, "thread_id", "") or "") or None,
                 ))
+            # The wait ended because the external work changed state, so this
+            # round completed without touching the self-review phase — the
+            # only other place these counters reset. A turn that asked to
+            # wait was not a backend failure, so it ends any run of identical
+            # failures: the same-cause count restarts from one if that
+            # signature ever returns. Without this reset, a rate limit after
+            # the wait would read as the continuation of an outage that ended
+            # rounds ago and open the hold on an isolated accident.
+            state.backend_failure_streak = 0
+            state.backend_failure_signature = ""
+            state.backend_failure_same_cause_streak = 0
             return control_continue_loop()
         return control_proceed()

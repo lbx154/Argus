@@ -834,6 +834,16 @@ class RoundExecutionMixin:
                 None,
             ))
         state.reviewer_next_action = review.next_action
+        # A call that ended at its turn allowance was not a backend failure,
+        # so it ends any run of identical failures — the same reset the
+        # self-review phase applies after an ordinary completed round, which
+        # this continue skips. The same-cause count restarts from one if that
+        # signature ever returns; without this reset, a rate limit after the
+        # restart would read as the continuation of an outage that ended
+        # rounds ago and open the hold on an isolated accident.
+        state.backend_failure_streak = 0
+        state.backend_failure_signature = ""
+        state.backend_failure_same_cause_streak = 0
         return control_continue_loop()
 
     def _run_provider_turn_cap_wind_down(

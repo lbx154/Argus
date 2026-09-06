@@ -299,6 +299,121 @@ def test_a_successful_round_restarts_the_same_cause_count(
     assert sleeps == [0.5] * 4
 
 
+def test_a_wait_round_restarts_the_same_cause_count(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    import json
+    import time as _time
+
+    from argus_skill.engineer import runner as runner_module
+
+    registry = tmp_path / ".argus_external_work"
+    registry.mkdir()
+    (registry / "job-1.json").write_text(json.dumps({
+        "version": 1,
+        "work_id": "job-1",
+        "state": "running_healthy",
+        "heartbeat_at": _time.time(),
+        "stale_after_seconds": 300,
+        "poll_after_seconds": 30,
+        "description": "benchmark",
+    }), encoding="utf-8")
+    # The wait ends because the external work finished, not because the
+    # cadence ran out, so the round loop continues in the same mission.
+    monkeypatch.setattr(
+        runner_module,
+        "_run_external_work_wait",
+        lambda **_kwargs: ("succeeded", 5.0),
+    )
+    engineer = _ScriptedEngineer([
+        _rate_limited(7),
+        _rate_limited(12),
+        RunnerResult(
+            exit_code=0,
+            agent_messages=[
+                "benchmark launched; waiting on it\n"
+                '{"wait_for": "external_work", "wait_id": "job-1"}'
+            ],
+        ),
+        _rate_limited(30),
+        _rate_limited(45),
+        RunnerResult(exit_code=0, agent_messages=["collected the results"]),
+    ])
+    reviewer = _DoneReviewer()
+    status, events, sleeps, engineer = _run(
+        tmp_path,
+        monkeypatch,
+        engineer=engineer,
+        reviewer=reviewer,
+        max_rounds=8,
+        backoff_seconds=0.5,
+    )
+
+    # The round that asked to wait on job-1 completed its turn; it was not a
+    # backend failure, so the run of identical rate-limit failures ended
+    # there. When the same signature returns after the wait, it is a new
+    # count starting at one — the circuit stays closed and no hour-scale
+    # hold opens for these scattered accidents.
+    assert status == "done"
+    assert engineer.calls == 6
+    assert reviewer.calls == 1
+    assert [e["same_cause_streak"] for e in _backoff_events(events)] == [1, 2, 1, 2]
+    assert all(not e.get("operator_alert") for e in _backoff_events(events))
+    assert sleeps == [0.5] * 4
+
+
+_TURN_CAP_RECEIPT = (
+    "Provider turn cap reached: this engineer-r3 call used 40 provider turns "
+    "(allowance 40, ARGUS_SKILL_PROVIDER_TURN_CAP). Each further turn would "
+    "resend the whole grown transcript; the harness continues this work in a "
+    "fresh session instead."
+)
+
+
+def test_a_turn_cap_restart_restarts_the_same_cause_count(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    engineer = _ScriptedEngineer([
+        _rate_limited(7),
+        _rate_limited(12),
+        RunnerResult(
+            exit_code=-15,
+            agent_messages=["ran half the benchmark before the allowance ended"],
+            thread_id=None,
+            fatal_error=_TURN_CAP_RECEIPT,
+            stop_kind="backend_unavailable",
+        ),
+        _rate_limited(30),
+        _rate_limited(45),
+        RunnerResult(exit_code=0, agent_messages=["ran the other half"]),
+    ])
+    reviewer = _DoneReviewer()
+    status, events, sleeps, engineer = _run(
+        tmp_path,
+        monkeypatch,
+        engineer=engineer,
+        reviewer=reviewer,
+        max_rounds=8,
+        backoff_seconds=0.5,
+    )
+
+    # A call that used its whole per-call provider-turn allowance is routine
+    # housekeeping, not a backend failure: it ends the run of identical
+    # failures the same way a reviewed round does. The rate limit that
+    # returns after the restart is a new count starting at one, not the
+    # third of a "consecutive" run.
+    assert status == "done"
+    assert engineer.calls == 6
+    assert reviewer.calls == 1
+    restarts = [
+        e for e in events if e.get("type") == "round.provider_turn_cap.restart"
+    ]
+    assert [e["streak"] for e in restarts] == [1]
+    assert [e["same_cause_streak"] for e in _backoff_events(events)] == [1, 2, 1, 2]
+    assert all(not e.get("operator_alert") for e in _backoff_events(events))
+    assert sleeps == [0.5] * 4
+
+
 # --------------------------------------------------------------------------- #
 # Round loop: a stop or abort signal wakes the hold instead of waiting it out
 # --------------------------------------------------------------------------- #
