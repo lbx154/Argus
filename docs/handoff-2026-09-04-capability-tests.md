@@ -1108,3 +1108,59 @@ round_self_review、reviewer/_core)的语气修订已随前一个提交落地。
   收束重启后旧计数可能误触止损;本批接手正在修。
 - planner waiting 事件在 cycle=0 时把目录判为无效的小 bug,影响面
   小,待修。
+
+## 十八、追加(2026-09-06 傍晚):全垂直口吻清扫与 token 效率第二批
+
+第十七节写完后同日又落了四个提交,遗留清单里两条已经销掉。
+
+### 提交三:bf053de5c("Reset the failure memory wherever a round moves on")
+
+第十七节遗留第二条的修复:backend 同因故障计数现在在每条"轮结束
+但非故障"的出口都清零——self-review、外部等待、provider 轮次上限
+重启三处对齐,零散的同签名故障不再被累加成"连续"而误开止损。
+
+### 提交四:734a3c264("Carry the researcher's voice into every vertical")
+
+说话标准从第一批的十来个文件扫到全部垂直领域:芯片设计、数字电路、
+内核工程、kernelbench、speedrun、nanochat、数学、物理、量化、医学、
+材料、软件、小说、诗歌、文学编辑——152 个文件的阶段说明、角色
+banner、技能指南全部改为研究者对同事的口吻。防回潮扫描的文件清单
+随之扩到全垂直;新增一条通用豁免:散文里的反引号片段(如"emit a
+`verdict` field")视为机器 token,既让 banner 能点名确切字段名,
+又不给流程行话留后门。fiction reviewer banner 的契约字段名即按此
+方式回填(曾是全量测试唯一红灯)。
+
+### 提交五:677175e44("Tell the planner only what changed")
+
+- Planner 真增量:resumed 规划轮只发上次干净结算之后的新 journal
+  条目与计划变化,fresh/rotated 会话永远拿全量;
+- 空转跳过:planner 可见输入(backlog 签名、journal 窗口、operator
+  消息、等待契约等)与上次 waiting 结果逐字节相同时,整个跳过模型
+  调用,30 分钟上限强制真实调用兜底;operator 授 turn 处显式解除;
+- Manager reviewed-facts 蒸馏:完整 research JSON(实测 82k 字符)
+  不再内联,换 2.4k 字符代码蒸馏摘要 + 完整记录文件路径指针;
+- front-door 分类 prompt 3,728→2,981 字符(RESEARCHER_VOICE 换单句
+  版,预算断言收回 3,000),销掉第十七节遗留第三条(waiting/
+  terminal_idle 的 cycle=0 按诚实值放行,catalog 放宽)。
+
+### 提交六:fd24ba5f0("Stop resending the whole contract every round")
+
+Engineer FULL 轮判定收敛为纯函数:会话新建、rotation 后首轮、stage
+变化、无封存轮记录的首轮才发全量;同 mission 续跑轮走 compact 并带
+"mission 状态在哪"的文件指针句。新 knob
+ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY(session/legacy)可整体回退;
+round.start 事件新增 prompt_mode_reason 便于上线后分账验证。
+
+### 部署去向(截至本节)
+
+两个 paper daemon 已在 de485177d 上跑过一轮并核实,现正排空滚往
+734a3c264;677175e44/fd24ba5f0 待下一轮巡检时一并滚。四个研究
+daemon 依旧停机。
+
+### 值得上线后盯一眼的
+
+- life.planner.waiting 里 model_call_skipped=true 的占比(空转跳过
+  是否真在省调用)、round.start 的 prompt_mode_reason 分布(compact
+  占比应明显上升);
+- completion-circuit 与 provider-cooldown 决策卡有没有误触发;
+- reviewed-facts 蒸馏后 manager 判定质量无回退(digest 内容照旧)。
