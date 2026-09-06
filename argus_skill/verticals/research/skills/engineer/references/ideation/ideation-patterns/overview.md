@@ -4,7 +4,7 @@ The 15 induced ideation patterns (built on 1,891 of 1,947 papers in the corpus).
 
 | ID | Name | Plain alias | n_papers |
 | --- | --- | --- | --- |
-| `assumption_audit_and_pivot` | Audit and Pivot an Assumption | _Audit the load-bearing assumption and pivot_ | 181 |
+| `assumption_audit_and_pivot` | Interrogate and Pivot an Assumption | _Interrogate the load-bearing assumption and pivot_ | 181 |
 | `architectural_operator_substitution` | Substitute the Operator or Representation | _Substitute the operator or representation_ | 109 |
 | `generative_process_redesign` | Liberate a Fixed Generative Component | _Liberate a fixed generative component_ | 94 |
 | `controlled_diagnostic_design` | Design a Confound-Isolating Diagnostic | _Design a confound-isolating diagnostic_ | 86 |
@@ -21,11 +21,11 @@ The 15 induced ideation patterns (built on 1,891 of 1,947 papers in the corpus).
 | `targeted_self_supervised_objective` | Design a Property-Targeting Pretext Objective | _Design a property-targeting pretext objective_ | 15 |
 
 ## Use
-Phase 2.1 composition selection: read this file (table + inlined sections below). Phase 2.2 candidate generation: read the per-pattern card files for the 1–3 patterns in the winning composition. Phase 3.2 audit: load only the patterns referenced in the candidate.
+Phase 2.1 composition selection: read this file (table + inlined sections below). Phase 2.2 candidate generation: read the per-pattern card files for the 1–3 patterns in the winning composition. Phase 3.2 candidate review: load only the patterns referenced in the candidate.
 
 ---
 
-### Audit and Pivot an Assumption (`assumption_audit_and_pivot`) — _Audit the load-bearing assumption and pivot_
+### Interrogate and Pivot an Assumption (`assumption_audit_and_pivot`) — _Interrogate the load-bearing assumption and pivot_
 
 **Definition**. Locate the load-bearing implicit assumption a result, guarantee, or defense rests on, then pivot on it: relax it to a weaker condition and re-prove (extending the guarantee), or violate it with a constructed counterexample/exploit (breaking the system or unlocking new behavior).
 

@@ -1,6 +1,6 @@
 ---
 name: "Chip Design Environment-First Engineering"
-description: "Design and optimize a digital chip or accelerator through workload definition, architecture, RTL, verification, PPA, prototyping, benchmark comparison, and sign-off while proving the exact EDA/PDK/IP environment and preserving auditable evidence."
+description: "Design and optimize a digital chip or accelerator through workload definition, architecture, RTL, verification, PPA, prototyping, benchmark comparison, and sign-off while proving the exact EDA/PDK/IP environment and preserving evidence a reviewer can check."
 ---
 
 # Chip Design Environment-First Engineering
@@ -25,8 +25,8 @@ Before architecture or RTL:
 - write `design/CHIP_SCOPE.json`, `design/WORKLOAD.md`, and `design/SPEC.md`;
 - choose `delivery_level`: `rtl_ip`, `fpga`, `gds`, `pre_tapeout`, or `tapeout`;
 - pin model/operators, tensor shapes, quantization, quality floor, host work,
-  external-memory assumptions, clocks, interfaces, numerical formats, and
-  acceptance metrics;
+  external-memory assumptions, clocks, interfaces, numerical formats, and the
+  `acceptance_metrics` the result must meet;
 - name open-hardware baselines and commercial market references separately;
 - write non-goals so a proof-of-concept cannot silently become a production claim.
 
@@ -65,7 +65,7 @@ Compare a proposed edge-LLM accelerator against at least one reusable open desig
 such as Gemmini or VTA under matched resources. Keep Jetson/Hailo/Apple/Qualcomm
 as system references unless the same workload is physically measured.
 
-### 3. Audit tools, PDKs, and IP
+### 3. Check tools, PDKs, and IP
 
 Query the curated registry:
 
@@ -109,8 +109,8 @@ Maintain `design/RTL_MANIFEST.json` with:
 
 Implement one architecture increment at a time. Use explicit widths and signedness,
 complete combinational assignments, disciplined sequential logic, bounded indices,
-safe CDC/reset, and synthesizable constructs. Generated RTL is an artifact, not the
-authoritative source, unless the contract explicitly says otherwise.
+safe CDC/reset, and synthesizable constructs. Generated RTL is an output, not the
+authoritative source, unless the project's terms explicitly say otherwise.
 
 ### 5. Verify independently
 
@@ -127,7 +127,7 @@ Cover:
 - randomized seeds, assertions, X/Z, CDC, safety/liveness, and coverage;
 - memory ordering, DMA boundaries, partial bursts, and unaligned cases.
 
-Write `verification/RESULTS.json` with successful command exits and raw artifacts.
+Write `verification/RESULTS.json` with successful command exits and the raw files.
 Never weaken the oracle after a failure.
 
 ### 6. Produce fair PPA
@@ -155,8 +155,8 @@ context separately.
 Write `prototype/RESULTS.json`.
 
 FPGA evidence includes bitstream, board/tool identity, clocks/resources, host/runtime,
-on-board correctness, power, and raw logs. GDS evidence includes layout and sign-off
-artifacts. Structured `not_applicable` is valid only when the frozen delivery level
+on-board correctness, power, and raw logs. GDS evidence includes the layout and the
+sign-off reports. Structured `not_applicable` is valid only when the frozen delivery level
 does not require that prototype.
 
 ### 8. Benchmark the real workload
@@ -175,7 +175,7 @@ tokens/s, watts, and joules/token. Preserve distributions and regressions.
 ### 9. Sign off without overstating
 
 Write `signoff/ARTIFACT_MANIFEST.json`, `signoff/SIGNOFF.json`, and `RESULTS.md`.
-Record source revisions and decisive artifact paths, reproduction commands, licenses,
+Record source revisions and decisive file paths, reproduction commands, licenses,
 known limitations, failed attempts, Argus role trajectories, and operator
 interventions. State exactly which delivery level is certified.
 
@@ -190,7 +190,7 @@ For architecture/PPA optimization:
 5. run full verification before PPA/benchmark interpretation;
 6. compare under matched constraints;
 7. record a two-axis outcome: execution/failure status versus idea status;
-8. retain or reject through independent review.
+8. retain or discard through independent review.
 
 Do not spend later attempts on unchanged reruns, cosmetic RTL rewrites, or tool
 knob sweeps without a physical hypothesis.
@@ -209,5 +209,5 @@ sign-off, and a local milestone commit only for a complete target hardware
 workload, a complete model/system demonstration, or an operator-requested
 release. Intermediate operator groups are checkpoints, not release milestones.
 Reference
-prior certified artifacts by hash instead of rewriting them, and never reuse a
+prior certified results by hash instead of rewriting them, and never reuse a
 verification/PPA/benchmark result whose recorded RTL-manifest source binding is stale.

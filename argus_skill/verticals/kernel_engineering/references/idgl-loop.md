@@ -1,17 +1,17 @@
-# IDGL — Idea–Diagnosis–Gate Loop
+# IDGL — the Idea–Diagnosis–Ground–Learn loop
 
 Use this loop when converting a kernel hypothesis into a claimed or retained result.
-It is not a gate on research, speculative design, or exploratory reports.
+It places no bar on research, speculative design, or exploratory reports.
 
 1. **Idea:** state the mechanism and the measured bottleneck it should move.
 2. **Diagnosis:** choose an experiment when one is useful; it need not be the cheapest
    or lowest-risk experiment if a bolder probe has higher information value.
-3. **Gate:** run the full correctness/performance gate before claiming or retaining
-   performance, not before exploring the idea.
+3. **Ground:** run the full correctness and performance measurement before claiming or
+   retaining performance, not before exploring the idea.
 4. **Learn:** update idea status from valid evidence. Environment or invalid
    measurement leaves the idea untested/inconclusive.
 5. **Replan:** if the same failure signature repeats, stop the mission and create
-   a narrower diagnostic/repair task. Never rerun an unchanged full gate.
+   a narrower diagnostic/repair task. Never rerun the full suite unchanged.
 
 Experiment ledger:
 
@@ -43,7 +43,7 @@ Efficiency rules:
   sections needed for one decision; never use all-section replay by default.
 - CHECKPOINT.md carries the state; continuation prompts should not resend the
   full skill, objective, registry, and frontier catalog.
-- Long diagnostics and certification gates must stream to a durable artifact.
+- Long diagnostics and certification runs must stream to a durable file.
   Growing logs and live child/GPU work are execution heartbeats: they prevent a
   false watchdog timeout but do not by themselves count as scientific progress
-  or a passing gate.
+  or a passing check.

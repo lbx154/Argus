@@ -29,7 +29,7 @@ once and the same lookup done in `solve` costs once per worker. Finding nothing
 relevant is a result; so is being unable to obtain a source. Record either.
 
 Use ordinary working files suited to the task. Do not create process-only
-planning, audit, status, or evidence-packet files merely to satisfy the
+planning, status, or evidence files merely to satisfy the
 workflow. The theorem, proof, counterexample, code, or formal source is the
 evidence, and no fixed bundle of output filenames is required.
 
@@ -66,7 +66,7 @@ the project no longer carries. Neither `Main.lean` nor `statement_fidelity.md` i
 yours to touch while `verify` is running — do other work, or wait. If the host
 has Mathlib installed it is used automatically, so `import Mathlib` needs no
 extra flag. `--claim` is the only way mechanical evidence is ever
-written: there is no flag that lets you record a compiler verdict you did not
+written: there is no flag that lets you record a compiler answer you did not
 get, and asking for one is a bug report rather than a request. Formalizing
 several claims in one directory is fine and needs no filename scheme of your
 own: each run archives its own certificate under `research/lean/certificates/`
@@ -100,14 +100,14 @@ Write that document once and write it right; a reading that was correct does not
 need rewriting. If you do rewrite it and re-verify, the compile is unaffected but
 the reading it is paired with is a different one, so the certificate the claim
 stood on is retired in favour of a new one and anyone who judged the old reading
-is asked again — `check` reports each such verdict until they do. That is the
+is asked again — `check` reports each such judgement until they do. That is the
 cost of changing what the theorem is taken to say, and it is the right cost:
 statement fidelity is the one question the compiler does not answer, so it is the
 one approval that must never be inherited by a document nobody read.
 
 If the toolchain or a library such as Mathlib is missing, the run is recorded as
 unverified and still blocks: that is an environment fact rather than a
-mathematical verdict, but an unverified formalization is not evidence. Argue in
+mathematical judgement, but an unverified formalization is not evidence. Argue in
 prose instead of committing a `.lean` file you cannot check.
 
 ## Recording what the project believes
@@ -216,7 +216,7 @@ holding the OR and the next planner reads it there.
 It is written once: a route you come to believe in again is a new plan with a
 new id, not a rewritten reason on the old one.
 
-The team gate asks for non-overlapping writable paths, and here they overlap in
+Dispatching a team requires non-overlapping writable paths, and here they overlap in
 exactly one place: `research/MATH_STATE.json`. That one is safe to share. Every
 write takes an exclusive lock before it reads, and each worker records its own
 claims, assumptions, and evidence, so concurrent recording is what the ledger
@@ -256,7 +256,7 @@ open. Only `attribute` closes one, because only a reader can answer the question
 that was asked.
 
 So `--excerpt-file` holds the passage you actually read at that locator, and it
-is archived under `research/literature/` before your verdict is recorded against
+is archived under `research/literature/` before your answer is recorded against
 it. That is the whole reason this is `literature` evidence rather than your
 opinion: a later reader can open what you read and disagree. Quote the statement
 including its hypotheses — a paper that has the theorem under conditions that do
@@ -264,7 +264,7 @@ not hold here is the failure this is for, and it is invisible in a summary. A
 `refutes` needs an excerpt too: quote what is actually at that number.
 
 One citation you cannot close is your own. `attribute` refuses a `supports`
-verdict filed under the same name that ran `assume`, and a citation whose only
+answer filed under the same name that ran `assume`, and a citation whose only
 support came from its filer reports as `self_checked` and does not clear
 delivery. This is not a comment on your care. You wrote "Theorem 3.2 of [K]"
 because you believed [K] has a Theorem 3.2 saying that; your going back and

@@ -20,6 +20,9 @@ What is scanned, and what is exempt:
   event types, paths, and regexes (``artifact_root``, ``artifacts``,
   ``reviewed_handoff``) are the machine's tokens and stay as the code expects
   them (principle 9 of the doc).
+- Backtick spans inside prose are exempt for the same reason: writing
+  "emit a `verdict` field" names the machine's own key, exactly as the doc
+  allows, so `...` spans are removed from a string before the scan.
 - A discipline's own use of a word survives: the phrases in
   ``DISCIPLINE_PHRASES`` mirror the "disciplines keep their words" section of
   the doc and are removed from a string before the scan. Extend both together.
@@ -53,6 +56,60 @@ VOICE_CLEAN_FILES: tuple[str, ...] = (
     "argus_skill/reviewer/_core.py",
     "argus_skill/reviewer/_parsing.py",
     "argus_skill/verticals/argus_maintenance/stages.py",
+    "argus_skill/verticals/quant/integrations/adata_cn/fundamentals.py",
+    "argus_skill/verticals/quant/integrations/adata_cn/loader.py",
+    "argus_skill/verticals/quant/stages.py",
+    "argus_skill/verticals/research/academic_language_review.py",
+    "argus_skill/verticals/research/artifact_freshness.py",
+    "argus_skill/verticals/research/idea_evidence.py",
+    "argus_skill/verticals/research/idea_portfolio.py",
+    "argus_skill/verticals/research/literature_ledger.py",
+    "argus_skill/verticals/research/paper_layout_review.py",
+    "argus_skill/verticals/research/pipeline_figure.py",
+    "argus_skill/verticals/research/prompt_policy.py",
+    "argus_skill/verticals/research/review_purchase.py",
+    "argus_skill/verticals/research/signal_derisk.py",
+    "argus_skill/verticals/research/venue_profiles.py",
+    "argus_skill/verticals/ale_last_exam/stages.py",
+    "argus_skill/verticals/math/citation_check.py",
+    "argus_skill/verticals/math/context_projection.py",
+    "argus_skill/verticals/math/lean_async.py",
+    "argus_skill/verticals/math/lean_evidence.py",
+    "argus_skill/verticals/math/math_state.py",
+    "argus_skill/verticals/math/stages.py",
+    "argus_skill/verticals/math_synth/stages.py",
+    "argus_skill/verticals/physics/context_policy.py",
+    "argus_skill/verticals/physics/downgrade.py",
+    "argus_skill/verticals/physics/stages.py",
+    "argus_skill/verticals/physics/tiers.py",
+    "argus_skill/verticals/chip_design/environment_audit.py",
+    "argus_skill/verticals/chip_design/evidence.py",
+    "argus_skill/verticals/chip_design/stages.py",
+    "argus_skill/verticals/digital_circuit/benchmark/stages.py",
+    "argus_skill/verticals/digital_circuit/stages.py",
+    "argus_skill/verticals/fiction_writing/stages.py",
+    "argus_skill/verticals/fiction_writing/novelty.py",
+    "argus_skill/verticals/fiction_writing/evaluations/run_evals.py",
+    "argus_skill/verticals/classical_poetry/stages.py",
+    "argus_skill/verticals/modern_poetry/stages.py",
+    "argus_skill/verticals/prose/stages.py",
+    "argus_skill/verticals/literary_editor/stages.py",
+    "argus_skill/verticals/literary/shared/artifact_manifest.py",
+    "argus_skill/verticals/literary/shared/review_contract.py",
+    "argus_skill/verticals/medical/stages.py",
+    "argus_skill/verticals/medical/dossier.py",
+    "argus_skill/verticals/materials/stages.py",
+    "argus_skill/verticals/software/stages.py",
+    "argus_skill/verticals/argus_maintenance/architecture_audit.py",
+    "argus_skill/verticals/path_evidence.py",
+    "argus_skill/verticals/kernel_engineering/attempt_outcome.py",
+    "argus_skill/verticals/kernel_engineering/environment_audit.py",
+    "argus_skill/verticals/kernel_engineering/frontier_watch.py",
+    "argus_skill/verticals/kernel_engineering/leverage_gate.py",
+    "argus_skill/verticals/kernel_engineering/stages.py",
+    "argus_skill/verticals/kernelbench/stages.py",
+    "argus_skill/verticals/nanochat/stages.py",
+    "argus_skill/verticals/speedrun/stages.py",
 )
 
 # One pattern per retired word family, matched case-insensitively on word
@@ -102,11 +159,51 @@ DISCIPLINE_PHRASES: tuple[str, ...] = (
     "compression artifacts",
     "timing sign-off",
     "design sign-off",
+    # Software sense of "package" (a Python package, `pip install <name>`);
+    # inert while bare "package" stays out of BANNED_WORD_PATTERNS, kept in
+    # step with the doc's whitelist for the adata_cn install-hint strings.
+    "Python package",
+    "'adata' package",
+    # The method-pipeline figure and its machine tokens (doc: "pipeline
+    # figure"): the drawn pipeline itself, the required SVG group id, and the
+    # skill file named after it.
+    "pipeline figure",
+    "pipeline-content",
+    "research-svg-pipeline.md",
+    # A venue's own required submission checklist (doc: "checklist").
+    "reproducibility checklist",
+    # A rendering artifact in a compiled PDF, kin to the imaging sense
+    # (doc: "artifact (the ML literature's own senses)").
+    "post-processing artifact",
+    # The data-synthesis pipeline math_synth ships as the object under study
+    # (doc: "synthesis pipeline"); also covers "data-synthesis pipeline".
+    "synthesis pipeline",
+    # Machine tokens (doc principle 9) quoted verbatim inside prose-shaped
+    # strings: CLI flags of the math ledger commands, and the frozen config
+    # path the math_synth banner must name exactly.
+    "--verdict",
+    "--artifact",
+    "configs/pipeline.yaml",
+    # Chip design's EDA sense of sign-off, with and without the hyphen (doc:
+    # "signoff / sign-off checks"): the signoff stage that closes a hardware
+    # flow, sign-off checks (STA, DRC, LVS), a hardware sign-off reviewer, and
+    # the signoff/ evidence paths quoted verbatim in prose-shaped strings.
+    "sign-off check",
+    "sign-off checks",
+    "sign-off reviewer",
+    "signoff stage",
+    "signoff/SIGNOFF.json",
+    "signoff/ARTIFACT_MANIFEST.json",
 )
 
 # Exact full values of prose-shaped string constants that may keep a retired
-# word — verbatim quotes of historical output, for example. Empty today.
-ALLOWED_LITERALS: frozenset[str] = frozenset()
+# word — verbatim quotes of historical output, or a story's own words.
+ALLOWED_LITERALS: frozenset[str] = frozenset({
+    # A fiction routing-eval sample whose gate is a physical gate in the
+    # story's world (doc: "gate (in a story)").
+    "Continue this English fantasy chapter: the gate had not been opened "
+    "in a hundred years.",
+})
 
 
 def _docstring_constants(tree: ast.AST) -> set[int]:
@@ -125,6 +222,14 @@ def _docstring_constants(tree: ast.AST) -> set[int]:
             ):
                 ids.add(id(body[0].value))
     return ids
+
+
+_BACKTICK_SPAN = re.compile(r"`[^`\s][^`]*`")
+
+
+def _strip_machine_spans(text: str) -> str:
+    """Backtick spans name the machine's own keys and stay verbatim."""
+    return _BACKTICK_SPAN.sub(" ", text)
 
 
 def _strip_discipline_phrases(text: str) -> str:
@@ -149,7 +254,7 @@ def _violations_in_file(path: Path) -> list[str]:
         # Machine tokens carry no whitespace: keys, enums, paths, regexes.
         if not any(ch.isspace() for ch in text):
             continue
-        match = _BANNED.search(_strip_discipline_phrases(text))
+        match = _BANNED.search(_strip_discipline_phrases(_strip_machine_spans(text)))
         if match:
             snippet = " ".join(text.split())[:120]
             found.append(

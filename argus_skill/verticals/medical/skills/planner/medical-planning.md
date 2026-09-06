@@ -7,7 +7,7 @@ Plan from the decision question, not from a generic literature-review template.
 Use only applicable evidence strata: mechanism, human genetics, preclinical,
 clinical, safety, failed programs, and contradictions. Separate retrieval,
 identity resolution, full-text inspection, normalization, analysis, and review
-when their evidence or blockers differ.
+when their evidence or obstacles differ.
 
 Pin source queries, population and endpoint comparability, data cutoffs,
 negative evidence, infrastructure failures, and stop conditions. Treat a public

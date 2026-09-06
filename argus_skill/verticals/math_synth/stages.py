@@ -57,8 +57,8 @@ _CATEGORY_AXES = (
     "than the structural ones above).\n"
     "FROZEN (NEVER edit — doing so INVALIDATES the result): run_eval.py, the "
     "solver (solver.py), verification.py, metrics.py, seeds/heldout data, and the "
-    "fixed reference-solver config. Generate only through the pipeline; never "
-    "hardcode solver answers, read the solver's outputs into generation, or "
+    "fixed reference-solver config. Generate only through the synthesis pipeline; "
+    "never hardcode solver answers, read the solver's outputs into generation, or "
     "special-case the metric."
 )
 
@@ -73,14 +73,14 @@ def role_banner(role: str) -> str:
         "integer-answer (0..999) competition problems CALIBRATED so a FIXED\n"
         "gpt-5.5 solver fails on the first sample but succeeds within four.\n"
         "\n"
-        "EDITABLE — the pipeline only: src/math_synth_bench/baseline.py (entry\n"
+        "EDITABLE — the synthesis pipeline only: src/math_synth_bench/baseline.py (entry\n"
         "point generate(seed, n)->list), configs/pipeline.yaml,\n"
         "prompts/generate_problem.md, and NEW modules under src/math_synth_bench/.\n"
         "FROZEN (touching any INVALIDATES the result): run_eval.py, solver.py,\n"
         "verification.py, metrics.py, the seed/heldout data, and the fixed\n"
         "reference-solver config. Never hardcode solver answers or read the\n"
         "solver's outputs into generation.\n"
-        "FIRST establish the baseline: run the pristine pipeline on the dev split\n"
+        "FIRST establish the baseline: run the pristine synthesis pipeline on the dev split\n"
         "to MEASURE the starting score — do not assume a number. Score ONLY with\n"
         "`python run_eval.py --split dev` (iterate) and `--split test`\n"
         "(held-out, milestone/final). Each candidate must beat the measured\n"
@@ -99,7 +99,7 @@ def role_banner(role: str) -> str:
             "A prompt-only tweak is worth AT MOST one try and rarely moves the "
             "floor; prefer the STRUCTURAL levers (programmatic/parametric "
             "generation, difficulty calibration, validity yield).\n"
-            "NOISE GATE: the dev split is small (10 seeds x 5 = up to 50 candidates "
+            "NOISE FLOOR: the dev split is small (10 seeds x 5 = up to 50 candidates "
             "before filtering), so a small score delta is within run-to-run noise "
             "(the solver is stochastic by design) — do NOT bank a sub-noise gain; "
             "confirm a promising candidate on the test split (or a larger n) before "
@@ -114,10 +114,10 @@ def role_banner(role: str) -> str:
         )
     if role == "engineer":
         return common + (
-            "\nWhen the task is a PIPELINE change OR a CO-DESIGNED BUNDLE, implement "
-            "it FAITHFULLY end-to-end in the editable pipeline — a correct, "
-            "informative REGRESSION is more valuable than a within-noise prompt "
-            "tweak. Keep the freeze inviolate: edit ONLY the pipeline files; keep "
+            "\nWhen the task is a STRUCTURAL generator change OR a CO-DESIGNED BUNDLE, "
+            "implement it FAITHFULLY end-to-end in the editable synthesis pipeline — a "
+            "correct, informative REGRESSION is more valuable than a within-noise prompt "
+            "tweak. Keep the freeze inviolate: edit ONLY the synthesis pipeline's files; keep "
             "the generate(seed, n) entry point; do not modify any frozen file, the "
             "solver, the verification, the metric, or the seeds; never hardcode "
             "solver answers. Iterate on dev; CONFIRM a promising candidate on test "
@@ -142,10 +142,10 @@ def role_banner(role: str) -> str:
             "number.\n"
             "INNOVATION CHECK: the dev split is small and the solver is stochastic, "
             "so a small score gain may be within noise — say so plainly; it must "
-            "NOT be banked without test-split confirmation. Record in the handoff "
-            "that the next candidate should be a structural pipeline change or a "
-            "co-designed bundle, not another prompt nibble. Watch dev/test "
-            "divergence.\n"
+            "NOT be banked without test-split confirmation. Record in the research "
+            "notes that the next candidate should be a structural change to the "
+            "synthesis pipeline or a co-designed bundle, not another prompt nibble. "
+            "Watch dev/test divergence.\n"
         )
     return common
 
@@ -337,7 +337,7 @@ def search_altitude_context(project_root: object) -> str:
             ctr.update(set(_name_tokens(t[1])))
         token_hint = ", ".join(f"{k}x{n}" for k, n in ctr.most_common(_ALTITUDE_TOKEN_TOP)) or "(none)"
         return (
-            "## Search altitude — LIVE facts from attempts/ (NO verdict; YOU judge)\n"
+            "## Search altitude — LIVE facts from attempts/ (facts only; YOU judge)\n"
             "Re-surfaced from your OWN attempts/*/summary.json (score=mean(pass@4-"
             "pass@1), HIGHER is better; dev split). Visibility only.\n"
             f"- Scored attempts so far: {len(attempts)}\n"

@@ -254,8 +254,8 @@ def _render_claim_scope(decision: dict, spec) -> str:
         f"## Acceptable claim types\n" + "".join(f"- {c}\n" for c in spec.claim_types) +
         "\n## Minimum evidence\n" + "".join(f"- {c}\n" for c in spec.evidence_requirements) +
         "\n## Numerical requirements\n" + "".join(f"- {c}\n" for c in spec.numerical_requirements) +
-        f"\n## Reviewer gate (apply THIS tier only)\n- {spec.reviewer_gate}\n"
-        f"\n## Manuscript gate\n- {spec.manuscript_gate}\n"
+        f"\n## Reviewer bar (apply THIS tier only)\n- {spec.reviewer_gate}\n"
+        f"\n## Manuscript bar\n- {spec.manuscript_gate}\n"
         f"\n## Stop chasing higher when\n- {spec.stop_chasing_higher_when}\n"
     )
 

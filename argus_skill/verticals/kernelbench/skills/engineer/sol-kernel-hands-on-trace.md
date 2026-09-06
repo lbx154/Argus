@@ -19,7 +19,8 @@ Treat this as a starting exemplar: when a real kernel teaches you a sharper chai
 improve it.
 
 ## When to use
-- The task is a correctness-gated GPU kernel benchmark with a frozen scorer.
+- The task is a GPU kernel benchmark with a frozen scorer where a wrong kernel
+  scores 0, however fast.
 - The agent must produce real speed/SOL numbers on B200/H100/A100 and record the
   measure → hypothesize → re-measure loop, including roofline arithmetic.
 - The user asks for a trace, postmortem, or "what actually goes wrong when you try
@@ -28,7 +29,7 @@ improve it.
   without first measuring *which wall it is hitting*.
 
 ## When NOT to use
-- You only need the high-level SOL workflow and artifact contract. Use
+- You only need the high-level SOL workflow and evidence requirements. Use
   `SOL Kernel SOTA Optimization`.
 - The task is a paper benchmark matrix or model-training run rather than one
   kernel implementation.
@@ -244,7 +245,7 @@ them too, because "the first failure is usually infrastructure, not algorithm."
 1. Run the official scorer once with `set -o pipefail`. If infra fails, fix or
    report infra; do not optimize, and do not write a chain link without a real score.
 2. Check the candidate API (`ModelNew`, unchanged `Model/get_inputs/get_init_inputs`)
-   and create missing artifact dirs (`results/`, `attempts/`) before long runs.
+   and create missing output dirs (`results/`, `attempts/`) before long runs.
 3. Compute the roofline up front: SOL-minimal bytes, and a *defended* peak BW
    (measure it on the card or cross-check against the scorer's opt_ms floor).
 4. Write one deliberately small correctness probe (`max_abs_err`, `allclose`)

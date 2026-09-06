@@ -399,6 +399,22 @@ def academic_paper_review_block() -> str:
     )
 
 
+# Workflow vocabulary that must never leak into a manuscript. The words are
+# quoted to the model as tokens, one per tuple entry, so the prompt can name
+# them without the prose itself speaking that way.
+_WORKFLOW_WORDS_KEPT_OUT_OF_MANUSCRIPTS = (
+    "bounded",
+    "certified",
+    "gate",
+    "artifact",
+    "mission",
+    "round",
+    "handoff",
+    "validator",
+    "audit",
+)
+
+
 def paper_writing_standard() -> str:
     """The one writing standard every paper-facing prompt shares.
 
@@ -421,8 +437,10 @@ def paper_writing_standard() -> str:
         "where it matters, and hedge a sentence only when the evidence for that "
         "sentence is uncertain. Think in evidence roles (headline, mechanism, control, "
         "scope, completeness) while deciding what goes where, but those words, and "
-        "every workflow word such as bounded, certified, gate, artifact, mission, "
-        "round, handoff, validator, or audit, never appear in the manuscript. A clear "
+        "every workflow word such as "
+        f"{', '.join(_WORKFLOW_WORDS_KEPT_OUT_OF_MANUSCRIPTS[:-1])}, or "
+        f"{_WORKFLOW_WORDS_KEPT_OUT_OF_MANUSCRIPTS[-1]}, "
+        "never appear in the manuscript. A clear "
         "thesis that a method helps only under identified conditions, or that an "
         "expected effect does not hold, is a legitimate paper when its evidence is as "
         "complete as a positive result would need; what is not allowed is presenting "

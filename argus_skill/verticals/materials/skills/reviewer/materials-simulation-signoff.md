@@ -1,9 +1,9 @@
 ---
-name: "Materials Simulation Sign-off"
-description: "Audit atomistic, continuum, CAD/CAE, and process simulations from native inputs and outputs, including material state, discretization, solver health, convergence, and claim fidelity."
+name: "Materials Simulation Evidence Review"
+description: "Read atomistic, continuum, CAD/CAE, and process simulations from their native inputs and outputs — material state, discretization, solver health, convergence, and claim fidelity — before trusting the result."
 ---
 
-# Materials Simulation Sign-off
+# Materials Simulation Evidence Review
 
 ## Review protocol
 
@@ -29,7 +29,7 @@ description: "Audit atomistic, continuum, CAD/CAE, and process simulations from 
    model or execute contract that freezes the whole
    `.argus/PIPELINE_STATE.json` hash or spends a repair mission solely because
    the Manager advanced the stage. Scientific guards should hash immutable data,
-   code, model, and protocol artifacts; lifecycle provenance should cite the
+   code, model, and protocol files; lifecycle provenance should cite the
    Manager-authored stage-history transition.
 
 ## Automatic rejection conditions

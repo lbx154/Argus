@@ -7,7 +7,7 @@ description: "Playbook for Recursive Task 2 / NanoGPT speedrun on 8×H100: use t
 NanoGPT Speedrun H100 SOTA
 
 ## Description
-Optimize `solution/train.py` and `solution/triton_kernels.py` for Recursive "First Steps" Task 2: minimize certified wall-clock time to FineWeb `val_loss <= 3.28` on 8×H100, using the frozen scorer and t-test gate.
+Optimize `solution/train.py` and `solution/triton_kernels.py` for Recursive "First Steps" Task 2: minimize certified wall-clock time to FineWeb `val_loss <= 3.28` on 8×H100, using the frozen scorer and its t-test.
 
 ## When to use
 - The task mentions NanoGPT Speedrun, Recursive Task 2, 8×H100, FineWeb, `val_loss <= 3.28`, `eval_solution.sh solution N`, record #83, or train-time SOTA.
@@ -17,9 +17,9 @@ Optimize `solution/train.py` and `solution/triton_kernels.py` for Recursive "Fir
 ## When NOT to use
 - The task is KernelBench/SOL GPU kernel optimization; use `SOL Kernel SOTA Optimization` or `SOL Kernel Hands-on Trace`.
 - The task is NanoChat/BPB pretraining; follow that project's frozen harness and NanoChat vertical instead.
-- The frozen Task 2 environment is missing and cannot be restored; write a blocker report instead of changing comparability.
+- The frozen Task 2 environment is missing and cannot be restored; report what is missing instead of changing comparability.
 
-## Non-negotiable contract
+## Non-negotiable rules
 - Only edit `solution/train.py` and `solution/triton_kernels.py`.
 - The frozen score is only:
 
@@ -116,7 +116,7 @@ For every candidate directory `experiments/candidate_<name>_<timestamp>/`, write
 - `logs/run_*.txt`.
 - `metric_curves.txt` from `step:* val_loss:* train_time:*` lines.
 - `health_grep.txt` scanning for OOM, traceback, runtime/import errors, NaN/Inf, FA3/flash errors.
-- `RESULT.md`: verdict, score, curve interpretation, whether to keep/revert.
+- `RESULT.md`: conclusion, score, curve interpretation, whether to keep/revert.
 
 ### 5. Interpret results correctly
 - `valid=false` and faster is **not** a win; it is an active-line data point.

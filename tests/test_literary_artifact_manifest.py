@@ -86,7 +86,7 @@ def test_self_parent_rejected():
 
 def test_dangling_supersedes_rejected():
     bad = _manifest(_artifact("a", supersedes="ghost"))
-    with pytest.raises(ManifestError, match="supersedes unknown artifact"):
+    with pytest.raises(ManifestError, match="supersedes unknown entry"):
         normalize_manifest(bad)
 
 
@@ -109,7 +109,7 @@ def test_supersedes_target_must_be_marked_superseded():
 def test_superseded_without_successor_rejected():
     # backward coherence: marked superseded but nothing replaces it
     bad = _manifest(_artifact("draft", kind="draft", status="superseded"))
-    with pytest.raises(ManifestError, match="no artifact supersedes it"):
+    with pytest.raises(ManifestError, match="nothing supersedes it"):
         normalize_manifest(bad)
 
 

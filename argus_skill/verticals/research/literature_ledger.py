@@ -270,7 +270,7 @@ def validate_literature_ledger(payload: object) -> list[LiteratureIssue]:
                 LiteratureIssue(
                     "raw_source_missing",
                     path,
-                    "a cached raw source artifact is required",
+                    "a cached copy of the raw source is required",
                 )
             )
         if not _project_relevance(raw):

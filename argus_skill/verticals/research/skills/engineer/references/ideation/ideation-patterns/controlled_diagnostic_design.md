@@ -17,12 +17,12 @@ _id: `controlled_diagnostic_design`_
 - **Inclusion of trivial, null, or non-adaptive baselines evaluated under identical conditions.**
   - rationale: Without a floor, configuration-driven artifacts are indistinguishable from genuine gains; a constant, random, or no-specialization baseline that unexpectedly scores well exposes that the instrument rewards something other than the intended capability.
 - **Anchoring to an independent ground-truth source — human normative data, mechanistically verifiable outcomes, or a structural invariant that yields an exact null distribution.**
-  - rationale: An external anchor breaks the dependence on the very instrument under audit, enabling provable false-positive control or calibrated guarantees instead of heuristic claims that cannot be falsified.
+  - rationale: An external anchor breaks the dependence on the very instrument under examination, enabling provable false-positive control or calibrated guarantees instead of heuristic claims that cannot be falsified.
 - **Causal or predictive validation that survives confound controls and rules out alternative explanations.**
   - rationale: Diagnostic correlations can arise coincidentally from surface overlap, quality differences, or distributional flatness; directly varying the hypothesized driver and regressing against the effect upgrades a finding from suggestive to load-bearing and identifies the correct intervention point.
 
 ## Failure modes (from Reject)
-- **Circular validation — the diagnostic's ground truth or quality control is produced by the same instrument or assumption it is meant to audit.**
+- **Circular validation — the diagnostic's ground truth or quality control is produced by the same instrument or assumption it is meant to examine.**
   - rationale: If the anchor inherits the bias being measured (an encoder used to detect that encoder's bias, a self-consistency assumption never independently checked), the framework cannot establish that its own definition is correct, and the result becomes unfalsifiable.
 - **Single-task or single-modality demonstration paired with broad capability claims.**
   - rationale: A confound shown in one narrow setting does not license conclusions about a general property; the scope mismatch reads as overclaiming, and reviewers demand that the contribution be narrowed to match the evidence or the evidence broadened to match the claim.
@@ -44,7 +44,7 @@ With a reasonably sized HC sample (roughly a dozen distinct high-cited, non-oral
 - **Show that the confound and the diagnostic generalize beyond a single task, modality, or model family before drawing claims about a general property.** _(source: both)_
 - **Include simple, trivial, null, or compute-matched baselines so that apparent effects cannot be explained away by configuration choices or extra inference compute.** _(source: reject_reviews)_
 - **Avoid circular setups in which the evaluating instrument validates itself or annotates the very behavior it is supposed to detect, with no bias-free anchor.** _(source: both)_
-- **For audit, position, or benchmark papers, deliver an actionable correction, protocol, or remedy rather than only naming and confirming the problem.** _(source: both)_
+- **For measurement-critique, position, or benchmark papers, deliver an actionable correction, protocol, or remedy rather than only naming and confirming the problem.** _(source: both)_
 - **Demonstrate that a synthetic or controlled construction faithfully transfers to naturally occurring real-world failure modes.** _(source: reject_reviews)_
 
 ## Cognitive barriers
@@ -63,7 +63,7 @@ With a reasonably sized HC sample (roughly a dozen distinct high-cited, non-oral
 - Measuring coverage at large sample counts instead of single-sample success distinguishes whether an intervention expands the set of solvable problems or merely redistributes probability mass over capabilities the base system already had.
 
 ### Reject lessons
-- Building a diagnostic whose ground truth is produced by the same instrument it audits creates a circularity that cannot independently confirm its own definition is the right one.
+- Building a diagnostic whose ground truth is produced by the same instrument it examines creates a circularity that cannot independently confirm its own definition is the right one.
 - Demonstrating a confound on a single task or modality while making broad claims about a general capability invites rejection for overclaiming relative to the evidence.
 - Re-confirming a confound the field already recognizes, at small scale and without a new mechanism for isolating it, reads as confirmatory rather than as a contribution.
 - Asserting a causal link between a mechanism and an observed disparity without controlling alternative explanations leaves the claim suggestive but inconclusive.

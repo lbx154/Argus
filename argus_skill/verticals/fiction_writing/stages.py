@@ -211,7 +211,7 @@ def role_banner(role: str) -> str:
     """Hard-override framing per role. Suppresses the paper/metric regimes and
     reframes the mission as consistent, reviewer-gated narrative creation."""
     common = (
-        "MISSION TYPE: FICTION WRITING. The deliverable is a piece of narrative "
+        "MISSION TYPE: FICTION WRITING. This mission asks for a piece of narrative "
         "prose (a short story or a chapter, zh or en) — written from a brief or "
         "continued from existing text — plus a faithful, structured story_state. "
         "It is NOT a benchmark score and NOT a research paper. Do not introduce "
@@ -222,7 +222,7 @@ def role_banner(role: str) -> str:
             "Drive intake -> plan -> draft -> state_update -> review -> revise, one "
             "bounded task per stage. Language is an adapter over one shared "
             "narrative core; genre/market style is a profile in the brief, never a "
-            "new pipeline."
+            "separate vertical."
         )
     if role == "engineer":
         return common + (
@@ -246,11 +246,12 @@ def role_banner(role: str) -> str:
             "revise, derive fiction/revision_plan.json from fiction/review.json "
             "via the literary review contract — address every BLOCKING finding "
             "first and never break a finding's must_not_break invariants. (8) "
-            "Record fiction/artifact_manifest.json — the versioned artifact chain "
-            "(brief -> plan -> draft -> state -> review -> revision_plan -> final) "
-            "with each artifact's parents, producer_stage, content_path and "
-            "status, so final.md's provenance (which draft + which review) is "
-            "auditable and final SUPERSEDES the draft it replaced. (9) EVERY "
+            "Record fiction/artifact_manifest.json — the versioned lineage of "
+            "everything produced "
+            "(brief -> plan -> draft -> state -> review -> revision_plan -> final), "
+            "each entry carrying its parents, producer_stage, content_path and "
+            "status, so final.md can be traced to the exact draft and review it "
+            "came from and final SUPERSEDES the draft it replaced. (9) EVERY "
             "mission records fiction/source_usage.json — an explicit provenance "
             "ledger. If you consulted any registered source (queried a corpus, "
             "read/cited a public-domain text), log each use with its source_id, "
@@ -262,17 +263,18 @@ def role_banner(role: str) -> str:
         )
     if role == "reviewer":
         return common + (
-            "You gate the chapter. BLOCK on hard continuity contradictions "
+            "You decide whether the chapter holds. BLOCK on hard continuity "
+            "contradictions "
             "(dead character returns, impossible knowledge, item teleport, "
             "location/timeline clash, world-rule break, motive-incoherent action, "
             "dropped/leaked foreshadowing, viewpoint/tense/language drift), each "
             "finding typed + severity-tagged + evidence-located. Craft and "
             "AI-flavor are NON-BLOCKING heuristics + observable proxies — never a "
             "faked numeric score. Follow the 'Continuity, Style and Plot Review' "
-            "skill. Emit fiction/review.json as {verdict, findings[]} per the "
-            "shared literary review contract — each finding "
-            "{id, type, severity(critical|major|minor|note), blocking(bool), "
-            "location, evidence, suggested_action, must_not_break[]}; a blocking "
-            "finding forces verdict='revise'."
+            "skill. Emit fiction/review.json per the shared literary review "
+            "contract — a `verdict` plus `findings[]`, each finding carrying "
+            "severity and `blocking(bool)` as separate judgments; the review "
+            "skill shows the exact JSON shape, field by field. A blocking "
+            "finding always sends the chapter back for revision."
         )
     return common

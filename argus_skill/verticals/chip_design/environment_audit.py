@@ -354,7 +354,7 @@ def collect(
 
 def render_markdown(payload: dict[str, Any]) -> str:
     lines = [
-        "# Chip Design Environment Audit",
+        "# Chip design environment readiness",
         "",
         f"- Collected: `{payload.get('collected_at', '')}`",
         f"- Delivery level: `{payload.get('delivery_level') or 'unset'}`",
@@ -388,7 +388,7 @@ def check(
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        return False, [f"{path}: invalid or missing audit: {exc}"]
+        return False, [f"{path}: invalid or missing readiness report: {exc}"]
     if not isinstance(payload, dict):
         return False, [f"{path}: expected a JSON object"]
     errors: list[str] = []

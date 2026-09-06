@@ -1,6 +1,6 @@
 ---
 name: "Software Project Grounding Before Decomposition"
-description: "Validate the Manager grounding brief against the repository, then decompose software work around architecture boundaries and independent acceptance risks."
+description: "Check the Manager grounding brief against the repository, then decompose software work around architecture boundaries and independent held-back-test risks."
 ---
 
 # Software Project Grounding Before Decomposition
@@ -17,12 +17,12 @@ Use before scheduling Engineer nodes for staged software work.
    generated code, compatibility defaults, and task-native verification.
 3. Decompose by independently verifiable architecture boundaries, not by prose
    sections or arbitrary file counts.
-4. Put exact acceptance risks into node objectives: return types, field
+4. Put the exact held-back-test risks into node objectives: return types, field
    mappings, ordering, invalid inputs, boundaries, and platform/user semantics.
 5. Keep shared setup and verification dependencies explicit so Engineer does
    not rediscover the project from scratch in each node.
 
-## Handoff
+## What each node receives
 
 Each Engineer node receives relevant file paths, the closest analogue, the
 behavioral contract, and the narrow command that can falsify it. Do not include

@@ -88,7 +88,7 @@ def build_context_digest(project_root: object) -> str:
     except (OSError, ValueError):
         state = {}
     lines = [
-        "# ROUTE STATE DIGEST (read THIS + the latest artifacts; do not replay full history)", "",
+        "# ROUTE STATE DIGEST (read THIS + the latest files; do not replay full history)", "",
         f"current_stage: {state.get('current_stage', '')}",
         f"rollbacks: {len(state.get('rollback_history') or [])}  |  advances: {len(state.get('stage_history') or [])}",
         "",
@@ -100,14 +100,14 @@ def build_context_digest(project_root: object) -> str:
         _summarize_json(root, "research/NEXT_ROLE_DIRECTIVE.json",
                         ("responsible_role", "required_action", "expected_next_stage")),
         "",
-        "## Large artifacts — POINTERS ONLY (open on demand; never paste wholesale)",
+        "## Large files — POINTERS ONLY (open on demand; never paste wholesale)",
     ]
     for rel in _POINTER_ONLY:
         lines.append(_file_line(root, rel))
     lines += [
         "",
         "## Context policy",
-        "- Reference prior evidence by file path + one-line claim, not by re-pasting the artifact.",
+        "- Reference prior evidence by file path + one-line claim, not by re-pasting the file.",
         "- For CLAIMS / numerical evidence, cite the row/figure id and the number, not the whole table.",
         "- If a call would exceed the context/cost threshold, compress to this digest first.",
     ]
@@ -129,8 +129,8 @@ def context_policy_banner() -> str:
     """Short banner block instructing roles to use the digest + pointers."""
     return (
         "## CONTEXT POLICY (physics)\n"
-        "- Read research/ROUTE_STATE_DIGEST.md + only the latest relevant artifacts; do NOT replay "
-        "the full run history or paste large artifacts (events/telemetry/usage/large CSVs) wholesale.\n"
+        "- Read research/ROUTE_STATE_DIGEST.md + only the latest relevant files; do NOT replay "
+        "the full run history or paste large files (events/telemetry/usage/large CSVs) wholesale.\n"
         "- Reference prior evidence by file path + one-line claim; cite a CLAIMS row / figure id + the "
         "number rather than the whole table.\n"
         "- If a call would exceed the context/cost budget, compress to the digest first instead of a "

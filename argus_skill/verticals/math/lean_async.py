@@ -571,7 +571,7 @@ def reclaim_lean_run(handle: str) -> dict[str, Any]:
         _discard(run_dir)
         raise LeanRunLost(
             f"the background compile for {handle} ended without recording an "
-            "answer, so this run has no compiler verdict at all — it is an "
+            "answer, so this run has no compiler result at all — it is an "
             "environment failure, not a statement about the proof. Nothing was "
             f"written. The transcript, if any, was at {run_dir / _WORKER_LOG}; "
             "submit the run again."
@@ -586,7 +586,7 @@ def reclaim_lean_run(handle: str) -> dict[str, Any]:
                 "no claim evidence. Submit the run again."
             )
         raise LeanRunLost(
-            f"the background compile for {handle} produced no compiler verdict: "
+            f"the background compile for {handle} produced no compiler result: "
             f"{detail}. This is an environment failure, not a statement about "
             "the proof, and nothing was written. Submit the run again."
         )
@@ -596,7 +596,7 @@ def reclaim_lean_run(handle: str) -> dict[str, Any]:
         _discard(run_dir)
         raise LeanRunLost(
             f"the background compile for {handle} recorded an answer that is "
-            "not a compiler result, so there is no verdict to publish and "
+            "not a compiler result, so there is nothing to publish and "
             "nothing was written. Submit the run again."
         )
 

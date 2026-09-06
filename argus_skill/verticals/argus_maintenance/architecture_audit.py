@@ -237,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         target = Path(args.output)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(rendered, encoding="utf-8")
-        print(f"architecture audit: {report['counts']['total']} candidates")
+        print(f"architecture scan: {report['counts']['total']} candidates")
     return 0
 
 

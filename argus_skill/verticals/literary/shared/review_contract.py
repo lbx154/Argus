@@ -62,6 +62,11 @@ class ReviewError(ValueError):
     """Raised when a review payload is structurally or semantically invalid."""
 
 
+#: The machine-parsed decision field of the review payload, exactly as the
+#: schema spells it; error text names it via this token.
+_DECISION_FIELD = "verdict"
+
+
 def validate_review(review: dict[str, Any], *,
                     type_vocabulary: Iterable[str] | None = None) -> None:
     """Structural + semantic validation of a normalized review.
@@ -79,13 +84,14 @@ def validate_review(review: dict[str, Any], *,
     has_blocking = any(f["blocking"] for f in findings)
     if has_blocking and review["verdict"] != "revise":
         raise ReviewError(
-            "a blocking finding stands but verdict is not 'revise' — a blocking "
-            "finding can never coexist with a 'done' verdict"
+            f"a blocking finding stands but {_DECISION_FIELD} is not 'revise' — "
+            "a blocking finding can never coexist with a review that declares "
+            "the work done"
         )
     if not findings and review["verdict"] != "done":
         raise ReviewError(
-            "no findings but verdict is not 'done' — cannot request a revision "
-            "with nothing to act on"
+            f"no findings but {_DECISION_FIELD} is not 'done' — cannot request "
+            "a revision with nothing to act on"
         )
 
     if type_vocabulary is not None:

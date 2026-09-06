@@ -6,7 +6,7 @@ description: "Review free verse against declared constraints and live poetic cra
 # 现代诗审阅 · Modern Free-Verse Review
 
 Reuses the framework Reviewer role. Free verse has NO metrical machine layer, so
-this checklist is honest about the split: a THIN machine layer (declared hard
+this review method is honest about the split: a THIN machine layer (declared hard
 constraints) and a LIVE-reviewer craft layer that is never mechanized.
 
 ## 一 · 硬约束（机检层 · BLOCKING · 由阶段完成钩子调用 `form.check_form` 强制）

@@ -9,4 +9,4 @@ quantifiers, and conclusion.
 
 Suggest only methods that fit the family—for example a counterexample search,
 construction check, proof pattern, computation, source lookup, or formal check.
-Do not turn every possible method into a required workflow or evidence package.
+Do not turn every possible method into a required workflow or required evidence.

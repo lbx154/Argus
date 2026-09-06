@@ -1,13 +1,13 @@
 # Companion-pattern combinations (attested co-occurrence)
 
 When a gap_closure leg's chosen pattern is the right FRAMING move but cannot
-itself produce the deliverable that `intake.contribution_type` commits to
+itself produce what `intake.contribution_type` commits the paper to
 (canonical case: an `assumption_audit_and_pivot` leg on a `method` problem —
-the audit names and inverts an assumption, but its honest deliverable is a
-theorem / identifiability claim, not the runnable or empirical artifact a
-`method` paper must ship), the leg names a `companion_pattern` that DOES own
-the missing deliverable. This file is the membership set of which companions
-are empirically real rather than forced.
+interrogating the assumption names and inverts it, but what that honestly
+yields is a theorem / identifiability claim, not the runnable or empirical
+artifact a `method` paper must ship), the leg names a `companion_pattern`
+that DOES own the missing piece. This file is the membership set of which
+companions are empirically real rather than forced.
 
 ## How to use
 
@@ -19,21 +19,21 @@ its internal order carries no priority and is never the basis of a choice.
    pattern's set below. A pairing absent here was never observed together in
    the corpus and is presumed forced; do not use it.
 
-2. **Deliverable-fit (the actual choice).** Among the attested companions,
-   take the ONE whose move owns the deliverable the primary pattern cannot
-   produce for this `contribution_type`. This filter typically collapses the
-   set to one or two: e.g. `controlled_diagnostic_design` owns a
+2. **Contribution-fit (the actual choice).** Among the attested companions,
+   take the ONE whose move owns the piece of the contribution the primary
+   pattern cannot produce for this `contribution_type`. This filter typically
+   collapses the set to one or two: e.g. `controlled_diagnostic_design` owns a
    confound-isolating empirical separation; `architectural_operator_substitution`
    owns a runnable operator; `self_supervised_signal_engineering` owns a
    manufactured optimization signal. State the choice and its reason in
-   `companion_rationale` (which missing deliverable, why this companion owns
+   `companion_rationale` (which missing piece, why this companion owns
    it) — the pick is anchored to that reason, never to list position.
 
 The two checks are a conjunction: both must hold, and their order is
 irrelevant. Counts are omitted by design — co-occurrence frequency here mostly
 reflects how broad a framing pattern is, not how good a given pairing is, so
 ranking by it would pull selection toward hub patterns instead of toward
-deliverable-fit.
+contribution-fit.
 
 ## Provenance
 

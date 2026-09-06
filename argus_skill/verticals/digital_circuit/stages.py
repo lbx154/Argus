@@ -41,7 +41,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             id="spec.acceptance-matrix",
             statement=(
                 "Normal, boundary, illegal, reset, stall, and recovery scenarios are mapped to "
-                "observable acceptance criteria before implementation begins."
+                "observable expected results before implementation begins."
             ),
             evidence_hint="a scenario-to-expected-result verification matrix",
         ),
@@ -50,7 +50,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "For an external RTL benchmark, exact output path, top module, ports, "
                 "parameters, reset/clock semantics, control interpretation, and cycle "
-                "latency are frozen before generation; otherwise the artifact explicitly "
+                "latency are frozen before generation; otherwise the record explicitly "
                 "states that no external benchmark contract applies."
             ),
             evidence_hint=(
@@ -165,7 +165,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "RESULTS.md or DELIVERY.md traces every correctness, coverage, timing, and area "
                 "claim to raw tool output and names all unsupported or unverified behavior."
             ),
-            evidence_hint="delivery summary with links to verification and synthesis artifacts",
+            evidence_hint="delivery summary with links to verification and synthesis outputs",
         ),
         ChecklistItem(
             id="delivery.source-artifact-boundary",
@@ -173,7 +173,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "Source RTL, testbench/formal sources, constraints, generated netlists, waveforms, "
                 "and reports are clearly separated so stale generated output cannot masquerade as source."
             ),
-            evidence_hint="final artifact manifest and repository status",
+            evidence_hint="a manifest of the delivered files and repository status",
         ),
         ChecklistItem(
             id="delivery.benchmark-integrity",
@@ -196,7 +196,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
 
 
 def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
-    """Return deterministic structural blockers for the current hardware stage."""
+    """Return deterministic structural issues for the current hardware stage."""
     stage_name = (stage or "").strip().lower()
     root = Path(project_root)
 
@@ -275,7 +275,7 @@ def role_banner(role: str) -> str:
     common = (
         "MISSION TYPE: DIGITAL CIRCUIT / RTL ENGINEERING. Work on Verilog, "
         "SystemVerilog, testbenches, assertions/formal properties, FPGA/ASIC "
-        "synthesis, timing, and hardware delivery. This is NOT a paper pipeline "
+        "synthesis, timing, and hardware delivery. This is NOT paper writing "
         "and NOT ordinary software testing. Hardware behavior is cycle-accurate; "
         "clock/reset/protocol semantics, widths, signedness, X/Z behavior, and "
         "synthesizability are first-class correctness conditions. Never claim PASS "
@@ -295,8 +295,8 @@ def role_banner(role: str) -> str:
             "Plan from the hardware contract and highest-risk unknowns: interface "
             "ambiguity, reset/CDC/protocol behavior, tool availability, verification "
             "oracle, and synthesis constraints. Keep the reference/testbench frozen "
-            "once the acceptance contract is established. When a fixed functional "
-            "benchmark does not score synthesis/PPA, use the shortest auditable path "
+            "once what counts as passing is agreed. When a fixed functional "
+            "benchmark does not score synthesis/PPA, use the shortest checkable path "
             "and document synthesis as outside scorer scope instead of manufacturing "
             "unscored implementation work. Select only visible-evidence-supported "
             "spec-guidance detectors, and route repair work only after the Engineer or "
@@ -318,13 +318,13 @@ def role_banner(role: str) -> str:
     if role_norm == "reviewer":
         return common + (
             "Act as an independent hardware sign-off reviewer. Inspect the RTL and "
-            "specification, rerun the declared commands, challenge the oracle, audit "
+            "specification, rerun the declared commands, challenge the oracle, check "
             "reset/clock/width/CDC/X behavior, and trace synthesis/timing claims to "
-            "fresh raw reports. For benchmarks, audit workspace isolation, patch "
+            "fresh raw reports. For benchmarks, check workspace isolation, patch "
             "non-emptiness, hidden-input non-exposure, and separate first-attempt and "
             "post-repair records. Promote guidance only from cross-task evidence, never "
             "from task-specific hidden-oracle behavior. Do not trust a summary or a "
-            "single happy-path test. Reject first-attempt readiness when the benchmark "
+            "single happy-path test. Turn back a first-attempt readiness claim when the benchmark "
             "interface manifest is absent or does not match the RTL exactly."
         )
     return common

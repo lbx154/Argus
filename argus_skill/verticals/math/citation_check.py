@@ -375,7 +375,7 @@ def attribute_citation(
             "recorded": None,
             "refusals": [
                 f"{checked_by!r} is reserved for the lookups this program "
-                "performs itself; a reader's verdict filed under it would "
+                "performs itself; a reader's finding filed under it would "
                 "read as a registry's answer, and the two are counted as "
                 "separate checkers"
             ],
@@ -486,7 +486,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help=(
             "a file holding the passage you read at that locator. It is "
-            "archived under research/literature/ and the verdict is recorded "
+            "archived under research/literature/ and your answer is recorded "
             "against it, so a later reader can disagree with you"
         ),
     )

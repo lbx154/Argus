@@ -22,8 +22,8 @@ description: "Implement a bounded software change with proportional inspection, 
 	 A plain directory is a valid software workspace; do not emit a failed Git
 	 command merely to discover that fact.
 3. Make the smallest change that satisfies the stated contract. Preserve public interfaces and unchanged behavior covered by existing tests.
-4. Run the cheapest decisive acceptance command from the task or repository. Add a focused probe only when existing coverage leaves a material boundary untested.
-5. Once the requested artifacts exist and acceptance passes, write the checkpoint and hand off. Do not spend extra turns on unrelated repository scans, cache cleanup, or formatting churn.
+4. Run the cheapest decisive check the task or repository provides. Add a focused probe only when existing coverage leaves a material boundary untested.
+5. Once the requested files exist and the decisive check passes, write the checkpoint and finish. Do not spend extra turns on unrelated repository scans, cache cleanup, or formatting churn.
 
 ## Evidence
 

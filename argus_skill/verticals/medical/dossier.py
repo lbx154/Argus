@@ -531,11 +531,11 @@ def validate_dossier(project_root: Path | str) -> tuple[str, ...]:
                     raw_status = _project_artifact_status(root, str(raw or ""))
                     if raw_status == "outside":
                         issues.append(
-                            f"queries.jsonl line {index}: raw artifact is outside project"
+                            f"queries.jsonl line {index}: raw_artifacts entry is outside project"
                         )
                     elif raw_status == "missing":
                         issues.append(
-                            f"queries.jsonl line {index}: raw artifact does not exist"
+                            f"queries.jsonl line {index}: raw_artifacts entry does not exist"
                         )
         except ValueError as exc:
             issues.append(f"queries.jsonl is invalid: {exc}")
@@ -552,7 +552,9 @@ def load_optional_json(path: str) -> Mapping[str, Any] | None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Build an auditable target-disease dossier")
+    parser = argparse.ArgumentParser(
+        description="Build a target-disease dossier whose every claim traces to its source"
+    )
     parser.add_argument("--project-root", type=Path, required=True)
     parser.add_argument("--target", required=True)
     parser.add_argument("--disease", required=True)

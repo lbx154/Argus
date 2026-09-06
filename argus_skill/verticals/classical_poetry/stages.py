@@ -80,7 +80,7 @@ def role_banner(role: str) -> str:
     """Hard-override framing per role — reframes the mission as a prosody-gated,
     conception-bearing classical poem, not a paper or a metric."""
     common = (
-        "MISSION TYPE: CLASSICAL CHINESE POETRY. The deliverable is a 近体诗 "
+        "MISSION TYPE: CLASSICAL CHINESE POETRY. This mission asks for a 近体诗 "
         "(or 古体/词) that PASSES the machine prosody check (押韵/平仄/粘对/孤平/"
         "三平尾, reproducible), carries a real 立意, and reads un-AI. It is NOT a "
         "paper and NOT a metric.\n"
@@ -101,11 +101,13 @@ def role_banner(role: str) -> str:
         )
     if role == "reviewer":
         return common + (
-            "You gate the poem. PROSODY findings (rhyme/meter/hard_fault/parallelism) "
+            "You decide whether the poem holds. PROSODY findings "
+            "(rhyme/meter/hard_fault/parallelism) "
             "are BLOCKING and mirror the machine report — never pass an out-of-meter "
             "line. CRAFT (conception/imagery/diction/allusion/tone/anti_ai) are "
             "NON-BLOCKING live judgements, never a faked numeric score. Follow the "
-            "'Prosody, Conception & Anti-AI Review' skill. Emit poetry/review.json as "
-            "{verdict, findings[]} per the shared literary review contract."
+            "'Prosody, Conception & Anti-AI Review' skill. Emit poetry/review.json "
+            "per the shared literary review contract — the review skill shows the "
+            "exact JSON shape."
         )
     return common

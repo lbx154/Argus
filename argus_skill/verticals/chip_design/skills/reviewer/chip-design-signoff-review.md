@@ -5,16 +5,16 @@ description: "Independently review digital chip and accelerator projects for wor
 
 # Chip Design Sign-Off Review
 
-Review raw artifacts and rerun decisive commands only when material evidence is
+Review the raw files and rerun decisive commands only when material evidence is
 missing, stale, contradictory, implausible, or not reproducible from the recorded
 command. Never certify from the Engineer summary alone. A successful canonical
-PPA packet that binds the current RTL, verification, constraints, target library,
+PPA record that binds the current RTL, verification, constraints, target library,
 toolchain, and raw log hashes is itself the decisive same-hash run: inspect those
-artifacts and their consistency, but do not launch a second full Yosys/ABC PPA
+files and their consistency, but do not launch a second full Yosys/ABC PPA
 solely for ceremony. Rerun PPA only after a source/constraint/toolchain binding
 changes or when the canonical evidence is incomplete or suspect.
 
-## Delivery-level gate
+## Delivery-level boundaries
 
 Read `design/CHIP_SCOPE.json` first. Keep these claims distinct:
 
@@ -26,21 +26,21 @@ Read `design/CHIP_SCOPE.json` first. Keep these claims distinct:
 - `tapeout`: foundry/package/IO and independent sign-off readiness;
 - fabricated silicon: requires measured physical chips and is outside this enum.
 
-Reject language that promotes one level into another.
+Turn back any wording that promotes one level into another.
 
 ## Definition and architecture
 
 Require a frozen workload, quality/numerical formats, interfaces, target, baselines,
-non-goals, and measurable acceptance criteria. Challenge arithmetic-intensity,
+non-goals, and measurable standards the result must meet. Challenge arithmetic-intensity,
 bandwidth, SRAM, DMA, host, KV-cache, latency, throughput, and power assumptions.
 
-For batch-1 LLM decode, reject raw TOPS as the sole design target. Verify bytes/token,
+For batch-1 LLM decode, turn back raw TOPS as the sole design target. Verify bytes/token,
 bandwidth efficiency, utilization, and host offload. Check Amdahl leverage before
-accepting a large architectural change.
+agreeing to a large architectural change.
 
-## Hard environment and IP gate
+## Environment and IP readiness
 
-Fail/continue when:
+Send the work back when:
 
 - required capabilities in `ENVIRONMENT_AUDIT.json` are not ready;
 - tests and PPA use incompatible environments without justification;
@@ -54,7 +54,7 @@ project scripts, and registry queries.
 
 ## RTL review
 
-Audit:
+Inspect:
 
 - manifest/source/generator consistency;
 - widths, signedness, truncation, saturation, overflow, and numerical policy;
@@ -66,7 +66,7 @@ Audit:
 
 Generated netlists or checked-in Verilog do not replace generator-source review.
 
-## Verification gate
+## Verification standard
 
 Require an independent oracle and fresh command output. Challenge whether the
 reference simply repeats the RTL. Require representative and adversarial scenarios,
@@ -76,17 +76,18 @@ failure logs/waves.
 Numerical accelerator review includes quality/tolerance, overflow, saturation,
 rounding, quantization scales, exceptional values, and cross-configuration parity.
 
-Never accept compile-only, one happy-path test, stale output, or weakened expected
-values. A red gate blocks PPA and benchmark interpretation.
+Compile-only evidence, one happy-path test, stale output, or weakened expected
+values never suffice. Until verification passes, PPA and benchmark numbers are
+not worth interpreting.
 
 ## PPA and physical-design integrity
 
 Check exact device/PDK, libraries, tools, configuration, clocks/I/O, corners,
 utilization, memory inclusion, activity, and power method. Inspect raw timing,
-area/resources, power, warnings, black boxes, congestion, and generated artifacts.
+area/resources, power, warnings, black boxes, congestion, and generated outputs.
 Require an incremental ledger for non-SRAM delta area, cells, Fmax, cycles, and
 remaining reserve. Challenge dedicated operator blocks when lifetimes permit measured
-resource folding, but reject reuse that loses more PPA through mux/control overhead.
+resource folding, but turn back reuse that loses more PPA through mux/control overhead.
 
 For GDS/tapeout claims independently check STA, DRC, LVS, antenna, density, PDN,
 IO/package, SRAM/hard macros, and foundry deck provenance. Open-PDK 130nm PPA cannot
@@ -116,10 +117,10 @@ Report distributions and separately show:
 For Gemmini/VTA/NVDLA baselines verify configuration parity and do not compare INT4
 candidate arithmetic with unmatched INT8 resources without quality/resource accounting.
 
-## Autonomy and artifact provenance
+## Autonomy and provenance
 
 Require role/DAG/event/checkpoint history, git commits, candidate and rejected attempts,
-raw evaluator/PPA logs, tool identities, source/artifact paths, and intervention records. The
+raw evaluator/PPA logs, tool identities, source and output paths, and intervention records. The
 controller may prepare public inputs and run sealed evaluation, but controller-authored
 RTL, repaired outputs, or hidden-oracle feedback invalidate an autonomous-design claim.
 
@@ -141,7 +142,7 @@ Otherwise return a concrete HOLD/continue reason at the earliest invalid stage.
 Reuse Reviewer-certified upstream evidence unless the current delta contradicts
 it. Adding support for the next operator is not by itself a product-scope,
 architecture, or environment change. Roll back to the earliest genuinely changed
-contract and reject ceremonial regeneration of stable upstream packets.
+contract and decline ceremonial regeneration of stable upstream records.
 
 Every reused verification, PPA, or benchmark result must bind the current
 `design/RTL_MANIFEST.json` SHA-256. A stale binding is a concrete conflict and

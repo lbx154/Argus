@@ -12,7 +12,7 @@ anything mentioning `sol-execbench`, NVIDIA's kernel leaderboard, an "official
 image / official environment / 对标官方", or when a self-hosted scorer's number
 needs to be cross-checked against the real toolchain. Pair with
 `SOL Kernel SOTA Optimization` (mechanism search) and `B200 KernelBench Runtime`
-(the eval-server contract). This skill owns **environment parity**, not the
+(the eval-server rules). This skill owns **environment parity**, not the
 kernel idea.
 
 Core principle (project value #1 — *the agent is smarter than the harness*):
@@ -61,7 +61,7 @@ Two traps seen building docker **inside a k8s pod**:
 The official harness locks GPU/DRAM clocks for reproducible timing
 (`nvidia-smi --lock-gpu-clocks`). **A privileged pod is NOT enough.** Privilege
 does not propagate from the pod into a `docker run` child, and clock-locking is
-gated at the **driver/cgroup layer** — `sudo`/root inside the container does not
+blocked at the **driver/cgroup layer** — `sudo`/root inside the container does not
 help. Symptom:
 
 ```

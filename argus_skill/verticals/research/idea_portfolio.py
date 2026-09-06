@@ -27,6 +27,9 @@ _STATE_LOCK_PATH = Path(".argus") / "IDEA_PORTFOLIO.lock"
 _LEGACY_STATE_PATH = Path("research") / "IDEA_PORTFOLIO.json"
 _LEGACY_SELECTION_PATH = Path("research") / "IDEA_SELECTION.json"
 _REVIEW_VERDICTS = frozenset({"qualified", "rejected"})
+# The JSON field the route reviewer fills in; a machine token, named once here
+# and interpolated wherever a prompt has to spell out the schema.
+_REVIEW_VERDICT_FIELD = "verdict"
 _TEAM_TASK_ENV = "ARGUS_SKILL_TEAM_TASK_ID"
 _NO_NESTED_TEAM = (
     "This task is already one worker in the parent idea portfolio. Do not create, "
@@ -112,8 +115,8 @@ def _review_task(
             "claim-critical prior art and attack the mechanism, attribution, and future "
             "evidence plan. Do not reward convenience or request an experiment during "
             f"selection. Write `{output}` with schema_version="
-            f"{_REVIEW_SCHEMA_VERSION}, route_id, verdict (`qualified` or `rejected`), "
-            "summary, and fatal_concerns (array). "
+            f"{_REVIEW_SCHEMA_VERSION}, route_id, {_REVIEW_VERDICT_FIELD} "
+            "(`qualified` or `rejected`), summary, and fatal_concerns (array). "
             f"{_NO_NESTED_TEAM}"
         ),
         "acceptance_check": (
@@ -314,7 +317,7 @@ def _review_payload(
         payload is None
         or payload.get("schema_version") != _REVIEW_SCHEMA_VERSION
         or str(payload.get("route_id") or "") != target
-        or str(payload.get("verdict") or "") not in _REVIEW_VERDICTS
+        or str(payload.get(_REVIEW_VERDICT_FIELD) or "") not in _REVIEW_VERDICTS
         or not str(payload.get("summary") or "").strip()
         or not isinstance(payload.get("fatal_concerns"), list)
     ):
@@ -1177,7 +1180,7 @@ def migrate_legacy_idea_selection(
                         payload["next_action"] = (
                             "Resume the mapped research stage with the selected idea; "
                             "mapped stages must be reviewed under the current four-stage "
-                            "checklist."
+                            "standards."
                         )
                         meta = _portfolio_meta(payload)
                         meta.update({
@@ -1248,7 +1251,7 @@ def idea_portfolio_completion_issues(
         selection,
         state_root=state_root,
     ):
-        return ("the selector conflicts with the selected idea in pipeline state",)
+        return ("the selector conflicts with the selected idea already on record",)
     return ()
 
 

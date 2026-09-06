@@ -22,8 +22,8 @@ the three intents below — never improvise a fourth.
 Pick a subset of factor ids from the registered factor pool. Constraints:
 
 - **Pick with intent.** Every factor in the subset must contribute a
-  distinct dimension (size, value, momentum, quality, …). Duplicating a
-  dimension is rejected — pick the better one.
+  distinct dimension (size, value, momentum, quality, …). Do not duplicate a
+  dimension — pick the better factor and drop the other.
 - **First round** — pick from descriptions only. State the *expected sign*
   of each factor before you see any backtest number.
 - **Later rounds** — pick informed by prior backtest rows: prefer survivors,
@@ -66,8 +66,8 @@ Be willing to **stop early**. More rounds is not always better.
 
 You are given a `BacktestExecutor.submit(spec)` callable. Every backtest
 goes through it. There is no other way to run a trial — calling the
-underlying engine directly is a checklist violation
-(`run.search_ledger_complete`) and the L2 reviewer will reject the run.
+underlying engine directly breaks the `run.search_ledger_complete`
+requirement, and the L2 reviewer will send the run back.
 
 For each trial, fill `BacktestSpec` with:
 
@@ -78,7 +78,8 @@ For each trial, fill `BacktestSpec` with:
   this is what the reviewer's OOS-discipline check reads
 - `is_out_of_sample`: `True` only when the spec window is the quarantined
   test set
-- `universe` / `data_snapshot` / `seed`: enough that an auditor can re-run
+- `universe` / `data_snapshot` / `seed`: enough that someone else can re-run
+  the trial
 
 A failed trial is **still** a recorded trial. Do not silently drop a run
 that errored — the executor logs it as `status="error"` and the reviewer

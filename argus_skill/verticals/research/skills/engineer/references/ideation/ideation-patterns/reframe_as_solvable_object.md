@@ -12,7 +12,7 @@ _id: `reframe_as_solvable_object`_
 ## Success conditions (from Oral)
 - **A correspondence theorem ties the reframed object's solution to the original problem's solution.**
   - rationale: Across accepted work the load-bearing contribution is a proof — the equilibrium recovers individually-ordered components, a near-stationary point extends to a full-problem equilibrium, a submodular objective makes greedy near-optimal, corrected data provably beats removal. Without this the reframe is a restatement, and the new solver's output has no claim to be the answer to the original question.
-- **The chosen object dissolves the specific blocker and unlocks machinery the native formulation could not access.**
+- **The chosen object dissolves the specific obstacle and unlocks machinery the native formulation could not access.**
   - rationale: Decentralized updates, closed-form attribution, long-horizon sequence-model scaling, or value-free supervision follow directly from the object choice. The reframe earns acceptance by importing concrete capability — parallelism, tractability, sample efficiency — not just new vocabulary for the same difficulty.
 - **The reframe deletes a component rather than wrapping new machinery around the old pipeline.**
   - rationale: Collapsing an estimate-then-optimize loop into a pure supervised fit, bypassing model training to read a quantity directly, or replacing exponential subset re-evaluation with an analytic per-step term both simplifies and stabilizes. Reviewers treat the disappearance of a previously-mandatory component as evidence the isomorphism is real rather than cosmetic.

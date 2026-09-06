@@ -86,7 +86,7 @@ def role_banner(role: str) -> str:
         "curiosity. Explore high-upside mechanisms broadly, including radical, uncertain, "
         "cross-stack, and mutually competing ideas. Read repository evidence and current "
         "primary sources as deeply as useful. Do not prefer the smallest patch, the "
-        "easiest immediate validation, or an idea that is already reproducible merely "
+        "easiest immediate check, or an idea that is already reproducible merely "
         "because it is safer to execute. Research reports and explicit hypotheses are "
         "valid exploration even before implementation. Distinguish hypotheses from "
         "claimed results. During exploration, one clean screen, an inconclusive attempt, "
@@ -95,22 +95,22 @@ def role_banner(role: str) -> str:
         "those costs for a genuinely promising candidate whose performance will be "
         "claimed or retained. Only such a result requires the decisive correctness "
         "check and comparable target-hardware measurement. Do not "
-        "create process documents, stage bundles, proof packages, frontier ledgers, "
+        "create process documents, stage bundles, proof collections, frontier ledgers, "
         "environment reports, or checkpoint churn unless the operator explicitly "
-        "requests that artifact or a concise durable result is necessary for later work."
+        "requests that file or a concise durable result is necessary for later work."
     )
     if role == "planner":
         return (
             common
             + " Delegate substantive implementation and its verification in one task. "
-            "Do not split audit, planning, implementation, validation, and reporting "
+            "Do not split code reading, planning, implementation, checking, and reporting "
             "into separate ceremony nodes when one Engineer can perform them coherently. "
             "Proactively use fresh primary-source research whenever external systems, "
             "papers, issues, or kernels could materially improve the plan; do not wait "
             "for repeated failures or a constraint change. A bounded report-only "
             "source-analysis task is valid when its synthesis can guide "
             "later engineering. It may run path-disjoint during an external benchmark, "
-            "and it does not need to produce code or an executable gate. Maintain a "
+            "and it does not need to produce code or an executable check. Maintain a "
             "portfolio of genuinely different mechanisms instead of converging early on "
             "the nearest implementation. Parallel research tasks may investigate "
             "independent mechanism families when mission slots permit. Prefer expected "
@@ -147,8 +147,8 @@ def role_banner(role: str) -> str:
             "default to multi-seed or repeated-run campaigns. Once implementation begins, "
             "keep it one coherent implementation rather than unrelated edits. On a "
             "conversion-lane task, continue through real runtime wiring and the "
-            "end-to-end screen instead of stopping at a microbenchmark or source-complete "
-            "artifact."
+            "end-to-end screen instead of stopping at a microbenchmark or at code that "
+            "is source-complete but never ran."
         )
     if role == "reviewer":
         return (
@@ -157,8 +157,8 @@ def role_banner(role: str) -> str:
             "impact; never fail work merely because a framework-specific document is absent. "
             "A report-only research mission is valid: review source quality, factual "
             "accuracy, synthesis, and usefulness to the next decision without demanding "
-            "an implementation or executable gate. Do not reject a speculative, radical, "
-            "or not-yet-reproducible idea merely for lacking immediate validation; require "
+            "an implementation or executable check. Do not reject a speculative, radical, "
+            "or not-yet-reproducible idea merely for lacking immediate verification; require "
             "evidence only when the report presents a hypothesis as an established result. "
             "Never demand multiple seeds or repeated trials for an exploratory screen; "
             "request them only for a promising candidate being claimed or retained."

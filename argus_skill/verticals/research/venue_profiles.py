@@ -164,12 +164,12 @@ class VenueProfile:
         """Describe the venue's legitimate anonymous-review line-number artifact."""
         if self.requires_line_numbers:
             return (
-                f"Review line numbers from `{self.review_mode_macro}` are required "
-                "submission artifacts and must not be treated as debug gutters."
+                f"Review line numbers from `{self.review_mode_macro}` are a required "
+                "part of the submission and must not be treated as debug gutters."
             )
         return (
-            f"Anonymous review-mode line numbers from `{self.review_mode_macro}` are "
-            "acceptable submission artifacts and must not be treated as debug gutters."
+            f"Anonymous review-mode line numbers from `{self.review_mode_macro}` are an "
+            "acceptable part of the submission and must not be treated as debug gutters."
         )
 
     def draft_section_tail(self) -> str:

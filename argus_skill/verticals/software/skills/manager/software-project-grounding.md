@@ -28,7 +28,7 @@ Manager pass.
 5. Produce a compact grounding brief. Preserve the Manager mission brief;
    add evidence and risks, never invent requirements.
 
-## Handoff
+## The grounding brief
 
 The brief should name relevant files, the closest analogue, exact verification
 commands, and the highest-risk compatibility assumptions. For a direct task,
@@ -38,4 +38,4 @@ give it to Engineer. For staged work, give it to Planner before decomposition.
 
 - Do not call visible tests "acceptance tests" when official tests are held back.
 - Do not infer expected behavior from the patch under review.
-- Do not turn repository exploration into an unbounded audit.
+- Do not turn repository exploration into an unbounded reading of the whole tree.

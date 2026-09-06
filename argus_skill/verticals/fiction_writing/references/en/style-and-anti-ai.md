@@ -79,4 +79,4 @@ from reproducing their prose.
   - thresholds are model-seed and set high, so legitimate short quotation/allusion
     passes; paraphrase-level plagiarism is not machine-reliable, so it stays
     reviewer guidance — we never fake a similarity score.
-- With no `reference_text.md` (an original, not a continuation) the gate passes.
+- With no `reference_text.md` (an original, not a continuation) nothing fires.

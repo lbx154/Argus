@@ -1,6 +1,6 @@
 ---
 name: "Speedrun SOTA Optimization"
-description: "Senior-researcher methodology for training-speedrun benchmarks (modded-nanogpt / NanoGPT-speedrun and kin): minimize wall-clock to a fixed quality target under a statistical-validity gate. Covers research-first retrieval of prior art before building, the bottleneck taxonomy (convergence / step-cost / comms / precision-stability), the N=3 iterate and N=10 certify discipline, and a toolkit ordered by leverage — optimizer and schedule first, kernels and precision last. Expertise to learn, not a recipe to copy."
+description: "Senior-researcher methodology for training-speedrun benchmarks (modded-nanogpt / NanoGPT-speedrun and kin): minimize wall-clock to a fixed quality target under a statistical validity rule. Covers research-first retrieval of prior art before building, the bottleneck taxonomy (convergence / step-cost / comms / precision-stability), the N=3 iterate and N=10 certify discipline, and a toolkit ordered by leverage — optimizer and schedule first, kernels and precision last. Expertise to learn, not a recipe to copy."
 ---
 
 ## Title
@@ -8,7 +8,7 @@ Speedrun SOTA Optimization
 
 ## What this is
 This is **distilled human expertise** — how a senior ML-systems researcher actually
-thinks about a training-speedrun, not a checklist. Read it to acquire the mental model
+thinks about a training-speedrun, not a script to follow. Read it to acquire the mental model
 and the priors; do not treat it as steps to mechanically execute or a recipe to
 transplant. The numbers and worked references exist to teach the *method*; the method
 generalizes across speedrun tiers and metrics. When a real run teaches you something
@@ -18,14 +18,14 @@ failure-first example of the loop.)
 ## When to use
 - The objective is to **minimize wall-clock training time** to reach a **fixed quality
   target** (e.g. `val_loss <= 3.28`, `val_bpb <= X`) on real GPUs (8xH100 / B200), with a
-  frozen scorer and a **statistical validity gate** (a one-sided t-test over N runs).
+  frozen scorer and a **statistical validity rule** (a one-sided t-test over N runs).
 - The task names an editable recipe (`train.py` + kernels), a frozen scorer, and a numeric
   wall-clock metric — modded-nanogpt / nanochat-style speedruns and their kin.
 
 ## When NOT to use
 - A single GPU kernel (use `SOL Kernel SOTA Optimization`), a paper benchmark matrix, or an
   RL/post-training run.
-- The scorer is missing and cannot be reconstructed — write a setup/blocker report first;
+- The scorer is missing and cannot be reconstructed — report what is missing first;
   do not invent a metric or a `p`-value.
 
 ---
@@ -48,18 +48,18 @@ cleverness.
 **Invention is recombination, so retrieve and stack — do not try to invent from scratch.**
 Bibliometrics across tens of millions of papers (Nature 2022, *atypical combinations*) show
 genuinely unprecedented ideas are rare; almost all progress is *novel re-mixing of known,
-validated parts*. Every speedrun record is the prior record's code **plus a few small,
+proven parts*. Every speedrun record is the prior record's code **plus a few small,
 orthogonal, already-published gains** stacked on top. So your job is NOT a never-seen
 optimizer; it is to aggressively retrieve the menu of known levers, stack the orthogonal
 ones, re-implement each carefully (the step agents fail), and measure. Reciting a known
 trick from memory and calling it "my invention" is the classic agent failure that
 literature-grounded novelty checkers exist to catch — and pulling a technique from memory
-instead of from its concrete artifact is how you get the coefficients/conditions wrong.
+instead of from its concrete source is how you get the coefficients/conditions wrong.
 
 **The discipline (search-then-build — the order real end-to-end research systems use):**
 1. **Reproduce first.** Stand up the baseline AND the named anchor on *your* hardware and
    re-measure like-for-like before trying to beat anything. Reproduction is research, not setup.
-2. **Chase the most concrete artifact.** pseudocode/repo/commit-diff/reference-kernel/ablation-
+2. **Chase the most concrete source.** pseudocode/repo/commit-diff/reference-kernel/ablation-
    table > prose > abstract. Reasoning about a technique in the abstract is where agents flail;
    go get its executable form and read it.
 3. **Corroborate, don't trust one blog.** A single "N× speedup" is a parametric-quality claim
@@ -83,7 +83,7 @@ instead of from its concrete artifact is how you get the coefficients/conditions
 | regularization | annealed **Langevin/SGLD** gradient noise (generalization-per-step) | convergence |
 | data | **RHO-Loss** (online reducible-holdout batch selection — skip already-learned/noise), **DoReMi** (proxy-tuned data mixture), **sequence-length warmup** (cuts early attention FLOPs AND stabilizes) | convergence, ~free |
 | per-step cost | **FA3**/fused kernels; **torch.compile** fusion + **CUDA graphs** (launch-bound); **FP8 GEMMs** with delayed scaling (watch SwiGLU outlier loss spikes) | per-step |
-| variance / the metric | **LAWA / weight-averaging / EMA** denoise the iterate → lower run-to-run variance → certify with the mean rode closer to the gate = fewer steps. (Classic **SVRG is ineffective** in DL; momentum + larger batch + averaging are the variance reduction that works.) | the t-test lever |
+| variance / the metric | **LAWA / weight-averaging / EMA** denoise the iterate → lower run-to-run variance → certify with the mean riding closer to the target = fewer steps. (Classic **SVRG is ineffective** in DL; momentum + larger batch + averaging are the variance reduction that works.) | the t-test lever |
 
 **Search playbook (general technique only — never the answer key):** the arxiv/repo for each
 lever above; *Fantastic Pretraining Optimizers* before believing any optimizer multiplier; the
@@ -135,7 +135,7 @@ the other.** The whole craft is: find which one binds, attack it, re-measure.
 - **No fabricated numbers.** `p(mean<target)` comes from the frozen `analyze_sweep.py`
   t-test over the actual N runs — never eyeballed from one run, never nudged. `train_time`
   comes from the recipe's counted timer as the scorer re-runs it.
-- **Do not game the gate.** Never special-case the val set, hardcode outputs, shortcut
+- **Do not game the t-test.** Never special-case the val set, hardcode outputs, shortcut
   training, alter the val data / loss / target / t-test / scorer, or touch the timer. The
   val data and metric are frozen precisely so you cannot.
 - Reproduce baselines on the **same hardware/harness**; state hardware/measurement caveats
@@ -143,14 +143,14 @@ the other.** The whole craft is: find which one binds, attack it, re-measure.
 
 ---
 
-## 3. The validity gate is STATISTICAL — the discipline that wins or wastes the run
+## 3. Validity is STATISTICAL — the discipline that wins or wastes the run
 
 This is the section that separates a speedrun from a kernel task. Validity is
 `p(mean<target) < α` from a one-sided t-test over N runs — a function of the **mean, the
 run-to-run sd, AND N**. Internalize:
 
 - **Iterate at small N (3) for signal; certify at large N (>=10).** N=3 is a probe, not a
-  verdict.
+  conclusion.
 - **Classify every INVALID: QUALITY miss vs POWER miss.**
   - *Quality miss*: `mean > target` (or barely under with large sd). The recipe genuinely
     isn't good enough — engineer convergence/quality.
@@ -176,7 +176,7 @@ run-to-run sd, AND N**. Internalize:
 
 Optimizing the non-bottleneck is the #1 way to waste a day. Decompose first, with real
 measurement. Use direct GPU access only when the mission manifest provides a
-working remote command; otherwise record an infrastructure blocker.
+working remote command; otherwise record the infrastructure failure.
 
 - **Step decomposition:** `per_step = train_time / steps`. Know it before touching kernels.
 - **The convergence curve (the most important plot):** `val_loss` vs step. *Where* does it
@@ -233,7 +233,7 @@ faster?"**
    Better attention impl (FA3); a leaner forward (the post-only / fused ReLU² MLP that stores
    fewer activations); kernel fusion to cut HBM round-trips and launches; **comms overlap**
    (start NCCL on ready grads while compute continues). These are real but bounded by roofline.
-3. **Precision as a lever (within stability — it is a dial inside a gate, not free).**
+3. **Precision as a lever (within stability — a dial inside a hard constraint, not free).**
    FP8/FP6 GEMMs on projections — but a per-step/per-block **scale is structural overhead**, so
    FP8 is net-positive only when the scaling is **delayed/cached/fused** and the op is the
    bottleneck. Naive fixed-scale diverges; dynamic per-step amax often costs more than the GEMM
@@ -241,7 +241,7 @@ faster?"**
    net-slower. (See `Speedrun Hands-on Trace`, nail 3.)
 4. **Schedule / step-count tuning — LAST, and only after convergence is improved.**
    Cutting or annealing steps is valid only if the curve has tail slack or a convergence win
-   created it; a naive step cut on a tight curve just fails the gate. Verify on the curve, not
+   created it; a naive step cut on a tight curve just fails the t-test. Verify on the curve, not
    by hoping.
 
 **The leverage rule, stated once:** a convergence win multiplies against every per-step win;
@@ -326,7 +326,7 @@ CAND <name, on top of which floor>
   → next:      the next mechanism, chosen by the binding constraint
 ```
 
-Lightweight persisted artifacts (for the multi-round harness, not the research itself):
+Lightweight persisted files (for the multi-round harness, not the research itself):
 `research/GROUND_TRUTH.md` (scorer command, hardware, target, t-test rule, decomposition,
 re-measured anchors), `research/PROFILE.md` (per-step breakdown + convergence curve),
 `experiments/<candidate>/RESULT.md` (the chain block + raw `SCORE` log),
@@ -369,7 +369,7 @@ A fuller failure-first version is in `Speedrun Hands-on Trace`; derive your own 
 - Not banking a clearly-valid faster candidate immediately at N=10 — leaving the record un-cashed.
 - Testing each mechanism in isolation and **reverting to the bare floor**, so improvements never
   stack toward a frontier built from stacked inventions.
-- Naive step-count cuts on a convergence curve with no tail slack (fails the gate).
+- Naive step-count cuts on a convergence curve with no tail slack (fails the t-test).
 - FP8/low-precision without fused/cached scaling → net-slower or divergent, reported as "tried FP8".
 - Declaring a win from a self-timed, N=1, or warm-state number instead of the frozen t-test.
 - Restarting/interrupting **mid-certification** and losing a banked score; or comparing your number

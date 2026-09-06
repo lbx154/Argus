@@ -8,7 +8,7 @@ SOL Kernel SOTA Optimization
 
 ## What this is
 This is **distilled human expertise** — how a senior GPU-kernel researcher actually
-thinks, not a checklist. Read it to acquire the mental model and the priors; do not
+thinks, not a script to follow. Read it to acquire the mental model and the priors; do not
 treat it as steps to mechanically execute or a kernel to transplant. The numbers and
 one worked example exist to teach the *method*; the method generalizes to any kernel.
 When a real kernel teaches you something sharper, evolve this. (Companion:
@@ -21,7 +21,7 @@ When a real kernel teaches you something sharper, evolve this. (Companion:
 
 ## When NOT to use
 - A paper benchmark matrix, multi-family agent evaluation, or publication evidence run.
-- The scorer is missing and cannot be reconstructed — write a setup/blocker report
+- The scorer is missing and cannot be reconstructed — report what is missing
   first; do not invent a metric.
 
 ---
@@ -104,7 +104,7 @@ bytes/instructions in flight, you are latency-bound no matter how fast the units
   never nudged to make a roofline close.
 - Reproduce baselines **once** on the same hardware/harness; label "SOTA-oriented" unless
   the protocol matches a real leaderboard. After that, a scorer-verified best is a **fixed
-  floor, not a hypothesis** — do NOT re-score or re-audit old attempts to re-confirm it.
+  floor, not a hypothesis** — do NOT re-score or re-examine old attempts to re-confirm it.
   Reproducibility is not the goal and small run-to-run jitter is not regression; spend the
   round shipping a **new mechanism that beats the floor**, then score it once.
 
@@ -236,8 +236,8 @@ problem requires?" before "how do I make this code faster?"**
 6. **Cut instruction overhead.**
    Unroll hot loops, precompute/strength-reduce addresses, `__restrict__` + read-only
    path (`__ldg`) for inputs, minimize predication, hoist loop invariants.
-7. **Numerics as a lever** (within the correctness tolerance — it is a gate, precision
-   is a dial inside it). fp32-accumulate + bf16/fp16 storage; TF32 for matmul; FP8/FP4
+7. **Numerics as a lever** (within the correctness tolerance — the tolerance is a hard
+   boundary, precision a dial inside it). fp32-accumulate + bf16/fp16 storage; TF32 for matmul; FP8/FP4
    with per-tensor or microscaling (Blackwell MXFP) when tolerance allows; fast
    intrinsics (`__expf`, `rsqrtf`). Halving bytes roughly doubles a memory-bound kernel
    — but FP8/FP4 microscaling is a *structural* change, not a free dial: per-block scale
@@ -313,7 +313,7 @@ Run the search like an experimentalist:
   hardware, not your code, and say so instead of grinding noise.
 - **Correctness (randomized) → roofline → one mechanism → re-measure → attribute.**
 
-Record each iteration as the **measured causal chain** — the artifact that lets anyone
+Record each iteration as the **measured causal chain** — the record that lets anyone
 reconstruct your reasoning (see `SOL Kernel Hands-on Trace` for a filled example):
 
 ```text
@@ -327,7 +327,7 @@ ITER n — <candidate>
   → next:      <next hypothesis, chosen by where the measured gap is>
 ```
 
-Lightweight persisted artifacts (for the multi-round harness, not the research itself):
+Lightweight persisted files (for the multi-round harness, not the research itself):
 `research/GROUND_TRUTH.md` (scorer command, hardware, correctness rule, roofline,
 baseline), `attempts/<name>/CHANGES.md` (the chain block + raw scorer log), `RESULTS.md`
 (final table ranked by SOL, honest about wins and losses).

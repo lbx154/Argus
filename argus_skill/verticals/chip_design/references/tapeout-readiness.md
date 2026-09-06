@@ -8,7 +8,7 @@ Tapeout readiness requires independent evidence for:
 - power distribution and IR/EM methodology;
 - SRAM and hard-macro views/provenance;
 - IO cells, ESD assumptions, package/bond map, GPIO/power domains;
-- foundry/shuttle deck and submission checklist;
+- foundry/shuttle deck and the foundry's submission requirements;
 - scan/DFT/test access or an explicit scoped limitation;
 - firmware/bring-up plan and observable debug interfaces;
 - license/IP clearance and export/commercial restrictions;

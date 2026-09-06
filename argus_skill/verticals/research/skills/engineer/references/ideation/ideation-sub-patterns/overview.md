@@ -7,12 +7,12 @@ The 31 induced ideation sub-patterns (HDBSCAN on text-embedding-3-large of the f
 | `C00` | `reframe_as_solvable_object` (Reframe as a Solvable Object) | 46 |
 | `C21` | `reframe_as_solvable_object` (Reframe as a Solvable Object) | 16 |
 | `C27` | `reframe_as_solvable_object` (Reframe as a Solvable Object) | 17 |
-| `C01` | `assumption_audit_and_pivot` (Audit and Pivot an Assumption) | 48 |
-| `C05` | `assumption_audit_and_pivot` (Audit and Pivot an Assumption) | 50 |
-| `C11` | `assumption_audit_and_pivot` (Audit and Pivot an Assumption) | 33 |
-| `C19` | `assumption_audit_and_pivot` (Audit and Pivot an Assumption) | 13 |
-| `C28` | `assumption_audit_and_pivot` (Audit and Pivot an Assumption) | 16 |
-| `C29` | `assumption_audit_and_pivot` (Audit and Pivot an Assumption) | 21 |
+| `C01` | `assumption_audit_and_pivot` (Interrogate and Pivot an Assumption) | 48 |
+| `C05` | `assumption_audit_and_pivot` (Interrogate and Pivot an Assumption) | 50 |
+| `C11` | `assumption_audit_and_pivot` (Interrogate and Pivot an Assumption) | 33 |
+| `C19` | `assumption_audit_and_pivot` (Interrogate and Pivot an Assumption) | 13 |
+| `C28` | `assumption_audit_and_pivot` (Interrogate and Pivot an Assumption) | 16 |
+| `C29` | `assumption_audit_and_pivot` (Interrogate and Pivot an Assumption) | 21 |
 | `C06` | `algebraic_equivalence_unification` (Prove Equivalence to Unify) | 59 |
 | `C04` | `heterogeneous_decomposition` (Decompose for Differentiated Treatment) | 47 |
 | `C09` | `architectural_operator_substitution` (Substitute the Operator or Representation) | 21 |

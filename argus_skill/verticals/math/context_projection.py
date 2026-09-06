@@ -295,8 +295,8 @@ def _ambiguous(target: MissionTarget) -> str:
         f"- This mission's {target.field} names several recorded claims: {listed}.\n"
         "- No claim state is shown, because picking one of them would aim this "
         "context at a statement the mission may not be about, and the mistake "
-        f"would be invisible. Read `{_STATE_REF}` directly, or restate the "
-        "acceptance check so it names the single claim this round must move."
+        f"would be invisible. Read `{_STATE_REF}` directly, or restate that "
+        "field so it names the single claim this round must move."
     )
 
 
@@ -645,7 +645,7 @@ def _transitions(status: ClaimStatus, claim: ClaimVersion) -> list[str]:
             )
         lines.append(
             f"to conditional_kernel: record {_tiers(KERNEL_TIERS)} evidence that "
-            "supports this exact statement, with an artifact that can be re-run."
+            "supports this exact statement, citing a file that can be re-run."
         )
         lines.append(
             "to closed_kernel: the same, with every external assumption in "
@@ -677,8 +677,8 @@ def _transitions(status: ClaimStatus, claim: ClaimVersion) -> list[str]:
 #: opened, and a source that was reached without settling what is inside it.
 _CITATION_ADVICE = {
     CitationStatus.CONFIRMED.value: (
-        "The source has been opened and contains it; re-read the artifact "
-        "instead of retrieving it again."
+        "The source has been opened and contains it; re-read the archived "
+        "excerpt instead of retrieving it again."
     ),
     CitationStatus.UNCHECKED.value: "Nobody has opened the source yet.",
     CitationStatus.INCONCLUSIVE.value: (
@@ -732,7 +732,7 @@ def _render(payload: dict[str, Any]) -> str:
         "",
         f"Projected from `{_STATE_REF}`; fragment digest `{digest[:16]}`. This is "
         "one claim's neighbourhood, not the project: the definitions it is "
-        "stated against, what it still takes on faith, the verdicts recorded "
+        "stated against, what it still takes on faith, the judgements recorded "
         "against this exact statement, and its immediate obligations. Other "
         "claims and retired branches are deliberately absent — do not infer "
         "from their absence that they do not exist.",
@@ -823,7 +823,7 @@ def _render(payload: dict[str, Any]) -> str:
     lines.append("### Evidence bound to this exact statement")
     if payload["evidence"]:
         for record in payload["evidence"]:
-            artifact = record["artifact"] or "no artifact recorded"
+            artifact = record["artifact"] or "no file recorded"
             lines.append(
                 f"- `{record['evidence_id']}` {record['tier']}/{record['verdict']} "
                 f"by `{record['produced_by']}` — {artifact}"

@@ -73,7 +73,7 @@ Do NOT use to write prose or to hand-edit `story_state.json` directly.
    ```
    `diagnose_patch` names the offending op and hands back the valid-id inventory
    to fix it against (usually a dangling id, a duplicate add, or a timeline order
-   clash). The engine stays the ONLY gate: an unfixable patch still raises — a bad
+   clash). The engine keeps the final say: an unfixable patch still raises — a bad
    patch is never laundered through.
 
 ## When NOT to use

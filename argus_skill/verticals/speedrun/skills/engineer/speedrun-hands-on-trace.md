@@ -8,7 +8,7 @@ Speedrun Hands-on Trace
 
 ## Description
 A **human-written seed exemplar** of how to optimize a training-speedrun benchmark
-(minimize wall-clock to a fixed quality target under a statistical validity gate). It is
+(minimize wall-clock to a fixed quality target under a statistical validity rule). It is
 written deliberately as the **known-good operating procedure** — the concrete commands and
 recipe knobs I would actually run, with the decision at each fork — *not* a transcript of
 the agent's live run (that run nibbled a single mechanism family for hours and is recorded
@@ -21,7 +21,7 @@ this.
 
 ## When to use
 - The task is a wall-clock training-speedrun to a fixed metric target (e.g. modded-nanogpt
-  `val_loss <= 3.28`) with a frozen scorer and a **statistical validity gate** (a t-test
+  `val_loss <= 3.28`) with a frozen scorer and a **statistical validity rule** (a t-test
   over N runs), on real GPUs (8xH100 / B200).
 - The agent must produce real `train_time` / `val_loss` / `p` numbers and record the
   measure → decompose → pick-lever → re-measure → bank loop.
@@ -39,7 +39,7 @@ this.
 > **Attack the biggest lever, not the most fun one — and a faster number is not a result
 > until the t-test certifies it.** On a near-SOTA training recipe the per-step kernels are
 > already near the roofline; the leverage is in **fewer steps to the target** (convergence),
-> which compounds. And when a candidate's mean is already inside the gate, the binding
+> which compounds. And when a candidate's mean is already inside the target, the binding
 > constraint is *sample size*, not your recipe — you certify (N=10), you do not re-engineer.
 > The live run violated both halves: it spent hours on per-step FP8/MLP precision while the
 > optimizer/schedule went untouched, and it kept building mechanisms on a recipe that was
@@ -85,7 +85,7 @@ re-measure 80.18s; automated frontier (Recursive) 77.3s.
 
 Initialize `$NANOGPT_REMOTE`, `$NANOGPT_BENCH_ROOT`, `$NANOGPT_DATA_ROOT`,
 and `$NANOGPT_PYTHON` from the mission manifest before using the commands
-below. Missing values are an infrastructure blocker, not values to guess.
+below. A missing value is an infrastructure problem to report, not a value to guess.
 
 ### OP 0 — SEARCH the literature, reproduce the anchor, extract the curve
 
@@ -94,7 +94,7 @@ from memory gets them wrong (general technique ONLY; searching this task's leade
 is disqualifying). The concrete searches, and what each is FOR:
 
 ```text
-# the concrete artifact for each lever I might pull (arxiv/repo, not my memory of it):
+# the concrete source for each lever I might pull (arxiv/repo, not my memory of it):
 WebSearch "Muon optimizer Newton-Schulz Moonlight RMS-match AdamW weight decay"
 WebSearch "warmup-stable-decay WSD cooldown fraction" ; "muP muTransfer LR transfer small proxy"
 WebSearch "RHO-loss reducible holdout online batch selection" ; "sequence length warmup curriculum"
@@ -198,7 +198,7 @@ d) The cut — IF any of the above makes val_loss<=3.28 by ~step 1300, then drop
 ### OP 3 — the statistical discipline (how the win actually banks)
 
 ```text
-CAND <stacked recipe> — mean clearly inside the gate at N=3
+CAND <stacked recipe> — mean clearly inside the target at N=3
   command:     ./eval_solution.sh solution 3   ->   ./eval_solution.sh solution 10
   rule:        the moment N=3 shows mean val_loss CLEARLY < 3.28 with small sd, CERTIFY at
                N=10 and BANK as the new floor. Do NOT keep engineering validity you have.
@@ -240,7 +240,7 @@ failures on a speedrun are **process and statistics**, not the recipe.
 - **Nail 4 — testing in isolation and reverting to the bare floor.** Each mechanism was
   measured against the seed and reverted, so nothing compounded. Recursive's 77.3s is FIVE
   stacked inventions; the right unit of work is a current-best STACK.
-- **Nail 5 — infra/operational.** A daemon self-handoff once lost the persisted Manager
+- **Nail 5 — infra/operational.** A daemon self-restart once lost the persisted Manager
   classification; a restart landed mid-N=10-recert and marked that mission `failed`
   even though the orphaned scorer finished valid — the win computed but did not bank cleanly.
   Restart only at clean mission boundaries; verify env + `import` first.
@@ -254,7 +254,7 @@ failures on a speedrun are **process and statistics**, not the recipe.
    exact knobs from the recipe.
 4. For each candidate, record the full chain block with real scorer numbers; on every INVALID
    classify QUALITY vs POWER.
-5. The moment a mean is clearly inside the gate, **N=10-certify and bank**; **stack, don't
+5. The moment a mean is clearly inside the target, **N=10-certify and bank**; **stack, don't
    revert**.
 6. Stop a line when the gap to the next anchor needs an invention you don't have, and say so.
 

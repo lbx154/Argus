@@ -64,7 +64,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "passing repository tests is not sufficient: derive a temporary "
                 "compile/behaviour probe from every requested public signature and "
                 "boundary case in the task specification, run it, then remove only "
-                "that temporary probe before handoff. A probe is valid only when "
+                "that temporary probe before finishing. A probe is valid only when "
                 "its expected value is independent of the patch: derive it from "
                 "the issue text, unchanged callers, the closest sibling "
                 "implementation, or an established repository convention. Never "

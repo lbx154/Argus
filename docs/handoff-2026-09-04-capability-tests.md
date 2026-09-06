@@ -1048,3 +1048,63 @@ recency_n)已标注 done(2026-09-05,随本次提交)。
 - `release_matches_source` 若要启用,需先重新生成 manifest(见第十二节)。
 - 追记(2026-09-05 晚):终稿认证消费修复移植已 ship,commit 1194aa07d。
 - 追记(2026-09-05 晚):tests/skills/test_paper_chart_style.py 失败系 ebddbbf28 预存(router md 改写未同步测试断言),与本次移植无关。
+
+## 十七、追加(2026-09-06):token 效率与说话方式两批,及部署去向
+
+本批两个提交先后推上 main:一个管钱,一个管话。起因同一份法证核算:
+对现网一个 48 小时窗口的花费逐项归因,合计约 $3,800,其中估算
+37-50% 可省——大头不是新工作,而是每轮把同样的历史重读一遍,外加
+几类明知无望仍原地重试的循环。
+
+### 提交一:bd7ea41e7("Spend tokens on new work, not on rereading the transcript")
+
+围绕上面两个病根改了五处:
+
+1. **轮换预算只计非缓存 input**。会话轮换预算原按全量 input token
+   计,缓存命中的部分也在消耗一个会话的存续额度——缓存越好、轮换
+   越早,轮换又把已建的缓存前缀作废,自相矛盾。现只计非缓存 input,
+   上限经新 knob `ARGUS_SKILL_ROLE_SESSION_MAX_INPUT_TOKENS` 覆盖。
+2. **Reviewer 静态段指纹跨 mission 稳定**。Reviewer prompt 的静态
+   前言此前逐 mission 有字节级差异,会话恢复不了,每个 mission 都
+   把完整评审标准冷发一遍;现静态段字节稳定,会话得以续用。
+3. **两个同因止损**。同一原因的完成拒绝连续三次即暂停 mission 交
+   操作者,不再原地空转(第十六节 s-3e28f79c 那种 33 轮
+   completion_rejected 循环从此有界);后端持续失败按可中断的退避
+   拉长到小时级,模型配置类的永久错误直接落成决策卡,不进重试循环。
+4. **provider 轮次上限与收束重启**。单次 provider 调用封顶 40 轮
+   (`ARGUS_SKILL_PROVIDER_TURN_CAP`),到顶收束当前会话、换新会话
+   接着做,而不是拖着越来越长的 transcript 继续;Planner 同步收到
+   20 轮、单一 120k 预算 env 的额度口径。
+5. **GPU 监督量规增量化**。监督者的 GPU 量规原来逐轮复利式增长,
+   现改增量,不再每轮重发一份滚雪球的固定负载。
+
+### 提交二:de485177d("Speak like a colleague everywhere the operator looks")
+
+CLI follow 流、web 应用、TUI 面板、共享轮次 prompt、决策卡模板,
+凡是操作者会读到的句子,中英文都改成平实的研究者口吻,机械腔的
+过程行话(verdict、blocker、terminate-signal 之类)退场。
+`docs/how-argus-speaks.md` 从一份 CLI 备忘扩成全系统的说话标准,
+新增学科白名单一节——logic gate、EDA sign-off、测量 artifact、
+data pipeline、venue 义的 accepted/rejected 等学科本义原样保留;
+`tests/test_voice_wordlist.py` 作防回潮,扫已达标的操作者可见模板,
+退场词一回来就红。事件名、字段名、ACTION=/STATUS= 等解析标记、
+工具名、CLI flag、panel kind 这些机器 token 一律不动。与 token
+效率批共享的几个文件(round_reviewer、round_execution、
+round_self_review、reviewer/_core)的语气修订已随前一个提交落地。
+
+### 部署去向(2026-09-06)
+
+- 两个 paper daemon 已发 drain-and-roll 指令滚到 de485177d,当前
+  在途(排空现役 mission 后换版重启),待下次巡检确认落位。
+- 四个研究 daemon 仍处第十六节记录的停机状态(2026-09-05 15:36 UTC
+  操作者 clock-out),本批未重新拉起。
+
+### 已知遗留
+
+- claude/qoder 方言的 cached token 语义与轮换预算的归一化尚未对齐
+  ——两方言对"缓存命中"记账口径不同,轮换预算目前按 copilot 的
+  口径解释。现网机队全为 copilot,暂无实际影响,换方言前需先归一。
+- round_waits 与 turn-cap 重启路径上,同因计数没有随新会话清零,
+  收束重启后旧计数可能误触止损;本批接手正在修。
+- planner waiting 事件在 cycle=0 时把目录判为无效的小 bug,影响面
+  小,待修。

@@ -1,13 +1,13 @@
 ---
 name: "Learning Curation Review"
-description: "Gate a learning mission's proposed CRUD on the skill and wiki libraries — pass only changes that are evidence-anchored to the immutable material, non-redundant, non-regressive, correctly scoped, and (for removals) justified by a cited contradiction. A justified no-op passes."
+description: "Review a learning mission's proposed CRUD on the skill and wiki libraries — pass only changes that are evidence-anchored to the immutable material, non-redundant, non-regressive, correctly scoped, and (for removals) justified by a cited contradiction. A justified no-op passes."
 ---
 
 ## Title
 Learning Curation Review
 
 ## Description
-You are the gate on a self-modifying mission: the engineer read operator-supplied
+You review a self-modifying mission: the engineer read operator-supplied
 material and proposes changes to Argus's own skill and wiki libraries. Your job is
 NOT to judge the material — it is to judge whether each proposed library change is
 faithful to that material, does not duplicate or degrade what already exists, and
@@ -47,7 +47,7 @@ and pass ONLY what clears every relevant one:
 
 ## When NOT to use
 - Not for reviewing ordinary engineering missions — this rubric is specific to
-  library-CRUD proposals. Use the vertical's normal stage checklist for those.
+  library-CRUD proposals. Judge those against the vertical's ordinary stage requirements.
 - A valid learned skill lands active and versioned in the project layer. Use real
   downstream trajectories to propose later updates or retirement; do not invent a
-  separate confirmation or promotion gate.
+  separate confirmation or promotion step.

@@ -65,7 +65,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "A feasible route is chosen from the physical structure of the task: "
                 "theoretical derivation, numerical simulation, data analysis, "
                 "literature synthesis, experiment design, or a bounded negative result — not a "
-                "forced fixed pipeline."
+                "forced, fixed sequence of methods."
             ),
             evidence_hint="a task-specific route with reasons for included and skipped methods",
         ),
@@ -128,17 +128,17 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             id="execute.honest-boundary",
             statement=(
                 "When a critical condition is missing (data, apparatus, or full-text "
-                "literature), the work returns an explicit blocker or a clearly bounded "
-                "surrogate instead of pretending to be complete."
+                "literature), the work names the missing condition plainly or returns a "
+                "clearly bounded surrogate instead of pretending to be complete."
             ),
-            evidence_hint="an explicit blocker / bounded-surrogate note naming the missing condition",
+            evidence_hint="a note naming the missing condition, or the bounded surrogate used in its place",
         ),
     ),
     "review": (
         ChecklistItem(
             id="review.no-system-drift",
             statement=(
-                "There is no physical-system drift: the audited work still concerns "
+                "There is no physical-system drift: the reviewed work still concerns "
                 "the original system, regime, and observables."
             ),
             evidence_hint="a comparison of the reviewed result against the original scoped system",
@@ -147,9 +147,9 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             id="review.no-workflow-drift",
             statement=(
                 "There is no agent-workflow or meta-paper drift and no toy-overclaim: "
-                "the result is about the physics, not about the pipeline that produced it."
+                "the result is about the physics, not about the workflow that produced it."
             ),
-            evidence_hint="confirmation that claims are physical, not workflow or metadata artifacts",
+            evidence_hint="confirmation that claims are physical, not workflow byproducts or metadata",
         ),
         ChecklistItem(
             id="review.units-bcic",
@@ -180,7 +180,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="manuscript.compiled-paper",
             statement=(
-                "The terminal deliverable is a conventional research paper, not a "
+                "What the stage delivers is a conventional research paper, not a "
                 "scope/model/execute/review log, and MANUSCRIPT.tex compiles to a "
                 "current MANUSCRIPT.pdf."
             ),
@@ -266,7 +266,7 @@ def role_banner(role: str, project_root: object = None) -> str:
     common = (
         "MISSION TYPE: PHYSICS. Let the physical question choose theory, simulation, "
         "data, literature, or experiment work. Keep units, assumptions, evidence, and "
-        "claim boundaries honest. No fixed table, artifact count, or gate output proves "
+        "claim boundaries honest. No fixed table, file count, or process output proves "
         "scientific value.\n"
     )
     role_norm = (role or "").strip().lower()
@@ -282,14 +282,14 @@ def role_banner(role: str, project_root: object = None) -> str:
             "Execute the most informative physical route, then follow the feedback. "
             "Make equations, units, assumptions, and boundary/initial conditions "
             "explicit. Report residuals, convergence, uncertainty, provenance, and "
-            "evidence limits when they matter to the claim. A toy, metadata record, "
-            "or workflow artifact is not physical evidence."
+            "evidence limits when they matter to the claim. A toy, a metadata record, "
+            "or a workflow byproduct is not physical evidence."
         )
     if role_norm == "reviewer":
         return common + (
             "Independently judge physical-system fidelity, dimensional consistency, "
             "boundary/initial conditions, numerical or data evidence, uncertainty, "
-            "novelty, significance, and claim boundaries. Reject fabricated, "
+            "novelty, significance, and claim boundaries. Refuse fabricated, "
             "metadata-only, or agent-workflow evidence, but do not demand fixed "
             "tables, counts, or certificates. Ask for replan when the idea is weak."
         )

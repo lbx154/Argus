@@ -37,12 +37,12 @@ repositories, or standards. Record secondary sources only as discovery aids.
 - Search open PRs/issues before coding and immediately before preparing a PR.
 - Use recent windows (30/90/365 days) but retain older canonical mechanisms.
 
-## Evidence artifact
+## Evidence record
 
 When a durable report is useful, create a fresh snapshot at
 `research/frontier/<stage>.json` and append it with the provided recorder to
 `research/FRONTIER_WATCH.jsonl`. A stage transition alone does not require a new
-snapshot. The JSONL file is append-only audit output; never load it in full.
+snapshot. The JSONL file is an append-only ledger; never load it in full.
 
 ```bash
 python -m argus_skill.verticals.kernel_engineering.frontier_watch template \
@@ -58,7 +58,7 @@ Each snapshot may contain broad or focused queries, checked surfaces, sourced fa
 speculative hypotheses, mechanism comparisons, and open questions. It need not end in
 an action, implementation, or immediately verifiable claim. Reviewer judgment, not
 fixed query/source counts, decides whether the exploration is useful.
-`frontier_watch check` validates both the current snapshot and its latest
+`frontier_watch check` checks both the current snapshot and its latest
 same-stage ledger record, so agents and reviewers do not need to read the ledger.
 
 ## Decision discipline
@@ -66,9 +66,10 @@ same-stage ledger record, so agents and reviewers do not need to read the ledger
 - New work does not automatically invalidate measured local evidence. Reproduce
   relevant public results under the project's contract before adopting claims.
 - A new package/release can change environment requirements; refresh the
-  environment audit before using it.
+  recorded environment check before using it.
 - A new upstream PR may make local work duplicative; coordinate, change scope,
   or build on it rather than racing blindly.
 - No material update is a valid result when the search is real and documented.
-- Offline/no-network status is a freshness blocker. Continue local diagnostics
-  if useful, but do not certify the stage or claim the plan is current.
+- Offline/no-network status means freshness cannot be shown. Continue local
+  diagnostics if useful, but do not certify the stage or claim the plan is
+  current.

@@ -16,7 +16,7 @@ Treat MCP servers and generated Python as execution surfaces, not evidence.
 Evidence begins with a completed solver or instrument run and its native output.
 Index the evidence actually used in `research/MATERIALS_EVIDENCE.json` (version
 1, `evidence` list of project-relative `path` + `kind`). This is a provenance
-index, not a substitute for the native files or a scientific verdict.
+index, not a substitute for the native files or a scientific conclusion.
 
 Make composition, phase, temperature, pressure, strain rate, texture, defects,
 processing history, geometry, units, model parameters, boundary/initial
@@ -28,7 +28,7 @@ Treat `.argus/PIPELINE_STATE.json` and other Manager-owned lifecycle files as
 control state, never as scientific model inputs. Do not freeze their whole-file
 hashes in source/model integrity guards: a legitimate Manager stage transition
 changes those bytes between model and execute. Hash immutable data, code, model,
-and protocol artifacts instead; when lifecycle provenance matters, record the
+and protocol files instead; when lifecycle provenance matters, record the
 vertical plus the Manager-authored stage-history transition separately. A stage
 advance alone must not require a repair or preflight mission.
 
@@ -38,6 +38,6 @@ fitted data from validation data. Do not describe a surrogate or simulation as
 an experiment, a generated input as a run, or a missing commercial license as
 a successful calculation. Physical work must remain inside the authorized
 procedure, equipment interlocks, and applicable handling and disposal controls;
-do not bypass them. Return an honest bounded result or blocker when the required
+do not bypass them. Return an honest bounded result, naming what is missing, when the required
 data, compute, solver, sample, instrument, authorization, or safety controls are
 unavailable.

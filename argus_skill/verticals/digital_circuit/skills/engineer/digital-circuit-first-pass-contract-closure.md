@@ -50,7 +50,7 @@ instead of guessing.
 9. Only after these checks pass may the controller construct an official answer
    or invoke a scorer.
 
-Before handoff, write `evidence/preflight.json` with `"status": "pass"`, the
+Before the controller takes over, write `evidence/preflight.json` with `"status": "pass"`, the
 exact top module, RTL source paths, compiler command/return code, and output
 schema mapping. Any unresolved issue keeps status `"blocked"`.
 

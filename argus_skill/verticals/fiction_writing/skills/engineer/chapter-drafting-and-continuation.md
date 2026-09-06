@@ -46,7 +46,7 @@ Do NOT use for expository/academic writing, summaries, or non-narrative text.
 5. **Do NOT copy the source ('不能抄')**: for a continuation, capture the author's
    VOICE through the voice card's abstract features (register / 称谓 / 句式 /
    character idiolect) — NEVER by reproducing their sentences. Do not lift verbatim
-   spans from `reference_text.md`; the deterministic novelty gate BLOCKS a long
+   spans from `reference_text.md`; the deterministic novelty check BLOCKS a long
    copied run. Allude to and echo the source; do not transcribe it.
 6. **Do NOT touch story_state here** — state changes are extracted in the next
    stage as a structured patch.

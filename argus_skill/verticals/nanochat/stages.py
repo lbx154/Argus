@@ -80,7 +80,7 @@ def role_banner(role: str) -> str:
         "configured runner and GPU identity before any hardware claim. Detect the\n"
         "actual scaffold: in autoresearch-at-home edit ONLY\n"
         "train.py and freeze prepare.py; in the legacy scaffold edit the named\n"
-        "solution/train artifact and freeze lib.py. Never require a file from\n"
+        "solution/train file and freeze lib.py. Never require a file from\n"
         "the other scaffold. The metric, budget, held-out shard, and detected\n"
         "harness are frozen. Do NOT optimize for wall-time or throughput for its\n"
         "own sake — only final val_bpb matters. Honor the canonical workdir;\n"
@@ -137,19 +137,19 @@ def role_banner(role: str) -> str:
             "tweaks clustering within the LOCALLY MEASURED run/seed noise of the "
             "verified floor, that basin is SATURATED: do NOT propose another value of "
             "an already-swept knob — that is a wasted benchmark run.\n"
-            "NOISE GATE: a keep/reject decided on a val_bpb delta SMALLER than the "
+            "NOISE BAR: a keep/reject decided on a val_bpb delta SMALLER than the "
             "LOCALLY MEASURED noise is a COIN FLIP, not a win. Distinguish same-seed "
             "fresh-process repeat variance from cross-seed variance; neither may be "
             "replaced by a generic hard-coded sigma. If noise is not measured, do NOT "
             "bank a near-tie. Spend the next candidate on a lever big enough to clear "
-            "the measured gate.\n"
+            "the measured noise.\n"
             "COLLABORATIVE AT-HOME MODE: when coordinator.py plus a configured key are "
             "present, pull the live hardware-tier/global best and reproduce its source "
             "locally before treating it as the floor. CLAIM before editing; after EVERY "
             "run PUBLISH the result (including failures), a mechanistic insight, and the "
             "next hypothesis; refresh the live best every five runs. A pulled source "
             "that fails to import under the locked environment is a runtime-provenance "
-            "blocker, not a model regression: never substitute SDPA/FA3/fake attention. "
+            "failure, not a model regression: never substitute SDPA/FA3/fake attention. "
             "After explicit operator authorization, pin exact dependency versions and "
             "the upstream kernel/source revision, smoke-test forward+backward, then run "
             "the scorer.\n"
@@ -206,16 +206,16 @@ def role_banner(role: str) -> str:
             "\nINNOVATION CHECK: if the screened candidate is yet another single-"
             "scalar tweak landing within the LOCALLY MEASURED run/seed noise of the "
             "floor, say so plainly — a sub-noise delta is a COIN FLIP, not a win, and "
-            "must NOT be banked as a real improvement. Record in the handoff that the "
+            "must NOT be banked as a real improvement. Record in the research notes that the "
             "next candidate must either be a bigger single lever OR a CO-DESIGNED "
             "BUNDLE (2-4 levers proposed TOGETHER), NOT another greedy one-lever "
             "screen — and that a lever which regressed ALONE may still be a synergy "
             "candidate to RETRY inside a bundle, not discarded. Still verify the hard "
-            "gates: real FA-4, the detected harness (prepare.py OR lib.py) frozen, and "
+            "requirements: real FA-4, the detected harness (prepare.py OR lib.py) frozen, and "
             "an honest real-run score. Distinguish same-seed process-repeat variance "
             "from cross-seed variance. In collaborative mode verify CLAIM + result + "
             "insight + next-hypothesis publication. If secret scrubbing rewrites logs, "
-            "refresh the manifest's source-log metadata against the scrubbed artifacts; "
+            "refresh the manifest's source-log metadata against the scrubbed logs; "
             "stale provenance metadata needs record repair, not another scorer run.\n"
             "Do NOT demand multi-seed repeats for an ordinary screen: one clean real "
             "run is enough to discard a regression or choose the next hypothesis. Ask "
@@ -529,7 +529,7 @@ def _training_dynamics_block(project_root: object, attempts: list) -> str:
 
         lines = [
             "## Training dynamics — measured at the fixed-budget cutoff "
-            "(NO verdict; YOU judge)",
+            "(facts only; YOU judge)",
             "Re-read from your own `profile` in summary.json over the last "
             f"{len(profs)} profiled attempt(s). Measured only — the harness draws no "
             "conclusion about what (if anything) these imply.",
@@ -636,11 +636,11 @@ def _no_score_facts(project_root: object) -> str:
         if not gated:
             return ""
         lines = [
-            "## Proxy-gated NO-SCORE attempts — measured (NO verdict; YOU judge)",
+            "## Proxy-skipped NO-SCORE attempts — measured (facts only; YOU judge)",
             f"{len(gated)} recorded attempt(s) produced NO official score because "
-            "YOUR OWN train-only proxy gate skipped them (PROFILE_GATE_FAIL_NO_SCORE) "
+            "YOUR OWN train-only proxy screen skipped them (PROFILE_GATE_FAIL_NO_SCORE) "
             "— the cheap proxy showed a regression vs the floor, so the expensive "
-            "official scorer was not spent. The proxy delta that tripped each gate "
+            "official scorer was not spent. The proxy delta that skipped each one "
             "(val_rg weighted, >0 = worse than floor):",
         ]
         for name, wd in gated[-_NO_SCORE_RECENT_N:]:
@@ -648,7 +648,7 @@ def _no_score_facts(project_root: object) -> str:
             lines.append(f"    {name} | proxy Δ {shown}")
         lines.append(
             "This is where benchmark budget went without an official number. Whether a "
-            "gated regime deserved a real score anyway (e.g. a fresh regime still in "
+            "skipped regime deserved a real score anyway (e.g. a fresh regime still in "
             "its initial-regression valley) is YOUR research call — not the "
             "harness's.\n"
         )
@@ -725,7 +725,7 @@ def search_altitude_context(project_root: object) -> str:
         ) or "(none)"
 
         return (
-            "## Search altitude — LIVE facts from attempts/ (NO verdict; YOU judge)\n"
+            "## Search altitude — LIVE facts from attempts/ (facts only; YOU judge)\n"
             "Re-surfaced from your OWN recorded attempts/*/summary.json "
             "(mean_val_bpb, lower is better). The harness asserts no threshold "
             "and makes no keep/reject call — this is visibility only so your "

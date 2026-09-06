@@ -1,6 +1,6 @@
 ---
 name: "B200 KernelBench Runtime"
-description: "Operational playbook for B200 KernelBench/SOL runs: verify the configured B200 remote, scorer endpoint, frozen official scorer, artifact capture, and the common infrastructure/correctness traps before optimizing kernels."
+description: "Operational playbook for B200 KernelBench/SOL runs: verify the configured B200 remote, scorer endpoint, frozen official scorer, evidence capture, and the common infrastructure/correctness traps before optimizing kernels."
 ---
 
 # B200 KernelBench Runtime
@@ -13,13 +13,13 @@ scorer, or a GPU-kernel benchmark whose score comes from a frozen service.
 
 Pair it with `SOL Kernel SOTA Optimization` for mechanism search and with
 `SOL Kernel Hands-on Trace` when the engineer needs a failure-first exemplar.
-This skill owns the **runtime and evidence gate**, not the kernel idea.
+This skill owns the **runtime and the evidence standard**, not the kernel idea.
 
-## Non-negotiable runtime contract
+## Non-negotiable runtime rules
 
 1. The frozen official scorer is the only source of truth. Local debug timing,
-   `gpu_run.py`, self-timed CUDA events, or a manually edited score file are
-   not accepted as benchmark results.
+   `gpu_run.py`, self-timed CUDA events, or a manually edited score file do
+   not count as benchmark results.
 2. Prove the B200 and scorer are reachable before editing a kernel:
 
    ```bash
@@ -33,8 +33,8 @@ This skill owns the **runtime and evidence gate**, not the kernel idea.
    curl -fsS --max-time 5 "$KERNELBENCH_SCORER_URL/health"
    ```
 
-3. If the scorer is down, restore the port-forward or write an infrastructure
-   blocker. Do not optimize against a guessed harness.
+3. If the scorer is down, restore the port-forward or record the outage in
+   `INFRA_BLOCKER.md`. Do not optimize against a guessed harness.
 4. Run official scoring with failure propagation:
 
    ```bash
@@ -58,7 +58,7 @@ historical deployment:
 - The scorer backend must report `gpu: "NVIDIA B200"` and the expected
   benchmark problem set.
 - A working scorer may still exit nonzero after printing a `RESULT` line if the
-  local artifact directory is missing; create output directories and preserve
+  local output directory is missing; create output directories and preserve
   exit codes.
 
 ## Common traps from the real trace
@@ -67,7 +67,7 @@ historical deployment:
 - **No `results/` directory** can make the scorer crash after emitting the
   useful line. Create directories before scoring.
 - **`gpu_run.py` only sends the script body** in some harnesses; it does not
-  sync local `solutions/` edits. Use the official scorer for acceptance.
+  sync local `solutions/` edits. Use the official scorer for any result you keep.
 - **Baseline files may not define `ModelNew`**. Confirm the required symbols
   before using a file as a candidate.
 - **Axis mistakes can be numerically plausible but wrong**. For RMSNorm, a
@@ -81,7 +81,7 @@ historical deployment:
 A scorer `RUNTIME_ERROR` / `NO_TRACE` (or a Triton lowering failure) is almost
 always a **fixable** compile/config bug — a wrong arch flag (`sm_100a` vs
 `sm_90a`), a misused CUTLASS 3.x / CuTe API, a dependency/version mismatch in
-`spec.dependencies`, or an unsupported codepath — **not** a verdict that the
+`spec.dependencies`, or an unsupported codepath — **not** evidence that the
 mechanism is wrong. The harness surfaces the full error: a failed workload's
 trace carries the complete traceback (the eval driver's `log`), and a
 pre-workload crash returns the build/`nvcc` stderr (read the `server_error=` /
@@ -114,14 +114,14 @@ tree ships with the benchmark (e.g. `cutlass/gemm`, `cute_dsl/...`,
 language before writing your own — study the structure; the mechanism is your
 call.
 
-## Required evidence artifacts
+## Required evidence files
 
-Every accepted B200 benchmark mission must leave:
+Every completed B200 benchmark mission must leave:
 
-- `research/GROUND_TRUTH.md` or equivalent scorer contract:
+- `research/GROUND_TRUTH.md` or an equivalent record of the scorer's facts:
   target problem, editable file, frozen files, command, baseline score.
 - Attempt directory containing source snapshot, official log, exit code,
-  checksum before/after, and a short verdict.
+  checksum before/after, and a short conclusion.
 - If blocked: `INFRA_BLOCKER.md` with exact failing command, observed output,
   missing service/path, and what must be restored.
 - If keeping a candidate: final official log showing correctness and score,
@@ -135,5 +135,5 @@ Every accepted B200 benchmark mission must leave:
 4. Re-run a tiny baseline official score.
 5. Only then launch a new optimization attempt.
 
-If any rung fails, stop optimizing and record a blocker with the exact command
+If any rung fails, stop optimizing and record the failure with the exact command
 output. Waiting is acceptable; fabricated scores are not.

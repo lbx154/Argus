@@ -102,7 +102,7 @@ def validate_external_scoring_handoff(
 
 
 def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
-    """Validate the fixed-harness artifact handoff before execution completes."""
+    """Validate the files the fixed-harness scorer needs before execution completes."""
     if (stage or "").strip().lower() != "execute":
         return ()
 
@@ -170,7 +170,7 @@ def _main(argv: list[str] | None = None) -> int:
     )
     if result.passed:
         return 0
-    print("repair freshness gate failed: " + ", ".join(result.issues))
+    print("repair freshness check failed: " + ", ".join(result.issues))
     return 1
 
 CHECKLIST_ITEMS = {
@@ -183,7 +183,7 @@ CHECKLIST_ITEMS = {
                 "latency are frozen before RTL. Ambiguities are recorded; the public "
                 "interface is never silently corrected without an explicit prompt request."
             ),
-            evidence_hint="design/BENCHMARK_INTERFACE.json plus public-context audit",
+            evidence_hint="design/BENCHMARK_INTERFACE.json plus a public-context check",
         ),
         ChecklistItem(
             id="benchmark.rtl-local-gate",
@@ -203,20 +203,20 @@ CHECKLIST_ITEMS = {
                 "The exact expected top module passes Icarus elaboration and the "
                 "precomputed answer mapping matches the public output schema."
             ),
-            evidence_hint="evidence/preflight.json and attempt answer artifact",
+            evidence_hint="evidence/preflight.json and the attempt's answer file",
         ),
         ChecklistItem(
             id="benchmark.integrity-handoff",
             statement=(
-                "The attempt handoff preserves backend/model provenance, hidden/golden "
+                "The attempt's delivered record preserves backend/model provenance, hidden/golden "
                 "non-exposure, iteration identity, and append-only scoring semantics. "
                 "Manager, Planner, Engineer, and independent Reviewer execution is "
                 "recorded for the attempt. Evaluator infrastructure/no-execution records "
                 "do not consume a model attempt number or enter Pass@k denominators. "
                 "A repair additionally proves fresh preflight/regression evidence and "
                 "a mechanically verified answer hash for its current generation. "
-                "No-execution infrastructure failures imply no RTL verdict; an unchanged "
-                "official signature requires a changed public-only hypothesis and test."
+                "No-execution infrastructure failures say nothing about RTL correctness; an "
+                "unchanged official signature requires a changed public-only hypothesis and test."
             ),
             evidence_hint=(
                 "delivery/BENCHMARK_RESULT.md and evidence/repair_freshness.json"
@@ -230,7 +230,7 @@ def role_banner(role: str) -> str:
     return _digital_circuit_role_banner(role) + (
         "\nBENCHMARK SUBVERTICAL: complete the whole pre-score task in ONE bounded "
         "execute mission: public contract closure, RTL, prompt-derived local tests, "
-        "pre-score elaboration, and immutable handoff. Do not create or wait for "
+        "pre-score elaboration, and an immutable record of the attempt. Do not create or wait for "
         "separate specification, RTL, verification, synthesis, or delivery stages. "
         "If `.argus/repair-objective.json` exists, read its generation, iteration, "
         "answer_paths, prior_answer_hash, and created_at. Write fresh preflight JSON "
@@ -249,12 +249,12 @@ def role_banner(role: str) -> str:
         "print(hash_project_files(Path('.'), e.answer_paths))\"`; do not substitute "
         "a plain per-file SHA-256. Preflight "
         "and each regression evidence file must be structured JSON with status=pass "
-        "and matching generation/iteration/repair_mission_id. The gate recomputes "
+        "and matching generation/iteration/repair_mission_id. The freshness check recomputes "
         "all hashes; declarations alone cannot pass. If the categorical signature is "
         "unchanged, also bind public_hypothesis_path/public_hypothesis_hash to a "
         "public-only changed hypothesis with matching generation/iteration/"
         "repair_mission_id, and mark a changed public-only regression. "
-        "A no_execution signature must be infrastructure_only and is not an RTL verdict."
+        "A no_execution signature must be infrastructure_only and says nothing about RTL correctness."
     )
 
 

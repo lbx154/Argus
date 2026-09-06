@@ -93,7 +93,7 @@ def test_digital_circuit_role_banners_pin_hardware_evidence() -> None:
     reviewer = vertical_role_banner(mod, "reviewer")
     for banner in (planner, engineer, reviewer):
         assert "MISSION TYPE: DIGITAL CIRCUIT / RTL ENGINEERING" in banner
-        assert "NOT a paper pipeline" in banner
+        assert "NOT paper writing" in banner
         assert "Never claim PASS from compile success alone" in banner
         assert "silently correcting an interface" in banner
         assert "no-execution separately" in banner
@@ -175,7 +175,7 @@ def test_digital_circuit_banners_cover_benchmark_integrity_and_local_tools() -> 
     for banner in (planner, engineer, reviewer):
         assert "Keep the first official attempt immutable" in banner
         assert "golden outputs or hidden harness sources" in banner
-    assert "shortest auditable path" in planner
+    assert "shortest checkable path" in planner
     assert "route repair work" in planner
     assert "exact benchmark interface closure" in planner
     assert "declared local containers" in engineer

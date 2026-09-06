@@ -47,7 +47,7 @@ class TierSpec:
 
 TIERS: dict[str, TierSpec] = {
     "S": TierSpec(
-        tier="S", name="Nature/Science level (aspiration only; never the default gate)",
+        tier="S", name="Nature/Science level (aspiration only; never the default target)",
         claim_types=("major conceptual breakthrough", "universal/general mechanism",
                      "result that changes a subfield's direction with interdisciplinary interest"),
         evidence_requirements=("multiple independent lines", "mechanism generalizing beyond the model",
@@ -55,7 +55,7 @@ TIERS: dict[str, TierSpec] = {
         numerical_requirements=("multi-model, multi-scale", "held-out + adversarial controls",
                                 "convergence to thermodynamic/irrational limit", "full provenance"),
         reviewer_gate="validity + importance + BROAD/interdisciplinary significance (all three)",
-        manuscript_gate="full original-research package + strong significance narrative",
+        manuscript_gate="a full original-research article + strong significance narrative",
         downgrade_from_when="broad significance not demonstrable after the first full model->execute cycle",
         stop_chasing_higher_when="N/A (top)",
         operator_auth_required=True,
@@ -102,7 +102,7 @@ TIERS: dict[str, TierSpec] = {
                                "clear boundaries", "honest reporting of what does and does not work"),
         numerical_requirements=("a systematic comparison/benchmark with controls + convergence checks", "provenance"),
         reviewer_gate="'scientifically valid and technically sound' ONLY — no importance/novelty bar at C",
-        manuscript_gate="technically-sound-report package; honest, bounded, no overclaim",
+        manuscript_gate="a technically sound report; honest, bounded, no overclaim",
         downgrade_from_when="no sound positive/benchmark result, but a systematic negative result can be produced",
         stop_chasing_higher_when="a sound benchmark / failure-mechanism study exists — STOP",
         operator_auth_required=False,
@@ -174,8 +174,8 @@ def tier_rubric_banner(tier: object) -> str:
         f"- ACCEPTABLE CLAIM TYPES: {'; '.join(spec.claim_types)}.\n"
         f"- MIN EVIDENCE: {'; '.join(spec.evidence_requirements)}.\n"
         f"- NUMERICAL: {'; '.join(spec.numerical_requirements)}.\n"
-        f"- REVIEWER GATE (evaluate against THIS tier only): {spec.reviewer_gate}.\n"
-        f"- MANUSCRIPT GATE: {spec.manuscript_gate}.\n"
+        f"- REVIEWER BAR (evaluate against THIS tier only): {spec.reviewer_gate}.\n"
+        f"- MANUSCRIPT BAR: {spec.manuscript_gate}.\n"
         f"- STOP CHASING HIGHER WHEN: {spec.stop_chasing_higher_when}.\n"
         f"- The reviewer MUST NOT apply a higher tier's standard to a Tier-{spec.tier} claim. "
         f"Downgrade is a change of CLAIM TYPE, never a reduction in rigor.\n"

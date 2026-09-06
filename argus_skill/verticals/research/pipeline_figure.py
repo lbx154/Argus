@@ -51,7 +51,7 @@ Use an ICLR-style scientific composition (a visual style, not a venue mandate):
   Use aligned compact bands with staggered internal modules. Do not replace a
   complex architecture with four or five generic boxes, large empty cards or
   lists disconnected from the flow. Do not invent detail to fill the canvas.
-- Draw a compact horizontal, left-to-right pipeline. Use staggered heights, small
+- Draw the method pipeline compactly, horizontal and left-to-right. Use staggered heights, small
   branches and nested modules where the actual method benefits; avoid a flat
   row of identical boxes. Keep related elements close and remove unused space.
 - Show the novel mechanism through one restrained accent, with the existing
@@ -130,7 +130,7 @@ def build_pipeline_prompt(
 def validate_svg_source(svg: str) -> None:
     """Check the static drawing contract before opening the local browser."""
     if len(svg.encode("utf-8")) > _MAX_SVG_BYTES:
-        raise ValueError("pipeline SVG exceeds 2 MB; use ordinary vector primitives")
+        raise ValueError("method pipeline SVG exceeds 2 MB; use ordinary vector primitives")
     if re.search(r"<!DOCTYPE|<!ENTITY|<\?", svg, flags=re.I):
         raise ValueError("SVG declarations, entities and processing instructions are unsupported")
     root = ET.fromstring(svg)
@@ -148,7 +148,7 @@ def validate_svg_source(svg: str) -> None:
         }:
             raise ValueError("all visible geometry must be inside pipeline-content")
     if not any(e.tag == f"{{{SVG_NS}}}text" and "".join(e.itertext()).strip() for e in groups[0].iter()):
-        raise ValueError("pipeline needs editable text labels")
+        raise ValueError("the method pipeline needs editable text labels")
     for element in root.iter():
         tag = element.tag.removeprefix(f"{{{SVG_NS}}}")
         if tag not in _ELEMENTS:
@@ -182,15 +182,15 @@ _FIT_CONTENT = """({padding, width}) => {
     node.removeAttribute('lengthAdjust');
   }
   const box = content.getBBox();
-  if (!(box.width > 0 && box.height > 0)) throw Error('pipeline content is empty');
+  if (!(box.width > 0 && box.height > 0)) throw Error('pipeline-content has no visible geometry');
   // The group itself must not transform the coordinate system being cropped.
   if (content.hasAttribute('transform') || getComputedStyle(content).transform !== 'none')
     throw Error('put transforms inside pipeline-content, not on the content group');
   // Allow space for strokes and the small boundary arrowheads in this contract.
   const w = box.width + 2 * padding, h = box.height + 2 * padding;
-  if (w <= h) throw Error('pipeline must be horizontal; revise the SVG layout');
+  if (w <= h) throw Error('the method pipeline must be horizontal; revise the SVG layout');
   const height = Math.ceil(width * h / w);
-  if (height < 1) throw Error('pipeline aspect ratio is too extreme');
+  if (height < 1) throw Error('the method pipeline aspect ratio is too extreme');
   svg.setAttribute('viewBox', `${box.x-padding} ${box.y-padding} ${w} ${h}`);
   svg.setAttribute('width', width);
   svg.setAttribute('height', height);
@@ -249,7 +249,7 @@ def _render_page(width: int):
             finally:
                 browser.close()
     except Error as exc:
-        raise RuntimeError(f"Chromium pipeline rendering failed: {exc}") from exc
+        raise RuntimeError(f"Chromium rendering of the pipeline figure failed: {exc}") from exc
 
 
 def render_pipeline(
@@ -292,7 +292,7 @@ def render_pipeline(
             page.evaluate("document.fonts.ready")
             fonts = _check_actual_fonts(page)
             if blocked:
-                raise ValueError("pipeline attempted to load an external resource")
+                raise ValueError("the SVG attempted to load an external resource")
             if geometry["min_text_pt"] < 8:
                 raise ValueError(
                     f"labels shrink to {geometry['min_text_pt']:.1f} pt at output width; "

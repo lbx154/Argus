@@ -4,7 +4,7 @@ description: "Independently review mathematical correctness, novelty, significan
 ---
 
 Review the mathematics, not the paperwork. Missing scope documents, ledgers,
-graphs, audit reports, or evidence bundles are not defects by themselves, and
+graphs, or files of gathered evidence are not defects by themselves, and
 their presence is not evidence of correctness.
 
 Read the original question and the actual result. Check the important steps,
@@ -26,7 +26,7 @@ research goal is complete.
 
 ## Say which layer failed
 
-When the round is incomplete, name where it failed. The verdict says whether
+When the round is incomplete, name where it failed. The decision says whether
 to continue; this says what to change, and without it every failure gets
 patched locally.
 
@@ -45,9 +45,9 @@ sufficient criterion does not settle the original question.
 
 Distinguish a result that shrinks the distance to the goal from one that is
 merely new. Extending a finite verification to a wider range, more moduli, or
-more primes produces a fresh artifact and no gap reduction; a finite
+more primes produces a fresh computation and no gap reduction; a finite
 computation is not a proof of a universal claim, and repeating it at a larger
-bound does not become one. Do not accept a round whose only increment is the
+bound does not become one. Send back a round whose only increment is the
 same verification at a larger bound — say which proposition moved, or that
 none did.
 
@@ -69,16 +69,16 @@ no evidence bound to the statement it currently carries — if it once did, the
 statement was restated afterwards and the old certificate no longer describes
 it.
 Record the outcome with `math_state judge --claim ID --verdict ... --by you
---artifact <the certificate you read>`, including the `inconclusive` verdicts —
+--artifact <the certificate you read>`, including `inconclusive` —
 a step you could not settle is a result. Judgement promotes nothing; a claim's
 status will not move because you agreed with it.
 
-Name the certificate. A fidelity verdict is about a particular reading of the
+Name the certificate. A fidelity judgement is about a particular reading of the
 theorem, not about the claim forever: if the fidelity note is later rewritten
 and the proof re-verified, the compiler answers as before but the reading it is
-paired with is a different one, and a verdict that named the old document is
+paired with is a different one, and a judgement that named the old document is
 reported by `check` until whoever gave it reads the new one and judges again. A
-verdict that cites nothing is not reported — not because it is safer, but
+judgement that cites nothing is not reported — not because it is safer, but
 because it never said which document it was reached from, so it silently carries
 over to a reading nobody reviewed. That is the one approval that must not be
 inherited, so cite what you read.
@@ -91,7 +91,7 @@ delivered while one is outstanding, and you are the right party to close them:
 the worker who wrote "Theorem 3.2 of [K]" is the one whose reading is in
 question, so their own confirmation of it is the assertion under review, not a
 check of it. That is now the program's rule and not only yours — `attribute`
-refuses a `supports` verdict filed under the name that recorded the assumption,
+refuses a `supports` answer filed under the name that recorded the assumption,
 and a citation supported by nobody else reports as `self_checked` and blocks
 delivery until someone independent goes and looks. Which usually means you.
 
@@ -99,7 +99,7 @@ delivery until someone independent goes and looks. Which usually means you.
         --excerpt-file read.txt --verdict supports --by "reviewer:you"
 
 The excerpt is what makes this the one tier besides judgement you can write. It
-is the passage you actually read at that locator, archived before your verdict
+is the passage you actually read at that locator, archived before your answer
 is recorded against it, so the next reader can open it and disagree — which is
 the whole difference between a literature check and an opinion. Quote the
 statement with its hypotheses. A source that has the theorem under conditions
@@ -115,7 +115,7 @@ third question that belongs in your proof review.
 Say plainly whether the outcome is proved, disproved, computational evidence,
 partial progress, a conjecture, or unresolved. Check relevant primary sources
 only when novelty is claimed or required by the requested ambition; otherwise
-leave novelty unknown rather than demanding a separate audit artifact.
+leave novelty unknown rather than demanding a separate search report.
 
 Fill any structured result field required by the active schema, but do not
 duplicate the same judgment in extra reports.

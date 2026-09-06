@@ -18,7 +18,7 @@ Classify the first decisive failure before editing:
 7. `datapath-arithmetic`: value, overflow, truncation, endianness, algorithm.
 8. `benchmark-packaging`: required public context or tool input is missing.
 9. `evaluator-infrastructure`: the official harness did not execute, returned no
-   run, or failed outside RTL compilation/simulation. This is not an RTL verdict.
+   run, or failed outside RTL compilation/simulation. It says nothing about the RTL.
 
 ## Repair loop
 
@@ -26,7 +26,7 @@ Classify the first decisive failure before editing:
 2. State one root-cause hypothesis and the evidence that distinguishes it.
 3. Make one narrow RTL change; never change visible inputs, reference, or scorer.
 4. Add a task-local regression that fails before and passes after the change.
-5. Rerun compile plus the smallest functional gate, then independent Reviewer.
+5. Rerun compile plus the smallest decisive functional test, then independent Reviewer.
 6. Append the result to the attempt ledger and update cumulative correctness for
    every allowed iteration.
 7. Record only the categorical official signature status (`changed`, `unchanged`,
@@ -35,7 +35,7 @@ Classify the first decisive failure before editing:
    and a changed task-local regression/metamorphic test. Both must identify
    `provenance_scope=public_only`, `changed_from_prior=true`, and the current
    `generation` / `iteration` / `repair_mission_id`; wording-only RTL regeneration
-   cannot satisfy the repair gate.
+   cannot satisfy the repair freshness check.
 9. Stop on success or the predeclared cap. Repeated identical failures require a
    different hypothesis, not another wording-only regeneration.
 

@@ -68,10 +68,11 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
 
 def role_banner(role: str) -> str:
     common = (
-        "MISSION TYPE: LITERARY PROSE (散文/随笔/回忆, zh/en). The deliverable is a "
+        "MISSION TYPE: LITERARY PROSE (散文/随笔/回忆, zh/en). This mission asks for a "
         "prose piece with concrete observation and a clear boundary between fact and "
         "memory. There is NO meter machine check; structure completeness and declared "
-        "hard constraints are the only machine gate. Craft is live-judged.\n"
+        "hard constraints are the only machine-checked requirements. Craft is "
+        "live-judged.\n"
     )
     if role == "planner":
         return common + ("Drive intake -> plan -> draft -> structure_check -> review "
@@ -88,7 +89,8 @@ def role_banner(role: str) -> str:
             "(6) Avoid slogan endings and template philosophizing — your judgement.")
     if role == "reviewer":
         return common + (
-            "You gate the prose. Structure + hard-constraint findings are BLOCKING and "
+            "You decide whether the prose holds. Structure + hard-constraint "
+            "findings are BLOCKING and "
             "mirror the machine report. observation/fact_memory/fabrication/movement/"
             "ending/template are NON-BLOCKING live judgements — flag any invented fact "
             "or crossed memory_boundary. Follow the 'Prose Review' skill. Emit "

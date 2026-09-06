@@ -24,7 +24,7 @@ Do NOT use to draft from scratch or to re-plan the arc.
 1. **Read `review.json`** and sort findings by severity. Every `blocking`
    continuity finding MUST be fixed; `major`/`minor`/`note` craft items are
    fixed when cheap, otherwise accepted with a one-line rationale (craft is
-   judgment, not a gate).
+   judgment, not a requirement).
 2. **Edit surgically.** For each blocking finding, change the specific span the
    review cited; avoid collateral rewrites that could introduce NEW
    contradictions. Preserve the parts the review did not flag.

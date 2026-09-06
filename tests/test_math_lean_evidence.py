@@ -414,7 +414,7 @@ def test_a_success_claiming_a_failed_axiom_audit_is_not_evidence(
     _write_result(root, status="success", audit_exit_code=3)
 
     assert "lean_result_invalid" in _codes(root)
-    assert "axiom audit" in " ".join(stage_completion_issues("solve", root))
+    assert "axiom check" in " ".join(stage_completion_issues("solve", root))
 
 
 def test_a_recorded_timeout_is_not_treated_as_verified(tmp_path: Path) -> None:
@@ -717,7 +717,7 @@ def test_an_unrunnable_axiom_audit_blocks_separately(tmp_path: Path) -> None:
     )
 
     assert "lean_unverified_audit_failed" in _codes(root)
-    assert "unaudited proof is not evidence" in " ".join(
+    assert "axioms were never checked is not evidence" in " ".join(
         stage_completion_issues("solve", root)
     )
 

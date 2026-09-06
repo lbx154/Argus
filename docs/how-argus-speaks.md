@@ -114,6 +114,45 @@ and only that sense:
 - **checkpoint** — of a model during training, and `CHECKPOINT.md` between
   rounds, which is an ordinary word.
 - **unit** — a unit test, a unit of measurement. Never a "unit of work".
+- **gating** — a neural network's own gates: a gated RNN, multiplicative
+  gating, a mixture-of-experts gate. Never a decision that lets work proceed.
+- **artifact (the ML literature's own senses)** — the machine-checkable object
+  a method emits for a solver or verifier (a program, a proof, a trace), the
+  code and models a paper releases, a post-processing artifact in a rendered
+  PDF, and a spurious effect that is "an artifact of" a metric, formulation,
+  or simplified model. Never a file the harness produced.
+- **checklist** — a venue's own required submission checklist (a
+  Reproducibility Checklist after the References). Never the harness's list
+  of steps.
+- **pipeline figure** — the drawn method pipeline of a paper ("the pipeline
+  figure", "a teaser or pipeline figure"), together with the machine tokens
+  named after it: the `<g id="pipeline-content">` group its SVG source must
+  use and the `research-svg-pipeline.md` skill file.
+- **synthesis pipeline** — the data-synthesis pipeline a benchmark ships as
+  the object under study (math_synth's editable generator): a data pipeline
+  by its full name. Never the sequence of stages, rounds, or roles.
+- **package** — a software package in the ordinary computing sense: a Python
+  package, `pip install <name>`, an importable module tree. Never a bundle of
+  work, a "work package", or a "report package".
+- **accepted (benchmark submission)** — a submission a leaderboard or
+  benchmark service accepted (an accepted target in SOL-ExecBench). Never the
+  harness deciding a round.
+- **acceptance test** — software's own name for a task's held-back official
+  test suite ("official acceptance tests are held back"). Never the Reviewer
+  accepting a round.
+- **pipeline (drug development)** — a company's or a field's drug or clinical
+  development pipeline in pharmaceutical evidence research ("competitive
+  pipeline"). Never the sequence of stages, rounds, or roles.
+- **gate (in a story)** — a literal gate in narrative text: a fiction sample
+  or draft may speak of the gates of its own world. Never a process gate.
+- **signoff / sign-off checks** — chip design also writes the EDA sense without
+  the hyphen and as a flow stage: the signoff stage that closes a hardware flow
+  before tape-out, sign-off checks (STA, DRC, LVS), a hardware sign-off
+  reviewer, and the `signoff/` evidence paths. Never the Reviewer approving a
+  round.
+- **pipeline (hardware)** — the execution pipeline of a processor or
+  accelerator ("pipeline occupancy", "pipeline stall"), the same architecture
+  sense as a CPU pipeline. Never the sequence of stages, rounds, or roles.
 
 When a new field needs its own use of a retired word, add it here first, then
 use it; `tests/test_voice_wordlist.py` reads its allowances from the same list.

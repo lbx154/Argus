@@ -20,6 +20,6 @@ sources and whose uncertainty and missing evidence remain visible. Reject
 patient-specific diagnosis, treatment selection, or claims that Argus created
 or clinically validated a new drug.
 
-For a bounded deliverable, review in one pass: read it once, verify all cited
-source IDs in one batched request, and run the acceptance check once. Do not
-repeat passing checks or inspect unrelated dossier artifacts.
+For a bounded request, review in one pass: read it once, verify all cited
+source IDs in one batched request, and check it against the request once. Do not
+repeat passing checks or inspect dossier files the conclusion does not rest on.

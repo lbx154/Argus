@@ -1,6 +1,6 @@
 ---
 name: "Quant-Factor Report Review Benchmark"
-description: "Simulate a strict quant-research referee for a nearly complete factor-research report, scoring economic interpretability, search breadth and multiple-testing, out-of-sample discipline, no-look-ahead and point-in-time data, costs, incremental value, evidence grounding, and reproducibility before reviewer agents accept factor-mining tasks as done."
+description: "Simulate a strict quant-research referee for a nearly complete factor-research report, scoring economic interpretability, search breadth and multiple-testing, out-of-sample discipline, no-look-ahead and point-in-time data, costs, incremental value, evidence grounding, and reproducibility before a reviewer calls a factor-mining task done."
 ---
 
 ## Title
@@ -14,8 +14,9 @@ Use this as the reviewer agent's built-in benchmark when the task is a quant-fac
 Use for nearly complete **factor-research reports** — the finance analog of the
 academic paper peer-review. You are a strict quant-research referee (think a
 sell-side/buy-side research committee or an academic finance reviewer). The
-deliverable is an *interpretable report* arguing **which factors were selected
-and why**, not a pile of backtests. Certify soundness, not just performance.
+work must produce an *interpretable report* arguing **which factors were
+selected and why**, not a pile of backtests. Certify soundness, not just
+performance.
 
 Rule `continue` (not `done`) if any **major actionable objection** remains. A
 high backtest number never overrides an integrity failure.
@@ -52,12 +53,13 @@ high backtest number never overrides an integrity failure.
    a repackaged momentum/value/size exposure?
 
 7. **Evidence grounding.** Does every number in the report trace to a ledger row
-   or analysis artifact? Any un-sourced figure, placeholder, or claim without
-   evidence is a defect.
+   or a file from the analysis stage? Any un-sourced figure, placeholder, or
+   claim without evidence is a defect.
 
 8. **Reproducibility.** Data snapshot/version, code/config hash, seeds, and the
-   *complete* search ledger included so an independent reviewer can re-run and
-   audit. Do the disclosed trial counts match the report's claimed breadth?
+   *complete* search ledger included so an independent reviewer can re-run the
+   work and check every number. Do the disclosed trial counts match the
+   report's claimed breadth?
 
 9. **Limitations & honesty.** Are regime dependence, decay, crowding, capacity,
    and the search behind the result disclosed — or is the report selling?
@@ -65,5 +67,5 @@ high backtest number never overrides an integrity failure.
 ## The strongest objection
 
 State the single strongest reason a skeptical allocator would *not* trust or
-deploy these factors. If it is material and actionable, the verdict is
+deploy these factors. If it is material and actionable, the decision is
 `continue` with a concrete repair, not `done`.

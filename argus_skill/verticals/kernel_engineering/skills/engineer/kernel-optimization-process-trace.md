@@ -85,7 +85,7 @@ the matmuls drop to TF32 (~1e-3 error — under `atol=0.004`).
 A first, un-tuned version (BM=BN=64, online softmax, causal mask) already:
 
 ```
-correctness vs fp32 SDPA:  max_abs_err 0.0027–0.0029 < 0.004  → 100% within tol  ✓PASS the rtol=1e-5 gate
+correctness vs fp32 SDPA:  max_abs_err 0.0027–0.0029 < 0.004  → 100% within tol  ✓PASS the rtol=1e-5 requirement
 per-op speed (seq=4096):   fp32 EFFICIENT 2.51 ms → TF32 flash 1.80 ms  (1.39×)
 ```
 

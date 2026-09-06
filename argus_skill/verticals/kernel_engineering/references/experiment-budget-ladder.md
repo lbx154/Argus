@@ -11,11 +11,11 @@ idea to a full correctness suite or an all-section profiler run.
    compilation is the declared metric.
 3. **Timeline profile:** use the project-native profiler, torch profiler, or a
    low-overhead system trace to identify kernel share, launch count, and
-   CPU/other-kernel overhead. Use this timeline duration for the leverage gate.
+   CPU/other-kernel overhead. Use this timeline duration for the leverage analysis.
    Multi-pass counter-profiler duration can be perturbed by replay and is not a
    wall-clock-share substitute.
-4. **Leverage gate:** compare target-kernel time with end-to-end time using
-   `kernel_engineering.leverage_gate`. Reject targets whose plausible gain cannot
+4. **Leverage analysis:** compare target-kernel time with end-to-end time using
+   `kernel_engineering.leverage_gate`. Set aside targets whose plausible gain cannot
    clear the required total speedup/noise floor.
 5. **Focused NCU/NSYS:** only after leverage passes, collect the launches and
    sections needed to choose one mechanism. Avoid all-section replay unless the
@@ -27,7 +27,7 @@ idea to a full correctness suite or an all-section profiler run.
    informed by profiling, current primary sources, and the measured regression.
    Do not run the full suite.
 8. **Certification:** full correctness and benchmark matrix only for a retained
-   candidate that passed the micro A/B gate.
+   candidate that cleared the micro A/B comparison.
 
 ## Reviewer-controlled exploration budget
 
@@ -43,8 +43,8 @@ layout, fusion, launch structure, tensorization, reuse, or another physical
 change—not an unchanged rerun or cosmetic knob sweep. Continue the same mission
 while evidence is progressing. Retain a winner, or return `replan_requested`
 when concrete evidence shows the direction cannot clear the end-to-end
-noise/MDE. Negative evidence remains valuable, but validation/report are for a
-retained candidate, not ceremony around a failed one.
+noise/MDE. Negative evidence remains valuable, but certification and reporting
+are for a retained candidate, not ceremony around a failed one.
 
 The next round receives the compact experiment card and checkpoint, not raw
 profiler output. Raw reports remain on disk as evidence.

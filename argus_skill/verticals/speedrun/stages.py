@@ -82,16 +82,16 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="setup.solution_self_contained",
             statement=(
-                "The deliverable is the EDITABLE artifact the mission names (a recipe / "
+                "What the mission asks for is the EDITABLE file it names (a recipe / "
                 "solution file / kernel) that uses the mission's FROZEN harness/scorer "
-                "UNCHANGED and modifies ONLY that editable artifact. The reviewer must "
+                "UNCHANGED and modifies ONLY that editable file. The reviewer must "
                 "confirm the agent did NOT touch the harness, the evaluation, the metric, "
                 "the held-out data, or the budget — they are byte-identical to the scaffold "
                 "(hash / `git diff` against the pinned scaffold) — and that the candidate is "
                 "scored through the mission's frozen scorer exactly as the mission specifies."
             ),
             evidence_hint=(
-                "the editable artifact + an unchanged-harness hash vs the pinned scaffold + "
+                "the editable file + an unchanged-harness hash vs the pinned scaffold + "
                 "a run log produced through the mission's frozen scorer"
             ),
         ),
@@ -141,7 +141,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "per-repeat record captures each run's metric as RE-MEASURED by the VERIFIER "
                 "re-running the candidate through the frozen scorer under the identical "
                 "protocol; the headline the reviewer trusts is the verifier's, because the "
-                "agent edits only the artifact and can self-report anything."
+                "agent edits only the editable file and can self-report anything."
             ),
             evidence_hint=(
                 "per-repeat record (run, metric) from the verifier's re-runs + the computed "
@@ -173,7 +173,8 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "protocol (same repeats, same budget, same held-out eval) — NOT a published "
                 "number from different hardware. The comparison is head-to-head and cites "
                 "BOTH per-run records (ours and the re-measured baseline's) so the win is a "
-                "like-for-like delta, not a hardware / protocol artifact. If the candidate "
+                "like-for-like delta, not a measurement artifact of differing hardware or "
+                "protocol. If the candidate "
                 "does NOT beat the re-measured baseline, say so plainly and queue a "
                 "repair/pivot — do not relabel a loss as a win."
             ),
@@ -250,16 +251,16 @@ def role_banner(role: str = "engineer") -> str:
         "'optimized' solution to this exact speedrun. General method = ALLOWED; this "
         "task's published solution = DISQUALIFYING.\n"
         "\n"
-        "## PIPELINE = OPTIMIZE — hard override of everything below\n"
+        "## THE WHOLE MISSION IS OPTIMIZE — hard override of everything below\n"
         "Lean numeric-optimization loop, NOT a research paper. NO paper / draft / "
         "review / submission / publication stages; the only stages are `run` (edit "
-        "+ score) and `analysis`; missing paper artifacts are EXPECTED, never a defect "
+        "+ score) and `analysis`; missing paper files are EXPECTED, never a defect "
         "— the stage is never rolled back to research/plan (stage transitions are the "
-        "Manager's, not yours), never rebuild a paper literature "
-        "gate (short `research/PROFILE.md` and `research/TECHNIQUE_NOTES.md` are fine). "
+        "Manager's, not yours), never rebuild a paper-stage literature "
+        "requirement (short `research/PROFILE.md` and `research/TECHNIQUE_NOTES.md` are fine). "
         "Score only with the frozen scorer the objective names. Run BASIN-HOPPING + "
         "CO-TUNING, not greedy hill-climb: snapshot the lowest-ever VERIFIER-measured "
-        "metric as the GLOBAL BEST (the deliverable floor, never lost), but develop an "
+        "metric as the GLOBAL BEST (the floor the mission will report, never lost), but develop an "
         "ACTIVE LINE that may sit ABOVE the floor while a mechanism matures over "
         "several rounds. Done only when the metric target is met or the budget is "
         "spent.\n"
@@ -322,7 +323,7 @@ def role_banner(role: str = "engineer") -> str:
             "  * NEVER accept 'no changes / objective complete' while budget remains "
             "and the metric can still drop, and treat a properly measured-and-"
             "reverted bold experiment as GOOD process, not failure. Do NOT flag "
-            "missing research/paper artifacts, apply paper/contribution criteria, or "
+            "missing research/paper files, apply paper/contribution criteria, or "
             "recommend rollback.\n"
         ),
         "engineer": (

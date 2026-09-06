@@ -1084,10 +1084,10 @@ def certificate_issues(state: MathState) -> tuple[StateIssue, ...]:
                     "this claim stands on: the statement fidelity note was "
                     "rewritten and the proof re-verified, so the compiler's "
                     "answer is now paired with a different reading of the "
-                    "theorem. The compile is unaffected and that verdict is "
+                    "theorem. The compile is unaffected and that judgement is "
                     "not, because it was about the reading. Read the "
                     "certificate this claim cites now — `show` lists it under "
-                    "`certificates` — and record the verdict again with "
+                    "`certificates` — and record the judgement again with "
                     f"`judge --claim {claim.claim_id} --artifact <that path> "
                     f"--by {record.produced_by}`",
                 )
@@ -1533,7 +1533,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "who is putting this dependency on the record. Kept so that a "
             "later confirmation of the citation can be told apart from its "
             "author restating it: `citation_check attribute` refuses a "
-            "supporting verdict under this same name, and a citation whose "
+            "supporting answer under this same name, and a citation whose "
             "only support came from here reports as `self_checked` and does "
             "not clear delivery. Refuting your own citation is always recorded"
         ),
@@ -1595,7 +1595,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "what the opinion was reached from: the certificate that was read, "
             "or a file holding the reasoning. Citing the certificate is what "
-            "makes the verdict stop counting if the reading it approved is "
+            "makes the judgement stop counting if the reading it approved is "
             "later replaced"
         ),
     )

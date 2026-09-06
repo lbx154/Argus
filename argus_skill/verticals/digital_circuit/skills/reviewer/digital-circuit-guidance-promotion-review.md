@@ -10,7 +10,7 @@ description: "Promote only reusable, independently supported RTL lessons into th
 1. Require support from at least two independent tasks, or one task plus an
    authoritative public hardware reference.
 2. Rewrite the lesson as a generic detector, invariant, repair strategy, or
-   verification gate. Remove task IDs, hidden values, exact expected traces,
+   verification check. Remove task IDs, hidden values, exact expected traces,
    and benchmark-specific implementation details.
 3. Record failure taxonomy, evidence paths, applicability, counterexamples, and
    the benchmark phase after which the skill becomes eligible.
@@ -21,7 +21,7 @@ description: "Promote only reusable, independently supported RTL lessons into th
    correctness without increasing false repairs.
 6. Keep version history and make every promotion reversible.
 
-## Reject promotion when
+## Decline promotion when
 
 - the lesson is supported only by official hidden-oracle behavior;
 - it encodes a benchmark task's ports, constants, state sequence, or answer;

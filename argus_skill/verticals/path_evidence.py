@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     except PathEvidenceError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
-    print(f"OK: structural artifact {path.relative_to(root)}")
+    print(f"OK: found non-empty file {path.relative_to(root)}")
     return 0
 
 

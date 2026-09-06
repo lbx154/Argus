@@ -5,7 +5,7 @@ description: "Review regulated verse for mechanical prosody constraints and live
 
 # 近体诗审阅 · Prosody, Conception & Anti-AI Review
 
-The classical_poetry reviewer checklist. It reuses the framework Reviewer role
+How the classical_poetry reviewer reads a poem. It reuses the framework Reviewer role
 (no new agent) and separates what is **machine-decidable** from what is
 **live-reviewer judgement** — never faking the latter as the former.
 

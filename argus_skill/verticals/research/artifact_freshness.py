@@ -254,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
         for issue in issues:
             print(f"ERROR: {issue}")
     else:
-        print("review artifact freshness: PASS")
+        print("review freshness: PASS")
     return 0 if not issues else 2
 
 

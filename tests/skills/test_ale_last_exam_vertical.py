@@ -74,7 +74,7 @@ def test_ale_last_exam_role_banners_pin_hidden_reference_boundaries() -> None:
     for banner in (planner, engineer, reviewer):
         assert "HIDDEN reference" in banner
         assert "Never seek" in banner
-        assert "NOT a paper pipeline" in banner
+        assert "NOT a paper-writing mission" in banner
 
 
 def test_ale_last_exam_vertical_skills_are_packaged(tmp_path: Path) -> None:

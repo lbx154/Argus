@@ -77,7 +77,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "There is a first-score plan naming the project-local command, the "
                 "editable implementation file/kernel, the metric to improve, and the "
-                "JSON/table artifact that will prove correctness and speed."
+                "JSON/table file that will prove correctness and speed."
             ),
             evidence_hint="research/FIRST_SCORE_PLAN.md or research/RESEARCH_BRIEF.md",
         ),
@@ -92,7 +92,7 @@ def role_banner(_role: str) -> str:
         "KERNEL-SPEED task, NOT bits-per-byte and NOT time-to-loss. Objective:\n"
         "MAXIMIZE the Speed-of-Light (SOL) score of the kernels on B200 — write\n"
         "CORRECT kernels whose runtime approaches the hardware SOL. Correctness is\n"
-        "a hard gate (a fast wrong kernel scores 0). Higher SOL% is better.\n"
+        "a hard requirement (a fast wrong kernel scores 0). Higher SOL% is better.\n"
     )
 
 

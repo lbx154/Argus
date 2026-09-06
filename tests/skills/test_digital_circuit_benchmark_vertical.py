@@ -57,7 +57,7 @@ def test_benchmark_checklist_preserves_public_contract_and_local_semantics() -> 
     assert "prior-state sequential behavior" in rendered
     assert "initialization uncertainty" in rendered
     assert "metamorphic" in rendered
-    assert "No-execution infrastructure failures imply no RTL verdict" in rendered
+    assert "No-execution infrastructure failures say nothing about RTL correctness" in rendered
     assert "changed public-only hypothesis and test" in rendered
     assert "do not consume a model attempt number" in rendered
     assert "Manager, Planner, Engineer, and independent Reviewer" in rendered

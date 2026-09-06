@@ -1,6 +1,6 @@
 ---
 name: "Target-Disease Evidence Research"
-description: "Use when building an auditable evidence package for a biomedical target and disease relationship, translation, safety, failures, or competitive trials."
+description: "Use when building a target-disease evidence dossier — every claim traceable to its source — for a biomedical target and disease relationship, translation, safety, failures, or competitive trials."
 ---
 
 ## Required inputs
@@ -12,7 +12,7 @@ pathway, drug, biomarker, indication, and subtype ambiguity explicitly.
 
 ## Evidence workflow
 
-Match the workflow to the requested deliverable. For a bounded summary, stop
+Match the workflow to what was asked for. For a bounded summary, stop
 when each requested evidence item is supported: batch PubMed IDs into one
 E-utilities request, batch trial IDs where the API permits, and do not run
 overlapping searches after the evidence limit is met. Produce only the named
@@ -32,7 +32,7 @@ output; the full dossier below is for requests that actually ask for one.
 
 ## Deterministic tool
 
-Use the packaged builder instead of rewriting retrieval or artifact code. Quote
+Use the bundled builder instead of rewriting the retrieval or dossier code. Quote
 the operator's actual target and disease values:
 
 ```bash

@@ -1,4 +1,4 @@
-"""Evidence-gated chip and accelerator design vertical.
+"""Chip and accelerator design vertical, run on checkable evidence.
 
 The vertical spans product/workload definition through RTL, verification,
 PPA, prototyping, benchmark comparison, and final sign-off. It supports
@@ -44,8 +44,9 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="definition.acceptance-metrics",
             statement=(
-                "Correctness, performance, power, area/resource, quality, and provenance acceptance "
-                "criteria are measurable and distinguish IP, FPGA, GDS, tapeout, and market claims."
+                "The correctness, performance, power, area/resource, quality, and provenance "
+                "standards the result must meet are measurable and distinguish IP, FPGA, GDS, "
+                "tapeout, and market claims."
             ),
             evidence_hint="design/CHIP_SCOPE.json acceptance_metrics and design/SPEC.md",
         ),
@@ -100,8 +101,9 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="environment.eda-capabilities",
             statement=(
-                "A machine-readable audit proves every simulator, formal, synthesis, FPGA, physical-design, "
-                "PDK, sign-off, and compiler/runtime capability required by the delivery level is ready."
+                "A machine-readable record proves that the simulator, formal, synthesis, FPGA, "
+                "physical-design, PDK, and compiler/runtime capabilities and the sign-off checks "
+                "the delivery level requires are all ready."
             ),
             evidence_hint="research/ENVIRONMENT_AUDIT.json",
         ),
@@ -161,8 +163,8 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="verification.reproducible-green",
             statement=(
-                "Fresh simulator/formal commands exit successfully, referenced raw artifacts exist, and "
-                "passing summaries contain no contradictory failures."
+                "Fresh simulator/formal commands exit successfully, the referenced raw files exist, "
+                "and passing summaries contain no contradictory failures."
             ),
             evidence_hint="verification/RESULTS.json and verification/raw/",
         ),
@@ -214,7 +216,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="prototype.hardware-evidence",
             statement=(
-                "Applicable prototype evidence records tool/board/chip identity, build artifact, clocks and "
+                "Applicable prototype evidence records tool/board/chip identity, the build output, clocks and "
                 "resources, host/runtime integration, on-hardware correctness, power, and raw commands/logs."
             ),
             evidence_hint="prototype/RESULTS.json and prototype/raw/",
@@ -250,7 +252,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="signoff.artifact-integrity",
             statement=(
-                "The final manifest links source, generated artifacts, verification, PPA, prototype, "
+                "The final manifest links source, generated files, verification, PPA, prototype, "
                 "benchmark, tool versions, git identity, and reproduction entry points."
             ),
             evidence_hint="signoff/ARTIFACT_MANIFEST.json and signoff/SIGNOFF.json",
@@ -276,7 +278,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
 
 
 def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
-    """Return deterministic blockers from the vertical's existing validators."""
+    """Return deterministic issues from the vertical's existing validators."""
     stage_name = (stage or "").strip().lower()
     root = Path(project_root)
 
@@ -321,16 +323,18 @@ def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
 def role_banner(role: str) -> str:
     """Frame roles around auditable chip-design evidence."""
     common = (
-        "MISSION TYPE: CHIP / ACCELERATOR DESIGN. Execute an evidence-gated hardware "
-        "flow from workload definition through architecture, RTL, verification, PPA, "
-        "prototype, benchmark, and sign-off. This is NOT ordinary software work, NOT "
-        "a paper pipeline, and NOT merely RTL generation. Delivery level matters: "
+        "MISSION TYPE: CHIP / ACCELERATOR DESIGN. Run a hardware flow in which every "
+        "claim rests on checkable evidence, from workload definition through "
+        "architecture, RTL, verification, PPA, prototype, benchmark, and the final "
+        "signoff stage. This is NOT ordinary software work, NOT paper writing, and "
+        "NOT merely RTL generation. Delivery level matters: "
         "synthesizable IP, FPGA, open-PDK GDS, computer-verified pre-tapeout readiness, "
         "actual tapeout readiness, and fabricated silicon "
         "are different claims. Freeze interfaces, numerical behavior, target technology, "
-        "resource/power budgets, baselines, and acceptance metrics before implementation. "
+        "resource/power budgets, baselines, and the metrics the finished design must "
+        "meet before implementation. "
         "Numeric area, frequency, power, memory, and quality targets are operator-owned "
-        "contracts. An Agent-authored plan, ledger, review packet, or rejection report may "
+        "contracts. An Agent-authored plan, ledger, or review may "
         "recommend a change but cannot authorize one; relaxing a target requires explicit "
         "operator approval recorded as such. "
         "Use maintained EDA flows and IP before authoring replacements. Never invent tool "
@@ -347,19 +351,19 @@ def role_banner(role: str) -> str:
             "only for a real workload/delivery/interface/budget contract change; architecture "
             "only for a changed dataflow, memory hierarchy, compute organization, or control "
             "interface; environment only for changed target/tool/IP/license requirements. "
-            "Never treat a Planner or Reviewer budget-reallocation packet as operator "
+            "Never treat a Planner or Reviewer budget-reallocation proposal as operator "
             "authorization to relax a numeric target. "
             "Do not rewrite, rehash, or recertify stable definition/architecture/environment "
-            "artifacts merely to replace the name of the next unsupported operator. When several "
+            "records merely to replace the name of the next unsupported operator. When several "
             "remaining operators share one descriptor family, numerical contract, memory model, "
             "and compute organization, freeze that family once instead of reopening one contract "
             "per operator. After that family contract is certified, keep resource folding, "
             "retiming, and area/timing repair in the RTL loop; do not reopen earlier stages. Use a fast "
             "capability loop for non-milestone operator uplifts: rtl -> verification -> fresh "
             "Sky130 PPA inside one bounded RTL mission whose Planner task has "
-            "`stage_closing=false`; Reviewer acceptance completes that task but does not advance "
-            "the pipeline out of rtl. Then schedule the next operator directly. Run prototype, "
-            "full benchmark, multi-node PPA, signoff, and a local milestone commit only when "
+            "`stage_closing=false`; a Reviewer judgment that the work holds completes that task "
+            "but does not advance the flow out of rtl. Then schedule the next operator directly. Run prototype, "
+            "full benchmark, multi-node PPA, the signoff stage, and a local milestone commit only when "
             "the complete target hardware workload or complete model/system demonstration is "
             "Reviewer-certified, or the operator explicitly requests a release. Intermediate "
             "operator groups such as QKV, RoPE+KV, Attention, or MLP are checkpoints, not release "
@@ -373,8 +377,8 @@ def role_banner(role: str) -> str:
             "before RTL; require independent verification before PPA; and require PPA/prototype "
             "evidence before benchmark claims. Rank architecture changes by roofline/Amdahl "
             "leverage and end-to-end workload impact. Separate fair same-flow open baselines from "
-            "commercial market context. Replan on toolchain, correctness, timing, area, power, or "
-            "memory-bandwidth blockers rather than polishing downstream reports."
+            "commercial market context. Replan when toolchain, correctness, timing, area, power, or "
+            "memory bandwidth stands in the way rather than polishing downstream reports."
             " Batch the remaining operators of one already-understood hardware family into one "
             "definition/architecture contract; never schedule per-operator environment refreshes "
             "when target, tools, IP, licenses, and delivery level are unchanged."
@@ -382,14 +386,15 @@ def role_banner(role: str) -> str:
             "PPA loop as exactly one bounded RTL task with `stage_closing=false`; include "
             "implementation, full regression, canonical PPA, and evidence binding in that task. "
             "Do not emit separate verification-stage or PPA-stage closeout tasks and do not ask "
-            "the Manager to advance out of rtl. Leave prototype/full benchmark/signoff for complete-workload or "
+            "the Manager to advance out of rtl. Leave prototype, full benchmark, and the signoff "
+            "stage for complete-workload or "
             "model/system release milestones. Keep an unmet operator-owned target unmet "
             "until the operator explicitly approves a replacement; do not route "
             "implementation through a proposed cap."
         )
     if normalized == "engineer":
         return common + (
-            "Read the project-native contract and audit the exact runtime first. Build the smallest "
+            "Read the project's own terms and inspect the exact runtime first. Build the smallest "
             "traceable architecture/RTL increment, maintain an independent executable model, and "
             "run real lint, simulation, formal, synthesis, implementation, and benchmark commands "
             "appropriate to scope. Preserve failing seeds, waveforms, reports, candidate diffs, "
@@ -401,20 +406,20 @@ def role_banner(role: str) -> str:
             "Act as an independent architecture, verification, implementation, benchmark, and "
             "tapeout-readiness reviewer. Rerun decisive commands; challenge workload and memory "
             "assumptions, reference independence, CDC/reset/protocol behavior, timing/area/power "
-            "constraints, baseline fairness, quality floors, IP licensing, raw artifact hashes, "
-            "and intervention claims. Reject different-node PPA comparisons, simulation presented "
+            "constraints, baseline fairness, quality floors, IP licensing, raw file hashes, "
+            "and intervention claims. Decline different-node PPA comparisons, simulation presented "
             "as silicon, or commercial-product claims without same-workload measured evidence."
-            " Reject any claimed target relaxation that lacks explicit operator authorization; "
-            "Reviewer acceptance alone cannot change an operator-owned numeric contract. "
+            " Turn back any claimed target relaxation that lacks explicit operator authorization; "
+            "the Reviewer's judgment alone cannot change an operator-owned numeric target. "
             " Reuse upstream evidence only when its recorded RTL-manifest binding is current. "
             "Treat one successful canonical, hash-bound Yosys/ABC result as the decisive PPA "
             "run: inspect its raw evidence and do not launch a second full Yosys/ABC PPA for "
             "the same RTL, verification, constraints, library, and toolchain hashes unless "
-            "the packet is incomplete or materially suspect. "
+            "that evidence is incomplete or materially suspect. "
             "For intermediate operator and operator-group uplifts, certify the "
             "rtl/verification/PPA delta without demanding ceremonial prototype N/A, full "
-            "benchmark, multi-node PPA, or signoff regeneration. Treat `done` on such a "
+            "benchmark, multi-node PPA, or a rerun of the signoff stage. Treat `done` on such a "
             "`stage_closing=false` task as mission completion, not permission to advance the "
-            "pipeline out of rtl."
+            "flow out of rtl."
         )
     return common

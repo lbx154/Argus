@@ -25,7 +25,7 @@ where a signal says to buy/sell. Renders a report-quality candlestick chart to a
   candlestick describes the market; `signal=`/`buy=`/`sell=` shows what the *model*
   is doing against it — that is the figure a reviewer/user actually learns from.
 - Title every chart with the instrument + window (e.g. `"SH600519 2025-06..2026-06"`).
-- Save under the mission's artifacts directory and reference the path in the report.
+- Save the PNG under the mission's `artifacts/` directory and reference the path in the report.
 - Headless-safe (Agg backend); never blocks on a display.
 
 ## Example

@@ -60,7 +60,7 @@ The HC sample here is moderate (~16 papers) and fairly informative. HC papers ea
 ## Examples
 ### Oral lessons
 - Granting an adaptation procedure more degrees of freedom can hurt rather than help, because the optimization trajectory — not the reachable solution set — is what distorts a high-quality pretrained representation, so pre-initializing the output stage before end-to-end updates preserves it.
-- Before blaming the loss for instability, audit the forward pass: a stateful aggregation operator can corrupt representations upstream of any gradient, making the correct fix architectural rather than objective-level.
+- Before blaming the loss for instability, inspect the forward pass: a stateful aggregation operator can corrupt representations upstream of any gradient, making the correct fix architectural rather than objective-level.
 - When a model's outputs recycle into its own future training data, the quantity that separates stable from runaway drift is whether those outputs are statistically indistinguishable from training draws, not whether they are accurate.
 - A weak model's own quality scoring, though imperfect, is sufficient to separate usable self-generated pairs from noise at scale, so a single model can serve as both the generator and the curator of its training data.
 - Self-generated quality estimates too noisy for pointwise regression can still be reliable as relative orderings, so reformulating them as pairwise preferences rescues an otherwise unusable supervisory signal.

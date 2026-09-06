@@ -236,7 +236,8 @@ def check_novelty(
                 "run_len": None,
                 "detail": (
                     f"verbatim overlap ratio {ratio:.2f} of the draft matches the "
-                    "reference (note; declare novelty_budget.max_overlap_ratio to gate)"
+                    "reference (note; declare novelty_budget.max_overlap_ratio to "
+                    "make this blocking)"
                 ),
                 "calibration": _CALIBRATION,
             })

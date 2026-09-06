@@ -37,7 +37,7 @@ Do NOT use to plan a research paper's sections or a literature survey.
    timeline, open_threads are progressed not forgotten, planted foreshadowing is
    not leaked early. Note any thread you deliberately defer.
 4. **Keep genre/market style as a profile input** (from the brief), shaping
-   beats/pacing — do not spin up a genre-specific pipeline.
+   beats/pacing — do not spin up a genre-specific vertical.
 
 ## When NOT to use
 - When there is no brief yet (run intake first).

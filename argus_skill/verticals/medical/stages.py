@@ -68,11 +68,11 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Every retrieved record preserves source type, source identifier, "
                 "canonical URL, exact query, retrieval time, raw response, normalized "
-                "fields, and the raw artifact consumed by each evidence row."
+                "fields, and the raw response file each evidence row consumed."
             ),
             evidence_hint=(
                 "query journal, immutable raw responses, normalized evidence JSONL, and "
-                "source-local raw artifact paths"
+                "source-local raw_artifact paths"
             ),
         ),
         ChecklistItem(
@@ -163,7 +163,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "across incompatible study contexts."
             ),
             evidence_hint=(
-                "source-located audit of every decision-relevant number and trial field"
+                "a source-located check of every decision-relevant number and trial field"
             ),
         ),
     ),
@@ -187,8 +187,8 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "cumulative infrastructure failures, and independent review state."
             ),
             evidence_hint=(
-                "complete medical artifact package with inspectable source IDs, raw "
-                "artifacts, and review verdict"
+                "the complete dossier with inspectable source IDs, raw response "
+                "files, and the independent review's conclusion"
             ),
         ),
     ),

@@ -520,7 +520,7 @@ def test_chip_design_banners_distinguish_delivery_levels() -> None:
     assert "do not route implementation through a proposed cap" in planner
     assert "independent executable model" in engineer
     assert "different-node PPA" in reviewer
-    assert "Reviewer acceptance alone cannot change" in reviewer
+    assert "Reviewer's judgment alone cannot change" in reviewer
     assert "mission completion, not permission to advance" in reviewer
     assert "do not launch a second full Yosys/ABC PPA" in reviewer
 
@@ -532,7 +532,7 @@ def test_chip_design_skills_include_chip_and_digital_circuit_layers() -> None:
     assert "engineer/digital-circuit-rtl-verification.md" in skills
     assert "reviewer/digital-circuit-signoff-review.md" in skills
     assert "bytes per token" in skills["engineer/chip-design-environment-first.md"]
-    assert "Delivery-level gate" in skills["reviewer/chip-design-signoff-review.md"]
+    assert "Delivery-level boundaries" in skills["reviewer/chip-design-signoff-review.md"]
 
 
 def test_all_structured_evidence_validators_accept_complete_rtl_ip(tmp_path: Path) -> None:

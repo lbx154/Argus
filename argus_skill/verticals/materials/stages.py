@@ -148,7 +148,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             id="execute.reproducible-provenance",
             statement=(
                 "Inputs, structures or CAD, material parameters, pseudopotentials or force fields, "
-                "mesh, software and versions, seeds, hardware, commands, and output artifacts are "
+                "mesh, software and versions, seeds, hardware, commands, and output files are "
                 "preserved to the level needed to reproduce the claim."
             ),
             evidence_hint="the exact executable path, versioned inputs, run command, environment, and native outputs",
@@ -166,9 +166,10 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             id="execute.capability-boundary",
             statement=(
                 "Unavailable licenses, software, hardware, samples, or instruments produce an "
-                "explicit blocker or a clearly labeled surrogate, never a fabricated run."
+                "explicit statement of what is missing or a clearly labeled surrogate, "
+                "never a fabricated run."
             ),
-            evidence_hint="real capability discovery and an honest boundary for anything not executed",
+            evidence_hint="real capability discovery and an honest boundary for anything not run",
         ),
         ChecklistItem(
             id="execute.physical-safety-compliance",

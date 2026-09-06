@@ -140,7 +140,7 @@ def test_kernel_reference_guidance_does_not_gate_exploration() -> None:
 
     assert "do not require a failure" in frontier
     assert "valid result even without implementation" in frontier
-    assert "not a gate on research" in idgl
+    assert "places no bar on research" in idgl
     assert "high-risk exploration" in idgl
     assert "One clean run is enough for exploratory screening" in idgl
     assert "do not require multiple seeds" in measurement

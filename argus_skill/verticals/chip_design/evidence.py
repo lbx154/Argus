@@ -1,4 +1,4 @@
-"""Fail-closed structured evidence checks for chip-design stage gates."""
+"""Fail-closed structured evidence checks for the chip-design stages."""
 
 from __future__ import annotations
 
@@ -377,30 +377,31 @@ def _validate_artifact_manifest(
 ) -> Path:
     path, payload = _payload(project_root, relative)
     if _status(payload) not in PASS_STATUSES:
-        raise EvidenceError(f"{path}: artifact manifest status must pass")
+        raise EvidenceError(f"{path}: manifest status must pass")
     entries = _require_list(payload, "artifacts", path)
     indexed: dict[str, str] = {}
     for index, entry in enumerate(entries):
+        entry_ref = f"artifacts[{index}]"
         if not isinstance(entry, Mapping):
-            raise EvidenceError(f"{path}: artifacts[{index}] must be an object")
+            raise EvidenceError(f"{path}: {entry_ref} must be an object")
         rel = str(entry.get("path") or "").strip()
         digest = str(entry.get("sha256") or "").strip().lower()
         if not rel or len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
-            raise EvidenceError(f"{path}: artifacts[{index}] needs path and SHA-256")
-        artifact = _project_file(project_root, rel)
-        if _sha256(artifact) != digest:
+            raise EvidenceError(f"{path}: {entry_ref} needs path and SHA-256")
+        manifest_file = _project_file(project_root, rel)
+        if _sha256(manifest_file) != digest:
             raise EvidenceError(f"{path}: SHA-256 mismatch for {rel}")
         indexed[rel] = digest
     missing = sorted(set(required_paths) - set(indexed))
     if missing:
-        raise EvidenceError(f"{path}: manifest does not bind required artifacts: {missing}")
+        raise EvidenceError(f"{path}: manifest does not bind these required files: {missing}")
     return path
 
 
 def _signoff(project_root: Path) -> Path:
     path, payload = _payload(project_root, "signoff/SIGNOFF.json")
     if _status(payload) not in PASS_STATUSES or _has_failure(payload):
-        raise EvidenceError(f"{path}: sign-off must pass without contradictory failures")
+        raise EvidenceError(f"{path}: status must pass without contradictory failures")
     stages = _require_mapping(payload, "stage_results", path)
     mandatory = ("definition", "architecture", "environment", "rtl", "verification", "ppa", "benchmark")
     for stage in mandatory:
@@ -465,7 +466,9 @@ def _signoff(project_root: Path) -> Path:
         environment_path.relative_to(root),
     )
     if not environment_ok:
-        raise EvidenceError(f"{path}: environment audit is invalid: {'; '.join(environment_errors)}")
+        raise EvidenceError(
+            f"{path}: environment readiness evidence is invalid: {'; '.join(environment_errors)}"
+        )
     level = str(
         _load_object(_project_file(project_root, "design/CHIP_SCOPE.json")).get(
             "delivery_level"

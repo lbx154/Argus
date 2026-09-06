@@ -59,6 +59,11 @@ class ManifestError(ValueError):
     """Raised when an artifact manifest is structurally or semantically invalid."""
 
 
+#: The machine-parsed key the entry list lives under, exactly as the schema
+#: spells it; error text names it via this token.
+_ARTIFACTS_KEY = "artifact_manifest.artifacts"
+
+
 def load_json_artifact(path: str | Path) -> Any:
     """Read one JSON artifact, reporting both failures as ``ManifestError``.
 
@@ -98,7 +103,7 @@ def _assert_acyclic(artifacts: list[dict[str, Any]]) -> None:
             if color[nxt] == GRAY:
                 cycle = path[path.index(nxt):] + [nxt]
                 raise ManifestError(
-                    f"artifact lineage has a cycle: {' -> '.join(cycle)}"
+                    f"the manifest's lineage has a cycle: {' -> '.join(cycle)}"
                 )
             if color[nxt] == WHITE:
                 visit(nxt)
@@ -147,7 +152,7 @@ def validate_manifest(manifest: dict[str, Any], *,
             if sup == aid:
                 raise ManifestError(f"{aid!r} supersedes itself")
             if sup not in id_set:
-                raise ManifestError(f"{aid!r} supersedes unknown artifact {sup!r}")
+                raise ManifestError(f"{aid!r} supersedes unknown entry {sup!r}")
             if by_id[sup]["status"] != "superseded":
                 raise ManifestError(
                     f"{aid!r} supersedes {sup!r} but {sup!r} status is "
@@ -161,12 +166,12 @@ def validate_manifest(manifest: dict[str, Any], *,
             succ = superseded_targets.get(a["artifact_id"], [])
             if not succ:
                 raise ManifestError(
-                    f"{a['artifact_id']!r} is marked 'superseded' but no artifact "
+                    f"{a['artifact_id']!r} is marked 'superseded' but nothing "
                     f"supersedes it"
                 )
             if len(succ) > 1:
                 raise ManifestError(
-                    f"{a['artifact_id']!r} is superseded by more than one artifact "
+                    f"{a['artifact_id']!r} is superseded by more than one successor "
                     f"{sorted(succ)} — version history must be linear"
                 )
 
@@ -191,11 +196,11 @@ def normalize_manifest(raw: dict[str, Any], *,
     manifest = dict(raw)
     artifacts = manifest.get("artifacts", [])
     if not isinstance(artifacts, list):
-        raise ManifestError("artifact_manifest.artifacts must be an array")
+        raise ManifestError(f"{_ARTIFACTS_KEY} must be an array")
     norm: list[dict[str, Any]] = []
     for a in artifacts:
         if not isinstance(a, dict):
-            raise ManifestError("each artifact must be an object")
+            raise ManifestError("each entry in the manifest must be an object")
         g = dict(a)
         g.setdefault("parent_artifact_ids", [])
         g.setdefault("constraint_refs", [])

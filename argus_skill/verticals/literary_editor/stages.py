@@ -69,7 +69,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
 
 def role_banner(role: str) -> str:
     common = (
-        "MISSION TYPE: LITERARY EDITING. The deliverable is an EDITED version of an "
+        "MISSION TYPE: LITERARY EDITING. This mission asks for an EDITED version of an "
         "existing text that respects its editing mode (rewrite/expand/polish/"
         "proofread/critique) and a must-keep list. Reuse the Reviewer + revise "
         "capability — do NOT invent a new agent. Whether the edit is good or stayed "
@@ -91,10 +91,11 @@ def role_banner(role: str) -> str:
             "(empty uses[] if none) and editor/artifact_manifest.json.")
     if role == "reviewer":
         return common + (
-            "You gate the edit. Only empty output and dropped explicit must-keep "
+            "You decide whether the edit holds. Only empty output and dropped "
+            "explicit must-keep "
             "segments mirror the machine check. Judge from the brief and semantic "
             "change whether the edit exceeded its mandate; character similarity and "
-            "length are not verdicts. Flag any invented fact. Follow the "
+            "length decide nothing. Flag any invented fact. Follow the "
             "'Literary Editing Review' skill. Emit editor/review.json per the shared "
             "literary review contract.")
     return common

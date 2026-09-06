@@ -181,7 +181,7 @@ def validate_signal_derisk(
         issues.append(DeriskIssue(
             "no_commands",
             "`commands` is empty; record the exact commands that hit the "
-            "model/API/data so a reviewer can audit the log"))
+            "model/API/data so a reviewer can check the log against them"))
     log_abs = (Path(project_root) / d.log_path)
     try:
         log_size = log_abs.stat().st_size
@@ -218,7 +218,7 @@ def validate_signal_derisk(
             "baseline_equals_proposed",
             f"baseline_metric={d.baseline_metric:g} == proposed_metric="
             f"{d.proposed_metric:g}; the condition makes no measurable difference "
-            "in this historical artifact"))
+            "in this historical record"))
     elif d.min_meaningful_delta > 0 and abs(d.delta) < d.min_meaningful_delta:
         issues.append(DeriskIssue(
             "signal_unmoved",
@@ -251,6 +251,6 @@ def validate_signal_derisk(
     if d.verdict == "pass" and d.pivoted:
         issues.append(DeriskIssue(
             "pass_while_pivoted",
-            "verdict=pass while pivoted=true is contradictory; a pivoted idea "
-            "did not pass"))
+            "the file records a pass while pivoted=true, which is "
+            "contradictory; a pivoted idea did not pass"))
     return issues

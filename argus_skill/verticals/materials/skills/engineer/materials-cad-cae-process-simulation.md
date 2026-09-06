@@ -58,7 +58,7 @@ detect/version/license
 -> solve
 -> inspect status and native diagnostics
 -> extract observables
--> checkpoint artifacts
+-> preserve native outputs
 ```
 
 Classify failures as geometry, mesh, material, interaction, BC/load, convergence,
@@ -68,6 +68,6 @@ checks; do not blindly regenerate the whole model.
 ## Evidence boundary
 
 A `.inp`, Workbench project, or DEFORM database proves only model construction.
-A completed job proves only execution. Scientific acceptance additionally needs
-convergence, physical sanity, sensitivity, and comparison under matched
-conditions. Never report a GUI image as the sole evidence for a numerical value.
+A completed job proves only execution. For the claim to hold scientifically you
+additionally need convergence, physical sanity, sensitivity, and comparison
+under matched conditions. Never report a GUI image as the sole evidence for a numerical value.

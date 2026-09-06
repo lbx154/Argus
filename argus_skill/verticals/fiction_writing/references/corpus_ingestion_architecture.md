@@ -8,8 +8,8 @@ downstream threshold calibration lives in `evaluations/calibrate_novelty.py`.
 ## Goal & the hard constraint
 
 Improve craft (quality) WITHOUT ingesting liftable prose (the ¬抄 leg). So the
-pipeline distills **abstract technique**, never text — the same principle the
-voice cards and the `novelty` gate already enforce. A `craft_card` carries a
+ingestion distills **abstract technique**, never text — the same principle the
+voice cards and the `novelty` check already enforce. A `craft_card` carries a
 technique described in the ingester's own words plus evidence *locators* and a
 length-capped paraphrase note; it can never reconstruct a source passage.
 

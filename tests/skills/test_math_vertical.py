@@ -296,7 +296,7 @@ def test_math_checklist_is_small_and_judges_results_not_files() -> None:
         assert artifact not in rendered
     assert "error-free attempt" in rendered
     assert "leave this item unsatisfied" in rendered
-    assert "original Goal Gate is achieved" in rendered
+    assert "originally requested goal is achieved" in rendered
     # The gap item must be satisfied by a proposition changing status, not by a
     # file existing — otherwise the graph becomes the paperwork it replaced.
     gap_item = next(
@@ -318,9 +318,9 @@ def test_math_roles_keep_methods_optional_and_checks_real() -> None:
     assert "no fixed bundle of output filenames is required" in engineer
     assert "fresh real compiler run" in engineer
     assert "Do not require\nparticular filenames" in reviewer
-    assert "separate audit artifact" in reviewer
-    assert "required workflow or evidence package" in scientist_create
-    assert "Do not create a process artifact" in scientist_adapt
+    assert "separate search report" in reviewer
+    assert "required workflow or required evidence" in scientist_create
+    assert "Do not create a process file" in scientist_adapt
 
 
 def test_parallel_routes_are_dispatched_without_a_prescribed_width() -> None:

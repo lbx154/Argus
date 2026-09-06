@@ -97,7 +97,7 @@ Each maps to a `story_state` fact the reviewer checks against the draft:
 
 The deterministic engine (`../state.py`) enforces the *structural* subset
 (id-reference integrity, no silent deletion, unique-integer timeline). The
-*semantic* subset above is the reviewer's judgment, gated via `review.json`.
+*semantic* subset above is the reviewer's judgment, carried in `review.json`.
 
 ## 3. Review rubric (how craft is recorded)
 

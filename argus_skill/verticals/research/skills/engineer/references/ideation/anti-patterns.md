@@ -21,7 +21,7 @@ In Phase 3.2, carry out `anti_pattern_check` as follows:
 1. Form `composition_set` from the set of `main_pattern` values across the candidate's `gap_closure[]` entries.
 2. Compare each 2-way subset with the 3 documented compositions in the table above.
 3. If a subset matches, record `matched_pattern_id` (`audit_decomp_supervisor` | `audit_decomp_prior` | `audit_decomp_operator`) and the corresponding `required_mitigation`. Then judge whether the candidate's `core_mechanism` (and supporting fields like `theoretical_leg` / `engineering_leg`) substantively addresses the problem, and record `mitigation_substantively_delivered: true | false`.
-4. If a composition matches, the problem is not addressed, and Phase 3.3 revision cannot address it, the candidate must be abandoned: `verdict = abandon`. Otherwise the candidate may proceed with the explanation recorded in `reviewer_concerns_and_responses`.
+4. If a composition matches, the problem is not addressed, and Phase 3.3 revision cannot address it, the candidate must be abandoned: record `decision = abandon`. Otherwise the candidate may proceed with the explanation recorded in `reviewer_concerns_and_responses`.
 
 The remedy must be **visible in the candidate's `core_mechanism`**, in what the proposed method actually does. Claiming it in the framing or mentioning the right words is not enough.
 

@@ -124,7 +124,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="plan.metrics",
             statement=(
-                "The evaluation metrics and acceptance thresholds (IC/RankIC, "
+                "The evaluation metrics and the thresholds a factor must clear (IC/RankIC, "
                 "ICIR, long-short return, turnover, cost-adjusted return, etc.) "
                 "are decided in advance, not chosen after seeing which ones look "
                 "best."
@@ -178,10 +178,10 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "Every backtest trial attempted (factor, combination, weighting, "
                 "window, params) is appended to the search ledger at execution "
                 "time — including failures and discards — so the full search "
-                "breadth is auditable and cherry-picking is visible."
+                "breadth can be checked and cherry-picking is visible."
             ),
             evidence_hint=(
-                "run/SEARCH_LEDGER.jsonl — audit its tamper-evidence with "
+                "run/SEARCH_LEDGER.jsonl — check its tamper-evidence with "
                 "`python -m argus_skill.verticals.quant.search_ledger verify "
                 "--path run/SEARCH_LEDGER.jsonl`; a hand-written or edited "
                 "ledger fails the chain. The chain says whether the rows are "
@@ -289,7 +289,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Headline evidence (IC over time, quantile curves, long-short "
                 "equity, OOS-vs-IS) is presented as figures/tables grounded in "
-                "the analysis artifacts."
+                "the files the analysis stage produced."
             ),
             evidence_hint="report/figures/",
         ),
@@ -307,9 +307,9 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="review.evidence_grounded",
             statement=(
-                "Every number in the report traces to a search-ledger row or an "
-                "analysis artifact; no figure or claim is un-sourced or a "
-                "placeholder."
+                "Every number in the report traces to a search-ledger row or a "
+                "file from the analysis stage; no figure or claim is un-sourced "
+                "or a placeholder."
             ),
             evidence_hint="report/FACTOR_REPORT.md",
         ),
@@ -327,10 +327,10 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
         ChecklistItem(
             id="submission.reproducible",
             statement=(
-                "The report package is reproducible: data snapshot/version, "
-                "code/config hash, random seeds, and the complete search ledger "
-                "are included so an independent reviewer can re-run and audit "
-                "the result."
+                "The report is reproducible: data snapshot/version, code/config "
+                "hash, random seeds, and the complete search ledger are included "
+                "so an independent reviewer can re-run the work and check every "
+                "number."
             ),
             evidence_hint="report/REPRO_MANIFEST.json",
         ),
@@ -388,8 +388,8 @@ def role_banner(_role: str = "engineer") -> str:
     treating a high backtest number as the goal.
     """
     return (
-        "MISSION — QUANT-FACTOR RESEARCH (A-share factor mining). The deliverable\n"
-        "is an interpretable, reviewer-certified FACTOR REPORT arguing WHICH\n"
+        "MISSION — QUANT-FACTOR RESEARCH (A-share factor mining). The work must\n"
+        "produce an interpretable, reviewer-certified FACTOR REPORT arguing WHICH\n"
         "factors were selected and WHY (economic mechanism + evidence), NOT a pile\n"
         "of backtests and NOT a single numeric metric. A high backtest number\n"
         "never overrides an integrity failure. Non-negotiable integrity floor:\n"

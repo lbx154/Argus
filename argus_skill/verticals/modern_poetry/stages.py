@@ -63,7 +63,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
 
 def role_banner(role: str) -> str:
     common = (
-        "MISSION TYPE: MODERN FREE VERSE (zh/en). The deliverable is a modern poem "
+        "MISSION TYPE: MODERN FREE VERSE (zh/en). This mission asks for a modern poem "
         "that meets its DECLARED hard constraints (language/line-count/banned words) "
         "and carries a real central image/tension. There is NO 平仄/韵 machine check "
         "— free verse is not classical. Craft is live-judged, never scored.\n"
@@ -79,10 +79,11 @@ def role_banner(role: str) -> str:
             "declared-constraint violation. (5) Record poetry/source_usage.json "
             "(empty uses[] if none) and poetry/artifact_manifest.json. (6) Avoid "
             "meaningless line breaks and cliché imagery — but that is your judgement, "
-            "not a machine gate.")
+            "not a machine check.")
     if role == "reviewer":
         return common + (
-            "You gate the poem. Hard-constraint findings are BLOCKING and mirror the "
+            "You decide whether the poem holds. Hard-constraint findings are "
+            "BLOCKING and mirror the "
             "machine form report. Imagery/lineation/tone/cliché/coherence are "
             "NON-BLOCKING live judgements — never a faked score. Follow the 'Modern "
             "Free-Verse Review' skill. Emit poetry/review.json per the shared "

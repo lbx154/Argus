@@ -324,7 +324,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "It is clear whether success means a proof, counterexample, construction, "
                 "classification, estimate, or honest progress on an open problem. The "
                 "objective mode is recorded, not assumed: `targeted` names one goal to "
-                "prove or refute, `exploratory` names a direction whose deliverable is "
+                "prove or refute, `exploratory` names a direction whose outcome is "
                 "substantive partial results. The two have different completion bars, so "
                 "an unset mode is a scope gap rather than a default."
             ),
@@ -340,7 +340,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "and written into the ledger: the results the work will lean on, "
                 "recorded as assumptions with their citations, and the approaches "
                 "already known to fail. Completeness is not the bar and a literature "
-                "survey is not the deliverable. The bar is that the answer exists in "
+                "survey is not what is being asked for. The bar is that the answer exists in "
                 "one place before several workers start, because a search performed "
                 "in scope is paid once and the same search performed in solve is paid "
                 "once per worker. \"Searched and found nothing relevant\" is a "
@@ -386,7 +386,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "For a targeted project, the round moved the distance to the goal, not "
                 "merely produced something new. Extending a finite verification to a wider "
-                "range, more moduli, or more primes yields a fresh artifact and no gap "
+                "range, more moduli, or more primes yields a fresh computation and no gap "
                 "reduction; repeating it at a larger bound buys the same information. Say "
                 "which proposition changed status, or that none did. For an exploratory "
                 "project this item is satisfied by a substantive, correctly-scoped result."
@@ -407,7 +407,7 @@ CHECKLIST_ITEMS: dict[str, tuple[ChecklistItem, ...]] = {
                 "achieved. An error-free attempt, correct intermediate lemma, honest partial "
                 "result, or unresolved conclusion is not final-stage completion. A bounded "
                 "subtask may itself be done, but leave this item unsatisfied unless the "
-                "original Goal Gate is achieved."
+                "originally requested goal is achieved."
             ),
             evidence_hint=(
                 "a direct mapping from the requested success criterion to the theorem, "

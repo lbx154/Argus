@@ -28,8 +28,8 @@ Emitting a new spec IS creating a new model/architecture:
 - **L2 — pick an architecture** (config-level, no code): MLP `hidden_dims` /
   `dropout` / `lr`; GBDT `num_leaves` / `learning_rate` / regularisation.
 - **L3 — author a new architecture** (code): only when L1/L2 are exhausted and
-  the evidence says capacity is the bottleneck. Gate it; it is expensive and
-  unstable, and rarely the winning lever versus better features.
+  the evidence says capacity is the bottleneck. Hold it to a high bar; it is
+  expensive and unstable, and rarely the winning lever versus better features.
 
 ## The three intents
 On every round do exactly one of the three. Never improvise a fourth.
@@ -50,8 +50,8 @@ Critique the nested walk-forward scoreboard.
 - Cite the **exact** per-candidate median fold rank-IC, ICIR, and per-fold ICs —
   never paraphrase.
 - Judge on the **robust** metric (median across folds), not a lucky best fold.
-  A candidate that is great on one fold and negative on others is **unstable →
-  reject**, even if its mean is high.
+  A candidate that is great on one fold and negative on others is **unstable —
+  set it aside**, even if its mean is high.
 - Flag **suspicious** wins: a deep model beating trees by a hair, high in-fold IC
   that collapses across folds, or a winner whose edge is smaller than the
   **effective-trials** deflation would erase. `IC` far above the field is more
@@ -63,7 +63,7 @@ Choose exactly one:
 - `stop` — converged: the winner is robust across folds AND its OOS Sharpe
   survives the haircut by the **effective** number of trials.
 - `expand_space` — a needed hypothesis is missing (a family/architecture, or —
-  gated — an L3 novel architecture).
+  only when the evidence clears the high bar above — an L3 novel architecture).
 
 ## Non-negotiable discipline
 - **Nested walk-forward only** for selection: train on a fold's past, score on its

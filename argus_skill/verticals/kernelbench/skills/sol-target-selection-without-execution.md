@@ -1,11 +1,11 @@
 ---
 name: "SOL Target Selection Without Execution"
-description: "Reusable playbook for selecting the next benchmark optimization target by inventorying local task definitions, excluding already accepted targets, optionally collecting public anchor signals, and producing auditable `NEXT_TARGET_SELECTION.{md,json}` artifacts without editing benchmark/candidate/scorer files or running GPU work."
+description: "Reusable playbook for selecting the next benchmark optimization target by inventorying local task definitions, excluding already accepted targets, optionally collecting public anchor signals, and producing traceable `NEXT_TARGET_SELECTION.{md,json}` files without editing benchmark/candidate/scorer files or running GPU work."
 ---
 
 # SOL Target Selection Without Execution
 ## Description
-Reusable playbook for selecting the next benchmark optimization target by inventorying local task definitions, excluding already accepted targets, optionally collecting public anchor signals, and producing auditable `NEXT_TARGET_SELECTION.{md,json}` artifacts without editing benchmark/candidate/scorer files or running GPU work.
+Reusable playbook for selecting the next benchmark optimization target by inventorying local task definitions, excluding already accepted targets, optionally collecting public anchor signals, and producing traceable `NEXT_TARGET_SELECTION.{md,json}` files without editing benchmark/candidate/scorer files or running GPU work.
 
 ## Category
 benchmark-optimization-planning
@@ -13,12 +13,12 @@ benchmark-optimization-planning
 ## When to use
 - Need to choose the next optimization target for a SOL-style benchmark suite.
 - Need a ranked target shortlist based on local runtime, public anchors, workload count, implementation risk, and fit with existing optimization patterns.
-- Need reproducible planning artifacts, usually `<output_dir>/NEXT_TARGET_SELECTION.md` and `<output_dir>/NEXT_TARGET_SELECTION.json`.
+- Need reproducible planning files, usually `<output_dir>/NEXT_TARGET_SELECTION.md` and `<output_dir>/NEXT_TARGET_SELECTION.json`.
 - The task explicitly forbids submissions, GPU execution, benchmark mutation, or claims of official SOL movement.
 
 ## When NOT to use
 - The user asks to implement or submit an optimized kernel.
-- The user asks to run GPU benchmarks, scorer jobs, or candidate validation.
+- The user asks to run GPU benchmarks, scorer jobs, or candidate checks.
 - The benchmark definitions or accepted-target source are unavailable and cannot be read.
 - The task requires official leaderboard/SOL claims instead of unofficial prioritization.
 
@@ -48,7 +48,7 @@ benchmark-optimization-planning
      - workload/input count
      - available local timing fields such as `<t_sol>`, `<baseline_time>`, `<reference_time>`, or equivalent
      - dtype/shape/parameter hints useful for risk assessment
-   - Verify the discovered count against the expected task count from the user or instruction docs. If it differs, report the mismatch in both artifacts.
+   - Verify the discovered count against the expected task count from the user or instruction docs. If it differs, report the mismatch in both output files.
 
 4. Identify already accepted targets:
    - Parse `<repo>/<output_dir>/OFFICIAL_SOL_SUBMISSION_PATH.json`.
@@ -79,7 +79,7 @@ benchmark-optimization-planning
      - operation family: favor families with clear optimization templates
      - fit with existing fused/DPS/CUDA patterns: favor targets resembling already successful local patterns
      - implementation risk: penalize atomics, dynamic shapes, precision-sensitive reductions, complex indexing, or unsupported dtypes
-   - Keep weights in JSON so the ranking is auditable.
+   - Keep weights in JSON so anyone can recompute the ranking.
    - Add a short rationale string per ranked target.
 
 8. Select one next target:
@@ -87,7 +87,7 @@ benchmark-optimization-planning
    - In the rationale, name the decisive factors: known gap, workload count, operation family, implementation simplicity, and compatibility with existing fused/DPS/CUDA patterns.
    - State explicitly that the choice is a planning recommendation, not an official SOL prediction.
 
-9. Write the JSON artifact:
+9. Write the JSON file:
    - Create `<output_dir>/NEXT_TARGET_SELECTION.json` with:
      - `created_at`
      - `inputs_read`
@@ -103,7 +103,7 @@ benchmark-optimization-planning
    - Include the exact command strings and API URLs used.
    - Include the clear note: public anchors are unofficial prioritization signals and are not official candidate SOL%.
 
-10. Write the Markdown artifact:
+10. Write the Markdown file:
    - Create `<output_dir>/NEXT_TARGET_SELECTION.md` as a concise human-readable companion:
      - Scope and constraints
      - Inputs and commands/API calls
@@ -113,7 +113,7 @@ benchmark-optimization-planning
      - Chosen next target and rationale
      - Limitations and unofficial-anchor disclaimer
 
-11. Validate artifacts without GPU work:
+11. Check both files without GPU work:
    - Check JSON parses:
      ```bash
      jq . <output_dir>/NEXT_TARGET_SELECTION.json >/dev/null
@@ -122,7 +122,7 @@ benchmark-optimization-planning
      ```bash
      git status --short
      ```
-   - Confirm the artifact contains the required disclaimer and top-10 list:
+   - Confirm the files contain the required disclaimer and top-10 list:
      ```bash
      rg -n "unofficial|not official|top_10|chosen_next_target" <output_dir>/NEXT_TARGET_SELECTION.*
      ```

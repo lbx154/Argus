@@ -148,7 +148,7 @@ def test_block_states_no_verdict(tmp_path):
     _write_attempt(tmp_path, "a001_x", 0.97)
     block = search_altitude_context(tmp_path)
     # The block must explicitly disclaim being a decision (philosophy guard).
-    assert "NO verdict" in block
+    assert "facts only" in block
     assert "judgment, not the harness" in block
 
 
@@ -224,7 +224,7 @@ def test_training_dynamics_surfaces_curve_steps_mfu_vram(tmp_path):
     )
     block = search_altitude_context(tmp_path)
     assert "Training dynamics" in block
-    assert "NO verdict" in block
+    assert "facts only" in block
     # curve position at the cutoff: final logged loss + the last-interval move
     assert "2.7000@step2713" in block
     assert "steps 2560→2713" in block
@@ -276,8 +276,8 @@ def test_no_score_facts_surfaces_proxy_gated_attempts(tmp_path):
     _write_no_score_attempt(tmp_path, "a010_candidate_jump", 0.0036)
     _write_no_score_attempt(tmp_path, "a011_unrecorded", None)
     out = _no_score_facts(tmp_path)
-    assert "Proxy-gated NO-SCORE" in out
-    assert "NO verdict" in out
+    assert "Proxy-skipped NO-SCORE" in out
+    assert "facts only" in out
     assert "a010_candidate_jump" in out
     assert "+0.003600" in out
     assert "(not recorded)" in out          # the wdelta=None case
@@ -295,5 +295,5 @@ def test_no_score_block_appended_to_altitude_context(tmp_path):
     _write_attempt(tmp_path, "a001_scored", 0.97)
     _write_no_score_attempt(tmp_path, "a002_gated", 0.005)
     block = search_altitude_context(tmp_path)
-    assert "Proxy-gated NO-SCORE" in block
+    assert "Proxy-skipped NO-SCORE" in block
     assert "a002_gated" in block

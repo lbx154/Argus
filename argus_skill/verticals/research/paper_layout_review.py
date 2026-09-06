@@ -618,7 +618,7 @@ def _deterministic_assessment(
                     (
                         f"{len(misplaced)} overview/teaser/pipeline figure(s) "
                         f"({', '.join(misplaced)}) sit in a single-column `figure`; a "
-                        "teaser or pipeline/architecture overview should span both columns "
+                        "teaser or method pipeline/architecture overview should span both columns "
                         "via `figure*` (`[t]`, width=\\textwidth). Sub-module/detail figures "
                         "stay single-column"
                     ),

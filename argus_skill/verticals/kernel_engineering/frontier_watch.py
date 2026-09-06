@@ -1,7 +1,7 @@
-"""Validate and persist continuous online frontier-search evidence.
+"""Check and persist continuous online frontier-search evidence.
 
 The agent performs the actual web research.  This module makes that research a
-fresh, stage-scoped artifact instead of an unverifiable sentence in a summary.
+fresh, stage-scoped record instead of an unverifiable sentence in a summary.
 """
 
 from __future__ import annotations
@@ -282,7 +282,7 @@ def write_record(project_root: Path, stage: str, record: dict[str, Any]) -> Path
 
 
 def latest_ledger_record(project_root: Path, stage: str) -> dict[str, Any] | None:
-    """Return the latest same-stage audit row without retaining the full ledger."""
+    """Return the latest same-stage ledger row without retaining the full ledger."""
     latest: dict[str, Any] | None = None
     try:
         lines = ledger_path(project_root).open("r", encoding="utf-8")
@@ -317,7 +317,7 @@ def validate_ledger_binding(
         return [
             f"latest {stage!r} FRONTIER_WATCH.jsonl record does not match "
             "the current snapshot; use `frontier_watch record` instead of "
-            "editing either artifact directly"
+            "editing either file directly"
         ]
     return []
 

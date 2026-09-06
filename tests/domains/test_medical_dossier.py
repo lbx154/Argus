@@ -235,7 +235,7 @@ def test_validator_rejects_query_raw_symlink_outside_project(
 
     issues = validate_dossier(tmp_path)
 
-    assert any("raw artifact is outside project" in issue for issue in issues)
+    assert any("raw_artifacts entry is outside project" in issue for issue in issues)
 
 
 def test_validator_reports_missing_and_invalid_artifacts(tmp_path: Path) -> None:

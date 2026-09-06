@@ -1,6 +1,6 @@
 ---
 name: "Continuity, Style and Plot Review"
-description: "Gate a fiction chapter/story. Blocks on hard narrative contradictions (dead character returns, impossible knowledge, item teleport, location/timeline clash, world-rule break, motive-incoherent action, dropped/leaked foreshadowing, viewpoint/tense/language drift); records craft and AI-flavor issues as non-blocking, evidence-located observations — never a faked numeric score."
+description: "Decide whether a fiction chapter/story holds. Blocks on hard narrative contradictions (dead character returns, impossible knowledge, item teleport, location/timeline clash, world-rule break, motive-incoherent action, dropped/leaked foreshadowing, viewpoint/tense/language drift); records craft and AI-flavor issues as non-blocking, evidence-located observations — never a faked numeric score."
 ---
 
 ## Title
@@ -49,8 +49,8 @@ or poetry prosody — this skill is about narrative prose consistency and craft.
    - **voice (forbidden_lexicon)**: a term the voice card's `forbidden_lexicon`
      names appears in the prose — an author-declared HARD contract (e.g. a modern
      word in a classical-register continuation). Mirror the machine style lint.
-3. **Craft pass (NON-BLOCKING; heuristic + observable proxies).** Note, don't
-   gate: style consistency vs the profile, character-voice distinctness, scene
+3. **Craft pass (NON-BLOCKING; heuristic + observable proxies).** Note, never
+   block: style consistency vs the profile, character-voice distinctness, scene
    concreteness (concrete objects vs abstract emotion-naming), show-don't-tell,
    over-summarization, telegraphed/mechanical twist, pacing/pressure, whether the
    ending closes the core question, and observable AI-tells (slogan/uplift
@@ -75,7 +75,8 @@ or poetry prosody — this skill is about narrative prose consistency and craft.
      `done`.)
    - Every finding REQUIRES `id, type, severity, blocking, location, evidence,
      suggested_action`. `severity` ∈ {`critical`, `major`, `minor`, `note`} is the
-     IMPORTANCE axis; `blocking` is a SEPARATE boolean gate axis — they are
+     IMPORTANCE axis; `blocking` is a SEPARATE boolean axis deciding whether the
+     chapter may pass — they are
      DECOUPLED (a critical craft note may be non-blocking; a continuity
      contradiction is blocking). Never put `blocking` inside the `severity` field.
    - `type` MUST be one of the fiction vocabulary — never invent one (e.g. not
@@ -93,7 +94,7 @@ or poetry prosody — this skill is about narrative prose consistency and craft.
 ## When NOT to use
 - Anything outside narrative fiction (see the exclusion in "When to use").
 - As a source of a single numeric "quality score" — craft is judgment, recorded
-  as evidence-located observations, not a gate number.
+  as evidence-located observations, not a pass/fail number.
 
 ## Common pitfalls
 - Trusting your recollection over `story_state` (the state is ground truth).

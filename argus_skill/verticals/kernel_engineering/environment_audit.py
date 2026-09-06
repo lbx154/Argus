@@ -1,6 +1,6 @@
-"""Collect and validate environment provenance for GPU-kernel work.
+"""Collect and check environment provenance for GPU-kernel work.
 
-The audit is intentionally diagnostic rather than an installer.  It answers a
+The check is intentionally diagnostic rather than an installer.  It answers a
 question agents routinely skip: *is the selected professional toolchain really
 available in the same environment that will run correctness and benchmarks?*
 
@@ -778,7 +778,7 @@ def build_report(
 
 def render_markdown(report: dict[str, Any]) -> str:
     lines = [
-        "# Kernel Environment Audit",
+        "# Kernel environment report",
         "",
         f"- Generated: `{report['generated_at']}`",
         f"- Project: `{report['project_root']}`",
@@ -802,7 +802,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     else:
         lines.append("No CUDA GPU was discovered by `nvidia-smi`.")
     lines.extend(
-        ["", "## Capability gate", "", "| capability | ready | missing |", "|---|---|---|"]
+        ["", "## Capability readiness", "", "| capability | ready | missing |", "|---|---|---|"]
     )
     for name, item in report["capabilities"].items():
         missing = ", ".join(item["missing"])
@@ -933,7 +933,7 @@ def _parser() -> argparse.ArgumentParser:
         default=[],
         help=f"required capability, repeatable/comma-separated: {', '.join(CAPABILITY_NAMES)}",
     )
-    check = sub.add_parser("check", help="validate a previously collected report")
+    check = sub.add_parser("check", help="check a previously collected report")
     check.add_argument("--project-root", type=Path, default=Path.cwd())
     check.add_argument("--report", type=Path, default=DEFAULT_REPORT)
     catalog = sub.add_parser("catalog", help="query the curated professional kernel-tool registry")
@@ -1011,17 +1011,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = json.loads(report_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        print(f"environment audit unreadable: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"environment report unreadable: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
     if not isinstance(report, dict):
-        print("environment audit root must be a JSON object", file=sys.stderr)
+        print("environment report root must be a JSON object", file=sys.stderr)
         return 2
     errors = validate_report(report, project_root=project_root)
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 2
-    print("kernel environment audit: ready")
+    print("kernel environment: ready")
     return 0
 
 

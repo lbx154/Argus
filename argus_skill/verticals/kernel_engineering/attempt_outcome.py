@@ -1,4 +1,4 @@
-"""Validate the separation between execution failures and idea evidence.
+"""Check the separation between execution failures and idea evidence.
 
 The four-state model and its invariants live in
 :mod:`argus_skill.core.evidence_status`; this module supplies the GPU-kernel
@@ -123,7 +123,7 @@ def template(attempt_id: str) -> dict[str, Any]:
         "candidate_identity": "REPLACE with candidate commit plus dirty diff hash",
         "path_coverage": "REPLACE with dispatch/trace evidence for the changed path",
         "summary": "REPLACE with the concise observed outcome",
-        "evidence": "REPLACE with artifact paths or exact command result",
+        "evidence": "REPLACE with evidence file paths or exact command result",
     }
 
 

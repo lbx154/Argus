@@ -117,7 +117,7 @@ def validate_idea_evidence(record: dict[str, Any]) -> list[str]:
     if not isinstance(record.get("premise_version"), int):
         errors.append(
             "premise_version must be an integer; bump it when the premise changes "
-            "so an old verdict is not carried onto a new premise"
+            "so an old conclusion is not carried onto a new premise"
         )
     errors.extend(validate_evidence(record, RESEARCH_EVIDENCE))
     return list(dict.fromkeys(errors))
@@ -135,7 +135,7 @@ def template(idea_id: str) -> dict[str, Any]:
         "evaluator_identity": "REPLACE with the evaluator/metric and its revision",
         "comparison_identity": "REPLACE with the baseline or comparison condition",
         "summary": "REPLACE with the concise observed outcome",
-        "evidence": "REPLACE with artifact paths or exact command result",
+        "evidence": "REPLACE with supporting file paths or exact command result",
     }
 
 

@@ -277,6 +277,15 @@ def _build_state(case):
     return state
 
 
+#: The exact JSON shape the reviewer eval asks for (one machine token; the
+#: placeholders are hyphenated so the shape stays a single parseable token).
+_REVIEW_JSON_SHAPE = (
+    '{"findings":[{"type":"<one>","severity":"blocking|major|minor|note",'
+    '"location":"<quote-from-draft>","evidence":"<state-fact-it-violates>"}],'
+    '"verdict":"revise|done"}'
+)
+
+
 def eval_reviewer() -> None:
     vocab = CASES["continuity_vocabulary"]
     skill = (HERE.parent / "skills" / "reviewer"
@@ -285,9 +294,7 @@ def eval_reviewer() -> None:
         "Follow this reviewer skill exactly:\n\n" + skill + "\n\n"
         "The story_state JSON is GROUND TRUTH. Classify each finding's `type` "
         f"using EXACTLY one of: {vocab}. Return ONLY JSON: "
-        '{"findings":[{"type":"<one>","severity":"blocking|major|minor|note",'
-        '"location":"<quote from draft>","evidence":"<state fact it violates>"}],'
-        '"verdict":"revise|done"}.'
+        + _REVIEW_JSON_SHAPE + "."
     )
     print(f"\n=== REVIEWER EVAL (model={JUDGE_MODEL}, temp={TEMPERATURE}) ===")
     print("    skill-faithful direct completion using the REAL reviewer skill "
@@ -445,9 +452,9 @@ def _dump_failed_demo(kind: str, draft: str, patch, exc) -> None:
         }
         path = base / f"{kind}_failed_patch.json"
         path.write_text(json.dumps(art, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"  [artifact] failure context saved -> {path}")
+        print(f"  [diagnostics] failure context saved -> {path}")
     except Exception as art_exc:  # noqa: BLE001 — diagnostics must never override the demo failure
-        print(f"  [artifact] WARNING: could not save failure artifact ({art_exc!r}); "
+        print(f"  [diagnostics] WARNING: could not save the failure context ({art_exc!r}); "
               "original demo failure is unaffected")
 
 
@@ -497,9 +504,9 @@ def _dump_two_round_failure(draft, in1, err1, in2, resp2, err2):
         }
         path = base / "demo_zh_repair_failed.json"
         path.write_text(json.dumps(art, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"  [artifact] two-round failure saved -> {path}")
+        print(f"  [diagnostics] two-round failure saved -> {path}")
     except Exception as art_exc:  # noqa: BLE001
-        print(f"  [artifact] WARNING: could not save two-round failure ({art_exc!r})")
+        print(f"  [diagnostics] WARNING: could not save two-round failure ({art_exc!r})")
 
 
 def eval_demo_structured() -> None:

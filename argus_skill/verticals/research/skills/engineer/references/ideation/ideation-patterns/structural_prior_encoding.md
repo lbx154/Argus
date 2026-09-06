@@ -68,7 +68,7 @@ The HC sample here is moderate (roughly eight distinct papers, several of them s
 
 ### Reject lessons
 - Composing several existing structure-aware modules into one pipeline, with no single mechanism that provably fails when removed, reads to reviewers as assembly rather than contribution.
-- Encoding a correct domain structure that yields only marginal gains over the baseline it extends invites the verdict that the structure was never the source of any advantage.
+- Encoding a correct domain structure that yields only marginal gains over the baseline it extends invites the conclusion that the structure was never the source of any advantage.
 - Extending a known structural result to a new regime without unlocking new identifying structure — and landing inferior to the incumbent it aimed to replace — is methodological dressing.
 - A rigorous structural theorem that applies only to a narrow, restricted architecture and ships with one toy experiment fails on magnitude and breadth, not on correctness.
 - Relaxing a global constraint to a data-inherent subgroup without proving the relaxed operator class is complete leaves reviewers doubting the construction captures all valid maps.

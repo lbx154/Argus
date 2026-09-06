@@ -29,7 +29,7 @@ def test_planner_banner_enforces_collaborative_protocol_and_local_reproduction()
     assert "CLAIM before editing" in banner
     assert "PUBLISH the result" in banner
     assert "refresh the live best every five runs" in banner
-    assert "runtime-provenance blocker" in banner
+    assert "runtime-provenance failure" in banner
     assert "pin exact dependency versions" in banner
 
 

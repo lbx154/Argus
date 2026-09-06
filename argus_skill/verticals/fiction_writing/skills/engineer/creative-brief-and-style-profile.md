@@ -7,7 +7,7 @@ description: "Turn an operator's fiction request into a structured creative_brie
 Creative Brief And Style Profile
 
 ## Description
-Normalize a free-text fiction request into two machine-readable artifacts that
+Normalize a free-text fiction request into two machine-readable files that
 every later stage consumes: a `creative_brief.json` (the task contract) and a
 `style_profile.json` (abstract, checkable style features). This removes guesswork
 downstream and makes "did the draft match the ask?" a checkable question.

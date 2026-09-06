@@ -1,4 +1,4 @@
-"""Amdahl-style leverage gate for kernel optimization attempts.
+"""Amdahl-style leverage analysis for kernel optimization attempts.
 
 The cheapest way to avoid wasting a kernel iteration is to prove that the
 selected kernel can move the end-to-end metric enough to clear measurement
@@ -86,7 +86,7 @@ def validate_leverage(record: dict[str, Any]) -> list[str]:
         if not isinstance(record.get(key), str) or not str(record.get(key)).strip():
             errors.append(f"{key} is empty")
     if record.get("verdict") not in VERDICTS:
-        errors.append(f"invalid verdict: {record.get('verdict')!r}")
+        errors.append(f"unknown decision value: {record.get('verdict')!r}")
     if errors:
         return errors
     try:
@@ -118,7 +118,10 @@ def validate_leverage(record: dict[str, Any]) -> list[str]:
     actual_required = record.get("required_kernel_speedup")
     if expected_required is None:
         if actual_required is not None:
-            errors.append("required_kernel_speedup must be null when target cannot meet the gate")
+            errors.append(
+                "required_kernel_speedup must be null when even an unbounded kernel "
+                "speedup cannot reach the required total speedup"
+            )
     else:
         try:
             if not math.isclose(
@@ -131,7 +134,7 @@ def validate_leverage(record: dict[str, Any]) -> list[str]:
         except (TypeError, ValueError):
             errors.append("required_kernel_speedup is missing or invalid")
     if record.get("verdict") != expected["verdict"]:
-        errors.append("verdict does not match recomputed leverage decision")
+        errors.append("recorded decision does not match the recomputed leverage analysis")
     return errors
 
 
@@ -206,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
         failed = failed or bool(errors)
     if failed:
         return 2
-    print(f"kernel leverage gates: {len(paths)} valid")
+    print(f"kernel leverage analyses: {len(paths)} valid")
     return 0
 
 
