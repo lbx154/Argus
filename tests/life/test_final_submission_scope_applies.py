@@ -135,8 +135,12 @@ def test_structural_final_submission_task_produces_consumable_gate_shape(tmp_pat
     assert harness._planner_scope_from_item(item) == PLANNER_SCOPE_FINAL_SUBMISSION
 
 
-def test_a_certified_vertical_is_unchanged(tmp_path) -> None:
-    harness = _project(tmp_path, CERTIFIED_AND_TARGETED)
+@pytest.mark.parametrize("gate", [False, True])
+def test_a_certified_vertical_is_unchanged(tmp_path, gate: bool) -> None:
+    persist_vertical(
+        tmp_path, CERTIFIED_AND_TARGETED, research_target_level="exploratory"
+    )
+    harness = _Harness(tmp_path, gate=gate)
 
     assert harness._final_submission_scope_applies(tmp_path)
     assert f"scope:{PLANNER_SCOPE_FINAL_SUBMISSION}" in harness._planner_task_tags(

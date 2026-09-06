@@ -652,6 +652,70 @@ def test_replacement_intent_forces_immediate_pipeline_reset(tmp_path):
     assert state["stage_history"][-1]["direction"] == "reset"
 
 
+@pytest.mark.parametrize("completed", [False, True])
+def test_new_math_intent_rejects_prior_same_target_certification(
+    tmp_path,
+    monkeypatch,
+    completed: bool,
+) -> None:
+    from argus_skill.life.memory import EventJournal
+    from argus_skill.life.supervisor._planning_cycle_helpers import (
+        _research_project_done_issue,
+    )
+
+    state_root = tmp_path / "state"
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    monkeypatch.setattr("argus_skill.skills.vertical_select.time.time", lambda: 100.0)
+    persist_vertical(state_root, "math", research_target_level="exploratory")
+    state_path = state_root / ".argus" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["current_stage"] = "review"
+    state["stages"] = {
+        "scope": {"status": "done"},
+        "solve": {"status": "done"},
+        "review": {"status": "done" if completed else "in_progress"},
+    }
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    certification = {
+        "id": "old-certification",
+        "type": "life.mission.completed",
+        "ts": 200.0,
+        "scope": "final_submission",
+        "final_submission_certified": True,
+    }
+    journal = EventJournal(state_root / "events.jsonl")
+    journal.path.write_text(json.dumps(certification) + "\n", encoding="utf-8")
+    assert _research_project_done_issue(
+        state_root, journal.all(), evidence_root=workdir
+    ) == ""
+
+    monkeypatch.setattr("argus_skill.skills.vertical_select.time.time", lambda: 300.0)
+    Manager(project_root=state_root, execution_workdir=workdir).commit_vertical_decision(
+        "prove a different theorem",
+        VerticalDecision(
+            choice="existing",
+            vertical="math",
+            research_target_level="exploratory",
+        ),
+        force_stage_reset=not completed,
+    )
+
+    assert _research_project_done_issue(
+        state_root, journal.all(), evidence_root=workdir
+    ) == "missing_exploratory_reviewer_certification"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["research_target_set_at"] == 300.0
+    assert state["current_stage"] == "scope"
+
+    certification.update(id="new-certification", ts=400.0)
+    with journal.path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(certification) + "\n")
+    assert _research_project_done_issue(
+        state_root, journal.all(), evidence_root=workdir
+    ) == ""
+
+
 def test_replacement_intent_can_commit_a_supplied_locked_idea(tmp_path) -> None:
     persist_vertical(
         tmp_path,

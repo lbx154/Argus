@@ -516,6 +516,7 @@ def persist_vertical(
     vert = require_vertical(vertical, project_root)
     payload = _load_state_payload(project_root)
 
+    previous_vertical = str(payload.get("vertical") or "").strip().lower()
     payload["vertical"] = vert
     if domain is not None:
         from ..domains import require_domain
@@ -573,8 +574,10 @@ def persist_vertical(
         # Run 8 (s-fed750c2) solved the problem and proved it in Lean in
         # mission 1, then spent missions 2, 3 and 4 certifying it, each one
         # independently reviewed ``done`` and each one rejected.
-        if normalized_target != previous_target or not payload.get(
-            "research_target_set_at"
+        if (
+            previous_vertical != vert
+            or normalized_target != previous_target
+            or not payload.get("research_target_set_at")
         ):
             payload["research_target_set_at"] = time.time()
     else:
@@ -585,6 +588,8 @@ def persist_vertical(
         ):
             payload.pop("research_target_level", None)
             payload.pop("research_target_set_at", None)
+        elif previous_vertical != vert and payload.get("research_target_level"):
+            payload["research_target_set_at"] = time.time()
     if research_direction_mode is not None:
         from ..core.research_contract import normalize_research_direction_mode
 
@@ -900,6 +905,9 @@ def reset_stage_for_new_intent(
     was still in progress; ordinary bounded/reclassification calls retain the
     conservative completed-run-only behavior.
 
+    A successful reset also retires final certification of the prior intent
+    by advancing the persisted research-target evidence cutoff.
+
     Call this AFTER ``persist_vertical(project_root, new_vertical)`` has
     already run, so the stage machinery (``current_stage`` /
     ``rollback_stage``) resolves against the NEW vertical. ``old_vertical``
@@ -996,8 +1004,11 @@ def reset_stage_for_new_intent(
             old_vertical, new_vertical, exc_info=True,
         )
         return False
+    payload = _load_state_payload(project_root)
+    if payload.get("research_target_level"):
+        # A successful intent reset retires certification of the prior objective.
+        payload["research_target_set_at"] = time.time()
     if new_vertical == "research":
-        payload = _load_state_payload(project_root)
         try:
             generation = max(
                 1,
@@ -1018,6 +1029,8 @@ def reset_stage_for_new_intent(
         from ..verticals.research_bridge import clear_research_notes
 
         clear_research_notes(Path(evidence_root or project_root))
+    elif payload.get("research_target_level"):
+        write_pipeline_state(project_root, payload)
     return True
 
 

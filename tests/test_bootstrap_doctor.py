@@ -19,7 +19,7 @@ def test_bootstrap_doctor_runs_without_importing_argus_core() -> None:
         encoding="utf-8",
     )
 
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
     report = json.loads(result.stdout)
     assert report["schema_version"] == 1
     assert report["mode"] == "bootstrap"
