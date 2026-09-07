@@ -39,6 +39,9 @@ env:
     tests/life/test_telegram_bot.py
     tests/life/test_telegram_mobile.py
     tests/core/test_release.py
+    tests/core/test_cost_control.py
+    tests/core/test_usage.py
+    tests/core/test_operator_messages.py
     tests/core/test_file_lock.py
     tests/core/test_daemon_lock.py
     tests/core/test_session_lock_portable.py

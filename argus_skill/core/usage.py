@@ -17,17 +17,19 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Literal
 
+import portalocker
+
 from ..provider_integrations.copilot_usage import (
     NANO_AIU_PER_USD,
     copilot_usage_store_signature,
     find_copilot_usage_near,
 )
 from .event_catalog import CALL_SCOPED_EVENT_TYPES, EventType, canonical_event_type
-from .pricing import PricingStatus, quote_copilot_usage, quote_token_usage
+from .pricing import PricingQuote, PricingStatus, quote_copilot_usage, quote_token_usage
 from .runner_errors import is_pre_provider_refusal_error
 from .token_usage import TokenUsage, extract_token_usage
 
-try:  # pragma: no cover - production daemons are POSIX
+try:  # pragma: no cover - Windows usage mutations use portalocker below
     import fcntl
 except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
@@ -38,7 +40,7 @@ USAGE_MIGRATION_FILE = "usage.migration-v1.json"
 USAGE_COPILOT_RECONCILE_FILE = "usage.copilot-token-v1.json"
 EVENT_MIGRATION_FILE = "events.migration-v2.json"
 EVENT_MIGRATION_LOCK_FILE = "events.migration-v2.lock"
-_COPILOT_RECONCILE_VERSION = 4
+_COPILOT_RECONCILE_VERSION = 5
 UsageSource = Literal["run_exec", "legacy.events"]
 CallStatus = Literal["completed", "error", "denied"]
 
@@ -128,7 +130,7 @@ class UsageRecord:
             call_id=str(row.get("call_id") or ""),
             project_id=str(row.get("project_id") or ""),
             mission_id=_optional_text(row.get("mission_id")),
-            provider=str(row.get("provider") or ""),
+            provider=str(row.get("provider") or "").strip().lower(),
             model=str(row.get("model") or ""),
             run_label=str(row.get("run_label") or ""),
             started_at=started_at,
@@ -188,6 +190,66 @@ class UsageSummary:
 
     def to_jsonable(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def _copilot_usage_needs_reconciliation(row: dict[str, Any]) -> bool:
+    return (
+        str(row.get("provider") or "").strip().lower() == "copilot"
+        and str(row.get("status") or "").lower() != "denied"
+        and str(row.get("pricing_status") or "").lower() != "not_billed"
+        and (
+            _optional_int(row.get("total_nano_aiu")) is None
+            or _optional_float(row.get("cost_usd")) is None
+            or row.get("pricing_status") != "priced"
+            or row.get("cost_basis") != "token"
+        )
+    )
+
+
+def _reconciled_token_quote(record: UsageRecord) -> PricingQuote | None:
+    if (
+        record.provider.strip().lower() == "copilot"
+        or record.cost_basis != "token"
+        or record.status == "denied"
+        or record.pricing_status == "not_billed"
+        or (
+            record.cost_usd is not None
+            and record.pricing_status not in {"partial", "unpriced"}
+        )
+    ):
+        return None
+    quote = quote_token_usage(
+        record.model,
+        input_tokens=record.input_tokens,
+        cached_input_tokens=record.cached_input_tokens,
+        cache_write_tokens=record.cache_write_tokens,
+        output_tokens=record.output_tokens,
+        reasoning_output_tokens=record.reasoning_output_tokens,
+    )
+    return quote if quote.status == "priced" and quote.cost_usd is not None else None
+
+
+def usage_pricing_reason(record: UsageRecord) -> str:
+    if record.error:
+        return record.error
+    if record.provider.strip().lower() == "copilot":
+        return (
+            "Copilot token billing is awaiting local CLI usage reconciliation"
+            if record.pricing_tier == "copilot_token_pending"
+            else "Copilot billable usage is missing or incomplete"
+        )
+    if record.cost_basis == "token":
+        quote = quote_token_usage(
+            record.model,
+            input_tokens=record.input_tokens,
+            cached_input_tokens=record.cached_input_tokens,
+            cache_write_tokens=record.cache_write_tokens,
+            output_tokens=record.output_tokens,
+            reasoning_output_tokens=record.reasoning_output_tokens,
+        )
+        if quote.reason:
+            return quote.reason
+    return "provider usage is not fully priced"
 
 
 def build_usage_record(
@@ -450,7 +512,41 @@ class UsageLedger:
                 if mission_id is not None and record.mission_id != mission_id:
                     continue
                 out.append(record)
+        if self._reconcile_token_pricing(out):
+            return self.records(since=since, mission_id=mission_id)
         return out
+
+    def _reconcile_token_pricing(self, records: Iterable[UsageRecord]) -> int:
+        pending = {
+            record.call_id
+            for record in records
+            if _reconciled_token_quote(record) is not None
+        }
+        if not pending:
+            return 0
+        updated = 0
+        with self._locked():
+            rows = _read_usage_json_rows(self.path)
+            for row in rows:
+                if str(row.get("call_id") or "") not in pending:
+                    continue
+                # Re-read under the append lock so late provider settlement
+                # wins over the earlier snapshot used to find candidates.
+                quote = _reconciled_token_quote(UsageRecord.from_jsonable(row))
+                if quote is None:
+                    continue
+                row.update(
+                    cost_usd=quote.cost_usd,
+                    pricing_status=quote.status,
+                    pricing_tier=quote.tier,
+                )
+                updated += 1
+            if updated:
+                _rewrite_usage_rows(self.path, rows)
+                self._cache_call_ids({
+                    str(row["call_id"]) for row in rows if row.get("call_id")
+                })
+        return updated
 
     def summary(
         self,
@@ -528,8 +624,7 @@ class UsageLedger:
             call_threads = (
                 _legacy_call_threads(self.project_root)
                 if any(
-                    row.get("provider") == "copilot"
-                    and row.get("total_nano_aiu") is None
+                    _copilot_usage_needs_reconciliation(row)
                     and not row.get("thread_id")
                     for row in rows
                 )
@@ -567,14 +662,7 @@ class UsageLedger:
                 and str(item.get("session_id") or "")
             }
             for row in rows:
-                if str(row.get("provider") or "").lower() != "copilot":
-                    continue
-                if (
-                    str(row.get("status") or "").lower() == "denied"
-                    or str(row.get("pricing_status") or "").lower() == "not_billed"
-                ):
-                    continue
-                if _optional_int(row.get("total_nano_aiu")) is not None:
+                if not _copilot_usage_needs_reconciliation(row):
                     continue
                 call_id = str(row.get("call_id") or "")
                 completed_at = _float(row.get("completed_at"), 0.0)
@@ -642,7 +730,11 @@ class UsageLedger:
                     if usage.cost_usd is not None:
                         continue
 
-                if row.get("pricing_tier") == "copilot_token_pending" or available:
+                if (
+                    row.get("pricing_tier") in {"copilot_token", "copilot_token_pending"}
+                    or _optional_int(row.get("total_nano_aiu")) is not None
+                    or available
+                ):
                     # A modern store's incomplete AIU data is not a premium-only
                     # bill. Keep it unresolved until the DB is updated.
                     pending = {
@@ -699,10 +791,7 @@ class UsageLedger:
                 )
             reconciled_signature = _path_signature(self.path)
             pending_token_usage = any(
-                row.get("provider") == "copilot"
-                and row.get("total_nano_aiu") is None
-                and row.get("status") != "denied"
-                and row.get("pricing_status") != "not_billed"
+                _copilot_usage_needs_reconciliation(row)
                 for row in rows
             )
         _write_json_atomic(
@@ -748,14 +837,20 @@ class UsageLedger:
             try:
                 if fcntl is not None:
                     fcntl.flock(fd, fcntl.LOCK_EX)
+                else:
+                    portalocker.lock(fd, portalocker.LOCK_EX)
                 yield
             finally:
-                if fcntl is not None:
-                    try:
-                        fcntl.flock(fd, fcntl.LOCK_UN)
-                    except OSError:
-                        pass
-                os.close(fd)
+                try:
+                    if fcntl is not None:
+                        try:
+                            fcntl.flock(fd, fcntl.LOCK_UN)
+                        except OSError:
+                            pass
+                    else:
+                        portalocker.unlock(fd)
+                finally:
+                    os.close(fd)
 
     def _call_ids_unlocked(self) -> set[str]:
         key = str(self.path.resolve())

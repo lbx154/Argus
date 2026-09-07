@@ -1064,11 +1064,13 @@ def _run_triage_and_fallbacks(
 
     self_mode = str(chat_state.pop("_frontdoor_self_mode", "inspect") or "inspect")
     if frontdoor_failure:
+        from ..core.operator_messages import budget_refusal_reply
+
         # A failed classifier did not produce a trustworthy route. Reporting
         # that failure must precede triage: otherwise a timed-out front-door
         # call can start a second long Manager turn before the operator learns
         # that no safe dispatch decision exists.
-        reply = (
+        reply = budget_refusal_reply(frontdoor_failure, language_hint=send_body) or (
             "[not dispatched] Manager could not classify this message "
             f"({frontdoor_failure}). The configured Manager backend is "
             "unavailable or failed during classification. No task was queued. "
