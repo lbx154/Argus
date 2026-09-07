@@ -141,7 +141,9 @@ def main() -> int:
             )
         return 0
     for path, rendered in artifacts.items():
-        path.write_text(rendered, encoding="utf-8")
+        # Git ships LF bytes on every platform. Avoid Windows newline
+        # translation, which would make the release digest differ after clone.
+        path.write_text(rendered, encoding="utf-8", newline="\n")
     return 0
 
 

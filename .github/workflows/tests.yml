@@ -53,6 +53,7 @@ env:
     tests/apps/test_update.py
     tests/apps/test_update_dispatch.py
     tests/apps/test_update_install.py
+    tests/core/test_event_catalog.py
     tests/apps/test_update_launcher.py
     tests/apps/test_package_update.py
     tests/life/test_execution_host_lifecycle.py

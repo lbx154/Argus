@@ -296,3 +296,19 @@ def test_resource_status_schema_and_generated_contracts_are_current() -> None:
     assert generate_resource_status.PYTHON_OUTPUT_PATH.read_text(encoding="utf-8") == (
         generate_resource_status.render_python()
     )
+
+
+def test_resource_status_generator_writes_reproducible_lf_bytes(tmp_path, monkeypatch) -> None:
+    import sys
+
+    from argus_skill.release_tools import generate_resource_status
+
+    typescript = tmp_path / "resource_status.generated.ts"
+    python = tmp_path / "status_schema_generated.py"
+    monkeypatch.setattr(generate_resource_status, "OUTPUT_PATH", typescript)
+    monkeypatch.setattr(generate_resource_status, "PYTHON_OUTPUT_PATH", python)
+    monkeypatch.setattr(sys, "argv", ["generate_resource_status"])
+    assert generate_resource_status.main() == 0
+    assert typescript.read_bytes() == generate_resource_status.render().encode("utf-8")
+    assert python.read_bytes() == generate_resource_status.render_python().encode("utf-8")
+    assert b"\r\n" not in python.read_bytes()
