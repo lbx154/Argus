@@ -39,6 +39,39 @@ def test_stale_write_is_rejected(tmp_path: Path) -> None:
         store.append(_directive("stale"), expected_revision=0)
 
 
+def test_role_acknowledgement_survives_projection_and_new_input(tmp_path: Path) -> None:
+    store = OperatorContextStore(tmp_path)
+    first = store.append(_directive("first"), expected_revision=0)
+    assert store.acknowledged_revision("planner") == 0
+    store.project("planner", consume_once=False)
+    assert store.acknowledged_revision("planner") == 0
+    store.acknowledge("planner", first.revision)
+    second = store.append(_directive("second"), expected_revision=first.revision)
+    store.project("engineer")
+    store = OperatorContextStore(tmp_path)
+    assert store.acknowledged_revision("planner") == first.revision < second.revision
+    assert store.acknowledged_revision("engineer") == 0
+    store.acknowledge("planner", 0)
+    assert store.acknowledged_revision("planner") == first.revision
+    with pytest.raises(ValueError, match="outside"):
+        store.acknowledge("planner", second.revision + 1)
+
+
+def test_acknowledgement_settles_only_handled_role_once_input(tmp_path: Path) -> None:
+    store = OperatorContextStore(tmp_path)
+    first = append_directive(
+        tmp_path, "first instruction", lifetime="once", expected_revision=0,
+    )
+    second = append_directive(
+        tmp_path, "arrived during planning", lifetime="once",
+        expected_revision=first.revision,
+    )
+    store.acknowledge("planner", first.revision)
+    projection = OperatorContextStore(tmp_path).project("planner", consume_once=False)
+    assert [record.revision for record in projection.directives] == [second.revision]
+    assert store.acknowledged_revision("planner") == first.revision
+
+
 def test_identical_standing_retry_is_idempotent(tmp_path: Path) -> None:
     store = OperatorContextStore(tmp_path)
     first = append_directive(

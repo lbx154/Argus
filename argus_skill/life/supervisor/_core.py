@@ -1460,6 +1460,18 @@ class LifeSupervisor(
                 "reason": reason,
             })
             return False
+        handled_revision = int(event.get("handled_operator_context_revision") or 0)
+        if completion_kind == "certified_increment" and handled_revision > 0:
+            # The validated handoff is now a durable decision, even if report
+            # delivery fails below. Checkpoint only the input Planner actually
+            # handled so retry can drain the outbox, not repeat planning.
+            from ...core.operator_context import OperatorContextStore
+
+            try:
+                OperatorContextStore(self.memory.root).acknowledge("planner", handled_revision)
+            except (OSError, ValueError):
+                log.exception("failed to checkpoint certified Planner handoff")
+                return False
         if not self._emit(event):
             self._emit({
                 "type": EventType.LIFE_PLANNER_ERROR,
@@ -1469,14 +1481,21 @@ class LifeSupervisor(
                 "delivery_id": event["delivery_id"],
             })
             return False
-        if details.get("project_done") is True:
-            report_result = self._manager_publish_project_report(reason)
+        if details.get("project_done") is True or completion_kind == "certified_increment":
+            report_result = self._manager_publish_project_report(
+                reason,
+                **(
+                    {"certified_increment": True}
+                    if completion_kind == "certified_increment"
+                    else {}
+                ),
+            )
             if report_result != "reported":
                 self._emit({
                     "type": EventType.LIFE_PLANNER_ERROR,
                     "cycle": details.get("cycle", self._planning_cycles),
                     "error": (
-                        "project completion was recorded, but the post-completion "
+                        "completion was recorded, but the post-completion "
                         "Manager report is still pending"
                     ),
                     "reason": reason,
@@ -1568,9 +1587,14 @@ class LifeSupervisor(
                 "delivery_id": delivery_id,
             })
             return True, _PLAN_RETRY
-        if event.get("project_done") is True:
+        if event.get("project_done") is True or event.get("completion_kind") == "certified_increment":
             report_result = self._manager_publish_project_report(
-                str(event.get("reason") or "")
+                str(event.get("reason") or ""),
+                **(
+                    {"certified_increment": True}
+                    if event.get("completion_kind") == "certified_increment"
+                    else {}
+                ),
             )
             if report_result != "reported":
                 return True, _PLAN_RETRY

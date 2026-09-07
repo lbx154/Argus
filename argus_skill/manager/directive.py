@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import time
 import uuid
@@ -229,12 +230,20 @@ def record_operator_messages(
         ):
             continue
         decisions: list[dict[str, Any]] = []
-        if manager is not None:
-            manager.classify_front_door(
-                text,
-                intake_sink=decisions.append,
-                active_mission=True,
-            )
+        classifier = getattr(manager, "classify_front_door", None)
+        if callable(classifier):
+            try:
+                classifier(
+                    text,
+                    intake_sink=decisions.append,
+                    active_mission=True,
+                )
+            except Exception:  # noqa: BLE001 - retain input even when routing fails
+                decisions.clear()
+                logging.getLogger(__name__).warning(
+                    "operator classification failed; persisting plain guidance",
+                    exc_info=True,
+                )
         if decisions:
             from ..core.operator_context import IntakeDecision, persist_intake_decision
 

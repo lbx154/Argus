@@ -458,24 +458,25 @@ class _StageDecisionMixin:
             stages = completion_context.get("stages")
             stage_names = list(stages) if isinstance(stages, dict) else []
             route = " -> ".join(stage_names)
+            increment = completion_context.get("completion_scope") == "certified_increment"
             if uses_cjk(continuous_objective):
                 return (
-                    "项目已完成。Manager 已收到完整阶段记录"
-                    + (f"（{route}）。" if route else "。")
-                    + (
-                        f" 完成原因：{completion_reason.strip()}"
-                        if completion_reason.strip()
-                        else ""
+                    (
+                        "本次增量已认证完成；长期目标仍然有效。Manager 已收到完整阶段记录"
+                        if increment else "项目已完成。Manager 已收到完整阶段记录"
                     )
+                    + (f"（{route}）。" if route else "。")
+                    + " Manager 后端不可用，未检查当前交付成果的详细证据。"
                 )
             return (
-                "Project completed. Manager received the full stage ledger"
-                + (f" ({route})." if route else ".")
-                + (
-                    f" Completion reason: {completion_reason.strip()}"
-                    if completion_reason.strip()
-                    else ""
+                (
+                    "Certified increment completed; the standing objective remains "
+                    "active. Manager received the full stage ledger"
+                    if increment else "Project completed. Manager received the full stage ledger"
                 )
+                + (f" ({route})." if route else ".")
+                + " The Manager backend is unavailable; detailed current artifact "
+                "evidence was not inspected."
             )
         raw = self._run_stage_model(run_exec, prompt, root_task_id)
         if not raw.strip():

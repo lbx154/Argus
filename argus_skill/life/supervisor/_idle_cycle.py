@@ -13,6 +13,7 @@ from ..terminal_state import build_terminal_idle_signature
 from ._constants import (
     IDLE_BACKOFF_BASE_SECONDS,
     IDLE_BACKOFF_CAP_SECONDS,
+    PLAN_RETRY,
     PLAN_TERMINAL_IDLE,
     PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS,
 )
@@ -332,6 +333,8 @@ class IdleCycleMixin:
                         "status",
                         "scope",
                         "final_submission_certified",
+                        "final_submission_signature",
+                        "manuscript_snapshot",
                         "research_result",
                         "stop_kind",
                     )
@@ -359,11 +362,16 @@ class IdleCycleMixin:
         ):
             return None
 
-        # New operator input is state change. Drain it into the inbox context so
-        # the next planner call can see it, then re-plan normally.
-        if self._drain_user_inbox():
-            self._last_open_ended_project_done_signature = ""
-            return None
+        # Intake has already rendered this cycle's context. A late drain must
+        # restart intake, not fall through to certification with that old view.
+        messages = self._drain_user_inbox()
+        if messages:
+            self._operator_guidance_carryover = (
+                list(getattr(self, "_operator_guidance_carryover", None) or [])
+                + messages
+            )
+            self._reset_idle_backoff()
+            return PLAN_RETRY
 
         current = self._open_ended_terminal_idle_signature()
         if current != self._last_open_ended_project_done_signature:
@@ -374,12 +382,13 @@ class IdleCycleMixin:
         self._emit({
             "type": EventType.LIFE_PLANNER_TERMINAL_IDLE,
             "cycle": self._planning_cycles,
-            "reason": "open-ended project_done unchanged since last planner verdict",
+            "reason": "open-ended certified terminal state unchanged since last planner verdict",
             "consecutive_idle_cycles": self._consecutive_idle_planner_cycles,
             "suggested_sleep_s": sleep_s,
         })
         self._emit_status(
-            "planner: project already done and unchanged; idling without planner call"
+            "planner: certified terminal state unchanged; standing objective remains "
+            "active, idling without planner call"
         )
         return PLAN_TERMINAL_IDLE
 

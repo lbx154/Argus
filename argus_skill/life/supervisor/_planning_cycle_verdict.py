@@ -195,6 +195,7 @@ class PlanningCycleVerdictMixin:
                             stuck_families_note,
                             runtime_note,
                             revision_note,
+                            *state.operator_messages,
                         )
                         if part
                     ),
