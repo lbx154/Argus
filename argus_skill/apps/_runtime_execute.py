@@ -21,6 +21,7 @@ from pathlib import Path
 from ..core.knobs import resolve_role_reasoning_effort
 from ..core.ports import EventSink
 from ..core.role_reply import strip_named_lines
+from ..core.runner_errors import is_execution_host_startup_error
 from ..engineer.runner import should_clear_thread_id_after_outcome
 from ._env import env_flag as _env_flag
 from ._runtime_backends import _Outcome
@@ -32,6 +33,14 @@ from ._runtime_helpers import (
 )
 
 log = logging.getLogger(__name__)
+
+
+def _execution_host_blocked_outcome(outcome: object) -> bool:
+    return (
+        getattr(outcome, "status", "") == "infra_blocked"
+        and getattr(outcome, "stop_kind", None) == "backend_unavailable"
+        and is_execution_host_startup_error(getattr(outcome, "reason", ""))
+    )
 
 
 def _engineer_guidance(
@@ -1218,6 +1227,13 @@ class SkillLoopExecuteMixin:
             ):
                 final_submission_certified = True
                 completion_evidence = getattr(final_review, "reason", "")
+        if _execution_host_blocked_outcome(outcome):
+            # The round record describes an infrastructure interruption, not
+            # an independent review or evidence of project completion.
+            final_review_status = "not_assessed"
+            review_source = ""
+            final_submission_certified = False
+            completion_evidence = ""
         ex_state.new_tid = new_tid
         ex_state.auth_fail = auth_fail
         ex_state.rounds_list = rounds_list
@@ -1281,6 +1297,7 @@ class SkillLoopExecuteMixin:
         if (
             not maintenance_mission
             and not workflow_skips_stage_transition
+            and not _execution_host_blocked_outcome(outcome)
             and _should_run_stage_transition(
                 effective_status,
                 mission_scope=ex_state.mission_scope,
@@ -1335,6 +1352,7 @@ class SkillLoopExecuteMixin:
         # whose completion gate is not ``certified`` any way to close a stage.
         ex_state.stage_transition_deferred = bool(
             planned_node_holds_stage
+            and not _execution_host_blocked_outcome(outcome)
             and not ex_state.stage_transition_skipped
             and not stage_transition
         )

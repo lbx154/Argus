@@ -1097,7 +1097,7 @@ def test_completion_context_separates_current_artifacts_from_historical_reviews(
         r"\title{May Means More Than Possibility}"
         "\nCurrent balanced confirmation: structured SFT 32/32, orbit-minimax 30/32.\n"
     )
-    (paper / "main.tex").write_text(manuscript)
+    (paper / "main.tex").write_bytes(manuscript.encode("utf-8"))
     (paper / "main.pdf").write_bytes(b"current PDF bytes")
     (paper / "REVIEW.md").write_text(
         "# Authoritative review\nJudgment: done\nCurrent PDF: 10 pages.\n",
@@ -1146,12 +1146,16 @@ def test_completion_context_separates_current_artifacts_from_historical_reviews(
     assert supervisor._manager_publish_project_report("accepted") == "reported"
     assert supervisor._manager_publish_project_report("accepted") == "reported"
     assert len(campaign.reports) == 1
-    (paper / "main.tex").write_text(manuscript + "A corrected current result.\n")
+    (paper / "main.tex").write_bytes(
+        (manuscript + "A corrected current result.\n").encode("utf-8")
+    )
     assert supervisor._manager_publish_project_report("accepted") == "reported"
     assert len(campaign.reports) == 2
 
 
-def test_completion_evidence_is_bounded_and_confined(campaign, monkeypatch):
+def test_completion_evidence_is_bounded_and_confined(
+    campaign, monkeypatch, require_symlink_support,
+):
     from argus_skill.life import delivery
 
     paper = campaign.project / "paper"

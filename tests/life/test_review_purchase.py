@@ -66,7 +66,9 @@ def test_freeze_releases_prior_review_purchase_deferral(tmp_path: Path) -> None:
     manuscript.write_text("paper\n", encoding="utf-8")
     assessment = tmp_path / "paper/PUBLICATION_SCALE_ASSESSMENT.json"
     assessment.write_text(json.dumps({
-        "manuscript_snapshot": manuscript_snapshot(tmp_path),
+        "manuscript_snapshot": manuscript_snapshot(
+            tmp_path, recorded_at="2026-09-01T00:00:00+00:00",
+        ),
     }), encoding="utf-8")
     declare_method_freeze(
         tmp_path,
@@ -74,6 +76,7 @@ def test_freeze_releases_prior_review_purchase_deferral(tmp_path: Path) -> None:
         method_description="fixed",
         confirmation_command="python confirm.py",
         data_split_identity="heldout",
+        frozen_at="2026-09-01T00:01:00+00:00",
     )
 
     completed = SimpleNamespace(

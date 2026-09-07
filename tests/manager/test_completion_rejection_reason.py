@@ -177,4 +177,3 @@ def test_research_final_review_done_certifies_regardless_of_result_grades() -> N
         )
         == "result_class_below_publishable:finite_verification"
     )
-

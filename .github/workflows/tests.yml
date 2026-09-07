@@ -49,6 +49,13 @@ env:
     tests/test_idle_watchdog.py
     tests/test_run_exec_stream_callback.py
     tests/test_stop_kind_lifecycle.py
+    tests/agent_cli/test_codex_execution_host_failure.py
+    tests/life/test_execution_host_lifecycle.py
+    tests/life/test_planner_effort_resolution.py
+    tests/life/test_planner_host_pause_race.py
+    tests/planner/test_execution_host_failure.py
+    tests/test_backend_receipt_classification.py
+    tests/test_provider_turn_cap_restart.py
     tests/tools/test_lean_check.py
     tests/webapi/test_manager_rotation.py
     tests/webapi/test_pairing.py

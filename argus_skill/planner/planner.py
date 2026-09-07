@@ -27,6 +27,7 @@ from ..core.role_session import (
     objective_revision,
 )
 from ..core.run_gateway import run_exec as gateway_run_exec
+from ..core.runner_errors import is_execution_host_startup_error
 
 TASK_SCOPE_BOUNDED = "bounded"
 TASK_SCOPE_FINAL_SUBMISSION = "final_submission"
@@ -372,6 +373,14 @@ class Planner:
                 ),
             })
         if failed:
+            if is_execution_host_startup_error(fatal):
+                return PlannerVerdict(
+                    project_done=False,
+                    reason="Planner execution host is unavailable; repair it before retrying.",
+                    new_tasks=[],
+                    raw_text=text or details,
+                    error=fatal,
+                )
             if PLANNER_SUPERSEDED_ERROR in details:
                 return PlannerVerdict(
                     project_done=False,
@@ -541,6 +550,14 @@ class Planner:
                     str(line) for line in (getattr(result, "stderr_lines", None) or [])[-20:]
                 )
                 fatal = str(getattr(result, "fatal_error", "") or "").strip()
+                if is_execution_host_startup_error(fatal):
+                    return PlannerVerdict(
+                        project_done=False,
+                        reason="Planner execution host is unavailable; repair it before retrying.",
+                        new_tasks=[],
+                        raw_text="\n\n--- planner repair attempt ---\n\n".join(raw_attempts),
+                        error=fatal,
+                    )
                 details = "\n".join(part for part in (fatal, stderr_tail) if part).strip()
                 last_error = details or (
                     f"planner repair backend exit {getattr(result, 'exit_code', 'unknown')}"

@@ -683,6 +683,7 @@ def test_planner_waiting_records_external_dependency_status(tmp_path: Path) -> N
         continuous_objective="finish draft gate",
         budget=_Budget(),
         final_certification_gate=False,
+        open_ended=False,
     )
     sup.planner_runner = _PlannerRunner()
     sup.skill_store = None

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from ..core.runner_errors import is_execution_host_startup_error
 from .runner_backend import (
     BACKEND_COPILOT,
     BACKEND_CURSOR,
@@ -227,6 +228,7 @@ class EventConsumerMixin:
         turn_failed: bool,
         fatal_error: str | None,
         write_state: _OpenCodeWriteState | None = None,
+        disable_tools: bool = False,
     ) -> tuple[str | None, bool, bool, str | None]:
         if self.backend in CLAUDE_FAMILY:
             # qoder emits the same stream-json schema as claude.
@@ -296,6 +298,7 @@ class EventConsumerMixin:
             turn_completed=turn_completed,
             turn_failed=turn_failed,
             fatal_error=fatal_error,
+            disable_tools=disable_tools,
         )
 
     @staticmethod
@@ -307,16 +310,27 @@ class EventConsumerMixin:
         turn_completed: bool,
         turn_failed: bool,
         fatal_error: str | None,
+        disable_tools: bool = False,
     ) -> tuple[str | None, bool, bool, str | None]:
         event_type = event.get("type")
         if event_type == "thread.started":
             thread_id = event.get("thread_id", thread_id)
         elif event_type == "item.completed":
             item = event.get("item", {})
+            if not isinstance(item, dict):
+                return thread_id, turn_completed, turn_failed, fatal_error
             if item.get("type") == "agent_message":
                 message = item.get("text", "")
                 if isinstance(message, str):
                     agent_messages.append(message)
+            elif item.get("type") == "error" and not disable_tools:
+                message = item.get("message")
+                if isinstance(message, str) and is_execution_host_startup_error(message):
+                    # A completion receipt cannot restore a missing execution
+                    # capability. Only trusted CLI diagnostics enter this path;
+                    # ordinary assistant prose and recoverable errors do not.
+                    turn_failed = True
+                    fatal_error = message
         elif event_type == "turn.completed":
             turn_completed = True
         elif event_type == "turn.failed":
@@ -324,7 +338,7 @@ class EventConsumerMixin:
             err = event.get("error", {})
             if isinstance(err, dict):
                 maybe_msg = err.get("message")
-                if isinstance(maybe_msg, str):
+                if isinstance(maybe_msg, str) and not is_execution_host_startup_error(fatal_error):
                     fatal_error = maybe_msg
         elif event_type == "error" and fatal_error is None:
             maybe_msg = event.get("message")

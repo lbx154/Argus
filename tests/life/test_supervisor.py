@@ -545,7 +545,8 @@ def test_maintenance_creation_failure_preserves_checkout_hook_evidence(
     assert not sidecar.exists()
     if evidence_path:
         assert (worktree / evidence_path).read_text() == "checkout hook evidence\n"
-        assert str(worktree) in git("worktree", "list", "--porcelain").stdout
+        # Git's porcelain paths use forward slashes on Windows as well.
+        assert f"worktree {worktree.as_posix()}\n" in git("worktree", "list", "--porcelain").stdout
     else:
         assert not worktree.exists()
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from argus_skill.provider_integrations import copilot_guard
 from argus_skill.provider_integrations.copilot_guard import (
     acquire_copilot_permit,
@@ -53,6 +55,46 @@ def test_policy_denial_opens_a_shared_circuit(monkeypatch, tmp_path) -> None:
     assert "policy/subscription access denied" in blocked.reason
     release_denied_permit(blocked)
     assert copilot_guard_snapshot()["blocked_until"] > 0
+
+
+@pytest.mark.parametrize("diagnostic", [
+    "2026-09-07T04:28:00.429010Z WARN local history projection failed",
+    "expected ordinal 429, got 428",
+    "mse=0.429",
+    "Provider turn cap reached: allowance 40\nHTTP 429 Too Many Requests",
+    "Provider turn cap reached: allowance 40\nAccess denied by policy settings",
+    "Code Mode is unavailable because failed to spawn code-mode host worker: "
+    "host executable was not found (startup failure)\nHTTP 429 Too Many Requests",
+])
+def test_local_diagnostics_do_not_block_the_next_quota_permit(
+    monkeypatch, tmp_path, diagnostic,
+) -> None:
+    _enable(monkeypatch, tmp_path)
+    first = acquire_copilot_permit("engineer-r1")
+    assert first.allowed
+    first.finish(error_text=diagnostic, premium_requests=2.5, success=False)
+    snapshot = copilot_guard_snapshot()
+    assert snapshot["blocked_until"] == 0
+    assert snapshot["daily_calls"] == 1
+    assert snapshot["premium_requests_remaining"] == 97.5
+    continuation = acquire_copilot_permit("engineer-r1.winddown")
+    assert continuation.allowed
+    continuation.finish(success=True)
+
+
+@pytest.mark.parametrize("diagnostic", [
+    "HTTP 429", '{"status_code":429}', "429 Too Many Requests", "quota exceeded",
+])
+def test_real_rate_limit_still_blocks_the_next_quota_permit(
+    monkeypatch, tmp_path, diagnostic,
+) -> None:
+    _enable(monkeypatch, tmp_path)
+    first = acquire_copilot_permit("engineer-r1")
+    first.finish(error_text=diagnostic, success=False)
+    blocked = acquire_copilot_permit("engineer-r2")
+    assert not blocked.allowed
+    assert blocked.stop_kind == "provider_cooldown"
+    release_denied_permit(blocked)
 
 
 def test_hourly_call_cap_counts_provider_starts(monkeypatch, tmp_path) -> None:

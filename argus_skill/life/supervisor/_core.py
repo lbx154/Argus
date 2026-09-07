@@ -384,7 +384,7 @@ class LifeSupervisor(
         return self._project_workdir()
 
     def _planner_config(self):
-        from ...core.knobs import resolve_role_model
+        from ...core.knobs import resolve_knob, resolve_role_model
         from ...daemon.state import read_continuous_state
         from ...planner import (
             PlannerConfig,
@@ -425,9 +425,9 @@ class LifeSupervisor(
         return PlannerConfig(
             model=resolve_role_model("planner", role_env="ARGUS_SKILL_PLAN_MODEL")
             or self.reviewer_model,
-            reasoning_effort=os.environ.get(
+            reasoning_effort=resolve_knob(
                 "ARGUS_SKILL_PLANNER_REASONING_EFFORT", "high"
-            ),
+            ).value,
             working_dir=str(workdir),
             state_root=str(state_root),
             add_dirs=([str(state_root)] if state_root != workdir else []),

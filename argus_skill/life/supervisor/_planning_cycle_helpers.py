@@ -418,6 +418,9 @@ class _PlanCycleState:
         self.subagent_family_failures: dict[str, Any] = {}
         self.verdict: Any = None
         self.planner_invoked = False
+        # The durable generation that authorized this invocation. A late host
+        # failure may pause only this generation, never a newer operator request.
+        self.planner_continuous_state: Any | None = None
         self.completion_accepted = False
         self.certified_operator_wait = False
 

@@ -615,6 +615,7 @@ class RunExecMixin:
                     turn_failed=state.turn_failed,
                     fatal_error=state.fatal_error,
                     write_state=state.opencode_write,
+                    disable_tools=options.disable_tools,
                 )
                 # Stream each NEW assistant block to the opt-in callback the
                 # instant it lands — this is what lets the Manager chat front-door

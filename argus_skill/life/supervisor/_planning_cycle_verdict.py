@@ -11,9 +11,11 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.runner_errors import is_execution_host_startup_error
 from ._constants import PLAN_AWAITING, PLAN_ERROR, PLAN_RETRY
 from ._planning_cycle_helpers import _PlanCycleState, _render_revision_request
 
@@ -27,6 +29,45 @@ def _is_content_filter_failure(*values: Any) -> bool:
 
 class PlanningCycleVerdictMixin:
     """Planner invocation and error/overlap normalization."""
+
+    def _pause_planner_execution_host(self, error: str, *, expected: Any) -> str:
+        """Keep a failed Planner paused until the campaign is explicitly rearmed."""
+        from ...daemon.state import (
+            compare_and_swap_continuous_config,
+        )
+
+        if expected is None:
+            return PLAN_RETRY
+        if not expected.enabled:
+            # An existing operator hold keeps its reason and generation.
+            return PLAN_AWAITING
+        continuous_root = Path(getattr(self.memory, "project_root", None) or self.memory.root)
+        # Use the existing durable campaign control and preserve its objective.
+        # Compare with the generation captured before the model call, not the
+        # latest generation read after a potentially long-running failure.
+        if not compare_and_swap_continuous_config(
+            continuous_root,
+            expected=expected,
+            enabled=False,
+            objective=expected.objective,
+            open_ended=expected.open_ended,
+            done_reason=error,
+        ):
+            return PLAN_RETRY
+        self._emit({
+            "type": EventType.LIFE_PLANNER_ERROR,
+            "cycle": self._planning_cycles,
+            "error": error,
+            "operator_alert": True,
+            "recoverable": True,
+            "stop_kind": "backend_unavailable",
+        })
+        self._emit_status(
+            "Planner execution host is unavailable; restore the Codex host executable "
+            "and explicitly enable the continuous campaign to retry."
+        )
+        self._enter_pause_backoff()
+        return PLAN_AWAITING
 
     def _pause_empty_plan_for_operator(
         self,
@@ -176,6 +217,18 @@ class PlanningCycleVerdictMixin:
             if stream_ctx:
                 stream_ctx.__enter__()
             try:
+                from ...daemon.state import read_continuous_state
+
+                continuous_root = Path(
+                    getattr(self.memory, "project_root", None) or self.memory.root
+                )
+                state.planner_continuous_state = read_continuous_state(continuous_root)
+                if (
+                    state.planner_continuous_state.enabled
+                    and state.planner_continuous_state.objective
+                    != str(self.config.continuous_objective or "").strip()
+                ):
+                    return PLAN_RETRY
                 state.planner_invoked = True
                 state.verdict = planner.plan_next(
                     continuous_objective=self.config.continuous_objective,
@@ -247,6 +300,10 @@ class PlanningCycleVerdictMixin:
         if verdict.error:
             from ...planner import PLANNER_SUPERSEDED_ERROR
 
+            if is_execution_host_startup_error(verdict.error):
+                return self._pause_planner_execution_host(
+                    verdict.error, expected=getattr(state, "planner_continuous_state", None),
+                )
             if str(verdict.error).startswith(PLANNER_SUPERSEDED_ERROR):
                 self._emit({
                     "type": "life.planner.superseded",

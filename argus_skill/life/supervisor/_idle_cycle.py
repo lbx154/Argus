@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.runner_errors import is_execution_host_startup_error
 from ..terminal_state import build_terminal_idle_signature
 from ._constants import (
     IDLE_BACKOFF_BASE_SECONDS,
@@ -42,6 +43,9 @@ class IdleCycleMixin:
         item: Any | None = None,
     ) -> dict[str, Any] | None:
         """Hold dispatch while the same loaded runtime owns an open circuit."""
+        host_block = self._execution_host_failure_block(item=item)
+        if host_block is not None:
+            return host_block
         item_tags = {
             str(tag).strip().lower()
             for tag in (getattr(item, "tags", None) or [])
@@ -84,6 +88,90 @@ class IdleCycleMixin:
             "fingerprint": fingerprint,
             "recoverable": True,
         }
+
+    def _execution_host_failure_block(
+        self, *, item: Any | None = None,
+    ) -> dict[str, Any] | None:
+        """The persisted infrastructure pause is released by explicit resume.
+
+        A new model session cannot restore a missing executable. Inspect the
+        active backlog on every gate so another supervisor sees the pause and
+        the existing atomic resume APIs immediately permit a deliberate retry.
+        """
+        from ...daemon.state import read_continuous_state
+
+        memory_root = (
+            getattr(self.memory, "project_root", None)
+            or getattr(self.memory, "root", None)
+        )
+        if memory_root is None:
+            return None
+        continuous = read_continuous_state(memory_root)
+        if (
+            not continuous.enabled
+            and is_execution_host_startup_error(continuous.done_reason)
+        ):
+            reason = (
+                "Code-mode execution host is unavailable. Restore the host "
+                "executable in the Codex installation, then explicitly "
+                "re-enable continuous work to retry planning. "
+                f"Runner receipt: {continuous.done_reason}"
+            )
+            if self._should_journal_idle_repeat("execution_host_failure"):
+                self._emit({
+                    "type": "life.execution_host.blocked",
+                    "item_id": str(getattr(item, "id", "") or ""),
+                    "reason": reason,
+                    "operator_alert": True,
+                    "recoverable": True,
+                })
+                self._emit_status(reason)
+            return {
+                "status": "infra_blocked",
+                "item_id": str(getattr(item, "id", "") or ""),
+                "reason": reason,
+                "recoverable": True,
+            }
+        read_backlog = getattr(self.memory.backlog, "active", None)
+        if not callable(read_backlog):
+            read_backlog = getattr(self.memory.backlog, "all", None)
+        if not callable(read_backlog):
+            return None
+        for blocked in read_backlog():
+            outcome = getattr(blocked, "outcome", {}) or {}
+            if (
+                blocked.status != "infra_blocked"
+                or not isinstance(outcome, dict)
+                or outcome.get("interruption_kind") != "backend_unavailable"
+                or not is_execution_host_startup_error(
+                    outcome.get("execution_host_failure")
+                )
+            ):
+                continue
+            reason = (
+                "Code-mode execution host is unavailable. Restore the host "
+                "executable in the Codex installation, then explicitly resume "
+                f"mission {blocked.id} to retry from its checkpoint. "
+                f"Runner receipt: {outcome['execution_host_failure']}"
+            )
+            if self._should_journal_idle_repeat("execution_host_failure"):
+                self._emit({
+                    "type": "life.execution_host.blocked",
+                    "item_id": str(getattr(item, "id", "") or ""),
+                    "blocked_item_id": blocked.id,
+                    "reason": reason,
+                    "operator_alert": True,
+                    "recoverable": True,
+                })
+                self._emit_status(reason)
+            return {
+                "status": "infra_blocked",
+                "item_id": str(getattr(item, "id", "") or ""),
+                "blocked_item_id": blocked.id,
+                "reason": reason,
+                "recoverable": True,
+            }
+        return None
 
     def _drain_user_inbox(self, *, max_messages: int = 10) -> list[str]:
         """Pull all pending operator nudges from the configured inbox.
