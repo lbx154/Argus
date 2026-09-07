@@ -9,7 +9,12 @@ from typing import Any
 
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
-from ._constants import MANAGER_RECONCILE_AFTER_IDLE_CYCLES, PLAN_RETRY
+from ._constants import (
+    MANAGER_RECONCILE_AFTER_IDLE_CYCLES,
+    PLAN_AWAITING,
+    PLAN_ERROR,
+    PLAN_RETRY,
+)
 from ._planning_cycle_completion import PlanningCycleCompletionMixin
 from ._planning_cycle_enqueue import PlanningCycleEnqueueMixin
 from ._planning_cycle_helpers import (
@@ -1037,6 +1042,37 @@ class PlanningCycleMixin(
             self._pc_retire_tasks(state)
         if result is None:
             result = self._pc_emit_final_verdict(state)
+        # Reading a prompt is not handling its input. Checkpoint only committed
+        # work or an accepted durable decision; a plain wait can use the
+        # unchanged-input skip but must be reconsidered after restart.
+        if (
+            state.planner_invoked
+            and state.operator_context_revision > 0
+            and state.verdict is not None
+            and not state.verdict.error
+            and (
+                state.added_titles
+                or (
+                    result == PLAN_AWAITING
+                    and state.verdict.waiting
+                    and state.verdict.waiting_contract is not None
+                    and bool(
+                        (self._load_planner_waiting_contract_state() or {}).get("active")
+                    )
+                )
+                or state.completion_accepted
+            )
+        ):
+            from ...core.operator_context import OperatorContextStore
+
+            try:
+                OperatorContextStore(self.memory.root).acknowledge(
+                    "planner", state.operator_context_revision,
+                )
+            except (OSError, ValueError):
+                log.exception("failed to checkpoint handled Planner input")
+                self._enter_pause_backoff()
+                return PLAN_ERROR
         self._arm_unchanged_planner_skip(state, result)
         return result
 
@@ -1051,6 +1087,14 @@ class PlanningCycleMixin(
             return PLAN_RETRY
         if (
             not state.had_operator_messages
+            and not state.has_unhandled_operator_input
+            and not bool(
+                (self._load_planner_waiting_contract_state() or {}).get("active")
+            )
+            and not any(
+                item.status not in {"done", "failed", "aborted", "skipped", "superseded"}
+                for item in self.memory.backlog.active()
+            )
             and self._effective_final_certification_gate(self._artifact_root())
             and self._journal_has_final_certification()
         ):

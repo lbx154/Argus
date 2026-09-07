@@ -626,7 +626,7 @@ def build_continuous_prompt(
     operator_context = ""
     if state_root is not None:
         operator_context, _revision = build_operator_context_block(
-            "planner", state_root
+            "planner", state_root, consume_once=False
         )
     return _join_prompt_blocks(
         ground_truth_mandate(
@@ -747,7 +747,7 @@ def build_continuous_resume_prompt(
     operator_context = ""
     if state_root is not None:
         operator_context, _revision = build_operator_context_block(
-            "planner", state_root
+            "planner", state_root, consume_once=False
         )
     return _join_prompt_blocks(
         "## Continued Planner cycle\n"

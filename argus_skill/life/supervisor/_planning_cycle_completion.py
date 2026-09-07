@@ -11,6 +11,7 @@ returned a non-error verdict but before any backlog dedupe/enqueue.
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,57 @@ from ._planning_cycle_helpers import (
 
 class PlanningCycleCompletionMixin:
     """Waiting handling + project_done normalization + no-tasks rejection."""
+
+    def _pc_is_certified_operator_wait(self, state: _PlanCycleState) -> bool:
+        """Recognize an actual Planner handoff, never infer handling from a cert."""
+        verdict = state.verdict
+        if (
+            not state.planner_invoked
+            or state.revision_request is not None
+            or not self.config.open_ended
+            or verdict.error
+            or not verdict.waiting
+            or verdict.project_done
+            or verdict.new_tasks
+            or verdict.retire_tasks
+            or verdict.advance_to_stage
+        ):
+            return False
+        contract = verdict.waiting_contract
+        if contract is not None and (
+            not contract.operator_action_required
+            or contract.stage_reconciliation_required
+            or contract.allow_verification_probe
+            or contract.watched_paths
+            or set(contract.wake_on) - {"authorization", "operator_input"}
+        ):
+            return False
+        # A generic wait (including credentials or an experiment result) is not
+        # acceptance of the certified increment. Require an explicit handoff to
+        # *new* direction, including legacy uncontracted Planner responses.
+        reason = str(verdict.waiting_reason or verdict.reason or "").strip()
+        if not re.search(
+            r"(?:\b(?:wait(?:ing)?|await(?:ing)?)\s+(?:only\s+)?(?:for\s+)?"
+            r"(?:(?:the|a)\s+)?(?:new|fresh|further|next)\s+"
+            r"(?:explicit\s+)?(?:(?:operator|user|research)\s+)?"
+            r"(?:direction|instruction|request)s?"
+            r"|(?:等待|等候)(?:(?:操作员|用户|操作者)的?)?"
+            r"(?:新的?|进一步的?)(?:明确的?)?(?:研究)?(?:指示|指令|方向))"
+            r"[\s.!。！]*$",
+            reason,
+            re.IGNORECASE,
+        ):
+            return False
+        return bool(
+            not any(
+                item.status not in {"done", "failed", "aborted", "skipped", "superseded"}
+                for item in self.memory.backlog.active()
+            )
+            and not self._waitable_subagent_jobs()
+            and self._effective_final_certification_gate(self._artifact_root())
+            and self._journal_has_final_certification()
+            and self._manager_final_stage_is_completed()
+        )
 
     def _completion_rejection_circuit_file(self) -> Path:
         root = (
@@ -85,6 +137,7 @@ class PlanningCycleCompletionMixin:
         pause_completion_rejection_circuit(
             self._completion_rejection_circuit_file(),
             backlog_signature=backlog_signature,
+            operator_context_revision=getattr(self, "_planning_operator_context_revision", 0),
         )
         message = (
             f"I have tried to close out this project {count} times in a row, "
@@ -133,16 +186,87 @@ class PlanningCycleCompletionMixin:
         self._enter_idle_backoff()
         return PLAN_TERMINAL_IDLE
 
+    def _manager_project_report_root(self) -> Path:
+        """Use the same project conversation as mission-result notifications."""
+        return Path(
+            getattr(getattr(self.memory, "project", None), "root", None)
+            or getattr(self.config, "project_state_dir", None)
+            or self.memory.root
+        )
+
     def _manager_project_completion_context(self) -> dict[str, Any]:
-        """Collect every stage and transition for Manager's completion report."""
+        """Separate historical stage decisions from current workspace evidence."""
+        import hashlib
+
+        from ...core.manuscript_snapshot import manuscript_review_status
         from ...core.pipeline_state import read_pipeline_state
         from ...core.stage_certificate import all_stage_reviews
+        from ..delivery import (
+            MAX_DELIVERY_TARGETS,
+            _safe_existing_path,
+            _vertical_primary_targets,
+        )
 
         pipeline = read_pipeline_state(self._artifact_root())
         stages = pipeline.get("stages")
         stage_history = pipeline.get("stage_history")
         rollback_history = pipeline.get("rollback_history")
+        workdir = Path(self._project_workdir()).resolve()
+        report_root = self._manager_project_report_root().resolve()
+        project_roots = {workdir, report_root, Path(self._artifact_root()).resolve()}
+        reviews = {}
+        # Legacy receipts live globally and are keyed only by stage. Never
+        # import another project's receipt, or assume an unowned one is ours.
+        for root in dict.fromkeys((Path(self.memory.root).resolve(), report_root)):
+            for stage, review in all_stage_reviews(root).items():
+                owner = str(review.get("project_root") or "").strip()
+                if owner:
+                    if Path(owner).resolve() not in project_roots:
+                        continue
+                elif root != report_root:
+                    continue
+                reviews[stage] = {
+                    **review,
+                    "reporting_use": "historical_stage_progression_only",
+                    "manuscript_freshness": manuscript_review_status(review, workdir),
+                }
+
+        targets = _vertical_primary_targets(
+            workdir, Path(self._artifact_root()), str(pipeline.get("current_stage") or ""),
+        )
+        paths = list(dict.fromkeys([
+            "paper/main.tex", "paper/main.pdf", "paper/REVIEW.md", "REVIEW.md",
+            *(target["path"] for target in targets[:MAX_DELIVERY_TARGETS]),
+        ]))
+        evidence = []
+        for relative in paths:
+            safe = _safe_existing_path(workdir, relative)
+            if safe is None:
+                continue
+            path = workdir / safe
+            try:
+                row: dict[str, Any] = {"path": safe, "size_bytes": path.stat().st_size}
+                # Only named deliverables, never a recursive workspace/log scan.
+                with path.open("rb") as handle:
+                    raw = handle.read(4 * 1024 * 1024 + 1)
+                if len(raw) <= 4 * 1024 * 1024:
+                    row["sha256"] = hashlib.sha256(raw).hexdigest()
+                else:
+                    row["content_status"] = "too_large_for_inline_evidence; inspect read-only"
+                if path.suffix.lower() in {".tex", ".md", ".txt", ".json"}:
+                    row["excerpt"] = raw[:12000].decode("utf-8", errors="replace")
+                    row["excerpt_truncated"] = len(raw) > 12000
+                if path.name == "REVIEW.md":
+                    row["reporting_use"] = (
+                        "current_review_file; its contents alone do not prove "
+                        "certification or binding to the current artifacts"
+                    )
+                evidence.append(row)
+            except OSError:
+                evidence.append({"path": safe, "content_status": "unreadable"})
         return {
+            "project_workdir": str(workdir),
+            "project_state_dir": str(report_root),
             "current_stage": str(pipeline.get("current_stage") or ""),
             "stages": dict(stages) if isinstance(stages, dict) else {},
             "stage_history": (
@@ -155,19 +279,38 @@ class PlanningCycleCompletionMixin:
                 if isinstance(rollback_history, list)
                 else []
             ),
-            "stage_reviews": all_stage_reviews(self.memory.root),
+            "stage_reviews": reviews,
+            "stage_ledger_reporting_use": (
+                "Historical progression, not evidence of final artifact contents. "
+                "Do not reuse old titles, page counts, or numerical results as final."
+            ),
+            "current_artifact_evidence": evidence,
+            "current_final_certification": {
+                "certified": self._journal_has_final_certification(),
+                "project_state_signature": self._final_submission_signature(),
+            },
         }
 
-    def _manager_publish_project_report(self, completion_reason: str) -> str:
+    def _manager_publish_project_report(
+        self, completion_reason: str, *, certified_increment: bool = False,
+    ) -> str:
         """Have Manager summarize the completed full stage ledger to the operator."""
         import hashlib
         import json
 
         stage = str(self._current_pipeline_stage() or "")
+        report_root = self._manager_project_report_root()
         context = self._manager_project_completion_context()
+        if certified_increment:
+            context.update(
+                completion_scope="certified_increment",
+                standing_objective_active=True,
+                final_submission_signature=self._final_submission_signature(),
+            )
         fingerprint = hashlib.sha256(
             json.dumps(
                 {
+                    "project_conversation": str(report_root.resolve()),
                     "objective": self.config.continuous_objective,
                     "reason": completion_reason,
                     "context": context,
@@ -182,16 +325,23 @@ class PlanningCycleCompletionMixin:
 
         if any(
             turn.get("message_id") == message_id
-            for turn in read_turns(self.memory.root)
+            for turn in read_turns(report_root)
         ):
             return "reported"
 
-        report = self._bound_manager().report_project_completion(
-            completion_context=context,
-            continuous_objective=self.config.continuous_objective,
-            completion_reason=completion_reason,
-            on_event=getattr(self.sink, "handle_event", None),
-        )
+        try:
+            report = self._bound_manager().report_project_completion(
+                completion_context=context,
+                continuous_objective=self.config.continuous_objective,
+                completion_reason=completion_reason,
+                on_event=getattr(self.sink, "handle_event", None),
+            )
+        except Exception as exc:  # noqa: BLE001 - retain the outbox for retry
+            self._emit({
+                "type": "life.manager.project_report.failed",
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            return PLAN_ERROR
         if not str(report or "").strip():
             self._emit_status("Manager could not produce the project completion report")
             return PLAN_ERROR
@@ -199,7 +349,7 @@ class PlanningCycleCompletionMixin:
             from ...core.operator_messages import publish_operator_message
 
             published = publish_operator_message(
-                self.memory.root,
+                report_root,
                 text=str(report).strip(),
                 message_id=message_id,
                 event_fields={
@@ -209,7 +359,7 @@ class PlanningCycleCompletionMixin:
             )
             if not published and not any(
                 turn.get("message_id") == message_id
-                for turn in read_turns(self.memory.root)
+                for turn in read_turns(report_root)
             ):
                 self._emit_status("Manager project report could not be published")
                 return PLAN_ERROR
@@ -264,6 +414,7 @@ class PlanningCycleCompletionMixin:
         )
         if not delivered:
             return PLAN_RETRY
+        state.completion_accepted = True
         self._enter_idle_backoff()
         self._emit_status("planner: terminal stage certified and Manager held; idling")
         return PLAN_TERMINAL_IDLE
@@ -297,6 +448,10 @@ class PlanningCycleCompletionMixin:
                     )
                     self._enter_idle_backoff()
                     return PLAN_ERROR
+            if self._pc_is_certified_operator_wait(state):
+                state.certified_operator_wait = True
+                state.verdict = replace(verdict, waiting=False, project_done=True)
+                return self._pc_normalize_project_done(state)
             if revision_request is not None:
                 reconciliation_result = self._reconcile_open_ended_planner_waiting(verdict)
                 if reconciliation_result == "rollback":
@@ -476,7 +631,26 @@ class PlanningCycleCompletionMixin:
             )
             return PLAN_ERROR
 
-        if verdict.project_done and self.config.open_ended:
+        certified_increment = bool(
+            verdict.project_done
+            and self.config.open_ended
+            and (
+                state.certified_operator_wait
+                or (
+                    not state.had_operator_messages
+                    and not state.has_unhandled_operator_input
+                )
+            )
+            and not verdict.new_tasks
+            and not verdict.retire_tasks
+            and not any(
+                item.status not in {"done", "failed", "aborted", "skipped", "superseded"}
+                for item in self.memory.backlog.active()
+            )
+            and self._effective_final_certification_gate(self._artifact_root())
+            and self._journal_has_final_certification()
+        )
+        if verdict.project_done and self.config.open_ended and not certified_increment:
             # A standing campaign cannot be completed by one Planner increment.
             # The Planner class repairs this once before returning, but keep the
             # supervisor guard for injected/fake/custom planners. Stay alive and
@@ -517,6 +691,44 @@ class PlanningCycleCompletionMixin:
                     return paused
                 self._emit_status(reason)
                 return PLAN_RETRY
+            if certified_increment:
+                if state.certified_operator_wait:
+                    self._deactivate_planner_waiting_contract()
+                    self._last_planner_wait_reconciliation_key = None
+                    self._planner_waits_since_reconciliation = 0
+                reason = (
+                    "Independent final certification is current: this increment "
+                    "is complete, not the standing campaign. The objective remains "
+                    "active; waiting for new operator input or changed project state."
+                )
+                delivered = self._emit_planner_verdict(
+                    status=PlannerVerdictStatus.COMPLETED,
+                    completion_kind="certified_increment",
+                    resume_outcome=PLAN_TERMINAL_IDLE,
+                    terminal_signature=self._open_ended_terminal_idle_signature(),
+                    cycle=self._planning_cycles,
+                    project_done=False,
+                    reason=reason,
+                    task_count=0,
+                    enqueued_tasks=0,
+                    skipped_duplicate_tasks=0,
+                    enqueued_titles=[],
+                    skipped_duplicate_titles=[],
+                    open_ended_objective=True,
+                    **(
+                        {"handled_operator_context_revision": state.operator_context_revision}
+                        if state.certified_operator_wait else {}
+                    ),
+                )
+                if not delivered:
+                    return PLAN_RETRY
+                state.completion_accepted = True
+                clear_completion_rejection_circuit(
+                    self._completion_rejection_circuit_file()
+                )
+                self._enter_idle_backoff()
+                self._emit_status(f"planner: {reason}")
+                return PLAN_TERMINAL_IDLE
             delivered = self._emit_planner_verdict(
                 status=PlannerVerdictStatus.COMPLETED,
                 completion_kind="project_completed",
@@ -533,6 +745,7 @@ class PlanningCycleCompletionMixin:
             )
             if not delivered:
                 return PLAN_RETRY
+            state.completion_accepted = True
             # The requirement was satisfied for real: forget the turn-back
             # history so a future campaign starts with a clean count.
             clear_completion_rejection_circuit(
