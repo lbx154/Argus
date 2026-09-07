@@ -1434,7 +1434,9 @@ class LifeSupervisor(
                         "unbound (certification did not record the manuscript version)"
                     )
             receipt = build_delivery_receipt(
-                item_id=f"project-{project_id}",
+                # A session can complete several goals. The final settled task
+                # makes each delivery new while reconnects stay idempotent.
+                item_id=f"project-{project_id}-{latest.get('item_id') or 'complete'}",
                 title=(
                     str(getattr(self.config, "continuous_objective", "") or "").strip()
                     or str(latest.get("title") or "Completed task")

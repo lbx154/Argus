@@ -344,3 +344,19 @@ def test_software_delivery_retains_the_reviewed_product_ahead_of_source_files(tm
     assert receipt["primary_target"]["path"] == "index.html"
     paths = [row["path"] for row in receipt["targets"]]
     assert "REPORT.md" in paths and "verify.js" in paths
+
+
+def test_terminal_delivery_identity_changes_for_new_completed_work_in_one_session(tmp_path):
+    supervisor, memory = _delivery_supervisor(tmp_path)
+    first = supervisor._build_terminal_project_delivery("First goal done")
+    assert supervisor._emit({
+        "type": "life.mission.completed", "item_id": "second-goal",
+        "success": True, "status": "done", "summary": "Second goal done",
+        "overall_complete": False, "campaign_continues": True,
+        "execution_workdir": str(supervisor._project_workdir()),
+        "delivery_candidates": ["final.md"], "outcome": {"review_status": "done"},
+    })
+    second = supervisor._build_terminal_project_delivery("Second goal done")
+    replay = supervisor._build_terminal_project_delivery("Second goal done")
+    assert first["delivery_id"] != second["delivery_id"]
+    assert second["delivery_id"] == replay["delivery_id"]
