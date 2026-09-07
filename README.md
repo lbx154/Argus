@@ -82,8 +82,8 @@ size. If the printed expiry date has passed, open an Issue and ask the
 maintainers for the latest code.
 
 <p align="center">
-  <a href="docs/assets/argus-wechat-group-2.jpg">
-    <img src="docs/assets/argus-wechat-group-2.jpg" width="360" alt="Argus WeChat Group 2 QR code">
+  <a href="docs/assets/argus-wechat-group-2.jpg?v=5fd55d09">
+    <img src="docs/assets/argus-wechat-group-2.jpg?v=5fd55d09" width="360" alt="Argus WeChat Group 2 QR code">
   </a>
 </p>
 
