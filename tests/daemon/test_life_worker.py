@@ -950,6 +950,97 @@ def test_life_worker_drains_successive_missions_and_stops_on_signal(
     assert rc_holder == {"rc": 0}
 
 
+def test_multi_supervisor_pass_delegates_pipeline_lock_reentry(
+    tmp_path: Path,
+) -> None:
+    """The multi-supervisor drain pass must hand workers its lock entitlement.
+
+    ``_rf_main_loop`` holds ``manager_pipeline_lock`` while awaiting its
+    supervisor futures, and each mission pass re-enters that same lock (the
+    2026-09-05 paper-daemon incident shape). Re-entry rides the DELEGATION
+    CHAIN — a ContextVar — so the submit site must run each worker in a copy
+    of the holder's context (``executor.submit(copy_context().run, ...)``).
+    With a plain submit the workers carry a fresh context, block on the flock
+    the main loop is holding, and the pass never completes: this test then
+    sees ``reentry_timeout`` outcomes / a still-spinning loop and fails.
+    """
+    import contextvars
+
+    from argus_skill.manager._session_ops import manager_pipeline_lock
+
+    outcomes: list[str] = []
+    outcomes_mutex = threading.Lock()
+
+    class FakeSupervisor:
+        def __init__(self, worker_id: str) -> None:
+            self.config = SimpleNamespace(worker_id=worker_id)
+            self._missions_started = 0
+            self._planning_cycles = 0
+
+        def run(self) -> dict:
+            # Probe the re-entry from a bounded side thread that inherits
+            # THIS worker's context: if the executor submit propagated the
+            # delegation chain, the probe enters the gate and finishes; if
+            # not, it polls the flock forever and we time out instead of
+            # deadlocking the whole pytest process (the flock is held by the
+            # main loop until this run() returns).
+            reentered = threading.Event()
+
+            def _reenter() -> None:
+                with manager_pipeline_lock(tmp_path):
+                    reentered.set()
+
+            probe = threading.Thread(
+                target=contextvars.copy_context().run,
+                args=(_reenter,),
+                daemon=True,
+            )
+            probe.start()
+            stopped_by = (
+                "backlog_empty" if reentered.wait(timeout=8.0) else "reentry_timeout"
+            )
+            with outcomes_mutex:
+                outcomes.append(stopped_by)
+            return {"stopped_by": stopped_by, "suggested_sleep": 0}
+
+    cfg = LifeWorkerConfig(
+        life_dir=tmp_path,
+        backend="memory",
+        poll_interval=0.05,
+        continuous_open_ended=False,
+    )
+    worker = LifeWorker(cfg)
+    sup_primary = FakeSupervisor("primary")
+    sup_secondary = FakeSupervisor("secondary")
+    rf_state = SimpleNamespace(
+        cfg=cfg,
+        runtime_root=tmp_path,
+        runner=SimpleNamespace(
+            manager=SimpleNamespace(
+                pipeline_lock=lambda: manager_pipeline_lock(tmp_path),
+            ),
+        ),
+        sup=sup_primary,
+        supervisors=[sup_primary, sup_secondary],
+    )
+
+    loop = threading.Thread(
+        target=worker._rf_main_loop, args=(rf_state,), daemon=True
+    )
+    loop.start()
+    loop.join(timeout=25.0)
+    loop_completed = not loop.is_alive()
+    worker._stop.set()  # unwind a still-spinning red-path loop
+    loop.join(timeout=25.0)
+    assert loop_completed, (
+        "multi-supervisor drain pass did not finish: workers were submitted "
+        "without the holder's context and pipeline-lock re-entry blocked"
+    )
+    assert outcomes[:2] == ["backlog_empty", "backlog_empty"], (
+        f"supervisor passes failed to re-enter manager_pipeline_lock: {outcomes!r}"
+    )
+
+
 def test_daemon_sink_counts_life_mission_completed() -> None:
     cfg = LifeWorkerConfig(life_dir=Path("/tmp"), backend="memory")
     worker = LifeWorker(cfg)

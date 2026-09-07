@@ -13,8 +13,10 @@ use crate::{
     redaction::redact_sensitive_text,
     release::ReleaseContext,
     resilience::{AutomaticRecoveryDecision, BackendResiliencePolicy, HealthDecision},
-    runner::{detect_runners, resolve_runner_binary, runner_runtime_path_entries},
-    settings::{runner_bin, SettingsStore},
+    runner::{
+        argus_home_dir, detect_runners, resolve_runner_configuration, runner_runtime_path_entries,
+    },
+    settings::SettingsStore,
 };
 use base64::Engine as _;
 use chrono::Utc;
@@ -887,13 +889,10 @@ impl BackendSupervisor {
         self.ensure_special_prompts()?;
         let runtime_bin = self.ensure_runtime_command_shims(&command.command)?;
         let launch_nonce = random_nonce();
-        let runner = runner_bin(&settings, &settings.runner_kind)
-            .or_else(|| {
-                env::var("ARGUS_SKILL_RUNNER_BIN")
-                    .ok()
-                    .filter(|value| !value.trim().is_empty())
-            })
-            .or_else(|| resolve_runner_binary(&settings.runner_kind));
+        let configured_runner = resolve_runner_configuration(&settings)?;
+        let runner = configured_runner
+            .as_ref()
+            .and_then(|configured| configured.executable.clone());
         // The Rust host can locate an npm .cmd launcher even when the GUI
         // inherited a PATH without Node.  Supply its verified Node directory
         // to the frozen backend so every later AgentCliRunner subprocess gets
@@ -903,14 +902,7 @@ impl BackendSupervisor {
             .as_deref()
             .map(runner_runtime_path_entries)
             .unwrap_or_default();
-        let argus_home = env::var_os("ARGUS_SKILL_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                env::var_os("USERPROFILE")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| PathBuf::from("."))
-                    .join(".argus-skill")
-            });
+        let argus_home = argus_home_dir();
         let mut process = Command::new(&command.command);
         #[cfg(windows)]
         process.creation_flags(CREATE_NO_WINDOW);
@@ -937,7 +929,9 @@ impl BackendSupervisor {
                 env::var("PYTHONIOENCODING").unwrap_or_else(|_| "utf-8".to_owned()),
             );
         if settings.runner_configured {
-            process.env("ARGUS_SKILL_RUNNER_BACKEND", settings.runner_kind.as_str());
+            process
+                .env("ARGUS_SKILL_RUNNER_BACKEND", settings.runner_kind.as_str())
+                .env_remove("ARGUS_SKILL_RUNNER_BIN");
         }
         if let Some(runner) = runner.as_deref() {
             process.env("ARGUS_SKILL_RUNNER_BIN", runner);
@@ -957,8 +951,11 @@ impl BackendSupervisor {
             }
         } else {
             self.inner.logger.warn(format!(
-                "no {} binary found; configure ARGUS_SKILL_RUNNER_BIN or install it",
-                settings.runner_kind.label()
+                "no configured Agent CLI binary found ({}); open File > Settings to select one",
+                configured_runner
+                    .as_ref()
+                    .map(|configured| configured.kind.label())
+                    .unwrap_or("no backend selected")
             ));
         }
         let mut path_prefixes = runner_runtime_paths;

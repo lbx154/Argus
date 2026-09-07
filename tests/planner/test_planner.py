@@ -927,6 +927,82 @@ def test_repair_missing_waiting_marker_preserves_in_flight_wait(monkeypatch) -> 
     assert verdict.waiting_contract.wake_on == ("subagent_state",)
 
 
+@pytest.mark.parametrize("project_done", ["false", "true"])
+def test_repair_preserves_certified_increment_operator_handoff(
+    monkeypatch, tmp_path, project_done,
+) -> None:
+    reason = (
+        "Current final certification is accepted; "
+        "waiting for new explicit operator direction."
+    )
+    footer = (
+        "PROJECT_DONE=false\n"
+        f"REASON={reason}\n"
+        "WAITING=true\n"
+        "BLOCKER_FINGERPRINT=new-operator-direction\n"
+        "RECHECK_CONDITION=New explicit operator instruction arrives\n"
+        "RECHECK_TOKEN=accepted-increment\n"
+        "OPERATOR_ACTION_REQUIRED=true\n"
+        "WAIT_MODE=event\n"
+        "WAKE_ON=operator_input\n"
+        "ALLOW_VERIFICATION_PROBE=false\n"
+        "STAGE_RECONCILIATION_REQUIRED=false\n"
+    )
+    runner = _SequenceRunner([
+        f"PROJECT_DONE={project_done}\nREASON={reason}",
+        footer,
+    ])
+    monkeypatch.setattr(
+        Planner, "_build_planner_prompt",
+        staticmethod(lambda **kwargs: (
+            "The final stage is complete and the current increment is certified. "
+            "No active backlog or live subagent work remains. Latest operator "
+            "instruction: report only; preserve the artifact and create no new work."
+        )),
+    )
+
+    verdict = Planner(runner).plan_next(
+        continuous_objective="keep improving the standing research campaign",
+        config=PlannerConfig(working_dir=str(tmp_path), open_ended=True),
+    )
+
+    assert len(runner.calls) == 2
+    repair = runner.calls[1]["prompt"]
+    assert "latest explicit operator instructions" in repair
+    assert "no-new-work" in repair
+    assert "current final certification" in repair
+    assert "final stage is complete" in repair
+    assert "no active backlog or live subagent work remains" in repair
+    assert "Uncertified work or a generic empty response" in repair
+    assert "Do not set `project_done=true`" in repair
+    assert "Delegate the next distinct task, or use" not in repair
+    assert "`waiting` only for a real external blocker" not in repair
+    assert "Re-inspect current project reality" not in repair
+    assert "PROJECT_DONE=false\nWAITING=true\n" in repair
+    for field in (
+        "OPERATOR_ACTION_REQUIRED=true", "WAIT_MODE=event",
+        "WAKE_ON=operator_input", "ALLOW_VERIFICATION_PROBE=false",
+        "STAGE_RECONCILIATION_REQUIRED=false",
+        "BLOCKER_FINGERPRINT=new-operator-direction",
+        "RECHECK_CONDITION=New explicit operator instruction arrives",
+        "RECHECK_TOKEN=<current certified increment reference>",
+    ):
+        assert field in repair
+    assert runner.calls[1]["resume_thread_id"] == "planner-thread"
+    assert verdict.error == ""
+    assert verdict.project_done is False
+    assert verdict.waiting is True
+    assert verdict.reason == reason
+    assert verdict.new_tasks == []
+    assert verdict.waiting_contract is not None
+    assert verdict.waiting_contract.operator_action_required is True
+    assert verdict.waiting_contract.blocker_fingerprint == "new-operator-direction"
+    assert verdict.waiting_contract.recheck_token == "accepted-increment"
+    assert verdict.waiting_contract.wake_on == ("operator_input",)
+    assert verdict.waiting_contract.allow_verification_probe is False
+    assert verdict.waiting_contract.stage_reconciliation_required is False
+
+
 def test_plan_next_accepts_structured_decision_with_redundant_brace(monkeypatch) -> None:
     runner = _SequenceRunner([
         (
@@ -1251,8 +1327,9 @@ def test_plan_next_ignores_malformed_context_ref_metadata(monkeypatch) -> None:
     assert len(runner.calls) == 1
 
 
+@pytest.mark.parametrize("open_ended", [False, True])
 def test_plan_next_reports_bounded_failure_after_empty_task_repair_exhaustion(
-    monkeypatch,
+    monkeypatch, open_ended,
 ) -> None:
     runner = _SequenceRunner([
         "PROJECT_DONE=false\nREASON=still not complete",
@@ -1266,7 +1343,7 @@ def test_plan_next_reports_bounded_failure_after_empty_task_repair_exhaustion(
 
     verdict = Planner(runner).plan_next(
         continuous_objective="fix the verifier",
-        config=PlannerConfig(working_dir="/tmp/project"),
+        config=PlannerConfig(working_dir="/tmp/project", open_ended=open_ended),
     )
 
     assert verdict.project_done is False

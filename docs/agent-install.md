@@ -2,6 +2,22 @@
 
 Complete the installation; do not merely print commands.
 
+## Installation channel
+
+The commands below use the official source repository, `microsoft/ArgusAgent`.
+They install its `main` branch, not a published binary release and not a PyPI
+package. Use the development preview, `lbx154/Argus`, only when the user asks for
+it; replace the repository in the selected platform's commands and use this
+guide from that same repository.
+
+For an upgrade, inspect the existing checkout remote or the installed package's
+`direct_url.json` before choosing the source. Keep the existing channel unless
+the user requests a switch. Never silently redirect an existing clone.
+
+Windows packaged previews are separate from source installation. See
+[Windows Desktop](windows-desktop.md) for the official and preview release
+pages; an EXE may not yet contain fixes present on `main`.
+
 ## Safety contract
 
 - Argus has no separate Argus account. Use one supported Agent CLI and its
@@ -59,7 +75,7 @@ Node.js 22.12+, and one authenticated Agent CLI.
 
 ```powershell
 py -m pip install --upgrade pip
-py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
+py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 $Scripts = py -c "import sysconfig; print(sysconfig.get_path('scripts'))"
 $Argus = Join-Path $Scripts "argus.exe"
 if (-not (Test-Path $Argus)) { throw "Argus entry point not found at $Argus" }
@@ -87,9 +103,10 @@ entry point was tested instead of another copy earlier on PATH. If a later
 window cannot find plain `argus`, report `$Scripts` and ask before changing the
 user PATH; do not create a venv as a workaround.
 
-Windows supports Manager chat, pairing, Web/TUI, and terminal-scoped daemon
-control. Detached subagents remain POSIX/WSL2-only and must fail explicitly on
-native Windows.
+Windows supports Manager chat, pairing, Web/TUI, terminal-scoped daemon
+control, and native durable subagents. Native Windows workers own direct or
+supervised long commands, persist registry and log state, and perform bounded
+process-tree cleanup. WSL2 is optional, not a prerequisite for this path.
 
 ## macOS
 
@@ -110,7 +127,7 @@ the user's approval and its official installer.
 
 ```bash
 uv tool install --force --python 3.12 \
-  "argus-skill @ https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
+  "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 ARGUS_BIN="$(uv tool dir --bin)/argus"
 test -x "$ARGUS_BIN"
 "$ARGUS_BIN" --version
@@ -157,7 +174,7 @@ Choose a persistent directory. Default to `$HOME/Argus` only when it does not
 already contain unrelated data:
 
 ```bash
-git clone https://github.com/lbx154/Argus.git "$HOME/Argus"
+git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
 cd "$HOME/Argus"
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
@@ -204,6 +221,10 @@ ARGUS_SETUP_API_KEY=... argus --setup --non-interactive \
   --api-url https://api.example.com/v1 \
   --api-model model-id
 ```
+
+If `PI_CODING_AGENT_DIR` is set, setup writes `models.json` in that directory,
+matching the Pi CLI. Otherwise it uses `~/.pi/agent/models.json`. Keep the same
+environment when launching Argus so Pi reads the configuration that setup wrote.
 
 On Windows use a PowerShell environment variable and backtick continuation.
 On macOS/Linux replace `argus` with the exact executable established above.

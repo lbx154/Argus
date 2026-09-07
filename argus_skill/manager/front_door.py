@@ -1166,6 +1166,11 @@ def _fallback_request_excerpt(body: str) -> str:
 
 
 def _pre_provider_refusal_reply(exc: Exception, body: str) -> str:
+    from ..core.operator_messages import budget_refusal_reply
+
+    budget_reply = budget_refusal_reply(str(exc), language_hint=body)
+    if budget_reply is not None:
+        return f"{budget_reply}\n\nRequest: {_fallback_request_excerpt(body)}"
     return (
         "[not dispatched] The Manager could not classify this message because "
         f"the provider call was refused before start: {exc}. "

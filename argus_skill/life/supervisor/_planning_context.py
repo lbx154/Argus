@@ -1068,6 +1068,9 @@ class PlanningContextMixin:
                 "reason": reason,
                 "diagnostic": diagnostic,
                 "evidence_signature": evidence_signature,
+                "operator_context_revision": getattr(
+                    self, "_planning_operator_context_revision", 0,
+                ),
                 "attempts": attempts,
                 "created_at": created_at,
                 "updated_at": time.time(),

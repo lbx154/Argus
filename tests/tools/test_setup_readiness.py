@@ -24,7 +24,7 @@ def test_setup_banner_highlights_agent_assisted_installation(capsys) -> None:
     output = capsys.readouterr().out
     assert "★ Recommended / 推荐" in output
     assert "current Code Agent" in output
-    assert "https://github.com/lbx154/Argus/blob/main/docs/agent-install.md" in output
+    assert "https://github.com/microsoft/ArgusAgent/blob/main/docs/agent-install.md" in output
 
 
 def test_setup_banner_uses_bold_yellow_highlight_on_tty(monkeypatch) -> None:
@@ -299,6 +299,54 @@ def test_pi_provider_rejects_non_http_url(tmp_path: Path, monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="absolute http"):
         setup._save_pi_provider("api.example.com/v1", "secret", "model-x")
+
+
+@pytest.mark.parametrize("directory", ["default", "absolute", "home-relative"])
+def test_pi_provider_uses_the_selected_agent_directory(
+    tmp_path: Path, monkeypatch, directory: str,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    if directory == "default":
+        monkeypatch.delenv("PI_CODING_AGENT_DIR", raising=False)
+        expected = tmp_path / ".pi" / "agent" / "models.json"
+    else:
+        configured = str(tmp_path / "custom-pi") if directory == "absolute" else "~/custom-pi"
+        monkeypatch.setenv("PI_CODING_AGENT_DIR", configured)
+        expected = tmp_path / "custom-pi" / "models.json"
+    expected.parent.mkdir(parents=True)
+    expected.write_text(
+        json.dumps({"providers": {"existing": {"baseUrl": "https://existing.example"}}}),
+        encoding="utf-8",
+    )
+
+    path = setup._save_pi_provider("https://api.example.com/v1", "test-key", "model-x")
+
+    assert path == expected
+    providers = json.loads(path.read_text(encoding="utf-8"))["providers"]
+    assert providers["argus"]["models"] == [{"id": "model-x"}]
+    assert providers["existing"] == {"baseUrl": "https://existing.example"}
+    if directory != "default":
+        assert not (tmp_path / ".pi" / "agent" / "models.json").exists()
+
+
+@pytest.mark.parametrize(
+    "options",
+    [{"api_key": "test-key"}, {"api_model": "model-x"}, {"api_url": " "}],
+)
+def test_noninteractive_pi_api_options_require_a_url(
+    monkeypatch, capsys, options: dict[str, str],
+) -> None:
+    monkeypatch.setattr(setup, "_configure_runner_backend", lambda backend: backend)
+    monkeypatch.setattr(
+        setup,
+        "check_backend_readiness",
+        lambda *_args, **_kwargs: pytest.fail("Invalid API input must not probe a backend"),
+    )
+
+    assert setup.run_setup(backend="pi", non_interactive=True, **options) == SETUP_EXIT_USAGE
+    assert "--api-url is required" in capsys.readouterr().err
 
 
 def test_cli_forwards_noninteractive_setup_contract(monkeypatch) -> None:

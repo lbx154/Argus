@@ -10,7 +10,7 @@
 
 Long-running agent work that can plan, execute, verify, pause, and continue beyond a single model turn.
 
-**Preview v0.1.1 · Preview channel for upcoming Argus updates.**
+**Argus v0.1.1 · Source updates and packaged desktop previews are separate channels.**
 
 [![GitHub Stars](https://img.shields.io/github/stars/lbx154/Argus?style=flat-square)](https://github.com/lbx154/Argus/stargazers)
 [![License](https://img.shields.io/github/license/lbx154/Argus?style=flat-square)](LICENSE)
@@ -26,11 +26,11 @@ Long-running agent work that can plan, execute, verify, pause, and continue beyo
 ---
 
 > [!IMPORTANT]
-> **Repository status:** This is the Argus preview repository. The official
-> release is maintained at
-> **[microsoft/ArgusAgent](https://github.com/microsoft/ArgusAgent)**. Updates
-> are synchronized between both repositories; Watch or Star either repository
-> to follow the project.
+> **Repository channels:** **[microsoft/ArgusAgent](https://github.com/microsoft/ArgusAgent)**
+> is the official source repository;
+> **[lbx154/Argus](https://github.com/lbx154/Argus)** is the development preview.
+> Changes reach the official repository through synchronization. Installing
+> source from `main` is not the same as installing a published Desktop release.
 
 ## The Driver–Harness Model
 
@@ -82,8 +82,8 @@ size. If the printed expiry date has passed, open an Issue and ask the
 maintainers for the latest code.
 
 <p align="center">
-  <a href="docs/assets/argus-wechat-group-2.jpg">
-    <img src="docs/assets/argus-wechat-group-2.jpg" width="360" alt="Argus WeChat Group 2 QR code">
+  <a href="docs/assets/argus-wechat-group-2.jpg?v=5fd55d09">
+    <img src="docs/assets/argus-wechat-group-2.jpg?v=5fd55d09" width="360" alt="Argus WeChat Group 2 QR code">
   </a>
 </p>
 
@@ -108,23 +108,35 @@ prerequisite for the separate Harbor evaluation integration.
 | GitHub Copilot CLI | `copilot` | `npm install -g @github/copilot` | `copilot login` |
 | OpenAI Codex CLI | `codex` | `npm install -g @openai/codex@latest` | `codex login` |
 | Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | Run `claude`, then `/login` |
-| Cursor CLI | `cursor` | `curl https://cursor.com/install -fsS | bash` ([Windows](https://cursor.com/install?win32=true)) | `agent login` or `CURSOR_API_KEY` |
+| Cursor CLI | `cursor` | `curl https://cursor.com/install -fsS \| bash` ([Windows](https://cursor.com/install?win32=true)) | `agent login` or `CURSOR_API_KEY` |
 | Pi | `pi` | `npm install -g --ignore-scripts @earendil-works/pi-coding-agent` | Run `pi`, then `/login` |
 | OpenCode | `opencode` | [Official install](https://opencode.ai/docs/) | `opencode auth login` |
 | Grok Build | `grok` | [Official install](https://x.ai/cli) | `grok login` |
 | Qoder CLI | `qoder` | `npm install -g @qoder-ai/qodercli` | `qodercli login` |
 | DeepSeek Harness | `dsh` | `npm install -g @deepseek-ai/dsh` | Configure `DEEPSEEK_API_KEY` or the dsh Models page |
 
-The public preview is installed directly from the current GitHub archive until
-the first PyPI release is published.
+**Choose your installation channel.** The commands below install the official
+source repository's `main` branch directly from GitHub, not from PyPI. To
+deliberately install the development preview, replace `microsoft/ArgusAgent`
+with `lbx154/Argus` in your platform's install and update commands. Keep the same
+channel when updating an existing installation.
+
+For a Windows EXE, use **[Windows Desktop](docs/windows-desktop.md)**. Official
+release assets, when available, are under
+[microsoft/ArgusAgent Releases](https://github.com/microsoft/ArgusAgent/releases);
+packaged previews are under
+[lbx154/Argus Releases](https://github.com/lbx154/Argus/releases).
+Source fixes do not update an already published EXE.
 
 ### Recommended: Agent-assisted installation
 
 Send this prompt to an already installed Code Agent:
 
 ```text
-Read https://github.com/lbx154/Argus/blob/main/docs/agent-install.md and install
-Argus using the section for this operating system. Prefer the Agent CLI running
+Read https://github.com/microsoft/ArgusAgent/blob/main/docs/agent-install.md and
+install the official source unless I explicitly request the development preview.
+Keep an existing installation's channel when updating. Use the section for this
+operating system. Prefer the Agent CLI running
 this conversation as the Argus backend. Do not create a venv on Windows or
 macOS; keep the documented venv on Linux. Run setup through its real Agent-turn
 smoke test, then run `argus doctor --deep --advisor auto`. Before account login,
@@ -143,7 +155,7 @@ and select **Add Python to PATH** in the installer. Then open a new PowerShell:
 py --version
 node --version
 py -m pip install --upgrade pip
-py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
+py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 $Scripts = py -c "import sysconfig; print(sysconfig.get_path('scripts'))"
 $Argus = Join-Path $Scripts "argus.exe"
 if (-not (Test-Path $Argus)) { throw "Argus entry point not found at $Argus" }
@@ -182,7 +194,7 @@ then:
 uv --version
 node --version
 uv tool install --force --python 3.12 \
-  "argus-skill @ https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
+  "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 ARGUS_BIN="$(uv tool dir --bin)/argus"
 test -x "$ARGUS_BIN"
 "$ARGUS_BIN" --version
@@ -204,7 +216,7 @@ process ownership remain reproducible. Install Python 3.11+, Git, Node.js
 22.12+, and your distribution's `python3-venv` package first:
 
 ```bash
-git clone https://github.com/lbx154/Argus.git "$HOME/Argus"
+git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
 cd "$HOME/Argus"
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
@@ -476,7 +488,7 @@ The most capable setup is often an Argus instance deliberately adapted to your o
 Windows:
 
 ```powershell
-py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
+py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 $Argus = Join-Path (py -c "import sysconfig; print(sysconfig.get_path('scripts'))") "argus.exe"
 & $Argus --version
 & $Argus doctor --advisor none --verify
@@ -486,7 +498,7 @@ macOS:
 
 ```bash
 uv tool install --force --python 3.12 \
-  "argus-skill @ https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
+  "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 "$(uv tool dir --bin)/argus" --version
 "$(uv tool dir --bin)/argus" doctor --advisor none --verify
 ```
@@ -525,6 +537,15 @@ logs.
 
 ## Installation troubleshooting
 
+- `unresolved provider cost` is an accounting hold, not a login or balance
+  diagnosis. Argus rechecks late or partial Copilot billing, including pending
+  records left behind by older reconciliation caches, before new calls. It settles pending
+  token records when their recorded model and complete token counts can be
+  priced. Unknown prices or missing usage remain blocked rather than being
+  treated as free. Check the reported provider, model and reason in
+  `cost-control.json` under the Argus data directory and the project's
+  `usage.jsonl`; do not delete the ledger. Run diagnostic commands in a terminal,
+  not in the Web chat box.
 - Confirm which executable the shell is using: `Get-Command argus -All` on
   PowerShell, or `type -a argus` on macOS/Linux. Its `argus --version` release
   id should change after an update.

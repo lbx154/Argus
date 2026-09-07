@@ -280,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
     if _uses_python_admin(forwarded):
         return _run_python_admin(forwarded)
     forwarded = _configure_tui_life_dir(forwarded)
-    headless = _headless_stdin_error()
+    headless = "" if "--web" in forwarded else _headless_stdin_error()
     if headless:
         sys.stderr.write(f"{headless}\n")
         return 2

@@ -141,7 +141,9 @@ def test_unpriced_durable_usage_blocks_until_reconciled_or_allowed(
 ) -> None:
     project = tmp_path / "projects" / "p1"
     ledger = UsageLedger(project, migrate_legacy=False)
-    unknown = _record(project, "unknown", cost=None, pricing_status="unpriced")
+    unknown = _record(
+        project, "unknown", cost=None, pricing_status="unpriced", model="unlisted-model",
+    )
     ledger.append(unknown)
 
     denied, reason = _reserve(tmp_path, project, "blocked")
@@ -271,15 +273,18 @@ def test_external_settled_spend_remains_known_after_reconciliation(tmp_path: Pat
     assert "global daily budget exhausted" in reason
 
 
+@pytest.mark.parametrize("partial_total", [None, 17])
+@pytest.mark.parametrize("legacy_marker", [False, True])
 def test_admission_reconciles_late_copilot_sqlite_usage_without_ui_refresh(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    partial_total: int | None, legacy_marker: bool,
 ) -> None:
     project = tmp_path / "projects" / "p1"
     ledger = UsageLedger(project, migrate_legacy=False)
     pending = _record(
         project, "late-call", cost=None, provider="copilot", thread_id="late-session",
         pricing_status="partial", pricing_tier="copilot_token_pending",
-        cost_basis="none", total_nano_aiu=None,
+        cost_basis="none", total_nano_aiu=partial_total,
     )
     ledger.append(pending)
     home = tmp_path / "copilot-home"
@@ -299,6 +304,10 @@ def test_admission_reconciles_late_copilot_sqlite_usage_without_ui_refresh(
         conn.commit()
         denied, reason = _reserve(tmp_path, project, "before-usage")
         assert denied is None and "unresolved provider cost" in reason
+        if legacy_marker:
+            marker = json.loads(ledger.copilot_reconcile_path.read_text(encoding="utf-8"))
+            marker.update(version=4, pending_token_usage=False)
+            ledger.copilot_reconcile_path.write_text(json.dumps(marker), encoding="utf-8")
 
         conn.execute(
             "INSERT INTO assistant_usage_events (session_id, turn_index, model, input_tokens, output_tokens, total_nano_aiu, created_at) VALUES (?, 0, ?, 100, 10, ?, ?)",

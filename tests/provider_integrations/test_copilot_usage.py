@@ -5,6 +5,7 @@ import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,6 +13,7 @@ from argus_skill.adapters.agent_cli_backend import AgentCliBackend
 from argus_skill.agent_cli.models import AgentRunResult
 from argus_skill.core.models import RunnerOptions
 from argus_skill.core.usage import UsageLedger, build_usage_record
+from argus_skill.provider_integrations import copilot_usage
 from argus_skill.provider_integrations.copilot_usage import (
     NANO_AIU_PER_USD,
     capture_copilot_usage_cursor,
@@ -152,6 +154,44 @@ def test_read_waits_for_delayed_usage_row_even_when_store_initially_unchanged(
     assert usage.cost_usd == pytest.approx(0.02)
 
 
+@pytest.mark.parametrize("nano_aiu", [2_000_000_000, 0, None])
+def test_read_waits_for_existing_partial_row_to_receive_billing(
+    tmp_path: Path, monkeypatch, nano_aiu: int | None
+) -> None:
+    home = tmp_path / "copilot"
+    path = _db(home)
+    monkeypatch.setenv("COPILOT_HOME", str(home))
+    cursor = capture_copilot_usage_cursor()
+    _insert(
+        path, session="session-1", model="gpt-5.6-sol",
+        created_at="2026-07-11T10:00:00Z", input_tokens=20, output_tokens=3,
+    )
+    polls = 0
+
+    def advance(_seconds: float) -> None:
+        nonlocal polls
+        polls += 1
+        if polls == 2:
+            with sqlite3.connect(path) as conn:
+                conn.execute(
+                    "UPDATE assistant_usage_events SET total_nano_aiu = ?",
+                    (nano_aiu,),
+                )
+
+    monkeypatch.setattr(
+        copilot_usage, "time",
+        SimpleNamespace(monotonic=lambda: polls * 0.05, sleep=advance),
+    )
+    usage = read_copilot_usage_since(cursor, session_id="session-1", timeout=0.5)
+    assert usage is not None
+    assert usage.total_nano_aiu == nano_aiu
+    if nano_aiu is None:
+        assert polls * 0.05 >= 0.5
+        assert usage.cost_usd is None
+    else:
+        assert usage.cost_usd == pytest.approx(nano_aiu / NANO_AIU_PER_USD)
+
+
 def test_cursor_survives_store_created_by_new_copilot_process(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -232,6 +272,57 @@ def test_finds_historical_usage_by_session_and_time(tmp_path: Path, monkeypatch)
     assert found is not None
     _, usage = found
     assert usage.cost_usd == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("created_at", [
+    "2026-07-11T10:00:02.000Z",
+    "2026-07-11 10:00:02",
+    "2026-07-11T03:00:02-07:00",
+    "2026-07-11T12:00:02+02:00",
+    "2026-07-11T09:59:59.500Z",
+])
+def test_historical_lookup_compares_instants_not_timestamp_text(
+    tmp_path: Path, monkeypatch, created_at: str
+) -> None:
+    home = tmp_path / "copilot"
+    path = _db(home)
+    monkeypatch.setattr(copilot_usage, "copilot_usage_db_candidates", lambda: [path])
+    _insert(
+        path, session="session-1", model="gpt-5.6-sol", created_at=created_at,
+        total_nano_aiu=NANO_AIU_PER_USD,
+    )
+    for session, timestamp in [
+        ("unrelated", created_at),
+        ("session-1", "2026-07-11T03:01:00-07:00"),
+        ("session-1", "2026-07-11 09:59:00"),
+    ]:
+        _insert(
+            path, session=session, model="gpt-5.6-sol", created_at=timestamp,
+            total_nano_aiu=99 * NANO_AIU_PER_USD,
+        )
+
+    found = find_copilot_usage_near(
+        started_at=1_783_764_000.0, completed_at=1_783_764_003.0,
+        session_id="session-1",
+    )
+    assert found is not None
+    _, usage = found
+    assert len(usage.rows) == 1
+    assert usage.cost_usd == pytest.approx(1.0)
+
+
+def test_historical_lookup_never_attributes_usage_without_a_session(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = _db(tmp_path / "copilot")
+    monkeypatch.setattr(copilot_usage, "copilot_usage_db_candidates", lambda: [path])
+    _insert(
+        path, session="unrelated", model="gpt-5.6-sol",
+        created_at="2026-07-11T10:00:02Z", total_nano_aiu=NANO_AIU_PER_USD,
+    )
+    assert find_copilot_usage_near(
+        started_at=1_783_764_000.0, completed_at=1_783_764_003.0,
+    ) is None
 
 
 @pytest.mark.parametrize("store_exists", [False, True])

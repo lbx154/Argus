@@ -28,7 +28,7 @@ from .daemon_lock import is_pid_running
 from .event_catalog import EventType, new_event
 from .knobs import resolve_budget_caps, resolve_knob
 from .paths import session_states_root
-from .usage import UsageLedger, UsageRecord, summarize_usage
+from .usage import UsageLedger, UsageRecord, summarize_usage, usage_pricing_reason
 
 COST_CONTROL_STATE_FILE = "cost-control.json"
 COST_CONTROL_LOCK_FILE = "cost-control.lock"
@@ -231,7 +231,8 @@ def _project_records(project_root: Path, day_start: float) -> list[UsageRecord]:
     ledger = UsageLedger(project_root, migrate_legacy=False)
     records = ledger.records(since=day_start)
     if any(record.provider == "copilot" and (
-        record.pricing_status in {"partial", "unpriced"}
+        record.cost_usd is None
+        or record.pricing_status in {"partial", "unpriced"}
         or record.cost_basis == "premium_request"
     ) for record in records):
         ledger.ensure_copilot_usage_reconciled()
@@ -263,7 +264,7 @@ def _unresolved_costs(
                 "call_id": record.call_id, "project_id": record.project_id,
                 "mission_id": record.mission_id, "provider": record.provider,
                 "model": record.model, "pricing_status": record.pricing_status,
-                "reason": record.error or "provider usage is not fully priced",
+                "reason": usage_pricing_reason(record),
                 "created_at": record.completed_at,
             }
     return list(unresolved.values())
@@ -275,7 +276,17 @@ def _budget_reason(
     if _unpriced_policy() == "block":
         unresolved = _unresolved_costs(records, list(state["unresolved"]))
         if unresolved:
-            return f"unresolved provider cost: {len(unresolved)} call(s) awaiting usage reconciliation"
+            first = unresolved[0]
+            detail = (
+                f"call={first.get('call_id') or '(unknown)'}, "
+                f"provider={first.get('provider') or '(unknown)'}, "
+                f"model={first.get('model') or '(missing)'}; "
+                f"{str(first.get('reason') or 'usage is incomplete')[:240]}"
+            )
+            return (
+                f"unresolved provider cost: {len(unresolved)} call(s) "
+                f"awaiting usage reconciliation ({detail})"
+            )
     settled_ids = {record.call_id for record in records}
     live = _prune_reservations(list(state["reservations"]), settled_call_ids=settled_ids)
     spent = _known_cost(records) + sum(
@@ -546,8 +557,10 @@ def reserve_call_budget(
                 settled_call_ids=settled_call_ids,
             )
             state["reservations"] = reservations
+            state["unresolved"] = _unresolved_costs(global_records, list(state["unresolved"]))
             reason = _budget_reason(global_records, state, global_cap)
             if reason:
+                _write_state(root, state, timestamp)
                 _append_audit(root, EventType.BUDGET_RESERVATION_DENIED,
                               call_id=call_id, provider=provider, reason=reason)
                 return None, reason
@@ -637,7 +650,7 @@ def _close_reservation(
             "provider": record.provider,
             "model": record.model,
             "pricing_status": record.pricing_status,
-            "reason": record.error or "provider usage is not fully priced",
+            "reason": usage_pricing_reason(record),
             "blocking": _unpriced_policy() == "block",
             "created_at": timestamp,
         }

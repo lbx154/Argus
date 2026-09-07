@@ -10,12 +10,22 @@ Manager、Planner、Engineer、Reviewer、WebAPI 或 Web UI：桌面宿主启动
 
 ## 安装与使用
 
-当 GitHub Release 提供 `Argus-<version>-setup.exe` 时，下载并运行该 NSIS 安装包。
+官方 GitHub Release 位于
+[microsoft/ArgusAgent Releases](https://github.com/microsoft/ArgusAgent/releases)；
+开发预览安装包位于
+[lbx154/Argus Releases](https://github.com/lbx154/Argus/releases)。
+先选择渠道，再下载该页面提供的 `Argus-<version>-setup.exe` 并运行 NSIS 安装包。
 它包含冻结的 Argus backend；终端用户不需要为桌面端另行安装 Python、Node.js 或
 virtual environment。若 Release 页面没有匹配的安装包，请使用主 README 中的 Windows
 pip 安装方式，不要把贡献者构建目录当作发布物。
 
-首次启动会在后台启动本地后端，后端就绪后直接打开 cockpit；不会强制弹出配置向导。
+预览 EXE 可能落后于源码 `main`。源码修复提交或两仓同步不会重新发布安装包；
+需要某个修复时，先确认安装包的 release notes，或使用 README 的源码安装方式。
+
+首次启动会复用 Argus setup 已保存的 backend 或当前环境中的 backend 配置，不会默默
+改为 Codex。已有配置且能找到对应 CLI 时，后端就绪后直接打开 cockpit；
+尚未配置或找不到可执行文件时，会显示设置向导，要求选择已安装并登录的 Agent CLI。
+检测到可执行文件不代表已经完成鉴权；桌面中明确保存的选择优先于共享配置。
 需要修改 Agent CLI、可执行文件、端口或桌面外观时，使用 **文件 → 设置**。普通关闭和
 菜单中的 **隐藏窗口并在后台继续** 是同一个行为：隐藏到系统托盘并保留正在进行的工作；
 只有 **停止本地后端并退出** 会终止已验证的后端。
@@ -46,8 +56,9 @@ Desktop 不改变 Manager、Planner、Engineer、Reviewer、Workbench 或 Vertic
 独立源码工作区中完成并经过审查，再通过唯一的 reviewed deployment boundary 进入新的
 Desktop release，不能直接修改安装目录中的冻结文件。
 
-首次启动不再强制显示配置向导：Argus 会在后台无控制台窗口地启动本地后端，并在就绪后
-直接打开 cockpit。Agent CLI、端口和外观只从 **文件 → 设置** 修改；cockpit 左下角设置
+已配置的安装不强制重复显示向导：Argus 会在后台无控制台窗口地启动本地后端，并在就绪后
+直接打开 cockpit。缺少 backend 或可执行文件时先完成首次设置；之后从 **文件 → 设置**
+修改 Agent CLI、端口和外观。cockpit 左下角设置
 按钮保留为当前项目的预算、角色与模型等运行时配置入口。文件/帮助菜单由可信 Tauri shell
 渲染为随浅色/深色主题变化的渐变栏，不再使用与上下内容割裂的 Windows 原生菜单色块。
 
@@ -74,8 +85,8 @@ WebView2 Runtime 是两件事。安装器仍会按 Tauri 的 `downloadBootstrapp
 Windows 标题栏会随 launcher 设置和 cockpit 当前的浅色/深色主题同步，不使用覆盖
 Windows caption controls 的黑色自绘条。
 
-Desktop ready 路径只取得已认证 cockpit URL，不在首屏前扫描 Agent CLI 或 Pi 配置；这些
-设置数据只在操作员打开“文件 → 设置”时读取。同一 URL 的后端重连保留现有 React cockpit，
+Desktop 首次 ready 时读取已有配置并检测 CLI，决定打开 cockpit 还是首次设置。
+同一 URL 的后端重连保留现有 React cockpit，
 不会整页重载。WebSocket 事件按短帧批处理，长会话的离屏事件行由 WebView2 跳过 layout/paint；
 嵌入模式还避免第二层启动 splash 和持续全屏模糊动画。以上只减少宿主与渲染开销，不改变
 Manager、Planner、Engineer、Reviewer、轮询安全网或任务状态语义。

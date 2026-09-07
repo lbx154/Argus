@@ -203,7 +203,8 @@ def read_copilot_usage_since(
                 session_id=session_id,
             )
         ids = tuple(row.row_id for row in rows)
-        if rows and ids == last_ids:
+        # Billing can arrive by updating existing rows, without changing IDs.
+        if rows and ids == last_ids and all(row.total_nano_aiu is not None for row in rows):
             stable_reads += 1
             if stable_reads >= 1:
                 return CopilotCallUsage(tuple(rows))
@@ -221,6 +222,9 @@ def find_copilot_usage_near(
     session_id: str | None = None,
     started_at: float | None = None,
 ) -> tuple[Path, CopilotCallUsage] | None:
+    # A time window alone cannot distinguish this call from unrelated spend.
+    if not session_id:
+        return None
     start = (started_at if started_at is not None else completed_at - 5.0) - 1.0
     end = completed_at + 1.0
     for path in copilot_usage_db_candidates():
@@ -252,10 +256,10 @@ def _usage_rows(
         where.append("session_id = ?")
         params.append(session_id)
     if created_from:
-        where.append("created_at >= ?")
+        where.append("julianday(created_at) >= julianday(?)")
         params.append(created_from)
     if created_to:
-        where.append("created_at <= ?")
+        where.append("julianday(created_at) <= julianday(?)")
         params.append(created_to)
     sql = f"""
         SELECT id, session_id, turn_index, model,

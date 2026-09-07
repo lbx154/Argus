@@ -191,7 +191,7 @@ class PlanningCycleIntakeMixin:
         immediately; returns ``None`` to continue the cycle.
         """
         revision_request = state.revision_request
-        from ...core.operator_context import build_operator_context_block
+        from ...core.operator_context import OperatorContextStore, build_operator_context_block
 
         transient_messages = (
             self._take_operator_guidance_carryover() + self._drain_user_inbox()
@@ -209,6 +209,12 @@ class PlanningCycleIntakeMixin:
             consume_once=False,
         )
         state.operator_context_revision = _revision
+        # Bind rejection holds to the input this cycle saw, not a newer ledger
+        # revision that might arrive while Planner or Manager is running.
+        self._planning_operator_context_revision = _revision
+        state.has_unhandled_operator_input = (
+            _revision > OperatorContextStore(self.memory.root).acknowledged_revision("planner")
+        )
         state.fresh_operator_messages = list(dict.fromkeys(transient_messages))
         state.operator_messages = list(
             dict.fromkeys(
@@ -216,9 +222,24 @@ class PlanningCycleIntakeMixin:
             )
         )
         if transient_messages:
-            self._deactivate_planner_waiting_contract()
             self._clear_manager_planner_feedback()
             self._reset_idle_backoff()
+        if transient_messages or state.has_unhandled_operator_input:
+            self._deactivate_planner_waiting_contract()
+            self._last_open_ended_project_done_signature = ""
+            # The inbox was already drained above. Do not let a durable idle
+            # receipt restore the hold before Planner sees this new instruction.
+            from ..planner_verdict_outbox import (
+                clear_planner_verdict_outbox,
+                load_planner_verdict_outbox,
+            )
+
+            record = load_planner_verdict_outbox(self.memory.root)
+            if (
+                record is not None
+                and record["event"].get("completion_kind") == "certified_increment"
+            ):
+                clear_planner_verdict_outbox(self.memory.root)
         if revision_request is None:
             feedback = self._load_manager_planner_feedback()
             if feedback is not None:
@@ -231,9 +252,16 @@ class PlanningCycleIntakeMixin:
                     str(feedback.get("diagnostic") or "")
                 )
                 if (
-                    recorded_signature
-                    and current_signature
-                    and recorded_signature != current_signature
+                    (
+                        state.has_unhandled_operator_input
+                        and state.operator_context_revision
+                        > int(feedback.get("operator_context_revision") or 0)
+                    )
+                    or (
+                        recorded_signature
+                        and current_signature
+                        and recorded_signature != current_signature
+                    )
                 ):
                     self._clear_manager_planner_feedback()
                     self._reset_idle_backoff()
@@ -272,7 +300,11 @@ class PlanningCycleIntakeMixin:
             )
             circuit = load_completion_rejection_circuit(circuit_path)
             if circuit is not None and circuit.get("paused"):
-                if state.had_operator_messages:
+                if state.had_operator_messages or (
+                    state.has_unhandled_operator_input
+                    and state.operator_context_revision
+                    > int(circuit.get("operator_context_revision") or 0)
+                ):
                     resume_completion_rejection_circuit(
                         circuit_path, reason="operator_reply"
                     )
@@ -466,14 +498,18 @@ class PlanningCycleIntakeMixin:
                 return retry_outcome
         terminal_idle = (
             None
-            if revision_request is not None
+            if (
+                revision_request is not None
+                or state.had_operator_messages
+                or state.has_unhandled_operator_input
+            )
             else self._maybe_idle_after_unchanged_open_ended_done()
         )
         if terminal_idle is not None:
             return terminal_idle
 
         if revision_request is None:
-            if not state.had_operator_messages:
+            if not state.had_operator_messages and not state.has_unhandled_operator_input:
                 active = self.memory.backlog.active()
                 parked = [item for item in active if item.status == "paused_external_work"]
                 pending = [item for item in active if item.status == "pending"]

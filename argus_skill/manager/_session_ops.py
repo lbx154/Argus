@@ -15,9 +15,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -61,15 +63,107 @@ def _acquire_session_lock(fh: Any, *, timeout: float | None = None) -> bool:
             time.sleep(0.2)
 
 
+class _PipelineLockState:
+    """Per-lock-file in-process state backing ``manager_pipeline_lock``.
+
+    ``gate`` serialises the re-entrant acquisitions made by threads on the
+    flock holder's delegation chain (see ``_pipeline_lock_delegation``).
+    """
+
+    __slots__ = ("gate",)
+
+    def __init__(self) -> None:
+        self.gate = threading.RLock()
+
+
+# Keyed by the resolved lock-file path so every spelling of the same root
+# shares one state. Guarded by ``_pipeline_lock_registry_mutex``.
+_pipeline_lock_registry: dict[str, _PipelineLockState] = {}
+_pipeline_lock_registry_mutex = threading.Lock()
+
+# The DELEGATION CHAIN: the set of resolved pipeline-lock paths whose flock
+# the current context's chain of custody holds. Set by the top-level flock
+# acquirer; visible to same-thread nested acquisitions automatically, and to
+# worker threads ONLY when the holder explicitly hands its context over
+# (``contextvars.copy_context().run`` at the submit site — see
+# ``daemon/_life_worker_run.py``). A plain ``threading.Thread`` starts with a
+# fresh context, so independent threads (telegram/feishu pollers, concurrent
+# webapi requests) never inherit re-entry entitlement.
+_pipeline_lock_delegation: ContextVar[frozenset[str]] = ContextVar(
+    "argus_pipeline_lock_delegation",
+    default=frozenset(),
+)
+
+
 @contextmanager
 def manager_pipeline_lock(root: Path | str):
-    """Serialize Manager pipeline commits with daemon mission execution."""
+    """Serialize Manager pipeline commits with daemon mission execution.
+
+    Cross-process: an exclusive advisory flock on ``<root>/.manager_pipeline.lock``
+    (unchanged). In-process: re-entrant ONLY along the flock holder's
+    delegation chain, tracked by a ``ContextVar`` set of held lock paths — a
+    nested acquisition whose context carries this path skips the flock and
+    serialises on a per-lock-file ``threading.RLock`` gate instead. Every
+    other thread takes the flock and waits, exactly as before.
+
+    Why (2026-09-05 paper-daemon deadlock): the daemon main loop held this
+    lock (``daemon/_life_worker_run.py`` ``_rf_main_loop``) while awaiting a
+    ThreadPoolExecutor future, and the mission worker thread re-entered it
+    (``_reconcile_reviewed_stage_empty_plan`` → ``decide_stage_transition`` in
+    ``manager/_stage_ops.py``). POSIX flock is exclusive across open file
+    descriptions even within one process, so the worker polled the lock for
+    hours while the main thread waited for its result — a two-party cycle.
+
+    Why delegation-chain and not a process-wide "held" flag (the rejected
+    first fix): a process-wide flag misclassifies EVERY thread of the daemon
+    as re-entrant. The telegram/feishu poller threads and concurrent webapi
+    requests do top-level acquisitions of this same lock (``front_door.py``
+    commits, ``apps/_runtime_construction.py`` migration) and are DESIGNED to
+    wait for the mission boundary — the ``request_manager_pipeline_yield``
+    handshake exists precisely because they queue behind in-flight passes. A
+    flag would let them overlap a running pass; a ``ContextVar`` limits
+    re-entry to contexts the holder explicitly copied to its workers.
+
+    Semantics:
+
+    * cross-process mutual exclusion is byte-for-byte the old behaviour, for
+      the WHOLE hold window — the flock's lifetime is bound to the top-level
+      holder (the daemon main loop waits on its worker futures inside the
+      ``with``, so delegated gate holders always run under the flock);
+    * a worker submitted with ``executor.submit(copy_context().run, fn)`` by
+      the flock holder re-enters without deadlock; concurrent delegated
+      workers still exclude each other (gate);
+    * an independent thread (fresh context) waits for the flock exactly as
+      before — no overlap with the in-flight pass;
+    * same-thread nesting is re-entrant (the context flows into nested
+      ``with`` blocks natively; the gate is an RLock).
+    """
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
-    with (path / _PIPELINE_LOCK).open("a+b") as handle:
+    lock_path = path / _PIPELINE_LOCK
+    key = str(lock_path.resolve())
+    with _pipeline_lock_registry_mutex:
+        state = _pipeline_lock_registry.setdefault(key, _PipelineLockState())
+    if key in _pipeline_lock_delegation.get():
+        # Our delegation chain already holds the on-disk flock: don't touch
+        # it (a second file handle would deadlock — see docstring); serialise
+        # against sibling delegated workers on the gate instead.
+        with state.gate:
+            yield
+        return
+    with lock_path.open("a+b") as handle:
         _acquire_session_lock(handle)
         try:
-            yield
+            # Grant the entitlement only after the flock is ours, inside the
+            # try: if anything below raises, reset() runs before unlock and
+            # no context is left with an orphaned entitlement.
+            token = _pipeline_lock_delegation.set(
+                _pipeline_lock_delegation.get() | {key}
+            )
+            try:
+                yield
+            finally:
+                _pipeline_lock_delegation.reset(token)
         finally:
             portalocker.unlock(handle)
 

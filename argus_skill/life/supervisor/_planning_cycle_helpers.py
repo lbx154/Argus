@@ -351,6 +351,7 @@ def pause_completion_rejection_circuit(
     path: Path,
     *,
     backlog_signature: str,
+    operator_context_revision: int = 0,
 ) -> dict[str, Any] | None:
     """Stop further completion attempts until the backlog moves or the
     operator replies."""
@@ -359,6 +360,7 @@ def pause_completion_rejection_circuit(
         return None
     state["paused"] = True
     state["pause_backlog_signature"] = str(backlog_signature or "")
+    state["operator_context_revision"] = operator_context_revision
     state["paused_at"] = time.time()
     _write_completion_rejection_circuit(path, state)
     return state
@@ -405,6 +407,7 @@ class _PlanCycleState:
         self.fresh_operator_messages: list[str] = []
         self.had_operator_messages = False
         self.operator_context_revision: int = 0
+        self.has_unhandled_operator_input: bool = False
         self.revision_active_items: list[BacklogItem] = []
         self.revision_witness_active_item_ids: list[str] = []
         self.expected_plan_id: str = ""
@@ -415,6 +418,8 @@ class _PlanCycleState:
         self.subagent_family_failures: dict[str, Any] = {}
         self.verdict: Any = None
         self.planner_invoked = False
+        self.completion_accepted = False
+        self.certified_operator_wait = False
 
         # Set by the unchanged-input gate in the intake phase; empty when the
         # cycle's inputs could not be fingerprinted (skip stays disabled).

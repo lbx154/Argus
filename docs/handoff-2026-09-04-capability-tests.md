@@ -1164,3 +1164,48 @@ daemon 依旧停机。
   占比应明显上升);
 - completion-circuit 与 provider-cooldown 决策卡有没有误触发;
 - reviewed-facts 蒸馏后 manager 判定质量无回退(digest 内容照旧)。
+
+## 十九、事故记录(2026-09-06 晚):pipeline 锁自死锁与修复
+
+### 事故
+
+滚到 de485177d 后,两个 paper daemon 先后在规划周期卡死(s-c73d4e48
+重启后 13:47 首个周期即卡,s-0ebfd18c 完成一个任务后 14:38 卡),
+3 小时零文件写入、零子进程,drain 信号无效,roll 脚本按设计在 3 小时
+线放弃且未强杀。
+
+### 根因(py-spy + lsof 实锤)
+
+daemon 主循环持着 .manager_pipeline.lock(flock)跑整个 supervisor
+pass,持锁等任务线程的 future;任务线程走认证恢复的 reconcile 路径
+(_reconcile_reviewed_stage_empty_plan → decide_stage_transition)再取
+同一把锁。flock 按打开文件描述计息,同进程第二个句柄照样互斥——主
+线程等 future、任务线程等锁,互死。两个成分都是老代码(主循环持锁自
+初版、reconcile 自 aa095d984),PR #29/#30 的认证状态修复让这条罕见
+路径第一次在 daemon 内真正触发。
+
+### 修复:f5ad1024c("Let a pass reenter the pipeline lock it was handed")
+
+重入资格沿委托链传播:ContextVar 记录当前上下文已持有的锁路径,主
+循环在持锁范围内 copy_context 传给委托 worker;worker 再入走按锁文件
+共享的 RLock 闸(彼此仍串行),独立线程(telegram/feishu poller、
+webapi 并发请求)不在委托链,照旧等 flock——"Manager 提交与任务执行
+串行"的契约不变。第一版进程级布尔方案被并发评审用动态探针否决
+(会把 poller 误判为可重入、并产生外部进程可夺锁的无锁窗口),第二
+版探针复验干净。事故形态、反向契约(独立线程必须等)、委托传播、
+异常路径资格回收均有测试钉死,daemon 层加了 multi-supervisor 委托
+再入的集成用例。
+
+### 恢复
+
+两个卡死进程 kill -9(SIGTERM 已无效),checkout 滚到 f5ad1024c 重启。
+实证:s-c73d4e48 的 reviewed-stage reconcile(原死锁点)23 秒走通并
+进入正常任务;py-spy 确认无线程等锁。当日全部批次(token 效率两批、
+全垂直口吻、熔断补齐)随之一并上线。
+
+### 教训
+
+- 全量 7100+ 测试对这类"持锁跨线程委托"的死锁完全无感知——并发契约
+  需要专门的反向测试(独立线程必须等、委托线程必须能进),这次已补。
+- 罕见路径(认证恢复 reconcile)第一次被真实状态触发时才暴露;上游
+  行为修复可能点燃底层潜伏 bug,滚动后头一两个规划周期值得盯梢。

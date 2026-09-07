@@ -263,6 +263,49 @@ def test_unpriced_cost_blocks_until_operator_policy_allows_it(
     control.release(reason="test")
 
 
+@pytest.mark.parametrize("daily_cap", [10.0, 0.000001])
+def test_admission_reconciles_known_token_cost_before_deciding_the_budget(
+    tmp_path: Path, monkeypatch, daily_cap: float,
+) -> None:
+    from argus_skill.core.pricing import MODEL_PRICES_USD_PER_MTOK
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
+    model = "test-newly-priced-model"
+    project = tmp_path / "projects" / "p1"
+    project.mkdir(parents=True)
+    reservation, _ = _reserve(tmp_path, project, "pending-price")
+    assert reservation is not None
+    record = _record(project, "pending-price", model=model)
+    ledger = UsageLedger(project, migrate_legacy=False)
+    ledger.append(record)
+    reservation.settle(record)
+
+    denied, reason = _reserve(tmp_path, project, "before-pricing")
+    assert denied is None
+    assert "provider=codex" in reason
+    assert f"model={model}" in reason
+    assert "no configured price" in reason
+    monkeypatch.setitem(
+        MODEL_PRICES_USD_PER_MTOK, model, MODEL_PRICES_USD_PER_MTOK["gpt-5.5"],
+    )
+
+    admitted, reason = _reserve(
+        tmp_path, project, "after-pricing", global_daily_cap_usd=daily_cap,
+    )
+    resolved = ledger.records()[0]
+    assert resolved.cost_usd is not None and resolved.cost_usd > 0
+    assert resolved.pricing_status == "priced"
+    if daily_cap > resolved.cost_usd:
+        assert admitted is not None and reason == ""
+        assert json.loads((tmp_path / COST_CONTROL_STATE_FILE).read_text())["unresolved"] == []
+        admitted.release(reason="test")
+    else:
+        assert admitted is None
+        assert "global daily budget exhausted" in reason
+        assert "unresolved provider cost" not in reason
+
+
 @pytest.mark.parametrize(
     "error",
     [

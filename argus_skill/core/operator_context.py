@@ -338,6 +338,41 @@ class OperatorContextStore:
         records = self.records()
         return records[-1].revision if records else 0
 
+    def acknowledged_revision(self, role: Role) -> int:
+        """Last input revision durably handled by this role, not merely read."""
+        if role not in _ROLES:
+            raise ValueError(f"unknown operator context role: {role}")
+        return int(dict(_read_cache(self.root).get("acknowledged_revisions") or {}).get(role) or 0)
+
+    def acknowledge(self, role: Role, revision: int) -> None:
+        """Checkpoint only the revision used by successfully committed work."""
+        if role not in _ROLES:
+            raise ValueError(f"unknown operator context role: {role}")
+        self.root.mkdir(parents=True, exist_ok=True)
+        with self.lock_path.open("a+b") as lock:
+            with exclusive_file_lock(lock, lock_name="operator context lock"):
+                records = self.records()
+                current = records[-1].revision if records else 0
+                if not 0 <= revision <= current:
+                    raise ValueError("acknowledged revision is outside the operator ledger")
+                cache = _read_cache(self.root)
+                acknowledged = dict(cache.get("acknowledged_revisions") or {})
+                acknowledged[role] = max(int(acknowledged.get(role) or 0), revision)
+                cache["acknowledged_revisions"] = acknowledged
+                consumed = {int(value) for value in cache.get("consumed_once") or []}
+                consumed.update(
+                    record.revision for record in records
+                    if isinstance(record, DirectiveRecord)
+                    and record.lifetime == "once"
+                    and record.revision <= revision
+                    and (
+                        record.applies_to_roles == "all"
+                        or role in record.applies_to_roles
+                    )
+                )
+                cache["consumed_once"] = sorted(consumed)
+                self._refresh_cache(records, cache=cache)
+
     def append(
         self,
         record: DirectiveRecord | PreferenceRecord | CapabilityRecord | RevokeRecord,
@@ -424,6 +459,7 @@ class OperatorContextStore:
             "revision": records[-1].revision if records else 0,
             "records": active,
             "consumed_once": list(cache.get("consumed_once") or []),
+            "acknowledged_revisions": dict(cache.get("acknowledged_revisions") or {}),
             "bounded_missions": bounded_missions
             if bounded_missions is not None
             else dict(cache.get("bounded_missions") or {}),

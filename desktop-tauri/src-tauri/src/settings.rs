@@ -151,6 +151,9 @@ fn load_settings_file(path: &Path) -> (DesktopSettings, bool) {
                 .runner_bins
                 .entry("codex".to_owned())
                 .or_insert_with(|| legacy.to_owned());
+            if object.and_then(|row| row.get("runnerConfigured")).is_none() {
+                settings.runner_configured = true;
+            }
             needs_save = true;
         }
         if object.and_then(|row| row.get("runnerKind")).is_some()
@@ -171,14 +174,6 @@ fn load_settings_file(path: &Path) -> (DesktopSettings, bool) {
         needs_save = true;
     }
     settings.runner_bins = normalized_runner_bins(&settings.runner_bins);
-    // The local backend can use the default runner or auto-detection. Never
-    // interrupt normal startup with a mandatory launcher wizard; users can
-    // open desktop settings whenever they want to make an explicit choice.
-    if !settings.runner_configured || !settings.setup_complete {
-        settings.runner_configured = true;
-        settings.setup_complete = true;
-        needs_save = true;
-    }
     if settings.token.trim().is_empty() {
         settings.token = random_token();
         needs_save = true;
@@ -241,13 +236,49 @@ mod tests {
     }
 
     #[test]
-    fn legacy_unfinished_onboarding_is_migrated_to_nonblocking_defaults() {
+    fn unfinished_onboarding_is_not_marked_configured() {
         let directory = tempfile::tempdir().unwrap();
         let file = directory.path().join("settings.json");
         std::fs::write(&file, r#"{"runnerConfigured":false,"setupComplete":false}"#).unwrap();
         let (settings, needs_save) = super::load_settings_file(&file);
         assert!(needs_save);
+        assert!(!settings.runner_configured);
+        assert!(!settings.setup_complete);
+    }
+
+    #[test]
+    fn missing_settings_require_a_real_backend_selection() {
+        let directory = tempfile::tempdir().unwrap();
+        let (settings, needs_save) =
+            super::load_settings_file(&directory.path().join("settings.json"));
+        assert!(needs_save);
+        assert!(!settings.runner_configured);
+        assert!(!settings.setup_complete);
+        assert!(!settings.token.is_empty());
+    }
+
+    #[test]
+    fn explicit_saved_desktop_choice_is_preserved() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("settings.json");
+        std::fs::write(
+            &file,
+            r#"{"runnerKind":"copilot","runnerConfigured":true,"setupComplete":true}"#,
+        )
+        .unwrap();
+        let (settings, _) = super::load_settings_file(&file);
+        assert_eq!(settings.runner_kind, crate::models::RunnerKind::Copilot);
         assert!(settings.runner_configured);
         assert!(settings.setup_complete);
+    }
+
+    #[test]
+    fn legacy_explicit_runner_path_remains_a_desktop_choice() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("settings.json");
+        std::fs::write(&file, r#"{"runnerBin":"C:/agents/codex.cmd"}"#).unwrap();
+        let (settings, _) = super::load_settings_file(&file);
+        assert!(settings.runner_configured);
+        assert_eq!(settings.runner_bins["codex"], "C:/agents/codex.cmd");
     }
 }

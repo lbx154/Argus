@@ -40,7 +40,7 @@ def test_installer_bypasses_close_to_tray_before_replacing_files() -> None:
     assert "taskkill.exe" in hooks
 
 
-def test_desktop_launches_backend_without_a_console_or_forced_setup() -> None:
+def test_desktop_launches_backend_without_a_console_or_forced_backend() -> None:
     backend = (TAURI_ROOT / "src-tauri" / "src" / "backend.rs").read_text(encoding="utf-8")
     settings = (TAURI_ROOT / "src-tauri" / "src" / "settings.rs").read_text(encoding="utf-8")
     shell = (TAURI_ROOT / "src" / "main.ts").read_text(encoding="utf-8")
@@ -52,20 +52,44 @@ def test_desktop_launches_backend_without_a_console_or_forced_setup() -> None:
     assert 'Command::new("taskkill")' in process
     assert 'Command::new("tasklist")' in process
     assert "creation_flags(CREATE_NO_WINDOW)" in process
-    assert "mandatory launcher wizard" in settings
-    assert "First-run preferences are optional" in shell
+    assert "if !settings.runner_configured || !settings.setup_complete" not in settings
+    assert "resolve_runner_configuration(&settings)" in backend
+    assert 'if settings.runner_configured {' in backend
+    assert '.env_remove("ARGUS_SKILL_RUNNER_BIN")' in backend
+    assert "if (!setup.value.complete)" in shell
+    assert "showWizard(setup.value)" in shell
 
 
-def test_ready_cockpit_path_avoids_settings_discovery_and_duplicate_reload() -> None:
+def test_ready_cockpit_checks_initial_setup_without_duplicate_reload() -> None:
     shell = (TAURI_ROOT / "src" / "main.ts").read_text(encoding="utf-8")
     ready_path = shell.split("async function handleReady", 1)[1].split(
         "function runnerDescription", 1
     )[0]
 
     assert "desktopBridge.openCockpit()" in ready_path
-    assert "desktopBridge.getSetup()" not in ready_path
+    assert ready_path.index("desktopBridge.getSetup()") < ready_path.index("desktopBridge.openCockpit()")
+    assert "if (!setup.value.complete)" in ready_path
     assert "cockpitMounted && cockpitFrame.src === url" in shell
     assert "}, 180);" in shell
+
+
+def test_onboarding_requires_a_selected_available_runner_before_saving() -> None:
+    shell = (TAURI_ROOT / "src" / "main.ts").read_text(encoding="utf-8")
+    host = (TAURI_ROOT / "src-tauri" / "src" / "lib.rs").read_text(encoding="utf-8")
+    setup_command = host.split("async fn complete_setup", 1)[1].split(
+        "async fn restart_backend", 1
+    )[0]
+
+    assert "runnerSelected = setup.runnerConfigured" in shell
+    assert "runnerSelected = true" in shell
+    assert "runnerSelected && button.dataset.kind === runnerKind" in shell
+    assert "wizardNext.disabled = true" in shell
+    assert "!runnerSelected || !(runnerBins[runnerKind] || detectedRunners[runnerKind])" in shell
+    assert "检测到可执行文件不代表已完成登录" in shell
+    assert setup_command.index("resolve_runner_configuration(&next)") < setup_command.index(
+        "app_state.settings.replace(next)"
+    )
+    assert "Path::new(&executable).is_file()" in setup_command
 
 
 def test_embedded_cockpit_avoids_duplicate_splash_and_heavy_offscreen_paint() -> None:

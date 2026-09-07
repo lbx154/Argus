@@ -8,6 +8,7 @@ maintainability line-count target. ``LifeWorkerRunMixin`` is mixed into
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
 import threading
@@ -313,8 +314,16 @@ class LifeWorkerRunMixin:
                                 max_workers=len(supervisors),
                                 thread_name_prefix="argus-mission",
                             ) as executor:
+                                # Copied INSIDE the ``with pipeline_lock`` so
+                                # each worker carries this loop's pipeline-lock
+                                # delegation entitlement (ContextVar) and its
+                                # re-entry takes the in-process gate instead of
+                                # deadlocking on the flock we are holding (the
+                                # 2026-09-05 incident). One copy per worker: a
+                                # single Context cannot be entered concurrently.
                                 futures = [
                                     executor.submit(
+                                        contextvars.copy_context().run,
                                         self._run_supervisor_pass,
                                         supervisor,
                                     )
