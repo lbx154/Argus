@@ -10,6 +10,9 @@ This drives the real ``AgentCliRunner.run_exec`` with a faked copilot CLI proces
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import time
 
 import pytest
@@ -547,3 +550,111 @@ def test_scientist_skill_distill_wall_clock_is_opt_in(monkeypatch) -> None:
     assert _turn_wall_clock_seconds("scientist.skill_distill") == 45
     monkeypatch.setenv("ARGUS_SKILL_SCIENTIST_TURN_MAX_SECONDS", "0")
     assert _turn_wall_clock_seconds("scientist.skill_distill") == 0
+
+
+CHATTER = """
+def chatter(seconds):
+    until = time.monotonic() + seconds
+    while time.monotonic() < until:
+        print('ERROR live_writer expected ordinal 23, got 22', file=sys.stderr, flush=True)
+        time.sleep(0.02)
+"""
+
+
+def run_stream(body: str, options: RunnerOptions):
+    events: list[tuple[str, str]] = []
+    runner = AgentCliRunner(
+        agent_bin=sys.executable,
+        backend="codex",
+        event_callback=lambda stream, line: events.append((stream, line)),
+    )
+    command = [sys.executable, "-u", "-c", "import sys, time, json\n" + CHATTER + body]
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        start_new_session=os.name != "nt",
+    )
+    try:
+        state = runner._stream_turn_output(
+            process=process,
+            command=command,
+            options=options,
+            run_label="engineer-r1",
+            thread_id="stored-thread",
+        )
+        return state, events
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=3)
+
+
+def test_stderr_chatter_does_not_hide_warning_or_stalled_stage():
+    state, events = run_stream(
+        "chatter(2.6)\n",
+        RunnerOptions(
+            watchdog_soft_idle_seconds=1,
+            watchdog_stalled_idle_seconds=2,
+            watchdog_hard_idle_seconds=0,
+        ),
+    )
+    warnings = [line for _, line in events if line.startswith("[watchdog]")]
+    assert sum("No model stream event" in line for line in warnings) == 1
+    assert sum("likely stalled" in line for line in warnings) == 1
+    assert not state.watchdog_terminated  # Default warning-only policy is preserved.
+    assert state.stderr_line_count > 20
+    assert any("expected ordinal 23, got 22" in line for line in state.stderr_lines)
+
+
+def test_explicit_hard_idle_is_not_bypassed_by_stderr_chatter():
+    state, events = run_stream(
+        "chatter(2.6)\n",
+        RunnerOptions(watchdog_hard_idle_seconds=1),
+    )
+    assert state.watchdog_terminated
+    assert "hard idle timeout" in str(state.watchdog_reason).lower()
+    assert sum("Forced restart" in line for _, line in events) == 1
+
+
+def test_stdout_tool_progress_keeps_the_stream_active():
+    event = {"type": "item.updated", "item": {"id": "command-1", "type": "command_execution", "status": "in_progress", "aggregated_output": "tick"}}
+    body = "for _ in range(13):\n    print(" + repr(json.dumps(event)) + ", flush=True)\n    chatter(0.2)\n"
+    state, events = run_stream(
+        body,
+        RunnerOptions(watchdog_soft_idle_seconds=1, watchdog_hard_idle_seconds=1),
+    )
+    assert not state.watchdog_terminated
+    assert state.stdout_line_count == 13
+    assert not any(line.startswith("[watchdog]") for _, line in events)
+
+
+def test_real_stdout_event_resets_warning_stage_after_stderr_chatter():
+    state, events = run_stream(
+        "chatter(1.3)\nprint(json.dumps({'type': 'turn.started'}), flush=True)\nchatter(1.3)\n",
+        RunnerOptions(watchdog_soft_idle_seconds=1, watchdog_stalled_idle_seconds=2),
+    )
+    assert not state.watchdog_terminated
+    assert sum("No model stream event" in line for _, line in events) == 2
+    assert not any("likely stalled" in line for _, line in events)
+
+
+def test_inactivity_callback_is_reached_during_stderr_chatter():
+    snapshots = []
+
+    def on_idle(snapshot):
+        snapshots.append(snapshot)
+        return "restart"
+
+    state, _ = run_stream(
+        "chatter(2.6)\n",
+        RunnerOptions(watchdog_soft_idle_seconds=1, inactivity_callback=on_idle),
+    )
+    assert state.watchdog_terminated
+    assert len(snapshots) == 1
+    assert snapshots[0].idle_seconds >= 1
+    assert snapshots[0].stderr_tail
+    assert "stall sub-agent" in str(state.watchdog_reason)
