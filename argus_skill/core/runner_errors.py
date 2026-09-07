@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 _MISSING_RESUME_TARGET = "No session, task, or name matched"
@@ -28,6 +29,44 @@ _MODEL_CATALOG_FAILURES = (
 _EXECUTION_HOST_STARTUP_PREFIX = (
     "code mode is unavailable because failed to spawn code-mode host "
 )
+
+
+def terminal_failure_diagnostic(result: Any) -> str:
+    """Select one current diagnostic; stderr remains a separate history.
+
+    Concrete terminal receipts win. Generic process-exit receipts may use the
+    latest startup diagnostic only when no model/tool progress was observed.
+    This also supports older/external runners without diagnostic provenance.
+    Never combine old stderr with the current failure for control decisions.
+    """
+    fatal = str(getattr(result, "fatal_error", None) or "").strip()
+    failed = bool(getattr(result, "turn_failed", False)
+                  or int(getattr(result, "exit_code", 0) or 0) != 0 or fatal)
+    if getattr(result, "turn_completed", False) and not getattr(result, "turn_failed", False) and int(getattr(result, "exit_code", 0) or 0) == 0:
+        return ""
+    generic = (not fatal or fatal.casefold() == "process exited" or fatal == "Agent CLI exited without completing a model turn."
+               or bool(re.fullmatch(r"Process exited with code -?\d+ before turn completion\.", fatal)))
+    if not generic:
+        return fatal
+    progress = bool(
+        getattr(result, "provider_turns", 0)
+        or getattr(result, "model_progress_observed", False)
+        or getattr(result, "tool_activity_observed", False)
+        or getattr(result, "agent_messages", None)
+        or any(e.get("type") in {"turn.started", "turn.completed", "turn.failed",
+                                 "item.started", "item.updated", "item.completed"}
+               for e in (getattr(result, "json_events", None) or []) if isinstance(e, dict))
+    )
+    if progress:
+        return (fatal or "Backend exited after progress without a terminal diagnostic.") if failed else ""
+    # Startup has no model turn to recover within. The last nonempty line is
+    # the best available evidence; do not search backwards for a desired code.
+    for line in reversed(getattr(result, "stderr_lines", None) or []):
+        if str(line).strip():
+            text = str(line).strip()
+            # Some providers reject startup with exit 0 and no turn receipt.
+            return text if failed or is_pre_provider_refusal_error(text) else ""
+    return fatal
 
 
 def is_execution_host_startup_error(value: object) -> bool:
@@ -93,30 +132,19 @@ def is_unrecoverable_resume_error(value: object) -> bool:
 
 
 def result_has_missing_resume_target(result: Any) -> bool:
-    parts = [
-        getattr(result, "fatal_error", ""),
-        *(getattr(result, "stderr_lines", None) or []),
-    ]
-    return is_missing_resume_target_error("\n".join(map(str, parts)))
+    return is_missing_resume_target_error(terminal_failure_diagnostic(result))
 
 
 def result_has_unrecoverable_resume_state(result: Any) -> bool:
-    parts = [
-        getattr(result, "fatal_error", ""),
-        *(getattr(result, "stderr_lines", None) or []),
-    ]
-    return is_unrecoverable_resume_error("\n".join(map(str, parts)))
+    return is_unrecoverable_resume_error(terminal_failure_diagnostic(result))
 
 
 def result_has_pre_provider_refusal(result: Any) -> bool:
-    parts = [
-        getattr(result, "fatal_error", ""),
-        *(getattr(result, "stderr_lines", None) or []),
-    ]
-    return is_pre_provider_refusal_error("\n".join(map(str, parts)))
+    return is_pre_provider_refusal_error(terminal_failure_diagnostic(result))
 
 
 __all__ = [
+    "terminal_failure_diagnostic",
     "is_execution_host_startup_error",
     "is_missing_resume_target_error",
     "is_model_catalog_startup_error",

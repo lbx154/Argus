@@ -75,6 +75,7 @@ class _StreamState:
     fatal_error: str | None = None
     provider_turns: int = 0
     provider_turn_cap_hit: bool = False
+    model_progress_observed: bool = False
     tool_activity_observed: bool = False
     usage_model: str = ""
     watchdog_terminated: bool = False
@@ -560,6 +561,11 @@ class RunExecMixin:
                 if event is None:
                     continue
                 state.json_event_count += 1
+                if event.get("type") in {
+                    "turn.started", "turn.completed", "turn.failed",
+                    "item.started", "item.updated", "item.completed",
+                }:
+                    state.model_progress_observed = True
                 if (
                     provider_turn_cap > 0
                     and not state.watchdog_terminated
@@ -769,7 +775,7 @@ class RunExecMixin:
 
         if state.watchdog_terminated:
             state.turn_failed = True
-            if state.watchdog_reason and state.fatal_error is None:
+            if state.watchdog_reason:
                 state.fatal_error = state.watchdog_reason
         elif state.turn_completed and not state.turn_failed:
             state.fatal_error = None
@@ -787,7 +793,11 @@ class RunExecMixin:
             # authoritative completion event. Preserve stderr when available
             # so configuration failures still retain their concrete diagnosis.
             state.turn_failed = True
-            state.fatal_error = _incomplete_turn_error(state.stderr_lines)
+            state.fatal_error = (
+                "Agent CLI exited without completing a model turn."
+                if state.model_progress_observed
+                else _incomplete_turn_error(state.stderr_lines)
+            )
 
         return AgentRunResult(
             command=command,
@@ -805,6 +815,7 @@ class RunExecMixin:
             fatal_error=state.fatal_error,
             provider_turns=state.provider_turns,
             provider_turn_cap_hit=state.provider_turn_cap_hit,
+            model_progress_observed=state.model_progress_observed,
             tool_activity_observed=state.tool_activity_observed,
             usage_model=state.usage_model,
             orphan_process_group_id=state.orphan_process_group_id,

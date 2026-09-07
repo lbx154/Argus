@@ -29,6 +29,7 @@ from ...core.runner_errors import (
     is_execution_host_startup_error,
     is_model_catalog_startup_error,
     result_has_pre_provider_refusal,
+    terminal_failure_diagnostic,
 )
 from ...core.runner_receipts import is_provider_turn_cap_receipt
 from ...core.secret_guard import redact_secrets_text
@@ -283,9 +284,8 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
         or getattr(cli_result, "fatal_error", None)
         or int(getattr(cli_result, "exit_code", 0) or 0) != 0
     )
-    stderr_lines = list(getattr(cli_result, "stderr_lines", None) or [])
     fatal_error = str(getattr(cli_result, "fatal_error", "") or "")
-    failure_text = "\n".join([fatal_error, *map(str, stderr_lines)]).strip()
+    failure_text = terminal_failure_diagnostic(cli_result)
     safe_failure_text = redact_secrets_text(
         failure_text,
         known_values=backend._known_secret_values,
