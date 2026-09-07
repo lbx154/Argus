@@ -27,7 +27,7 @@ _WINDOWS_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_])/?[A-Za-z]:[\\/][^\s<>\[\]()`\"']+",
 )
 _PLAIN_FILE_RE = re.compile(
-    r"(?<![\w:/\\.-])([A-Za-z0-9_./-]+\.(?:html|md|markdown|csv|tsv|json|txt|py|js|mjs|css|pdf|png|jpg|jpeg|webp))(?=$|[^\w/\\.-])",
+    r"(?<![\w:/\\.-])([A-Za-z0-9_./-]+\.(?:html|md|markdown|csv|tsv|json|txt|py|js|mjs|css|pdf|png|jpg|jpeg|webp))(?=$|[^\w/\\.-]|\.(?=\s|$))",
     re.IGNORECASE,
 )
 _TERMINAL_PUNCTUATION = " \t\r\n\"'<>[](){}.,;，。；："
@@ -116,7 +116,10 @@ def linked_report_paths(workspace: Path | str, paths: Iterable[object]) -> list[
     """Companion files explicitly referenced by delivered Markdown reports."""
     root = Path(workspace)
     references: list[str] = []
-    for path in list(paths)[:MAX_DELIVERY_TARGETS]:
+    reports = list(dict.fromkeys(
+        str(path) for path in paths if Path(str(path)).suffix.lower() in {".md", ".markdown"}
+    ))
+    for path in reports[:MAX_DELIVERY_TARGETS]:
         safe = _workspace_relative_reference(root, path)
         if not safe or Path(safe).suffix.lower() not in {".md", ".markdown"}:
             continue

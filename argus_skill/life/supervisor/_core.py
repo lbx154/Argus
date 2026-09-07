@@ -1382,21 +1382,32 @@ class LifeSupervisor(
             candidates = list(candidates)
             candidates.extend(referenced_delivery_paths(workspace, [latest.get("final_output")], limit=12))
             objective = str(getattr(self.config, "continuous_objective", "") or "").strip()
-            goal_ids = {
-                item.id for item in self.memory.backlog.all()
-                if objective and str(item.original_objective or item.objective).strip() == objective
+            goal_items = {
+                item.id: item for item in self.memory.backlog.all()
+                if item.status == "done" and objective
+                and str(item.original_objective or item.objective).strip() == objective
             }
             for entry in reversed(settlements):
                 extra = getattr(entry, "extra", None)
-                if not isinstance(extra, dict) or extra is latest or extra.get("success") is not True:
+                if not isinstance(extra, dict) or extra.get("success") is not True:
                     continue
-                if extra.get("item_id") not in goal_ids:
+                if extra.get("item_id") not in goal_items:
                     continue
                 if str(extra.get("execution_workdir") or workspace) != str(workspace):
                     continue
                 candidates.extend(extra.get("delivery_candidates") or [])
                 candidates.extend(referenced_delivery_paths(workspace, [extra.get("final_output"), extra.get("summary")], limit=12))
-            candidates.extend(linked_report_paths(workspace, candidates))
+                # The reviewed node's concrete file contract still identifies
+                # its outputs when a terse handoff only says "checks passed".
+                candidates.extend(referenced_delivery_paths(workspace, [goal_items[extra["item_id"]].objective], limit=12))
+            candidates = [*linked_report_paths(workspace, candidates), *candidates]
+            from ...skills.vertical_select import resolve_vertical_if_decided
+
+            if resolve_vertical_if_decided(self._artifact_root()) == "software":
+                # Keep the product and report ahead of implementation sources
+                # when the bounded delivery list is clipped.
+                presentation_order = {".html": 0, ".pdf": 1, ".md": 2, ".markdown": 2, ".csv": 3, ".tsv": 3}
+                candidates.sort(key=lambda path: presentation_order.get(Path(str(path)).suffix.lower(), 4))
             final_submission_certified = bool(
                 latest.get("final_submission_certified")
             )

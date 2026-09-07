@@ -278,6 +278,7 @@ def test_terminal_delivery_recovers_accepted_handoff_files_for_its_own_goal(tmp_
     ]:
         item = BacklogItem.new(item_id=item_id, title=item_id, objective=original)
         item.original_objective = original
+        item.status = "done"
         memory.backlog.add(item)
         assert supervisor._emit({
             'type': 'life.mission.completed', 'item_id': item_id,
@@ -314,3 +315,32 @@ def test_plain_completion_filenames_and_report_links_remain_confined(tmp_path):
     assert paths == ["REPORT.md"]
     assert linked_report_paths(tmp_path, paths) == ["index.html", "validate.js"]
     assert referenced_delivery_paths(tmp_path, ["../private.md and .env are not deliverables."]) == []
+
+
+def test_software_delivery_retains_the_reviewed_product_ahead_of_source_files(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from argus_skill.life.memory import BacklogItem
+    from argus_skill.skills import vertical_select
+    supervisor, memory = _delivery_supervisor(tmp_path)
+    root = Path(supervisor._project_workdir())
+    (root / "index.html").write_text("<h1>Product</h1>")
+    (root / "REPORT.md").write_text("Run `node verify.js` to reproduce.")
+    sources = [f"module{i}.js" for i in range(8)] + ["verify.js"]
+    for name in sources:
+        (root / name).write_text("// reviewed source")
+    item = BacklogItem.new(item_id="ui", title="Build product", objective="Create index.html and REPORT.md.")
+    item.original_objective = supervisor.config.continuous_objective
+    item.status = "done"
+    memory.backlog.add(item)
+    assert supervisor._emit({
+        "type": "life.mission.completed", "item_id": item.id, "success": True,
+        "status": "done", "overall_complete": False, "campaign_continues": True,
+        "execution_workdir": str(root), "delivery_candidates": sources,
+        "final_output": "All controls passed.", "outcome": {"review_status": "done"},
+    })
+    monkeypatch.setattr(vertical_select, "resolve_vertical_if_decided", lambda _: "software")
+    receipt = supervisor._build_terminal_project_delivery("Verified")
+    assert receipt["primary_target"]["path"] == "index.html"
+    paths = [row["path"] for row in receipt["targets"]]
+    assert "REPORT.md" in paths and "verify.js" in paths
