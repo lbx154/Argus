@@ -315,7 +315,11 @@ class EventConsumerMixin:
         event_type = event.get("type")
         if event_type == "thread.started":
             thread_id = event.get("thread_id", thread_id)
+        elif event_type == "turn.started" and not turn_failed:
+            fatal_error = None
         elif event_type == "item.completed":
+            if not turn_failed:
+                fatal_error = None
             item = event.get("item", {})
             if not isinstance(item, dict):
                 return thread_id, turn_completed, turn_failed, fatal_error
@@ -335,12 +339,14 @@ class EventConsumerMixin:
             turn_completed = True
         elif event_type == "turn.failed":
             turn_failed = True
+            if not is_execution_host_startup_error(fatal_error):
+                fatal_error = "Backend reported a failed turn."
             err = event.get("error", {})
             if isinstance(err, dict):
                 maybe_msg = err.get("message")
-                if isinstance(maybe_msg, str) and not is_execution_host_startup_error(fatal_error):
+                if isinstance(maybe_msg, str) and maybe_msg.strip() and not is_execution_host_startup_error(fatal_error):
                     fatal_error = maybe_msg
-        elif event_type == "error" and fatal_error is None:
+        elif event_type == "error" and not turn_failed:
             maybe_msg = event.get("message")
             if isinstance(maybe_msg, str):
                 fatal_error = maybe_msg

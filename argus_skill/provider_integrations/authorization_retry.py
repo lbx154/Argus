@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.http_status import has_http_status
-from ..core.runner_errors import is_execution_host_startup_error
+from ..core.runner_errors import is_execution_host_startup_error, terminal_failure_diagnostic
 from ..core.runner_receipts import is_provider_turn_cap_receipt
 from ..core.secret_guard import redact_secrets_text
 from ..tools.capability_vault import read_codex_provider_config
@@ -160,15 +160,9 @@ def _unauthorized_cause(result: Any) -> str:
     )
     if not failed:
         return ""
-    candidates = [
-        getattr(result, "fatal_error", None),
-        *reversed(list(getattr(result, "stderr_lines", None) or [])),
-    ]
-    for candidate in candidates:
-        text = str(candidate or "").strip()
-        if has_http_status(text, {401}):
-            return text
-    return ""
+    text = terminal_failure_diagnostic(result)
+    return text if has_http_status(text, {401}) else ""
+
 
 
 AUTHORIZATION_RETRY_OWNER = AuthorizationRetryOwner()
