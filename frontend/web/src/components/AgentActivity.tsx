@@ -3,7 +3,7 @@ import { Activity, Check, ChevronDown, Clock3, FileText, Pause, Terminal, X } fr
 import type { EventMsg, MissionView, Role } from '../../../core/src/types';
 import { useI18n } from '../i18n';
 import { MarkdownContent } from './MarkdownContent';
-import { AGENT_ROLES, activityTitle, agentIsActive, agentWork, latestAgentTool } from './agentActivity';
+import { AGENT_ROLES, activityTitle, agentIsActive, agentWork, latestAgentTool } from './agentActivityModel';
 import './agentActivity.css';
 
 const ROLE_NAMES: Record<string, [string, string]> = {

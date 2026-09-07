@@ -54,10 +54,11 @@ def _venv_python(root):
 
 
 def _command_version(executable, flag="--version"):
+    powershell = Path(str(executable)).stem.casefold() == "powershell"
     try:
         command = (
             [str(executable), "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"]
-            if Path(str(executable)).stem.casefold() == "powershell"
+            if powershell
             else [str(executable), flag]
         )
         result = subprocess.run(
@@ -67,7 +68,8 @@ def _command_version(executable, flag="--version"):
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=5,
+            # Windows PowerShell cold-start can exceed five seconds on a busy host.
+            timeout=20 if powershell else 5,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return False, f"{type(exc).__name__}: {exc}"

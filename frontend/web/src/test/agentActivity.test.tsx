@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { emptyMissionView } from '../../../core/src/missionView';
 import type { MissionRoleWorkItem, Role } from '../../../core/src/types';
 import { AgentActivity } from '../components/AgentActivity';
-import { activityTitle, agentIsActive, agentWork, cleanActivityText, latestAgentTool } from '../components/agentActivity';
+import { activityTitle, agentIsActive, agentWork, cleanActivityText, latestAgentTool } from '../components/agentActivityModel';
 const record = (id: string, kind: string, detail: string, task = 'current'): MissionRoleWorkItem => ({
   id, role: 'engineer', kind, detail, title: kind, status: 'active', ts: 100, item_id: task,
 });
