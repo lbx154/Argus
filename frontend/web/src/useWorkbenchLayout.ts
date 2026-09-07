@@ -36,10 +36,10 @@ export function useWorkbenchLayout() {
   );
   const [workspaceView, setWorkspaceView] = useState<'mission' | 'activity' | 'workbench' | 'map'>(
     () => {
-      if (params.get('view') === 'workbench') return 'workbench';
-      if (params.get('view') === 'map') return 'map';
+      const requested = params.get('view');
+      if (requested === 'mission' || requested === 'activity' || requested === 'workbench' || requested === 'map') return requested;
       const stored = readLocalStorage('argus.workspace.view');
-      return stored === 'mission' || stored === 'workbench' || stored === 'map' ? stored : 'activity';
+      return stored === 'mission' || stored === 'activity' || stored === 'workbench' || stored === 'map' ? stored : 'map';
     },
   );
   const [mobileView, setMobileView] = useState<'activity' | 'preview'>('activity');

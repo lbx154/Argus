@@ -128,9 +128,10 @@ def _verification_directive() -> str:
 
 
 _PRODUCT_ACCEPTANCE_DIRECTIVE = (
-    "Test claimed UI/API/CLI/service flows at a safe public entry point; unit tests "
-    "do not suffice. Internal exploration needs its feedback experiment; libraries "
-    "need a decisive check. Report unavailable trials. Never cause external or irreversible effects.\n"
+    "Test claimed UI/API/CLI/service flows at a safe public entry point, beyond units. "
+    "Internal exploration needs its feedback experiment; check libraries decisively. "
+    "Web UI: inspect desktop/mobile rendering and interactions in Chromium; use $ARGUS_SKILL_PYTHON for Playwright. "
+    "Report untested claims/trials. Never cause external or irreversible effects.\n"
 )
 
 

@@ -6,6 +6,7 @@ import rehypeKatex from 'rehype-katex';
 import { CopyButton } from './CopyButton';
 import { useI18n } from '../i18n';
 import type { ArtifactInfo } from '../api';
+type ArtifactReference = Pick<ArtifactInfo, 'path' | 'storage_path'>;
 
 function nodeText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
@@ -48,7 +49,7 @@ function sameArtifactReference(left: string, right: string): boolean {
 
 export function artifactPathFromHref(
   href: string | undefined,
-  artifacts: ArtifactInfo[] = [],
+  artifacts: ArtifactReference[] = [],
 ): string | null {
   const requested = normalizedArtifactReference(href || '');
   if (!requested) return null;
@@ -89,7 +90,7 @@ export function MarkdownContent({
   onOpenArtifact,
 }: {
   children: string;
-  artifacts?: ArtifactInfo[];
+  artifacts?: ArtifactReference[];
   onOpenArtifact?: (path: string) => void;
 }) {
   const { t } = useI18n();

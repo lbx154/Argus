@@ -1,5 +1,5 @@
-import { memo, useEffect, useState } from "react";
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { memo, useEffect, useRef, useState } from "react";
+import { Handle, Position, useStore, type Node, type NodeProps } from "@xyflow/react";
 import {
   Check,
   ChevronLeft,
@@ -11,7 +11,10 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import { MarkdownContent } from "../components/MarkdownContent";
+import { MarkdownExcerpt } from "../components/MarkdownExcerpt";
+import { cleanDeliverySummary } from "../components/deliveryPresentation";
+import type { ArtifactInfo } from "../api";
 import type { MapCopy, CardReference } from "./presentation";
 import { ACTIVE, statusKey } from "./model";
 import {
@@ -34,11 +37,16 @@ export type MacroData = MapCard & {
   copy?: Pick<MapCopy, "cards">;
   live: boolean;
   paused?: boolean;
+  growthDelay?: number;
+  growingSteps?: Record<string, number>;
+  growingLinks?: Record<string, number>;
   seenCards?: Set<string>;
   restoring?: boolean;
   readOnly: boolean;
   source: string;
   quote: (ref: CardReference) => void;
+  artifacts?: ArtifactInfo[];
+  onOpenArtifact?: (path: string) => void;
   menu: (ref: CardReference, point: { x: number; y: number }) => void;
   readStep: (
     id: string,
@@ -105,6 +113,11 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   data,
 }: NodeProps<MacroNode>) {
   const { task, ordinal, zh, layout: currentLayout, focused, detailed } = data;
+  // Only density thresholds trigger React work; continuous zoom typography is CSS.
+  const density = useStore((state) => {
+    const width = state.transform[2] * data.frame.width;
+    return width < 140 ? 'micro' : width < 230 ? 'compact' : 'full';
+  });
   const [arrive] = useState(() => !data.restoring && !data.seenCards?.has(id));
   useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
   const [readingLayout, setReadingLayout] = useState<SubmapLayout | null>(null);
@@ -118,6 +131,16 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     }
   }, [detailed]);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const previousStatus = useRef(task.status);
+  const [completedNow, setCompletedNow] = useState(false);
+  useEffect(() => {
+    const changed = previousStatus.current !== task.status;
+    previousStatus.current = task.status;
+    if (!changed || task.status !== 'done') return;
+    setCompletedNow(true);
+    const timer = setTimeout(() => setCompletedNow(false), 1500);
+    return () => clearTimeout(timer);
+  }, [task.status]);
   const detail = layout.steps.find((s) => s.id === detailId);
   const isLastPart = data.part === data.partCount;
   const state = !isLastPart
@@ -183,9 +206,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     Math.max(260, (screenWidth - 50) / 1.05),
   );
   const readerHeight = Math.min(
-    420,
+    600,
     layout.height - 48,
-    Math.max(230, (screenHeight - (screenWidth < 640 ? 330 : 210)) / 1.05),
+    Math.max(300, (screenHeight - (screenWidth < 640 ? 180 : 160)) / 1.05),
   );
   const rectFor = (step: SubmapStep) => ({
     x: Math.max(
@@ -229,9 +252,13 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       data-card-id={id}
       data-part={data.part}
       data-arrive={arrive}
+      data-growing={data.growthDelay != null}
+      style={{ animationDelay: `${data.growthDelay ?? 0}ms` }}
       data-focused={focused}
       data-detailed={detailed}
       aria-label={title}
+      data-overview-density={density}
+      data-completed-now={completedNow}
       data-active={isLastPart && data.live && !data.paused && ACTIVE.has(task.status)}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -256,9 +283,11 @@ export const MacroTaskNode = memo(function MacroTaskNode({
         className="macro-summary"
         aria-hidden={detailed}
         style={{
+          "--summary-scale": summaryScale,
+          "--summary-height": `${data.frame.height / summaryScale - 20}px`,
           width: data.frame.width / summaryScale - 20,
           transform: `translate(-50%, -50%) scale(${summaryScale})`,
-        }}
+        } as import("react").CSSProperties}
       >
         <button
           className={`map-card map-state-${state} nodrag nopan`}
@@ -284,8 +313,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               {stateLabel(state)}
             </span>
           </div>
-          <h3>{title}</h3>
-          <p>
+          <h3><MarkdownExcerpt>{title}</MarkdownExcerpt></h3>
+          <div className="map-card-copy"><MarkdownExcerpt>
             {partSummary ||
               (copy[task.id]?.task_status === task.status
                 ? copy[task.id]?.summary
@@ -294,7 +323,15 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               task.summary ||
               task.objective ||
               (zh ? "放大查看任务内部" : "Zoom to explore")}
-          </p>
+          </MarkdownExcerpt></div>
+          <div className="map-card-stages" aria-label={zh ? '任务阶段' : 'Task stages'}>
+            {(['plan', 'execution', 'review', 'result'] as const).map((kind) => {
+              const StageIcon = ICONS[kind];
+              const present = layout.steps.some((step) => step.kind === kind);
+              const active = layout.steps.some((step) => step.kind === kind && step.id === activeStep);
+              return <span key={kind} className={`submap-kind-${kind}`} data-present={present} data-active={active} title={KINDS[kind][zh ? 0 : 1]}><StageIcon size={12} /><span>{zh ? ({ plan: '规划', execution: '执行', review: '审查', result: '交付' })[kind] : KINDS[kind][1]}</span></span>;
+            })}
+          </div>
           <div className="map-card-bottom">
             <span>
               {data.partCount > 1
@@ -332,7 +369,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                   ? "任务内部"
                   : "INSIDE THIS TASK"}
             </small>
-            <h2>{title}</h2>
+            <h2><MarkdownExcerpt>{title}</MarkdownExcerpt></h2>
           </div>
           <span className="macro-state">{stateLabel(state)}</span>
         </header>
@@ -346,7 +383,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </span>
           ))}
         </div>
-        <SubmapEdges layout={layout} />
+        <SubmapEdges layout={layout} growing={data.growingLinks} activeStep={activeStep} />
         {layout.columns.map((col) => (
           <div
             className="macro-column-label"
@@ -365,12 +402,14 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               data-testid="submap-step"
               data-step-id={step.id}
               data-active={activeStep === step.id}
+              data-growing={data.growingSteps?.[step.id] != null}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 data.menu(reference(step), { x: e.clientX, y: e.clientY });
               }}
               style={{
+                animationDelay: `${data.growingSteps?.[step.id] ?? 0}ms`,
                 left: layout.positions[step.id].x,
                 top: layout.positions[step.id].y,
               }}
@@ -392,12 +431,12 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                   {stateLabel(activityStep === step.id ? data.paused ? "paused" : "running" : step.status)}
                 </small>
               </div>
-              <h4>{step.title}</h4>
-              <p>
+              <h4><MarkdownExcerpt>{step.title}</MarkdownExcerpt></h4>
+              <div className="submap-step-copy"><MarkdownExcerpt>
                 {copy[step.id]?.summary ||
                   step.detail ||
                   (zh ? "暂无详细记录" : "Details are not available yet")}
-              </p>
+              </MarkdownExcerpt></div>
               <div className="submap-step-foot">
                 <span title={sourceLabel(step, zh)}>
                   {zh ? "查看详情" : "Read more"}
@@ -462,13 +501,11 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                 <X size={20} />
               </button>
             </header>
-            <h3>{detail.title}</h3>
+            <h3><MarkdownExcerpt>{detail.title}</MarkdownExcerpt></h3>
             <div className="macro-reader-body">
-              <ReactMarkdown>
-                {copy[detail.id]?.detail ||
-                  detail.detail ||
-                  (zh ? "暂无详细记录。" : "No details available yet.")}
-              </ReactMarkdown>
+              <MarkdownContent artifacts={data.artifacts} onOpenArtifact={data.onOpenArtifact}>
+                {cleanDeliverySummary(copy[detail.id]?.detail || detail.detail || (zh ? "暂无详细记录。" : "No details available yet."))}
+              </MarkdownContent>
             </div>
             <footer>
               <span title={sourceLabel(detail, zh)}>

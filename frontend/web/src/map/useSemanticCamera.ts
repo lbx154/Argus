@@ -37,15 +37,16 @@ function viewingArea(el: HTMLElement) {
   const controls = el
     .querySelector(".react-flow__controls")
     ?.getBoundingClientRect();
+  const reading = el.dataset.reading === "true";
   const left = el.clientWidth < 640 ? 20 : 50;
   const top = Math.max(
     toolbar ? toolbar.bottom - bounds.top + 20 : 85,
-    el.clientWidth < 640 && legend ? legend.bottom - bounds.top + 16 : 0,
-    el.clientWidth < 640 && controls ? controls.bottom - bounds.top + 16 : 0,
+    !reading && el.clientWidth < 640 && legend ? legend.bottom - bounds.top + 16 : 0,
+    !reading && el.clientWidth < 640 && controls ? controls.bottom - bounds.top + 16 : 0,
   );
   const bottom = Math.max(
     composer ? bounds.bottom - composer.top + 24 : 100,
-    minimap ? bounds.bottom - minimap.top + 20 : 0,
+    !reading && minimap ? bounds.bottom - minimap.top + 20 : 0,
   );
   return {
     x: left,
@@ -126,6 +127,7 @@ export function useSemanticCamera(
         String(id ? 1 - alpha * 0.72 : 1),
       );
       el.dataset.zoom = viewport.zoom.toFixed(3);
+      el.style.setProperty("--map-zoom", String(viewport.zoom));
       setFocusId(alpha > 0 && id ? id : null);
       setDetailed(alpha >= 0.55);
       if (
@@ -149,6 +151,7 @@ export function useSemanticCamera(
         overview.current = flow.getViewport();
       lockedFocus.current = id;
       reading.current = false;
+      delete el.dataset.reading;
       allowRefit.current = true;
       // Keep a readable scale for long tasks; the same canvas pans to the remaining steps.
       const area = viewingArea(el);
@@ -190,6 +193,7 @@ export function useSemanticCamera(
     cancelWheel();
     lockedFocus.current = null;
     reading.current = false;
+    if (root.current) delete root.current.dataset.reading;
     allowRefit.current = false;
     fittedDetail.current = null;
     pointer.current = null;
@@ -227,6 +231,7 @@ export function useSemanticCamera(
       const el = root.current;
       if (!node || !el) return;
       reading.current = true;
+      el.dataset.reading = "true";
       allowRefit.current = true;
       readerOwner.current = id;
       readerTarget.current = { id, rect };
@@ -442,6 +447,7 @@ export function useSemanticCamera(
       pointer.current = null;
     };
     const key = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       if (
         event.key === "Escape" &&
         !["INPUT", "TEXTAREA", "SELECT"].includes(

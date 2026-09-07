@@ -1,3 +1,5 @@
+import type { MessageRouteOverride } from '../api';
+import type { MapSend } from './submission';
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Square, X } from "lucide-react";
 import { ArgusMark } from "../components/Wordmark";
@@ -15,7 +17,7 @@ import { isImeComposing } from "../lib/ime";
 export interface MapComposerProps {
   value: string;
   onChange: (text: string) => void;
-  onSend: (text: string, attachments?: File[]) => Promise<boolean>;
+  onSend: MapSend;
   attachments: File[];
   onAttachmentsChange: (files: File[]) => void;
   pending: boolean;
@@ -25,6 +27,8 @@ export interface MapComposerProps {
   historical: boolean;
   zh: boolean;
   overview?: boolean;
+  routeOverride?: MessageRouteOverride;
+  onRouteOverrideChange?: (route: MessageRouteOverride) => void;
 }
 export function MapComposer({
   value,
@@ -39,6 +43,8 @@ export function MapComposer({
   historical,
   zh,
   overview = false,
+  routeOverride = 'auto',
+  onRouteOverrideChange,
 }: MapComposerProps) {
   const { t } = useI18n();
   const input = useRef<HTMLTextAreaElement>(null);
@@ -243,6 +249,9 @@ export function MapComposer({
             }
           }}
         />
+        {!compact && onRouteOverrideChange && <select className="map-route-select" aria-label={t('chat.routeLabel')} title={t('chat.routeHint')} value={routeOverride} disabled={pending} onChange={(event) => onRouteOverrideChange(event.target.value as MessageRouteOverride)}>
+          <option value="auto">{t('chat.routeAuto')}</option><option value="task">{t('chat.routeTask')}</option><option value="chat">{t('chat.routeChat')}</option>
+        </select>}
         {pending ? (
           <button
             type="button"

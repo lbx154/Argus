@@ -1,0 +1,36 @@
+.agent-activity{color:rgb(var(--ink));font-size:12px;min-width:0}
+.agent-activity-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;font-weight:650}
+.agent-activity-heading>span{display:flex;align-items:center;gap:8px}
+.agent-activity-heading>button{display:grid;place-items:center;border:0;background:transparent;padding:8px;border-radius:9px;color:rgb(var(--ink-dim));cursor:pointer}
+.agent-activity-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:4px;background:rgb(var(--ink)/.045);border-radius:12px;margin-bottom:14px}
+.agent-activity-tabs button{display:flex;align-items:center;justify-content:center;gap:6px;min-height:36px;border:0;border-radius:9px;background:transparent;color:rgb(var(--ink-faint));cursor:pointer;font-size:12px;transition:background .2s,color .2s}
+.agent-activity-tabs button[aria-pressed=true]{background:rgb(var(--panel));color:rgb(var(--ink));box-shadow:0 2px 8px #16345112}
+.agent-activity-tabs i{width:5px;height:5px;border-radius:50%;background:rgb(var(--ink-faint)/.4)}
+.agent-activity-tabs i[data-active=true]{background:#56a792;box-shadow:0 0 0 3px #56a79216}
+.agent-current{padding:16px;border:1px solid rgb(var(--line));border-radius:14px;background:rgb(var(--bg)/.4)}
+.agent-current[data-active=true]{border-color:#79a8c457;background:linear-gradient(135deg,#629cc40b,#6bb49b08)}
+.agent-current-kicker{display:flex;align-items:center;justify-content:space-between;gap:12px;color:rgb(var(--ink-faint));font-size:11px}
+.agent-current h3{font-size:16px;line-height:1.45;font-weight:650;margin:8px 0}
+.agent-live-indicator{display:flex;align-items:center;gap:5px;font-size:9px;letter-spacing:1px;color:#397f75}
+.agent-live-indicator i{width:5px;height:5px;background:currentColor;border-radius:50%;animation:agent-live-breathe 2s ease-in-out infinite}
+.agent-current-summary{font-size:13px;line-height:1.7;color:rgb(var(--ink-dim));max-height:220px;overflow:auto;overflow-wrap:anywhere}
+.agent-current-summary p{margin:4px 0}
+.agent-current-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px;color:rgb(var(--ink-faint));font-size:10px;margin-top:12px}
+.agent-current-meta span:last-child{margin-left:auto}
+.agent-records-heading{display:flex;justify-content:space-between;margin:18px 0 10px;color:rgb(var(--ink-faint));font-size:11px}
+.agent-records{max-height:360px;overflow:auto;overscroll-behavior:contain}
+.agent-record{position:relative;display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;padding:10px 0}
+.agent-record:not(:last-child):before{content:'';position:absolute;width:1px;left:11px;top:31px;bottom:-9px;background:rgb(var(--line))}
+.agent-record-icon{display:grid;place-items:center;width:24px;height:24px;border-radius:8px;color:#68879e;background:#7099b40e;border:1px solid #7099b426}
+.agent-record[data-active=true] .agent-record-icon{color:#367ea4;background:#7099b418}
+.agent-record[data-failed=true] .agent-record-icon{color:#b3744e}
+.agent-record-title{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;font-size:12px;line-height:1.6}
+.agent-record-title strong{font-weight:550}.agent-record time{font-size:10px;flex-shrink:0;color:rgb(var(--ink-faint));font-variant-numeric:tabular-nums}
+.agent-record small{font-size:10px;color:rgb(var(--ink-faint))}
+.agent-record summary{display:flex;align-items:center;gap:4px;list-style:none;color:#5b87a3;font-size:11px;cursor:pointer;padding:6px 0}
+.agent-record summary::-webkit-details-marker{display:none}.agent-record details[open] summary svg{transform:rotate(180deg)}
+.agent-record-detail{color:rgb(var(--ink-dim));line-height:1.7;font-size:12px;overflow-wrap:anywhere}
+.agent-record-detail p{margin:4px 0}.agent-records-empty{padding:20px 0;color:rgb(var(--ink-faint));line-height:1.7}
+@keyframes agent-live-breathe{50%{opacity:.5;box-shadow:0 0 0 4px #56a79214}}
+@media(max-width:640px){.agent-activity-tabs button{min-height:44px}.agent-current-summary{max-height:160px}.agent-records{max-height:32dvh}}
+@media(prefers-reduced-motion:reduce){.agent-live-indicator i{animation:none}.agent-activity-tabs button{transition:none}}

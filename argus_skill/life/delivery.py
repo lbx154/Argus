@@ -26,6 +26,10 @@ _BOOK_TITLE_TARGET_RE = re.compile(r"《([^》\r\n]{1,2048})》")
 _WINDOWS_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_])/?[A-Za-z]:[\\/][^\s<>\[\]()`\"']+",
 )
+_PLAIN_FILE_RE = re.compile(
+    r"(?<![\w:/\\.-])([A-Za-z0-9_./-]+\.(?:html|md|markdown|csv|tsv|json|txt|py|js|mjs|css|pdf|png|jpg|jpeg|webp))(?=$|[^\w/\\.-])",
+    re.IGNORECASE,
+)
 _TERMINAL_PUNCTUATION = " \t\r\n\"'<>[](){}.,;，。；："
 
 
@@ -37,6 +41,7 @@ def _referenced_path_candidates(text: object) -> list[str]:
     candidates.extend(match.group(1) for match in _INLINE_CODE_RE.finditer(body))
     candidates.extend(match.group(1) for match in _BOOK_TITLE_TARGET_RE.finditer(body))
     candidates.extend(match.group(0) for match in _WINDOWS_PATH_RE.finditer(body))
+    candidates.extend(match.group(1) for match in _PLAIN_FILE_RE.finditer(body))
     return candidates
 
 
@@ -105,6 +110,23 @@ def referenced_delivery_paths(
             if len(paths) >= max_paths:
                 return paths
     return paths
+
+
+def linked_report_paths(workspace: Path | str, paths: Iterable[object]) -> list[str]:
+    """Companion files explicitly referenced by delivered Markdown reports."""
+    root = Path(workspace)
+    references: list[str] = []
+    for path in list(paths)[:MAX_DELIVERY_TARGETS]:
+        safe = _workspace_relative_reference(root, path)
+        if not safe or Path(safe).suffix.lower() not in {".md", ".markdown"}:
+            continue
+        try:
+            with (root / safe).open("rb") as handle:
+                text = handle.read(128 * 1024).decode("utf-8", errors="replace")
+            references.extend(referenced_delivery_paths(root, [text]))
+        except OSError:
+            continue
+    return list(dict.fromkeys(references))[:MAX_DELIVERY_TARGETS]
 
 
 def _safe_existing_path(workspace: Path, value: object) -> str | None:

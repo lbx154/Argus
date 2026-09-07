@@ -51,7 +51,7 @@ _SENSITIVE_NAMES = frozenset(
 )
 _SENSITIVE_SUFFIXES = frozenset({".key", ".p12", ".pem", ".pfx"})
 _RENDERABLE_SUFFIXES = frozenset({
-    ".aac", ".bib", ".cfg", ".csv", ".flac", ".gif", ".html", ".ini",
+    ".aac", ".bib", ".cfg", ".css", ".js", ".mjs", ".csv", ".flac", ".gif", ".html", ".ini",
     ".ipynb", ".jpeg", ".jpg", ".json", ".jsonl", ".log", ".m4a", ".m4v",
     ".markdown", ".md", ".mov", ".mp3", ".mp4", ".ogg", ".ogv", ".pdf",
     ".png", ".py", ".rst", ".sh", ".tex", ".toml", ".ts", ".tsv", ".txt", ".wav",
@@ -107,7 +107,9 @@ def manager_workspace_context(
     }
 
 
-def normalize_live_view_path(value: object) -> str | None:
+def normalize_live_view_path(
+    value: object, *, allowed_suffixes: frozenset[str] = _RENDERABLE_SUFFIXES,
+) -> str | None:
     """Return a safe, workspace-relative POSIX path without touching disk."""
     raw = str(value or "").strip().replace("\\", "/")
     if not raw or "\x00" in raw:
@@ -144,7 +146,7 @@ def normalize_live_view_path(value: object) -> str | None:
         return None
     if path.suffix.casefold() in _SENSITIVE_SUFFIXES:
         return None
-    if path.suffix.casefold() not in _RENDERABLE_SUFFIXES:
+    if path.suffix.casefold() not in allowed_suffixes:
         return None
     normalized = path.as_posix()
     return normalized if normalized not in {"", "."} else None

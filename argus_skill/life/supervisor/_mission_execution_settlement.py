@@ -1239,6 +1239,7 @@ class MissionExecutionSettlementMixin:
                 delivery_workspace,
                 [
                     raw_mission_summary,
+                    final_output,
                     getattr(outcome, "final_message", ""),
                 ],
                 limit=12,

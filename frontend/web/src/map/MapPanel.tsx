@@ -1,3 +1,13 @@
+import { MapConversation } from './MapConversation';
+import { PendingBanner } from '../components/PendingBanner';
+import { PackageCheck, MessageCircle } from 'lucide-react';
+import { AgentActivity } from '../components/AgentActivity';
+import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
+import type { MapSend, DispatchObserver } from './submission';
+import { splitDraft } from './presentation';
+import { useMapGrowth } from './useMapGrowth';
+import { stepIdentity } from './growth';
+import './motion.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { replaceEqualDeep, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -28,7 +38,7 @@ import {
   Search,
   Settings2,
 } from "lucide-react";
-import { api, type Snapshot } from "../api";
+import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
 import { ACTIVE, buildMap, connectMap, statusKey, type Dataset } from "./model";
@@ -39,14 +49,26 @@ import { INITIAL_VIEWPORT, useSemanticCamera } from "./useSemanticCamera";
 import { useMapCopy } from "./useMapCopy";
 import { MapComposer, type MapComposerProps } from "./MapComposer";
 import { referenceText, type CardReference } from "./presentation";
-import type { EventMsg } from "../../../core/src/types";
+import type { ArtifactInfo, DeliveryReceipt, EventMsg } from "../../../core/src/types";
 import "@xyflow/react/dist/style.css";
 import "./map.css";
 import "./submap.css";
+import "./atlas.css";
 import { MapRelationEdge } from "./MapRelationEdge";
 import { MapHistoryChoice } from "./MapHistoryChoice";
 import { mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
 import { recalledView, rememberView } from "./viewMemory";
+
+interface MapWorkspaceActions {
+  conversationEvents: EventMsg[];
+  connected: boolean;
+  artifacts: ArtifactInfo[];
+  deliveryCount: number;
+  onOpenDelivery: () => void;
+  onOpenReceipt: (receipt: DeliveryReceipt) => void;
+  onOpenArtifact: (path: string) => void;
+  onAnswer: () => void;
+}
 
 const NODE_TYPES = { task: MacroTaskNode };
 const EDGE_TYPES = { relation: MapRelationEdge };
@@ -55,20 +77,34 @@ function MapCanvas({
   zh,
   composer,
   activePhase,
+  snapshot,
+  events,
+  pendingLabel,
   readOnly,
   sessionId,
   viewKey,
   paused,
+  actions,
 }: {
   data: Dataset;
   sessionId: string;
   zh: boolean;
   composer: MapComposerProps;
   activePhase?: string;
+  snapshot: Snapshot;
+  events: EventMsg[];
+  pendingLabel?: string;
   readOnly: boolean;
   viewKey: string;
   paused: boolean;
+  actions: MapWorkspaceActions;
 }) {
+  const [agentsOpen, setAgentsOpen] = useState(false);
+  const [conversationOpen, setConversationOpen] = useState(false);
+  const [flight, setFlight] = useState<MapDispatchFlight | null>(null);
+  const dispatchSerial = useRef(0);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const graph = useMemo(() => buildMap(data.tasks), [data.tasks]);
   const [nodes, setNodes, onNodesChange] = useNodesState<MacroNode>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -98,6 +134,30 @@ function MapCanvas({
     sceneCache.current = replaceEqualDeep(sceneCache.current, next);
     return sceneCache.current;
   }, [graph, data.events, zh, links]);
+  const growth = useMapGrowth(scene, !!data.history_loading);
+  const submitFromMap: MapSend = async (text, files = []) => {
+    const id = ++dispatchSerial.current;
+    const source = canvasRef.current?.querySelector('textarea')?.getBoundingClientRect();
+    setFlight({ id, text: splitDraft(text).text.replace(/\s+/g, ' ').slice(0, 180), origin: { x: source?.left ?? 20, y: source?.top ?? innerHeight - 100 } });
+    let hasTask = false;
+    const observe: DispatchObserver = (result) => {
+      if (result.type === 'task') hasTask = true;
+      if (alive.current && result.type === 'settled' && result.outcome === 'message' && !hasTask) { setConversationOpen(true); setAgentsOpen(false); }
+      if (alive.current) setFlight((current) => current?.id === id ? { ...current, result } : current);
+    };
+    try {
+      const accepted = await composer.onSend(text, files, observe);
+      if (!accepted) observe({ type: 'settled', outcome: 'error' });
+      return accepted;
+    } catch (error) {
+      observe({ type: 'settled', outcome: 'error' });
+      throw error;
+    }
+  };
+  const cancelFromMap = () => {
+    setFlight((current) => current ? { ...current, result: { type: 'settled', outcome: 'cancelled' } } : null);
+    composer.onCancel();
+  };
   useEffect(() => {
     if (!nodesReady || initialFit.current || !copyReady) return;
     if (savedView.current?.camera && data.history_loading) return;
@@ -267,6 +327,17 @@ function MapCanvas({
           focused: n.id === camera.focusId,
           detailed: camera.detailed && n.id === camera.focusId,
           canvasSize: camera.canvasSize,
+          growthDelay: growth.cards[n.id],
+          growingSteps: Object.fromEntries(n.data.layout.steps.flatMap((step) => {
+            const delay = growth.steps[stepIdentity(n.id, step.id)];
+            return delay == null ? [] : [[step.id, delay]];
+          })),
+          artifacts: actions.artifacts,
+          onOpenArtifact: actions.onOpenArtifact,
+          growingLinks: Object.fromEntries(n.data.layout.links.flatMap((link) => {
+            const delay = growth.links[stepIdentity(n.id, link.id)];
+            return delay == null ? [] : [[link.id, delay]];
+          })),
         },
         style: {
           ...n.style,
@@ -291,6 +362,9 @@ function MapCanvas({
       query,
       copy,
       zh,
+      growth,
+      actions.artifacts,
+      actions.onOpenArtifact,
     ],
   );
   const edges: Edge[] = useMemo(
@@ -312,6 +386,8 @@ function MapCanvas({
           ),
           type: "relation",
           data: {
+            growthDelay: growth.links[e.id],
+            active: data.kind === "live" && !paused && scene.cards.some((card) => card.id === e.target && ACTIVE.has(card.task.status)),
             lane: visibleLinks
               .slice(0, index)
               .filter((l) => l.source === e.source || l.target === e.target)
@@ -369,6 +445,10 @@ function MapCanvas({
       zh,
       scene.positions,
       scene.frames,
+      growth,
+      data.kind,
+      paused,
+      scene.cards,
     ],
   );
   const replacementCount = graph.links.filter(
@@ -388,7 +468,8 @@ function MapCanvas({
     const target =
       data.tasks.find((t) => ACTIVE.has(t.status)) ??
       data.tasks.find((t) => t.pending_question) ??
-      data.tasks.find((t) => t.status === "pending");
+      data.tasks.find((t) => t.status === "pending") ??
+      data.tasks.at(-1);
     if (target) {
       focus(
         scene.cards.filter((card) => card.task.id === target.id).at(-1)!.id,
@@ -396,11 +477,12 @@ function MapCanvas({
       setFocusFeedback("");
     } else
       setFocusFeedback(
-        zh ? "没有进行中或待开始的任务" : "No active or planned tasks",
+        zh ? "发送一个目标，地图就会开始生长" : "Send a goal to start your map",
       );
   };
   return (
     <>
+      <div className="map-progress-line" role="progressbar" aria-label={zh ? "已完成任务" : "Completed tasks"} aria-valuemin={0} aria-valuemax={data.tasks.length || 1} aria-valuenow={complete}><span style={{ width: `${data.tasks.length ? complete / data.tasks.length * 100 : 0}%` }} /></div>
       <div className="map-summary">
         <div>
           <span className="map-summary-value">{data.tasks.length}</span>
@@ -423,8 +505,10 @@ function MapCanvas({
             </>
           )}
         </div>
-        {paused ? (
-          <span className="map-paused-label"><Pause size={13} />{zh ? "已暂停" : "Paused"}</span>
+        {composer.pending ? (
+          <span className="map-live-phase"><i />{zh ? '正在处理消息' : 'Processing your message'}</span>
+        ) : paused ? (
+          <span className="map-paused-label">{data.tasks.length > 0 && complete === data.tasks.length ? <><Check size={13} />{zh ? '已完成' : 'Completed'}</> : data.tasks.some((task) => ACTIVE.has(task.status) || task.status === 'pending') ? <><Pause size={13} />{zh ? '已暂停' : 'Paused'}</> : (zh ? '就绪' : 'Ready')}</span>
         ) : activePhase && (
           <span className="map-live-phase">
             <i />
@@ -444,12 +528,27 @@ function MapCanvas({
             : "Scroll to zoom · drag to pan · select a task to explore"}
         </span>
       </div>
+      {data.kind === 'live' && <div className="map-workspace-actions">
+        <button type="button" aria-expanded={conversationOpen} onClick={() => { setConversationOpen((open) => !open); setAgentsOpen(false); }}><MessageCircle size={15} />{zh ? '对话' : 'Conversation'}</button>
+        <button type="button" aria-expanded={agentsOpen} onClick={() => { setAgentsOpen((open) => !open); setConversationOpen(false); }}><i data-active={!!activePhase || composer.pending} />{zh ? 'Agent 动态' : 'Agent activity'}</button>
+        <button type="button" className="map-delivery-toggle" disabled={!actions.deliveryCount} onClick={actions.onOpenDelivery}><PackageCheck size={15} />{zh ? '交付成果' : 'Deliveries'}{actions.deliveryCount > 0 && <span>{actions.deliveryCount}</span>}</button>
+      </div>}
+      {data.kind === 'live' && !readOnly && <PendingBanner questions={snapshot.pending_questions ?? []} backlog={snapshot.backlog} onAnswer={actions.onAnswer} />}
       <div className="map-workspace">
         <div
           ref={canvasRef}
           className="map-canvas-wrap"
           data-focused={!!camera.focusId}
         >
+          {conversationOpen && <MapConversation events={actions.conversationEvents} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
+          {agentsOpen && data.kind === 'live' && <aside className="map-agent-drawer nowheel nodrag nopan">
+            <AgentActivity view={snapshot.mission_view} roles={snapshot.roles} events={events}
+              taskId={focusedNode?.data.task.id || snapshot.mission_view?.mission.id || undefined}
+              paused={paused && !composer.pending} onClose={() => setAgentsOpen(false)} />
+          </aside>}
+          {flight && !readOnly && <MapDispatchMotion flight={flight} canvas={canvasRef} zh={zh} pendingLabel={pendingLabel} historical={composer.historical}
+            onReveal={(taskId) => { if (data.tasks.some((task) => task.id === taskId)) camera.fit(); }}
+            onFinish={(id) => setFlight((current) => current?.id === id ? null : current)} />}
           <div className="map-canvas-toolbar nowheel">
             <label className="map-search">
               <Search size={14} />
@@ -472,7 +571,7 @@ function MapCanvas({
             </label>
             <button
               onClick={locateCurrent}
-              title={zh ? "定位当前任务" : "Locate current task"}
+              title={zh ? "定位当前或最近任务" : "Locate current or latest task"}
             >
               <LocateFixed size={15} />
               <span>{zh ? "定位当前" : "Locate current"}</span>
@@ -533,16 +632,25 @@ function MapCanvas({
           {graph.tasks.length === 0 ? (
             <div className="map-empty">
               <GitBranch size={36} />
-              <h3>{zh ? "暂无任务" : "No tasks yet"}</h3>
+              <h3>{zh ? "把一个目标，变成可见的成果" : "Turn a goal into a visible result"}</h3>
               <p>
                 {readOnly
                   ? zh
                     ? "尚无任务记录。"
                     : "No task records are available."
                   : zh
-                    ? "在下方输入研究目标，开始新的任务。"
-                    : "Enter a research goal below to start a task."}
+                    ? "描述你想完成的事情，看 Argus 规划、执行、审查，最后在这里交付。"
+                    : "Describe your goal. Watch Argus plan, build, review, and deliver here."}
               </p>
+              {!readOnly && <div className="map-starters">{(zh ? [
+                ['交互实验', '做一个交互式实验室，用动画展示 Dijkstra 和 A* 怎样寻找最短路径。让我能画障碍、单步播放、比较探索范围，并验证两个算法的结果一致。'],
+                ['数据洞察', '用一组可复现的模拟数据，做一个辛普森悖论交互演示。让我能切换整体和分组视角，看结论怎样反转，附上验证过程。'],
+                ['产品原型', '做一个精致的个人旅行规划网页。我能调整预算和出行天数，比较三种行程方案，并将选中的方案导出。让手机上也方便操作。'],
+              ] : [
+                ['Interactive lab', 'Build an interactive Dijkstra vs A* pathfinding lab with editable obstacles, step-by-step animation, and correctness checks.'],
+                ['Data insights', 'Create an interactive Simpson’s paradox demo using reproducible synthetic data, with aggregate and grouped views and validation.'],
+                ['Product prototype', 'Build a polished travel planner. Let me adjust budget and duration, compare three itineraries, and export my choice. Make it easy to use on a phone.'],
+              ]).map(([label, prompt]) => <button key={label} type="button" onClick={() => { composer.onChange(prompt); requestAnimationFrame(() => canvasRef.current?.querySelector('textarea')?.focus()); }}>{label} ↗</button>)}</div>}
             </div>
           ) : (
             <ReactFlow<MacroNode>
@@ -628,7 +736,7 @@ function MapCanvas({
             </button>
           </div>
           {!readOnly && (
-            <MapComposer {...composer} overview={!camera.detailed} />
+            <MapComposer {...composer} onSend={submitFromMap} onCancel={cancelFromMap} overview={!camera.detailed && graph.tasks.length > 0} />
           )}
           {menu && !readOnly && (
             <div
@@ -713,6 +821,7 @@ function MapCanvas({
 export function MapPanel({
   snapshot,
   events,
+  managerSteps = [],
   draft,
   onDraftChange,
   onSend,
@@ -721,18 +830,24 @@ export function MapPanel({
   focusSignal,
   readOnly = false,
   onOpenSettings,
+  routeOverride,
+  onRouteOverrideChange,
+  ...actions
 }: {
   snapshot: Snapshot;
   events: EventMsg[];
+  managerSteps?: Array<{ label: string; detail?: string }>;
   draft: string;
   onDraftChange: (text: string) => void;
-  onSend: (text: string, attachments?: File[]) => Promise<boolean>;
+  onSend: MapSend;
   pending: boolean;
   onCancel: () => void;
   focusSignal: number;
   readOnly?: boolean;
   onOpenSettings?: () => void;
-}) {
+  routeOverride?: MessageRouteOverride;
+  onRouteOverrideChange?: (route: MessageRouteOverride) => void;
+} & MapWorkspaceActions) {
   const { locale } = useI18n();
   const zh = locale === "zh-CN";
   const [attachments, setAttachments] = useState<File[]>([]);
@@ -745,8 +860,15 @@ export function MapPanel({
       mounted.current = false;
     };
   }, []);
-  const send = async (text: string, files: File[] = []) => {
-    const accepted = await onSend(text, files);
+  const send: MapSend = async (text, files = [], observe) => {
+    const accepted = await onSend(text, files, (result) => {
+      if (!mounted.current) return;
+      if (result.type === 'settled' && result.outcome === 'error' && !currentDraft.current.trim()) {
+        onDraftChange(text);
+        setAttachments((current) => current.length ? current : files);
+      }
+      observe?.(result);
+    });
     if (accepted && mounted.current) {
       if (currentDraft.current === text) onDraftChange("");
       setAttachments((current) =>
@@ -974,6 +1096,10 @@ export function MapPanel({
         <ReactFlowProvider key={viewKey}>
           <MapCanvas
             data={data}
+            actions={actions}
+            snapshot={snapshot}
+            events={events}
+            pendingLabel={managerSteps.at(-1)?.detail || managerSteps.at(-1)?.label}
             viewKey={viewKey}
             paused={paused}
             sessionId={snapshot.session.id}
@@ -985,6 +1111,8 @@ export function MapPanel({
                 : undefined
             }
             composer={{
+              routeOverride,
+              onRouteOverrideChange,
               value: draft,
               onChange: onDraftChange,
               onSend: send,

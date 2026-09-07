@@ -204,7 +204,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.submap-step p {
+.submap-step-copy {
   color: rgb(var(--ink-dim));
   font-size: 14px;
   line-height: 1.65;
@@ -397,7 +397,7 @@
     0 6px 20px #233d5812,
     0 2px 4px #233d5808;
 }
-.map-macro[data-arrive="true"] .submap-step:not([data-active="true"]) { animation: map-arrive 220ms ease backwards; }
+/* Step entrance is driven by newly received evidence, not component mounts. */
 .map-macro[data-active="true"] {
   border-color: #74a5c7;
 }
@@ -850,3 +850,15 @@
   color: rgb(var(--ink-faint));
   white-space: nowrap;
 }
+
+/* Card excerpts keep Markdown semantics at the card's scale. */
+.map-card-copy strong, .submap-step-copy strong { color: rgb(var(--ink)); font-weight: 600; }
+.map-card-copy code, .submap-step-copy code { font-size: .94em; border-radius: 3px; padding: 0 3px; background: rgb(var(--blue) / .06); }
+.markdown-excerpt-link { color: rgb(var(--blue)); }
+.markdown-excerpt-item + .markdown-excerpt-item::before { content: ' · '; color: rgb(var(--ink-faint)); }
+.macro-reader-body table { table-layout: auto; }
+.macro-reader-body h1 { font-size: 1.2em; }
+.macro-reader-body h2 { font-size: 1.1em; }
+.macro-reader-body h3 { font-size: 1em; }
+.macro-reader-body th, .macro-reader-body td { min-width: 5em; }
+.macro-reader-body .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; }

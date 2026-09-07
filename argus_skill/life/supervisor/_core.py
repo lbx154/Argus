@@ -1345,17 +1345,15 @@ class LifeSupervisor(
     def _build_terminal_project_delivery(self, reason: str) -> dict[str, Any] | None:
         """Promote the last verified mission output only after project_done."""
         latest: dict[str, Any] = {}
+        settlements = []
         try:
             # Settlement-scoped tail: journal chatter (planner cycles, waiting
             # heartbeats) must not push the winning settlement out of view.
             # The ``success is True`` check stays literal: the kind projection
             # defaults a missing ``success`` to complete, and a delivery must
             # only ever promote an explicitly successful settlement.
-            for entry in reversed(
-                self.memory.journal.tail_settlements(
-                    8, kinds=("mission_complete",)
-                )
-            ):
+            settlements = self.memory.journal.tail_settlements(8, kinds=("mission_complete",))
+            for entry in reversed(settlements):
                 extra = getattr(entry, "extra", None)
                 if isinstance(extra, dict) and extra.get("success") is True:
                     latest = extra
@@ -1363,7 +1361,11 @@ class LifeSupervisor(
         except Exception:  # noqa: BLE001 - delivery presentation is optional
             latest = {}
         try:
-            from ..delivery import build_delivery_receipt
+            from ..delivery import (
+                build_delivery_receipt,
+                linked_report_paths,
+                referenced_delivery_paths,
+            )
 
             outcome = latest.get("outcome")
             outcome = outcome if isinstance(outcome, dict) else {}
@@ -1374,6 +1376,27 @@ class LifeSupervisor(
                 str(latest.get("execution_workdir") or "").strip()
                 or self._project_workdir()
             )
+            # Older settlements omitted the accepted Engineer final_output
+            # from delivery_candidates. Recover named files without a directory
+            # scan, and retain outputs of earlier nodes in this same goal.
+            candidates = list(candidates)
+            candidates.extend(referenced_delivery_paths(workspace, [latest.get("final_output")], limit=12))
+            objective = str(getattr(self.config, "continuous_objective", "") or "").strip()
+            goal_ids = {
+                item.id for item in self.memory.backlog.all()
+                if objective and str(item.original_objective or item.objective).strip() == objective
+            }
+            for entry in reversed(settlements):
+                extra = getattr(entry, "extra", None)
+                if not isinstance(extra, dict) or extra is latest or extra.get("success") is not True:
+                    continue
+                if extra.get("item_id") not in goal_ids:
+                    continue
+                if str(extra.get("execution_workdir") or workspace) != str(workspace):
+                    continue
+                candidates.extend(extra.get("delivery_candidates") or [])
+                candidates.extend(referenced_delivery_paths(workspace, [extra.get("final_output"), extra.get("summary")], limit=12))
+            candidates.extend(linked_report_paths(workspace, candidates))
             final_submission_certified = bool(
                 latest.get("final_submission_certified")
             )
@@ -1405,7 +1428,7 @@ class LifeSupervisor(
                     str(getattr(self.config, "continuous_objective", "") or "").strip()
                     or str(latest.get("title") or "Completed task")
                 ),
-                summary=str(latest.get("summary") or reason or "").strip(),
+                summary=str(latest.get("summary") or latest.get("final_output") or reason or "").strip(),
                 success=True,
                 overall_complete=True,
                 status="done",

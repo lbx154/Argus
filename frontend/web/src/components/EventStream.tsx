@@ -1,3 +1,4 @@
+import { cleanDeliverySummary } from './deliveryPresentation';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import type { ArtifactInfo, EventMsg } from '../api';
@@ -333,7 +334,7 @@ function DeliveryCard({
           {t(certified ? 'mission.deliveryCertified' : 'mission.taskCompleted')}
         </div>
         <div className="mt-1 truncate text-sm font-semibold text-ink" title={delivery.title}>{delivery.title}</div>
-        {delivery.summary ? <p className="mt-1 text-xs leading-5 text-ink-dim">{delivery.summary}</p> : null}
+        {delivery.summary ? <p className="mt-1 text-xs leading-5 text-ink-dim">{cleanDeliverySummary(delivery.summary)}</p> : null}
         {onOpen ? (
           <button
             type="button"
@@ -433,6 +434,7 @@ export function EventStream({
   showReasoning,
   onToggleReasoning,
   embedded = false,
+  showHeader = true,
   filter = 'all',
   query = '',
   skipFirst = 0,
@@ -445,6 +447,7 @@ export function EventStream({
   showReasoning: boolean;
   onToggleReasoning: () => void;
   embedded?: boolean;
+  showHeader?: boolean;
   filter?: EventViewFilter;
   query?: string;
   skipFirst?: number;
@@ -573,7 +576,7 @@ export function EventStream({
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
       embedded ? '' : 'rounded-lg border border-line/80'
     }`}>
-      <PanelHeader
+      {showHeader && <PanelHeader
         title={t('panel.activity')}
         right={
           <div className="flex items-center gap-3">
@@ -591,7 +594,7 @@ export function EventStream({
             </span>
           </div>
         }
-      />
+      />}
       {activeProvider ? (
         <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/60 bg-blue-deep/5 px-4 text-xs text-ink-dim">
           <span className="h-2 w-2 animate-pulse rounded-full bg-blue-sky" />

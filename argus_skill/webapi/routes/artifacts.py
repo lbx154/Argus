@@ -82,6 +82,44 @@ def register_artifact_routes(app, ctx: ServerContext, server_mod) -> None:
             },
         )
 
+    def html_package(sid: str, path: str):
+        from ..artifact_preview import HtmlPackage
+
+        resolved = server_mod._resolved_project_artifact(
+            sid, path, global_root=ctx.project_root_or_404(sid)
+        )
+        if resolved is None or resolved[0]["kind"] != "html":
+            raise HTTPException(status_code=404, detail="HTML artifact unavailable or not allowlisted")
+        package = HtmlPackage(resolved[1])
+        try:
+            preview = package.build()
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=413, detail="HTML result is unavailable or too large to preview") from exc
+        return package, preview
+
+    @app.get("/api/projects/{sid}/artifact/preview", dependencies=[Depends(ctx.require_auth)])
+    def _artifact_preview(sid: str, response: Response, path: str = Query(..., min_length=1)):
+        response.headers["Cache-Control"] = "private, no-store"
+        _, preview = html_package(sid, path)
+        return preview
+
+    @app.get("/api/projects/{sid}/artifact/bundle", dependencies=[Depends(ctx.require_auth)])
+    def _artifact_bundle(sid: str, path: str = Query(..., min_length=1)):
+        from io import BytesIO
+        from zipfile import ZIP_DEFLATED, ZipFile
+
+        package, preview = html_package(sid, path)
+        output = BytesIO()
+        with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+            for name, data in package.files.items():
+                archive.writestr(name, data)
+            if preview["warnings"]:
+                archive.writestr("ARGUS-PREVIEW-NOTES.txt", "\n".join(preview["warnings"]))
+        return Response(output.getvalue(), media_type="application/zip", headers={
+            "Content-Disposition": 'attachment; filename="argus-website.zip"',
+            "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store",
+        })
+
     @app.get(
         "/api/projects/{sid}/git-diff",
         dependencies=[Depends(ctx.require_auth)],

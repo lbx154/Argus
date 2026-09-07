@@ -252,7 +252,31 @@ def enqueue_mission(
         body = f"{prior}\n\nOperator reply: {body}"
 
     life_dir = front_door._life_dir_for(mem)
-    if chat_state.get("config", {}).get("continuous", False):
+    # Starting a finite staged campaign still needs the Planner's executable
+    # DAG. Entering the durable supervisor must not flatten its dependencies
+    # into a raw operator item and leave decomposition as advisory prose.
+    new_finite_campaign = bool(
+        chat_state.get("config", {}).get("continuous", False)
+        and chat_state.get("_continuous_pending_manager_handoff")
+        and chat_state.get("_continuous_open_ended") is False
+    )
+    if new_finite_campaign and prepared_handoff is None:
+        try:
+            prepared_handoff = front_door.prepare_manager_execution_task(
+                mem, body, chat_state, root_task_id=root_task_id,
+            )
+        except Exception:
+            chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))["continuous"] = False
+            chat_state["continuous_objective"] = ""
+            chat_state.pop("_continuous_pending_manager_handoff", None)
+            raise
+    # Software has concrete component interfaces. Research campaigns must keep
+    # discovering their next stage through the scientific completion gates.
+    decompose_finite_campaign = bool(
+        new_finite_campaign
+        and getattr(getattr(prepared_handoff, "decision", None), "vertical", "") == "software"
+    )
+    if chat_state.get("config", {}).get("continuous", False) and not decompose_finite_campaign:
         pending_auto_promote = bool(
             chat_state.pop("_continuous_pending_manager_handoff", False)
         )
@@ -736,16 +760,42 @@ def enqueue_mission(
         )
         return item
 
-    item = front_door.manager_bounded_handoff(
-        mem,
-        body,
-        chat_state,
-        _persist,
-        root_task_id=root_task_id,
-        prepare_persist=_prepare_persist,
-        validate_persist=_validate_persist,
-        prepared_handoff=prepared_handoff,
-    )
+    if decompose_finite_campaign:
+        chat_state.pop("_continuous_pending_manager_handoff", None)
+        persisted: list[Any] = []
+
+        def persist_campaign(execution_body: str, division: Any) -> Any:
+            item = _persist(execution_body, division)
+            persisted.append(item)
+            return item
+
+        try:
+            execution_body = front_door.manager_continuous_handoff(
+                mem, body, chat_state,
+                root_task_id=root_task_id,
+                cancelled=cancelled,
+                prepared_handoff=prepared_handoff,
+                prepare_persist=_prepare_persist,
+                validate_persist=_validate_persist,
+                persist=persist_campaign,
+            )
+        except Exception:
+            chat_state.setdefault("config", dict(DEFAULT_MANAGER_CONFIG))["continuous"] = False
+            chat_state["continuous_objective"] = ""
+            raise
+        item = persisted[0]
+        chat_state["continuous_objective"] = execution_body
+    else:
+        item = front_door.manager_bounded_handoff(
+            mem,
+            body,
+            chat_state,
+            _persist,
+            root_task_id=root_task_id,
+            prepare_persist=_prepare_persist,
+            validate_persist=_validate_persist,
+            prepared_handoff=prepared_handoff,
+        )
     chat_state["last_objective"] = item.original_objective or item.objective
     alive, pid = _daemon_status(life_dir)
     return item, alive, pid

@@ -13,7 +13,7 @@ from ..life.memory import _read_jsonl_tail_history
 from .project_state import project_life_dir, resolve_global_root
 
 _TEXT_ARTIFACT_SUFFIXES = {
-    ".bib", ".cfg", ".ini", ".log", ".py", ".rst", ".sh", ".tex", ".toml",
+    ".bib", ".cfg", ".css", ".js", ".mjs", ".ini", ".log", ".py", ".rst", ".sh", ".tex", ".toml",
     ".ts", ".txt", ".yaml", ".yml",
 }
 _MARKDOWN_ARTIFACT_SUFFIXES = {".md", ".markdown"}
@@ -70,7 +70,9 @@ def artifact_workspace(
     return workspace if workspace.is_dir() else None
 
 
-def safe_artifact_path(workspace: Path, relative_path: str) -> tuple[str, Path] | None:
+def safe_artifact_path(
+    workspace: Path, relative_path: str, *, allowed_suffixes: frozenset[str] | None = None,
+) -> tuple[str, Path] | None:
     raw = str(relative_path or "").strip().replace("\\", "/")
     if not raw or "\x00" in raw:
         return None
@@ -82,14 +84,15 @@ def safe_artifact_path(workspace: Path, relative_path: str) -> tuple[str, Path] 
         return None
     from ..manager.live_view import normalize_live_view_path
 
-    if normalize_live_view_path(normalized) is None:
+    suffix_options = {"allowed_suffixes": allowed_suffixes} if allowed_suffixes is not None else {}
+    if normalize_live_view_path(normalized, **suffix_options) is None:
         return None
     try:
         resolved = (workspace / normalized).resolve(strict=False)
         resolved_relative = resolved.relative_to(workspace).as_posix()
     except (OSError, RuntimeError, ValueError):
         return None
-    if normalize_live_view_path(resolved_relative) is None:
+    if normalize_live_view_path(resolved_relative, **suffix_options) is None:
         return None
     return normalized, resolved
 

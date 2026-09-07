@@ -1,7 +1,8 @@
+import { GrowthReveal } from './GrowthReveal';
 import { useId } from "react";
 import type { SubmapLayout } from "./submap";
 
-export function SubmapEdges({ layout }: { layout: SubmapLayout }) {
+export function SubmapEdges({ layout, growing = {}, activeStep }: { layout: SubmapLayout; growing?: Record<string, number>; activeStep?: string | null }) {
   const marker = `submap-arrow-${useId().replace(/:/g, "")}`;
   return (
     <svg
@@ -46,6 +47,7 @@ export function SubmapEdges({ layout }: { layout: SubmapLayout }) {
             aria-label={`${link.label}: ${link.explanation}`}
           >
             <title>{link.explanation}</title>
+            <GrowthReveal path={d} delay={growing[link.id]}>
             <path
               className="submap-relation-path"
               d={d}
@@ -55,6 +57,8 @@ export function SubmapEdges({ layout }: { layout: SubmapLayout }) {
               strokeDasharray={link.contextual ? "5 6" : undefined}
               markerEnd={`url(#${marker})`}
             />
+            </GrowthReveal>
+            {activeStep === link.target && <path className="map-edge-flow" d={d} pathLength={1} fill="none" stroke="#4b9cae" strokeWidth="3" strokeDasharray=".09 .91" strokeLinecap="round" aria-hidden="true" />}
             <g
               className="submap-relation-label"
               transform={`translate(${mx}, ${my})`}

@@ -234,7 +234,10 @@ class PlanningCycleCompletionMixin:
         targets = _vertical_primary_targets(
             workdir, Path(self._artifact_root()), str(pipeline.get("current_stage") or ""),
         )
+        terminal_delivery = self._build_terminal_project_delivery("Project completion report")
+        delivered_paths = [row["path"] for row in (terminal_delivery or {}).get("targets", [])]
         paths = list(dict.fromkeys([
+            *delivered_paths,
             "paper/main.tex", "paper/main.pdf", "paper/REVIEW.md", "REVIEW.md",
             *(target["path"] for target in targets[:MAX_DELIVERY_TARGETS]),
         ]))
@@ -286,7 +289,16 @@ class PlanningCycleCompletionMixin:
             ),
             "current_artifact_evidence": evidence,
             "current_final_certification": {
-                "certified": self._journal_has_final_certification(),
+                "certified": (
+                    self._journal_has_final_certification()
+                    if self._effective_final_certification_gate(self._artifact_root())
+                    else self._manager_final_stage_is_completed()
+                ),
+                "scope": (
+                    "final_submission"
+                    if self._effective_final_certification_gate(self._artifact_root())
+                    else "vertical_completion"
+                ),
                 "project_state_signature": self._final_submission_signature(),
             },
         }

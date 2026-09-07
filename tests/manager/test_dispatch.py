@@ -990,3 +990,51 @@ def test_the_operator_item_keeps_stage_authority_with_the_manager(memory):
         require_independent_review=False,
         review_source="engineer_self_review",
     ) is True
+
+
+def test_new_finite_campaign_persists_real_planner_dependencies(memory, monkeypatch):
+    from argus_skill.daemon.state import read_continuous_state
+    from argus_skill.planner.bounded_dag import BoundedDagNode, BoundedDagPlan
+
+    plan = BoundedDagPlan(tasks=(
+        BoundedDagNode(key='data', deps=(), title='Create city data', objective='Write validated city.json'),
+        BoundedDagNode(key='algorithm', title='Build routes', objective='Read city.json and validate routes', deps=('data',)),
+        BoundedDagNode(key='interface', title='Build interactive map', objective='Read city.json and render the map', deps=('data',)),
+        BoundedDagNode(key='integrate', title='Integrate and deliver', objective='Join routes and map; verify browser behavior', deps=('algorithm', 'interface')),
+    ), reason='The interface and routing consume the same data contract.')
+    monkeypatch.setattr(dispatch, '_plan_bounded_execution', lambda *a, **k: plan)
+    state = {'backend': 'codex', 'config': {'continuous': True}, '_continuous_pending_manager_handoff': True, '_continuous_open_ended': False}
+    prepared = front_door.prepare_manager_execution_task(memory, 'Build a city routing product', state, root_task_id='city-root')
+    prepared.decision.vertical = 'software'
+    item, _, _ = dispatch.enqueue_mission(memory, 'Build a city routing product', state, root_task_id='city-root', prepared_handoff=prepared)
+    tasks = memory.backlog.all()
+    assert len(tasks) == 4
+    by_key = {task.node_key: task for task in tasks}
+    assert item.id == 'city-root' == by_key['data'].id
+    assert by_key['algorithm'].deps == [item.id]
+    assert by_key['interface'].deps == [item.id]
+    assert set(by_key['integrate'].deps) == {by_key['algorithm'].id, by_key['interface'].id}
+    assert all('planner' in task.tags and 'bounded_dag_node' in task.tags for task in tasks)
+    assert all(task.original_objective == 'managed: Build a city routing product' for task in tasks)
+    continuous = read_continuous_state(memory.project.root)
+    assert continuous.enabled and not continuous.open_ended
+    assert continuous.objective == 'managed: Build a city routing product'
+    events = [json.loads(line) for line in (memory.project.root / 'events.jsonl').read_text().splitlines()]
+    assert len([e for e in events if e['type'] == 'life.planner.task_added']) == 4
+    assert state['config']['continuous'] is True
+    assert '_continuous_pending_manager_handoff' not in state
+
+
+def test_failed_new_campaign_plan_does_not_publish_an_atomic_fallback(memory, monkeypatch):
+    from argus_skill.daemon.state import read_continuous_state
+    state = {'backend': 'codex', 'config': {'continuous': True}, '_continuous_pending_manager_handoff': True, '_continuous_open_ended': False}
+    def fail(*args, **kwargs):
+        raise front_door.ManagerHandoffError('Planner unavailable')
+    monkeypatch.setattr(dispatch, '_plan_bounded_execution', fail)
+    prepared = front_door.prepare_manager_execution_task(memory, 'Build dependent modules', state)
+    prepared.decision.vertical = 'software'
+    with pytest.raises(front_door.ManagerHandoffError, match='Planner unavailable'):
+        dispatch.enqueue_mission(memory, 'Build dependent modules', state, prepared_handoff=prepared)
+    assert memory.backlog.all() == []
+    assert not read_continuous_state(memory.project.root).enabled
+    assert state['config']['continuous'] is False

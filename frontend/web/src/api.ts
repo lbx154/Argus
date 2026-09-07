@@ -685,6 +685,11 @@ export const api = {
     const q = new URLSearchParams({ path });
     return getJson<ArtifactInfo>(P(sid, `/artifact?${q}`), signal);
   },
+  artifactPreview: (sid: string, path: string, signal?: AbortSignal) =>
+    getJson<{ html: string; warnings: string[]; file_count: number }>(
+      P(sid, `/artifact/preview?${new URLSearchParams({ path })}`), signal),
+  artifactBundle: (sid: string, path: string, signal?: AbortSignal) =>
+    getBlob(P(sid, `/artifact/bundle?${new URLSearchParams({ path })}`), signal),
   artifactBlob: (
     sid: string,
     path: string,

@@ -1,3 +1,4 @@
+import { AgentActivity } from './AgentActivity';
 import { useEffect, useRef, useState } from 'react';
 import type {
   DeliveryReceipt,
@@ -10,7 +11,7 @@ import {
   formatMissionElapsed,
 } from '../../../core/src/missionView';
 import { theme } from '../lib/theme';
-import { errorText, formatRelativeTime } from '../lib/format';
+import { errorText } from '../lib/format';
 import { MarkdownContent } from './MarkdownContent';
 import { useI18n } from '../i18n';
 import { api, type ArtifactInfo, type Snapshot } from '../api';
@@ -281,11 +282,6 @@ export function MissionControl({
   };
   const replayRows = view.timeline.slice(0, replayIndex + 1).slice(-12).reverse();
   const selectedTask = view.dag.find((node) => node.id === selectedTaskId);
-  const selectedRoleWork = view.role_work
-    .filter((item) => item.role === selectedRole)
-    .filter((item) => !selectedTaskId || !item.item_id || item.item_id === selectedTaskId)
-    .slice(-40)
-    .reverse();
   return (
     <section className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-panel scroll-thin" aria-label={t('mission.control')}>
       <header className="border-b border-line/60 px-5 py-5">
@@ -400,6 +396,7 @@ export function MissionControl({
                 key={name}
                 type="button"
                 onClick={() => setSelectedRole(name)}
+                aria-pressed={selectedRole === name}
                 className={`min-w-0 border-l-2 pl-3 text-left ${selectedRole === name ? 'bg-white/[0.03]' : ''}`}
                 style={{ borderColor: active || role?.status === 'done' ? color : 'rgb(var(--line))' }}
               >
@@ -425,49 +422,9 @@ export function MissionControl({
             </button>
           ) : <span className="text-[10px] text-ink-faint">{t('mission.allVisible')}</span>}
         </div>
-        <div className="mt-3 grid gap-2 lg:grid-cols-2">
-          {selectedRoleWork.map((item) => {
-            const status = item.status.toLowerCase();
-            const active = status === 'active';
-            const done = status === 'done';
-            const failed = ['failed', 'error'].includes(status);
-            const badgeLabel = done
-              ? t('mission.done')
-              : statusLabel(active ? 'active' : failed ? 'failed' : item.status, t);
-            const isoTimestamp = new Date(item.ts * 1000).toISOString();
-            return (
-              <article key={item.id} className="min-w-0 rounded border border-line/60 bg-bg/35 px-3 py-2">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="truncate text-xs font-medium text-ink">{item.title}</span>
-                  <time
-                    dateTime={isoTimestamp}
-                    title={isoTimestamp}
-                    className="shrink-0 text-[11px] text-ink-dim"
-                  >
-                    {formatRelativeTime(item.ts, locale)}
-                  </time>
-                </div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-ink-faint">
-                  <span className={`rounded-full border px-2 py-0.5 font-medium ${active ? 'border-blue/30 bg-blue/10 text-blue-sky' : done ? 'border-ok/30 bg-ok/10 text-ok' : failed ? 'border-err/30 bg-err/10 text-err' : 'border-line bg-white/[0.03] text-ink-dim'}`}>
-                    {badgeLabel}
-                  </span>
-                  {item.round_index != null ? <span>{t('mission.roundNumber', { count: item.round_index })}</span> : null}
-                </div>
-                {item.detail ? (
-                  <DetailDisclosure
-                    detail={item.detail}
-                    textClassName="text-[11px] leading-5 text-ink-dim"
-                  />
-                ) : null}
-              </article>
-            );
-          })}
-          {!selectedRoleWork.length ? (
-            <div className="col-span-full py-8 text-center text-xs text-ink-faint">
-              {t('mission.noRoleWork', { role: roleLabel(selectedRole, t) })}
-            </div>
-          ) : null}
-        </div>
+        <div className="mt-3"><AgentActivity view={view} roles={snapshot?.roles} events={snapshot?.recent_events}
+          taskId={selectedTaskId || undefined} selectedRole={selectedRole} showTabs={false}
+          paused={snapshot ? !snapshot.daemon.alive : false} /></div>
       </section>
 
       <div className="grid min-h-[320px] border-b border-line/60 lg:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">

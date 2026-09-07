@@ -278,6 +278,9 @@ def build_mission_prompt(
         "back the answer, not the transcript. Budget your context.\n"
         "Never repeat unchanged checks or reads. Ignore `__pycache__`/`.pyc`; "
         "Python tests already import code, so avoid compile-only ceremony.\n"
+        "For browser deliverables, inspect real desktop/mobile rendering and key interactions "
+        "before handoff; verify linked CSS/JS, not only algorithm tests. Python Playwright "
+        "may be available via ARGUS_SKILL_PYTHON even without Node browser packages.\n"
         "Use primary sources when external behavior matters. If repeated attempts fail, "
         "recheck the underlying assumption instead of making another cosmetic tweak.\n"
         + _PERFORMANCE_DIAGNOSTIC_RULE

@@ -1,3 +1,4 @@
+import { GrowthReveal } from './GrowthReveal';
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -9,10 +10,10 @@ import {
 import { useId } from "react";
 import { relationLayout } from "./relationLabels";
 
-type RelationEdge = Edge<{ lane: number }, "relation">;
+type RelationEdge = Edge<{ lane: number; growthDelay?: number; active?: boolean }, "relation">;
 
 /** Curves follow their ports; label type stays readable at overview scale. */
-export function MapRelationEdge({ id, label, style }: EdgeProps<RelationEdge>) {
+export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEdge>) {
   const zoom = useStore((s) => s.transform[2]);
   const arrow = `relation-arrow-${useId().replace(/:/g, "")}`;
   const store = useStoreApi();
@@ -36,6 +37,7 @@ export function MapRelationEdge({ id, label, style }: EdgeProps<RelationEdge>) {
           <path d="M 0 0 L 10 5 L 0 10 z" fill={style?.stroke || "#7594ad"} />
         </marker>
       </defs>
+      <GrowthReveal path={route.path} delay={data?.growthDelay} padding={24 / zoom}>
       <BaseEdge
         id={id}
         path={route.path}
@@ -49,6 +51,8 @@ export function MapRelationEdge({ id, label, style }: EdgeProps<RelationEdge>) {
             : undefined,
         }}
       />
+      </GrowthReveal>
+      {data?.active && <path className="map-edge-flow" d={route.path} pathLength={1} fill="none" stroke="var(--atlas-flow, #4b9cae)" strokeWidth={3 / zoom} strokeDasharray=".065 .935" strokeLinecap="round" aria-hidden="true" />}
       {label && point && (
         <EdgeLabelRenderer>
           <div

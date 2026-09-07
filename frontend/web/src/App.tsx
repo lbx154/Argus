@@ -1,3 +1,4 @@
+import type { DispatchObserver } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
 import { api, isConnectionError, type EventMsg, type MessageRouteOverride } from './api';
@@ -61,7 +62,8 @@ import { useProjectSelection } from './useProjectSelection';
 import { useWorkbenchLayout } from './useWorkbenchLayout';
 import { useI18n } from './i18n';
 import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
-import { DeliveryNotice } from './components/DeliveryNotice';
+import { useDeliveryCenter } from './useDeliveryCenter';
+import { deliveryFiles, selectActiveDelivery, hasPendingDeliveryDependents } from './components/deliveryPresentation';
 import type { ArtifactInfo, DeliveryReceipt, MissionView } from '../../core/src/types';
 import {
   completionNotificationPayload,
@@ -161,7 +163,6 @@ export default function App() {
   const [managerSteps, setManagerSteps] = useState<PhaseStep[]>([]);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [previewPathRequest, setPreviewPathRequest] = useState({ path: '', token: 0 });
-  const [dismissedDeliveryId, setDismissedDeliveryId] = useState('');
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [newDaemonOpen, setNewDaemonOpen] = useState(false);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
@@ -170,7 +171,6 @@ export default function App() {
   const messageSubmitLockRef = useRef(false);
   const messageRequestRef = useRef<ActiveMessageRequest | null>(null);
   const messageEpochRef = useRef(0);
-  const observedDeliveryRef = useRef<string | null | undefined>(undefined);
   const observedCompletionRef = useRef<{ sid: string; id: string | null }>();
   const completionContextRef = useRef<CompletionContext>({
     sid: '',
@@ -345,9 +345,7 @@ export default function App() {
     () => latestConversationDelivery(activityEvents),
     [activityEvents],
   );
-  const delivery = conversationDelivery === undefined
-    ? missionView?.delivery ?? null
-    : conversationDelivery;
+  const delivery = selectActiveDelivery(conversationDelivery, missionView?.delivery ?? null, activityEvents);
   const hasUnfinishedWork = snap?.backlog.some((item) =>
     ['pending', 'running', 'in_progress', 'claimed'].includes(item.status),
   ) ?? false;
@@ -370,32 +368,27 @@ export default function App() {
       setWorkspaceView('mission');
       return;
     }
+    if (workspaceView === 'map') { setArtifactPath(target); return; }
     setRightPanelOpen(true);
     setMobileView('preview');
     setPreviewPathRequest((current) => ({ path: target, token: current.token + 1 }));
-  }, [setMobileView, setRightPanelOpen, setWorkspaceView]);
-  const openDelivery = useCallback((receipt: DeliveryReceipt) => {
-    focusDeliveryPath(receipt.primary_target?.path ?? '');
-  }, [focusDeliveryPath]);
+  }, [setMobileView, setRightPanelOpen, setWorkspaceView, workspaceView]);
+  const deliveryCenter = useDeliveryCenter(loadedSid, Boolean(snap) && !transcriptQ.isPending, delivery, !artifactPath && !hasPendingDeliveryDependents(snap?.backlog ?? [], delivery?.item_id));
+  const openDelivery = deliveryCenter.open;
+  const deliveryHistory = useMemo(() => {
+    const receipts = new Map<string, DeliveryReceipt>();
+    for (const event of activityEvents) {
+      const receipt = event.delivery as DeliveryReceipt | undefined;
+      if (receipt?.delivery_id && Array.isArray(receipt.targets)) receipts.set(receipt.delivery_id, receipt);
+    }
+    for (const receipt of [missionView?.delivery, delivery]) {
+      if (receipt) receipts.set(receipt.delivery_id, receipt);
+    }
+    return [...receipts.values()].filter((receipt) => deliveryFiles(receipt).length).sort((a, b) => b.delivered_at - a.delivered_at);
+  }, [activityEvents, missionView?.delivery, delivery]);
   useEffect(() => {
-    if (!snap) return;
-    const id = delivery?.delivery_id || null;
-    const previous = observedDeliveryRef.current;
-    if (previous === undefined) {
-      observedDeliveryRef.current = id;
-      if (delivery) openDelivery(delivery);
-      return;
-    }
-    if (previous === id) return;
-    observedDeliveryRef.current = id;
-    setDismissedDeliveryId('');
-    if (delivery && loadedSid) {
-      void queryClient.invalidateQueries({
-        queryKey: ['artifacts', loadedSid],
-        exact: true,
-      }).then(() => openDelivery(delivery));
-    }
-  }, [delivery, loadedSid, openDelivery, queryClient, snap]);
+    if (loadedSid && delivery?.delivery_id) void queryClient.invalidateQueries({ queryKey: ['artifacts', loadedSid], exact: true });
+  }, [loadedSid, delivery?.delivery_id, queryClient]);
   useEffect(() => {
     if (!loadedSid) return;
     const previous = observedCompletionRef.current;
@@ -544,7 +537,7 @@ export default function App() {
     toggleSidebarCollapse: () => setLeftPanelOpen((value) => !value),
   });
 
-  const sendMessage = async (text: string, attachments: File[] = []): Promise<boolean> => {
+  const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver): Promise<boolean> => {
     const requestSid = activeSid;
     if (!requestSid || messageSubmitLockRef.current || messageRequestRef.current) return false;
 
@@ -554,7 +547,7 @@ export default function App() {
     try {
       if (!attachments.length) {
         const command = await dispatchWebCommand(text, commandHandlers);
-        if (command.kind === 'handled') return true;
+        if (command.kind === 'handled') { observe?.({ type: 'settled', outcome: 'message' }); return true; }
         if (command.kind === 'error') {
           notify('error', command.message);
           return false;
@@ -632,6 +625,8 @@ export default function App() {
 
     const dispatchTask = (result: Record<string, unknown>) => {
       if (!isCurrent()) return;
+      const item = result.item as { id?: unknown } | undefined;
+      if (typeof item?.id === 'string') observe?.({ type: 'task', taskId: item.id });
       const daemon = result.daemon && typeof result.daemon === 'object'
         ? result.daemon as Record<string, unknown>
         : null;
@@ -703,6 +698,9 @@ export default function App() {
               if (!isCurrent()) return;
               showManagerText(result.reply, '', 'snapshot');
               finishMessage(result);
+              const item = result.item as { id?: unknown } | undefined;
+              if (result.kind !== 'task' || typeof item?.id !== 'string')
+                observe?.({ type: 'settled', outcome: result.kind === 'error' ? 'error' : 'message' });
             },
             onError: (err) => {
               if (isCurrent()) streamErr = err;
@@ -723,8 +721,10 @@ export default function App() {
           // server accepted the first request but the SSE connection broke.
           // Keep any partial reply visible and let the operator choose retry.
           notify('error', managerStreamFailureMessage(streamErr, gotDelta));
+          observe?.({ type: 'settled', outcome: 'error' });
         }
       } finally {
+        if (controller.signal.aborted) observe?.({ type: 'settled', outcome: 'cancelled' });
         resetCurrentRequest();
       }
     })();
@@ -818,13 +818,12 @@ export default function App() {
           void projectCostsQ.refetch();
         }}
       />
-      {delivery && delivery.delivery_id !== dismissedDeliveryId ? (
-        <DeliveryNotice
-          delivery={delivery}
-          onOpen={openDelivery}
-          onDismiss={setDismissedDeliveryId}
-        />
-      ) : null}
+      {deliveryCenter.selection && <ArtifactModal
+        key={`${deliveryCenter.selection.sid}:${deliveryCenter.selection.receipt.delivery_id}`}
+        sid={deliveryCenter.selection.sid} path={deliveryCenter.selection.path}
+        delivery={deliveryCenter.selection.receipt} deliveries={deliveryHistory}
+        onSelectDelivery={openDelivery} onSelectPath={deliveryCenter.selectPath} onClose={deliveryCenter.close}
+      />}
       {!kiosk && sidebarOpen ? (
         <button
           type="button"
@@ -886,7 +885,7 @@ export default function App() {
                 readOnly={kiosk}
                 missionView={missionView}
               />}
-              <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line/60 px-3">
+              <div className="hidden h-10 shrink-0 items-center gap-1 border-b border-line/60 px-3 lg:flex">
                 <div className="workspace-tabs" data-active={workspaceView}>
                   <span className="workspace-tab-indicator" aria-hidden="true" />
                   <button type="button" onClick={() => setWorkspaceView('mission')} className="workspace-tab" data-selected={workspaceView === 'mission'}>{t('mobile.mission')}</button>
@@ -897,7 +896,12 @@ export default function App() {
                 {workspaceView === 'mission' ? <span className="ml-auto hidden max-w-72 truncate text-[10px] text-ink-faint sm:block">{missionView?.active_role ? t('mission.roleActive', { role: missionView.active_role }) : t('mission.overview')}</span> : <span className="ml-auto" />}
                 {!kiosk && workspaceView !== 'map' ? <button type="button" onClick={() => setOverlay('operations')} className="rounded border border-line/60 px-2 py-1 text-[10px] text-ink-faint hover:border-blue/50 hover:text-blue">{t('mission.operations')}</button> : null}
               </div>
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={events} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')} /></Suspense>}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={events} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
+                routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
+                conversationEvents={activityEvents} connected={connected} artifacts={artifactsQ.data ?? []}
+                deliveryCount={deliveryHistory.length} onOpenDelivery={() => { if (deliveryHistory[0]) openDelivery(deliveryHistory[0]); }}
+                onOpenReceipt={openDelivery} onOpenArtifact={setArtifactPath} onAnswer={() => setPendingReplyOpen(true)}
+              /></Suspense>}
               <div className={`${workspaceView === 'workbench' || workspaceView === 'map' ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`}>
                 <GuardianBanner alert={guardianAlert} />
                 {standardWorkspaceView === 'mission' && missionView ? (

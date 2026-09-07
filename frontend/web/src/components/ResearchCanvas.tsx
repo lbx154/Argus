@@ -536,7 +536,7 @@ export function ResearchCanvas({
           <TablePreview value={info.preview || ''} delimiter={info.name.endsWith('.tsv') ? '\t' : ','} />
         ) : null}
         {info?.kind === 'html' && !info.truncated ? (
-          <HtmlPreview html={info.preview || ''} title={`Live HTML preview: ${info.name}`} />
+          <HtmlPreview sid={sid} path={info.path} html={info.preview || ''} title={`Live HTML preview: ${info.name}`} />
         ) : null}
         {info?.kind === 'html' && info.truncated ? (
           <div className="m-auto max-w-sm px-8 text-center text-sm text-warn">

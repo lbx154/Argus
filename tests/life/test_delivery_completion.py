@@ -259,3 +259,58 @@ def test_terminal_delivery_picks_the_success_over_later_non_success_settlements(
     assert delivery is not None
     assert delivery["primary_target"]["path"] == "final.md"
     assert delivery["summary"] == "The final stage produced a reviewed file."
+
+
+def test_terminal_delivery_recovers_accepted_handoff_files_for_its_own_goal(tmp_path):
+    from argus_skill.life.memory import BacklogItem
+    supervisor, memory = _delivery_supervisor(tmp_path)
+    workspace = str(supervisor._project_workdir())
+    from pathlib import Path
+    root = Path(workspace)
+    (root / 'index.html').write_text('<h1>Reviewed website</h1>')
+    (root / 'REPORT.md').write_text('# Reviewed report')
+    (root / 'unrelated.md').write_text('Old goal')
+    goal = supervisor.config.continuous_objective
+    for item_id, original, output in [
+        ('old-goal', 'Different goal', 'Delivered `unrelated.md`.'),
+        ('website', goal, 'Delivered `index.html`.'),
+        ('review', goal, 'RESULT=Validated `REPORT.md`.'),
+    ]:
+        item = BacklogItem.new(item_id=item_id, title=item_id, objective=original)
+        item.original_objective = original
+        memory.backlog.add(item)
+        assert supervisor._emit({
+            'type': 'life.mission.completed', 'item_id': item_id,
+            'success': True, 'status': 'done', 'overall_complete': False,
+            'campaign_continues': True, 'summary': '', 'final_output': output,
+            'execution_workdir': workspace, 'delivery_candidates': [],
+            'outcome': {'review_status': 'done'},
+        })
+    receipt = supervisor._build_terminal_project_delivery('Certified complete')
+    assert receipt is not None
+    paths = {target['path'] for target in receipt['targets']}
+    assert paths == {'REPORT.md', 'index.html'}
+    assert 'unrelated.md' not in paths
+
+
+def test_software_completion_context_includes_delivered_files_and_vertical_certificate(tmp_path, monkeypatch):
+    supervisor, memory = _delivery_supervisor(tmp_path)
+    monkeypatch.setattr(supervisor, '_effective_final_certification_gate', lambda _root: False)
+    monkeypatch.setattr(supervisor, '_manager_final_stage_is_completed', lambda: True)
+    monkeypatch.setattr(supervisor, '_journal_has_final_certification', lambda: False)
+    context = supervisor._manager_project_completion_context()
+    assert context['current_final_certification']['certified'] is True
+    assert context['current_final_certification']['scope'] == 'vertical_completion'
+    assert 'final.md' in {row['path'] for row in context['current_artifact_evidence']}
+
+
+def test_plain_completion_filenames_and_report_links_remain_confined(tmp_path):
+    from argus_skill.life.delivery import linked_report_paths, referenced_delivery_paths
+    (tmp_path / "REPORT.md").write_text("Reviewed website: `index.html`; reproduce with `node validate.js`.\n")
+    (tmp_path / "index.html").write_text("<h1>Reviewed</h1>")
+    (tmp_path / "validate.js").write_text("console.log('ok')")
+    (tmp_path / ".env").write_text("secret")
+    paths = referenced_delivery_paths(tmp_path, ["RESULT=REPORT.md is ready. https://example.com/index.html is external."])
+    assert paths == ["REPORT.md"]
+    assert linked_report_paths(tmp_path, paths) == ["index.html", "validate.js"]
+    assert referenced_delivery_paths(tmp_path, ["../private.md and .env are not deliverables."]) == []

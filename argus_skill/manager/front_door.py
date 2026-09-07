@@ -1031,6 +1031,8 @@ def manager_continuous_handoff(
     cancelled: Callable[[], bool] | None = None,
     prepared_handoff: PreparedManagerHandoff | None = None,
     persist: Callable[[str, Any], Any] | None = None,
+    prepare_persist: Callable[[str], None] | None = None,
+    validate_persist: Callable[[str], None] | None = None,
 ) -> str:
     """Atomically enable a Manager-authored continuous objective and first task."""
     from ..daemon.state import (
@@ -1074,6 +1076,8 @@ def manager_continuous_handoff(
     def _commit() -> None:
         if callable(cancelled) and cancelled():
             raise ManagerHandoffError("Manager request cancelled before commit")
+        if validate_persist is not None:
+            validate_persist(prepared.execution_task)
         committed["division"] = prepared.commit(
             acquire_lock=False,
             force_stage_reset=replacement_intent,
@@ -1111,6 +1115,8 @@ def manager_continuous_handoff(
 
     yield_token = request_manager_pipeline_yield(life_dir)
     try:
+        if prepare_persist is not None:
+            prepare_persist(prepared.execution_task)
         lock_factory = getattr(prepared.manager, "pipeline_lock", None)
         pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
         with pipeline_lock:
