@@ -73,6 +73,10 @@ env:
     tests/webapi/test_commands_m1.py
     tests/webapi/test_server_m0.py
     tests/webapi/test_workspace_v2.py
+    tests/webapi/test_map_datasets.py
+    tests/webapi/test_map_live.py
+    tests/webapi/test_map_model.py
+    tests/webapi/test_map_incremental.py
 
   # These modules must remain collectable on Windows even when individual
   # POSIX-only assertions are reported as skipped.

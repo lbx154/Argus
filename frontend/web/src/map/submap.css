@@ -396,8 +396,8 @@
   box-shadow:
     0 6px 20px #233d5812,
     0 2px 4px #233d5808;
-  animation: map-arrive 220ms ease backwards;
 }
+.map-macro[data-arrive="true"] .submap-step:not([data-active="true"]) { animation: map-arrive 220ms ease backwards; }
 .map-macro[data-active="true"] {
   border-color: #74a5c7;
 }

@@ -10,6 +10,12 @@ import type { MacroNode } from "./MacroTaskNode";
 import { zoomTarget } from "./submap";
 
 export const INITIAL_VIEWPORT = { x: 52, y: 125, zoom: 0.24 };
+export interface CameraMemory {
+  viewport: Viewport;
+  overview: Viewport;
+  focusId: string | null;
+  detailed: boolean;
+}
 const MIN_ZOOM = 0.035,
   MAX_ZOOM = 3.5;
 const clamp = (n: number, lo: number, hi: number) =>
@@ -454,7 +460,25 @@ export function useSemanticCamera(
       window.removeEventListener("keydown", key);
     };
   }, [back, cancelWheel, flow, reducedMotion, root]);
+  const capture = useCallback((): CameraMemory => ({
+    viewport: flow.getViewport(), overview: overview.current,
+    focusId: currentFocus.current, detailed: !!currentFocus.current &&
+      (reading.current || !!fittedDetail.current || flow.getZoom() >= 0.44),
+  }), [flow]);
+  const restore = useCallback((saved: CameraMemory) => {
+    cancelWheel();
+    overview.current = saved.overview;
+    const id = saved.focusId && flow.getNode(saved.focusId) ? saved.focusId : null;
+    lockedFocus.current = saved.detailed ? id : null;
+    fittedDetail.current = saved.detailed && id ? { id, zoom: saved.viewport.zoom } : null;
+    allowRefit.current = false;
+    fitOnResize.current = false;
+    void flow.setViewport(saved.viewport, { duration: 0 });
+    onMove(null, saved.viewport);
+  }, [cancelWheel, flow, onMove]);
   return {
+    capture,
+    restore,
     focusId,
     canvasSize,
     detailed,

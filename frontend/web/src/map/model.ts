@@ -6,6 +6,7 @@ export interface MapTask
     "id" | "title" | "objective" | "status" | "deps" | "pending_question"
   > {
   revision?: string;
+  content_revision?: string;
   ts?: number;
   started_ts?: number | null;
   finished_ts?: number | null;
@@ -19,6 +20,7 @@ export interface MapTask
 }
 export interface MapEvent {
   id: string;
+  revision?: string;
   item_id: string;
   type: string;
   ts: number;
@@ -40,7 +42,16 @@ export interface Dataset {
   read_only: boolean;
   tasks: MapTask[];
   events: MapEvent[];
+  cursor?: string;
+  incremental?: boolean;
+  tasks_complete?: boolean;
+  removed_task_ids?: string[];
+  reset_history?: boolean;
+  history_cursor?: string;
+  history_loading?: boolean;
+  history_progress?: { loaded_bytes: number; total_bytes: number };
   coverage?: {
+    truncated?: boolean;
     note?: string;
     included_tasks?: number;
     source_tasks_read?: number;

@@ -49,8 +49,30 @@ def text(value, limit=6000):
     return redact_secrets_text(str(value or ""))[:limit]
 
 
-def normalize_events(rows: list[dict], task_ids: set[str]) -> list[dict]:
-    active: set[str] = set()
+def task_content_revision(task: dict) -> str:
+    return digest({k: task.get(k) for k in ("title", "objective", "acceptance_check")})
+
+
+def with_revisions(value: dict) -> dict:
+    return {
+        **value,
+        "tasks": [
+            {**t, "revision": t.get("revision") or digest(t),
+             "content_revision": task_content_revision(t)}
+            for t in value.get("tasks", [])
+        ],
+        "events": [
+            {**e, "revision": digest({k: v for k, v in e.items() if k != "revision"})}
+            for e in value.get("events", [])
+        ],
+    }
+
+
+def normalize_events(
+    rows: list[dict], task_ids: set[str], active: set[str] | None = None,
+) -> list[dict]:
+    if active is None:
+        active = set()
     result = []
     for row in rows:
         # Summary calls are accounted for, but are not research steps to summarize again.
@@ -101,7 +123,10 @@ def normalize_events(rows: list[dict], task_ids: set[str]) -> list[dict]:
     return list({e["id"]: e for e in result}.values())
 
 
-def read_map(sid: str, root: Path, life_dir: Path) -> dict:
+def read_map(
+    sid: str, root: Path, life_dir: Path, *, event_state: dict | None = None,
+    include_events: bool = True,
+) -> dict:
     memory = LifeMemory.open(life_dir)
     tasks = []
     for item in memory.backlog.history():
@@ -118,26 +143,64 @@ def read_map(sid: str, root: Path, life_dir: Path) -> dict:
     rows = []
     path = life_dir / "events.jsonl"
     truncated = False
-    if path.is_file():
+    task_ids = {t["id"] for t in tasks}
+    state = event_state if event_state is not None else {}
+    previous = []
+    active: set[str] = set()
+    if include_events and path.is_file():
         with path.open("rb") as f:
-            size = path.stat().st_size
+            stat = path.stat()
+            size = stat.st_size
+            identity = (stat.st_dev, stat.st_ino)
+            offset = state.get("offset", 0)
+            append = (
+                state.get("identity") == identity and size >= offset
+                and state.get("task_ids") == task_ids
+            )
+            if append and offset:
+                f.seek(max(0, offset - 128))
+                append = f.read(min(128, offset)) == state.get("anchor")
+            if append:
+                previous = state.get("events", [])
+                active = set(state.get("active", ()))
             start = max(0, size - 8 * 1024 * 1024)
-            truncated = start > 0
+            if append:
+                start = max(start, offset)
+            truncated = start > 0 and (
+                not append or start > offset or state.get("truncated", False)
+            )
             f.seek(start)
-            if start:
+            if start and (not append or start != offset):
                 f.readline()
+                active.clear()
+            consumed = f.tell()
             for line in f.read(8 * 1024 * 1024).splitlines(keepends=True):
                 if not line.endswith(b"\n"):
                     continue
+                consumed += len(line)
                 try:
                     row = json.loads(line)
                     if isinstance(row, dict):
                         rows.append(row)
                 except ValueError:
                     continue
-    events = normalize_events(rows, {t["id"] for t in tasks})
+            events = list({e["id"]: e for e in [
+                *previous, *normalize_events(rows, task_ids, active),
+            ]}.values())
+            f.seek(max(0, consumed - 128))
+            state.update(
+                identity=identity, offset=consumed, anchor=f.read(min(128, consumed)),
+                task_ids=task_ids, events=events[-2000:], active=active,
+                truncated=truncated or len(events) > 2000,
+                reset=bool(state) and not append and state.get("task_ids") == task_ids,
+            )
+    else:
+        events = []
+        was_present = bool(state)
+        state.clear()
+        state["reset"] = was_present
     meta = read_session_meta(root, sid)
-    return {
+    return with_revisions({
         "id": f"live:{sid}",
         "title": meta.display_name if meta else sid,
         "kind": "live",
@@ -146,4 +209,4 @@ def read_map(sid: str, root: Path, life_dir: Path) -> dict:
         "tasks": tasks,
         "events": events[-2000:],
         "coverage": {"truncated": truncated or len(events) > 2000},
-    }
+    })

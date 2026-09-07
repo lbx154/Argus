@@ -9,6 +9,8 @@ from pathlib import Path
 
 from fastapi import Depends, HTTPException
 
+from ..map_view import with_revisions
+
 
 def register_map_dataset_routes(app, ctx) -> None:
     def read(name: str):
@@ -29,7 +31,7 @@ def register_map_dataset_routes(app, ctx) -> None:
             raise HTTPException(503, "map dataset could not be read") from exc
         if not isinstance(value, dict):
             raise HTTPException(503, "invalid map dataset document")
-        return value
+        return with_revisions(value) if name != "index" else value
 
     @app.get("/api/map-datasets", dependencies=[Depends(ctx.require_auth)])
     def index():

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import type { Dataset } from "./model";
 import { buildSubmap, type SubmapStep } from "./submap";
-import { mergeMapCopy, requestsFor, type MapCopy } from "./presentation";
+import { mergeMapCopy, needsCardCopy, requestsFor, type MapCopy } from "./presentation";
 
 export function useMapCopy(
   data: Dataset,
@@ -12,6 +12,7 @@ export function useMapCopy(
   allowGeneration = true,
   visibleSteps?: SubmapStep[],
   sessionId?: string,
+  paused = false,
 ) {
   const locale = zh ? "zh-CN" : "en-US";
   const source = data.kind === "live" ? "project" : "dataset";
@@ -23,9 +24,14 @@ export function useMapCopy(
   const queryClient = useQueryClient();
   const copy = useQuery({
     queryKey: key,
-    queryFn: ({ signal }) => api.mapCopy(source, name, locale, signal, sessionId),
-    staleTime: 10000,
-    refetchOnWindowFocus: true,
+    queryFn: async ({ signal }) => {
+      const result = await api.mapCopy(source, name, locale, signal, sessionId);
+      const previous = queryClient.getQueryData<MapCopy>(key);
+      return mergeMapCopy(previous, result, previous?.model_revision);
+    },
+    staleTime: Infinity,
+    gcTime: 2 * 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
   const task = data.tasks.find((t) => t.id === focused);
   const steps = useMemo(
@@ -35,31 +41,12 @@ export function useMapCopy(
   const [pulse, setPulse] = useState(0);
   const [generating, setGenerating] = useState(false);
   const mounted = useRef(true);
-  const inflight = useRef<AbortController | null>(null);
+  const inflight = useRef<Promise<MapCopy> | null>(null);
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
   const retryAt = useRef(0);
   const cards = requestsFor(data, steps, focused)
-    .filter((c) => {
-      const saved = copy.data?.cards[c.key];
-      const t = data.tasks.find((t) => t.id === c.task_id);
-      const latest = Math.max(
-        t?.started_ts || 0,
-        t?.finished_ts || 0,
-        ...data.events
-          .filter((e) => c.event_ids.includes(e.id))
-          .map((e) => e.ts),
-      );
-      return (
-        !saved ||
-        (copy.data?.model_revision !== undefined &&
-          saved.model_revision !== copy.data.model_revision) ||
-        (copy.data?.version !== undefined &&
-          saved.version !== copy.data.version) ||
-        latest > saved.generated_at ||
-        saved.task_status !== t?.status ||
-        (t?.revision && t.revision !== saved.task_revision) ||
-        JSON.stringify(c.event_ids) !== JSON.stringify(saved.event_ids || [])
-      );
-    })
+    .filter((c) => needsCardCopy(c, data, copy.data))
     .slice(0, 8);
   const signature = JSON.stringify([
     context,
@@ -71,29 +58,31 @@ export function useMapCopy(
     mounted.current = true;
     return () => {
       mounted.current = false;
-      inflight.current?.abort();
     };
   }, []);
   useEffect(() => {
     retryAt.current = 0;
-    return () => inflight.current?.abort();
-  }, [context]);
+  }, [context, paused]);
   useEffect(() => {
     if (
       !allowGeneration ||
       !copy.data?.available ||
       !cards.length ||
+      !Number.isFinite(retryAt.current) ||
       inflight.current
     )
       return;
     const requestedModelRevision = copy.data?.model_revision;
     const timer = setTimeout(
       () => {
-        const controller = new AbortController();
-        inflight.current = controller;
+        const request = queryClient.fetchQuery({
+          queryKey: ["map-copy-generation", ...key],
+          queryFn: () => api.generateMapCopy(source, name, { cards, locale }, undefined, sessionId),
+          staleTime: 0, gcTime: 0, retry: false,
+        });
+        inflight.current = request;
         setGenerating(true);
-        void api
-          .generateMapCopy(source, name, { cards, locale }, controller.signal, sessionId)
+        void request
           .then((result) => {
             // Reconcile against the source captured by this request. Progress or zoom
             // can change while it runs, but must not discard completed card text.
@@ -106,12 +95,12 @@ export function useMapCopy(
                 : 0;
           })
           .catch(() => {
-            if (!controller.signal.aborted && contextRef.current === context)
-              retryAt.current = Date.now() + 60000;
+            if (contextRef.current === context)
+              retryAt.current = pausedRef.current ? Infinity : Date.now() + 60000;
           })
           .finally(() => {
-            if (inflight.current === controller) inflight.current = null;
-            if (mounted.current) {
+            if (inflight.current === request) inflight.current = null;
+            if (mounted.current && contextRef.current === context) {
               setGenerating(false);
               setPulse((n) => n + 1);
             }
@@ -124,5 +113,5 @@ export function useMapCopy(
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, pulse, copy.data?.available, allowGeneration]);
-  return { copy: copy.data, generating };
+  return { copy: copy.data, generating, ready: copy.isFetched };
 }

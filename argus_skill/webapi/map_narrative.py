@@ -5,13 +5,40 @@ from __future__ import annotations
 import json
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
+from weakref import WeakValueDictionary
 
+from ..core.file_lock import exclusive_file_lock
 from .map_model import MapModel, resolve_map_model, run_map_model
-from .map_view import digest, text
+from .map_view import digest, task_content_revision, text
 
 PROMPT_VERSION = 6
 _LOCK = threading.Lock()
+_SOURCES: WeakValueDictionary = WeakValueDictionary()
+
+
+@contextmanager
+def _source_lock(root: Path, source: str):
+    key = (str(root.resolve()), source)
+    with _LOCK:
+        lock = _SOURCES.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _SOURCES[key] = lock
+    with lock:
+        path = cache_path(root, source).with_suffix(".lock")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a+b") as handle, exclusive_file_lock(
+            handle, timeout_seconds=210, lock_name="map summaries",
+        ):
+            yield
+
+
+def _write_cache(path: Path, value: dict):
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+    temp.replace(path)
 
 
 def configured() -> bool:
@@ -44,22 +71,25 @@ def card_evidence(dataset: dict, cards: list[dict]) -> list[dict]:
             selected.append(event)
         if len(selected) > 16:
             raise ValueError("too many observations")
+        dynamic = card["key"] in (task["id"], task["id"] + ":active", task["id"] + ":outcome")
         result.append(
             {
                 "key": card["key"],
                 "kind": card["kind"],
                 "task_id": task["id"],
                 "task_revision": task.get("revision", digest(task)),
+                "task_content_revision": task_content_revision(task),
+                "dynamic": dynamic,
                 "task": {
                     k: task.get(k)
-                    for k in (
+                    for k in ((
                         "title",
                         "objective",
                         "summary",
                         "status",
                         "acceptance_check",
                         "pending_question",
-                    )
+                    ) if dynamic else ("title", "objective", "acceptance_check"))
                 },
                 "events": [
                     {**e, "text": e["text"][:2500], "next_action": e.get("next_action", "")[:1500]}
@@ -151,16 +181,41 @@ def enrich(
     source = dataset["id"] + ":" + locale
     config = resolve_map_model()
     metadata = {"model_revision": config.revision}
-    fingerprints = {d["key"]: digest([PROMPT_VERSION, config.revision, locale, d]) for d in documents}
-    with _LOCK:
+    fingerprints = {
+        d["key"]: digest([PROMPT_VERSION, locale, {
+            k: v for k, v in d.items() if k != "task_revision" or d["dynamic"]
+        }]) for d in documents
+    }
+    with _source_lock(root, source):
         cache = read_cache(root, source)
+        metadata["cache_revision"] = cache.get("cache_revision", 0)
         existing = cache.get("cards", {})
+        # Migrate unchanged records without another model call. Model selection
+        # governs new copy; it does not invalidate already published evidence.
+        migrated = False
+        for document in documents:
+            saved = existing.get(document["key"], {})
+            if (
+                saved and "input_revision" not in saved
+                and all(isinstance(saved.get(k), str) and saved[k].strip()
+                        for k in ("title", "summary", "detail"))
+                and saved.get("task_revision") == document["task_revision"]
+                and saved.get("event_ids", []) == [e["id"] for e in document["events"]]
+            ):
+                saved.update(
+                    input_revision=fingerprints[document["key"]],
+                    task_content_revision=document["task_content_revision"],
+                    event_revisions=[e.get("revision", e["id"]) for e in document["events"]],
+                )
+                migrated = True
         todo = [
             d
             for d in documents
-            if existing.get(d["key"], {}).get("fingerprint") != fingerprints[d["key"]]
+            if existing.get(d["key"], {}).get("input_revision") != fingerprints[d["key"]]
         ]
         if not todo:
+            if migrated:
+                _write_cache(cache_path(root, source), cache)
             return {"cards": existing, "relations": cache.get("relations", []), "cached": True, **metadata}
         if project_root is None or not configured():
             return {"cards": existing, "relations": cache.get("relations", []), "available": False, **metadata}
@@ -173,8 +228,8 @@ def enrich(
         path = cache_path(root, source)
         path.parent.mkdir(parents=True, exist_ok=True)
         cache["attempt_at"] = time.time()
-        path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
-        tasks = [
+        _write_cache(path, cache)
+        all_tasks = [
             {
                 "id": t["id"],
                 "title": text(t["title"], 160),
@@ -182,8 +237,12 @@ def enrich(
                 "deps": t.get("deps", []),
             }
             for t in dataset["tasks"]
-        ][:120]
-        relation_fingerprint = digest([tasks, config.revision])
+        ]
+        relation_tasks = {t["id"]: digest(t) for t in all_tasks}
+        relation_fingerprint = digest(all_tasks)
+        preferred = {d["task_id"] for d in todo[:8]}
+        preferred.update(dep for t in all_tasks if t["id"] in preferred for dep in t["deps"])
+        tasks = sorted(all_tasks, key=lambda t: t["id"] not in preferred)[:120]
         value = generate(
             todo[:8], tasks, locale, config=config, project_root=project_root, global_root=root,
         )
@@ -208,13 +267,17 @@ def enrich(
             }
             document = next(d for d in documents if d["key"] == card["key"])
             existing[card["key"]].update(
+                copy_revision=cache.get("cache_revision", 0) + 1,
                 version=PROMPT_VERSION,
                 model_revision=config.revision,
                 fingerprint=fingerprints[card["key"]],
+                input_revision=fingerprints[card["key"]],
                 generated_at=time.time(),
                 task_revision=document["task_revision"],
-                task_status=document["task"]["status"],
+                task_content_revision=document["task_content_revision"],
+                task_status=document["task"].get("status"),
                 event_ids=[e["id"] for e in document["events"]],
+                event_revisions=[e.get("revision", e["id"]) for e in document["events"]],
             )
         ids = [t["id"] for t in dataset["tasks"]]
         relations = []
@@ -241,21 +304,36 @@ def enrich(
                     "kind": "semantic",
                 }
             )
+        old_relations = [
+            r for r in cache.get("relations", [])
+            if r.get("source") in ids and r.get("target") in ids
+            and ids.index(r["source"]) < ids.index(r["target"])
+        ]
+        old_pairs = {(r["source"], r["target"]) for r in old_relations}
+        changed = {
+            key for key, revision in relation_tasks.items()
+            if cache.get("relation_tasks", {}).get(key) != revision
+        }
         cache.update(
+            cache_revision=cache.get("cache_revision", 0) + 1,
             cards=existing,
             # Expanding a child card must not redraw the outer graph. Reconsider
             # presentation links only when the task structure/content changes.
             relations=(
                 cache.get("relations", [])
                 if cache.get("relation_fingerprint") == relation_fingerprint
-                else relations
+                else old_relations + [
+                    r for r in relations
+                    if (r["source"], r["target"]) not in old_pairs
+                    and (r["source"] in changed or r["target"] in changed)
+                ]
             ),
             relation_fingerprint=relation_fingerprint,
+            relation_tasks=relation_tasks,
             generated_at=time.time(),
         )
-        temp = path.with_suffix(".tmp")
-        temp.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
-        temp.replace(path)
+        _write_cache(path, cache)
+        metadata["cache_revision"] = cache["cache_revision"]
         return {
             "cards": existing,
             "relations": cache["relations"],

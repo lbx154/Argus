@@ -547,7 +547,23 @@ export function parseSSEFrames(buf: string): { frames: SSEFrame[]; rest: string 
 let activeSnapshotPrewarmSid: string | null = null;
 
 export const api = {
-  liveMap: (sid: string, signal?: AbortSignal) => getJson<import('./map/model').Dataset>(P(sid, '/map'), signal),
+  liveMap: (sid: string, signal?: AbortSignal, after?: string, selection?: import('./map/incremental').MapSelection) => {
+    const params = new URLSearchParams();
+    if (after) params.set('after', after);
+    if (selection?.mode === 'current') {
+      params.set('since', String(selection.since));
+      params.set('event_since', String(selection.eventSince));
+      if (selection.taskId) params.set('start_task', selection.taskId);
+    }
+    return getJson<import('./map/model').Dataset>(P(sid, '/map') + (params.size ? `?${params}` : ''), signal);
+  },
+  mapInfo: (sid: string, signal?: AbortSignal) => getJson<import('./map/incremental').MapHistoryInfo>(P(sid, '/map-info'), signal),
+  mapHistory: (sid: string, signal?: AbortSignal, after?: string, taskAfter?: string) => {
+    const params = new URLSearchParams();
+    if (after) params.set('after', after);
+    if (taskAfter) params.set('task_after', taskAfter);
+    return getJson<import('./map/model').Dataset>(P(sid, '/map-history') + (params.size ? `?${params}` : ''), signal);
+  },
   mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string) => getJson<import('./map/presentation').MapCopy>(`/api/map-copy/${source}/${encodeURIComponent(name)}?locale=${locale}${sessionId ? `&session_id=${encodeURIComponent(sessionId)}` : ""}`, signal),
   generateMapCopy: (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string}, signal?: AbortSignal, sessionId?: string) => postJson<import('./map/presentation').MapCopy>(`/api/map-copy/${source}/${encodeURIComponent(name)}${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""}`, body, signal),
   mapDatasets: (signal?: AbortSignal) => getJson<{ datasets: import('./map/model').DatasetSummary[] }>('/api/map-datasets', signal),

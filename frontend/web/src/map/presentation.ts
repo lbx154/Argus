@@ -2,6 +2,7 @@ import type { Dataset } from "./model";
 import type { SubmapStep } from "./submap";
 
 export interface CardCopy {
+  copy_revision?: number;
   version?: number;
   model_revision?: string;
   title: string;
@@ -9,8 +10,11 @@ export interface CardCopy {
   detail: string;
   generated_at: number;
   task_revision?: string;
+  task_content_revision?: string;
   task_status?: string;
   event_ids?: string[];
+  event_revisions?: string[];
+  input_revision?: string;
 }
 export interface MapRelation {
   source: string;
@@ -20,6 +24,7 @@ export interface MapRelation {
   kind: "semantic";
 }
 export interface MapCopy {
+  cache_revision?: number;
   version?: number;
   model_revision?: string;
   cards: Record<string, CardCopy>;
@@ -30,12 +35,45 @@ export interface MapCopy {
 
 export function mergeMapCopy(previous: MapCopy | undefined, result: MapCopy, requestedRevision?: string): MapCopy {
   const settingsChanged = previous?.model_revision && previous.model_revision !== requestedRevision;
+  const cards = { ...previous?.cards };
+  for (const [key, card] of Object.entries(result.cards)) {
+    if (settingsChanged && cards[key]?.model_revision === previous.model_revision) continue;
+    const old = cards[key];
+    if (!old || (card.copy_revision ?? 0) > (old.copy_revision ?? 0) ||
+      ((card.copy_revision ?? 0) === (old.copy_revision ?? 0) &&
+        (card.generated_at > old.generated_at ||
+          (card.generated_at === old.generated_at && !old.input_revision)))) cards[key] = card;
+  }
+  const older = (result.cache_revision ?? 0) < (previous?.cache_revision ?? 0);
   return {
     ...previous,
     ...result,
+    cards,
+    cache_revision: Math.max(result.cache_revision ?? 0, previous?.cache_revision ?? 0),
+    relations: (settingsChanged || older) && previous ? previous.relations : result.relations,
     available: result.available ?? true,
     ...(settingsChanged ? { model_revision: previous.model_revision, available: previous.available } : {}),
   };
+}
+
+export function needsCardCopy(card: CardRequest, data: Dataset, copy?: MapCopy): boolean {
+  const saved = copy?.cards[card.key];
+  const task = data.tasks.find((t) => t.id === card.task_id);
+  if (!saved || !task) return true;
+  const dynamic = [task.id, task.id + ":active", task.id + ":outcome"].includes(card.key);
+  if (dynamic || !saved.task_content_revision || !task.content_revision) {
+    if (task.revision && saved.task_revision !== task.revision) return true;
+    if (dynamic && saved.task_status !== task.status) return true;
+  } else if (saved.task_content_revision !== task.content_revision) return true;
+  const ids = saved.event_ids || [];
+  // A full-history summary may contain additional valid evidence when only
+  // current progress is being viewed. Do not rewrite it with a poorer subset.
+  return card.event_ids.some((id) => {
+    const index = ids.indexOf(id);
+    const event = data.events.find((e) => e.id === id);
+    return index < 0 || (saved.event_revisions && event?.revision &&
+      saved.event_revisions[index] !== event.revision);
+  }) || (!dynamic && JSON.stringify(card.event_ids) !== JSON.stringify(ids));
 }
 export interface CardRequest {
   key: string;

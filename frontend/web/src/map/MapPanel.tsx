@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { replaceEqualDeep, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Background,
   BackgroundVariant,
@@ -44,6 +44,9 @@ import "@xyflow/react/dist/style.css";
 import "./map.css";
 import "./submap.css";
 import { MapRelationEdge } from "./MapRelationEdge";
+import { MapHistoryChoice } from "./MapHistoryChoice";
+import { mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
+import { recalledView, rememberView } from "./viewMemory";
 
 const NODE_TYPES = { task: MacroTaskNode };
 const EDGE_TYPES = { relation: MapRelationEdge };
@@ -54,6 +57,8 @@ function MapCanvas({
   activePhase,
   readOnly,
   sessionId,
+  viewKey,
+  paused,
 }: {
   data: Dataset;
   sessionId: string;
@@ -61,6 +66,8 @@ function MapCanvas({
   composer: MapComposerProps;
   activePhase?: string;
   readOnly: boolean;
+  viewKey: string;
+  paused: boolean;
 }) {
   const graph = useMemo(() => buildMap(data.tasks), [data.tasks]);
   const [nodes, setNodes, onNodesChange] = useNodesState<MacroNode>([]);
@@ -68,33 +75,46 @@ function MapCanvas({
   const camera = useSemanticCamera(canvasRef, !readOnly);
   const nodesReady = useNodesInitialized();
   const initialFit = useRef(false);
-  useEffect(() => {
-    if (!nodesReady || initialFit.current) return;
-    const frame = requestAnimationFrame(() => {
-      initialFit.current = true;
-      camera.fit();
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [nodesReady, camera.fit]);
+  const savedView = useRef<ReturnType<typeof recalledView> | null>(null);
+  if (!savedView.current) savedView.current = recalledView(viewKey);
+  const [seenCards] = useState(() => new Set(savedView.current?.scene?.cards.map((card) => card.id)));
   const focusedNode = nodes.find((n) => n.id === camera.focusId);
-  const { copy } = useMapCopy(
+  const { copy, ready: copyReady } = useMapCopy(
     data,
     focusedNode?.data.task.id || null,
     zh,
-    !readOnly,
+    !readOnly && !data.history_loading,
     focusedNode?.data.layout.steps,
     sessionId,
+    paused,
   );
   const links = useMemo(
     () => connectMap(graph, copy?.relations || [], zh),
     [graph, copy?.relations, zh],
   );
-  const sceneCache = useRef<ReturnType<typeof layoutScene>>();
+  const sceneCache = useRef<ReturnType<typeof layoutScene> | undefined>(savedView.current.scene);
   const scene = useMemo(() => {
     const next = layoutScene(graph, data.events, zh, sceneCache.current, links);
-    sceneCache.current = next;
-    return next;
+    sceneCache.current = replaceEqualDeep(sceneCache.current, next);
+    return sceneCache.current;
   }, [graph, data.events, zh, links]);
+  useEffect(() => {
+    if (!nodesReady || initialFit.current || !copyReady) return;
+    if (savedView.current?.camera && data.history_loading) return;
+    const frame = requestAnimationFrame(() => {
+      initialFit.current = true;
+      if (savedView.current?.camera) camera.restore(savedView.current.camera);
+      else camera.fit();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [nodesReady, camera.fit, camera.restore, data.history_loading, copyReady]);
+  useEffect(() => {
+    const save = () => {
+      if (initialFit.current) rememberView(viewKey, { scene: sceneCache.current, camera: camera.capture() });
+    };
+    window.addEventListener("pagehide", save);
+    return () => { save(); window.removeEventListener("pagehide", save); };
+  }, [viewKey, camera.capture]);
   useEffect(() => {
     if (!nodesReady) return;
     const frame = requestAnimationFrame(camera.fitUpdatedScene);
@@ -157,8 +177,8 @@ function MapCanvas({
   const [showReplacements, setShowReplacements] = useState(false);
   const [focusFeedback, setFocusFeedback] = useState("");
   useEffect(() => {
-    setNodes(() => {
-      return scene.cards.map((card) => ({
+    setNodes((previous) => {
+      return replaceEqualDeep(previous, scene.cards.map((card) => ({
         id: card.id,
         type: "task",
         position: scene.positions[card.id],
@@ -178,12 +198,14 @@ function MapCanvas({
           source: data.id,
           readOnly,
           live: data.kind === "live",
+          paused,
+          seenCards,
           layout: scene.layouts[card.id],
           frame: scene.frames[card.id],
           focused: false,
           detailed: false,
         },
-      }));
+      })) as MacroNode[]);
     });
   }, [
     graph,
@@ -197,6 +219,8 @@ function MapCanvas({
     data.id,
     data.kind,
     readOnly,
+    paused,
+    seenCards,
   ]);
   useEffect(() => {
     setVisibleCount((c) => Math.min(Math.max(c, 1), graph.tasks.length));
@@ -227,14 +251,18 @@ function MapCanvas({
       ),
     [scene.cards, visibleCount, data.kind],
   );
+  const previousDisplay = useRef<MacroNode[]>([]);
   const displayNodes = useMemo(
-    () =>
-      nodes.map((n) => ({
+    () => {
+      const next = nodes.map((n) => ({
         ...n,
         hidden: !visibleIds.has(n.id),
         data: {
           ...n.data,
-          copy,
+          copy: copy ? { cards: Object.fromEntries(
+            [n.data.task.id, ...n.data.layout.steps.map((s) => s.id)]
+              .filter((id) => copy.cards[id]).map((id) => [id, copy.cards[id]]),
+          ) } : undefined,
           focused: n.id === camera.focusId,
           detailed: camera.detailed && n.id === camera.focusId,
           canvasSize: camera.canvasSize,
@@ -249,7 +277,10 @@ function MapCanvas({
               ? 0.22
               : 1,
         },
-      })),
+      }));
+      previousDisplay.current = replaceEqualDeep(previousDisplay.current, next);
+      return previousDisplay.current;
+    },
     [
       nodes,
       visibleIds,
@@ -391,7 +422,9 @@ function MapCanvas({
             </>
           )}
         </div>
-        {activePhase && (
+        {paused ? (
+          <span className="map-paused-label"><Pause size={13} />{zh ? "已暂停" : "Paused"}</span>
+        ) : activePhase && (
           <span className="map-live-phase">
             <i />
             {(
@@ -740,31 +773,68 @@ export function MapPanel({
     retry: false,
   });
   const client = useQueryClient();
-  const live = useQuery({
-    queryKey: ["map-live", snapshot.session.id],
-    queryFn: ({ signal }) => api.liveMap(snapshot.session.id, signal),
-    enabled: source === "live",
+  const selectionKey = "argus.map.history.v1:" + snapshot.session.id;
+  const [selection, setSelection] = useState<MapSelection | null>(() => parseMapSelection(readLocalStorage(selectionKey)));
+  const [chooseHistory, setChooseHistory] = useState(false);
+  const info = useQuery({
+    queryKey: ["map-info", snapshot.session.id],
+    queryFn: ({ signal }) => api.mapInfo(snapshot.session.id, signal),
+    enabled: source === "live", staleTime: 60000,
   });
+  const choice = selection ?? (info.data && !info.data.requires_choice ? { mode: "full" as const } : null);
+  useEffect(() => {
+    if (!selection && info.data && !info.data.requires_choice) {
+      const initial: MapSelection = { mode: "full" };
+      setSelection(initial);
+      writeLocalStorage(selectionKey, JSON.stringify(initial));
+    }
+  }, [info.data, selection, selectionKey]);
+  const approved = source !== "live" || !!choice && choice.mode !== "off" && !chooseHistory;
+  const liveKey = ["map-live", snapshot.session.id, choice?.mode, choice?.since, choice?.eventSince, choice?.taskId];
+  const viewKey = JSON.stringify([source, snapshot.session.id, locale, choice]);
+  const selectHistory = (value: MapSelection) => {
+    setSelection(value);
+    writeLocalStorage(selectionKey, JSON.stringify(value));
+    setChooseHistory(false);
+  };
+  const live = useQuery({
+    queryKey: liveKey,
+    queryFn: async ({ signal }) => {
+      const previous = client.getQueryData<Dataset>(liveKey);
+      const next = choice?.mode === "full"
+        ? await api.mapHistory(snapshot.session.id, signal, previous?.history_cursor, previous?.cursor)
+        : await api.liveMap(snapshot.session.id, signal, previous?.cursor, choice || undefined);
+      return mergeMapProgress(client.getQueryData<Dataset>(liveKey), next);
+    },
+    enabled: source === "live" && approved,
+    staleTime: Infinity,
+    gcTime: 2 * 60 * 60 * 1000,
+    refetchOnMount: "always",
+    refetchInterval: (query) => approved && query.state.data?.history_loading ? 400 : false,
+  });
+  const paused = source === "live" && mapIsPaused(snapshot);
   const updateKey = JSON.stringify([
-    events.at(-1)?.ts,
-    snapshot.backlog.map((t) => [t.id, t.status]),
+    events.filter((e) => e.run_label !== "map-summary" &&
+      /^(life\.(mission\.|phase\.|planner\.task_added)|round\.|agent\.message)/.test(String(e.type))).at(-1)?.ts,
+    snapshot.backlog,
+    paused,
   ]);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (source !== "live" || refreshTimer.current) return;
+    if (source !== "live" || !approved || refreshTimer.current) return;
     refreshTimer.current = setTimeout(() => {
       refreshTimer.current = null;
       void client.invalidateQueries({
         queryKey: ["map-live", snapshot.session.id],
       });
     }, 650);
-  }, [updateKey, source, snapshot.session.id, client]);
+  }, [updateKey, source, snapshot.session.id, client, approved]);
   useEffect(
     () => () => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
       refreshTimer.current = null;
     },
-    [source, snapshot.session.id],
+    [source, snapshot.session.id, approved],
   );
 
   const data = source === "live" ? live.data : dataset.data;
@@ -788,10 +858,16 @@ export function MapPanel({
           <div className="map-eyebrow">ARGUS / RESEARCH MAP</div>
           <h1>{zh ? "研究地图" : "Research map"}</h1>
         </div>
+        <div className="map-header-actions">
         {!readOnly && onOpenSettings && (
           <button type="button" onClick={onOpenSettings} className="map-settings"
             aria-label={zh ? "地图模型设置" : "Map model settings"} title={zh ? "地图模型设置" : "Map model settings"}>
             <Settings2 size={16} />
+          </button>
+        )}
+        {source === "live" && info.data && (
+          <button type="button" className="map-scope-button" onClick={() => setChooseHistory(true)}>
+            {zh ? "加载范围" : "History range"}
           </button>
         )}
         <span className="map-source-badge">
@@ -812,6 +888,7 @@ export function MapPanel({
                   ? "历史记录"
                   : "Historical records"}
         </span>
+        </div>
       </header>
       <div className="map-dataset-bar">
         <Compass size={15} />
@@ -840,6 +917,29 @@ export function MapPanel({
           </span>
         )}
       </div>
+      {source === "live" && info.data && (
+        <MapHistoryChoice open={chooseHistory || !choice && info.data.requires_choice}
+          info={info.data} zh={zh} readOnly={readOnly} onChoose={selectHistory} />
+      )}
+      {source === "live" && info.isError && (
+        <div className="map-data-error">
+          {zh ? "暂时无法检查历史记录。" : "Could not check session history."}
+          <button onClick={() => void info.refetch()}>{zh ? "重试" : "Retry"}</button>
+        </div>
+      )}
+      {approved && data?.history_loading && (
+        <div className="map-history-progress" role="status">
+          {zh ? "正在分批加载历史记录" : "Loading history in pages"}
+          {data.history_progress && ` · ${(data.history_progress.loaded_bytes / 1024 / 1024).toFixed(1)} / ${(data.history_progress.total_bytes / 1024 / 1024).toFixed(1)} MB`}
+          <button onClick={() => setChooseHistory(true)}>{zh ? "更改范围" : "Change range"}</button>
+        </div>
+      )}
+      {approved && data && (source === "live" ? live.isError : dataset.isError) && (
+        <div className="map-data-error" role="status">
+          {zh ? "暂时无法更新，已保留加载的地图。" : "Updates are unavailable. Your loaded map is preserved."}
+          <button onClick={() => void (source === "live" ? live.refetch() : dataset.refetch())}>{zh ? "重试" : "Retry"}</button>
+        </div>
+      )}
       {index.isError && (
         <div className="map-data-error">
           {zh
@@ -850,7 +950,14 @@ export function MapPanel({
           </button>
         </div>
       )}
-      {(source === "live" ? live.isError : dataset.isError) ? (
+      {!approved ? (
+        <div className="map-empty">
+          <h3>{zh ? "地图尚未开启" : "Map is not enabled"}</h3>
+          <p>{info.isPending ? (zh ? "正在检查历史记录规模…" : "Checking history size…") :
+            (zh ? "选择加载范围后查看研究进度。" : "Choose a history range to view research progress.")}</p>
+          {info.data && <button onClick={() => setChooseHistory(true)}>{zh ? "选择加载范围" : "Choose history range"}</button>}
+        </div>
+      ) : (source === "live" ? live.isError : dataset.isError) && !data ? (
         <div className="map-empty">
           <h3>{zh ? "地图暂时无法读取" : "Map unavailable"}</h3>
           <p>{String(source === "live" ? live.error : dataset.error)}</p>
@@ -863,14 +970,16 @@ export function MapPanel({
           </button>
         </div>
       ) : data ? (
-        <ReactFlowProvider key={data.id}>
+        <ReactFlowProvider key={viewKey}>
           <MapCanvas
             data={data}
+            viewKey={viewKey}
+            paused={paused}
             sessionId={snapshot.session.id}
             zh={zh}
             readOnly={readOnly}
             activePhase={
-              source === "live" && snapshot.daemon.alive
+              source === "live" && !paused
                 ? snapshot.roles.find((r) => r.active)?.role
                 : undefined
             }

@@ -608,9 +608,37 @@
   width: 34px;
   height: 34px;
   margin-left: auto;
-  border: 1px solid var(--line);
+  border: 1px solid rgb(var(--line));
   border-radius: 10px;
   color: var(--ink-dim);
 }
 .map-settings:hover { color: var(--blue); }
 .map-settings + .map-source-badge { margin-left: 10px; }
+
+.map-header-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-shrink: 0; }
+.map-header-actions .map-settings,
+.map-header-actions .map-scope-button,
+.map-header-actions .map-source-badge { margin-left: 0; }
+@media (max-width: 640px) { .map-header-actions { gap: 6px; } }
+@media (max-width: 380px) { .map-heading-icon { display: none; } }
+
+.map-scope-button {
+  margin-left: 12px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: rgb(var(--ink-dim));
+  font-size: 12px;
+}
+.map-paused-label { display: flex; align-items: center; gap: 6px; color: rgb(var(--ink-dim)); font-size: 12px; }
+.map-history-progress { display: flex; align-items: center; gap: 12px; padding: 10px 24px; font-size: 12px; color: rgb(var(--ink-dim)); }
+.map-history-progress button { margin-left: auto; color: rgb(var(--blue)); }
+.map-history-choice { padding: 30px; }
+.map-history-choice h2 { font-size: 20px; font-weight: 600; margin-bottom: 16px; }
+.map-history-choice p { font-size: 13px; line-height: 1.8; margin-bottom: 10px; }
+.map-history-options { display: grid; gap: 10px; margin: 22px 0 16px; }
+.map-history-options button { text-align: left; border: 1px solid rgb(var(--line)); border-radius: 12px; padding: 14px 16px; transition: border-color 160ms, background 160ms; }
+.map-history-options button:first-child, .map-history-options button:hover { border-color: rgb(var(--blue)); background: rgb(var(--blue) / .05); }
+.map-history-options strong { display: block; font-size: 14px; margin-bottom: 5px; }
+.map-history-options span, .map-history-choice small { display: block; font-size: 12px; line-height: 1.6; opacity: .72; }
+@media (max-width: 640px) { .map-history-choice { padding: 22px; } .map-scope-button { margin-left: 8px; } }

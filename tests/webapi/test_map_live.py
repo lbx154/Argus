@@ -238,7 +238,9 @@ def test_generating_child_copy_keeps_outer_relations_until_tasks_change(tmp_path
     assert child["relations"] == outer["relations"]
     assert child["relations"][0]["target"] == "b"
     data["tasks"].append({"id": "d", "title": "新实验", "status": "pending"})
-    assert enrich("task-a:outcome")["relations"][0]["target"] == "d"
+    continued = enrich("task-a:outcome")["relations"]
+    assert continued[0] == outer["relations"][0]
+    assert [r["target"] for r in continued] == ["b", "d"]
 
 
 def test_card_key_cannot_overwrite_another_tasks_copy(tmp_path):

@@ -31,8 +31,10 @@ export type MacroData = MapCard & {
   open: (id: string) => void;
   focused: boolean;
   detailed: boolean;
-  copy?: MapCopy;
+  copy?: Pick<MapCopy, "cards">;
   live: boolean;
+  paused?: boolean;
+  seenCards?: Set<string>;
   readOnly: boolean;
   source: string;
   quote: (ref: CardReference) => void;
@@ -102,6 +104,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   data,
 }: NodeProps<MacroNode>) {
   const { task, ordinal, zh, layout: currentLayout, focused, detailed } = data;
+  const [arrive] = useState(() => !data.seenCards?.has(id));
+  useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
   const [readingLayout, setReadingLayout] = useState<SubmapLayout | null>(null);
   const layout = readingLayout || currentLayout;
   const screenWidth = data.canvasSize?.width || window.innerWidth;
@@ -119,7 +123,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     ? "recorded"
     : task.status === "missing"
       ? "missing"
-      : statusKey(task);
+      : data.paused && ACTIVE.has(task.status) ? "paused" : statusKey(task);
   const summaryScale = Math.min(
     data.frame.width / 288,
     data.frame.height / 218,
@@ -152,12 +156,13 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     data.frame.width / layout.width,
     data.frame.height / layout.height,
   );
-  const activeStep =
+  const activityStep =
     isLastPart && data.live && ACTIVE.has(task.status)
       ? [...layout.steps]
           .reverse()
           .find((s) => !["plan", "result"].includes(s.kind))?.id
       : null;
+  const activeStep = data.paused ? null : activityStep;
   const reference = (step?: SubmapStep): CardReference => ({
     source: data.source,
     task_id: task.id,
@@ -222,10 +227,11 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       data-task-id={task.id}
       data-card-id={id}
       data-part={data.part}
+      data-arrive={arrive}
       data-focused={focused}
       data-detailed={detailed}
       aria-label={title}
-      data-active={isLastPart && data.live && ACTIVE.has(task.status)}
+      data-active={isLastPart && data.live && !data.paused && ACTIVE.has(task.status)}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -382,7 +388,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                   )}
                 </span>
                 <small>
-                  {stateLabel(activeStep === step.id ? "running" : step.status)}
+                  {stateLabel(activityStep === step.id ? data.paused ? "paused" : "running" : step.status)}
                 </small>
               </div>
               <h4>{step.title}</h4>
