@@ -10,7 +10,7 @@
 
 让长期 Agent 能够规划、执行、验证、暂停，并在一次模型调用之后继续推进。
 
-**当前为 Preview v0.1.1 · 用于提前发布 Argus 的后续更新。**
+**Argus v0.1.1 · 源码更新与桌面预览安装包是不同的安装渠道。**
 
 [![GitHub Stars](https://img.shields.io/github/stars/lbx154/Argus?style=flat-square)](https://github.com/lbx154/Argus/stargazers)
 [![License](https://img.shields.io/github/license/lbx154/Argus?style=flat-square)](LICENSE)
@@ -26,9 +26,10 @@
 ---
 
 > [!IMPORTANT]
-> **仓库定位：**这是 Argus 的 Preview 仓库；正式版维护在
+> **仓库渠道：**官方源码维护在
 > **[microsoft/ArgusAgent](https://github.com/microsoft/ArgusAgent)**。
-> 两个仓库后续会保持同步更新，关注或 Star 任意一个仓库都可以持续了解项目动态。
+> **[lbx154/Argus](https://github.com/lbx154/Argus)** 是开发预览仓库。
+> 开发更新通过同步进入官方仓库。从 `main` 安装源码，不等于安装已发布的桌面安装包。
 
 ## Driver–Harness 模型
 
@@ -100,21 +101,31 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 | GitHub Copilot CLI | `copilot` | `npm install -g @github/copilot` | `copilot login` |
 | OpenAI Codex CLI | `codex` | `npm install -g @openai/codex@latest` | `codex login` |
 | Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` | 运行 `claude`，再执行 `/login` |
-| Cursor CLI | `cursor` | `curl https://cursor.com/install -fsS | bash`（[Windows](https://cursor.com/install?win32=true)） | `agent login` 或 `CURSOR_API_KEY` |
+| Cursor CLI | `cursor` | `curl https://cursor.com/install -fsS \| bash`（[Windows](https://cursor.com/install?win32=true)） | `agent login` 或 `CURSOR_API_KEY` |
 | Pi | `pi` | `npm install -g --ignore-scripts @earendil-works/pi-coding-agent` | 运行 `pi`，再执行 `/login` |
 | OpenCode | `opencode` | [官方安装说明](https://opencode.ai/docs/) | `opencode auth login` |
 | Grok Build | `grok` | [官方安装说明](https://x.ai/cli) | `grok login` |
 | Qoder CLI | `qoder` | `npm install -g @qoder-ai/qodercli` | `qodercli login` |
 | DeepSeek Harness | `dsh` | `npm install -g @deepseek-ai/dsh` | 配置 `DEEPSEEK_API_KEY` 或 dsh Models 页面 |
 
-正式 PyPI 首发前，公共 Preview 直接从 GitHub archive 安装。
+**先选安装渠道。**下面命令直接从 GitHub 安装官方源码仓库的 `main`，不依赖 PyPI。
+如果明确要体验开发预览版，请把对应平台安装和更新命令中的 `microsoft/ArgusAgent`
+替换为 `lbx154/Argus`。升级已有安装时保持原来的渠道。
+
+需要 Windows EXE 时，请看 **[Windows Desktop](docs/windows-desktop.md)**。
+官方安装包如已发布，会出现在
+[microsoft/ArgusAgent Releases](https://github.com/microsoft/ArgusAgent/releases)；
+桌面预览安装包位于
+[lbx154/Argus Releases](https://github.com/lbx154/Argus/releases)。
+源码中的修复不会自动更新已经发布的 EXE。
 
 ### 推荐：使用 Agent 一键安装
 
 把下面整段发送给已安装的 Code Agent：
 
 ```text
-请阅读 https://github.com/lbx154/Argus/blob/main/docs/agent-install.md，
+请阅读 https://github.com/microsoft/ArgusAgent/blob/main/docs/agent-install.md，
+默认安装官方源码，只有我明确要求时才改用开发预览版；升级时保持已有安装的渠道。
 使用当前操作系统对应的方式安装 Argus。优先复用当前 Agent CLI 作为 backend。
 Windows 和 macOS 不创建手工 venv；Linux 保留文档中的 venv。必须让 setup 完成真实
 Agent turn 验收，再运行 argus doctor --deep --advisor auto。需要登录、sudo 或修改
@@ -132,7 +143,7 @@ Agent 将遵循 **[安装执行规范](docs/agent-install.md)**。
 py --version
 node --version
 py -m pip install --upgrade pip
-py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
+py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 $Scripts = py -c "import sysconfig; print(sysconfig.get_path('scripts'))"
 $Argus = Join-Path $Scripts "argus.exe"
 if (-not (Test-Path $Argus)) { throw "Argus entry point not found at $Argus" }
@@ -166,7 +177,7 @@ Windows 当前支持安装、Manager 对话、配对、Web/TUI、终端作用域
 uv --version
 node --version
 uv tool install --force --python 3.12 \
-  "argus-skill @ https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
+  "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 ARGUS_BIN="$(uv tool dir --bin)/argus"
 test -x "$ARGUS_BIN"
 "$ARGUS_BIN" --version
@@ -187,7 +198,7 @@ Linux 服务器继续显式使用 venv，保证 Python、CUDA 工具链和长任
 先安装 Python 3.11+、Git、Node.js 22.12+ 和发行版的 `python3-venv` 包：
 
 ```bash
-git clone https://github.com/lbx154/Argus.git "$HOME/Argus"
+git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
 cd "$HOME/Argus"
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
@@ -434,7 +445,7 @@ argus --web
 Windows：
 
 ```powershell
-py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
+py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 $Argus = Join-Path (py -c "import sysconfig; print(sysconfig.get_path('scripts'))") "argus.exe"
 & $Argus --version
 & $Argus doctor --advisor none --verify
@@ -444,7 +455,7 @@ macOS：
 
 ```bash
 uv tool install --force --python 3.12 \
-  "argus-skill @ https://github.com/lbx154/Argus/archive/refs/heads/main.zip"
+  "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
 "$(uv tool dir --bin)/argus" --version
 "$(uv tool dir --bin)/argus" doctor --advisor none --verify
 ```

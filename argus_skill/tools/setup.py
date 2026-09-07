@@ -64,7 +64,7 @@ def _banner() -> None:
     print(
         _dim(
             "  Guide / 指引: "
-            "https://github.com/lbx154/Argus/blob/main/docs/agent-install.md"
+            "https://github.com/microsoft/ArgusAgent/blob/main/docs/agent-install.md"
         )
     )
     print()
@@ -338,7 +338,9 @@ def _setup_smoke_model(
 
 
 def _pi_models_path() -> Path:
-    return Path.home() / ".pi" / "agent" / "models.json"
+    configured = os.environ.get("PI_CODING_AGENT_DIR")
+    directory = Path(configured).expanduser() if configured else Path.home() / ".pi" / "agent"
+    return directory / "models.json"
 
 
 def _save_pi_provider(base_url: str, api_key: str, model: str) -> Path:
@@ -378,6 +380,8 @@ def _configure_pi_api(
     if interactive and not url:
         url = _prompt("OpenAI-compatible API URL (Enter to use `pi` login)")
     if not url:
+        if api_url or api_key or api_model:
+            raise ValueError("--api-url is required when configuring a Pi API provider")
         return None
     key = str(api_key or os.environ.get("ARGUS_SETUP_API_KEY") or "").strip()
     if interactive and not key:
@@ -426,9 +430,9 @@ def _run_noninteractive_setup(
     if mode is None:
         return SETUP_EXIT_USAGE
     pi_config: tuple[str, Path] | None = None
-    if api_url or api_key:
+    if api_url or api_key or api_model:
         if selected != "pi":
-            sys.stderr.write("argus: --api-url/--api-key require --backend pi\n")
+            sys.stderr.write("argus: --api-url/--api-key/--api-model require --backend pi\n")
             return SETUP_EXIT_USAGE
         try:
             pi_config = _configure_pi_api(

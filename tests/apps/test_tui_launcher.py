@@ -251,6 +251,31 @@ def test_documented_web_aliases_before_action_stay_on_python_admin_path(
     assert seen == [argv]
 
 
+@pytest.mark.parametrize("argv", [["--web"], ["--web", "--no-open"]])
+def test_web_launch_does_not_require_an_interactive_terminal(
+    monkeypatch, tmp_path: Path, argv: list[str],
+) -> None:
+    bundle = tmp_path / "argus.mjs"
+    bundle.write_text("// bundle", encoding="utf-8")
+    seen = {}
+    monkeypatch.setattr(tui_launcher.sys, "stdin", _Stdin(tty=False))
+    monkeypatch.setattr(tui_launcher, "_bundle_path", lambda: bundle)
+    monkeypatch.setattr(tui_launcher.shutil, "which", lambda name: "/usr/bin/node")
+    monkeypatch.setattr(tui_launcher, "_node_version", lambda node: (22, 12, 0))
+    monkeypatch.setattr(tui_launcher, "_needs_foreground_spawn", lambda: False)
+    monkeypatch.setattr(
+        tui_launcher.os,
+        "execv",
+        lambda executable, args: seen.update(executable=executable, argv=args),
+    )
+
+    assert tui_launcher.main(argv) == 0
+    assert seen == {
+        "executable": "/usr/bin/node",
+        "argv": ["/usr/bin/node", str(bundle), *argv],
+    }
+
+
 def test_admin_subcommands_stay_on_python_admin_path(monkeypatch) -> None:
     seen = []
     monkeypatch.setattr(

@@ -20,7 +20,7 @@ use models::{
     DesktopAppearance, DesktopSetup, SetupResult, UpdateStatus,
 };
 use release::{development_mode, repo_root, runtime_identity, ReleaseContext};
-use runner::detect_pi_configuration;
+use runner::{desktop_setup_complete, detect_pi_configuration, resolve_runner_configuration};
 use settings::{normalized_runner_bins, SettingsStore};
 use std::{
     collections::{HashSet, VecDeque},
@@ -313,22 +313,35 @@ fn get_status(app: AppHandle) -> models::BackendStatus {
 }
 
 #[tauri::command]
-fn get_setup(app: AppHandle) -> DesktopSetup {
+fn get_setup(app: AppHandle) -> Result<DesktopSetup, String> {
     let app_state = state(&app);
     let settings = app_state.settings.snapshot();
     let status = app_state.supervisor.current_status();
-    DesktopSetup {
-        complete: settings.setup_complete,
+    let configured = resolve_runner_configuration(&settings).map_err(|error| error.to_string())?;
+    let complete = desktop_setup_complete(&settings, configured.as_ref());
+    let runner_kind = configured
+        .as_ref()
+        .map(|runner| runner.kind.clone())
+        .unwrap_or_else(|| settings.runner_kind.clone());
+    let mut runner_bins = settings.runner_bins;
+    if let Some(executable) = configured
+        .as_ref()
+        .and_then(|runner| runner.executable.as_ref())
+    {
+        runner_bins.insert(runner_kind.as_str().to_owned(), executable.clone());
+    }
+    Ok(DesktopSetup {
+        complete,
         host: settings.host,
         port: settings.port,
-        runner_kind: settings.runner_kind,
-        runner_bins: settings.runner_bins,
-        runner_configured: settings.runner_configured,
+        runner_kind,
+        runner_bins,
+        runner_configured: configured.is_some(),
         detected_runners: app_state.supervisor.detected_runners(),
         pi_configuration: detect_pi_configuration(),
         release_identity: app_state.supervisor.release().identity(),
         runtime_identity: runtime_identity(&status),
-    }
+    })
 }
 
 #[tauri::command]
@@ -401,6 +414,18 @@ async fn complete_setup(app: AppHandle, input: CompleteSetupInput) -> SetupResul
     next.runner_bins = normalized_runner_bins(&input.runner_bins);
     next.runner_configured = true;
     next.setup_complete = true;
+    let configured = match resolve_runner_configuration(&next) {
+        Ok(configured) => configured,
+        Err(error) => return SetupResult::error(error.to_string()),
+    };
+    if !configured
+        .and_then(|runner| runner.executable)
+        .is_some_and(|executable| Path::new(&executable).is_file())
+    {
+        return SetupResult::error(
+            "未找到所选 Agent CLI。请先安装并登录，或选择有效的可执行文件。",
+        );
+    }
     let runtime_changed = previous.port != next.port
         || previous.runner_kind != next.runner_kind
         || previous.runner_configured != next.runner_configured

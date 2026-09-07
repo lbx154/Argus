@@ -96,10 +96,8 @@ impl Default for DesktopSettings {
             token: String::new(),
             runner_kind: RunnerKind::default(),
             runner_bins: BTreeMap::new(),
-            // The default runner is auto-detected at launch. Setup is an
-            // editable preference panel, not a blocking first-run gate.
-            runner_configured: true,
-            setup_complete: true,
+            runner_configured: false,
+            setup_complete: false,
             appearance_theme: AppearanceTheme::default(),
         }
     }
@@ -353,9 +351,9 @@ mod tests {
     use super::DesktopSettings;
 
     #[test]
-    fn fresh_desktop_settings_do_not_block_cockpit_startup() {
+    fn fresh_desktop_settings_do_not_claim_a_configured_runner() {
         let settings = DesktopSettings::default();
-        assert!(settings.runner_configured);
-        assert!(settings.setup_complete);
+        assert!(!settings.runner_configured);
+        assert!(!settings.setup_complete);
     }
 }

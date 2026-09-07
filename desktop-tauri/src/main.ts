@@ -105,6 +105,7 @@ let applying = false;
 let currentStep = 0;
 let setupRequested = false;
 let runnerKind: RunnerKind = 'codex';
+let runnerSelected = false;
 let runnerBins: Partial<Record<RunnerKind, string>> = {};
 let detectedRunners: Partial<Record<RunnerKind, string>> = {};
 let piConfiguration: PiConfiguration = { configDir: '' };
@@ -288,6 +289,7 @@ function renderIpcFailure(message: string, detail: string): void {
 function applySetup(setup: DesktopSetup): void {
   port = setup.port;
   runnerKind = setup.runnerKind;
+  runnerSelected = setup.runnerConfigured;
   runnerBins = { ...(setup.runnerBins || {}) };
   detectedRunners = { ...(setup.detectedRunners || {}) };
   piConfiguration = { ...(setup.piConfiguration || { configDir: '' }) };
@@ -299,10 +301,20 @@ async function handleReady(): Promise<void> {
   if (cockpitOpening || cockpitMounted || wizardOpen || applying || wizardPending) return;
   if (setupRequested) return;
   cockpitOpening = true;
-  // First-run preferences are optional. Runner discovery and Pi configuration
-  // are settings-only work. Keeping
-  // getSetup() out of this critical path lets the authenticated cockpit start
-  // loading as soon as the backend reports ready.
+  const setup = await capture(() => desktopBridge.getSetup());
+  if (!setup.ok) {
+    renderIpcFailure('无法读取桌面设置', setup.detail);
+    return;
+  }
+  if (wizardOpen || setupRequested) {
+    cockpitOpening = false;
+    return;
+  }
+  if (!setup.value.complete) {
+    cockpitOpening = false;
+    showWizard(setup.value);
+    return;
+  }
   void capture(() => desktopBridge.openCockpit()).then((result) => {
     if (wizardOpen || setupRequested) {
       cockpitOpening = false;
@@ -320,6 +332,17 @@ function runnerDescription(path: string): string {
 }
 
 function renderRunner(): void {
+  if (!runnerSelected) {
+    runnerStatus.dataset.state = 'warn';
+    runnerStatus.textContent = '尚未选择';
+    runnerPath.textContent = '请选择已安装并登录的 Agent CLI；检测到可执行文件不代表已完成登录。';
+    chooseRunnerEl.disabled = true;
+    chooseRunnerLabel.textContent = '请先选择 Agent CLI';
+    clearRunnerEl.hidden = true;
+    wizardNext.disabled = true;
+    return;
+  }
+  chooseRunnerEl.disabled = false;
   const manual = (runnerBins[runnerKind] || '').trim();
   const detected = (detectedRunners[runnerKind] || '').trim();
   if (manual) {
@@ -335,15 +358,16 @@ function renderRunner(): void {
   } else {
     runnerStatus.dataset.state = 'warn';
     runnerStatus.textContent = '未检测到';
-    runnerPath.textContent = `未找到 ${RUNNER_LABELS[runnerKind]}，可手动选择。`;
+    runnerPath.textContent = `未找到 ${RUNNER_LABELS[runnerKind]}。请先安装并登录，或手动选择可执行文件。`;
     clearRunnerEl.hidden = true;
   }
   chooseRunnerLabel.textContent = `选择 ${RUNNER_LABELS[runnerKind]}`;
+  wizardNext.disabled = !manual && !detected;
 }
 
 function renderRunnerKind(): void {
   for (const button of runnerKindButtons) {
-    button.classList.toggle('is-selected', button.dataset.kind === runnerKind);
+    button.classList.toggle('is-selected', runnerSelected && button.dataset.kind === runnerKind);
   }
 }
 
@@ -380,6 +404,9 @@ function goToStep(step: number): void {
   wizardBack.hidden = step === 0;
   wizardNext.hidden = step === 2;
   wizardFinish.hidden = step !== 2;
+  wizardNext.disabled = step === 0 && (
+    !runnerSelected || !(runnerBins[runnerKind] || detectedRunners[runnerKind])
+  );
   wizardCaption.textContent = STEP_LABELS[step] || '';
   if (step === 2) renderSummary();
 }
@@ -618,7 +645,10 @@ clearRunnerEl.addEventListener('click', () => {
 for (const button of runnerKindButtons) {
   button.addEventListener('click', () => {
     const kind = button.dataset.kind;
-    if (isRunnerKind(kind)) runnerKind = kind;
+    if (isRunnerKind(kind)) {
+      runnerKind = kind;
+      runnerSelected = true;
+    }
     renderRunnerKind();
     renderRunner();
   });
@@ -634,6 +664,7 @@ wizardBack.addEventListener('click', () => {
 });
 wizardNext.addEventListener('click', () => {
   if (currentStep === 0) {
+    if (!runnerSelected || !(runnerBins[runnerKind] || detectedRunners[runnerKind])) return;
     goToStep(1);
     return;
   }
@@ -648,6 +679,10 @@ wizardNext.addEventListener('click', () => {
 });
 
 wizardFinish.addEventListener('click', async () => {
+  if (!runnerSelected || !(runnerBins[runnerKind] || detectedRunners[runnerKind])) {
+    goToStep(0);
+    return;
+  }
   if (!isPortValid()) {
     goToStep(1);
     portError.hidden = false;

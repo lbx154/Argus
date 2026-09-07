@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,7 +105,9 @@ def test_readmes_surface_the_wechat_qr_before_installation() -> None:
     ):
         text = (ROOT / name).read_text(encoding="utf-8")
         assert text.count(heading) == 1
-        assert text.count('src="docs/assets/argus-wechat-group-2.jpg"') == 1
+        assert len(re.findall(
+            r'src="docs/assets/argus-wechat-group-2\.jpg(?:\?[^"]*)?"', text,
+        )) == 1
         assert text.index(heading) < text.index("## Quick Install" if name == "README.md" else "## 快速安装")
         assert "Docker" in text
 
@@ -124,4 +127,41 @@ def test_readmes_recommend_agent_assisted_installation_before_manual_steps() -> 
         "### Windows 10/11"
     )
     for text in (english, chinese):
-        assert "https://github.com/lbx154/Argus/blob/main/docs/agent-install.md" in text
+        assert "https://github.com/microsoft/ArgusAgent/blob/main/docs/agent-install.md" in text
+
+
+def test_install_guides_default_to_official_source_and_name_the_preview_channel() -> None:
+    for name in ("README.md", "README.zh-CN.md", "docs/agent-install.md"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert "microsoft/ArgusAgent" in text
+        assert "lbx154/Argus" in text
+        assert "https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip" in text
+        assert 'git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"' in text
+        assert "https://github.com/lbx154/Argus/archive/refs/heads/main.zip" not in text
+        assert "This is the Argus preview repository" not in text
+        assert "这是 Argus 的 Preview 仓库" not in text
+
+
+def test_cursor_install_row_keeps_four_columns_and_the_complete_command() -> None:
+    for name in ("README.md", "README.zh-CN.md"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        row = next(line for line in text.splitlines() if line.startswith("| Cursor CLI |"))
+        cells = re.split(r"(?<!\\)\|", row)
+        assert len(cells) == 6
+        assert r"curl https://cursor.com/install -fsS \| bash" in cells[3]
+        assert "agent login" in cells[4]
+        assert "CURSOR_API_KEY" in cells[4]
+
+
+def test_windows_agent_install_contract_matches_native_worker_support() -> None:
+    text = (ROOT / "docs/agent-install.md").read_text(encoding="utf-8")
+    windows = _section(text, "## Windows 10/11", "## macOS")
+    assert "native durable subagents" in windows
+    assert "WSL2 is optional" in windows
+    assert "POSIX/WSL2-only" not in windows
+
+
+def test_desktop_installation_names_both_release_channels() -> None:
+    text = (ROOT / "docs/windows-desktop.md").read_text(encoding="utf-8")
+    assert "https://github.com/microsoft/ArgusAgent/releases" in text
+    assert "https://github.com/lbx154/Argus/releases" in text
