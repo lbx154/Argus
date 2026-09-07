@@ -3,10 +3,12 @@ from __future__ import annotations
 import base64
 import io
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from email.message import Message
 from pathlib import Path
 from threading import Barrier
+from types import SimpleNamespace
 from typing import Any, cast
 from urllib.error import HTTPError
 
@@ -111,7 +113,8 @@ def test_windows_atomic_replace_retries_a_transient_sharing_violation(
         real_replace(src, dst)
 
     monkeypatch.setattr(image_api.os, "replace", sharing_once)
-    monkeypatch.setattr(image_api.time, "sleep", sleeps.append)
+    # Keep unrelated background workers on the real process-wide sleep.
+    monkeypatch.setattr(image_api, "time", SimpleNamespace(time=time.time, sleep=sleeps.append))
 
     image_api._atomic_replace(source, target, platform_name="nt")
 
@@ -140,7 +143,7 @@ def test_atomic_replace_propagates_persistent_permission_errors(
         raise PermissionError("cannot replace")
 
     monkeypatch.setattr(image_api.os, "replace", denied)
-    monkeypatch.setattr(image_api.time, "sleep", sleeps.append)
+    monkeypatch.setattr(image_api, "time", SimpleNamespace(time=time.time, sleep=sleeps.append))
 
     with pytest.raises(PermissionError, match="cannot replace"):
         image_api._atomic_replace(source, target, platform_name=platform_name)
@@ -229,7 +232,7 @@ def test_generate_image_retries_transient_overload(
         return FakeResponse({"data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}]})
 
     monkeypatch.setattr(image_api, "_urlopen", fake_urlopen)
-    monkeypatch.setattr(image_api.time, "sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(image_api, "time", SimpleNamespace(time=time.time, sleep=sleeps.append))
 
     meta = image_api.generate_image(
         prompt="clean academic hierarchy diagram",
@@ -268,7 +271,7 @@ def test_generate_image_caps_retry_after_delay(
         return FakeResponse({"data": [{"b64_json": base64.b64encode(_PNG_BYTES).decode("ascii")}]})
 
     monkeypatch.setattr(image_api, "_urlopen", fake_urlopen)
-    monkeypatch.setattr(image_api.time, "sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(image_api, "time", SimpleNamespace(time=time.time, sleep=sleeps.append))
 
     image_api.generate_image(
         prompt="clean academic hierarchy diagram",
