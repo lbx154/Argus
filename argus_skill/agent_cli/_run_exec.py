@@ -234,35 +234,29 @@ class RunExecMixin:
                     prompt_path,
                 )
         try:
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                # Pin UTF-8 explicitly: without this, text mode uses the OS locale
-                # encoding, which is cp1252 on Windows and raises UnicodeEncodeError
-                # when the prompt or streamed model output contains non-Latin-1
-                # characters (e.g. "\u2192", CJK, emoji). errors="replace" keeps the
-                # reader from crashing on malformed bytes mid-stream.
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                cwd=options.working_dir or None,
-                env=self._child_env(options, executable=command[0]),
-                **background_subprocess_kwargs(),
-            )
+            with self._prompt_stdin(stdin_prompt) as child_stdin:
+                process = subprocess.Popen(
+                    command,
+                    stdin=child_stdin,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    # Pin UTF-8 explicitly: without this, text mode uses the OS locale
+                    # encoding, which is cp1252 on Windows and raises UnicodeEncodeError
+                    # when the prompt or streamed model output contains non-Latin-1
+                    # characters (e.g. "\u2192", CJK, emoji). errors="replace" keeps the
+                    # reader from crashing on malformed bytes mid-stream.
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                    cwd=options.working_dir or None,
+                    env=self._child_env(options, executable=command[0]),
+                    **background_subprocess_kwargs(),
+                )
         except BaseException:
             if prompt_path is not None:
                 prompt_path.unlink(missing_ok=True)
             raise
-        if stdin_prompt is not None:
-            self._write_prompt(
-                process=process,
-                prompt=stdin_prompt,
-            )
-        else:
-            self._close_stdin(process)
         return command, process, None, prompt_path
 
     def _stream_turn_output(

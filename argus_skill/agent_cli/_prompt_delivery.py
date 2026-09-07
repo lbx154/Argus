@@ -5,7 +5,9 @@ import json
 import os
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator, TextIO
 
 from ..core.sandbox import sandboxed_child_env
 from ._sandbox_commands import (
@@ -113,6 +115,28 @@ def _opencode_full_access_env() -> dict[str, str]:
 
 class PromptDeliveryMixin:
     """Deliver large role prompts without exposing them in process arguments."""
+
+    @staticmethod
+    @contextmanager
+    def _prompt_stdin(prompt: str | None) -> Iterator[TextIO | int]:
+        """Provide finite stdin without writing into a live child's pipe.
+
+        CLIs may emit startup output before reading their prompt. A synchronous
+        pipe write before starting stdout/stderr readers deadlocks under that
+        backpressure. A temporary file preserves stdin delivery and EOF without
+        a writer thread, prompt argv exposure, or a pipe-capacity dependency.
+        The child inherits its own handle; the parent closes its copy at spawn.
+        """
+        if prompt is None:
+            yield subprocess.DEVNULL
+            return
+        with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as stream:
+            stream.write(prompt)
+            if not prompt.endswith("\n"):
+                stream.write("\n")
+            stream.seek(0)
+            yield stream
+
 
     @staticmethod
     def _write_prompt(*, process: subprocess.Popen[str], prompt: str) -> None:
