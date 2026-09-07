@@ -35,6 +35,7 @@ export type MacroData = MapCard & {
   live: boolean;
   paused?: boolean;
   seenCards?: Set<string>;
+  restoring?: boolean;
   readOnly: boolean;
   source: string;
   quote: (ref: CardReference) => void;
@@ -104,7 +105,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   data,
 }: NodeProps<MacroNode>) {
   const { task, ordinal, zh, layout: currentLayout, focused, detailed } = data;
-  const [arrive] = useState(() => !data.seenCards?.has(id));
+  const [arrive] = useState(() => !data.restoring && !data.seenCards?.has(id));
   useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
   const [readingLayout, setReadingLayout] = useState<SubmapLayout | null>(null);
   const layout = readingLayout || currentLayout;

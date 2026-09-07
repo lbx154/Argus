@@ -200,6 +200,7 @@ function MapCanvas({
           live: data.kind === "live",
           paused,
           seenCards,
+          restoring: !!savedView.current?.camera && !initialFit.current,
           layout: scene.layouts[card.id],
           frame: scene.frames[card.id],
           focused: false,
