@@ -25,6 +25,27 @@ _MODEL_CATALOG_FAILURES = (
     "error: failed to load models",
     "copilot could not retrieve the list of available models",
 )
+_EXECUTION_HOST_STARTUP_PREFIX = (
+    "code mode is unavailable because failed to spawn code-mode host "
+)
+
+
+def is_execution_host_startup_error(value: object) -> bool:
+    """Recognize the Codex runtime receipt for an unavailable execution host.
+
+    Callers must supply a trusted error receipt, never assistant prose or tool
+    output. Requiring the complete diagnostic prefix also avoids interpreting
+    discussions or quoted examples of a missing host as a startup failure.
+    """
+    lowered = str(value or "").strip().casefold()
+    return lowered.startswith(_EXECUTION_HOST_STARTUP_PREFIX) and any(
+        marker in lowered[len(_EXECUTION_HOST_STARTUP_PREFIX):]
+        for marker in (
+            "host executable was not found",
+            "startup failure",
+            "fail closed",
+        )
+    )
 
 
 def is_missing_resume_target_error(value: object) -> bool:
@@ -96,6 +117,7 @@ def result_has_pre_provider_refusal(result: Any) -> bool:
 
 
 __all__ = [
+    "is_execution_host_startup_error",
     "is_missing_resume_target_error",
     "is_model_catalog_startup_error",
     "is_pre_provider_refusal_error",

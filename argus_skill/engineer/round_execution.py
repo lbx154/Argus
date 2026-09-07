@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Callable
 from ..core.event_catalog import EventType
 from ..core.models import RoundRecord
 from ..core.role_decision import latest_role_decision
+from ..core.runner_errors import is_execution_host_startup_error
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 from ..core.stop_kinds import (
     NON_FAILURE_STOP_KINDS,
@@ -46,6 +47,7 @@ from .round_stop_signals import (
     backend_failure_review_decision,
     backend_failure_signature,
     daemon_stop_review_decision,
+    execution_host_review_decision,
     external_pause_review_decision,
     fatal_error_looks_like_auth_failure,
     fatal_error_looks_like_daemon_stop_request,
@@ -359,6 +361,36 @@ class RoundExecutionMixin:
                 state.rounds,
                 state.last_engineer_message,
                 review.reason,
+                None,
+            ))
+
+        if is_execution_host_startup_error(fatal_error):
+            engineer_session.rotate("execution_host_unavailable")
+            review = execution_host_review_decision(
+                fatal_error=fatal_error,
+                exit_code=engineer_result.exit_code,
+            )
+            if on_event:
+                on_event(_review_event_payload(
+                    review,
+                    round_index=round_index,
+                    round_max=supervised_config.max_rounds,
+                    text="review: skipped (execution host unavailable)",
+                    review_skipped=True,
+                ))
+            state.rounds.append(RoundRecord(
+                round_index=round_index,
+                engineer_message=engineer_message,
+                engineer_exit_code=engineer_result.exit_code,
+                review=review,
+                fatal_error=engineer_result.fatal_error,
+                stop_kind="backend_unavailable",
+            ))
+            return control_return((
+                "infra_blocked",
+                state.rounds,
+                state.last_engineer_message,
+                str(fatal_error or ""),
                 None,
             ))
 

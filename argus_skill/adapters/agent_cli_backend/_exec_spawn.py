@@ -26,9 +26,11 @@ from typing import TYPE_CHECKING, Any
 from ...core.event_catalog import EventType
 from ...core.models import RunnerResult
 from ...core.runner_errors import (
+    is_execution_host_startup_error,
     is_model_catalog_startup_error,
     result_has_pre_provider_refusal,
 )
+from ...core.runner_receipts import is_provider_turn_cap_receipt
 from ...core.secret_guard import redact_secrets_text
 from ...core.token_usage import extract_token_usage
 from ...provider_integrations.authorization_retry import (
@@ -306,7 +308,12 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     # Detect auth/policy failures even when Copilot exits 0 but reports
     # turn_failed=true. Policy denial previously looked "successful" at the
     # process level, so every daemon kept retrying a blocked account.
-    if failed and looks_like_auth_failure([failure_text]):
+    if (
+        failed
+        and not is_provider_turn_cap_receipt(fatal_error)
+        and not is_execution_host_startup_error(fatal_error)
+        and looks_like_auth_failure([failure_text])
+    ):
         backend._auth_failure_detected = True
         log.warning(
             "agent backend reported auth/policy failure "

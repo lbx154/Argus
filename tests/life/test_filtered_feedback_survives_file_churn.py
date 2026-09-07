@@ -22,6 +22,8 @@ from argus_skill.life.supervisor._planning_context import PlanningContextMixin
 from argus_skill.life.supervisor._planning_cycle_completion import (
     PlanningCycleCompletionMixin,
 )
+from argus_skill.life.supervisor._planning_cycle_helpers import _PlanCycleState
+from argus_skill.planner import PlannerVerdict, WaitingContract
 
 
 class _Harness(PlanningContextMixin):
@@ -29,6 +31,7 @@ class _Harness(PlanningContextMixin):
         self.config = SimpleNamespace(
             project_state_dir=str(tmp_path),
             continuous_objective="confirm the frozen Route 09 evidence",
+            open_ended=True,
         )
         self.backlog_rows = list(backlog_rows)
         self.memory = SimpleNamespace(
@@ -117,13 +120,18 @@ class _WaitingHarness(_Harness, PlanningCycleCompletionMixin):
 
 
 def _waiting_state():
-    return SimpleNamespace(
-        verdict=SimpleNamespace(waiting=True, waiting_reason="", reason=""),
-        revision_request=None,
-        expected_plan_id=None,
-        expected_plan_version=None,
-        revision_active_items=[],
+    state = _PlanCycleState(revision_request=None)
+    state.planner_invoked = True
+    state.verdict = PlannerVerdict(
+        project_done=False, reason="wait for the live Route 09 finalizer",
+        waiting=True, waiting_reason="the Route 09 finalizer is still running",
+        waiting_contract=WaitingContract(
+            blocker_fingerprint="route09-finalizer",
+            recheck_condition="finalizer exits", recheck_token="running",
+            operator_action_required=False,
+        ),
     )
+    return state
 
 
 def test_waiting_verdict_resolves_filtered_feedback(tmp_path) -> None:
@@ -142,11 +150,14 @@ def test_waiting_verdict_resolves_filtered_feedback(tmp_path) -> None:
         diagnostic=PLANNER_TASKS_FILTERED_DIAGNOSTIC,
     )
 
-    result = harness._pc_handle_waiting(_waiting_state())
+    state = _waiting_state()
+    result = harness._pc_handle_waiting(state)
 
     assert result == "waiting-recorded"
     assert harness._load_manager_planner_feedback() is None
     assert harness.backoff_entries == 0
+    assert state.verdict.waiting
+    assert not state.certified_operator_wait
 
 
 def test_waiting_verdict_still_rejected_for_other_feedback(tmp_path) -> None:

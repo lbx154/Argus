@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Callable
 
 from ..core.event_catalog import EventType
 from ..core.models import ReviewDecision, RoundRecord
+from ..core.runner_errors import is_execution_host_startup_error
 from ..core.stop_kinds import (
     NON_FAILURE_STOP_KINDS,
     normalize_stop_kind,
@@ -447,6 +448,28 @@ class RoundReviewerMixin:
             reviewer_pause_status = pause_status_for_stop_kind(
                 reviewer_stop_kind
             )
+            if (
+                review.backend_unavailable
+                and is_execution_host_startup_error(reviewer_fatal_error)
+            ):
+                # Retrying the reviewer leg cannot install its missing host.
+                # Keep the Engineer's output and park the same mission through
+                # the same persistent gate used for Engineer startup failures.
+                state.rounds.append(RoundRecord(
+                    round_index=round_index,
+                    engineer_message=engineer_message,
+                    engineer_exit_code=engineer_result.exit_code,
+                    review=review,
+                    fatal_error=reviewer_fatal_error,
+                    stop_kind="backend_unavailable",
+                ))
+                return control_return((
+                    "infra_blocked",
+                    state.rounds,
+                    state.last_engineer_message,
+                    reviewer_fatal_error,
+                    None,
+                ))
             if (
                 review.backend_unavailable
                 and reviewer_stop_kind in NON_FAILURE_STOP_KINDS

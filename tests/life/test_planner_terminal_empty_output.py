@@ -511,7 +511,7 @@ def test_content_filtered_planner_disarms_campaign_instead_of_retrying(
     write_continuous_config(
         supervisor.memory.root,
         enabled=True,
-        objective="standing filtered campaign",
+        objective=supervisor.config.continuous_objective,
     )
 
     assert supervisor._plan_next_work() == PLAN_ERROR
@@ -523,6 +523,57 @@ def test_content_filtered_planner_disarms_campaign_instead_of_retrying(
     error = next(event for event in sink.events if event.get("type") == "life.planner.error")
     assert error["operator_alert"] is True
     assert error["stop_kind"] == "permanent_error"
+
+
+def test_execution_host_failure_pauses_planner_until_explicit_rearm(tmp_path, monkeypatch):
+    from argus_skill.daemon.state import read_continuous_state, write_continuous_config
+
+    diagnostic = (
+        "Code Mode is unavailable because failed to spawn code-mode host "
+        "/codex/codex-code-mode-host: host executable was not found. "
+        "Code mode will fail closed."
+    )
+
+    class HostFailureRunner(_ContentFilterPlannerRunner):
+        def run_exec(self, **kwargs):
+            result = super().run_exec(**kwargs)
+            result.exit_code = 0
+            result.fatal_error = diagnostic
+            result.stop_kind = "backend_unavailable"
+            return result
+
+    backend = HostFailureRunner()
+    supervisor, _, sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=False, backend=backend,
+    )
+    write_continuous_config(
+        supervisor.memory.root, enabled=True,
+        objective=supervisor.config.continuous_objective, open_ended=False,
+    )
+    assert supervisor._plan_next_work() == PLAN_AWAITING
+    state = read_continuous_state(supervisor.memory.root)
+    assert (state.enabled, state.objective, state.open_ended) == (
+        False, supervisor.config.continuous_objective, False,
+    )
+    assert state.done_reason == diagnostic
+    assert backend.planner_calls == 1
+
+    # A fresh supervisor reads the same durable gate, before invoking Planner.
+    restored = LifeSupervisor(
+        memory=supervisor.memory, runner=supervisor.runner,
+        planner_runner=backend, config=supervisor.config, sink=sink,
+    )
+    monkeypatch.setattr(restored, "_resolve_vertical_once", lambda: None)
+    for _ in range(3):
+        assert restored._plan_next_work() == PLAN_AWAITING
+    assert backend.planner_calls == 1
+    write_continuous_config(
+        supervisor.memory.root, enabled=True, objective=state.objective, open_ended=False,
+    )
+    assert restored._runtime_failure_circuit_block() is None
+    assert restored._plan_next_work() == PLAN_AWAITING
+    assert backend.planner_calls == 2
+    assert not read_continuous_state(supervisor.memory.root).enabled
 
 
 def test_certified_terminal_empty_plan_completes_without_planner_error(

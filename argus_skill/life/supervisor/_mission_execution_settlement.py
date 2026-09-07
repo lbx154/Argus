@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.runner_errors import is_execution_host_startup_error
 from ...core.stop_kinds import stop_kind_is_recoverable
 from ..memory import BacklogItem
 from ..mission_outcome import (
@@ -700,6 +701,16 @@ class MissionExecutionSettlementMixin:
         )
         if iteration is not None:
             outcome_dimensions["iteration"] = dict(iteration)
+        if (
+            status == "infra_blocked"
+            and state.stop_kind == "backend_unavailable"
+            and is_execution_host_startup_error(state.stop_reason)
+        ):
+            # The shortcircuit owns this structured runner diagnostic. Persist
+            # it with the pause so dispatch stays held across daemon restarts;
+            # explicit resume_paused() re-arms the same metered attempt path.
+            outcome_dimensions["execution_host_failure"] = state.stop_reason
+            outcome_dimensions["review_status"] = "not_assessed"
 
         manager_decision = getattr(item, "manager_decision", {}) or {}
         learned_candidate = bool(

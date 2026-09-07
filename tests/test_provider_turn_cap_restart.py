@@ -12,8 +12,12 @@ runner-side counting/wind-down); these tests pin the harness-side restart in
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
+import pytest
+
+from argus_skill.adapters.agent_cli_backend._result import UsageAccumulator, translate_result
 from argus_skill.core.models import ReviewDecision, RunnerResult
 from argus_skill.engineer.runner import (
     EngineerConfig,
@@ -51,12 +55,27 @@ class _DoneReviewer:
 class _CappedThenFinishingEngineer:
     """First call ends at the allowance; the wind-down and round 2 succeed."""
 
-    def __init__(self) -> None:
+    def __init__(self, stderr_history: str | None = None) -> None:
         self.calls: list[tuple[str, str | None, str]] = []
+        self.stderr_history = stderr_history
 
     def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):  # noqa: ARG002
         self.calls.append((run_label, resume_thread_id, prompt))
         if run_label == "engineer-r1":
+            if self.stderr_history is not None:
+                return translate_result(
+                    SimpleNamespace(
+                        exit_code=-15, fatal_error=_CAP_RECEIPT, turn_failed=True,
+                        agent_messages=["ran the first four ablations"],
+                        thread_id="thr-capped", stdout_lines=[],
+                        stderr_lines=[self.stderr_history],
+                        json_events=[{"type": "turn.completed", "usage": {
+                            "input_tokens": 1000, "output_tokens": 100,
+                        }}],
+                    ),
+                    resume_thread_id=resume_thread_id, copilot_usage=None,
+                    usage_accumulator=UsageAccumulator(),
+                )
             return RunnerResult(
                 exit_code=-15,
                 agent_messages=["ran the first four ablations"],
@@ -84,10 +103,16 @@ class _CappedThenFinishingEngineer:
         )
 
 
+@pytest.mark.parametrize("stderr_history", [
+    None,
+    "2026-09-07T04:28:00.401010Z WARN expected ordinal 383, got 382",
+    "Reconnecting... 1/3 (HTTP 401 Unauthorized)",
+    "ERROR: Failed to load models: HTTP 503 Service Unavailable",
+])
 def test_capped_call_winds_down_and_continues_in_a_fresh_session(
-    tmp_path: Path,
+    tmp_path: Path, stderr_history: str | None,
 ) -> None:
-    engineer = _CappedThenFinishingEngineer()
+    engineer = _CappedThenFinishingEngineer(stderr_history)
     reviewer = _DoneReviewer()
     supervised = _make_supervised(engineer, reviewer)
     checkpoint = tmp_path / "CHECKPOINT.md"

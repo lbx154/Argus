@@ -409,6 +409,25 @@ def external_pause_review_decision(
     )
 
 
+def execution_host_review_decision(
+    *, fatal_error: str | None, exit_code: int,
+) -> ReviewDecision:
+    """A missing tool host needs repair before an explicit mission retry."""
+    error_text = str(fatal_error or f"exit={exit_code}").strip()
+    return ReviewDecision(
+        status="blocked",
+        reason=f"Execution host is unavailable; reviewer skipped. error={error_text}",
+        next_action=(
+            "Restore the code-mode host executable in the Codex installation, "
+            "then explicitly resume this mission to retry from its checkpoint."
+        ),
+        backend_unavailable=True,
+        backend_fatal_error=error_text,
+        backend_exit_code=exit_code,
+        backend_stop_kind="backend_unavailable",
+    )
+
+
 def model_configuration_review_decision(
     *, fatal_error: str | None, exit_code: int,
 ) -> ReviewDecision:
@@ -526,6 +545,7 @@ __all__ = [
     "should_clear_thread_id_after_outcome",
     "backend_failure_review_decision",
     "external_pause_review_decision",
+    "execution_host_review_decision",
     "model_configuration_review_decision",
     "provider_turn_cap_review_decision",
     "daemon_stop_review_decision",

@@ -23,8 +23,11 @@ try:
 except ImportError:  # pragma: no cover - POSIX production path
     fcntl = None  # type: ignore[assignment]
 
+from ..core.http_status import has_http_status
 from ..core.knob_store import persisted_knob
 from ..core.paths import global_root
+from ..core.runner_errors import is_execution_host_startup_error
+from ..core.runner_receipts import is_provider_turn_cap_receipt
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +52,6 @@ _POLICY_BLOCK_PATTERNS = (
     "account has been suspended",
 )
 _RATE_BLOCK_PATTERNS = (
-    "429",
     "rate limit",
     "rate-limit",
     "too many requests",
@@ -239,6 +241,10 @@ def _denied_permit(
 
 
 def _circuit(error_text: str) -> tuple[float, str]:
+    if is_provider_turn_cap_receipt(error_text) or is_execution_host_startup_error(error_text):
+        # A local terminal stop can retain earlier recovered provider errors.
+        # Charge its observed usage, but do not turn that history into a circuit.
+        return 0.0, ""
     low = (error_text or "").casefold()
     if any(pattern in low for pattern in _POLICY_BLOCK_PATTERNS):
         return (
@@ -248,7 +254,7 @@ def _circuit(error_text: str) -> tuple[float, str]:
             ),
             "Copilot policy/subscription access denied",
         )
-    if any(pattern in low for pattern in _RATE_BLOCK_PATTERNS):
+    if has_http_status(low, {429}) or any(pattern in low for pattern in _RATE_BLOCK_PATTERNS):
         return (
             _float_setting(
                 "ARGUS_SKILL_COPILOT_RATE_COOLDOWN_S",

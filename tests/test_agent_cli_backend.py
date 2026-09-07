@@ -383,6 +383,43 @@ def test_second_401_requires_login_without_third_attempt(
     assert "login_required" in str(caught.value)
 
 
+@pytest.mark.parametrize("fatal_error", [
+    "Provider turn cap reached: this engineer-r1 call used 40 provider turns "
+    "(allowance 40, ARGUS_SKILL_PROVIDER_TURN_CAP).",
+    "local history: expected ordinal 401, got 400",
+    "2026-09-07T04:28:00.401Z WARN local history projection failed",
+    "mse=0.401",
+])
+def test_relay_non_auth_receipts_do_not_replay_or_set_auth_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fatal_error: str,
+) -> None:
+    _configure_relay_credential(tmp_path, monkeypatch, "fake-relay-token")
+    backend = AgentCliBackend(backend="codex")
+    calls = 0
+    history = (
+        ["Reconnecting... 1/3 (HTTP 401 Unauthorized)"]
+        if fatal_error.startswith("Provider turn cap") else []
+    )
+
+    def fake_run_exec(self: Any, **_kwargs: Any) -> AgentRunResult:
+        nonlocal calls
+        calls += 1
+        return _make_cli_result(
+            exit_code=1, fatal_error=fatal_error, stderr_lines=history,
+        )
+
+    monkeypatch.setattr(AgentCliRunner, "run_exec", fake_run_exec, raising=True)
+    result = backend.run_exec(
+        prompt="continue", options=RunnerOptions(skip_git_repo_check=True),
+        run_label="engineer-r1",
+    )
+    assert calls == 1
+    assert result.fatal_error == fatal_error
+    assert result.stop_kind == "backend_unavailable"
+    assert result.stderr_lines == history
+    assert not backend._auth_failure_detected
+
+
 def test_explicit_secret_snapshot_survives_per_call_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

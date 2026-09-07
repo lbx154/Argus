@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import os
-import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..core.http_status import has_http_status
+from ..core.runner_errors import is_execution_host_startup_error
+from ..core.runner_receipts import is_provider_turn_cap_receipt
 from ..core.secret_guard import redact_secrets_text
 from ..tools.capability_vault import read_codex_provider_config
-
-_HTTP_401 = re.compile(r"(?<!\d)401(?!\d)")
 
 
 class BackendLoginRequired(RuntimeError):
@@ -150,6 +150,9 @@ def _read_env_credential(path: Path, env_key: str) -> str:
 
 
 def _unauthorized_cause(result: Any) -> str:
+    fatal_error = getattr(result, "fatal_error", None)
+    if is_provider_turn_cap_receipt(fatal_error) or is_execution_host_startup_error(fatal_error):
+        return ""
     failed = bool(
         int(getattr(result, "exit_code", 0) or 0) != 0
         or getattr(result, "turn_failed", False)
@@ -163,7 +166,7 @@ def _unauthorized_cause(result: Any) -> str:
     ]
     for candidate in candidates:
         text = str(candidate or "").strip()
-        if any(_HTTP_401.search(line) for line in text.splitlines()):
+        if has_http_status(text, {401}):
             return text
     return ""
 

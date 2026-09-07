@@ -14,9 +14,14 @@ import re
 import threading
 from typing import Any
 
+from ...core.http_status import has_http_status
 from ...core.models import RunnerResult
 from ...core.role_decision import extract_role_decisions
-from ...core.runner_errors import is_model_catalog_startup_error
+from ...core.runner_errors import (
+    is_execution_host_startup_error,
+    is_model_catalog_startup_error,
+)
+from ...core.runner_receipts import is_provider_turn_cap_receipt
 from ...core.stop_kinds import (
     StopKind,
     normalize_stop_kind,
@@ -36,8 +41,6 @@ _AUTH_FAILURE_PATTERNS: tuple[str, ...] = (
     "access denied by policy settings",
     "subscription does not include this feature",
     "required policies have not been enabled",
-    "401",
-    "403",
     "please run `codex login`",
     "codex login",
     "invalid api key",
@@ -55,7 +58,6 @@ _PROVIDER_COOLDOWN_PATTERNS = (
     "too many requests",
     "retry after",
     "retry-after",
-    "429",
     "circuit open",
     "cooldown",
 )
@@ -74,9 +76,6 @@ _TRANSIENT_ERROR_PATTERNS = (
     "stream disconnected",
     "wall-clock limit reached",
     "service unavailable",
-    "502",
-    "503",
-    "504",
 )
 
 
@@ -98,17 +97,25 @@ def _raw_backend_stop_kind(
     if not fatal and int(exit_code or 0) == 0:
         return None
     low = fatal.casefold()
+    if is_provider_turn_cap_receipt(fatal) or is_execution_host_startup_error(fatal):
+        # Local terminal receipts outrank recovered failures in captured stderr.
+        # Keep the existing compatibility category for the dedicated cap handler.
+        return "backend_unavailable"
     if low.startswith("external interrupt:"):
         interrupt_kind = stop_kind_from_external_interrupt(fatal)
         if interrupt_kind is not None:
             return interrupt_kind
     if any(pattern in low for pattern in _PROVIDER_FENCE_PATTERNS):
         return "provider_fence"
-    if any(pattern in low for pattern in _PROVIDER_COOLDOWN_PATTERNS):
+    if has_http_status(low, {429}) or any(
+        pattern in low for pattern in _PROVIDER_COOLDOWN_PATTERNS
+    ):
         return "provider_cooldown"
-    if any(pattern in low for pattern in _AUTH_FAILURE_PATTERNS):
+    if looks_like_auth_failure([low]):
         return "permanent_error"
-    if any(pattern in low for pattern in _TRANSIENT_ERROR_PATTERNS):
+    if has_http_status(low, {502, 503, 504}) or any(
+        pattern in low for pattern in _TRANSIENT_ERROR_PATTERNS
+    ):
         return "transient_error"
     if low.startswith("refused before start:"):
         return "permanent_error"
@@ -128,7 +135,11 @@ def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
     for raw in stderr_lines:
         if not raw:
             continue
+        if is_provider_turn_cap_receipt(raw) or is_execution_host_startup_error(raw):
+            continue
         low = str(raw).lower()
+        if has_http_status(low, {401, 403}):
+            return True
         for pat in _AUTH_FAILURE_PATTERNS:
             if pat in low:
                 return True
@@ -362,7 +373,11 @@ def translate_result(
             map(str, getattr(cli_result, "stderr_lines", None) or [])
         ).strip() or "backend reported a failed turn"
     failure_diagnostic = raw_fatal_error
-    if (
+    authoritative_local_stop = (
+        is_provider_turn_cap_receipt(raw_fatal_error)
+        or is_execution_host_startup_error(raw_fatal_error)
+    )
+    if not authoritative_local_stop and (
         getattr(cli_result, "turn_failed", False)
         or int(getattr(cli_result, "exit_code", 0) or 0) != 0
     ):
