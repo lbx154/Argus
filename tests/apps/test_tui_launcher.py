@@ -291,7 +291,32 @@ def test_admin_subcommands_stay_on_python_admin_path(monkeypatch) -> None:
     assert tui_launcher.main(["wiki", "init", "demo"]) == 7
     assert tui_launcher.main(["update"]) == 7
     assert tui_launcher.main(["--update"]) == 7
-    assert seen == [["wiki", "init", "demo"], ["update"], ["--update"]]
+    assert tui_launcher.main(["-update"]) == 7
+    assert seen == [["wiki", "init", "demo"], ["update"], ["--update"], ["-update"]]
+
+
+@pytest.mark.parametrize("entrypoint", ["argus", "argus-skill"])
+@pytest.mark.parametrize("spelling", ["update", "--update", "-update"])
+@pytest.mark.parametrize("with_life_dir", [False, True])
+def test_update_spellings_reach_the_updater_without_a_terminal(
+    monkeypatch, tmp_path: Path, entrypoint: str, spelling: str, with_life_dir: bool,
+) -> None:
+    from argus_skill.__main__ import main as backend_main
+    from argus_skill.apps import update
+
+    calls = []
+    monkeypatch.setattr(tui_launcher.sys, "stdin", _Stdin(tty=False))
+    monkeypatch.setattr(
+        tui_launcher,
+        "_bundle_path",
+        lambda: pytest.fail("updating must not start the cockpit"),
+    )
+    monkeypatch.setattr(update, "run_update", lambda: calls.append("update") or 7)
+    run = tui_launcher.main if entrypoint == "argus" else backend_main
+    prefix = ["--life-dir", str(tmp_path / "life")] if with_life_dir else []
+
+    assert run([*prefix, spelling]) == 7
+    assert calls == ["update"]
 
 
 def test_admin_flags_after_global_options_stay_on_python_admin_path(

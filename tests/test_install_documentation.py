@@ -82,6 +82,10 @@ def test_install_guides_cover_updates_paths_models_and_doctor_semantics() -> Non
         assert "`dsh`" in text
         assert "--config-help" in text
         assert "--advisor none --verify" in text
+        assert "argus update" in text
+        assert "`argus --update`" in text
+        assert "`argus -update`" in text
+        assert "pip ZIP" in text
 
     update = _section(readme, "## Update", "## Uninstall")
     assert 'py -m pip install --upgrade --force-reinstall' in update

@@ -17,6 +17,7 @@ _PYTHON_ADMIN_FLAGS = frozenset(
         "-doctor",
         "--version",
         "--update",
+        "-update",
         "--daemon",
         "--daemon-fg",
         "--daemon-stop",

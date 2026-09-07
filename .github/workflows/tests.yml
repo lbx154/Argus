@@ -50,6 +50,11 @@ env:
     tests/test_run_exec_stream_callback.py
     tests/test_stop_kind_lifecycle.py
     tests/agent_cli/test_codex_execution_host_failure.py
+    tests/apps/test_update.py
+    tests/apps/test_update_dispatch.py
+    tests/apps/test_update_install.py
+    tests/apps/test_update_launcher.py
+    tests/apps/test_package_update.py
     tests/life/test_execution_host_lifecycle.py
     tests/life/test_planner_effort_resolution.py
     tests/life/test_planner_host_pause_race.py
@@ -59,6 +64,7 @@ env:
     tests/tools/test_lean_check.py
     tests/webapi/test_manager_rotation.py
     tests/webapi/test_pairing.py
+    tests/webapi/test_source_update.py
 
   # Product paths whose Windows behavior is exercised by the Desktop host.
   WINDOWS_CORE_TESTS: >-

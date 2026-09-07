@@ -232,12 +232,31 @@ Never paste the key into chat or commit it.
 
 ## Upgrade and deterministic verification
 
-Use the same install command again on Windows/macOS, including
-`--force-reinstall`/`--force`, then run the exact executable with
-`doctor --advisor none --verify`. On Linux run
-`"$HOME/Argus/.venv/bin/argus" update`, followed by the same deterministic
-verification. Do not invoke a second Agent repair turn merely to prove an
-unchanged installation.
+Use `argus update` with the exact executable established during installation.
+`argus --update` and `argus -update` are equivalent aliases. This updater handles
+source checkouts, pip ZIP installations, and uv-managed installations while
+preserving the existing source and channel. It selects the corresponding
+package manager; source checkouts must be clean and on a branch, and only
+fast-forward updates are allowed.
+
+When PATH is not configured, use `& $Argus update` in Windows PowerShell,
+`"$(uv tool dir --bin)/argus" update` for uv, or
+`"$HOME/Argus/.venv/bin/argus" update` for the Linux source checkout.
+
+Older versions do not include this updater. Bootstrap once using the original
+installation command on Windows/macOS, including `--force-reinstall`/`--force`
+and the existing repository URL. For a source checkout, inspect its local
+changes and configured upstream first; only on a clean, attached branch run
+`git pull --ff-only`, then reinstall with that environment's Python using
+`-m pip install -e .`. Never change channels to bootstrap the updater.
+
+After an upgrade, run the exact executable with `--version` and
+`doctor --advisor none --verify`. Do not invoke a second Agent repair turn merely
+to prove an unchanged installation.
+
+Packaged Desktop EXEs use their separate signed desktop update channel. The CLI
+updater does not replace a signed EXE; use the [Windows Desktop](windows-desktop.md)
+instructions for those installations.
 
 ## Completion report
 

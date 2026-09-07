@@ -485,7 +485,30 @@ The most capable setup is often an Argus instance deliberately adapted to your o
 
 ## Update
 
-Windows:
+For source checkouts, pip ZIP installations, and uv-managed installations, use
+the installed Argus command:
+
+```bash
+argus update
+argus --version
+argus doctor --advisor none --verify
+```
+
+`argus --update` and `argus -update` are equivalent aliases. The updater keeps
+the installation's existing source and channel, uses its package manager, and
+does not switch between the official and preview repositories. Source checkouts
+must be clean and on a branch; updates only fast-forward.
+
+If `argus` is not on PATH, use the executable from installation: `& $Argus update`
+in Windows PowerShell, `"$(uv tool dir --bin)/argus" update` for uv, or
+`"$HOME/Argus/.venv/bin/argus" update` for the Linux source checkout.
+
+Older versions do not yet include this updater. Bootstrap once with the
+original installation command below, keeping the original repository URL
+(replace `microsoft/ArgusAgent` with `lbx154/Argus` for an existing preview
+installation). Subsequent upgrades can use `argus update`.
+
+Windows bootstrap:
 
 ```powershell
 py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
@@ -494,7 +517,7 @@ $Argus = Join-Path (py -c "import sysconfig; print(sysconfig.get_path('scripts')
 & $Argus doctor --advisor none --verify
 ```
 
-macOS:
+macOS bootstrap:
 
 ```bash
 uv tool install --force --python 3.12 \
@@ -503,19 +526,23 @@ uv tool install --force --python 3.12 \
 "$(uv tool dir --bin)/argus" doctor --advisor none --verify
 ```
 
-Linux source checkout:
+Source-checkout bootstrap (inspect local changes first):
 
 ```bash
-"$HOME/Argus/.venv/bin/argus" update
+git -C "$HOME/Argus" status --short
+git -C "$HOME/Argus" pull --ff-only
+"$HOME/Argus/.venv/bin/python" -m pip install -e "$HOME/Argus"
 "$HOME/Argus/.venv/bin/argus" --version
 "$HOME/Argus/.venv/bin/argus" doctor --advisor none --verify
 ```
 
-The Linux source command refuses dirty or detached checkouts, fast-forwards the
-configured upstream, and refreshes the editable installation when the revision
-changes. Argus detects stale local WebAPI and daemon processes and replaces them
-at a controlled task boundary. Update verification is deterministic and does
-not spend a model call.
+Only continue the source bootstrap when `git status --short` is empty and the
+branch tracks the intended repository. Argus detects stale local WebAPI and
+daemon processes and replaces them at a controlled task boundary. Verification
+with `--advisor none --verify` does not spend a model call.
+
+Packaged Desktop EXEs use the separate signed desktop update channel. The CLI
+updater does not replace a signed EXE; see [Windows Desktop](docs/windows-desktop.md).
 
 ## Uninstall
 

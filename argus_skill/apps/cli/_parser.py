@@ -92,6 +92,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="safely fast-forward and reinstall this source checkout",
     )
+    parser.add_argument(
+        "-update",
+        dest="update",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
 
     daemon_grp = parser.add_argument_group("7×24 daemon")
     daemon_grp.add_argument(

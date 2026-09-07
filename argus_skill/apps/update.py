@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Sequence
+from urllib.parse import urlsplit
 
 from ..core.runtime_identity import source_root
+from .update_install import validate_pip_target
+from .update_launcher import preserve_windows_launchers
 
 PUBLIC_REPOSITORY = "https://github.com/lbx154/Argus.git"
 
@@ -21,9 +25,9 @@ def public_branch_ref(branch: str) -> str:
     return f"refs/heads/{name}"
 
 
-def public_upstream(branch: str) -> str:
+def public_upstream(branch: str, repository: str = "lbx154/Argus") -> str:
     name = str(branch or "").strip() or "main"
-    return f"lbx154/Argus/{name}"
+    return f"{repository}/{name}"
 
 
 class UpdateError(RuntimeError):
@@ -40,6 +44,7 @@ class UpdateResult:
     upstream: str
     before_revision: str
     after_revision: str
+    installed: bool = False
 
     @property
     def changed(self) -> bool:
@@ -80,6 +85,8 @@ def _run_command(
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except FileNotFoundError as exc:
@@ -102,6 +109,54 @@ def _checked(
         detail = (result.stderr or result.stdout or "command failed").strip()
         raise UpdateError(f"{' '.join(command)} failed: {detail}")
     return result.stdout.strip()
+
+
+def _published_source(checkout: Path, runner: CommandRunner) -> tuple[str, str]:
+    """Keep the installed source channel; never redirect an unknown checkout."""
+    remote = _checked(runner, ["git", "remote", "get-url", "origin"], cwd=checkout)
+    try:
+        parsed = urlsplit(remote.replace("git@github.com:", "ssh://git@github.com/", 1))
+        port = parsed.port
+    except ValueError as exc:
+        raise UpdateError("unsupported source origin; expected a trusted Argus GitHub repository") from exc
+    if (
+        parsed.scheme not in {"https", "ssh"}
+        or parsed.hostname != "github.com"
+        or parsed.password is not None
+        or parsed.username not in ({None} if parsed.scheme == "https" else {"git"})
+        or port is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise UpdateError("unsupported source origin; expected a trusted Argus GitHub repository")
+    repository = parsed.path.strip("/").removesuffix(".git")
+    trusted = {
+        "lbx154/argus": "lbx154/Argus",
+        "lbx154/argus-skill": "lbx154/argus-skill",
+        "microsoft/argusagent": "microsoft/ArgusAgent",
+    }
+    slug = trusted.get(repository.casefold())
+    if slug is None:
+        raise UpdateError("unsupported source origin; expected a trusted Argus GitHub repository")
+    return remote, slug
+
+
+def _editable_install_command(
+    checkout: Path, executable: str, runner: CommandRunner,
+) -> list[str]:
+    """Resolve a working installer before advancing the checkout."""
+    probe = runner([executable, "-m", "pip", "--version"], checkout, 30.0)
+    if probe.returncode == 0:
+        validate_pip_target(executable, checkout, runner)
+        return [executable, "-m", "pip", "install", "-e", str(checkout)]
+    uv = shutil.which("uv")
+    if uv:
+        _checked(runner, [uv, "--version"], cwd=checkout, timeout=30.0)
+        return [uv, "pip", "install", "--python", executable, "-e", str(checkout)]
+    raise UpdateError(
+        "the current Python environment has no working pip and uv is unavailable; "
+        "install pip in this environment or make uv available before retrying"
+    )
 
 
 def inspect_source_checkout(
@@ -133,10 +188,11 @@ def inspect_source_checkout(
     branch = _checked(runner, ["git", "branch", "--show-current"], cwd=checkout)
     current = _checked(runner, ["git", "rev-parse", "HEAD"], cwd=checkout)
     upstream_ref = public_branch_ref(branch)
-    upstream = public_upstream(branch)
+    repository, slug = _published_source(checkout, runner)
+    upstream = public_upstream(branch, slug)
     remote = _checked(
         runner,
-        ["git", "ls-remote", PUBLIC_REPOSITORY, upstream_ref],
+        ["git", "ls-remote", repository, upstream_ref],
         cwd=checkout,
         timeout=60.0,
     )
@@ -197,12 +253,15 @@ def update_source_checkout(
     if not branch:
         raise UpdateError("source checkout is detached; switch to a branch first")
     upstream_ref = public_branch_ref(branch)
-    upstream = public_upstream(branch)
+    repository, slug = _published_source(checkout, runner)
+    upstream = public_upstream(branch, slug)
+    executable = python_executable or sys.executable
+    install_command = _editable_install_command(checkout, executable, runner)
     before = _checked(runner, ["git", "rev-parse", "HEAD"], cwd=checkout)
     report("pulling")
     _checked(
         runner,
-        ["git", "pull", "--ff-only", PUBLIC_REPOSITORY, upstream_ref],
+        ["git", "pull", "--ff-only", repository, upstream_ref],
         cwd=checkout,
         timeout=None,
     )
@@ -213,26 +272,43 @@ def update_source_checkout(
         before_revision=before,
         after_revision=after,
     )
+    published = _checked(runner, ["git", "rev-parse", "FETCH_HEAD"], cwd=checkout)
+    if after != published:
+        raise UpdateError(
+            "source branch contains unpublished local commits; these commits were preserved, "
+            "but the checkout does not match the published revision",
+            result=result,
+        )
 
-    if before != after:
-        report("installing")
-        executable = python_executable or sys.executable
-        try:
-            _checked(
-                runner,
-                [executable, "-m", "pip", "install", "-e", str(checkout)],
-                cwd=checkout,
-                timeout=None,
-            )
-        except UpdateError as exc:
-            raise UpdateError(str(exc), result=result) from exc
+    # A prior attempt may have advanced Git and failed during installation.
+    # Reinstall even at the same revision so retry actually repairs that state.
+    report("installing")
+    try:
+        with preserve_windows_launchers():
+            _checked(runner, install_command, cwd=checkout, timeout=None)
+    except (UpdateError, OSError) as exc:
+        raise UpdateError(str(exc), result=result) from exc
 
     report("complete")
-    return result
+    return replace(result, installed=True)
 
 
 def run_update() -> int:
     try:
+        if getattr(sys, "frozen", False):
+            raise UpdateError(
+                "this is a packaged desktop build; use the desktop updater "
+                "to install a signed release"
+            )
+        if not (source_root() / "pyproject.toml").is_file():
+            from .package_update import update_installed_package
+
+            package = update_installed_package()
+            print(f"Argus package refreshed using {package.installer} from {package.upstream}.")
+            if package.source_note:
+                print(package.source_note)
+            print("Run `argus` again to activate the installed update.")
+            return 0
         result = update_source_checkout()
     except UpdateError as exc:
         sys.stderr.write(f"argus: update failed: {exc}\n")
@@ -241,6 +317,9 @@ def run_update() -> int:
     if result.changed:
         print(f"Argus updated from {result.upstream}.")
         print("Run `argus` to activate the updated cockpit and safe daemon handoff.")
+    elif result.installed:
+        print(f"Argus source is current; installation refreshed ({result.upstream}).")
+        print("Run `argus` again to activate the installed update.")
     else:
         print(f"Argus is already up to date ({result.upstream}).")
     return 0

@@ -442,7 +442,27 @@ argus --web
 
 ## 更新
 
-Windows：
+源码 checkout、pip ZIP 安装和 uv 管理的安装，现在统一使用已安装的 Argus 命令：
+
+```bash
+argus update
+argus --version
+argus doctor --advisor none --verify
+```
+
+`argus --update` 和 `argus -update` 是等价别名。更新器会保持现有安装来源和渠道，
+使用对应的包管理器，不会在官方仓库和开发预览仓库之间切换。
+源码更新要求工作区干净且位于分支上，只做 fast-forward。
+
+如果 `argus` 不在 PATH 中，请使用安装时确定的完整路径：Windows PowerShell 执行
+`& $Argus update`，uv 安装执行 `"$(uv tool dir --bin)/argus" update`，
+Linux 源码安装执行 `"$HOME/Argus/.venv/bin/argus" update`。
+
+旧版本尚未包含这个更新器，需要先按原安装方式引导更新一次。下面命令中的仓库 URL
+必须与原安装保持一致；已有开发预览安装应将 `microsoft/ArgusAgent` 替换为
+`lbx154/Argus`。完成后，后续升级即可使用 `argus update`。
+
+Windows 首次引导更新：
 
 ```powershell
 py -m pip install --upgrade --force-reinstall "argus-skill @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
@@ -451,7 +471,7 @@ $Argus = Join-Path (py -c "import sysconfig; print(sysconfig.get_path('scripts')
 & $Argus doctor --advisor none --verify
 ```
 
-macOS：
+macOS 首次引导更新：
 
 ```bash
 uv tool install --force --python 3.12 \
@@ -460,17 +480,22 @@ uv tool install --force --python 3.12 \
 "$(uv tool dir --bin)/argus" doctor --advisor none --verify
 ```
 
-Linux 源码 checkout：
+源码 checkout 首次引导更新（先检查本地修改）：
 
 ```bash
-"$HOME/Argus/.venv/bin/argus" update
+git -C "$HOME/Argus" status --short
+git -C "$HOME/Argus" pull --ff-only
+"$HOME/Argus/.venv/bin/python" -m pip install -e "$HOME/Argus"
 "$HOME/Argus/.venv/bin/argus" --version
 "$HOME/Argus/.venv/bin/argus" doctor --advisor none --verify
 ```
 
-Linux 源码更新会拒绝 dirty/detached checkout，只做 fast-forward 并刷新 editable
-安装。更新后 Argus 会识别过期的本地 WebAPI 与 daemon，并在受控任务边界完成替换。
-这里的更新验收是确定性的，不消耗模型调用。
+只有 `git status --short` 没有输出、且当前分支跟踪预期仓库时，才继续执行后续源码
+引导命令。更新后 Argus 会识别过期的本地 WebAPI 与 daemon，并在受控任务边界完成替换。
+使用 `--advisor none --verify` 的验收不消耗模型调用。
+
+打包的 Desktop EXE 使用独立的桌面签名更新渠道。CLI 更新器不会替换签名 EXE，
+参见 [Windows Desktop](docs/windows-desktop.md)。
 
 ## 卸载
 

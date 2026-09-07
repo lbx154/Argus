@@ -137,7 +137,7 @@ def _run_source_update(
                 message=(
                     "Version check complete. Local changes block source updates."
                     if check.dirty
-                    else f"A newer revision is available on {check.upstream}."
+                    else f"A different revision is published on {check.upstream}."
                     if check.update_available
                     else f"Argus is already on the latest {check.upstream} revision."
                 ),
@@ -175,12 +175,12 @@ def _run_source_update(
                 "upstream_revision": result.after_revision,
                 "update_available": False,
                 "changed": result.changed,
-                "restart_required": result.changed or bool(
+                "restart_required": result.changed or result.installed or bool(
                     read_source_update_status(global_root).get("restart_required")
                 ),
                 "message": (
                     "Latest source installed. Restart the cockpit and safely reload active daemons."
-                    if result.changed
+                    if result.changed or result.installed
                     else f"Argus is already on the latest {result.upstream} revision."
                 ),
                 "error": "",

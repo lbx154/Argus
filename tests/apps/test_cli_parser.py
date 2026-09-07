@@ -116,9 +116,26 @@ def test_parser_exposes_update_subcommand():
     assert args.command == "update"
 
 
-def test_parser_exposes_update_flag_alias():
-    args = build_parser().parse_args(["--update"])
+@pytest.mark.parametrize("flag", ["--update", "-update"])
+def test_parser_exposes_update_flag_alias(flag: str):
+    args = build_parser().parse_args([flag])
     assert args.update is True
+
+
+@pytest.mark.parametrize("flag", ["--update", "-update"])
+def test_update_flag_remains_exclusive_with_other_actions(
+    flag: str, monkeypatch: pytest.MonkeyPatch, capsys,
+) -> None:
+    from argus_skill.apps import update
+
+    monkeypatch.setattr(
+        update,
+        "run_update",
+        lambda: pytest.fail("conflicting actions must not run the updater"),
+    )
+
+    assert main([flag, "--status"]) == 2
+    assert "mutually exclusive" in capsys.readouterr().err
 
 
 def test_parser_has_wiki_subcommand():

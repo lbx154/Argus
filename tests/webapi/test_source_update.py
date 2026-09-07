@@ -152,6 +152,23 @@ def test_source_update_install_failure_does_not_claim_source_unchanged(tmp_path,
     assert status["restart_required"] is True
 
 
+def test_source_update_reinstallation_requires_restart_without_git_change(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(source_update, "inspect_source_checkout", lambda _root: UpdateCheck(
+        root=tmp_path, upstream="microsoft/ArgusAgent/main",
+        current_revision="same", upstream_revision="same", branch="main", dirty=False,
+    ))
+    monkeypatch.setattr(source_update, "update_source_checkout", lambda _root, **_kwargs: UpdateResult(
+        root=tmp_path, upstream="microsoft/ArgusAgent/main",
+        before_revision="same", after_revision="same", installed=True,
+    ))
+    source_update._run_source_update(tmp_path, "apply", checkout=tmp_path)
+    status = source_update.read_source_update_status(tmp_path)
+    assert status["state"] == "succeeded"
+    assert status["changed"] is False
+    assert status["restart_required"] is True
+    assert "Latest source installed" in status["message"]
+
+
 def test_source_update_thread_smoke_serializes_requests_and_persists_result(
     tmp_path, monkeypatch,
 ) -> None:
