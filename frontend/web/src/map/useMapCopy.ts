@@ -112,6 +112,6 @@ export function useMapCopy(
     // cancelling it on every live event leaves completed results stuck on disk.
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, pulse, copy.data?.available, allowGeneration]);
+  }, [signature, pulse, copy.data?.available, allowGeneration, paused]);
   return { copy: copy.data, generating, ready: copy.isFetched };
 }

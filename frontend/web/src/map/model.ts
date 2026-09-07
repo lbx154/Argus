@@ -99,6 +99,41 @@ export function statusKey(task: MapTask): string {
     : "unknown";
 }
 
+/** Iterative SCC traversal also handles histories deeper than the JS call stack. */
+function dependencyComponents(children: Map<string, string[]>): Map<string, number> {
+  const seen = new Set<string>();
+  const finished: string[] = [];
+  const parents = new Map([...children.keys()].map((id) => [id, [] as string[]]));
+  for (const [id, next] of children)
+    for (const child of next) parents.get(child)!.push(id);
+  for (const id of children.keys()) {
+    const stack: Array<[string, boolean]> = [[id, false]];
+    while (stack.length) {
+      const [node, exiting] = stack.pop()!;
+      if (exiting) finished.push(node);
+      else if (!seen.has(node)) {
+        seen.add(node);
+        stack.push([node, true]);
+        for (const child of children.get(node)!)
+          if (!seen.has(child)) stack.push([child, false]);
+      }
+    }
+  }
+  const component = new Map<string, number>();
+  for (const id of finished.reverse()) {
+    if (component.has(id)) continue;
+    const group = component.size;
+    const stack = [id];
+    while (stack.length) {
+      const node = stack.pop()!;
+      if (component.has(node)) continue;
+      component.set(node, group);
+      for (const parent of parents.get(node)!) stack.push(parent);
+    }
+  }
+  return component;
+}
+
 /** Preserve recorded dependencies and plan changes; chronology is a separate shared context. */
 export function buildMap(tasks: MapTask[]): MapGraph {
   const unique = new Map(tasks.map((task) => [task.id, task]));
@@ -160,17 +195,20 @@ export function buildMap(tasks: MapTask[]): MapGraph {
       target_count: targets.length,
     });
   }
-  if (cyclic)
+  if (cyclic) {
+    // Kahn's residual includes work blocked downstream of a cycle. Only an
+    // edge inside one strongly connected component actually belongs to a cycle.
+    const component = dependencyComponents(children);
     links
       .filter(
         (e) =>
           e.kind === "dependency" &&
-          (indegree.get(e.source) ?? 0) > 0 &&
-          (indegree.get(e.target) ?? 0) > 0,
+          component.get(e.source) === component.get(e.target),
       )
       .forEach((e) => {
         e.cycle = true;
       });
+  }
   return {
     tasks: all,
     links,

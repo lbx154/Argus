@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
-from ..life.memory import LifeMemory
+from ..life.memory import LifeMemory, _jsonl_history_paths
 
 TASK_FIELDS = (
     "id",
@@ -160,6 +160,15 @@ def read_map(
             if append and offset:
                 f.seek(max(0, offset - 128))
                 append = f.read(min(128, offset)) == state.get("anchor")
+            retained_previous = False
+            if not append and state.get("identity") and state["identity"] != identity:
+                for archived in _jsonl_history_paths(path):
+                    if archived == path:
+                        continue
+                    archived_stat = archived.stat()
+                    if (archived_stat.st_dev, archived_stat.st_ino) == state["identity"]:
+                        retained_previous = True
+                        break
             if append:
                 previous = state.get("events", [])
                 active = set(state.get("active", ()))
@@ -192,7 +201,8 @@ def read_map(
                 identity=identity, offset=consumed, anchor=f.read(min(128, consumed)),
                 task_ids=task_ids, events=events[-2000:], active=active,
                 truncated=truncated or len(events) > 2000,
-                reset=bool(state) and not append and state.get("task_ids") == task_ids,
+                reset=bool(state) and not append and not retained_previous
+                and state.get("task_ids") == task_ids,
             )
     else:
         events = []

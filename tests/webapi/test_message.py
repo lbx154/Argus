@@ -1014,7 +1014,7 @@ def test_manager_steer_persists_high_priority_live_directive(
     assert "已升级为持续任务" in result["reply"]
     inbox = [
         json.loads(line)
-        for line in (life / "inbox.jsonl").read_text().splitlines()
+        for line in (life / "inbox.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert "Operator steering (standing)" in inbox[-1]["text"]
     assert "检索最接近的前人研究" in inbox[-1]["text"]

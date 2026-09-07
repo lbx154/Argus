@@ -7,6 +7,7 @@ import sqlite3
 import time
 from pathlib import Path
 
+from ..life.memory import _jsonl_history_paths
 from .map_view import digest, normalize_events, with_revisions
 
 PAGE_BYTES = 1024 * 1024
@@ -18,8 +19,7 @@ def history_path(root: Path, life_dir: Path) -> Path:
 
 
 def history_info(value: dict, life_dir: Path) -> dict:
-    path = life_dir / "events.jsonl"
-    size = path.stat().st_size if path.is_file() else 0
+    size = sum(path.stat().st_size for path in _jsonl_history_paths(life_dir / "events.jsonl"))
     tasks = value["tasks"]
     active = [t for t in tasks if t.get("status") in ("running", "in_progress", "claimed")]
     pending = [t for t in tasks if t.get("status") == "pending"]
@@ -42,7 +42,6 @@ def _connect(path: Path):
 
 
 def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> dict:
-    path = life_dir / "events.jsonl"
     db = _connect(history_path(root, life_dir))
     try:
         with db:
@@ -50,28 +49,53 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT value FROM metadata WHERE key = 'state'").fetchone()
             state = json.loads(row[0]) if row else {}
-            stat = path.stat() if path.is_file() else None
-            identity = [stat.st_dev, stat.st_ino] if stat else None
-            size = stat.st_size if stat else 0
-            offset = state.get("offset", 0)
-            reset = state.get("identity") != identity or size < offset
-            if stat:
+            files = [(path, path.stat()) for path in _jsonl_history_paths(life_dir / "events.jsonl")]
+            size = sum(stat.st_size for _, stat in files)
+            task_ids = sorted(t["id"] for t in value["tasks"])
+            known_ids = set(task_ids)
+            previous_ids = set(state.get("task_ids", []))
+            saved_files = state.get("files", [])
+            reset = (
+                "files" not in state or bool(previous_ids - known_ids)
+                or bool((known_ids - previous_ids) & set(state.get("omitted_owners", [])))
+                or len(saved_files) > len(files)
+            )
+            # File identity survives canonical rollover renames (.1 -> .2, etc.).
+            # Validate the already indexed prefix before appending new generations.
+            for saved, (path, stat) in zip(saved_files, files):
+                offset = saved["offset"]
+                if saved["identity"] != [stat.st_dev, stat.st_ino] or stat.st_size < offset:
+                    reset = True
+                    break
                 with path.open("rb") as stream:
                     stream.seek(max(0, offset - 128))
-                    if offset and digest(stream.read(min(offset, 128)).hex()) != state.get("anchor"):
+                    if offset and digest(stream.read(min(offset, 128)).hex()) != saved.get("anchor"):
                         reset = True
+                        break
             if not state or reset:
                 db.execute("DELETE FROM events")
-                state = {"identity": identity, "offset": 0, "active": [],
-                         "epoch": digest([str(life_dir), identity, time.time_ns()])}
-                offset = 0
+                state = {"files": [], "task_ids": task_ids, "active": [], "omitted_owners": [],
+                         "epoch": digest([str(life_dir), time.time_ns()])}
             more_bytes = False
-            if stat and size > offset:
+            remaining = PAGE_BYTES
+            active = set(state["active"])
+            omitted = set(state.get("omitted_owners", []))
+            for index, (path, stat) in enumerate(files):
+                if index == len(state["files"]):
+                    state["files"].append({"identity": [stat.st_dev, stat.st_ino], "offset": 0})
+                saved = state["files"][index]
+                offset = saved["offset"]
+                if stat.st_size <= offset:
+                    continue
+                if remaining <= 0:
+                    more_bytes = True
+                    break
                 with path.open("rb") as stream:
                     stream.seek(offset)
-                    payload = stream.read(PAGE_BYTES)
+                    payload = stream.read(remaining)
                     if payload and not payload.endswith(b"\n"):
                         payload += stream.readline()
+                    remaining -= len(payload)
                     consumed = offset
                     rows = []
                     for line in payload.splitlines(keepends=True):
@@ -84,17 +108,24 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
                             continue
                         if isinstance(row, dict):
                             rows.append(row)
-                    active = set(state["active"])
-                    events = normalize_events(rows, {t["id"] for t in value["tasks"]}, active)
+                    owners = known_ids | active | {
+                        str(row.get("item_id") or row.get("mission_id") or "") for row in rows
+                    }
+                    normalized = normalize_events(rows, owners - {""}, active)
+                    omitted.update(e["item_id"] for e in normalized if e["item_id"] not in known_ids)
+                    events = [e for e in normalized if e["item_id"] in known_ids]
                     db.executemany(
                         "INSERT INTO events (id, body) VALUES (?, ?) "
                         "ON CONFLICT(id) DO UPDATE SET body=excluded.body",
                         [(e["id"], json.dumps(e, ensure_ascii=False)) for e in events],
                     )
-                    more_bytes = stream.tell() < size
+                    more_bytes = stream.tell() < stat.st_size
                     stream.seek(max(0, consumed - 128))
-                    state.update(offset=consumed, active=sorted(active),
-                                 anchor=digest(stream.read(min(consumed, 128)).hex()))
+                    saved.update(offset=consumed, anchor=digest(stream.read(min(consumed, 128)).hex()))
+                if more_bytes:
+                    break
+            state.update(active=sorted(active), task_ids=task_ids, omitted_owners=sorted(omitted),
+                         offset=sum(saved["offset"] for saved in state["files"]))
             db.execute("INSERT OR REPLACE INTO metadata VALUES ('state', ?)", (json.dumps(state),))
             epoch, _, number = (after or "").partition(":")
             valid = epoch == state["epoch"] and number.isdigit()

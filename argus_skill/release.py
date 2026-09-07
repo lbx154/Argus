@@ -100,6 +100,11 @@ def _source_files(root: Path) -> Iterable[Path]:
             ):
                 continue
             relative = path.resolve().relative_to(root.resolve()).as_posix()
+            if relative == "argus_skill/release_tools/check_repository_parity.py":
+                # This private-repository CI helper checks publication parity;
+                # it is not a product input. Keeping it must not give otherwise
+                # identical public/private releases different identities.
+                continue
             if (
                 tracked is not None
                 and relative not in tracked

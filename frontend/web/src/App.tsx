@@ -1100,7 +1100,7 @@ export default function App() {
       />
       <PendingReplyDialog
         reply={pendingReply}
-        open={pendingReplyOpen && workspaceView !== 'map'}
+        open={pendingReplyOpen}
         busy={pendingReplyBusy}
         onClose={() => setPendingReplyOpen(false)}
         onSubmit={answerPendingReply}

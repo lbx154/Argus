@@ -56,7 +56,9 @@ def test_dashboard_projects_verified_rejected_and_parallel_candidates(tmp_path) 
 
 
 @pytest.mark.parametrize("directory", ["inputs", "outputs", "research", "evidence", "parallel"])
-def test_dashboard_does_not_follow_workspace_directory_escapes(tmp_path, directory) -> None:
+def test_dashboard_does_not_follow_workspace_directory_escapes(
+    tmp_path, directory, require_symlink_support,
+) -> None:
     workspace = tmp_path / "workspace"
     external = tmp_path / "external"
     workspace.mkdir()
@@ -95,7 +97,9 @@ def test_dashboard_caps_csv_reads_before_parsing_remaining_rows(tmp_path, monkey
     assert build_counterexample_dashboard(tmp_path)["total"] == 1
 
 
-def test_dashboard_preserves_non_symlink_evidence_requirement(tmp_path) -> None:
+def test_dashboard_preserves_non_symlink_evidence_requirement(
+    tmp_path, require_symlink_support,
+) -> None:
     _write_csv(tmp_path / "inputs" / "priority_pool.csv", ["ID"], [{"ID": "1"}])
     (tmp_path / "report.md").write_text("ordinary workspace file")
     evidence = tmp_path / "evidence" / "1"

@@ -43,6 +43,20 @@ describe("progress map data semantics", () => {
     expect(graph.links.filter((e) => e.kind === "dependency")).toHaveLength(2);
     expect(graph.links.every((l) => l.cycle)).toBe(true);
   });
+  it("does not label downstream work or a bridge between cycles as cyclic", () => {
+    const graph = buildMap([
+      task("a", ["b"]),
+      task("b", ["a"]),
+      task("c", ["b", "d"]),
+      task("d", ["c"]),
+      task("downstream", ["d"]),
+      task("self", ["self"]),
+    ]);
+    expect(graph.cyclic).toBe(true);
+    expect(graph.links.filter((link) => link.cycle).map((link) => [link.source, link.target]))
+      .toEqual([["b", "a"], ["a", "b"], ["d", "c"], ["c", "d"], ["self", "self"]]);
+    expect(graph.links).toHaveLength(7);
+  });
   it("is idempotent when task states arrive twice", () => {
     const rows = [task("a"), task("b", ["a"])];
     expect(buildMap([...rows, ...rows])).toEqual(buildMap(rows));

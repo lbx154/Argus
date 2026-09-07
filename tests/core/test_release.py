@@ -157,6 +157,21 @@ def test_installed_frontend_dependencies_do_not_change_release_identity() -> Non
             node_modules.rmdir()
 
 
+def test_repository_parity_tool_does_not_change_product_release_identity(tmp_path: Path) -> None:
+    runtime = tmp_path / "argus_skill" / "runtime.py"
+    runtime.parent.mkdir()
+    runtime.write_text("VALUE = 1\n", encoding="utf-8")
+    public_digest = compute_source_digest(tmp_path)
+    checker = runtime.parent / "release_tools" / "check_repository_parity.py"
+    checker.parent.mkdir()
+    checker.write_text("PRIVATE_ONLY_PATTERNS = ('private-notes.md',)\n", encoding="utf-8")
+    assert compute_source_digest(tmp_path) == public_digest
+    checker.write_text("PRIVATE_ONLY_PATTERNS = ('private-docs/**',)\n", encoding="utf-8")
+    assert compute_source_digest(tmp_path) == public_digest
+    runtime.write_text("VALUE = 2\n", encoding="utf-8")
+    assert compute_source_digest(tmp_path) != public_digest
+
+
 def test_strict_release_preflight_rejects_manifest_source_mismatch(
     monkeypatch,
 ) -> None:

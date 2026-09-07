@@ -63,7 +63,8 @@ def register_map_live_routes(app, ctx, read_dataset):
         root, life_dir = ctx.project_root_or_404(sid), ctx.resolve_or_404(sid)
         value = feed.read(sid, root, life_dir, include_events=False)
         result = history_page(root, life_dir, value, after)
-        delta = feed.read(sid, root, life_dir, task_after, include_events=False)
+        delta = feed.read(sid, root, life_dir, None if result["reset_history"] else task_after,
+                          include_events=False)
         result.update(tasks=delta["tasks"], tasks_complete=not delta["incremental"],
                       cursor=delta["cursor"], removed_task_ids=delta.get("removed_task_ids", []))
         return result

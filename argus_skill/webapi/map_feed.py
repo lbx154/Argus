@@ -29,7 +29,9 @@ class MapFeed:
     ) -> dict:
         key = (sid, str(root.resolve()), str(life_dir.resolve()), include_events)
         with self._lock:
-            entry = self._sessions.setdefault(key, {"events": {}, "versions": OrderedDict()})
+            entry = self._sessions.setdefault(key, {
+                "events": {}, "versions": OrderedDict(), "invalidated": OrderedDict(),
+            })
             self._sessions.move_to_end(key)
             while len(self._sessions) > 16:
                 self._sessions.popitem(last=False)
@@ -46,6 +48,9 @@ class MapFeed:
                                  include_events=include_events)
                 versions = entry["versions"]
                 if entry["events"].get("reset"):
+                    entry["invalidated"].update((cursor, None) for cursor in versions)
+                    while len(entry["invalidated"]) > 64:
+                        entry["invalidated"].popitem(last=False)
                     versions.clear()
                 revision = digest(value)
                 versions[revision] = (
@@ -58,7 +63,8 @@ class MapFeed:
             value, revision = entry["value"], entry["revision"]
             previous = entry["versions"].get(after)
             if previous is None:
-                return {**value, "cursor": revision, "incremental": False}
+                return {**value, "cursor": revision, "incremental": False,
+                        "reset_history": after in entry["invalidated"]}
             tasks, events = previous
             ids = {t["id"] for t in value["tasks"]}
             return {

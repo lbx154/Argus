@@ -26,16 +26,23 @@ def test_map_samples_are_separate_from_runnable_projects(tmp_path, monkeypatch):
     assert client.get("/api/projects", headers=headers).json()["projects"] == []
 
 
-def test_map_samples_reject_symlinks_and_invalid_contract(tmp_path, monkeypatch):
+def test_map_samples_reject_symlinks(tmp_path, monkeypatch, require_symlink_support):
     folder = tmp_path / "fixtures"
     folder.mkdir()
     outside = tmp_path / "private.json"
     outside.write_text('{"secret":"not-a-fixture"}')
     (folder / "escape.json").symlink_to(outside)
-    (folder / "invalid.json").write_text('{"id":"invalid","read_only":false}')
     monkeypatch.setenv("ARGUS_MAP_DATASETS_DIR", str(folder))
     client = TestClient(create_app(global_root=tmp_path / "state"))
     assert client.get("/api/map-datasets/escape").status_code == 404
+
+
+def test_map_samples_reject_invalid_contract(tmp_path, monkeypatch):
+    folder = tmp_path / "fixtures"
+    folder.mkdir()
+    (folder / "invalid.json").write_text('{"id":"invalid","read_only":false}')
+    monkeypatch.setenv("ARGUS_MAP_DATASETS_DIR", str(folder))
+    client = TestClient(create_app(global_root=tmp_path / "state"))
     assert client.get("/api/map-datasets/invalid").status_code == 503
     assert client.get("/api/map-datasets/index").status_code == 404
     assert client.get("/api/map-datasets/unknown").status_code == 404

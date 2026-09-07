@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import ast
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from argus_skill.desktop_backend_entry import (
     _install_windows_signal_zero_guard,
@@ -29,6 +32,46 @@ def test_desktop_multicommand_test_step_fails_on_first_error() -> None:
     )[0]
 
     assert "shell: bash" in step
+
+
+@pytest.mark.parametrize("failed_stage", ["backend", "web", "desktop", "none"])
+def test_desktop_build_stops_on_each_failed_command(tmp_path, failed_stage) -> None:
+    shell = shutil.which("pwsh") or shutil.which("powershell")
+    if shell is None:
+        pytest.skip("PowerShell is required to execute the Windows CI build step")
+    workflow = yaml.safe_load((ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8"))
+    step = next(step for step in workflow["jobs"]["desktop"]["steps"]
+                if step.get("name") == "Build frozen backend and unsigned Tauri package layout")
+    backend = tmp_path / "desktop-tauri/scripts/build-backend.ps1"
+    backend.parent.mkdir(parents=True)
+    backend.write_text(
+        "Add-Content -LiteralPath stages.txt -Value backend\n"
+        f"$global:LASTEXITCODE = {19 if failed_stage == 'backend' else 0}\n",
+        encoding="utf-8",
+    )
+    # Execute the actual workflow with deterministic stand-ins for costly builds.
+    # A later successful command must never turn an earlier failure green.
+    script = f"""
+$ErrorActionPreference = 'Stop'
+$failedStage = '{failed_stage}'
+function npm {{
+    $stage = if ($args -contains 'frontend/web') {{ 'web' }} else {{ 'desktop' }}
+    Add-Content -LiteralPath stages.txt -Value $stage
+    $global:LASTEXITCODE = if ($stage -eq $failedStage) {{ 19 }} else {{ 0 }}
+}}
+{step['run']}
+Add-Content -LiteralPath stages.txt -Value complete
+"""
+    result = subprocess.run(
+        [shell, "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=tmp_path, capture_output=True, text=True, timeout=30,
+    )
+    stages = (tmp_path / "stages.txt").read_text(encoding="utf-8-sig").splitlines()
+    expected = ["backend", "web", "desktop", "complete"]
+    if failed_stage != "none":
+        expected = expected[:expected.index(failed_stage) + 1]
+    assert result.returncode == (0 if failed_stage == "none" else 19), result.stderr
+    assert stages == expected
 
 
 def _execute_spec_collection(tree: ast.Module) -> tuple[dict, list[tuple[str, str]]]:
