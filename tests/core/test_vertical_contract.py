@@ -73,6 +73,51 @@ def test_provider_completion_validator_is_typed_and_normalized(tmp_path: Path) -
     )
 
 
+def test_empty_completion_gate_does_not_opt_into_automatic_close(tmp_path: Path) -> None:
+    provider = SimpleNamespace(
+        CHECKLIST_STAGE_ORDER=("verify",),
+        CHECKLIST_ITEMS={"verify": (_item("verify.output"),)},
+        completion_gate="none",
+        stage_completion_issues=lambda *_args: (),
+    )
+    contract = vertical_contract("model_reviewed", provider)
+
+    assert contract.completion_issues("verify", tmp_path) == ()
+    assert not contract.auto_close_allowed("verify", tmp_path, state_root=tmp_path)
+
+
+def test_auto_close_policy_receives_separate_state_and_evidence_roots(tmp_path: Path) -> None:
+    calls = []
+
+    def allowed(stage, project_root, *, state_root):
+        calls.append((stage, project_root, state_root))
+        return True
+
+    provider = SimpleNamespace(
+        CHECKLIST_STAGE_ORDER=("verify",),
+        CHECKLIST_ITEMS={"verify": (_item("verify.output"),)},
+        completion_gate="none", stage_auto_close_allowed=allowed,
+    )
+    contract = vertical_contract("machine_reviewed", provider)
+    evidence, state = tmp_path / "evidence", tmp_path / "state"
+
+    assert contract.auto_close_allowed("verify", evidence, state_root=state)
+    assert calls == [("verify", evidence, state)]
+
+
+@pytest.mark.parametrize("policy", ["yes", lambda *_args, **_kwargs: "yes"])
+def test_auto_close_rejects_invalid_policy(policy, tmp_path: Path) -> None:
+    provider = SimpleNamespace(
+        CHECKLIST_STAGE_ORDER=("verify",),
+        CHECKLIST_ITEMS={"verify": (_item("verify.output"),)},
+        completion_gate="none", stage_auto_close_allowed=policy,
+    )
+    with pytest.raises(VerticalContractError, match="auto-close"):
+        vertical_contract("invalid", provider).auto_close_allowed(
+            "verify", tmp_path, state_root=tmp_path,
+        )
+
+
 def test_vertical_validator_can_defer_checks_by_verification_profile(
     tmp_path: Path,
 ) -> None:

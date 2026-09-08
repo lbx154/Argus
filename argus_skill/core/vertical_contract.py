@@ -177,6 +177,7 @@ class VerticalContract:
     mission_prelude: MissionPrelude | None = None
     library_preparer: Callable[[VerticalLibraryContext], None] | None = None
     stage_completion_validator: Callable[..., object] | None = None
+    stage_auto_close_policy: Callable[..., bool] | None = None
     planner_task_validator: Callable[[str, Path, Any], object] | None = None
     review_purchase_policy: Callable[..., PlannerReviewPurchaseDecision] | None = None
     iteration_assessor: IterationAssessmentHook | None = None
@@ -265,6 +266,30 @@ class VerticalContract:
         # froze research campaigns to what they knew at idea selection. A
         # vertical can still declare an explicit empty set to turn search off.
         return frozenset(self.stage_order) or default
+
+    def auto_close_allowed(
+        self,
+        stage: str,
+        project_root: Path,
+        *,
+        state_root: Path,
+    ) -> bool:
+        """Whether this stage has a decisive machine gate for automatic close.
+
+        An empty completion-issues list alone may mean no machine validator
+        applies; it cannot certify human/model-reviewed work. Providers must
+        explicitly opt in, and the caller must still check completion_issues.
+        """
+        if self.stage_auto_close_policy is None:
+            return False
+        allowed = self.stage_auto_close_policy(
+            stage, project_root, state_root=state_root,
+        )
+        if not isinstance(allowed, bool):
+            raise VerticalContractError(
+                f"vertical {self.name!r} auto-close policy returned a non-boolean"
+            )
+        return allowed
 
     def completion_issues(
         self,
@@ -581,6 +606,11 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         raise VerticalContractError(
             f"vertical {name!r} has a non-callable stage completion validator"
         )
+    stage_auto_close_policy = getattr(provider, "stage_auto_close_allowed", None)
+    if stage_auto_close_policy is not None and not callable(stage_auto_close_policy):
+        raise VerticalContractError(
+            f"vertical {name!r} has a non-callable stage auto-close policy"
+        )
     planner_task_validator = getattr(provider, "planner_task_issues", None)
     if planner_task_validator is not None and not callable(planner_task_validator):
         raise VerticalContractError(
@@ -744,6 +774,7 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
             else None
         ),
         stage_completion_validator=stage_completion_validator,
+        stage_auto_close_policy=stage_auto_close_policy,
         planner_task_validator=planner_task_validator,
         review_purchase_policy=review_purchase_policy,
         iteration_assessor=iteration_assessor,

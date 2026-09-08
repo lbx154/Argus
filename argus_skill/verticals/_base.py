@@ -99,6 +99,18 @@ def vertical_checklist_optional_stages(
     return _contract(mod).checklist_optional_stages
 
 
+def vertical_stage_auto_close_allowed(
+    mod: VerticalDefinition,
+    *,
+    stage: str,
+    project_root: Path,
+    state_root: Path,
+) -> bool:
+    return _contract(mod).auto_close_allowed(
+        stage, project_root, state_root=state_root,
+    )
+
+
 def vertical_stage_aliases(mod: VerticalDefinition) -> dict[str, str]:
     """Return non-canonical stage names mapped to canonical stage names."""
     return dict(_contract(mod).stage_aliases or {})
@@ -302,6 +314,7 @@ __all__ = [
     "vertical_checklist_stage_order",
     "vertical_checklist_items",
     "vertical_checklist_optional_stages",
+    "vertical_stage_auto_close_allowed",
     "vertical_role_banner",
     "vertical_requires_independent_review",
     "vertical_completion_contract_version",

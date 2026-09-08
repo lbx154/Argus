@@ -48,8 +48,8 @@ def test_research_first_stage_ready_when_provider_gate_is_empty(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.verticals.research.idea_portfolio.portfolio_required",
-        lambda _root: True,
+        "argus_skill.verticals._base.vertical_stage_auto_close_allowed",
+        lambda *_args, **_kwargs: True,
     )
     monkeypatch.setattr(
         "argus_skill.core.pipeline_state.read_pipeline_state",
@@ -89,13 +89,36 @@ def test_research_first_stage_ready_when_provider_gate_is_empty(
     }
 
 
+def test_required_portfolio_opts_in_but_still_needs_completed_evidence(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus_skill.verticals.research import stages
+
+    state_root, workdir = tmp_path / "state", tmp_path / "workdir"
+    workdir.mkdir()
+    persist_vertical(
+        state_root, "research", workflow_mode="staged",
+        research_target_level="publishable", research_direction_mode="broad",
+    )
+    assert stages.stage_auto_close_allowed("idea", workdir, state_root=state_root)
+    assert not stages.stage_auto_close_allowed("build", workdir, state_root=state_root)
+    assert not module._research_stage_ready_for_close(
+        state_root=state_root, evidence_root=workdir,
+    )
+
+    monkeypatch.setattr(stages, "stage_completion_issues", lambda *_args, **_kwargs: ())
+    assert module._research_stage_ready_for_close(
+        state_root=state_root, evidence_root=workdir,
+    )
+
+
 def test_research_auto_close_derives_first_stage_not_old_literal(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.verticals.research.idea_portfolio.portfolio_required",
-        lambda _root: True,
+        "argus_skill.verticals._base.vertical_stage_auto_close_allowed",
+        lambda *_args, **_kwargs: True,
     )
     monkeypatch.setattr(
         "argus_skill.core.pipeline_state.read_pipeline_state",
@@ -121,8 +144,8 @@ def test_research_first_stage_does_not_close_with_blockers(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.verticals.research.idea_portfolio.portfolio_required",
-        lambda _root: True,
+        "argus_skill.verticals._base.vertical_stage_auto_close_allowed",
+        lambda *_args, **_kwargs: True,
     )
     monkeypatch.setattr(
         "argus_skill.core.pipeline_state.read_pipeline_state",
