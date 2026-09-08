@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { createContext, memo, useContext, useEffect, useRef, useState } from "react";
 import { Handle, Position, useStore, type Node, type NodeProps } from "@xyflow/react";
 import {
   Check,
@@ -46,8 +46,6 @@ export type MacroData = MapCard & {
   readOnly: boolean;
   source: string;
   quote: (ref: CardReference) => void;
-  artifacts?: ArtifactInfo[];
-  onOpenArtifact?: (path: string) => void;
   menu: (ref: CardReference, point: { x: number; y: number }) => void;
   readStep: (
     id: string,
@@ -61,6 +59,12 @@ export type MacroData = MapCard & {
   ) => void;
 } & Record<string, unknown>;
 export type MacroNode = Node<MacroData, "task">;
+/** Artifact previews change often and are only read inside the open reader;
+ * context keeps them out of every node's data so updates skip idle nodes. */
+export const MapArtifactContext = createContext<{
+  artifacts?: ArtifactInfo[];
+  onOpenArtifact?: (path: string) => void;
+}>({});
 const KINDS: Record<StepKind, [string, string]> = {
   plan: ["规划", "Plan"],
   execution: ["执行尝试", "Execute"],
@@ -117,6 +121,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   data,
 }: NodeProps<MacroNode>) {
   const { task, ordinal, zh, layout: currentLayout, focused, detailed } = data;
+  const { artifacts, onOpenArtifact } = useContext(MapArtifactContext);
   // Only density thresholds trigger React work; continuous zoom typography is CSS.
   const density = useStore((state) => {
     const width = state.transform[2] * data.frame.width;
@@ -539,7 +544,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </header>
             <h3><MarkdownExcerpt>{detail.title}</MarkdownExcerpt></h3>
             <div className="macro-reader-body">
-              <MarkdownContent artifacts={data.artifacts} onOpenArtifact={data.onOpenArtifact}>
+              <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>
                 {cleanDeliverySummary(stepCopy(detail)?.detail || detail.detail || (zh ? "暂无详细记录。" : "No details available yet."))}
               </MarkdownContent>
             </div>

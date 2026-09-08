@@ -43,8 +43,8 @@ import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
 import { ACTIVE, buildMap, connectMap, statusKey, type Dataset } from "./model";
 import { layoutScene } from "./submap";
-import { relationPorts } from "./graphLayout";
-import { MacroTaskNode, type MacroData, type MacroNode } from "./MacroTaskNode";
+import { edgeLanes, relationPorts } from "./graphLayout";
+import { MacroTaskNode, MapArtifactContext, type MacroData, type MacroNode } from "./MacroTaskNode";
 import { INITIAL_VIEWPORT, useSemanticCamera } from "./useSemanticCamera";
 import { useMapCopy } from "./useMapCopy";
 import { MapComposer, type MapComposerProps } from "./MapComposer";
@@ -56,7 +56,7 @@ import "./submap.css";
 import "./atlas.css";
 import { MapRelationEdge } from "./MapRelationEdge";
 import { MapHistoryChoice } from "./MapHistoryChoice";
-import { mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
+import { livePollInterval, mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
 import { recalledView, rememberView } from "./viewMemory";
 
 interface MapWorkspaceActions {
@@ -356,8 +356,6 @@ function MapCanvas({
             const delay = growth.steps[stepIdentity(n.id, step.id)];
             return delay == null ? [] : [[step.id, delay]];
           })),
-          artifacts: actions.artifacts,
-          onOpenArtifact: actions.onOpenArtifact,
           growingLinks: Object.fromEntries(n.data.layout.links.flatMap((link) => {
             const delay = growth.links[stepIdentity(n.id, link.id)];
             return delay == null ? [] : [[link.id, delay]];
@@ -389,20 +387,18 @@ function MapCanvas({
       growth,
       flight,
       composer.historical,
-      actions.artifacts,
-      actions.onOpenArtifact,
     ],
   );
   const edges: Edge[] = useMemo(
-    () =>
-      scene.links
-        .filter(
-          (e) =>
-            visibleIds.has(e.source) &&
-            visibleIds.has(e.target) &&
-            (e.kind !== "replacement" || showReplacements),
-        )
-        .map((e, index, visibleLinks) => ({
+    () => {
+      const visibleLinks = scene.links.filter(
+        (e) =>
+          visibleIds.has(e.source) &&
+          visibleIds.has(e.target) &&
+          (e.kind !== "replacement" || showReplacements),
+      );
+      const lanes = edgeLanes(visibleLinks);
+      return visibleLinks.map((e, index) => ({
           id: e.id,
           source: e.source,
           target: e.target,
@@ -414,10 +410,7 @@ function MapCanvas({
           data: {
             growthDelay: growth.links[e.id],
             active: data.kind === "live" && !paused && scene.cards.some((card) => card.id === e.target && ACTIVE.has(card.task.status)),
-            lane: visibleLinks
-              .slice(0, index)
-              .filter((l) => l.source === e.source || l.target === e.target)
-              .length,
+            lane: lanes[index],
           },
           className: `map-edge-${e.kind}`,
           label:
@@ -463,7 +456,8 @@ function MapCanvas({
             (e.kind === "dependency"
               ? `Dependency: ${e.source} → ${e.target}`
               : `Plan replacement: ${e.source} → ${e.target_plan_id} (${e.target_count} tasks, representative ${e.target})`),
-        })),
+        }));
+    },
     [
       scene.links,
       visibleIds,
@@ -506,8 +500,12 @@ function MapCanvas({
         zh ? "发送一个目标，地图就会开始生长" : "Send a goal to start your map",
       );
   };
+  const artifactScope = useMemo(
+    () => ({ artifacts: actions.artifacts, onOpenArtifact: actions.onOpenArtifact }),
+    [actions.artifacts, actions.onOpenArtifact],
+  );
   return (
-    <>
+    <MapArtifactContext.Provider value={artifactScope}>
       <div className="map-progress-line" role="progressbar" aria-label={zh ? "已完成任务" : "Completed tasks"} aria-valuemin={0} aria-valuemax={data.tasks.length || 1} aria-valuenow={complete}><span style={{ width: `${data.tasks.length ? complete / data.tasks.length * 100 : 0}%` }} /></div>
       <div className="map-summary">
         <div>
@@ -844,7 +842,7 @@ function MapCanvas({
           <small>{zh ? "时间顺序" : "Chronological order"}</small>
         </div>
       )}
-    </>
+    </MapArtifactContext.Provider>
   );
 }
 
@@ -862,7 +860,14 @@ export function MapPanel({
   onOpenSettings,
   routeOverride,
   onRouteOverrideChange,
-  ...actions
+  conversationEvents,
+  connected,
+  artifacts,
+  deliveryCount,
+  onOpenDelivery,
+  onOpenReceipt,
+  onOpenArtifact,
+  onAnswer,
 }: {
   snapshot: Snapshot;
   events: EventMsg[];
@@ -890,7 +895,7 @@ export function MapPanel({
       mounted.current = false;
     };
   }, []);
-  const send: MapSend = async (text, files = [], observe) => {
+  const send: MapSend = useCallback(async (text, files = [], observe) => {
     const accepted = await onSend(text, files, (result) => {
       if (!mounted.current) return;
       if (result.type === 'settled' && result.outcome === 'error' && !currentDraft.current.trim()) {
@@ -906,7 +911,7 @@ export function MapPanel({
       );
     }
     return accepted;
-  };
+  }, [onSend, onDraftChange]);
   const [source, setSource] = useState(
     () =>
       new URLSearchParams(window.location.search).get("dataset") ||
@@ -963,8 +968,7 @@ export function MapPanel({
     staleTime: Infinity,
     gcTime: 2 * 60 * 60 * 1000,
     refetchOnMount: "always",
-    refetchInterval: (query) => !approved ? false : query.state.data?.history_loading ? 400
-      : !mapIsPaused(snapshot) || query.state.data?.events.some((event) => event.type === 'team.task' && ACTIVE.has(event.status || '')) ? 3000 : false,
+    refetchInterval: (query) => livePollInterval(approved, query.state.data, snapshot),
   });
   const paused = source === "live" && mapIsPaused(snapshot);
   const latestMapEvent = events.filter((e) => e.run_label !== "map-summary" &&
@@ -997,6 +1001,34 @@ export function MapPanel({
   );
 
   const data = source === "live" ? live.data : dataset.data;
+  // Stable object identities: fresh actions/composer objects on every render
+  // would invalidate the node-data memos in every mounted MapCanvas card.
+  const actions = useMemo<MapWorkspaceActions>(
+    () => ({ conversationEvents, connected, artifacts, deliveryCount,
+             onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer }),
+    [conversationEvents, connected, artifacts, deliveryCount,
+     onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer],
+  );
+  const composer = useMemo<MapComposerProps>(
+    () => ({
+      routeOverride,
+      onRouteOverrideChange,
+      value: draft,
+      onChange: onDraftChange,
+      onSend: send,
+      attachments,
+      onAttachmentsChange: setAttachments,
+      pending,
+      onCancel,
+      focusSignal,
+      sessionName: snapshot.session.display_name || snapshot.session.id,
+      historical: source !== "live",
+      zh,
+    }),
+    [routeOverride, onRouteOverrideChange, draft, onDraftChange, send, attachments,
+     pending, onCancel, focusSignal, snapshot.session.display_name, snapshot.session.id,
+     source, zh],
+  );
   const switchSource = (value: string) => {
     setSource(value);
     writeLocalStorage("argus.map.source.v1", value);
@@ -1146,21 +1178,7 @@ export function MapPanel({
                 ? snapshot.roles.find((r) => r.active)?.role
                 : undefined
             }
-            composer={{
-              routeOverride,
-              onRouteOverrideChange,
-              value: draft,
-              onChange: onDraftChange,
-              onSend: send,
-              attachments,
-              onAttachmentsChange: setAttachments,
-              pending,
-              onCancel,
-              focusSignal,
-              sessionName: snapshot.session.display_name || snapshot.session.id,
-              historical: source !== "live",
-              zh,
-            }}
+            composer={composer}
           />
         </ReactFlowProvider>
       ) : (

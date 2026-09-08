@@ -135,12 +135,19 @@ def source_signature(sid: str, root: Path, life_dir: Path, bindings: dict) -> tu
     return _sources(sid, root, life_dir, bindings)[0]
 
 
+def source_snapshot(sid: str, root: Path, life_dir: Path, bindings: dict) -> tuple:
+    """One traversal, reusable as both the cache signature and the projection input."""
+    return _sources(sid, root, life_dir, bindings)
+
+
 def event_id(owner: str, team_id: str, task_id: str) -> str:
     return "team:" + digest([owner, team_id, task_id])
 
 
-def project_team_events(sid: str, root: Path, life_dir: Path, bindings: dict):
-    _signature, files, truncated = _sources(sid, root, life_dir, bindings)
+def project_team_events(sid: str, root: Path, life_dir: Path, bindings: dict, sources: tuple | None = None):
+    _signature, files, truncated = (
+        sources if sources is not None else _sources(sid, root, life_dir, bindings)
+    )
     records = {}
     for path, team_id, binding, stamp in files:
         if stamp is None or stamp[2] > MAX_TASK_BYTES:

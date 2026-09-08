@@ -198,6 +198,29 @@ export function layoutGraph(
   return best;
 }
 
+/** Lane index per edge: how many earlier edges share this edge's source or
+ * target. One pass over the list; a preceding edge sharing both endpoints
+ * counts once, exactly as the original prefix filter did.
+ */
+export function edgeLanes(
+  links: readonly { source: string; target: string }[],
+): number[] {
+  const bySource = new Map<string, number>();
+  const byTarget = new Map<string, number>();
+  const byPair = new Map<string, number>();
+  return links.map((link) => {
+    const pair = `${link.source}\u0000${link.target}`;
+    const lane =
+      (bySource.get(link.source) ?? 0) +
+      (byTarget.get(link.target) ?? 0) -
+      (byPair.get(pair) ?? 0);
+    bySource.set(link.source, (bySource.get(link.source) ?? 0) + 1);
+    byTarget.set(link.target, (byTarget.get(link.target) ?? 0) + 1);
+    byPair.set(pair, (byPair.get(pair) ?? 0) + 1);
+    return lane;
+  });
+}
+
 /** Choose facing ports, including recorded backward and self-referencing edges. */
 export function relationPorts(a: Box, b: Box) {
   if (a.x === b.x && a.y === b.y)

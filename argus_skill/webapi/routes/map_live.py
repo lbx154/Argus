@@ -37,12 +37,13 @@ def register_map_live_routes(app, ctx, read_dataset):
         event_since: float | None = Query(default=None, ge=0, allow_inf_nan=False),
         start_task: str | None = Query(default=None, max_length=160),
     ):
-        value = feed.read(sid, ctx.project_root_or_404(sid), ctx.resolve_or_404(sid), after)
+        value = feed.read(sid, ctx.project_root_or_404(sid), ctx.resolve_or_404(sid), after,
+                          include_task_index=since is not None)
         if since is not None:
-            full = feed.read(sid, ctx.project_root_or_404(sid), ctx.resolve_or_404(sid))
-            ordered = [t["id"] for t in full["tasks"]]
+            index = value.pop("task_index")
+            ordered = [task_id for task_id, _ in index]
             ids = set(ordered[ordered.index(start_task):]) if start_task in ordered else {
-                t["id"] for t in full["tasks"] if (t.get("ts") or 0) >= since
+                task_id for task_id, ts in index if ts >= since
             }
             value["tasks"] = [t for t in value["tasks"] if t["id"] in ids]
             value["events"] = [e for e in value["events"] if e["item_id"] in ids

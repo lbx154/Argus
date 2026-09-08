@@ -1,6 +1,6 @@
 import { replaceEqualDeep } from "@tanstack/react-query";
 import type { Snapshot } from "../api";
-import type { Dataset } from "./model";
+import { ACTIVE, type Dataset } from "./model";
 
 export interface MapHistoryInfo {
   task_count: number;
@@ -48,6 +48,20 @@ export function mergeMapProgress(previous: Dataset | undefined, next: Dataset): 
     tasks: [...tasks.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0) || a.id.localeCompare(b.id)),
     events: [...events.values()].filter((e) => tasks.has(e.item_id)),
   });
+}
+
+export function livePollInterval(
+  approved: boolean,
+  data: Pick<Dataset, "history_loading" | "events"> | undefined,
+  snapshot: Snapshot,
+): number | false {
+  if (!approved) return false;
+  if (data?.history_loading) return 400;
+  // SSE invalidation is the primary refresh trigger while work is active;
+  // this interval is only a safety net for missed events.
+  return !mapIsPaused(snapshot) || data?.events.some(
+    (event) => event.type === "team.task" && ACTIVE.has(event.status || ""),
+  ) ? 15_000 : false;
 }
 
 export function mapIsPaused(snapshot: Snapshot): boolean {

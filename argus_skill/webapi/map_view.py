@@ -127,7 +127,7 @@ def normalize_events(
 
 def read_map(
     sid: str, root: Path, life_dir: Path, *, event_state: dict | None = None,
-    include_events: bool = True,
+    include_events: bool = True, team_sources: tuple | None = None,
 ) -> dict:
     from .map_team import previous_formations, project_team_events, remember_formations
 
@@ -223,8 +223,13 @@ def read_map(
         state.clear()
         state["reset"] = was_present
     meta = read_session_meta(root, sid)
+    bindings = state.get("team_bindings", {})
+    # team_sources is a (bindings, traversal) pair captured by the caller
+    # before this read; it is only reusable while that evidence is unchanged.
     team_events, team_truncated, team_signature = project_team_events(
-        sid, root, life_dir, state.get("team_bindings", {}),
+        sid, root, life_dir, bindings,
+        sources=team_sources[1]
+        if team_sources is not None and team_sources[0] == bindings else None,
     ) if include_events else ([], False, ())
     state["team_signature"] = team_signature
     return with_revisions({

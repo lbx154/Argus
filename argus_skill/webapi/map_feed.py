@@ -7,7 +7,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from ..core.session import read_session_meta
-from .map_team import source_signature
+from .map_team import source_snapshot
 from .map_view import digest, read_map
 
 
@@ -22,33 +22,43 @@ def _stamp(path: Path):
 class MapFeed:
     def __init__(self):
         self._sessions: OrderedDict[tuple, dict] = OrderedDict()
+        # Guards only entry lookup and LRU maintenance. Reads hold their
+        # per-entry lock, so one slow session cannot serialize the others.
         self._lock = threading.Lock()
 
-    def read(
-        self, sid: str, root: Path, life_dir: Path, after: str | None = None, *,
-        include_events: bool = True,
-    ) -> dict:
-        key = (sid, str(root.resolve()), str(life_dir.resolve()), include_events)
+    def _entry(self, key: tuple) -> dict:
         with self._lock:
             entry = self._sessions.setdefault(key, {
                 "events": {}, "versions": OrderedDict(), "invalidated": OrderedDict(),
+                "lock": threading.Lock(),
             })
             self._sessions.move_to_end(key)
             while len(self._sessions) > 16:
                 self._sessions.popitem(last=False)
+            return entry
+
+    def read(
+        self, sid: str, root: Path, life_dir: Path, after: str | None = None, *,
+        include_events: bool = True, include_task_index: bool = False,
+    ) -> dict:
+        key = (sid, str(root.resolve()), str(life_dir.resolve()), include_events)
+        entry = self._entry(key)
+        with entry["lock"]:
             meta = read_session_meta(root, sid)
+            bindings = entry["events"].get("team_bindings", {})
+            sources = source_snapshot(sid, root, life_dir, bindings) if include_events else None
             stamp = (
                 *(_stamp(life_dir / name) for name in (
                     "backlog.jsonl", "backlog.archive.jsonl",
                     *(("events.jsonl",) if include_events else ()),
                 )),
                 meta.display_name if meta else sid,
-                source_signature(sid, root, life_dir, entry["events"].get("team_bindings", {}))
-                if include_events else (),
+                sources[0] if include_events else (),
             )
             if entry.get("stamp") != stamp:
                 value = read_map(sid, root, life_dir, event_state=entry["events"],
-                                 include_events=include_events)
+                                 include_events=include_events,
+                                 team_sources=(bindings, sources) if include_events else None)
                 versions = entry["versions"]
                 if entry["events"].get("reset"):
                     entry["invalidated"].update((cursor, None) for cursor in versions)
@@ -67,15 +77,22 @@ class MapFeed:
                 stamp = (*stamp[:-1], entry["events"].get("team_signature", ()))
                 entry.update(stamp=stamp, value=value, revision=revision)
             value, revision = entry["value"], entry["revision"]
+            # The full task ordering, so current-range callers can filter an
+            # incremental response without a second signature read.
+            extra = (
+                {"task_index": [(t["id"], t.get("ts") or 0) for t in value["tasks"]]}
+                if include_task_index else {}
+            )
             previous = entry["versions"].get(after)
             if previous is None:
-                return {**value, "cursor": revision, "incremental": False,
+                return {**value, **extra, "cursor": revision, "incremental": False,
                         "reset_history": after in entry["invalidated"]}
             tasks, events = previous
             ids = {t["id"] for t in value["tasks"]}
             event_ids = {e["id"] for e in value["events"]}
             return {
                 **value,
+                **extra,
                 "cursor": revision,
                 "incremental": True,
                 "tasks": [t for t in value["tasks"] if tasks.get(t["id"]) != t["revision"]],
