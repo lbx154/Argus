@@ -62,12 +62,14 @@ export function MapComposer({
   const [attachmentNotice, setAttachmentNotice] = useState("");
   const [sent, setSent] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const [inputHeight, setInputHeight] = useState(44);
   const currentValue = useRef(value);
   currentValue.current = value;
   const compact =
     overview &&
     !focused &&
+    !hovered &&
     !value.trim() &&
     !attachments.length &&
     !attachmentNotice;
@@ -114,6 +116,7 @@ export function MapComposer({
   };
   const collapse = () => {
     setFocused(false);
+    setHovered(false);
     if (dock.current?.contains(document.activeElement))
       (document.activeElement as HTMLElement | null)?.blur();
   };
@@ -179,6 +182,10 @@ export function MapComposer({
       data-compact={compact}
       data-state={state}
       data-pending={pending}
+      onPointerEnter={(event) => {
+        if (event.pointerType === "mouse") setHovered(true);
+      }}
+      onPointerLeave={() => setHovered(false)}
       style={{ "--map-editor-height": `${inputHeight}px` } as CSSProperties}
       onTransitionEnd={(event) => {
         if (event.target === dock.current && event.propertyName === "width") resizeInput();
