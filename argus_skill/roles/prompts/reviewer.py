@@ -361,6 +361,12 @@ def render_reviewer_prompt(
         if review_libraries.block:
             matched_review_skill_block = review_libraries.block + "\n\n"
     stage = prompt_context.stage
+    from ...core.venue_review import requires_venue_review
+
+    prose_final_review = requires_venue_review(
+        vertical=routed_vertical or "", stage=stage,
+        scope=scope_normalized, operation=operation,
+    )
     research_context_block = ""
     if prompt_context.vertical and operation == EVALUATE:
         from ...verticals._base import load_vertical_contract
@@ -427,7 +433,7 @@ def render_reviewer_prompt(
             f"This round: {policy_line(_policy)}. The integrity floor is "
             "identical at every profile. Judge directly and explain in `reason`. "
         )
-        if _research_target_level is not None:
+        if _research_target_level is not None and not prose_final_review:
             verification_instruction += (
                 "If the direction cannot reach the target, return "
                 "`replan_requested`.\n"
@@ -650,37 +656,8 @@ def render_reviewer_prompt(
             "owns. `done` closes a task; at final-submission, possibly the project."
         )
     )
-    # Keep the requested footer smaller than the compatibility parser. Legacy
-    # FRONTIER_*, NEXT_DECISION_POINT, REGRESSION_ENVELOPE,
-    # CHECKPOINT_RECOMMENDED, and SESSION_SIGNAL lines remain readable, but the
-    # Reviewer is not asked to fill them in. The fields below each feed round
-    # settlement, operator routing, research certification, or plan adjudication.
-    #
-    # Nothing here may vary with the mission. The static preamble is
-    # fingerprinted, and a same-role session resumes only when the fingerprint
-    # matches; when the objective and the Planner's guidance lived here, every
-    # new mission rotated the fingerprint, forced a cold start, and re-sent the
-    # full rubric — so those blocks ride in the delta below instead.
-    static = (
-        EFFECTIVE_TASK_CONTRACT
-        + "\n\n"
-        + (shell_contract + "\n\n" if shell_contract else "")
-        + MODEL_INTEGRITY_BOUNDARY
-        + "\n\n"
-        + _PRODUCT_ACCEPTANCE_DIRECTIVE
-        + "\n\n## Reviewer role\n"
-        "`done` means the outcome meets this verification profile. "
-        "Check essential uncertainty proportionately. Leave sources, outputs, and "
-        "builds unchanged; you may record your judgment with the vertical's command. "
-        "Use `continue` for one material gap in scope, `replan_requested` for a wrong target or "
-        "scope change, and `blocked` only for external obstacles. Use primary sources "
-        "for external claims; community code may ground implementation details. "
-        "Stay within this profile; require no future-proofing. "
-        "In `explore`/`develop`, require experimental or research feedback. "
-        "Negative results, hedging, limitations, and reruns need grounded "
-        "consequences; positive and negative claims share one evidence standard.\n\n"
-        + RESEARCHER_VOICE + "\n\n"
-        + "## Decision\n"
+    decision_policy = (
+        "## Decision\n"
         "REASON, NEXT_ACTION, and OPERATOR_QUESTION are human-facing. Use the "
         "operator's language. State evidence and consequence plainly; ask questions "
         "answerable in one sentence. Omit internal values and template names. "
@@ -711,6 +688,53 @@ def render_reviewer_prompt(
         + _PLAN_SIGNAL_VOCABULARY
         + "Give Engineer instructions only in next_action; neither read nor edit "
         "checkpoint or context records.\n\n"
+    )
+    if prose_final_review:
+        decision_policy = (
+            "Write your final review naturally in the operator's language. No JSON, "
+            "fixed fields, named closing lines, or review template is required. "
+            "Explain the actual venue recommendation, the evidence behind it, and "
+            "any further changes Engineer should make. The host handles control flow "
+            "internally and passes your complete feedback to Engineer.\n\n"
+        )
+        handoff_policy = (
+            "The selected venue's acceptance standard governs completion. Continue "
+            "the final review and revision loop while acceptance is unclear or "
+            "feasible high-impact improvements remain. Speculative future work stays "
+            "advisory; meaningful improvement after final review belongs in this task."
+        )
+    # Other review operations retain their existing minimal control protocol.
+    # Keep the requested footer smaller than the compatibility parser. Legacy
+    # FRONTIER_*, NEXT_DECISION_POINT, REGRESSION_ENVELOPE,
+    # CHECKPOINT_RECOMMENDED, and SESSION_SIGNAL lines remain readable, but the
+    # Reviewer is not asked to fill them in. The fields below each feed round
+    # settlement, operator routing, research certification, or plan adjudication.
+    #
+    # Nothing here may vary with the mission. The static preamble is
+    # fingerprinted, and a same-role session resumes only when the fingerprint
+    # matches; when the objective and the Planner's guidance lived here, every
+    # new mission rotated the fingerprint, forced a cold start, and re-sent the
+    # full rubric — so those blocks ride in the delta below instead.
+    static = (
+        EFFECTIVE_TASK_CONTRACT
+        + "\n\n"
+        + (shell_contract + "\n\n" if shell_contract else "")
+        + MODEL_INTEGRITY_BOUNDARY
+        + "\n\n"
+        + _PRODUCT_ACCEPTANCE_DIRECTIVE
+        + "\n\n## Reviewer role\n"
+        "`done` means the outcome meets this verification profile. "
+        "Check essential uncertainty proportionately. Leave sources, outputs, and "
+        "builds unchanged; you may record your judgment with the vertical's command. "
+        "Use `continue` for one material gap in scope, `replan_requested` for a wrong target or "
+        "scope change, and `blocked` only for external obstacles. Use primary sources "
+        "for external claims; community code may ground implementation details. "
+        "Stay within this profile; require no future-proofing. "
+        "In `explore`/`develop`, require experimental or research feedback. "
+        "Negative results, hedging, limitations, and reruns need grounded "
+        "consequences; positive and negative claims share one evidence standard.\n\n"
+        + RESEARCHER_VOICE + "\n\n"
+        + decision_policy
         + ("" if _requires_engineering_audit else _verification_directive())
         + verification_instruction
         + wiki_curator_skill_block

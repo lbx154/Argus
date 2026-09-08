@@ -448,11 +448,14 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
     raw_venue_review = _load_json(read_optional(values, "VENUE_REVIEW"))
     if raw_venue_review is None:
         raw_venue_review = _load_json(read_block(text, "VENUE_REVIEW", _VERDICT_KEYS))
+    venue_review = normalize_venue_review(raw_venue_review)
+    from ..core.venue_review import FINAL_REVIEW_FEEDBACK_CHARS
+
     return _apply_model_judgment_policy(
         ReviewDecision(
             status=status,
-            reason=reason.strip()[:5000],
-            next_action=read_block(text, "NEXT_ACTION", _VERDICT_KEYS).strip()[:1500],
+            reason=reason.strip()[:FINAL_REVIEW_FEEDBACK_CHARS if venue_review is not None else 5000],
+            next_action=read_block(text, "NEXT_ACTION", _VERDICT_KEYS).strip()[:FINAL_REVIEW_FEEDBACK_CHARS if venue_review is not None else 1500],
             operator_question=read_optional(values, "OPERATOR_QUESTION")[:500],
             operator_options=parse_agent_operator_options(
                 decision_footer_text(text)
@@ -461,7 +464,7 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
                 read_optional(values, "CHECKPOINT_RECOMMENDED").casefold() == "true"
             ),
             research_result=research_result,
-            venue_review=normalize_venue_review(raw_venue_review),
+            venue_review=venue_review,
             planner_report=_planner_report(
                 forward_progress=(
                     True

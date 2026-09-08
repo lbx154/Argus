@@ -14,6 +14,7 @@ RECOMMENDATIONS = (
     "weak_accept", "accept", "strong_accept", "best_paper",
 )
 ACCEPTED_RECOMMENDATIONS = frozenset({"weak_accept", "accept", "strong_accept", "best_paper"})
+FINAL_REVIEW_FEEDBACK_CHARS = 12_000
 
 
 def requires_venue_review(*, vertical: str, stage: str, scope: str = "", operation: str = "evaluate") -> bool:
@@ -65,11 +66,16 @@ def normalize_venue_review(value: Any) -> dict[str, Any] | None:
     ):
         return None
     # Identity/binding fields emitted by the model are deliberately discarded.
-    return {
+    normalized: dict[str, Any] = {
         "venue": venue.strip(), "recommendation": recommendation,
         "acceptance_clear": value["acceptance_clear"], "rationale": rationale.strip(),
         "blocking_issues": [issue.strip() for issue in issues],
     }
+    if "revision_required" in value:
+        if not isinstance(value["revision_required"], bool):
+            return None
+        normalized["revision_required"] = value["revision_required"]
+    return normalized
 
 
 def venue_review_issue(value: Any, *, venue: str) -> str:
@@ -86,6 +92,8 @@ def venue_review_issue(value: Any, *, venue: str) -> str:
         return "Reviewer did not clearly support acceptance at the selected venue"
     if assessment["blocking_issues"]:
         return "reject-level issues remain: " + "; ".join(assessment["blocking_issues"])
+    if assessment.get("revision_required") is True:
+        return "the final Reviewer has actionable high-impact improvements awaiting Engineer revision and re-review"
     return ""
 
 
@@ -133,7 +141,7 @@ def enforce_venue_acceptance(
         decision.backend_unavailable = True
         decision.backend_stop_kind = "backend_unavailable"
         decision.reason = "Final Reviewer omitted a valid assessment for the selected venue."
-        decision.next_action = "Retry the independent Reviewer on the same paper and provide the required VENUE_REVIEW assessment."
+        decision.next_action = "Retry the independent Reviewer on the same paper and clarify its actual recommendation for the selected venue in ordinary prose."
         return
     current = paper_review_snapshot(artifact_root)
     issue = venue_review_issue(assessment, venue=venue)
@@ -154,7 +162,6 @@ def enforce_venue_acceptance(
 
 
 def venue_review_instruction(venue: str) -> str:
-    choices = ", ".join(RECOMMENDATIONS)
     return (
         "## Final paper acceptance — mandatory operator standard\n"
         f"Act as an independent reviewer for the currently selected venue: {venue or '(not selected)'}. "
@@ -162,9 +169,9 @@ def venue_review_instruction(venue: str) -> str:
         "and claim-critical evidence. Judge novelty, significance, soundness, evidence, "
         "reproducibility, presentation, and fit at that venue. Finishing edits, compiling, "
         "an old certificate, or the Engineer's confidence is not an acceptance decision.\n"
-        "Only a clear weak_accept, accept, strong_accept, or best_paper recommendation "
-        "with no reject-level issues may accompany STATUS=done. Borderline, rejection, "
-        "uncertain acceptance, or incomplete evidence requires STATUS=continue and concrete "
+        "Only a clear weak accept, accept, strong accept, or best-paper-level recommendation "
+        "with no reject-level issues permits completion. Borderline, rejection, "
+        "uncertain acceptance, or incomplete evidence requires further revision and concrete "
         "repairs. Do not inflate a rating to end the loop or treat the minimum as a target "
         "answer. Ordinary paper weaknesses must be revised, not escalated to the operator "
         "as a request to lower the bar. Keep the selected venue fixed. There is no quality "
@@ -175,13 +182,33 @@ def venue_review_instruction(venue: str) -> str:
         "Use the existing plan-challenge channel when a different technical plan is needed. "
         "A strong negative or boundary result can be publishable, but completeness and "
         "honesty alone do not establish novelty or significance.\n"
-        "Include this named line in every integrated final-stage decision (including "
-        "continue); fill it with your own judgment, not the example's verdict:\n"
-        'VENUE_REVIEW={"venue":"' + venue.replace('"', '') + '",'
-        '"recommendation":"borderline","acceptance_clear":false,'
-        '"rationale":"Explain the venue-level recommendation with specific evidence.",'
-        '"blocking_issues":["Concrete issue that currently prevents acceptance."]}\n'
-        f"Allowed recommendation values: {choices}. Use an empty blocking_issues list only "
-        "when none remain. best_paper denotes your internal assessment of the paper's "
-        "quality, not an award. The host records the actual reviewed manuscript version.\n"
+        "Give constructive, creative, respectful feedback that helps Engineer aim for "
+        "strong acceptance and best-paper quality. Begin with specific evidence-backed "
+        "strengths and verified progress since the preceding review; close resolved issues "
+        "instead of repeating them. Explain what is promising and why it is worth building on. "
+        "Use encouragement tied to real work, without generic praise, personal criticism, "
+        "invented strengths, or rating inflation.\n"
+        "Prioritize the most valuable feasible improvements. For each, identify the precise "
+        "scientific or presentation opportunity, a concrete change, and a decisive validation "
+        "with controls and a success criterion. Suggest novel hypotheses, method alternatives, "
+        "or explanatory analyses when useful; label untested ideas as hypotheses and propose "
+        "the cheapest informative test before costly expansion. A failed test is evidence, "
+        "not permission to hide the result or pretend the idea worked.\n"
+        "The final review is a revision loop: explain the outstanding actionable high-impact "
+        "work, even when the current rating is already weak accept or higher. Ask Engineer to "
+        "continue revising while such work remains; Engineer must "
+        "address it and return the current paper for your independent re-review. Check the "
+        "actual changes and validation, not a promise to revise. Credit resolved work "
+        "and do not reopen it without new evidence. Distinguish "
+        "acceptance blockers from these feasible quality improvements and from speculative "
+        "future-work ideas that do not hold completion. Completion is justified "
+        "when no remaining actionable high-impact repair is supported; do not manufacture "
+        "endless optional experiments. Clear weak accept remains the minimum, while "
+        "best-paper quality is the aspiration.\n"
+        "Write the review naturally in the operator's language. No JSON, fixed fields, "
+        "decision footer, or prescribed review template is required. State your actual "
+        "current recommendation for the selected venue, its evidence, and whether Engineer "
+        "should make further changes before completion in your own words. A best-paper-level "
+        "assessment describes your judgment of quality, not an award. The host records "
+        "the actual reviewed manuscript version.\n"
     )

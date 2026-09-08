@@ -99,7 +99,12 @@ def _parallel_final_review_passes(
         "Read the current paper in read-only mode. Do not edit files. Start from "
         "paper/main.tex and its rendered output, then follow only direct references "
         "needed for this assigned pass. Return a concise pass/fail assessment with "
-        "specific blocking findings and repairs."
+        "evidence-backed strengths, verified progress, and specific blocking findings "
+        "with constructive repairs. For each material finding, explain the opportunity, "
+        "a feasible change, and its decisive validation or success criterion. Credit "
+        "resolved findings; separate useful high-impact improvements from speculative "
+        "stretch ideas. Encourage Engineer through concrete progress and promising "
+        "directions while keeping the assessment honest."
     )
     if comparison is None:
         # Compatibility for direct callers that have not entered the narrative-edit
@@ -501,6 +506,8 @@ def _persist_research_review(
         or ("" if decision.status == "done" else decision.reason)
         or ""
     ).strip()
+    if decision.venue_review is not None:
+        challenge = "\n".join(f"- {issue}" for issue in decision.venue_review["blocking_issues"])
     text = (
         "# Authoritative review\n\n"
         f"**Judgment:** {decision.status}\n\n"
@@ -605,9 +612,9 @@ class Reviewer:
         memory_maintenance_enabled: bool = True,
     ) -> None:
         self.runner = runner
-        # The Reviewer speaks normally and ends with named decision lines. JSON
-        # remains parser-only backward compatibility for already-running old
-        # sessions; no backend receives an output schema.
+        # Final paper reviews use natural prose; a tool-free internal reader
+        # translates only their stated judgment into round-control metadata.
+        # Other operations keep their existing minimal closing-line protocol.
         self._last_prompt_block_stats: dict[str, dict[str, int]] = {}
         # Optional agent-native library roots. The Reviewer searches and reads
         # relevant Markdown itself; the runtime never injects Skill bodies.
@@ -842,7 +849,10 @@ class Reviewer:
                     "Reviewer backend returned empty output; this says nothing "
                     "about the Engineer's work."
                 ),
-                next_action="Retry Reviewer; do not manufacture an Engineer gap.",
+                next_action=(
+                    "Retry the independent Reviewer and clarify the current venue recommendation in ordinary prose."
+                    if venue_required else "Retry Reviewer; do not manufacture an Engineer gap."
+                ),
                 backend_unavailable=True,
                 backend_stop_kind="backend_unavailable",
                 input_tokens=rev_in,
@@ -858,17 +868,49 @@ class Reviewer:
             if process_decision is not None
             else _find_decision_in_messages(decision_messages)
         )
+        if venue_required and (parsed is None or parsed.venue_review is None):
+            from ._prose_decision import interpret_prose_review
+
+            # Provider events may already carry the ordinary prose inside the
+            # compatibility envelope. Preserve its full text, not a clipped parse.
+            review_text = (
+                "\n\n".join(
+                    str(process_decision.get(key) or "").strip()
+                    for key in ("reason", "next_action")
+                    if str(process_decision.get(key) or "").strip()
+                )
+                if process_decision is not None
+                else str(decision_messages[-1]).strip()
+            )
+            try:
+                parsed, control_result = interpret_prose_review(
+                    self.runner, review_text=review_text, venue=venue, config=config,
+                )
+                rev_in += int(control_result.input_tokens or 0)
+                rev_cached += int(control_result.cached_input_tokens or 0)
+                rev_out += int(control_result.output_tokens or 0)
+                rev_reasoning_output_tokens += int(control_result.reasoning_output_tokens or 0)
+                rev_premium += float(control_result.premium_requests or 0)
+            except Exception:  # noqa: BLE001 - interpretation cannot certify by default
+                log.exception("could not interpret the final Reviewer's natural judgment")
+                parsed = None
         if parsed is None:
             from ._parsing import describe_unparsed_verdict
 
             return ReviewDecision(
                 status="blocked",
                 reason=(
-                    describe_unparsed_verdict(decision_messages)
+                    (
+                        "The final review's current venue recommendation could not be read reliably."
+                        if venue_required else describe_unparsed_verdict(decision_messages)
+                    )
                     + " This is a Reviewer/backend failure, not evidence that "
                     "implementation is incomplete."
                 ),
-                next_action="Retry Reviewer; do not manufacture an Engineer gap.",
+                next_action=(
+                    "Retry the independent Reviewer and clarify the current venue recommendation in ordinary prose."
+                    if venue_required else "Retry Reviewer; do not manufacture an Engineer gap."
+                ),
                 backend_unavailable=True,
                 backend_stop_kind="backend_unavailable",
                 input_tokens=rev_in,

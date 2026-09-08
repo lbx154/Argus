@@ -13,7 +13,7 @@ from argus_skill.reviewer import Reviewer
 from argus_skill.reviewer._core import ReviewerConfig
 
 # A static-preamble marker (lives in the rubric) + a delta marker (per round).
-_STATIC_MARKER = "## Decision"
+_STATIC_MARKER = "## Reviewer role"
 _DELTA_HEADER = "## Engineer's account of this round"
 _REEVALUATE = "RE-EVALUATE INDEPENDENTLY"
 

@@ -29,6 +29,13 @@ claim-critical references without recursively inspecting history.
 
 ## How to read and revise the paper
 
+For a full `final_submission` mission, Engineer owns the substantive repairs
+and high-impact improvements requested by the final Reviewer, including a
+decisive baseline, control, method test, or explanatory analysis when needed.
+Use the general mission operation for that scope. The narrower `narrative_edit`
+operation below applies to a prose-only repair; it must not prevent an
+explicitly authorized scientific improvement in a full final review.
+
 1. Preserve the pre-edit manuscript source closure and rendered PDF in internal
    mission state; do not use Git as the scientific baseline.
 2. Run `narrative_edit` as a fresh-context Engineer operation. Start from the
@@ -117,14 +124,15 @@ that it holds and reports the corresponding result:
 
 `done`
 
-At this final stage, `done` also requires an explicit independent recommendation
-for the currently selected venue. Return `VENUE_REVIEW` with `venue`,
-`recommendation`, `acceptance_clear`, `rationale`, and `blocking_issues` in the
-decision. Only a clearly supported `weak_accept`, `accept`, `strong_accept`,
-or `best_paper` recommendation with no reject-level issue may pass. Borderline,
-rejection, uncertainty, missing evidence, or a mismatched venue continues Review.
-The host enforces this threshold and binds the recommendation to the actual
-paper and figure bytes; a previous `done` or successful compile is insufficient.
+At this final stage, completion also requires an explicit independent
+recommendation for the currently selected venue. Explain it naturally in the
+operator's language, with the supporting evidence and remaining weaknesses.
+No JSON, fixed fields, decision footer, or prescribed review template is required.
+Only a clearly supported weak accept or higher with no reject-level issue may
+pass. Borderline, rejection, uncertainty, missing evidence, or a mismatched venue
+continues Review. The host enforces the threshold and binds the judgment to the
+actual paper and figure bytes; a previous approval or successful compile is
+insufficient.
 
 There is no quality-revision count ceiling. Keep revising in the current stage
 until the threshold is met, with explicit operator stops and resource/backend
@@ -132,6 +140,36 @@ failures handled separately. Do not inflate the recommendation to end a long
 run, lower the venue, or hide adverse evidence. Where the contribution or
 evidence is too weak, request substantive scientific repairs through the
 existing plan-challenge mechanism rather than endlessly polishing wording.
+
+## Constructive feedback and improvement after final review
+
+Help Engineer build the strongest paper the evidence can support. Start each
+round with specific verified strengths and progress, explain why those results
+matter, and close resolved findings. Be encouraging and respectful without
+generic praise, personal criticism, invented novelty, or inflated ratings.
+
+Prioritize feasible improvements by scientific value. For each item, identify
+the opportunity, a concrete change, and a decisive validation with appropriate
+controls and a success criterion. Offer creative hypotheses, method alternatives,
+or analyses when they could strengthen the contribution; identify them as
+untested and start with the cheapest informative test. Preserve adverse results.
+Distinguish acceptance blockers, actionable high-impact improvements, and
+speculative future-work ideas.
+
+The final review must lead to actual changes when there are feasible,
+high-impact improvements left, even if the current paper already merits weak
+accept. Explain those opportunities and ask Engineer to revise before completion.
+Engineer implements the feedback, records the changes and validation in the
+existing `CHECKPOINT.md`, and returns for independent re-review. A failed proposed
+hypothesis can be resolved by evidence and a supported alternative; agreement
+with Reviewer is not a scientific result. Reviewer checks the actual paper and
+experiments, recognizes the progress, and closes resolved findings.
+
+Aim toward strong acceptance and best-paper quality. Clear weak accept is still
+the minimum, and speculative future-work ideas do not hold completion. Do not
+invent endless experiments, repeat resolved objections, or demand arbitrary
+rewrites merely to sustain the loop. Use ordinary prose throughout the review;
+the host handles internal routing and preserves the complete feedback.
 
 Do not create separate scientific, visual, language, or revision-history files,
 or files declaring the paper ready.
