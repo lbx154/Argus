@@ -1,8 +1,8 @@
-.map-dispatch-flight { position: fixed; left: 0; top: 0; z-index: 45; pointer-events: none; display: flex; align-items: center; width: 260px; height: 56px; border: 1px solid #ffffff24; border-radius: 999px; background: #172634; --brand-body: 237 244 249; --brand-eye: 126 181 203; --brand-pupil: 23 38 52; --brand-highlight: 255 255 255; color: #f5f8fc; box-shadow: 0 10px 32px #172c4930, inset 0 1px 0 #ffffff12; overflow: hidden; opacity: 0; will-change: transform, opacity; }
-.map-dispatch-symbol { position: absolute; left: 50%; top: 50%; display: grid; place-items: center; width: 32px; height: 32px; color: #e9faf8; transform: translate(-50%, -50%) scale(var(--dispatch-mark, 1)); }
+.map-dispatch-flight { position: fixed; left: 0; top: 0; z-index: 45; pointer-events: none; display: flex; align-items: center; width: 260px; height: 56px; border: 1px solid rgb(var(--line) / .8); border-radius: 999px; background: rgb(var(--panel)); color: rgb(var(--ink)); box-shadow: 0 9px 28px #233b5510, 0 2px 5px #233b5509; overflow: hidden; opacity: 0; will-change: transform, opacity; }
+.map-dispatch-symbol { position: absolute; left: 50%; top: 50%; display: grid; place-items: center; width: 32px; height: 32px; color: rgb(var(--ink)); transform: translate(-50%, -50%) scale(var(--dispatch-mark, 1)); }
 .map-dispatch-copy { position: absolute; left: 54px; right: 20px; top: 50%; transform: translateY(-50%); opacity: var(--dispatch-copy, 1); }
 .map-dispatch-copy strong { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; font-weight: 550; }
-.map-dispatch-copy span { display: block; font-size: 10px; color: #a8c1d2; margin-top: 3px; }
+.map-dispatch-copy span { display: block; font-size: 10px; color: rgb(var(--ink-faint)); margin-top: 3px; }
 .map-dispatch-flight[data-phase=compress] .map-dispatch-symbol { left: 26px; }
 .map-dispatch-halo { position: fixed; z-index: 44; pointer-events: none; width: 56px; height: 56px; border: 1px solid #81c9be; border-radius: 50%; background: radial-gradient(circle, #98ddd125, transparent 70%); opacity: 0; }
 .map-macro[data-dispatch=receiving] { opacity: 0 !important; animation: none !important; pointer-events: none; }
