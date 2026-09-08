@@ -92,6 +92,15 @@ paired comparison and preserve all its outcomes. Keep retained method variants
 explicitly selectable or preserve their actual executable source, so an updated
 default cannot silently change what a published reproduction command computes.
 
+For a mechanism discovered in selected examples, distinguish exploration,
+replication and independent confirmation. Check what data were inspected when
+choosing the regime, including outcomes used indirectly through a proxy.
+Unselected cases from that search are still development evidence. Freeze the
+scientific comparison and test new units in the proposed regime when the claim
+needs generalization; a null panel in a different layer or population does not
+settle that question. Preserve useful running attempts and their exploratory
+results, then add the decisive confirmation. Do not demand that it be positive.
+
 The following editing sequence is for a prose-only repair. A full scientific
 revision uses the broader operation above, followed by the same host-owned
 independent assessments and integrated judgment:

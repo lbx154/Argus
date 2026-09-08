@@ -23,8 +23,8 @@ Bring the same persistence to the experiment that you bring to infrastructure.
 
 ## The first number is not a result
 
-A first implementation is a first draft. When it comes back under the baseline,
-the honest reading is almost never "the idea is wrong". It is one of:
+A first implementation is a first draft. An unfavorable first measurement needs
+an explanation. Check whether:
 
 - the implementation does not do what the method describes;
 - the optimizer never found the regime the method needs;
@@ -33,31 +33,33 @@ the honest reading is almost never "the idea is wrong". It is one of:
 - the evaluator is measuring something adjacent to the claim;
 - the baseline is being run at an advantage the method does not get.
 
-Each of those is a different next run, and each is cheap next to abandoning the
-question. Before treating a number as evidence about the idea, be able to say
-which of these it is not.
+Each explanation suggests a different check. Resolve the plausible setup and
+implementation defects, then retain the measurement as evidence about the
+method. An expected advantage is a hypothesis; it may fail under a valid test.
+Use that evidence to develop a substantive improvement or a better explanation.
 
 A useful discipline: reproduce the baseline first, with your own harness. If
 your DAS, your SAE, your full-context oracle does not land where the paper that
 published it says it lands, then nothing measured against it is about your
 method yet.
 
-## Grind to the number
+## Develop a meaningful improvement
 
-Pick the number the field would recognise and go get it. Not "we improved over
-our own ablation" — the published baseline on the public benchmark, at matched
-budget, on the split everybody reports.
+Define a meaningful improvement against the strongest relevant published
+baseline, at matched budget, on the benchmark's established evaluation split.
+Develop on separate data while preserving that comparison. Improving only over
+an internal ablation does not establish an advantage over the field.
 
 The loop is unglamorous and it is the job:
 
 1. Measure. Write the gap down with its size.
-2. Say what the gap is made of. One named cause, not a list of five.
-3. Make the change that addresses that cause, and only that cause.
-4. Measure again. Keep the number, keep the diff, keep what you learned.
+2. Propose an explanation and a matched control that distinguishes it from the
+   strongest competing explanation.
+3. Make the method change and preserve a faithful comparison with the baseline.
+4. Measure again. Keep all outcomes, the executed change, and what you learned.
 
-Ten rounds is normal. Thirty is not remarkable. Teams that publish these results
-do exactly this and do not mention it in the paper, which is why the paper makes
-it look like the method worked the first time. It did not.
+Expect repeated iterations. Judge progress by stronger evidence and resolved
+uncertainty; the number of attempts does not establish success or failure.
 
 Log every round even when the number does not move — the shape of what did not
 work is what tells you where the next fix is, and it is the first thing you will
@@ -65,15 +67,14 @@ want when the result finally lands.
 
 ## Troughs are part of the shape
 
-There will be stretches where nothing improves. Five rounds, ten, where each
-fix is sound, each hypothesis is reasonable, and the number sits exactly where
-it was. This is not a signal. It is what the middle of a hard problem feels
-like from inside.
+There will be stretches where nothing improves. Those observations constrain
+the explanations already tested. Use them to choose a new intervention or a
+more informative experiment; repeating the same deterministic comparison adds
+no independent evidence.
 
-A flat stretch is only informative when you can say *why* it is flat — when the
-diagnosis has stopped producing new candidate causes and every remaining idea is
-a restatement of one already tried. Until then, a plateau means the current
-family of fixes is exhausted, not that the question is.
+When several interventions leave the gap unchanged, revisit the causal
+explanation and the family of fixes. Look for a different mechanism or a
+discriminating prediction whose outcome would change the next decision.
 
 What to do inside a trough:
 
@@ -85,8 +86,9 @@ What to do inside a trough:
 - Take the strongest baseline apart. Understanding exactly why it wins is
   usually the shortest path to beating it.
 
-Do not respond to a trough by lowering the target, softening the claim, or
-starting to write. Those feel like progress and are the opposite.
+Keep the substantive target and work on the method, evidence, or explanation.
+Correct unsupported statements promptly as results arrive, while continuing
+the scientific repair. Wording changes alone do not close a scientific gap.
 
 ## Let the idea change while you grind
 
@@ -128,6 +130,15 @@ that is worth more than the next three planned runs. If the method wins on a
 slice nobody asked about, find out why before deciding it is noise. The result
 that makes a paper is frequently something the plan did not contain.
 
+Treat a slice discovered from results as exploratory. Record how it was found,
+freeze the proposed mechanism, regime, comparator and outcome, then test new
+independent units within that regime. Cases examined while choosing a layer,
+budget or rule remain development evidence even when they were not selected
+for a figure. Data held out from model fitting may already have been used for
+method selection. Preserve those observations and obtain a separate confirmation
+when the claim needs generalization; follow the experiment playbook for the
+sampling and paired analysis.
+
 Be willing to change what you are measuring when the evidence says the original
 metric was the wrong question. Be unwilling to change it because the original
 one was not going your way — the difference is whether you can state the reason
@@ -140,20 +151,18 @@ whichever experiment most changes what you think.
 
 ## What this never becomes
 
-A loss does not become the paper. If the gap is still open, the campaign is not
-finished — it is mid-grind, which is a normal place to be and an honest thing to
-report internally.
-
-Deciding that an idea has run its course is the Manager's call, it is rare, and it
-takes more than a stubborn number: sustained optimization already spent across
-implementation, data, scale and evaluator, the gap unmoved by any of it, and a
-reason the next round would fail that is not simply that the last one did.
-Anything short of that is impatience, and impatience has never once been right
-about this in retrospect.
+A failed method alone does not establish a publishable contribution. Continue
+feasible, high-value improvements within the selected research question and
+current stage. If rigorous controls reveal a boundary, develop the new principle,
+explanatory model, guarantee, or prediction that makes it important, and test it
+against the closest work. Preserving an adverse result and pursuing a stronger
+contribution belong together. The independent Reviewer decides whether the
+actual evidence meets the selected venue and the operator's completion standard.
 
 ## The short version
 
 Implement, measure, diagnose, fix, measure again. Expect it to take far more
 rounds than feels reasonable. Sit through the flat parts. Let the method become
 whatever it needs to become, then look honestly at what you built and write
-about that. Chase the surprising result over the planned one. Get the number.
+about that. Pursue the surprising mechanism, preserve all outcomes, and confirm
+the resulting scientific argument independently.

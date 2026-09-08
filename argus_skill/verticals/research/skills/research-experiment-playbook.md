@@ -30,6 +30,20 @@ with different selection rules or states do not isolate a component interaction.
 Start with a decisive paired pilot, then confirm the claim's intended scope;
 preserve adverse and null cells instead of selecting only the favorable pairs.
 
+When exploration reveals a promising layer, group, task or resource regime,
+record the selection rule and inspected data in the existing configuration or
+research notes. A selected example establishes that a mechanism can occur.
+Freeze the regime, intervention, strongest comparator, primary outcome and
+sampling rule before testing independent units there. Reproducing the selected
+cases and confirming the mechanism on new cases answer different questions;
+a panel from another regime also cannot settle whether the discovered effect
+generalizes within its proposed regime. Cases examined during selection are
+development evidence even if they were not chosen. A split held out from model
+fitting is not automatically held out from subsequent method or regime selection.
+Retain the exploratory comparisons and all confirmation outcomes. Base uncertainty
+on independent contexts, subjects or runs, rather than counting correlated
+heads, layers or repeated deterministic treatments as independent samples.
+
 Match the execution boundary and information timeline to the claim. For an
 online protocol, run each decision with only the context and transmitted data
 available by that point; complete-trace reconstruction does not establish that

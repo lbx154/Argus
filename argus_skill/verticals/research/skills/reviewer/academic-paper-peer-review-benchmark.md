@@ -55,6 +55,13 @@ integrated judgment is written only to `paper/REVIEW.md`.
    compared cells share experimental identities and conditions. Different
    panels or selection rules support descriptive observations, not that causal
    inference. Propose a matched comparison that could distinguish the explanations.
+   Trace how any favorable regime or example was selected. Data inspected for
+   that choice, including proxy outcomes, remain exploratory even if excluded
+   from model fitting. A convincing generalization claim needs independent
+   confirmation in the proposed regime, with the comparison fixed beforehand
+   and uncertainty based on independent units. A selected positive case and a
+   null panel from another regime leave that question open; suggest the smallest
+   informative confirmation and retain both sets of observations.
 4. **Completeness** — every experiment, ablation, control, section, figure, and
    table required by the thesis is present and interpreted.
 5. **Literature** — material premises and closest competitors use genuine,

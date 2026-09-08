@@ -1928,3 +1928,35 @@ The 81-test context, semantic-state, reviewer deduplication/resume, acceptance a
 voice group passed, plus ruff and whitespace checks. Log:
 `/tmp/argus-current-review-brief-tests-20260908.log`. No new Reviewer output schema
 or scientific score is introduced, and no strong acceptance is claimed.
+
+## 38. Separate discovery from independent confirmation (2026-09-08 UTC)
+
+S43's latest independent review closed the proof, variant-identity and paired
+reproduction gaps, but its positive cases were selected from a different
+layer/group than the subsequent null panel. Engineer is now running the proposed
+early-layer follow-up. The original selection reads existing refinement records
+and maximizes a prefix-divergence proxy; the new follow-up uses the same context
+IDs. This is useful additional evidence, but being unselected does not establish
+independence from the search that chose the regime. A single operational nudge
+asks Argus to verify that distinction and obtain genuine confirmation where the
+claim needs it, while retaining the current running experiment and all outcomes.
+Receipt: `coherent-science-rollout/independent-confirmation-guidance.json` in the
+paper audit directory. The paper team has not edited scientific files or grades.
+
+The experiment/review guides now distinguish exploratory cases, replication and
+confirmation, including selection through proxy outcomes and data held out only
+from model fitting. A proposed regime is fixed before testing new independent
+units there; a panel from another regime does not settle its generalization.
+Uncertainty uses independent units instead of correlated treatments. Existing
+notes/configuration carry this context, with no new report or review schema.
+
+The research-persistence guide now develops meaningful improvements and matched
+causal tests while preserving adverse results. It no longer tells agents to
+obtain a preferred number, dismiss flat results, or treat every negative result
+as an unfinished implementation. A rigorous boundary needs a consequential
+principle or prediction and evidence against the closest work; a failed method
+alone remains insufficient. The independent Reviewer still owns the selected
+venue's actual completion judgment, and scientific revision stays in the current
+stage. The 51-test research-protocol, adapted-skill, paper-policy, natural-review
+and voice group passed, plus whitespace checks; log:
+`/tmp/argus-independent-confirmation-guidance-tests-20260908.log`.
