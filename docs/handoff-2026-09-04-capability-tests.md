@@ -1806,3 +1806,19 @@ passed, along with ruff and whitespace checks. Log:
 `/tmp/argus-device-mapping-guidance-tests-20260908.log`.
 All three original paper daemons were still alive; S43 was doing real new
 experiments, so its observation window expiring did not trigger a restart.
+
+S43 subsequently completed its scientific batch and wrote a fresh central
+checkpoint and Engineer handoff at 22:01 UTC. After verifying there were no
+remaining scientific producers, the paper team requested one cooperative stop
+at 22:03:57. The API's ten-second wait returned rc=2; the same PID was left to
+finish its large-file inspection and exited cleanly at 22:08:03. No force-stop
+was used. The paper, review and handoff hashes were unchanged.
+
+The existing task `100b40232932` resumed at 22:10 UTC under **PID 2235153**, main
+revision **336917bb9186**, with strong accept still required. Engineer verified
+the saved batch and returned without rerunning it; independent review started
+at 22:13. The actual Visual prompt now carries the stable-composition and normal
+page-float rules. CBC and Diamond remain on their healthy original workers
+(1960261, 1960332); do not interrupt their scientific work just to synchronize
+revision labels. Detailed receipts are under the paper audit directory's
+`coherent-science-rollout/s43-upgrade/`. No strong acceptance is claimed.
