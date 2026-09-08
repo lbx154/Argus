@@ -126,3 +126,51 @@ __all__ = [
     "result_has_pre_provider_refusal",
     "result_has_unrecoverable_resume_state",
 ]
+
+
+def is_copilot_context_parser_error(value: object) -> bool:
+    """Exact runner-wrapped parser diagnostic; text alone is not authority."""
+    prefix = (
+        "Process exited with code 1 before turn completion.\n"
+        "error: unknown option '--context'\n"
+    )
+    suffix = "Try 'copilot --help' for more information."
+    return str(value or "").strip() in (
+        prefix + "(Did you mean --connect?)\n\n" + suffix,
+        prefix + "\n" + suffix,
+    )
+
+
+def is_copilot_context_parser_refusal(
+    error: object, *, provider: str, call_id: str, run_label: str,
+    status: str, thread_id: object, source: str,
+    receipt: dict[str, Any] | None,
+) -> bool:
+    """Use only host-generated agent.io.complete, never model/tool JSON.
+
+    A parser diagnostic is positive startup evidence only when the matching
+    process receipt confirms an unsuccessful, silent pre-turn CLI invocation.
+    Usage accounting must independently reject every observed usage field.
+    """
+    if not is_copilot_context_parser_error(error) or not receipt:
+        return False
+    command = receipt.get("command")
+    return bool(
+        provider == "copilot" and status == "error" and source == "run_exec"
+        and not thread_id and call_id
+        and receipt.get("type") == "agent.io.complete"
+        and receipt.get("backend") == provider
+        and receipt.get("call_id") == call_id
+        and receipt.get("run_label") == run_label
+        and receipt.get("exit_code") == 1
+        and receipt.get("turn_failed") is True
+        and receipt.get("turn_completed") is False
+        and receipt.get("thread_id") is None
+        and receipt.get("fatal_error") == "Process exited with code 1 before turn completion."
+        and receipt.get("tool_activity_observed") is False
+        and all(receipt.get(key) == 0 for key in (
+            "agent_message_count", "stdout_line_count", "json_event_count"))
+        and isinstance(command, list)
+        and any(command[i:i+2] == ["--context", "default"]
+                for i in range(1, len(command)-1))
+    )

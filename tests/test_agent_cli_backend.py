@@ -2434,3 +2434,38 @@ def test_build_backend_default_does_not_reuse_persisted_dsh_runner(
         assert build_agent_cli_backend_from_env() is captured
         assert captured["backend"] == "codex"
         assert captured["runner_bin"] is None
+
+
+@pytest.mark.parametrize("observed", [False, True])
+def test_context_parser_failure_uses_trusted_completion_receipt(tmp_path, monkeypatch, observed):
+    root = tmp_path / "home"
+    project = root / "projects" / "p1"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
+    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "argus_skill.adapters.agent_cli_backend._exec_spawn.read_copilot_usage_since",
+        lambda *args, **kwargs: None,
+    )
+    backend = AgentCliBackend(backend="copilot")
+    backend.set_usage_context(project_root=project, mission_id="mission-1")
+
+    def fake_run_exec(self, **kwargs):
+        return _make_cli_result(
+            command=["copilot", "--context", "default"], exit_code=1,
+            thread_id=None, fatal_error="Process exited with code 1 before turn completion.",
+            stderr_lines=["error: unknown option '--context'", "(Did you mean --connect?)",
+                          "", "Try 'copilot --help' for more information."],
+            stdout_lines=["model/tool output"] if observed else [],
+        )
+
+    monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec)
+    result = backend.run_exec(prompt="test", options=RunnerOptions(model="gpt-6-astra"),
+                              run_label="manager-classify-grounded-retry")
+    assert result.pricing_status == ("partial" if observed else "not_billed")
+    assert result.cost_usd == (None if observed else 0.0)
