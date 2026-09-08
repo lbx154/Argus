@@ -6,8 +6,10 @@ description: "Synthesize a compact, horizontal ICLR-style method pipeline from e
 # Drawing the method in SVG
 
 Use this for an explicitly selected SVG workflow or a concrete repair to an
-existing SVG figure. New method and architecture figures normally use
-`paper-framework-figure-studio.md` and PPT Master. You, the active Engineer model,
+existing SVG figure whose selected style calls for this Times-based exporter.
+New method and architecture figures start with `paper-framework-figure-studio.md`,
+which may choose Matplotlib, TikZ, composed SVG, or PPT Master. Do not force this
+exporter's typography onto a figure composed with another route. You, the active Engineer model,
 design the figure from the research; the tool handles cropping, real font
 verification, and SVG/PDF export. It needs no image-generation service.
 

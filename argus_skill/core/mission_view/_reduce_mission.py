@@ -149,6 +149,9 @@ def reduce_mission_lifecycle_event(
             )
         if event.get("final_submission_certified") is True:
             view["outcome"]["final_submission_certified"] = True
+            for key in ("venue_review", "venue_review_snapshot"):
+                if isinstance(event.get(key), dict):
+                    view["outcome"][key] = dict(event[key])
             if isinstance(event.get("manuscript_snapshot"), dict):
                 view["outcome"]["manuscript_snapshot"] = dict(
                     event["manuscript_snapshot"]

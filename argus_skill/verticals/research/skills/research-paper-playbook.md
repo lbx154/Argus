@@ -61,9 +61,11 @@ do not become the narrative.
    rendered paper. For the method pipeline, use
    `engineer/paper-framework-figure-studio.md`: design the composition from the
    current manuscript and executed code, with meaningful groups, visual hierarchy,
-   balanced spacing, and publication-size type. Use PPT Master for native editable
-   PPTX and include the vector PDF after Introduction, targeting page 2 or 3.
-   Keep the editable PPTX and drawing source. Invoke the component only when a figure is needed;
+   balanced spacing, restrained scientific colors, and publication-size type.
+   Select Matplotlib, TikZ, composed SVG, or PPT Master for that design; preserve
+   proper mathematical typography. Include the vector PDF after Introduction,
+   targeting page 2 or 3, and keep its canonical editable source.
+   Invoke the component only when a figure is needed;
    reuse an existing suitable figure across writing rounds and prose-only edits.
 9. Compress after expanding: the final pass removes what serves no explicit
    claim and moves first-pass-unnecessary detail to the appendix while
@@ -117,7 +119,7 @@ task, then return here. Do not read all the sources in advance.
 | Strong paper structure or visual calibration is needed | `engineer/paper-exemplar-pdf-learning.md` | Study open-access Oral, Outstanding, or Best Papers |
 | A material citation is uncertain | `engineer/citation-check.md` | Resolve and repair it from primary sources |
 | Data results need paper figures | `engineer/paper-chart-styling.md` | Produce consistent publication-size data charts |
-| A method pipeline or architecture overview is needed | `engineer/paper-framework-figure-studio.md` | Compose the method through PPT Master with native editable PPTX and vector PDF |
+| A method pipeline or architecture overview is needed | `engineer/paper-framework-figure-studio.md` | Select the renderer for the composition, keep editable source, and include its vector PDF |
 | An existing SVG needs a concrete repair | `engineer/research-svg-pipeline.md` | Repair and re-export the existing drawing |
 | A conceptual or method figure is needed | `engineer/research-visualization-router.md` | Select the faithful rendering route |
 | Figure 1 needs an editable composition | `engineer/paper-framework-figure-studio.md` | Build the conceptual figure and final export |

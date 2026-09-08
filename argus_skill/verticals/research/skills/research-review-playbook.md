@@ -84,7 +84,8 @@ invoke the drawing component merely because Review started. Default placement
 is after Introduction, preferably on page 2 or 3; fix float placement in LaTeX
 without redrawing. Require repairs to surplus whitespace, unreadable
 labels, clipping and connector collisions. Recompose an unfinished figure with
-`engineer/paper-framework-figure-studio.md` and PPT Master; use
+`engineer/paper-framework-figure-studio.md`, selecting Matplotlib, TikZ, SVG,
+or PPT Master for the required composition and typography; use
 `engineer/research-svg-pipeline.md` for a concrete repair to an existing suitable
 SVG. Regenerate the included PDF. A successful
 render or font check alone does not establish that the figure is visually sound.
@@ -116,6 +117,22 @@ that it holds and reports the corresponding result:
 
 `done`
 
+At this final stage, `done` also requires an explicit independent recommendation
+for the currently selected venue. Return `VENUE_REVIEW` with `venue`,
+`recommendation`, `acceptance_clear`, `rationale`, and `blocking_issues` in the
+decision. Only a clearly supported `weak_accept`, `accept`, `strong_accept`,
+or `best_paper` recommendation with no reject-level issue may pass. Borderline,
+rejection, uncertainty, missing evidence, or a mismatched venue continues Review.
+The host enforces this threshold and binds the recommendation to the actual
+paper and figure bytes; a previous `done` or successful compile is insufficient.
+
+There is no quality-revision count ceiling. Keep revising in the current stage
+until the threshold is met, with explicit operator stops and resource/backend
+failures handled separately. Do not inflate the recommendation to end a long
+run, lower the venue, or hide adverse evidence. Where the contribution or
+evidence is too weak, request substantive scientific repairs through the
+existing plan-challenge mechanism rather than endlessly polishing wording.
+
 Do not create separate scientific, visual, language, or revision-history files,
 or files declaring the paper ready.
 
@@ -130,7 +147,7 @@ finding. Do not read all the sources in advance.
 | Scientific completeness is under review | `reviewer/academic-paper-peer-review-benchmark.md` | Judge contribution, evidence, and paper value |
 | A material claim or citation is disputed | `engineer/claims-against-evidence.md` or `engineer/citation-check.md` | Trace the claim to raw evidence or a primary source |
 | Visual quality needs venue calibration | `engineer/paper-exemplar-pdf-learning.md` | Compare the rendered paper with strong accepted work |
-| The method pipeline needs composition or visual repair | `engineer/paper-framework-figure-studio.md` | Repair the composition, native PPTX, and included vector PDF |
+| The method pipeline needs composition or visual repair | `engineer/paper-framework-figure-studio.md` | Repair the canonical composition and included vector PDF; inspect any delivered PPTX separately |
 | An existing suitable SVG has a specific defect | `engineer/research-svg-pipeline.md` | Repair and re-export the existing source |
 | PDF-only argument and language are under review | `reviewer/venue-academic-language-review.md` | Judge evidence hierarchy and prose from the rendered paper without internal context |
 | Private implementation detail may have leaked | `engineer/paper-infrastructure-review.md` | Inspect the current paper for internal leakage |

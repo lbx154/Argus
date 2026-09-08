@@ -568,15 +568,20 @@ def _engineer_fragment(
                 "## On-demand method figure\n"
                 "Only when a method or architecture figure needs drawing, open "
                 "engineer/paper-framework-figure-studio.md. Design the composition "
-                "and visual hierarchy first, then use PPT Master for native editable "
-                "PPTX and a vector PDF. Locate the toolkit with "
+                "and visual hierarchy first, then select a renderer for that design: "
+                "Matplotlib or TikZ for precise scientific notation, composed SVG for "
+                "custom geometry, or PPT Master for native editable PPTX. "
+                "engineer/academic-vector-figures.md provides a physical-unit vector "
+                "canvas with math typography. Locate PPT Master when selected with "
                 "python -m argus_skill.tools.ppt_master status. "
                 "Reuse an existing suitable figure; do not invoke the component every "
                 "round or for prose-only edits. The current Engineer grounds the "
                 "drawing in code and manuscript and inspects the rendered composition "
                 "at publication size. Include "
                 "the vector PDF after the Introduction, targeting page 2 or 3 in the "
-                "compiled paper, and keep the editable PPTX and drawing source."
+                "compiled paper, and keep the canonical editable drawing source. "
+                "Use restrained academic typography and thin strokes; oversized "
+                "headings and a wall of colored cards do not establish visual quality."
                 if stage == "paper" and not narrative_edit else ""
             ),
             _narrative_editor_block() if narrative_edit else "",
@@ -627,7 +632,14 @@ def _reviewer_fragment(
             "Do not edit either snapshot."
         )
     if stage == "review" or scope == "final_submission":
-        policy = academic_paper_review_block()
+        policy = (
+            academic_paper_review_block()
+            + "\n\nFinal completion requires your explicit selected-venue "
+            "recommendation: clearly weak_accept or better, with no reject-level "
+            "issues. Borderline, reject, uncertainty, or missing evidence continues "
+            "revision without a quality-round ceiling. Do not equate a repaired "
+            "edit with a paper worthy of acceptance or inflate a rating to stop."
+        )
     else:
         policy = (
             "## Reviewer responsibility\n"

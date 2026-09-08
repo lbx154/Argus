@@ -1227,6 +1227,17 @@ class SkillLoopExecuteMixin:
             ):
                 final_submission_certified = True
                 completion_evidence = getattr(final_review, "reason", "")
+                from ..core.venue_review import current_venue_acceptance_issue
+                from ..skills.vertical_select import resolve_vertical_if_decided
+
+                state_root = Path(getattr(self, "_artifact_root", ex_state.workdir))
+                if resolve_vertical_if_decided(state_root) == "research":
+                    acceptance_issue = current_venue_acceptance_issue(
+                        final_review, state_root=state_root, artifact_root=ex_state.workdir,
+                    )
+                    if acceptance_issue:
+                        final_submission_certified = False
+                        completion_evidence = acceptance_issue
         if _execution_host_blocked_outcome(outcome):
             # The round record describes an infrastructure interruption, not
             # an independent review or evidence of project completion.
@@ -1429,6 +1440,8 @@ class SkillLoopExecuteMixin:
                 if rounds
                 else None
             ),
+            venue_review=getattr(rounds[-1].review, "venue_review", None) if rounds else None,
+            venue_review_snapshot=getattr(rounds[-1].review, "venue_review_snapshot", None) if rounds else None,
             final_frontier_report=ex_state.final_frontier_report,
             final_planner_report=ex_state.final_planner_report,
             plan_challenge=ex_state.plan_challenge,

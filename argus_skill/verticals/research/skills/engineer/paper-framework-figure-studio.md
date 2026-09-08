@@ -7,37 +7,60 @@ description: "Create one publication-ready conceptual figure from the current pa
 
 Use this in Paper for Figure 1 or another conceptual, method, architecture, or
 taxonomy figure. Read the research notes in `RESEARCH_NOTES.md`, the current manuscript, the executed method,
-and direct result sources. Create only the editable figure source and the final
-export included by the paper. Use PPT Master for method and architecture figures;
-the editable source includes the native PPTX and its drawing source, with a
-vector PDF included by the paper.
+and direct result sources. Create the canonical editable figure source and the
+matching vector PDF and PNG. Select the renderer after designing the composition:
+PPT Master, Matplotlib, TikZ, and composed SVG are all first-class choices.
+Use a combination only when it improves a concrete part of the figure, such as
+LaTeX mathematics inside a vector architecture diagram. Tool choice does not
+establish visual quality.
 
 ## Publication style
 
 Apply these defaults to a new figure unless the paper already has an established
-style. They preserve the composed PPT figure route used for Argus's visual
-examples; changing the file extension alone does not reproduce that quality.
+style. Aim for a carefully composed academic illustration, with quiet inherited
+machinery and unmistakable scientific structure.
 
 - Start with the scientific reading order, two or three levels of visual
   hierarchy, and meaningful phase containers. Show tokens, candidate sets,
   matrices or operators where they explain the mechanism. Keep prose in the
   caption instead of adding a full-width paragraph inside the figure.
-- Use a warm-white canvas (`#FBFAF7`), dark text/strokes (`#1F2933`), rounded
-  modules, generous internal padding and aligned boundaries. Use restrained
-  semantic fills: input `#FFE2D1`, computation `#FFF2BD`, state `#DCECFF`, model
-  `#E2F7DF`, output `#EADFFF`. Select only the roles the figure needs.
+- Use a white canvas, charcoal text, 0.5–0.9 pt strokes at publication size,
+  and one or two restrained semantic accents. Pale fill belongs only where it
+  helps group the mechanism. Align edges and baselines, allow visible internal
+  padding, and leave connector corridors open. Do not give every step a large
+  colored card, heavy rounded border, or pill badge.
+- Default to a restrained scientific palette: ink `#28344A`, muted labels
+  `#69768A`, rules `#ACB6C4`, navy `#3C5488`, and teal `#008F7A`. Use pale
+  tints `#EFF2F7` and `#EEF6F3` only for the selected semantic groups. A muted
+  terracotta `#C17664` may replace one accent for a necessary contrast; do not
+  accumulate all colors. Avoid a separate peach/yellow/green/purple fill for
+  every module. Preserve a paper's existing coherent scientific palette when
+  it is already stronger, and check grayscale and color-vision separation.
 - Use a coherent sans-serif hierarchy for module names and annotations;
   mathematical notation may use a compatible math face. A manuscript's Times
   body font does not require every diagram label to use Times New Roman.
-- Size labels for the actual included paper width (at least 8 pt). For a
-  1280-unit canvas printed 5.5 inches wide, ordinary labels need at least 26
-  units. Let the content set card sizes and connector corridors; retain visible
-  padding around text. Use larger group headings and smaller annotations.
+- Size ordinary labels for the actual included paper width (normally 8–9 pt,
+  never below 8 pt). Panel headings generally need only 9–10 pt; avoid a large
+  slogan across the top. Use short panel letters where useful. Let content set
+  geometry and move prose into the caption instead of reducing type.
+- Render real subscripts, superscripts, set notation, Greek letters, and
+  operators with Matplotlib mathtext or LaTeX/TikZ when appropriate. A failed
+  font or PPT conversion calls for a different math representation or renderer,
+  not shipping programming-style substitutes such as `C_t` or `J(pi)` when the
+  paper uses mathematical notation.
 - Reserve one accent for the contribution or selected path, with inherited
   machinery quiet. Use numbered phases only when they clarify reading order.
   Follow the geometry and semantic requirements below.
 
-Locate PPT Master with `python -m argus_skill.tools.ppt_master status`; the
+For a new or aesthetically unsuccessful figure, sketch two genuinely different
+compositions before detailed rendering; choose by scientific reading order,
+clarity, and economy at the actual paper width. Reuse a good composition during
+local repairs. Do not create a separate process report or ask the operator to
+make routine layout decisions.
+
+Open `engineer/academic-vector-figures.md` for physical-unit Matplotlib,
+mathematical typography, or TikZ/SVG composition. If PPT Master is selected,
+locate it with `python -m argus_skill.tools.ppt_master status`; the
 reported `skill_root` contains the toolkit instructions, layout references,
 `scripts/svg_quality_checker.py`, `scripts/svg_to_pptx.py`, and
 `scripts/pptx_to_svg.py`. Use `engineer/presentation-master.md` to install it if
@@ -120,8 +143,9 @@ Decompose complex figures — build panels and modules separately, then compose.
 
 | Composition | Primary route |
 |---|---|
-| Pipeline strip or method architecture | Editable native objects through PPT Master, using the publication style and composition above; SVG may be the authoring intermediate |
-| Contrast diptych, lineage panels | Editable native objects through PPT Master; for a contrast diptych draw one diagram and apply the delta programmatically so the panels are guaranteed identical except the edit |
+| Pipeline strip or method architecture | Physical-unit Matplotlib, TikZ, composed SVG, or native PPT Master objects; choose for the scientific structure, typography, and editing needs |
+| Contrast diptych, lineage panels | Use one programmatic source for aligned panels; apply the delta to a shared diagram so the panels differ only where the science differs |
+| Mathematical bounds, operators, or geometry | TikZ/LaTeX or Matplotlib mathtext with vector output; combine with SVG/PPT when needed for the surrounding architecture |
 | Panels of verbatim text (prompts, trajectories, rubrics) | HTML/CSS with inline SVG rendered headlessly to vector PDF — the only route with a real text-layout engine; verify the render visually since headless failures are silent |
 | Exact load-bearing topology, taxonomy trees | Graphviz for layout coordinates, restyled through SVG; or FigureSpec, Draw.io, browser SVG |
 | Results teaser | Matplotlib through Styling data figures for publication |
@@ -135,6 +159,12 @@ Also judge the whole composition: does the mechanism read immediately, are
 groups and emphasis clear, and does the figure look as carefully designed as
 the accepted examples? Legible text and a clean export alone are insufficient.
 Recompose a crowded collection of text boxes instead of only nudging labels.
+Compare the actual exported figure with the starting version: better spacing,
+hierarchy, mathematical notation, and deliberate emphasis must be visible.
+Keep one canonical source for every formal export. If a PPTX is also delivered,
+inspect it separately and ensure it depicts the same final composition; an old
+deck must not be presented as the source of a new PDF. Name each final source
+and export with its complete individual path in the handoff so it is openable.
 
 Paper needs a complete, credible figure and a successful compile. Do not create
 layout reports, exemplar collections, provenance records, or visual-review

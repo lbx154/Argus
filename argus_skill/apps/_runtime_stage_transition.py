@@ -101,6 +101,8 @@ class StageTransitionMixin:
                         pipeline_sha256 = "missing"
                     review_projection = {
                         "status": final_review_status,
+                        "venue_review": getattr(final_review, "venue_review", None),
+                        "venue_review_snapshot": getattr(final_review, "venue_review_snapshot", None),
                         "final_submission_certified": bool(
                             getattr(
                                 final_review,

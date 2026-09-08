@@ -5,7 +5,8 @@ description: "Assess scientific completeness during the final integrated paper R
 
 # Reading the paper as a venue reviewer
 
-Review the current paper as a constructive top-venue area chair. Start with
+Review the current paper as an independent reviewer of the currently selected
+venue, using its researched criteria and representative accepted work. Start with
 `paper/main.tex` and the rendered paper, then follow only direct
 claim-critical references to code, configuration, raw results, evaluators,
 baselines, bibliography, figures, and primary sources.
@@ -21,9 +22,11 @@ integrated judgment is written only to `paper/REVIEW.md`.
 2. **Implementation fidelity** — the executed code implements the method the
    paper claims, and positive controls show the evaluator can detect the target
    effect.
-3. **Evidence** — headline and primary comparisons win, relevant wins clearly
-   exceed losses, and the strongest same-information published baseline receives
-   a fair comparison.
+3. **Evidence** — results establish the stated contribution, and the strongest
+   same-information published baseline receives a fair comparison. A superiority
+   claim needs convincing gains. A negative or boundary result needs a
+   nontrivial, important finding established with decisive matched controls;
+   reporting an unsuccessful method is not sufficient.
 4. **Completeness** — every experiment, ablation, control, section, figure, and
    table required by the thesis is present and interpreted.
 5. **Literature** — material premises and closest competitors use genuine,
@@ -45,3 +48,11 @@ Explain the strongest case for a venue reviewer to accept the paper, the
 issues that would justify rejection at the venue, and the concrete repairs.
 The visual and language passes run concurrently; after one Engineer applies all
 findings, the integrated Reviewer reassesses the repaired paper.
+
+Give an explicit selected-venue recommendation in `VENUE_REVIEW`. Clear weak
+accept or better is the minimum for final completion; borderline or rejection
+requires concrete revisions. Explain why the paper deserves acceptance at this
+venue, not merely why the latest edit is correct. Separate uncertainty about
+the science from defects in writing or appearance. Never change a score to
+finish a long run, inherit an earlier approval without checking current inputs,
+or substitute a claim of best-paper quality for evidence.

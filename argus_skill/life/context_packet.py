@@ -405,6 +405,10 @@ def record_reviewed_handoff(
     manuscript_binding = getattr(review, "manuscript_snapshot", None)
     if isinstance(manuscript_binding, dict):
         review_payload["manuscript_snapshot"] = dict(manuscript_binding)
+    for key in ("venue_review", "venue_review_snapshot"):
+        value = getattr(review, key, None)
+        if isinstance(value, dict):
+            review_payload[key] = dict(value)
     mission = _read_json_object(mission_path)
     if (
         str(mission.get("scope") or "").strip().lower() == "final_submission"

@@ -486,7 +486,7 @@ def _persist_research_review(
         return
     from ..skills.stage_machine import current_stage
 
-    if current_stage(state_root) != "review":
+    if current_stage(state_root) != "review" and not decision.venue_review_required:
         return
     report = decision.planner_report if isinstance(decision.planner_report, dict) else {}
     accept_case = str(
@@ -504,6 +504,15 @@ def _persist_research_review(
     text = (
         "# Authoritative review\n\n"
         f"**Judgment:** {decision.status}\n\n"
+        + (
+            "## Selected-venue assessment\n"
+            f"Venue: {decision.venue_review['venue']}\n\n"
+            f"Recommendation: {decision.venue_review['recommendation']}\n\n"
+            f"Clear acceptance: {decision.venue_review['acceptance_clear']}\n\n"
+            f"{decision.venue_review['rationale']}\n\n"
+            if decision.venue_review is not None else ""
+        )
+        +
         "## Scientific, visual, and language assessment\n"
         f"{decision.reason or 'Not assessed.'}\n\n"
         "## Strongest accept case\n"
@@ -643,6 +652,26 @@ class Reviewer:
         native_skill_paths = [
             str(path) for path in getattr(review_libraries, "native_paths", [])
         ]
+        from ..core.pipeline_state import read_pipeline_state
+        from ..core.venue_review import (
+            enforce_venue_acceptance,
+            paper_review_snapshot,
+            requires_venue_review,
+            selected_venue,
+            venue_review_instruction,
+        )
+        from ..skills.vertical_select import resolve_vertical_if_decided
+
+        artifact_root = Path(config.artifact_root or config.working_dir or ".")
+        state_root = Path(config.vertical_state_root or config.working_dir or ".")
+        venue_required = requires_venue_review(
+            vertical=config.active_vertical or resolve_vertical_if_decided(state_root) or "",
+            stage=str(read_pipeline_state(state_root).get("current_stage") or ""),
+            scope=scope,
+            operation=operation,
+        )
+        venue = selected_venue(state_root) if venue_required else ""
+        venue_snapshot = paper_review_snapshot(artifact_root) if venue_required else None
         reviewed_manuscript_snapshot = None
         try:
             from ..core.manuscript_snapshot import manuscript_snapshot
@@ -686,10 +715,23 @@ class Reviewer:
             resumed=False,
             **common,
         )
+        venue_policy = ""
+        if venue_required:
+            # A changed selected venue changes the static fingerprint, preventing
+            # reuse of a Reviewer session calibrated to a different conference.
+            venue_policy = "\n\n" + venue_review_instruction(venue)
+            static += venue_policy
         prompt_block_stats = {
             name: dict(stats)
             for name, stats in self._last_prompt_block_stats.items()
         }
+        if venue_policy:
+            extra_bytes = len(venue_policy.encode("utf-8"))
+            extra_stats = {"chars": len(venue_policy), "bytes": extra_bytes, "estimated_tokens": (extra_bytes + 3) // 4}
+            prompt_block_stats["venue_acceptance"] = extra_stats
+            for name, amount in extra_stats.items():
+                if "static_total" in prompt_block_stats:
+                    prompt_block_stats["static_total"][name] = prompt_block_stats["static_total"].get(name, 0) + amount
         fingerprint_input = bytearray(static.encode("utf-8"))
         new_fp = hashlib.sha256(fingerprint_input).hexdigest()
         resume = (
@@ -851,13 +893,15 @@ class Reviewer:
         parsed.static_fingerprint = new_fp
         parsed.session_resumed = bool(resume)
         parsed.manuscript_snapshot = reviewed_manuscript_snapshot
-        # The L2 reviewer's judgment is authoritative — the harness must not
-        # second-guess its scientific judgment from structured result labels or
-        # keyword heuristics on the engineer's summary.
-        # If a generic role-acknowledgment turn slips through, that is a
-        # reviewer-prompt concern (the reviewer is told to demand concrete
-        # evidence and verify when it is missing/contradictory), not a harness
-        # post-filter.
+        # Reviewer owns the scientific recommendation. The host enforces the
+        # operator's explicit minimum and current-file binding, not prose or
+        # research-result keyword heuristics.
+        if venue_required:
+            enforce_venue_acceptance(
+                parsed, venue=venue, before=venue_snapshot, artifact_root=artifact_root,
+            )
+            if parsed.backend_unavailable:
+                return parsed
         _persist_research_review(parsed, config)
         return parsed
 

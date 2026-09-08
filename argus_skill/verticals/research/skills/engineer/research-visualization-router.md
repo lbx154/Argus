@@ -20,8 +20,9 @@ paragraph or table inside a figure environment does not count.
 | Need | Route |
 |---|---|
 | Any paper data/metric/result chart, including uncertainty or ablation | Matplotlib/SciencePlots through Styling data figures for publication |
-| Method pipeline or architecture overview | Composing a conceptual paper figure: design the composition first, then use editable native PPTX through PPT Master and export a vector PDF |
-| Other conceptual or teaser figure | Composing a conceptual paper figure; editable native PPTX through PPT Master when appropriate |
+| Method pipeline or architecture overview | Composing a conceptual paper figure; choose physical-unit Matplotlib, TikZ, composed SVG, or PPT Master after designing the hierarchy |
+| Mathematical operators, bounds, or geometric reasoning | Academic vector figures with Matplotlib mathtext or TikZ/LaTeX; combine with other vector panels when useful |
+| Other conceptual or teaser figure | Composing a conceptual paper figure; choose the renderer for geometry, typography, and editing needs |
 | Exact load-bearing topology | FigureSpec, Draw.io, Graphviz, or browser SVG |
 | Rich browser composition | Self-contained HTML/CSS/SVG rendered with `research_visual_scripts/browser_render.py` |
 | Non-claim-bearing illustrative asset | image-2 only when configured; compose it inside an editable deterministic figure |
@@ -31,11 +32,13 @@ does not need depth, icons, or decorative complexity. Never use generated image
 text or geometry for scientific labels, arrows, values, or branch conditions.
 
 For the default method/architecture route, open `paper-framework-figure-studio.md`
-before drawing. Use its composition and publication style with the installed
-PPT Master toolkit (`python -m argus_skill.tools.ppt_master status`). Keep native
-editable shapes/text in the PPTX and include its vector PDF in the manuscript.
-PPT Master may use SVG as its authoring intermediate; keep the composition,
-typographic hierarchy and grouped modules through conversion.
+before drawing. Use its restrained academic composition and publication style.
+`academic-vector-figures.md` supplies a physical-unit Matplotlib canvas with real
+math typography and vector export; TikZ, composed SVG, and the installed
+PPT Master toolkit (`python -m argus_skill.tools.ppt_master status`) are equally
+valid when they fit the figure. Keep the canonical editable source and include
+the matching vector PDF. A mixed figure may combine mathematical or data panels
+with PPT/SVG architecture, but its typography and stroke scale must agree.
 
 `research-svg-pipeline.md` remains available for a specifically requested SVG
 workflow or a repair to an existing suitable SVG. It is an exporter, not a

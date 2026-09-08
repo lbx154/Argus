@@ -210,10 +210,12 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "The manuscript, bibliography, figures, included source files, and rendered "
                 "output are present, mutually consistent, and compile under the selected "
                 "venue's current official rules. A method overview figure follows the "
-                "Figure Studio composition workflow, normally with native editable PPTX "
-                "through PPT Master and an included vector PDF export. Ground it in the "
+                "Figure Studio composition workflow, selecting Matplotlib, TikZ, SVG, "
+                "or PPT Master for the composition and retaining its canonical editable "
+                "source and included vector PDF export. Ground it in the "
                 "manuscript and executed code, with clear grouping, visual hierarchy, "
-                "balanced spacing, and publication-size typography. "
+                "balanced spacing, and publication-size typography. Use proper "
+                "mathematical typesetting and restrained strokes and emphasis. "
                 "Reuse a suitable existing figure; draw only when needed. Default PDF "
                 "placement is after Introduction, preferably on page 2 or 3, subject to "
                 "the author kit and actual Introduction length. "
@@ -306,8 +308,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "match the manuscript and the executed code, with clear grouping and "
                 "visual hierarchy, balanced spacing, publication-size typography, and "
                 "a legible included vector export. Inspect the actual rendered PPT Master "
-                "or other selected composition. A crowded collection of text boxes is "
-                "visually unfinished even when individual labels are readable. "
+                "or other selected composition, including Matplotlib, TikZ, or SVG. "
+                "A crowded collection of text boxes is visually unfinished even when "
+                "individual labels are readable. Judge restraint, alignment, negative "
+                "space, and mathematical typography against strong published figures; "
+                "heavy card borders or oversized headings require composition repair. "
                 "That the paper compiled says nothing about how it looks. The "
                 "whole paper must look publication-ready."
             ),
@@ -487,15 +492,11 @@ def iteration_assessment(
     mission: Any,
     outcome: Any,
 ) -> IterationAssessment | None:
-    """The Reviewer's final judgment stands; nothing re-grades it.
+    """Do not re-grade the Reviewer's science from research-result categories.
 
-    This hook used to re-open a ``done`` final review whenever the structured
-    ``research_result`` grades fell short of the target level (a Reviewer
-    calling the work a ``finite_verification`` or leaving novelty
-    ``unverified``). One campaign then ran 75 certification missions, each
-    reviewed ``done`` and each re-queued, and never completed. A human final
-    reviewer who accepts a paper has accepted it; the grades are a summary of
-    that judgment, not a second judge.
+    Final paper acceptance is enforced before completion by core.venue_review:
+    the Reviewer must explicitly recommend clear weak accept or better for the
+    selected venue and current manuscript. This hook adds no second score.
     """
     _ = (stage, scope, project_root, state_root, mission, outcome)
     return None

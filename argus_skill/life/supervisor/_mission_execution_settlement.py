@@ -255,7 +255,7 @@ class MissionExecutionSettlementMixin:
 
                 record_stage_review(
                     state_root=self.memory.root,
-                    project_root=state.vertical_root,
+                    project_root=Path(state.execution_workdir or self._project_workdir()),
                     stage=state.pipeline_stage_at_start,
                     item=item,
                     manager_action=stage_action or "hold",
@@ -265,6 +265,9 @@ class MissionExecutionSettlementMixin:
                         else ""
                     ),
                     manuscript_binding=review_manuscript_binding,
+                    contract_root=state.vertical_root,
+                    venue_review=getattr(outcome, "venue_review", None),
+                    venue_review_snapshot=getattr(outcome, "venue_review_snapshot", None),
                 )
             except Exception:  # noqa: BLE001 - certificate is observability/control aid
                 log.exception("life supervisor: failed to record stage review certificate")
@@ -1407,6 +1410,8 @@ class MissionExecutionSettlementMixin:
             "final_submission_certified": final_submission_certified,
             "final_submission_signature": final_submission_signature,
             "manuscript_snapshot": final_submission_manuscript_snapshot,
+            "venue_review": getattr(outcome, "venue_review", None),
+            "venue_review_snapshot": getattr(outcome, "venue_review_snapshot", None),
             "overall_complete": overall_complete,
             "campaign_continues": campaign_continues,
             "delivery": delivery,

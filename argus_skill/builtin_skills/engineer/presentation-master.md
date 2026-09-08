@@ -1,6 +1,6 @@
 ---
 name: "PPT Master for Presentations and Paper Figures (Argus adapter)"
-description: "Use the installed hugohe3/ppt-master workflow for the research vertical's default LiveFigure-style procedural native-PPTX research-paper conceptual figure route, as well as editable PPTX decks and templates. It remains usable when image-2 is unavailable."
+description: "Use the installed hugohe3/ppt-master workflow when native editable PPTX best fits a paper figure, deck, or template. Paper Figure Studio may also select Matplotlib, TikZ, or composed SVG."
 ---
 
 # PPT Master — Argus Adapter
@@ -11,8 +11,9 @@ to commit `2e29f3d3cfc379c689b07027d0fa776b9ff79291`.
 
 ## When to use
 
-For research-paper conceptual figures, use PPT Master as the renderer for the
-LiveFigure-style default: evidence-bound semantic contract, same-domain
+For research-paper conceptual figures, select PPT Master when native PPTX
+editing or its composition tools fit the design. Preserve the evidence-bound
+semantic contract, same-domain
 exemplar/style retrieval, multiple layout plans, procedural native objects,
 rendered visual critique, and bounded source-level repair. Paper-facing uses
 include conceptual figures, method overviews, architecture diagrams, teasers,
@@ -21,8 +22,9 @@ SVG/design-spec/PPTX routes without image-2 or another generative image backend.
 
 Do not use PPT Master merely to restyle an ordinary statistical chart; data
 figures use the research vertical's SciencePlots route. Use Draw.io,
-FigureSpec, or Mermaid/Graphviz instead only for an explicitly documented
-supporting exact-topology exception.
+FigureSpec, or Mermaid/Graphviz for exact topology. Matplotlib, TikZ/LaTeX,
+and composed SVG are also first-class paper-figure routes, especially for
+mathematical typography; they do not require an exception or operator approval.
 
 ## Locate and load the real skill
 

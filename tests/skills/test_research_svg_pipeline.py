@@ -90,7 +90,7 @@ def test_renderer_preserves_source_and_cli_reports_input_errors(tmp_path: Path, 
     assert source.read_text() == DRAWING
 
 
-def test_research_paper_defaults_to_ppt_studio_and_keeps_svg_repairs_available() -> None:
+def test_research_paper_uses_composition_studio_and_keeps_renderer_choices() -> None:
     texts = dict(iter_vertical_skill_texts("research"))
     skill = "engineer/research-svg-pipeline.md"
     assert skill in texts
@@ -102,6 +102,9 @@ def test_research_paper_defaults_to_ppt_studio_and_keeps_svg_repairs_available()
     )
     assert "engineer/paper-framework-figure-studio.md" in prompt
     assert "PPT Master" in prompt
+    assert "Matplotlib" in prompt
+    assert "TikZ" in prompt
+    assert "engineer/academic-vector-figures.md" in prompt
     assert "argus_skill.tools.ppt_master status" in prompt
     assert "pipeline_figure" not in prompt
     assert "Reuse an existing suitable figure" in prompt

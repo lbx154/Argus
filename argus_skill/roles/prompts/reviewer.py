@@ -50,8 +50,9 @@ _INCREMENTAL_REREVIEW_BOUNDARY = (
     "stand on when nothing outside this harness has confirmed it. A favorable "
     "review is not evidence that it is true, and a harness reproduces its own broken "
     "baseline every round it is asked. If the requested change now holds and no "
-    "such contradiction exists, return `done`; do not invent a new unrelated "
-    "repair round.\n\n"
+    "such contradiction exists, close the local repair; do not invent a new unrelated "
+    "repair round. For final paper review, the separate selected-venue acceptance "
+    "threshold still governs `done`: fixing the last edit alone is insufficient.\n\n"
 )
 
 # The Reviewer is the only role that can open the plan-challenge channel, and
