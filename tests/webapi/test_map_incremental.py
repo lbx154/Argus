@@ -364,3 +364,23 @@ print(json.dumps({'cached': result['cached']}))
         receipts.append(json.loads(stdout))
     assert (tmp_path / "calls.txt").read_text().splitlines() == ["call"]
     assert sum(r["cached"] for r in receipts) == 1
+
+
+def test_updated_event_behind_the_cursor_is_redelivered(tmp_path):
+    sid, life, memory = setup_session(tmp_path)
+    append(life, {"type": "round.review.completed", "event_id": "ev-x", "item_id": "a",
+                  "ts": 3, "summary": "Round one passed", "status": "done"})
+    value = read_map(sid, tmp_path, life, include_events=False)
+    first = map_history.history_page(tmp_path, life, value, None)
+    assert any(e["id"] == "ev-x" for e in first["events"])
+    drained = map_history.history_page(tmp_path, life, value, first["history_cursor"])
+    assert drained["events"] == []
+    # The journal later rewrites the same event id — a step retired as
+    # superseded. A reader already paged past its seq must still get the
+    # update; an in-place upsert would hide it behind the cursor forever.
+    append(life, {"type": "round.review.completed", "event_id": "ev-x", "item_id": "a",
+                  "ts": 3, "summary": "Superseded by the revised plan", "status": "superseded"})
+    update = map_history.history_page(tmp_path, life, value, drained["history_cursor"])
+    bodies = {e["id"]: e for e in update["events"]}
+    assert "ev-x" in bodies
+    assert bodies["ev-x"]["status"] == "superseded"

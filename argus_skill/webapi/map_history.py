@@ -114,11 +114,31 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
                     normalized = normalize_events(rows, owners - {""}, active)
                     omitted.update(e["item_id"] for e in normalized if e["item_id"] not in known_ids)
                     events = [e for e in normalized if e["item_id"] in known_ids]
+                    # A rewritten event (a step retired as superseded, streamed
+                    # text finalized) must reach readers whose cursor already
+                    # passed its seq: delete + insert under an explicitly
+                    # monotonic counter re-emits it after every issued cursor.
+                    # (Bare rowids reuse max+1 after a delete, which can land
+                    # exactly ON a handed-out cursor and stay invisible.)
+                    # Clients merge by event id, so re-delivery is the update
+                    # path, not a duplicate.
+                    fresh = list({e["id"]: e for e in events}.values())
+                    counter = int(state.get("seq") or 0)
+                    if not counter:
+                        row = db.execute("SELECT COALESCE(MAX(seq), 0) FROM events").fetchone()
+                        counter = int(row[0])
                     db.executemany(
-                        "INSERT INTO events (id, body) VALUES (?, ?) "
-                        "ON CONFLICT(id) DO UPDATE SET body=excluded.body",
-                        [(e["id"], json.dumps(e, ensure_ascii=False)) for e in events],
+                        "DELETE FROM events WHERE id = ?",
+                        [(e["id"],) for e in fresh],
                     )
+                    db.executemany(
+                        "INSERT INTO events (seq, id, body) VALUES (?, ?, ?)",
+                        [
+                            (counter + index + 1, e["id"], json.dumps(e, ensure_ascii=False))
+                            for index, e in enumerate(fresh)
+                        ],
+                    )
+                    state["seq"] = counter + len(fresh)
                     more_bytes = stream.tell() < stat.st_size
                     stream.seek(max(0, consumed - 128))
                     saved.update(offset=consumed, anchor=digest(stream.read(min(consumed, 128)).hex()))
