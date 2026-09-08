@@ -1,6 +1,6 @@
 ---
 name: "Reading the paper as a venue reviewer"
-description: "Assess scientific completeness during the final integrated paper Review, without editing the work."
+description: "Assess the current paper as the selected venue's independent Reviewer, with constructive scientific guidance and an updated review report."
 ---
 
 # Reading the paper as a venue reviewer
@@ -24,10 +24,19 @@ integrated judgment is written only to `paper/REVIEW.md`.
    paper claims, and positive controls show the evaluator can detect the target
    effect.
 3. **Evidence** — results establish the stated contribution, and the strongest
-   same-information published baseline receives a fair comparison. A superiority
+   same-information published baseline receives a fair comparison. Match relevant
+   implementation maturity, batching, precision and resource accounting; a slower
+   implementation of a competitor is not evidence against its scientific idea.
+   A superiority
    claim needs convincing gains. A negative or boundary result needs a
    nontrivial, important finding established with decisive matched controls;
    reporting an unsuccessful method is not sufficient.
+   When a method or evaluator changed, check that all panels supporting its main
+   claim use that current variant and execution contract. A successful focal
+   repair cannot silently validate old broad results. Exercise the published
+   reproduction entry point with the current configuration when either changed,
+   using a supported small run before an expensive full execution; internal tests
+   alone do not establish that the advertised command works.
 4. **Completeness** — every experiment, ablation, control, section, figure, and
    table required by the thesis is present and interpreted.
 5. **Literature** — material premises and closest competitors use genuine,
@@ -50,8 +59,9 @@ issues that would justify rejection at the venue, and the concrete repairs.
 The visual and language passes run concurrently; after one Engineer applies all
 findings, the integrated Reviewer reassesses the repaired paper.
 
-Give an explicit selected-venue recommendation in natural prose. Clear weak
-accept or better is the minimum for final completion; borderline or rejection
+Give an explicit selected-venue recommendation in natural prose. Use the
+operator's current completion standard from the Reviewer instruction; a lower
+default or previous target does not replace it. Borderline or rejection
 requires concrete revisions. Explain why the paper deserves acceptance at this
 venue, not merely why the latest edit is correct. Separate uncertainty about
 the science from defects in writing or appearance. Never change a score to

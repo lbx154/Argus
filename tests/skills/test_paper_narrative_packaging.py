@@ -52,7 +52,9 @@ def test_drafting_lets_the_venue_and_claim_decide_the_form() -> None:
         assert "170" not in text
         assert "five-sentence" not in text
     assert "hedge a sentence only when the evidence for that sentence" in drafting
-    assert "terms for internal task limits, declarations of readiness, stage decisions" in drafting
+    assert "internal task routing, review status and process bookkeeping" in drafting
+    assert "preserve established scientific terminology" in drafting
+    assert "do not rename legitimate terms to satisfy a word list" in drafting
     assert "legitimate paper when its evidence is as complete" in drafting
 
 
@@ -130,6 +132,9 @@ def test_paper_engineer_prompt_carries_the_writing_standard() -> None:
     assert "a headline number may recur" in prompt
     assert "method-by-dataset-by-metric" in prompt
     assert "translate any workflow or evidence-bookkeeping language" in prompt
+    assert "preserve established scientific terminology" in prompt
+    assert "`certified bounds`, `communication gates`, `communication rounds`" in prompt
+    assert "never appear in the manuscript" not in prompt
 
 
 def test_integrated_reviewer_judges_as_a_venue_reviewer() -> None:
@@ -146,6 +151,8 @@ def test_integrated_reviewer_judges_as_a_venue_reviewer() -> None:
     assert "170" not in prompt
     assert "headline figure that recurs" in prompt
     assert "do not ask for more hedging than the evidence requires" in prompt
+    assert "judge terms by their scientific meaning, not a banned-word list" in prompt
+    assert "preserve legitimate scientific terminology" in prompt
 
 
 def test_operation_prompts_enforce_narrative_and_cold_read_input_boundaries(

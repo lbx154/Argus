@@ -403,22 +403,6 @@ def academic_paper_review_block() -> str:
     )
 
 
-# Workflow vocabulary that must never leak into a manuscript. The words are
-# quoted to the model as tokens, one per tuple entry, so the prompt can name
-# them without the prose itself speaking that way.
-_WORKFLOW_WORDS_KEPT_OUT_OF_MANUSCRIPTS = (
-    "bounded",
-    "certified",
-    "gate",
-    "artifact",
-    "mission",
-    "round",
-    "handoff",
-    "validator",
-    "audit",
-)
-
-
 def paper_writing_standard() -> str:
     """The one writing standard every paper-facing prompt shares.
 
@@ -448,11 +432,12 @@ def paper_writing_standard() -> str:
         "the point. Say plainly what the evidence establishes, state each limit once "
         "where it matters, and hedge a sentence only when the evidence for that "
         "sentence is uncertain. Think in evidence roles (headline, mechanism, control, "
-        "scope, completeness) while deciding what goes where, but those words, and "
-        "every workflow word such as "
-        f"{', '.join(_WORKFLOW_WORDS_KEPT_OUT_OF_MANUSCRIPTS[:-1])}, or "
-        f"{_WORKFLOW_WORDS_KEPT_OUT_OF_MANUSCRIPTS[-1]}, "
-        "never appear in the manuscript. A clear "
+        "scope, completeness) while deciding what goes where. Keep internal task "
+        "routing, review status and process bookkeeping out of the scientific account. "
+        "Preserve established scientific terminology in its correct domain sense, "
+        "including `certified bounds`, `communication gates`, `communication rounds`, "
+        "`numerical artifacts`, `mechanisms` and `controls`. Explain their scientific "
+        "meaning when needed; do not rename legitimate terms to satisfy a word list. A clear "
         "thesis that a method helps only under identified conditions, or that an "
         "expected effect does not hold, is a legitimate paper when its evidence is as "
         "complete as a positive result would need; what is not allowed is presenting "
@@ -471,8 +456,12 @@ def paper_reviewer_standard() -> str:
         "Object when a claim outruns its evidence, when a reader cannot recover the "
         "central finding, when a number's meaning is unclear from its context, when "
         "prose recites a result matrix instead of arguing, when hedging or limitation "
-        "lists stand in for a clear statement, or when internal workflow vocabulary "
-        "appears. Do not ask for more hedging than the evidence requires, and do not "
+        "lists stand in for a clear statement, or when internal task routing, review "
+        "status or process bookkeeping replaces the scientific account. Judge terms "
+        "by their scientific meaning, not a banned-word list; preserve legitimate "
+        "scientific terminology such as `certified bounds`, `communication gates`, "
+        "`communication rounds`, `numerical artifacts`, `mechanisms` and `controls`. "
+        "Do not ask for more hedging than the evidence requires, and do not "
         "ask for a number where a plain statement is clearer. "
         "Apply the manuscript-length policy in research-paper-playbook.md: "
         "compare counted body extent with the full-paper writing target, "
@@ -594,9 +583,12 @@ def _engineer_fragment(
         "change stage state. The host runs independent preliminary paper reviews after your "
         "turn; do not duplicate those full-paper scientific, visual, or cold-read passes. "
         "The host also invokes the formal integrated Reviewer after you return. Once this "
-        "round's scientific changes and validation are ready, save the current checkpoint "
+        "round's coherent scientific changes and directly coupled repairs are validated, "
+        "save the current checkpoint "
         "and summarize the changes and their evidence; you need not finish the whole paper "
-        "before being reviewed. "
+        "before being reviewed. Complete the relevant experiment and its coupled code, "
+        "entry-point, analysis and presentation repairs together; do not trigger a "
+        "whole-paper review after each small edit or preliminary test. "
         "Do not invoke or delegate an integrated/full-paper Reviewer inside the Engineer "
         "call, write the main paper/REVIEW.md, or give a delegate permission to write it. "
         "A bounded figure-design subtask may run in parallel in an isolated candidate "
@@ -664,6 +656,15 @@ def _engineer_fragment(
                 "experiments; aim to strengthen the contribution. If a real test disproves a "
                 "claim, keep that result and adjust the interpretation honestly. "
                 "Read the latest paper/REVIEW.md and confirm which concerns are now resolved. "
+                "When the method, oracle, evaluator or accounting changes, identify the "
+                "affected claims and results before choosing the next runs. Re-establish "
+                "the affected claim's full comparison scope with the current variant; "
+                "a focal diagnostic does not validate older panels under a new contract. "
+                "Reuse unaffected evidence. Match baseline implementation maturity, "
+                "batching and precision as well as information and resources when they "
+                "affect the comparison. Test the manuscript's actual public entry point "
+                "with its current configuration, using a supported small execution first "
+                "when the full experiment is expensive. "
                 "Preserve raw and adverse "
                 "results. Use the existing resource and experiment controls at the scale "
                 "the claim requires. Keep the current paper and stage; do not roll back "
@@ -721,8 +722,10 @@ def _reviewer_fragment(
         policy = (
             academic_paper_review_block()
             + "\n\nFinal completion requires your explicit selected-venue "
-            "recommendation: clearly weak_accept or better, with no reject-level "
-            "issues. Borderline, reject, uncertainty, or missing evidence continues "
+            "recommendation at or above the operator's current completion standard, "
+            "with no reject-level issues. A lower acceptance rating can recognize progress, "
+            "but cannot finish a stronger requested goal. Borderline, "
+            "reject, uncertainty, or missing evidence continues "
             "revision without a quality-round ceiling. Do not equate a repaired "
             "edit with a paper worthy of acceptance or inflate a rating to stop."
         )

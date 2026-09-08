@@ -61,6 +61,26 @@ Review the current science while candidate drawings are in progress; defer only
 the affected final figure inspection. A cosmetic search must not keep an
 otherwise acceptable paper in an endless loop.
 
+For a scientific revision, finish a coherent piece of evidence before returning
+to the host Reviewer. Bundle the related implementation, public-entry-point,
+analysis and manuscript repairs from the current feedback; independent work
+can run in parallel. A preliminary check guides the next experiment, not another
+whole-paper review after every small edit. Conversely, Engineer need not solve
+the entire paper or attain the final rating before returning useful new evidence.
+
+If a method, oracle, evaluator or cost definition changes, trace which claims,
+panels and controls depend on it. Re-establish those comparisons with the current
+execution contract; do not combine a corrected focal experiment with older broad
+panels and call the whole result validated. Keep unaffected evidence and clearly
+identified earlier results. A failed claim should change in response to the
+test, while a feasible method or experiment improvement receives a real attempt.
+Record only the necessary continuation context in the existing research notes
+and checkpoint, without a new progress report or required template.
+
+The following editing sequence is for a prose-only repair. A full scientific
+revision uses the broader operation above, followed by the same host-owned
+independent assessments and integrated judgment:
+
 1. Preserve the pre-edit manuscript source closure and rendered PDF in internal
    mission state; do not use Git as the scientific baseline.
 2. Run `narrative_edit` as a fresh-context Engineer operation. Start from the
@@ -169,8 +189,10 @@ At this final stage, completion also requires an explicit independent
 recommendation for the currently selected venue. Explain it naturally in the
 operator's language, with the supporting evidence and remaining weaknesses.
 No JSON, fixed fields, decision footer, or prescribed review template is required.
-Only a clearly supported weak accept or higher with no reject-level issue may
-pass. Borderline, rejection, uncertainty, missing evidence, or a mismatched venue
+Use the operator's current completion standard from the Reviewer instruction.
+Only a clearly supported recommendation at that level or higher, with no
+reject-level issue, may pass. A weak acceptance does not finish a requested
+strong-accept goal. Borderline, rejection, uncertainty, missing evidence, or a mismatched venue
 continues Review. The host enforces the threshold and binds the judgment to the
 actual paper and figure bytes; a previous approval or successful compile is
 insufficient.
@@ -206,8 +228,9 @@ hypothesis can be resolved by evidence and a supported alternative; agreement
 with Reviewer is not a scientific result. Reviewer checks the actual paper and
 experiments, recognizes the progress, and closes resolved findings.
 
-Aim toward strong acceptance and best-paper quality. Clear weak accept is still
-the minimum, and speculative future-work ideas do not hold completion. Do not
+Aim toward strong acceptance and best-paper quality. Honor the current requested
+minimum; a default or earlier lower target does not replace it. Speculative
+future-work ideas do not hold completion. Do not
 invent endless experiments, repeat resolved objections, or demand arbitrary
 rewrites merely to sustain the loop. Use ordinary prose throughout the review;
 the host handles internal routing and preserves the complete feedback.

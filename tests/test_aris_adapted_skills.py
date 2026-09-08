@@ -85,8 +85,12 @@ def test_claim_check_requires_fresh_source_level_verification() -> None:
     ).read_text(encoding="utf-8")
 
     assert "fresh-context" in text
-    assert "MATCH / MISMATCH / MISSING" in text
-    assert "one reviewer thread per claim" in text
+    assert "direct source" in text
+    assert "Group related assertions that share evidence" in text
+    assert "no fixed labels are required" in text
+    assert "do not commission another integrated paper review" in text
+    assert "MATCH / MISMATCH / MISSING" not in text
+    assert "one reviewer thread per claim" not in text
     assert "PAPER_CLAIM_AUDIT" not in text
 
 

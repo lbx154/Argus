@@ -539,8 +539,9 @@ def iteration_assessment(
     """Do not re-grade the Reviewer's science from research-result categories.
 
     Final paper acceptance is enforced before completion by core.venue_review:
-    the Reviewer must explicitly recommend clear weak accept or better for the
-    selected venue and current manuscript. This hook adds no second score.
+    the Reviewer must explicitly recommend the operator's current minimum or
+    better for the selected venue and current manuscript. This hook adds no
+    second score.
     """
     _ = (stage, scope, project_root, state_root, mission, outcome)
     return None

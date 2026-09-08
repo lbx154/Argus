@@ -1671,3 +1671,40 @@ Backlog: map-history sqlite superseded backfill.
 
 Use the named user-service restart command in section 28 for deliberate web
 updates; it keeps restart ownership explicit and preserves the paper workers.
+
+## 30. Coherent scientific revisions and meaningful terminology (2026-09-08 UTC)
+
+The paper team continues the same three strong-accept tasks. Engineer now returns
+a coherent scientific revision, including coupled code, public command/config,
+analysis and manuscript repairs. A small preliminary test should guide the next
+experiment, not launch another whole-paper review after every edit. When the
+method, oracle, evaluator or cost definition changes, the affected headline
+comparisons must be re-established under that version; a repaired focal result
+cannot validate stale broad panels. Unaffected evidence remains reusable.
+
+The experiment and review guidance also makes baseline maturity, batching and
+precision part of comparison fairness, and requires actually exercising an
+updated public reproduction entry. Source/config snapshots must reflect the
+executed working files, not merely a Git revision. Targeted independent checks
+can group related claims and use natural feedback; the old mandatory separate
+reviewer and fixed labels for each claim are removed.
+
+The writing prompts previously banned words such as certified, gate, mechanism
+and control even in their scientific meanings. They now exclude internal task
+routing and review bookkeeping while preserving legitimate scientific terms.
+The shared review playbook no longer advertises weak accept as the completion
+bar when an operator requests strong accept. Honest ratings remain untouched.
+
+Validation: 111 relevant acceptance, natural-review, protocol, adapted-skill,
+length, voice, narrative and pass-reuse tests passed; ruff and whitespace checks
+passed. Log: `/tmp/argus-coherent-science-review-tests-20260908.log`.
+One concise nudge was queued to each existing task without stopping its work;
+the receipt is in `strong-accept-rollout/coherent-science-nudge.json` under the
+paper audit directory. Keep the already-loaded strong acceptance policy in
+mind: the workers still run e0dc20dfd, while later prompt cleanup is published
+for subsequent loads. Do not repeatedly restart healthy experiments for this.
+
+At 20:46 UTC all three original worker PIDs were alive. CBC was running an
+actual empty-directory reproduction check; Diamond was consolidating its
+current-oracle results; S43 was implementing a joint GQA replay and repairing
+the released tests. No independent strong acceptance has been verified.

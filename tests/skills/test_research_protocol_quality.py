@@ -124,7 +124,8 @@ def test_review_combines_parallel_scientific_visual_and_language_passes() -> Non
     assert "strict page-by-page visual quality" in playbook
     assert "academic language" in playbook
     assert "do not create separate scientific" in playbook
-    assert "crawl old reports or history" in prompt
+    assert "read the latest paper/review.md to close resolved concerns" in prompt
+    assert "crawl other old reports or history" in prompt
     assert "reopen selection, or move backward" in prompt
 
 

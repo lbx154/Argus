@@ -246,6 +246,7 @@ def test_formal_reviewer_gets_the_operator_bar_from_control_state(paper):
         scope="final_submission", config=config,
     )
     assert "completion bar is strong accept" in runner.prompt
+    assert "recommendation: clearly weak_accept or better" not in runner.prompt
     assert review.status == "continue"
     assert not review.final_submission_certified
     assert "Recommendation: weak_accept" in (paper / "paper/REVIEW.md").read_text()

@@ -55,8 +55,10 @@ the comparison whole without changing the inference). Give each item a
 canonical full location; methods and tables keep complete definitions and
 matrices, prose selects what changes the inference. Moving evidence to the
 appendix changes its placement; it does not remove it. Adverse or null results
-that change the headline interpretation stay in the main reader path. These role words are planning
-vocabulary and never appear in the manuscript.
+that change the headline interpretation stay in the main reader path. Use these
+roles to plan the argument without reciting the internal planning labels to the
+reader. Preserve their ordinary scientific meanings, such as a mechanism or an
+experimental control, wherever they help explain the work.
 
 ## 2. Write in this order
 
@@ -95,11 +97,13 @@ Include every intended claim-bearing experiment, figure, table, and citation.
   identified conditions, or that an expected effect does not hold, is a
   legitimate paper when its evidence is as complete as a positive result would
   need.
-- Keep internal paths, role names, workflow language, and development history
-  out of the manuscript. Evidence-role words (headline, mechanism, control,
-  scope, completeness) and terms for internal task limits, declarations of
-  readiness, stage decisions, generated outputs, missions, rounds, transfers
-  between roles, checking tools, and inspections never appear in the paper.
+- Keep internal task routing, review status and process bookkeeping out of the
+  scientific account. Preserve established scientific terminology in its correct
+  domain sense, including certified bounds, communication gates and rounds,
+  numerical artifacts, mechanisms and controls. Explain their scientific meaning
+  when needed; do not rename legitimate terms to satisfy a word list. Necessary
+  method and reproduction details belong in the paper; the agents' development
+  history and internal planning labels do not.
 
 ## 3. Figures and tables
 

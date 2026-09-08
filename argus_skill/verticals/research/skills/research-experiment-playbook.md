@@ -67,8 +67,11 @@ not a complete-looking experiment matrix.
    below, including as scientific evidence for a scoped mechanism claim.
    Choose models for task competence and claim scope, not release date.
 7. Keep every run reproducible from its code, explicit configuration, command,
-   and raw output. Give each attempt its own output directory. If an existing
-   directory must be reused, invalidate the earlier completion marker before
+   and raw output. Preserve the actual executed source and configuration in the
+   attempt's existing records or snapshot; a Git revision alone is insufficient
+   when the working files have changed. Name the method/oracle variant explicitly
+   when its semantics differ from earlier results. Give each attempt its own
+   output directory. If an existing directory must be reused, invalidate the earlier completion marker before
    opening or truncating any raw file; never leave a prior success beside a
    new partial run. Publish completion only after the workers finish producing
    data and the raw configuration/repeat identities, counts, and scientific invariants
@@ -94,6 +97,15 @@ When promoting a new result, validate the whole attempt first and switch the
 canonical reference together, rather than mixing raw rows, summaries, and
 completion records from different attempts. Use the existing run records and
 research notes; this does not require a new reporting document.
+
+When configuration or a public wrapper changes, exercise the same command path
+advertised to readers with its current configuration and an empty output
+directory. Use a supported small run first when the full study is costly, then
+run the intended scale after that path works. An import test, a private helper,
+or an old saved result cannot substitute for the public entry point. A changed
+oracle or evaluator also requires updating every affected headline comparison,
+not just the smallest positive case; reuse evidence whose execution contract
+did not change.
 
 Scale the evidence to the claim, not to the first configuration that ran. A
 thesis about language models in general is tested across families and sizes;
