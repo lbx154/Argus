@@ -113,12 +113,12 @@ export function ArtifactModal({
       {delivery && !expanded && <header className="delivery-header">
         <div className="delivery-heading"><span className="delivery-mark"><PackageCheck size={22} /></span><div>
           <p>DELIVERY · {zh ? '交付成果' : 'Your results'}</p>
-          <h2>{zh ? '成果已就绪' : 'Ready to explore'}</h2>
+          <h2>{zh ? '成果文件' : 'Result files'}</h2>
         </div><button type="button" onClick={onClose} className="delivery-return" aria-label={zh ? '关闭交付弹窗' : 'Close delivery'}>{zh ? '返回地图' : 'Back to map'} ×</button></div>
         {deliveries.length > 1 ? <select aria-label={zh ? '选择交付任务' : 'Choose delivery'} className="delivery-task-select" value={delivery.delivery_id} onChange={(e) => { const receipt = deliveries.find((item) => item.delivery_id === e.target.value); if (receipt) onSelectDelivery?.(receipt); }}>
           {deliveries.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{receipt.title}</option>)}
         </select> : <p className="delivery-task-title" title={delivery.title}>{delivery.title}</p>}
-        <div className="delivery-facts"><span><CheckCircle2 size={13} />{['done', 'passed', 'approved', 'accepted'].includes(delivery.review_status) ? (zh ? '审核通过' : 'Review passed') : (zh ? '已交付' : 'Delivered')}</span><span>{files.length} {zh ? '个文件' : 'files'}</span></div>
+        <div className="delivery-facts"><span><CheckCircle2 size={13} />{['done', 'passed', 'approved', 'accepted'].includes(delivery.review_status) ? (zh ? '任务已完成' : 'Task completed') : (zh ? '可查看' : 'Available')}</span><span>{files.length} {zh ? '个文件' : 'files'}</span></div>
         {delivery.summary && <details className="delivery-summary"><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><p>{cleanDeliverySummary(delivery.summary)}</p></details>}
       </header>}
       {!expanded && !!files.length && <nav className="delivery-files" aria-label={zh ? '交付文件' : 'Delivery files'}>{files.map((file) => <button type="button" key={file.path} aria-pressed={path === file.path} onClick={() => onSelectPath?.(file.path)} title={file.path}><span>{file.path.split('/').at(-1)}</span>{delivery?.primary_target?.path === file.path && <small>{zh ? '主要成果' : 'Main result'}</small>}</button>)}</nav>}

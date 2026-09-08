@@ -104,9 +104,9 @@ def test_svg_workflow_is_removed_and_paper_uses_method_d_with_b_fallback() -> No
     assert "PPT Master" in prompt
     assert "Method D is the default" in prompt
     assert "Method B is the fallback" in prompt
-    assert "Matplotlib" in prompt
-    assert "TikZ" in prompt
-    assert "engineer/academic-vector-figures.md" in prompt
+    assert "native editable PPT" in prompt
+    assert "ECharts" in prompt
+    assert "TikZ" not in prompt
     assert "argus_skill.tools.ppt_master status" in prompt
     assert "pipeline_figure" not in prompt
     assert "Reuse an existing suitable figure" in prompt
@@ -124,6 +124,8 @@ def test_svg_workflow_is_removed_and_paper_uses_method_d_with_b_fallback() -> No
         if stage == "review":
             assert "Method D is the default" in prompt
             assert "Method B is the fallback" in prompt
+            assert "native editable PPT" in prompt
+            assert "TikZ" not in prompt
             assert "engineer/paper-framework-figure-studio.md" in prompt
             assert "operator-rejected figure needs a fresh composition" in prompt
     for stage in ("paper", "review"):

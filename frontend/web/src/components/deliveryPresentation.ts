@@ -8,6 +8,18 @@ export function deliveryFiles(receipt: DeliveryReceipt): DeliveryTarget[] {
   });
 }
 
+/** The project-level research shortcut opens the paper, even after a review-only task. */
+export function defaultDeliverySelection(receipts: DeliveryReceipt[], vertical: string) {
+  if (vertical === 'research') {
+    for (const receipt of receipts) {
+      const paper = deliveryFiles(receipt).find((file) => /(?:^|\/)paper\/main\.pdf$/i.test(file.path.replace(/\\/g, '/')));
+      if (paper) return { receipt, path: paper.path };
+    }
+  }
+  const receipt = receipts[0];
+  return receipt ? { receipt, path: deliveryFiles(receipt)[0]?.path || null } : null;
+}
+
 export function cleanDeliverySummary(summary: string): string {
   return summary.replace(/\s*\bRESULT\s*=\s*/g, '\n\n').replace(/\s*\b(?:STATUS|REVIEW_STATUS)\s*=\s*\S+/g, '').trim();
 }

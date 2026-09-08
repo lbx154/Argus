@@ -5,7 +5,7 @@ description: "Choose a renderer that faithfully represents the evidence for each
 
 # Choosing how to draw a research figure
 
-Use this in Paper before creating a figure. Conceptual and method figures use
+Use this in Paper or during figure repairs in Review. Conceptual and method figures use
 default Method D with Method B as the fallback, through
 `paper-framework-figure-studio.md`. Keep the editable source and final included
 export. Quantitative plots remain on their data-figure route.
@@ -22,11 +22,11 @@ paragraph or table inside a figure environment does not count.
 | Need | Route |
 |---|---|
 | Any paper data/metric/result chart, including uncertainty or ablation | Matplotlib/SciencePlots through Styling data figures for publication |
-| Method pipeline or architecture overview | Composing a conceptual paper figure: default Method D blueprint and editable native PPTX through PPT Master; Method B local drawing is the fallback |
-| Mathematical operators, bounds, or geometric reasoning | Precise Matplotlib mathtext or TikZ/LaTeX components within Method D reconstruction, or Method B fallback |
+| Method pipeline or architecture overview | Composing a conceptual paper figure: default Method D blueprint and editable native PPTX through PPT Master; Method B direct native PPT design is the fallback |
+| Mathematical operators, bounds, or geometric reasoning | Native PPT shapes, equation objects, and mathematical text runs within Method D or B |
 | Other conceptual or teaser figure | Composing a conceptual paper figure: default Method D, with Method B fallback when unavailable or unsuitable |
-| Exact load-bearing topology | FigureSpec, Draw.io, or Graphviz as exact components in the selected Method D/B workflow |
-| Rich browser composition | An editable local component within the selected Method D/B workflow; browser export is a renderer, not another workflow |
+| Exact load-bearing topology | FigureSpec or Graphviz can supply exact coordinates; compose the final nodes and connectors in native PPT |
+| Data chart component in a PPT figure | ECharts with actual data and fixed dimensions; inspect the vector export in the final PPT |
 | Non-claim-bearing illustrative asset | image-2 only when configured; compose it inside an editable deterministic figure |
 
 Topology fidelity takes priority over decorative richness. A polished Figure 1
@@ -40,9 +40,10 @@ through PPT Master, and export the paper figure. Use its refined academic
 palette, thin strokes, whitespace, and real mathematical typography.
 
 Method B is the fallback when the configured image route or required Method D
-prerequisites are unavailable or the task's constraints rule it out. Use native
-objects or local drawing code; `academic-vector-figures.md` provides Matplotlib
-and TikZ/LaTeX guidance. There is no separate SVG workflow. SVG can remain an
+prerequisites are unavailable or the task's constraints rule it out. Compose
+directly in native editable PPT through the installed PPT Master; do not pause
+or ask the operator for image API setup. `academic-vector-figures.md` covers
+precise math and chart components. There is no separate SVG workflow. SVG can remain an
 internal asset format of a selected renderer. Reuse suitable figures across
 rounds and name the actual workflow used without inventing a blueprint.
 Include the vector PDF after Introduction, preferably on page 2 or 3; changing

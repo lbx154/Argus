@@ -12,7 +12,7 @@ figure sources, and final exports used by `paper/main.tex`.
 Conceptual, method, and architecture figures follow
 `paper-framework-figure-studio.md`: **Method D is the default**, using an actual
 image blueprint and editable PPT Master reconstruction; **Method B is the
-fallback** using local drawing tools such as Matplotlib or TikZ when D is
+fallback** using direct native PPT design when D is
 unavailable or unsuitable. Do not introduce a separate SVG workflow.
 
 ## Analysis

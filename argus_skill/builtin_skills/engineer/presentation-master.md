@@ -13,7 +13,9 @@ to commit `2e29f3d3cfc379c689b07027d0fa776b9ff79291`.
 
 For research-paper conceptual figures, Figure Studio defaults to Method D:
 an image design blueprint followed by native editable PPT Master reconstruction,
-with Method B local drawing as the fallback. Preserve the evidence-bound
+with Method B direct native PPT design as the fallback. Both routes use native
+editable PowerPoint objects; missing image API access selects B without an
+operator setup question. Preserve the evidence-bound
 semantic contract, same-domain
 exemplar/style retrieval, multiple layout plans, procedural native objects,
 rendered visual critique, and bounded source-level repair. Paper-facing uses
@@ -22,10 +24,11 @@ and graphical abstracts. The toolkit can produce these through
 SVG/design-spec/PPTX routes without image-2 or another generative image backend.
 
 Do not use PPT Master merely to restyle an ordinary statistical chart; data
-figures use the research vertical's SciencePlots route. Use Draw.io,
-FigureSpec, or Mermaid/Graphviz for exact topology. Matplotlib, TikZ/LaTeX,
-and local vector components support precise mathematical typography inside
-the selected Method D/B workflow. Do not add a separate SVG workflow.
+figures use the research vertical's SciencePlots route. FigureSpec or Graphviz
+may help calculate exact topology coordinates, but final method figures use
+native PPT nodes, connectors, and text. ECharts can provide a measured data
+chart component. Use native equation objects or mathematical text runs for
+notation, and inspect the actual exported PPT. Do not add a separate SVG workflow.
 
 ## Locate and load the real skill
 

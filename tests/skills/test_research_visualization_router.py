@@ -182,6 +182,7 @@ def test_concept_figure_consumers_keep_d_default_and_b_fallback(skill: str) -> N
         "/paper-framework-figure-studio.md"
     )
     assert "Use this as the default for a method" not in content
+    assert "TikZ" not in content
 
 
 def test_concept_default_preserves_authority_editability_and_reuse() -> None:
@@ -200,7 +201,7 @@ def test_concept_default_preserves_authority_editability_and_reuse() -> None:
         "without credentials",
         "A failed request is not a blueprint",
         "Do not paste the blueprint as a whole-slide raster",
-        "Method B does not require PPT Master",
+        "Method B does not require image-generation credentials",
         "Method D does not require a particular reconstruction model",
         "Reuse an existing suitable figure or blueprint",
         "Quantitative charts",
@@ -208,7 +209,10 @@ def test_concept_default_preserves_authority_editability_and_reuse() -> None:
     ):
         assert requirement in studio
     assert "engineer/research-svg-pipeline.md" not in texts
-    assert "Matplotlib, TikZ/LaTeX" in studio
+    assert "direct native PPT design without an image API" in studio
+    assert "Both D and B author the framework in native editable PowerPoint objects" in studio
+    assert "ECharts" in studio
+    assert "TikZ" not in studio
     assert "academic-vector-figures.md" in studio
     image = " ".join(texts["engineer/paper-illustration-image2.md"].split())
     assert "visual design blueprint" in image

@@ -16,10 +16,12 @@ export function useDeliveryCenter(sid: string | null, ready: boolean, receipt: D
     const key = `argus.delivery.seen.v1:${sid}`;
     writeLocalStorage(key, JSON.stringify([...new Set([...readSeen(key), id])].slice(-80)));
   }, [sid]);
-  const open = useCallback((next: DeliveryReceipt) => {
+  const open = useCallback((next: DeliveryReceipt, preferredPath?: string | null) => {
     if (!sid) return;
     markSeen(next.delivery_id);
-    setSelection({ sid, receipt: next, path: deliveryFiles(next)[0]?.path || null });
+    const files = deliveryFiles(next);
+    const path = files.find((file) => file.path === preferredPath)?.path || files[0]?.path || null;
+    setSelection({ sid, receipt: next, path });
   }, [sid, markSeen]);
   useEffect(() => {
     if (!sid || !ready) return;

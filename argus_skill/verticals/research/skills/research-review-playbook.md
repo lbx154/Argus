@@ -107,8 +107,10 @@ is after Introduction, preferably on page 2 or 3; fix float placement in LaTeX
 without redrawing. Require repairs to surplus whitespace, unreadable
 labels, clipping and connector collisions. Recompose an unfinished figure with
 `engineer/paper-framework-figure-studio.md`: default Method D (image blueprint
-and editable PPT Master reconstruction), with Method B local drawing as the
-fallback. Preserve the academic palette and precise mathematical typography.
+and editable PPT Master reconstruction), with Method B direct native PPT design
+as the fallback when the image interface is unavailable. Keep the framework in
+editable PPT; ECharts can supply actual data components. Preserve the academic
+palette and precise mathematical typography.
 Regenerate the included PDF. A successful
 render or font check alone does not establish that the figure is visually sound.
 

@@ -2,7 +2,7 @@ import { act, create } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { DeliveryReceipt } from '../../../core/src/types';
 import { useDeliveryCenter } from '../useDeliveryCenter';
-import { cleanDeliverySummary, deliveryFiles, selectActiveDelivery, hasPendingDeliveryDependents } from '../components/deliveryPresentation';
+import { cleanDeliverySummary, deliveryFiles, defaultDeliverySelection, selectActiveDelivery, hasPendingDeliveryDependents } from '../components/deliveryPresentation';
 const receipt = (id: string): DeliveryReceipt => ({ schema_version: 1, delivery_id: id, item_id: id, kind: 'task_completed', status: 'done', review_status: 'done', title: id, summary: 'Ready. RESULT=Checks passed.', delivered_at: 1, primary_target: { path: 'index.html', label: 'Website', source: 'delivery', why: 'Reviewed' }, targets: [{ path: 'report.md', label: 'Report', source: 'delivery', why: 'Reviewed' }] });
 afterEach(() => vi.unstubAllGlobals());
 it('opens a new delivery once, keeps files selectable, and does not replay historical receipts', () => {
@@ -23,12 +23,26 @@ it('opens a new delivery once, keeps files selectable, and does not replay histo
   expect(center.selection).toBeNull();
   act(() => center.open(receipt('old')));
   expect(center.selection?.path).toBe('index.html');
+  act(() => center.open(receipt('old'), 'report.md'));
+  expect(center.selection?.path).toBe('report.md');
+  act(() => center.open(receipt('old'), 'missing.pdf'));
+  expect(center.selection?.path).toBe('index.html');
   act(() => renderer.update(<Probe sid="b" delivery={receipt('other')} />));
   expect(center.selection).toBeNull();
   act(() => renderer.update(<Probe sid="a" delivery={null} />));
   act(() => renderer.update(<Probe sid="a" delivery={receipt('new')} />));
   expect(center.selection).toBeNull(); // persisted across session changes
   act(() => renderer.unmount());
+});
+
+it('opens the research manuscript after a newer task delivered only its review report', () => {
+  const report = { path: 'paper/REVIEW.md', label: 'Review', source: 'delivery', why: 'Review report' };
+  const latest = { ...receipt('review'), primary_target: report, targets: [] };
+  const paper = { ...receipt('paper'), primary_target: report, targets: [{ ...report, path: 'paper/main.pdf', label: 'Paper' }] };
+  expect(defaultDeliverySelection([latest, paper], 'research')).toEqual({ receipt: paper, path: 'paper/main.pdf' });
+  expect(defaultDeliverySelection([latest, paper], 'software')).toEqual({ receipt: latest, path: 'paper/REVIEW.md' });
+  expect(defaultDeliverySelection([latest], 'research')).toEqual({ receipt: latest, path: 'paper/REVIEW.md' });
+  expect(defaultDeliverySelection([], 'research')).toBeNull();
 });
 it('waits for initial transcript hydration and ignores completions without files', () => {
   let center!: ReturnType<typeof useDeliveryCenter>;

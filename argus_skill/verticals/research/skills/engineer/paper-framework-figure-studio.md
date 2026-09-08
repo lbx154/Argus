@@ -1,6 +1,6 @@
 ---
 name: "Composing a conceptual paper figure"
-description: "Default to Method D: image-first design and editable PPT Master reconstruction; use Method B local drawing as the fallback, with refined academic colors and typography."
+description: "Default to Method D: image-first design and editable PPT Master reconstruction; fall back to Method B direct native PPT design, with refined academic composition and optional ECharts components."
 ---
 
 # Composing a conceptual paper figure
@@ -22,6 +22,10 @@ An explicit operator choice overrides the default.
 
 **Method D is the default: reference figures -> image-API design blueprint ->
 editable reconstruction -> native PPTX through PPT Master -> paper export.**
+
+Both D and B author the framework in native editable PowerPoint objects.
+An unavailable image interface selects B automatically; it is not a reason
+to pause the paper or ask the operator to configure an API.
 
 1. Reuse an existing suitable figure or blueprint before creating another.
    A prose-only edit, compile, or new Review round does not justify regeneration.
@@ -73,15 +77,22 @@ editable reconstruction -> native PPTX through PPT Master -> paper export.**
    If PDF/PNG previews come from SVG rather than a PowerPoint render, say so;
    do not claim an Office rendering was inspected when it was not.
 
-**Method B is the fallback: direct local vector drawing without an image API.**
-The active model designs the figure with native objects or local drawing code,
-including Matplotlib, TikZ/LaTeX, or other appropriate vector tools. For precise
-mathematics and physical-unit layout, use `academic-vector-figures.md`. Keep the
-canonical editable source and the included vector export. SVG may be an internal
-source/export format, but there is no separate SVG workflow or routing entry.
-Method B does not require PPT Master or image-generation credentials. It must
-preserve the same scientific fidelity and publication-size readability as D;
-never relabel a Method B drawing as an API-assisted reconstruction.
+**Method B is the fallback: direct native PPT design without an image API.**
+The active Engineer studies the references, designs the composition, and uses
+the installed PPT Master to create native editable shapes, connectors, and
+text. Follow `engineer/presentation-master.md` for the actual toolkit route.
+Keep the PPTX and its canonical generation source, plus the matching vector
+PDF and PNG. SVG may be an internal source/export format, but there is no
+separate SVG workflow or routing entry. Method B does not require image-generation
+credentials and preserves the same scientific fidelity and visual standard as D.
+Never relabel a Method B drawing as an API-assisted reconstruction.
+
+ECharts may supply a genuine data chart within the PPT composition. Read the
+actual data, disable animation, set final dimensions and type scale, and use
+the SVG renderer for a vector component. Keep its option/data source and check
+its conversion into the final PPT. ECharts is not a substitute for composing
+the method with editable PowerPoint objects. Ordinary standalone result plots
+can retain the established SciencePlots/Matplotlib route.
 
 ## Publication style
 
@@ -113,7 +124,8 @@ machinery and unmistakable scientific structure.
   slogan across the top. Use short panel letters where useful. Let content set
   geometry and move prose into the caption instead of reducing type.
 - Render real subscripts, superscripts, set notation, Greek letters, and
-  operators with Matplotlib mathtext or LaTeX/TikZ when appropriate. A failed
+  operators with native equation objects or properly positioned PowerPoint
+  text runs and compatible math fonts. A failed
   font or PPT conversion calls for a different math representation or renderer,
   not shipping programming-style substitutes such as `C_t` or `J(pi)` when the
   paper uses mathematical notation.
@@ -127,14 +139,56 @@ clarity, and economy at the actual paper width. Reuse a good composition during
 local repairs. Do not create a separate process report or ask the operator to
 make routine layout decisions.
 
-Open `engineer/academic-vector-figures.md` for physical-unit Matplotlib,
-mathematical typography, or TikZ/SVG composition. If PPT Master is selected,
-locate it with `python -m argus_skill.tools.ppt_master status`; the
+Open `engineer/academic-vector-figures.md` when a precise math or chart component
+is needed. Locate PPT Master with `python -m argus_skill.tools.ppt_master status`; the
 reported `skill_root` contains the toolkit instructions, layout references,
 `scripts/svg_quality_checker.py`, `scripts/svg_to_pptx.py`, and
 `scripts/pptx_to_svg.py`. Use `engineer/presentation-master.md` to install it if
 needed. Use native shapes and text, then inspect the converted PPTX through its
 rendered output as well as the vector figure at the manuscript's actual width.
+
+## Craft the PPT as a scientific figure
+
+1. Reduce the claim to one visible transformation or comparison before adding
+   labels. Reuse the same visual object on both sides so a reviewer can see
+   what changed. For a coding paper, draw the same event stream above aligned
+   codewords; for sparse inference, show the candidate set shrinking while
+   the selected token remains fixed. Derive any concrete example from the
+   method and mark schematic quantities as such.
+2. Give information a shape. A sequence is a row of tokens, a code is aligned
+   bit fields, a set is a cluster or row of candidates, and an interval is a
+   span with endpoints. Use a module box only for a real module. Do not turn
+   every sentence or formula into another card.
+3. Lay out a quiet backbone, then place the contribution where the eye should
+   land. Prefer one reading direction, two or three major groups, and at most
+   one zoom. Draw the minimal mechanism first and put secondary conditions in
+   a compact annotation or caption instead of another full panel.
+4. Use a small spacing unit at the final paper size, such as 4 pt. Align shared
+   baselines and edges, give labels comfortable padding, and reserve a wider
+   gap between semantic groups than between objects inside a group. Check
+   optical balance after geometric alignment; a long formula needs more room
+   than a short label, not a smaller font.
+5. Keep white space active. Use dark ink for reading, navy for the shared
+   mechanism and teal for the meaningful contrast; pale fills only delimit a
+   needed group. Keep the same color meaning across panels and results plots.
+   Avoid backgrounds, shadows, gradients, decorative icons, and rounded cards
+   that contribute no information. Color must also work in grayscale.
+6. Route connectors through reserved corridors, dock them at the actual
+   object boundary, and use a consistent light stroke and arrowhead. Branches
+   should originate at one explicit decision, not from nearby label text.
+   Keep return paths outside the forward flow and prevent ambiguous crossings.
+7. Build reusable native PPT groups for repeated tokens, fields, operators,
+   and labels. Use shared sizes and styles, not hand-tuned copies. Group by
+   semantic role so changes to notation or panel spacing remain easy to edit.
+   A single pasted screenshot is not an editable diagram.
+8. Inspect the rendered PPT at manuscript width and beside the chosen paper
+   references. First check the silhouette and reading order without zooming;
+   then inspect every label, connection, formula, and crop. Fix the largest
+   composition problem before cosmetic details. Render the repaired PPT again
+   and confirm that the formal PDF/PNG and manuscript contain this version.
+
+These are drawing decisions for the Engineer, not a form the operator must
+fill out or a structured output template for the Reviewer.
 
 ## Choose a composition archetype first
 
@@ -214,11 +268,12 @@ Decompose complex figures — build panels and modules separately, then compose.
 
 | Composition | Primary route |
 |---|---|
-| Pipeline strip or method architecture | Method D by default: image design blueprint and native editable PPT Master reconstruction; Method B fallback: native objects or local Matplotlib/TikZ drawing |
-| Contrast diptych, lineage panels | Use one programmatic source for aligned panels; apply the delta to a shared diagram so the panels differ only where the science differs |
-| Mathematical bounds, operators, or geometry | TikZ/LaTeX or Matplotlib mathtext with vector output; combine with SVG/PPT when needed for the surrounding architecture |
-| Panels of verbatim text (prompts, trajectories, rubrics) | HTML/CSS with inline SVG rendered headlessly to vector PDF — the only route with a real text-layout engine; verify the render visually since headless failures are silent |
-| Exact load-bearing topology, taxonomy trees | Graphviz for layout coordinates, restyled through SVG; or FigureSpec, Draw.io, browser SVG |
+| Pipeline strip or method architecture | Method D by default: image design blueprint and native editable PPT Master reconstruction; Method B fallback: direct native PPT composition |
+| Contrast diptych, lineage panels | Reuse native PPT groups across aligned panels; change only the objects that express the scientific difference |
+| Mathematical bounds, operators, or geometry | Native PPT shapes, equation objects, and mathematical text runs at final publication size |
+| Panels of verbatim text (prompts, trajectories, rubrics) | Aligned native PPT text with measured wrapping, readable type, and restrained highlights |
+| Exact load-bearing topology, taxonomy trees | Generate coordinates if useful, then draw explicit native PPT nodes and connectors |
+| Data component inside a method figure | ECharts with actual data and vector output, composed and checked inside the native PPT |
 | Results teaser | Matplotlib through Styling data figures for publication |
 
 Inspect every render at actual publication size against the design rules above:

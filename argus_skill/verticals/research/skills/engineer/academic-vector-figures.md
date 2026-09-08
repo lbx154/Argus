@@ -1,14 +1,15 @@
 ---
 name: "Academic vector figures and mathematical typography"
-description: "Render precise mathematical components for Method D reconstruction or Method B fallback using physical-unit Matplotlib or TikZ/LaTeX."
+description: "Prepare precise mathematical typography and data components for native editable PPT paper figures."
 ---
 
 # Academic vector figures
 
 Use inside Figure Studio's default Method D reconstruction or its Method B
-fallback after selecting a composition. The active Engineer designs and
-writes the figure; these are deterministic rendering tools, not another model
-or review team. Do not change the project's configured model to use them.
+direct PPT fallback after selecting a composition. Both routes keep the main
+figure in native editable PowerPoint objects through PPT Master. This page
+covers precise components, not an alternative whole-figure drawing workflow.
+The active Engineer keeps the project's configured model.
 
 ## Work in the final physical size
 
@@ -30,66 +31,43 @@ rows, interval glyphs, geometric bounds, aligned comparison panels, and actual
 data plots. Small geometry must stay schematic unless backed by real values;
 use ellipses where drawn counts are arbitrary and explain the abstraction.
 
-## Matplotlib: math and custom geometry
+## Native PPT mathematical typography
 
-The framework's optional research dependencies include Matplotlib. Run scripts
-with the injected framework Python. The reusable canvas keeps physical units,
-prose as SVG text, mathematical notation, embedded PDF fonts, and vector shapes:
+Use native equation objects or text runs with real subscript/superscript
+baselines. Keep mathematical variables in a compatible math face and prose in
+the diagram's sans-serif face. Use actual Greek, set, and relation glyphs;
+inspect their font coverage and spacing in the exported PowerPoint render.
+Do not replace notation with programming-style labels such as `C_t`.
 
-```python
-from argus_skill.verticals.research.academic_figure import (
-    FigureCanvas, BLUE, LIGHT_BLUE,
-)
+Give a formula its own measured baseline and bounding box. Align equalities,
+indices, and repeated symbols consistently across panels. Move a derivation to
+the caption when the panel needs smaller type to contain it. A mechanism figure
+usually needs the decisive expression, not every equation from the method.
+Keep the source notation and the matching native PPT objects together so a
+notation correction cannot silently leave an old export in the paper.
 
-fig = FigureCanvas(width=396, height=120)
-fig.panel(10, 12, 'a', 'Exact verification')
-fig.box(12, 40, 145, 42,
-        'Candidate set\n' + r'$C_t=\{i:U_i\geq L_{q_t}\}$',
-        fill=LIGHT_BLUE, edge=BLUE)
-fig.arrow([(157, 61), (216, 61)])
-fig.box(216, 40, 155, 42,
-        'Winner separation\n' + r'$L_j>\max_{i\ne j}U_i$')
-fig.export('paper/figures/method')
-```
+Use reusable PowerPoint groups for sequences, codewords, intervals, and
+candidate sets. The object geometry must encode the actual mechanism. If
+drawn counts are illustrative, use an ellipsis or an explicit schematic label.
+Do not use a decorative plot to suggest a numerical result that was not measured.
 
-Coordinates are points measured from the upper-left corner. `text`, `line`,
-`arrow`, and `box` are drawing primitives, not a template to fill with prose.
-Use `fig.axes` for custom scientific geometry. Use mathtext for actual
-subscripts, superscripts, Greek letters, sets, and operators. The bundled
-DejaVu and STIX fonts avoid relying on platform-specific Arial glyph coverage.
-The export validates label size, missing glyphs, clipping, and box padding
-before replacing existing SVG/PDF/PNG files. It does not judge aesthetics,
-connector semantics, or mathematical truth: inspect all three explicitly.
+## Data components inside the PPT
 
-Keep the executable `.py` as canonical source. For metric panels, use the
-existing SciencePlots workflow and real data, then compose at the same physical
-font and stroke scale. Do not redraw a numerical plot as approximate shapes.
+ECharts can render a real data panel when its layout and marks help the figure.
+Use local data and assets, `animation: false`, an explicit size, and the SVG
+renderer. Match its palette, type, axis weight, and markers to the surrounding
+PPT. Keep axis labels and units, uncertainty definitions, and actual scales.
+Retain the option object and input data alongside the source.
 
-## TikZ/LaTeX: notation-heavy structures
+Export the chart as a vector component through the existing browser renderer
+and compose it using PPT Master's native conversion where supported. Inspect
+the resulting PPT, including text editability and all clipping boundaries.
+Do not flatten the full figure into a slide image. Ordinary standalone
+quantitative plots may keep their established SciencePlots/Matplotlib source;
+do not replace measured curves with hand-drawn PowerPoint geometry.
 
-Check `pdflatex` or `lualatex`, `tikz.sty`, and the chosen document class before
-using them. A standalone TikZ source can typeset notation with the manuscript's
-math conventions and export a vector PDF directly. Use an explicit bounding
-box and physical units (`bp` for PDF points), set type at final size, and keep
-the `.tex` source. Compile with `-halt-on-error -interaction=nonstopmode`; do
-not enable shell escape. Render the result to PNG with PyMuPDF for inspection.
-Do not reduce every label to ASCII to work around a broken conversion.
-
-## SVG, layout tools, and mixed panels
-
-SVG suits custom vector geometry; use local fonts/assets and inspect the actual
-browser or PDF export. Matplotlib/LaTeX may supply mathematical labels as vector
-glyphs while the editable program retains their source notation. Graphviz is
-useful for topology coordinates when installed; restyle its output to the same
-type and stroke scale. A default Graphviz or Mermaid theme is not a finished
-academic design. A browser composition should use the existing local browser
-renderer; an SVG-only exporter should not be forced onto a CSS layout.
-
-Use PPT Master when native PowerPoint editing helps. Mathematical subpanels may
-be vector shapes sourced from Matplotlib/LaTeX; avoid whole-slide rasterization.
-The native PPTX must match the included PDF. If the chosen primary route is
-Matplotlib, TikZ, or SVG and no PPTX was requested, keep its editable source
-instead of manufacturing an inferior PowerPoint conversion.
+The framework itself remains in native PPT, with one matching formal PDF and
+PNG. SVG is an internal component format, not a separate authoring workflow.
 
 ## Inspect the composition, then the integrated page
 

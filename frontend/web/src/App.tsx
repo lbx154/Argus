@@ -63,7 +63,7 @@ import { useWorkbenchLayout } from './useWorkbenchLayout';
 import { useI18n } from './i18n';
 import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
 import { useDeliveryCenter } from './useDeliveryCenter';
-import { deliveryFiles, selectActiveDelivery, hasPendingDeliveryDependents } from './components/deliveryPresentation';
+import { deliveryFiles, defaultDeliverySelection, selectActiveDelivery, hasPendingDeliveryDependents } from './components/deliveryPresentation';
 import type { ArtifactInfo, DeliveryReceipt, MissionView } from '../../core/src/types';
 import {
   completionNotificationPayload,
@@ -899,7 +899,10 @@ export default function App() {
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={events} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
                 conversationEvents={activityEvents} connected={connected} artifacts={artifactsQ.data ?? []}
-                deliveryCount={deliveryHistory.length} onOpenDelivery={() => { if (deliveryHistory[0]) openDelivery(deliveryHistory[0]); }}
+                deliveryCount={deliveryHistory.length} onOpenDelivery={() => {
+                  const selection = defaultDeliverySelection(deliveryHistory, missionView?.routing.vertical || '');
+                  if (selection) openDelivery(selection.receipt, selection.path);
+                }}
                 onOpenReceipt={openDelivery} onOpenArtifact={setArtifactPath} onAnswer={() => setPendingReplyOpen(true)}
               /></Suspense>}
               <div className={`${workspaceView === 'workbench' || workspaceView === 'map' ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`}>

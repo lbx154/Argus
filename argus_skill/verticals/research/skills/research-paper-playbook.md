@@ -96,8 +96,9 @@ do not create a new report or validation-only task.
    current manuscript and executed code, with meaningful groups, visual hierarchy,
    balanced spacing, restrained scientific colors, and publication-size type.
    Use default Method D: a real image design blueprint and editable PPT Master
-   reconstruction. Method B local drawing is the fallback; Matplotlib or TikZ
-   can supply precise mathematical components. Include the vector PDF after Introduction,
+   reconstruction. Method B direct native PPT design is the fallback when an
+   image interface is unavailable; proceed without an API-setup question.
+   ECharts may supply an evidence-grounded data component. Include the vector PDF after Introduction,
    targeting page 2 or 3, and keep its canonical editable source.
    Invoke the component only when a figure is needed;
    reuse an existing suitable figure across writing rounds and prose-only edits.
