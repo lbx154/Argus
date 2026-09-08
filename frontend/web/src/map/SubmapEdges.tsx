@@ -12,13 +12,15 @@ export function SubmapEdges({ layout, growing = {}, activeStep, activeTeamSteps 
       aria-label="Task process relationships"
     >
       <defs>
+        {/* Sized to stay clearly readable as a direction cue; the fill matches
+          * the relation stroke exactly. */}
         <marker
           id={marker}
           viewBox="0 0 10 10"
           refX="9"
           refY="5"
-          markerWidth="6"
-          markerHeight="6"
+          markerWidth="8"
+          markerHeight="8"
           orient="auto"
         >
           <path d="M 0 0 L 10 5 L 0 10 z" fill="#91a8bc" />

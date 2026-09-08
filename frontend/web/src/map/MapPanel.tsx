@@ -78,6 +78,19 @@ interface MapWorkspaceActions {
 const NODE_TYPES = { task: MacroTaskNode, branch: BranchNode };
 const EDGE_TYPES = { relation: MapRelationEdge };
 type AtlasNode = MacroNode | BranchFlowNode;
+// Minimap fills echo the card state palette a step lighter, so the overview
+// inset reads as a status heatmap instead of undifferentiated confetti.
+const MINIMAP_STATUS: Record<string, string> = {
+  done: "#a8cfbb",
+  running: "#8fb6e4",
+  question: "#e2c78e",
+  failed: "#dfab97",
+  paused: "#d6c6a0",
+  superseded: "#c8bdd5",
+  aborted: "#c3c5cb",
+  skipped: "#c3c5cb",
+  missing: "#c3c5cb",
+};
 
 export function MapTeamProgress({ events, zh }: { events: Dataset['events']; zh: boolean }) {
   const team = [...new Map(events.filter((event) => event.type === 'team.task').map((event) => [event.id, event])).values()];
@@ -657,10 +670,21 @@ function MapCanvas({
   const replacementCount = graph.links.filter(
     (e) => e.kind === "replacement",
   ).length;
-  const complete = data.tasks.filter((t) => t.status === "done").length;
-  const attention = data.tasks.filter(
-    (t) => t.pending_question || t.status === "failed",
-  ).length;
+  // One pass, one bucket per task: the strip must partition, not double-count
+  // a failed task that also carries a question.
+  const tally = useMemo(() => {
+    const buckets = { done: 0, running: 0, question: 0, failed: 0, other: 0 };
+    for (const task of data.tasks) {
+      if (task.status === "done") buckets.done++;
+      else if (ACTIVE.has(task.status)) buckets.running++;
+      else if (task.pending_question) buckets.question++;
+      else if (task.status === "failed") buckets.failed++;
+      else buckets.other++;
+    }
+    return buckets;
+  }, [data.tasks]);
+  const complete = tally.done;
+  const attention = tally.question + tally.failed;
   const focus = (id: string) => {
     setVisibleCount((c) =>
       Math.max(c, scene.cards.find((card) => card.id === id)?.ordinal || 1),
@@ -683,6 +707,46 @@ function MapCanvas({
         zh ? "发送一个目标，地图就会开始生长" : "Send a goal to start your map",
       );
   };
+  const locateAttention = () => {
+    const target =
+      data.tasks.find((t) => t.pending_question) ??
+      data.tasks.find((t) => t.status === "failed");
+    if (target)
+      focus(
+        scene.cards.filter((card) => card.task.id === target.id).at(-1)!.id,
+      );
+  };
+  // Map-wide shortcuts; typing surfaces (search, composer, notes) keep every key.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+      const target = e.target as Element | null;
+      if (target?.closest("input, textarea, select, [contenteditable]")) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        canvasRef.current
+          ?.querySelector<HTMLInputElement>(".map-search input")
+          ?.focus();
+      } else if (e.key === "f" || e.key === "F") {
+        camera.fit();
+      } else if (
+        (e.key === "ArrowRight" || e.key === "ArrowLeft") &&
+        camera.detailed &&
+        camera.focusId
+      ) {
+        const order = scene.cards.filter((card) => visibleIds.has(card.id));
+        const index = order.findIndex((card) => card.id === camera.focusId);
+        if (index < 0) return;
+        const next = order[index + (e.key === "ArrowRight" ? 1 : -1)];
+        if (next) {
+          e.preventDefault();
+          camera.enter(next.id);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [camera.fit, camera.enter, camera.detailed, camera.focusId, scene.cards, visibleIds]);
   const artifactScope = useMemo(
     () => ({ artifacts: actions.artifacts, onOpenArtifact: actions.onOpenArtifact }),
     [actions.artifacts, actions.onOpenArtifact],
@@ -693,24 +757,61 @@ function MapCanvas({
       <div className="map-progress-line" role="progressbar" aria-label={zh ? "已完成任务" : "Completed tasks"} aria-valuemin={0} aria-valuemax={data.tasks.length || 1} aria-valuenow={complete}><span style={{ width: `${data.tasks.length ? complete / data.tasks.length * 100 : 0}%` }} /></div>
       <div className="map-summary">
         <div>
-          <span className="map-summary-value">{data.tasks.length}</span>
+          <span
+            className="map-summary-value"
+            title={
+              scene.cards.length > graph.tasks.length
+                ? `${scene.cards.length} ${zh ? "张卡片" : "cards"}`
+                : undefined
+            }
+          >
+            {data.tasks.length}
+          </span>
           <span>{zh ? "个任务" : "tasks"}</span>
-          {scene.cards.length > graph.tasks.length && (
-            <span className="map-card-count">
-              · {scene.cards.length} {zh ? "张卡片" : "cards"}
+          {data.tasks.length > 0 && (
+            <span
+              className="map-progress-strip"
+              role="img"
+              aria-label={
+                zh
+                  ? `已完成 ${tally.done}，进行中 ${tally.running}，值得关注 ${attention}`
+                  : `${tally.done} completed, ${tally.running} running, ${attention} need attention`
+              }
+            >
+              {(["done", "running", "question", "failed", "other"] as const).map(
+                (bucket) =>
+                  tally[bucket] > 0 && (
+                    <i
+                      key={bucket}
+                      className={`seg-${bucket}`}
+                      style={{ flexGrow: tally[bucket] }}
+                    />
+                  ),
+              )}
             </span>
           )}
-          <i />
-          <Check size={13} />
-          <strong>{complete}</strong>
-          <span>{zh ? "已完成" : "completed"}</span>
+          <span className="map-count-chip is-done">
+            <Check size={13} />
+            <strong>{complete}</strong>
+            <span>{zh ? "已完成" : "completed"}</span>
+          </span>
+          {tally.running > 0 && (
+            <span className="map-count-chip is-running">
+              <strong>{tally.running}</strong>
+              <span>{zh ? "进行中" : "running"}</span>
+            </span>
+          )}
           {attention > 0 && (
-            <>
-              <i />
+            <button
+              type="button"
+              className="map-count-chip map-attention-jump"
+              onClick={locateAttention}
+              title={zh ? "跳到需要你处理的任务" : "Jump to the task waiting on you"}
+            >
               <span className="map-attention-dot" />
               <strong>{attention}</strong>
               <span>{zh ? "值得关注" : "need attention"}</span>
-            </>
+            </button>
           )}
         </div>
         {composer.pending ? (
@@ -732,8 +833,8 @@ function MapCanvas({
         )}
         <span className="map-summary-note">
           {zh
-            ? "滚轮缩放 · 拖动画布 · 点击任务深入"
-            : "Scroll to zoom · drag to pan · select a task to explore"}
+            ? "滚轮缩放 · 点击任务深入 · / 搜索 · F 全览"
+            : "Scroll to zoom · click a task to explore · / search · F fit"}
         </span>
       </div>
       <MapTeamProgress events={data.events} zh={zh} />
@@ -906,9 +1007,8 @@ function MapCanvas({
                 nodeColor={(n) =>
                   n.type === "branch"
                     ? "#c5d4e2"
-                    : statusKey((n.data as MacroData).task) === "done"
-                      ? "#b5d6c7"
-                      : "#a7bfd9"
+                    : MINIMAP_STATUS[statusKey((n.data as MacroData).task)] ??
+                      "#a7bfd9"
                 }
                 maskColor="var(--map-minimap-mask)"
                 maskStrokeColor="#85aacf"

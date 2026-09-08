@@ -1,0 +1,83 @@
+/* Relation edges and their label pills (Atlas edge-language batch). Everything
+ * here stays scoped under .argus-map. Each relation kind keeps one hue family
+ * on both the stroke and its pill; the dash patterns assigned by MapPanel
+ * remain the primary encoding and the hue only reinforces them.
+ * MapRelationEdge resolves these variables into stroke and arrowhead colors,
+ * so light and dark themes are tuned entirely from this file. */
+.argus-map {
+  --map-edge-dependency: #527fa7; /* steel blue: recorded execution order */
+  --map-edge-continuation: #527fa7; /* same family: a task carrying on */
+  --map-edge-semantic: #8b95a0; /* neutral gray: related work */
+  --map-edge-context: #97a0aa; /* fainter gray: chronological context */
+  --map-edge-replacement: #af8149; /* muted amber: the plan changed course */
+  --map-edge-fanout: #6a9ab8; /* team fans stay steel, a step lighter */
+  --map-edge-fanin: #6a9ab8;
+}
+[data-theme="dark"] .argus-map {
+  --map-edge-dependency: #7ea9cd;
+  --map-edge-continuation: #7ea9cd;
+  --map-edge-semantic: #939ea9;
+  --map-edge-context: #7f8a95;
+  --map-edge-replacement: #c79e63;
+  --map-edge-fanout: #7fb0cd;
+  --map-edge-fanin: #7fb0cd;
+}
+
+/* Legend swatches quote the same variables so the key never drifts from the
+ * strokes it explains. */
+.argus-map .map-legend b {
+  border-top-color: var(--map-edge-dependency);
+}
+.argus-map .map-legend .dashed {
+  border-top-color: var(--map-edge-semantic);
+}
+.argus-map .map-legend .replacement {
+  border-top-color: var(--map-edge-replacement);
+}
+
+/* Label pills are metadata, not buttons: small letterspaced type on a tint of
+ * the relation hue, no border, no elevation, no hover affordance. The pill
+ * ellipsizes past 150px while title= keeps the full phrase; pointer events
+ * stay on (nodrag/nopan already neutralize the canvas) so that title shows. */
+.argus-map .map-relation-label {
+  --edge-hue: var(--map-edge-semantic);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  font-weight: 560;
+  letter-spacing: 0.035em;
+  line-height: 15px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  box-shadow: none;
+  pointer-events: auto;
+  color: color-mix(in srgb, var(--edge-hue) 62%, rgb(var(--ink)));
+  background: color-mix(in srgb, var(--edge-hue) 13%, var(--map-paper));
+}
+.argus-map .map-relation-label[data-kind="dependency"] {
+  --edge-hue: var(--map-edge-dependency);
+}
+.argus-map .map-relation-label[data-kind="continuation"] {
+  --edge-hue: var(--map-edge-continuation);
+}
+.argus-map .map-relation-label[data-kind="context"] {
+  --edge-hue: var(--map-edge-context);
+}
+.argus-map .map-relation-label[data-kind="replacement"] {
+  --edge-hue: var(--map-edge-replacement);
+}
+[data-theme="dark"] .argus-map .map-relation-label {
+  color: color-mix(in srgb, var(--edge-hue) 66%, rgb(var(--ink)));
+  background: color-mix(in srgb, var(--edge-hue) 16%, var(--map-paper));
+}
+
+/* Join dot where a team fan leaves or rejoins its owning card. */
+.argus-map .map-edge-joint {
+  pointer-events: none;
+}
+
+/* Active-flow drift on edges into running work is already wired: MapPanel
+ * passes data.active and MapRelationEdge overlays .map-edge-flow, animated in
+ * atlas.css and disabled under prefers-reduced-motion. */

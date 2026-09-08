@@ -56,6 +56,87 @@ function viewingArea(el: HTMLElement) {
   };
 }
 
+// A focused card's short side targets FOCUS_FILL of the canvas's short side so
+// submap text is readable without a manual zoom, no matter how much of the
+// area the composer eats; FOCUS_FILL_MAX stops oversized fills when chrome is
+// thin. Screen pixels of card context kept visible above an open step reader.
+export const FOCUS_FILL = 0.72;
+export const FOCUS_FILL_MAX = 0.85;
+export const READER_HEADROOM = 48;
+
+/** Reduced-motion users get instant camera moves, not shortened ones. */
+export const motionDuration = (reducedMotion: boolean, duration: number) =>
+  reducedMotion ? 0 : duration;
+
+/** Pure focus zoom. The area contain-fit stays the floor, so small or squeezed
+ * canvases never end up below the previous behavior; overflow pans instead. */
+export function focusZoom(
+  canvas: { width: number; height: number },
+  area: { width: number; height: number },
+  card: { width: number; height: number },
+): number {
+  const fit = Math.min(area.width / card.width, area.height / card.height);
+  const side =
+    Math.min(canvas.width, canvas.height) / Math.min(card.width, card.height);
+  return Math.min(Math.max(fit, FOCUS_FILL * side), FOCUS_FILL_MAX * side);
+}
+
+/** Pure overview camera. Zoom fits the padded graph inside the unobstructed
+ * area; the frame then centers on the visible canvas with balanced margins,
+ * sliding back inside the area only when the graph is too tall or wide. */
+export function overviewViewport(
+  canvas: { width: number; height: number },
+  area: { x: number; y: number; width: number; height: number },
+  bounds: { x: number; y: number; width: number; height: number },
+): Viewport {
+  const zoom = clamp(
+    Math.min(
+      area.width / (bounds.width + 160),
+      area.height / (bounds.height + 160),
+    ),
+    MIN_ZOOM,
+    0.27,
+  );
+  const place = (start: number, span: number, side: number, size: number) =>
+    size > span
+      ? (side - size) / 2
+      : clamp((side - size) / 2, start, start + span - size);
+  return {
+    x: place(area.x, area.width, canvas.width, bounds.width * zoom) -
+      bounds.x * zoom,
+    y: place(area.y, area.height, canvas.height, bounds.height * zoom) -
+      bounds.y * zoom,
+    zoom,
+  };
+}
+
+/** Pure reader camera. Headroom above the step reader keeps the card heading
+ * visible instead of clipping it under the top edge of the area. */
+export function readerViewport(
+  area: { x: number; y: number; width: number; height: number },
+  origin: { x: number; y: number },
+  rect: { x: number; y: number; width: number; height: number; scale: number },
+): Viewport {
+  const headroom = Math.min(READER_HEADROOM, area.height * 0.35);
+  const height = area.height - headroom;
+  const zoom = Math.min(
+    MAX_ZOOM,
+    Math.min(1.05, area.width / rect.width, height / rect.height) / rect.scale,
+  );
+  return {
+    x:
+      area.x +
+      area.width / 2 -
+      (origin.x + (rect.x + rect.width / 2) * rect.scale) * zoom,
+    y:
+      area.y +
+      headroom +
+      height / 2 -
+      (origin.y + (rect.y + rect.height / 2) * rect.scale) * zoom,
+    zoom,
+  };
+}
+
 /** Camera/opacity updates never update node dimensions or edge geometry. */
 export function useSemanticCamera(
   root: RefObject<HTMLDivElement>,
@@ -165,11 +246,14 @@ export function useSemanticCamera(
       allowRefit.current = true;
       // Keep a readable scale for long tasks; the same canvas pans to the remaining steps.
       const area = viewingArea(el);
+      const width = node.width || 1440,
+        height = node.height || 1080;
       const zoom = clamp(
         Math.max(
-          Math.min(
-            area.width / (node.width || 1440),
-            area.height / (node.height || 1080),
+          focusZoom(
+            { width: el.clientWidth, height: el.clientHeight },
+            area,
+            { width, height },
           ),
           el.clientWidth < 640 || (node.data.layout?.steps.length ?? 0) > 20
             ? 0.6 / (node.data.frame?.scale || 1)
@@ -179,8 +263,6 @@ export function useSemanticCamera(
         MAX_ZOOM,
       );
       fittedDetail.current = { id, zoom };
-      const width = node.width || 1440,
-        height = node.height || 1080;
       const x =
         area.x +
         Math.max(0, (area.width - width * zoom) / 2) -
@@ -190,7 +272,7 @@ export function useSemanticCamera(
         Math.max(0, (area.height - height * zoom) / 2) -
         node.position.y * zoom;
       void flow
-        .setViewport({ x, y, zoom }, { duration: reducedMotion ? 0 : 380 })
+        .setViewport({ x, y, zoom }, { duration: motionDuration(reducedMotion, 380) })
         .then(() => {
           lockedFocus.current = null;
         });
@@ -212,7 +294,7 @@ export function useSemanticCamera(
     )?.dataset.cardId;
     void flow
       .setViewport(overview.current, {
-        duration: reducedMotion ? 0 : 320,
+        duration: motionDuration(reducedMotion, 320),
       })
       .then(() => {
         if (cardId)
@@ -245,30 +327,10 @@ export function useSemanticCamera(
       allowRefit.current = true;
       readerOwner.current = id;
       readerTarget.current = { id, rect };
-      const area = viewingArea(el);
-      const zoom = Math.min(
-        MAX_ZOOM,
-        Math.min(1.05, area.width / rect.width, area.height / rect.height) /
-          rect.scale,
-      );
       void flow
-        .setViewport(
-          {
-            x:
-              area.x +
-              area.width / 2 -
-              (node.position.x + (rect.x + rect.width / 2) * rect.scale) * zoom,
-            y:
-              area.y +
-              area.height / 2 -
-              (node.position.y + (rect.y + rect.height / 2) * rect.scale) *
-                zoom,
-            zoom,
-          },
-          {
-            duration: reducedMotion ? 0 : 340,
-          },
-        )
+        .setViewport(readerViewport(viewingArea(el), node.position, rect), {
+          duration: motionDuration(reducedMotion, 340),
+        })
         .then(() => {
           lockedFocus.current = null;
         });
@@ -286,7 +348,7 @@ export function useSemanticCamera(
       pointer.current = null;
       void flow.setCenter(position.x, position.y, {
         zoom: flow.getZoom(),
-        duration: reducedMotion ? 0 : 180,
+        duration: motionDuration(reducedMotion, 180),
       });
     },
     [cancelWheel, flow, reducedMotion],
@@ -302,23 +364,13 @@ export function useSemanticCamera(
     const el = root.current;
     const nodes = flow.getNodes().filter((n) => !n.hidden);
     if (!el || !nodes.length) return;
-    const bounds = flow.getNodesBounds(nodes);
-    const area = viewingArea(el);
-    const zoom = clamp(
-      Math.min(
-        area.width / (bounds.width + 160),
-        area.height / (bounds.height + 160),
-      ),
-      MIN_ZOOM,
-      0.27,
-    );
     void flow.setViewport(
-      {
-        x: area.x + (area.width - bounds.width * zoom) / 2 - bounds.x * zoom,
-        y: area.y + (area.height - bounds.height * zoom) / 2 - bounds.y * zoom,
-        zoom,
-      },
-      { duration: reducedMotion ? 0 : 320 },
+      overviewViewport(
+        { width: el.clientWidth, height: el.clientHeight },
+        viewingArea(el),
+        flow.getNodesBounds(nodes),
+      ),
+      { duration: motionDuration(reducedMotion, 320) },
     );
   }, [cancelWheel, flow, reducedMotion, root]);
   refitOverview.current = fit;

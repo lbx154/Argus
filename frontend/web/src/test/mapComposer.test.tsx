@@ -25,6 +25,24 @@ it("exposes a native file picker through the Argus button using the chat file po
   expect(html).toContain('aria-label="attach files"');
 });
 
+it("stays a collapsed pill while empty, even when the camera focuses a card", () => {
+  const html = renderToStaticMarkup(
+    <MapComposer {...props} value="" overview={false} />,
+  );
+  expect(html).toContain('data-compact="true"');
+  expect(html).toContain("Ask Argus");
+});
+
+it("keeps the collapse control while a draft exists and labels the pill with the saved draft", () => {
+  const html = renderToStaticMarkup(<MapComposer {...props} />);
+  expect(html).toContain('data-compact="false"');
+  expect(html).toContain('aria-label="Collapse message composer"');
+  expect(html).toContain("Draft saved");
+  const zhHtml = renderToStaticMarkup(<MapComposer {...props} zh />);
+  expect(zhHtml).toContain('aria-label="收起消息输入"');
+  expect(zhHtml).toContain("草稿已保留");
+});
+
 it("keeps the selected attachment visible and disables removal while a send is pending", () => {
   const html = renderToStaticMarkup(
     <MapComposer

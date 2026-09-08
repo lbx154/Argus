@@ -47,7 +47,6 @@ export function MapComposer({
   sessionName,
   historical,
   zh,
-  overview = true,
   routeOverride = 'auto',
   onRouteOverrideChange,
 }: MapComposerProps) {
@@ -61,42 +60,90 @@ export function MapComposer({
   const sentTimer = useRef<ReturnType<typeof setTimeout>>();
   const [attachmentNotice, setAttachmentNotice] = useState("");
   const [sent, setSent] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [hovered, setHovered] = useState(false);
+  // Expansion is explicit intent only — the pill click, the "c" key, an app
+  // focus request, or a fresh reference chip. Focusing a card flips the camera
+  // to detail view and must never expand the editor on its own. A draft that
+  // is already present at mount stays visible so no text hides silently.
+  const [expanded, setExpanded] = useState(() => Boolean(value.trim() || attachments.length));
   const [inputHeight, setInputHeight] = useState(44);
   const currentValue = useRef(value);
   currentValue.current = value;
-  const compact =
-    overview &&
-    !focused &&
-    !hovered &&
-    !value.trim() &&
-    !attachments.length &&
-    !attachmentNotice;
+  const compact = !expanded;
   const { refs, text } = splitDraft(value);
+  // Typed text, reference chips, or files: content a collapse must never lose.
+  const hasDraft = Boolean(value.trim() || attachments.length);
+  const currentDraft = useRef(hasDraft);
+  currentDraft.current = hasDraft;
   useEffect(() => {
     mounted.current = true;
     // Removing a focused chip can skip its blur event; the next document focus
-    // still needs to release the expanded composer.
+    // still needs to release the expanded composer — unless a draft exists,
+    // which only the explicit collapse button may fold away.
     const focus = (event: FocusEvent) => {
       const target = (event.type === "focusout" ? event.relatedTarget : event.target) as Element | null;
       // Tabbing to the closed island should announce its button, not open it.
       // The brand button also keeps the editor open while picking a file.
       if (target?.closest?.(".map-island-launch, .map-island-stop, .map-composer-brand")) return;
-      setFocused(Boolean(dock.current?.contains(target)));
+      if (dock.current?.contains(target)) setExpanded(true);
+      else if (!currentDraft.current) setExpanded(false);
+    };
+    // A tap on the canvas dismisses an empty editor even when it no longer
+    // holds focus (e.g. it was opened by a quote from the context menu).
+    const press = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (dock.current?.contains(target) || target?.closest?.(".map-context-menu")) return;
+      if (currentDraft.current) return;
+      setExpanded(false);
+      // The canvas prevents default on pointerdown while panning, so the
+      // editor would otherwise keep focus inside the hidden form.
+      if (dock.current?.contains(document.activeElement))
+        (document.activeElement as HTMLElement | null)?.blur();
+    };
+    // "c" opens the composer from anywhere on the map, unless the user is
+    // typing somewhere else or a dialog is on top of the canvas.
+    const hotkey = (event: KeyboardEvent) => {
+      if (event.key !== "c" || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.defaultPrevented || event.isComposing) return;
+      const el = event.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      if (el?.closest?.('[role="dialog"], [role="menu"]')) return;
+      event.preventDefault();
+      setExpanded(true);
+      input.current?.focus();
     };
     document.addEventListener("focusin", focus);
     document.addEventListener("focusout", focus);
+    document.addEventListener("pointerdown", press);
+    document.addEventListener("keydown", hotkey);
     return () => {
       mounted.current = false;
       clearTimeout(sentTimer.current);
       document.removeEventListener("focusin", focus);
       document.removeEventListener("focusout", focus);
+      document.removeEventListener("pointerdown", press);
+      document.removeEventListener("keydown", hotkey);
     };
   }, []);
+  const seenFocusSignal = useRef(focusSignal);
   useEffect(() => {
-    if (focusSignal) input.current?.focus();
+    // "/", ⌘J, the command palette, and prompt rewrite all funnel here —
+    // every one of them is an explicit ask to compose. Only react to fresh
+    // bumps: a stale signal must not reopen the editor after a remount.
+    if (focusSignal === seenFocusSignal.current) return;
+    seenFocusSignal.current = focusSignal;
+    setExpanded(true);
+    input.current?.focus();
   }, [focusSignal]);
+  const refCount = useRef(refs.length);
+  useEffect(() => {
+    // A quote from the card context menu is deliberate: surface the editor so
+    // the new reference chip is visible immediately.
+    if (refs.length > refCount.current) {
+      setExpanded(true);
+      input.current?.focus();
+    }
+    refCount.current = refs.length;
+  }, [refs.length]);
   const resizeInput = () => {
     if (!input.current) return;
     input.current.style.height = "0px";
@@ -110,13 +157,12 @@ export function MapComposer({
     return () => window.removeEventListener("resize", resizeInput);
   }, []);
   const open = () => {
-    setFocused(true);
+    setExpanded(true);
     // Keep focus in the user gesture so iOS opens the software keyboard.
     input.current?.focus();
   };
   const collapse = () => {
-    setFocused(false);
-    setHovered(false);
+    setExpanded(false);
     if (dock.current?.contains(document.activeElement))
       (document.activeElement as HTMLElement | null)?.blur();
   };
@@ -173,7 +219,8 @@ export function MapComposer({
   const detail = feedback?.[1] || (pending
     ? pendingLabel || (zh ? "正在处理你的消息…" : "Processing your message…")
     : sent ? (zh ? "点此继续对话" : "Tap to keep the conversation going")
-      : (zh ? "描述目标，看它变成成果" : "Turn your next idea into a result"));
+      : hasDraft ? (zh ? "草稿已保留，点此继续" : "Draft saved — tap to continue")
+        : (zh ? "描述目标，看它变成成果" : "Turn your next idea into a result"));
   const state = dispatchStatus || (pending ? "working" : sent ? "sent" : "idle");
   return (
     <div
@@ -182,16 +229,12 @@ export function MapComposer({
       data-compact={compact}
       data-state={state}
       data-pending={pending}
-      onPointerEnter={(event) => {
-        if (event.pointerType === "mouse") setHovered(true);
-      }}
-      onPointerLeave={() => setHovered(false)}
       style={{ "--map-editor-height": `${inputHeight}px` } as CSSProperties}
       onTransitionEnd={(event) => {
         if (event.target === dock.current && event.propertyName === "width") resizeInput();
       }}
     >
-      {refs.length > 0 && (
+      {!compact && refs.length > 0 && (
         <div className="map-reference-chips">
           {refs.map((ref, i) => (
             <span
@@ -218,7 +261,7 @@ export function MapComposer({
           ))}
         </div>
       )}
-      {!!attachments.length && (
+      {!compact && !!attachments.length && (
         <div
           className="map-attachment-tray nowheel"
           role="group"
@@ -238,7 +281,7 @@ export function MapComposer({
           ))}
         </div>
       )}
-      {attachmentNotice && (
+      {!compact && attachmentNotice && (
         <div className="map-attachment-notice nowheel" role="alert">
           {attachmentNotice}
         </div>
@@ -311,7 +354,7 @@ export function MapComposer({
             value={text}
             aria-label={zh ? "给 Argus 发送消息" : "Message Argus"}
             placeholder={zh ? "告诉 Argus，你想完成什么…" : "What would you like Argus to do?"}
-            onFocus={() => setFocused(true)}
+            onFocus={() => setExpanded(true)}
             onChange={(e) => {
               setSent(false);
               onChange(refs.map(referenceText).join("") + e.target.value);
@@ -324,7 +367,9 @@ export function MapComposer({
               }
             }}
             onKeyDown={(e) => {
-              if (e.key === "Escape" && !isImeComposing(e) && !value.trim() && !attachments.length) {
+              // Escape only folds an empty textarea; reference chips stay in
+              // the draft and reappear on the next expand.
+              if (e.key === "Escape" && !isImeComposing(e) && !text.trim() && !attachments.length) {
                 e.preventDefault();
                 e.stopPropagation();
                 collapse();
@@ -336,7 +381,7 @@ export function MapComposer({
             }}
           />
           <div className="map-island-toolbar">
-            {overview && !value.trim() && !attachments.length && <button type="button" className="map-island-collapse" tabIndex={compact ? -1 : 0} onClick={collapse} aria-label={zh ? "收起消息输入" : "Collapse message composer"}><ChevronDown size={15} /></button>}
+            <button type="button" className="map-island-collapse" tabIndex={compact ? -1 : 0} onClick={collapse} aria-label={zh ? "收起消息输入" : "Collapse message composer"} title={zh ? "收起（草稿会保留）" : "Collapse (draft is kept)"}><ChevronDown size={15} /></button>
             <span className="map-island-key-hint" aria-hidden="true">{zh ? "Enter 发送" : "Enter to send"}</span>
             {onRouteOverrideChange && <select className="map-route-select" tabIndex={compact ? -1 : 0} aria-label={t('chat.routeLabel')} title={t('chat.routeHint')} value={routeOverride} disabled={pending} onChange={(event) => onRouteOverrideChange(event.target.value as MessageRouteOverride)}>
               <option value="auto">{t('chat.routeAuto')}</option><option value="task">{t('chat.routeTask')}</option><option value="chat">{t('chat.routeChat')}</option>

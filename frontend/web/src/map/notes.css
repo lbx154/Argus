@@ -9,13 +9,15 @@
   margin-left: 8px;
   padding: 0 5px;
   border-radius: 9px;
-  background: rgb(var(--line) / 0.35);
-  color: rgb(var(--ink));
+  background: color-mix(in srgb, #bd923f 18%, transparent);
+  color: color-mix(in srgb, #bd923f 62%, rgb(var(--ink)));
   font-size: 11px;
   font-weight: 600;
   vertical-align: middle;
 }
 
+/* Margin notes read as soft amber annotation cards; color-mix against the
+ * paper and ink tokens keeps the amber quiet in both themes. */
 .macro-notes {
   position: absolute;
   right: 18px;
@@ -24,27 +26,32 @@
   max-height: 300px;
   overflow-y: auto;
   padding: 10px 12px;
-  border: 1px solid rgb(var(--line) / 0.5);
-  border-left: 3px solid rgb(var(--line));
+  border: 1px solid color-mix(in srgb, #bd923f 30%, transparent);
+  border-left: 3px solid color-mix(in srgb, #bd923f 75%, transparent);
   border-radius: 8px;
-  background: var(--map-paper);
+  background: color-mix(in srgb, #c99b3f 8%, var(--map-paper));
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.6;
   z-index: 3;
 }
 .macro-notes small {
   display: block;
-  margin-bottom: 4px;
+  margin-bottom: 5px;
   font-size: 10px;
+  font-weight: 650;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgb(var(--ink) / 0.55);
+  color: color-mix(in srgb, #bd923f 60%, rgb(var(--ink)));
 }
 .macro-notes p {
   margin: 0 0 6px;
-  color: rgb(var(--ink) / 0.9);
+  color: rgb(var(--ink) / 0.88);
   white-space: pre-wrap;
   word-break: break-word;
+}
+.macro-notes p + p {
+  border-top: 1px dashed color-mix(in srgb, #bd923f 28%, transparent);
+  padding-top: 6px;
 }
 .macro-notes p:last-child {
   margin-bottom: 0;

@@ -8,14 +8,34 @@ const errorText = (error: unknown): string =>
 
 interface UsePendingReplySessionOptions {
   activeSid: string | null;
+  /** Auto-surface the dialog for a newly seen decision. The map keeps its own
+   * banner and node highlight, so it opts out; false never opens uninvited. */
+  autoOpen?: boolean;
   backlog: BacklogItem[] | undefined;
   notify: (tone: NoticeTone, message: string) => void;
   pendingQuestions: Array<Record<string, unknown>> | undefined;
   refetchSnapshot: () => Promise<unknown>;
 }
 
+const PROMPTED_KEY = 'argus.decision.prompted.v1';
+const readPrompted = (): string => {
+  try {
+    return window.sessionStorage.getItem(PROMPTED_KEY) ?? '';
+  } catch {
+    return '';
+  }
+};
+const writePrompted = (value: string) => {
+  try {
+    window.sessionStorage.setItem(PROMPTED_KEY, value);
+  } catch {
+    // Private-mode storage failures only cost the reload suppression.
+  }
+};
+
 export function usePendingReplySession({
   activeSid,
+  autoOpen = true,
   backlog,
   notify,
   pendingQuestions,
@@ -38,12 +58,15 @@ export function usePendingReplySession({
       setPendingReplyOpen(false);
       return;
     }
+    if (!autoOpen) return;
     const key = `${activeSid}:${pendingReply.id}`;
-    if (promptedReplyRef.current !== key) {
-      promptedReplyRef.current = key;
-      setPendingReplyOpen(true);
-    }
-  }, [activeSid, pendingReply]);
+    // Session storage remembers across reloads: a decision hijacks the screen
+    // once per tab, not on every visit while it stays unanswered.
+    if (promptedReplyRef.current === key || readPrompted() === key) return;
+    promptedReplyRef.current = key;
+    writePrompted(key);
+    setPendingReplyOpen(true);
+  }, [activeSid, autoOpen, pendingReply]);
 
   const answerPendingReply = async (optionId: string, note: string) => {
     if (!activeSid || !pendingReply || pendingReplyBusy) return;

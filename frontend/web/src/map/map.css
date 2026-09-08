@@ -1,8 +1,10 @@
 .argus-map {
   --map-paper: rgb(var(--panel));
+  --map-card-surface: rgb(var(--panel));
   --map-canvas: #f5f7fa;
   --map-dot: #d6dfe9;
   --map-minimap-mask: rgba(242, 245, 249, 0.75);
+  --map-vignette: rgba(36, 54, 76, 0.045);
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -13,9 +15,13 @@
   font-family: "Geist Variable", sans-serif;
 }
 [data-theme="dark"] .argus-map {
-  --map-canvas: #151c25;
-  --map-dot: #2e3b4c;
-  --map-minimap-mask: rgba(17, 24, 34, 0.7);
+  /* Cards sit a step above the canvas instead of matching the near-black
+   * panel: pure panel-on-canvas read as holes in the dark screenshots. */
+  --map-card-surface: #1d2734;
+  --map-canvas: #10161f;
+  --map-dot: #263241;
+  --map-minimap-mask: rgba(13, 19, 27, 0.72);
+  --map-vignette: rgba(0, 0, 0, 0.3);
 }
 .map-header {
   display: flex;
@@ -234,12 +240,13 @@
 }
 .map-card {
   --state: #9babbc;
+  position: relative;
   width: 272px;
   min-height: 192px;
   box-sizing: border-box;
   border: 1px solid rgb(var(--line) / 0.8);
   border-top: 3px solid var(--state);
-  background: var(--map-paper);
+  background: var(--map-card-surface);
   border-radius: 10px;
   box-shadow:
     0 3px 12px #24364c07,
@@ -249,8 +256,15 @@
     border-color 0.15s;
   cursor: pointer;
 }
+[data-theme="dark"] .map-card {
+  border-color: rgb(255 255 255 / 0.09);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+}
 .map-card:hover {
   box-shadow: 0 7px 24px #24364c12;
+}
+[data-theme="dark"] .map-card:hover {
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.5);
 }
 .map-card.is-selected {
   outline: 2px solid #528abd;
@@ -680,3 +694,209 @@
 .map-empty p { max-width: 450px; }
 @media(max-width:640px) { .map-workspace-actions { gap: 6px; padding: 0 14px 8px; } .map-workspace-actions button { padding: 8px 10px; font-size: 11px; min-height: 38px; } .map-conversation { top: 8px; right: 10px; width: calc(100% - 20px); bottom: 148px; } .map-starters { margin-top: 12px; } .map-starters button { padding: 9px; font-size: 11px; } }
 @media(prefers-reduced-motion:reduce) { .map-conversation { animation: none; } }
+
+/* --- Overview legibility: the far and middle zoom must read by status. --- */
+/* Compact (card under ~230 screen px): title and status carry the card. */
+.map-macro[data-overview-density="compact"] .map-card,
+.map-macro[data-overview-density="micro"] .map-card {
+  background: linear-gradient(
+    color-mix(in srgb, var(--state) 8%, var(--map-card-surface)),
+    var(--map-card-surface) 82%
+  );
+  border-left: 4px solid color-mix(in srgb, var(--state) 65%, transparent);
+}
+.map-macro[data-overview-density="compact"] .map-card h3 {
+  font-size: 19px;
+  line-height: 1.4;
+  -webkit-line-clamp: 3;
+  min-height: 0;
+}
+.map-macro[data-overview-density="compact"] .map-card-copy,
+.map-macro[data-overview-density="compact"] .map-card-submap-hint {
+  display: none;
+}
+.map-macro[data-overview-density="compact"] .map-card-stages > span > span {
+  display: none;
+}
+.map-macro[data-overview-density="compact"] .map-card-stages svg {
+  width: 15px;
+  height: 15px;
+}
+.map-macro[data-overview-density="compact"] .map-card-number {
+  font-size: 12px;
+}
+.map-macro[data-overview-density="compact"] .map-status {
+  font-size: 13px;
+}
+.map-macro[data-overview-density="compact"] .map-card-bottom {
+  font-size: 12px;
+}
+/* Micro (under ~140 screen px): a status post-it. Text keeps shrinking with
+ * distance, so the card's color and a watermark glyph carry the status. */
+.map-macro[data-overview-density="micro"] .map-card {
+  background: color-mix(in srgb, var(--state) 13%, var(--map-card-surface));
+  border-left-width: 6px;
+  border-color: color-mix(in srgb, var(--state) 30%, rgb(var(--line)));
+}
+.map-macro[data-overview-density="micro"] .map-card::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  font-size: 46px;
+  line-height: 1;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--state) 60%, transparent);
+  pointer-events: none;
+}
+.map-macro[data-overview-density="micro"].map-state-done .map-card::before { content: "✓"; }
+.map-macro[data-overview-density="micro"].map-state-failed .map-card::before { content: "✕"; }
+.map-macro[data-overview-density="micro"].map-state-question .map-card::before { content: "?"; }
+.map-macro[data-overview-density="micro"].map-state-paused .map-card::before { content: "‖"; }
+.map-macro[data-overview-density="micro"].map-state-running .map-card::before { content: "▶"; }
+.map-macro[data-overview-density="micro"].map-state-superseded .map-card::before { content: "↪"; }
+.map-macro[data-overview-density="micro"] .map-card-top,
+.map-macro[data-overview-density="micro"] .map-card-copy,
+.map-macro[data-overview-density="micro"] .map-card-stages,
+.map-macro[data-overview-density="micro"] .map-card-bottom {
+  display: none;
+}
+.map-macro[data-overview-density="micro"] .map-card h3 {
+  font-size: 29px;
+  line-height: 1.28;
+  font-weight: 650;
+  letter-spacing: -0.4px;
+  -webkit-line-clamp: 3;
+  min-height: 0;
+  margin: 18px 18px 14px;
+  padding-right: 34px;
+}
+.map-macro[data-overview-density="micro"] .macro-note-badge {
+  font-size: 16px;
+  padding: 3px 9px;
+}
+/* A live task announces itself: a breathing ring in its own state color. */
+.map-macro[data-active="true"] .map-card::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 13px;
+  border: 2px solid color-mix(in srgb, var(--state) 55%, transparent);
+  pointer-events: none;
+  animation: map-live-ring 2.6s ease-in-out infinite;
+}
+@keyframes map-live-ring {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.012);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-macro[data-active="true"] .map-card::after {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+/* Failed and questioned work must pop; replaced work must recede. */
+.map-macro.map-state-failed .map-card,
+.map-macro.map-state-question .map-card {
+  border-color: color-mix(in srgb, var(--state) 42%, rgb(var(--line)));
+}
+.map-macro.map-state-superseded .map-card {
+  opacity: 0.72;
+  filter: saturate(0.72);
+}
+.map-macro.map-state-superseded .map-card:hover {
+  opacity: 0.95;
+  filter: none;
+}
+/* Sub-task completion at a glance, right above the card footer. */
+.map-card-teambar {
+  display: block;
+  height: 3px;
+  margin: 0 16px 8px;
+  border-radius: 2px;
+  background: rgb(var(--line) / 0.55);
+  overflow: hidden;
+}
+.map-card-teambar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--state) 75%, transparent);
+  transition: width 0.4s ease-out;
+}
+.map-macro[data-overview-density="micro"] .map-card-teambar {
+  display: none;
+}
+/* --- Canvas atmosphere: a quiet vignette keeps the eye on the center. --- */
+.map-canvas-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  background: radial-gradient(
+    120% 92% at 50% 42%,
+    transparent 62%,
+    var(--map-vignette) 100%
+  );
+}
+/* --- Header progress strip and count chips. --- */
+.map-progress-strip {
+  display: flex;
+  width: 148px;
+  height: 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgb(var(--line) / 0.4);
+  margin: 0 4px;
+}
+.map-progress-strip i {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+}
+.map-progress-strip .seg-done { background: #63a888; }
+.map-progress-strip .seg-running { background: #5f95cf; }
+.map-progress-strip .seg-question { background: #cfa14e; }
+.map-progress-strip .seg-failed { background: #c98266; }
+.map-progress-strip .seg-other { background: transparent; }
+.map-count-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  color: rgb(var(--ink-faint));
+}
+.map-count-chip strong {
+  color: rgb(var(--ink-dim));
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+.map-count-chip.is-done svg { color: #55927a; }
+.map-count-chip.is-running strong { color: #4a7fb8; }
+button.map-attention-jump {
+  border: 1px solid #c5866230;
+  background: #c5866212;
+  color: #a06a4b;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+button.map-attention-jump strong { color: inherit; }
+button.map-attention-jump:hover {
+  border-color: #c5866260;
+  background: #c5866222;
+}
+[data-theme="dark"] button.map-attention-jump { color: #d9a883; }
+@media (max-width: 900px) {
+  .map-progress-strip { width: 90px; }
+  .map-count-chip > span:last-child { display: none; }
+}

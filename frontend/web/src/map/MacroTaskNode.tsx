@@ -6,6 +6,8 @@ import {
   ChevronRight,
   FileText,
   GitBranch,
+  HelpCircle,
+  Pause,
   Play,
   RotateCcw,
   ShieldCheck,
@@ -351,6 +353,12 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             <span className="map-status">
               {state === "done" ? (
                 <Check size={11} />
+              ) : state === "failed" ? (
+                <X size={11} />
+              ) : state === "question" ? (
+                <HelpCircle size={11} />
+              ) : state === "paused" ? (
+                <Pause size={11} />
               ) : (
                 <span className="map-state-dot" />
               )}
@@ -384,6 +392,15 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               return <span key={kind} className={`submap-kind-${kind}`} data-present={present} data-active={active} title={KINDS[kind][zh ? 0 : 1]}><StageIcon size={12} /><span>{zh ? ({ plan: '规划', execution: '执行', review: '审查', result: '交付' })[kind] : KINDS[kind][1]}</span></span>;
             })}
           </div>
+          {teamSteps.length > 0 && (
+            <span className="map-card-teambar" aria-hidden>
+              <i
+                style={{
+                  width: `${Math.round((teamComplete / teamSteps.length) * 100)}%`,
+                }}
+              />
+            </span>
+          )}
           <div className="map-card-bottom">
             <span className={teamSteps.length ? 'map-card-team-summary' : undefined} title={range}>
               {teamSteps.length
@@ -544,6 +561,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           <section
             className="macro-reader nodrag nopan nowheel"
             data-testid="map-reader"
+            data-kind={detail.kind}
             role="region"
             aria-label={zh ? "卡片详情" : "Card details"}
             style={{

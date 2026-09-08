@@ -17,6 +17,34 @@ export function pointOnCurve(c: Curve, t: number): Point {
       t ** 3 * c[3].y,
   };
 }
+/** Point a given arc distance along a sampled polyline, from either end.
+ * Fan join dots use it to sit just off a card port (fanout) or clear of the
+ * returning arrowhead (fanin) without re-deriving curve geometry. */
+export function pointAlong(
+  points: Point[],
+  distance: number,
+  fromEnd = false,
+): Point | null {
+  if (!points.length) return null;
+  const path = fromEnd ? [...points].reverse() : points;
+  let travelled = 0;
+  for (let i = 1; i < path.length; i++) {
+    const step = Math.hypot(
+      path[i].x - path[i - 1].x,
+      path[i].y - path[i - 1].y,
+    );
+    if (step > 0 && travelled + step >= distance) {
+      const t = (distance - travelled) / step;
+      return {
+        x: path[i - 1].x + (path[i].x - path[i - 1].x) * t,
+        y: path[i - 1].y + (path[i].y - path[i - 1].y) * t,
+      };
+    }
+    travelled += step;
+  }
+  return path[path.length - 1];
+}
+
 export function inside(p: Point, b: Box, pad = 0) {
   return (
     p.x > b.x - pad &&

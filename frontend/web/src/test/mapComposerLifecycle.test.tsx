@@ -2,6 +2,7 @@ import { useState } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MapComposer, type MapComposerProps } from "../map/MapComposer";
+import { referenceText, type CardReference } from "../map/presentation";
 
 let renderer: ReactTestRenderer | undefined;
 let listeners: Map<string, (event: unknown) => void>;
@@ -13,11 +14,19 @@ const defaults: MapComposerProps = {
 };
 const island = () => renderer!.root.findByProps({ className: "map-composer-dock map-island-dock" });
 const textarea = () => renderer!.root.findByType("textarea");
+const launch = () => renderer!.root.findByProps({ className: "map-island-launch" });
 const key = (name: string, composing = false) => ({
   key: name, keyCode: composing ? 229 : name === "Enter" ? 13 : 27,
   nativeEvent: { isComposing: composing }, shiftKey: false,
   preventDefault: vi.fn(), stopPropagation: vi.fn(),
 });
+const hotkey = (overrides: Record<string, unknown> = {}) => ({
+  key: "c", metaKey: false, ctrlKey: false, altKey: false, isComposing: false,
+  defaultPrevented: false, target: { tagName: "DIV" }, preventDefault: vi.fn(),
+  ...overrides,
+});
+const outside = { closest: () => null };
+const ref: CardReference = { source: "map", task_id: "t1", task_title: "Coastal study", event_ids: [] };
 const nodeMock = (element: { type: unknown }) => {
   if (element.type === "textarea") return inputNode;
   if (element.type === "div") return { contains: (node: unknown) => node === inputNode };
@@ -51,7 +60,7 @@ it("keeps an empty map as an island until activation, then focuses synchronously
   act(() => listeners.get("focusin")?.({ type: "focusin", target: { closest: () => true } }));
   expect(island().props["data-compact"]).toBe(true);
 
-  act(() => renderer!.root.findByProps({ className: "map-island-launch" }).props.onClick());
+  act(() => launch().props.onClick());
   expect(inputNode.focus).toHaveBeenCalledOnce();
   expect(island().props["data-compact"]).toBe(false);
   act(() => textarea().props.onKeyDown(key("Escape", true)));
@@ -74,7 +83,7 @@ it("collapses an accepted send into live status and allows another draft while w
   expect(renderer!.root.findByType("small").children).toEqual(["Engineer · building the map"]);
   expect(renderer!.root.findByProps({ className: "map-island-stop" })).toBeDefined();
 
-  act(() => renderer!.root.findByProps({ className: "map-island-launch" }).props.onClick());
+  act(() => launch().props.onClick());
   act(() => textarea().props.onChange({ target: { value: "Use blue for the river" } }));
   act(() => listeners.get("focusout")?.({ type: "focusout", relatedTarget: null }));
   expect(island().props["data-compact"]).toBe(false);
@@ -126,4 +135,100 @@ it("keeps attachments and routing available in the expanded editor", () => {
   act(() => renderer!.root.findByType("select").props.onChange({ target: { value: "task" } }));
   expect(route).toHaveBeenCalledWith("task");
   expect(renderer!.root.findByProps({ "aria-label": "remove attachment report.txt" })).toBeDefined();
+});
+
+it("stays a pill when the camera focuses a card; only the pill click opens it", () => {
+  act(() => { renderer = create(<MapComposer {...defaults} overview />, { createNodeMock: nodeMock }); });
+  expect(island().props["data-compact"]).toBe(true);
+  // Clicking a task card flips the camera to detail view (overview=false).
+  // That is navigation, not composing intent — the pill must not expand.
+  act(() => renderer!.update(<MapComposer {...defaults} overview={false} />));
+  expect(island().props["data-compact"]).toBe(true);
+  expect(inputNode.focus).not.toHaveBeenCalled();
+  // Hover is not intent either: the dock no longer expands on pointer enter.
+  expect(island().props.onPointerEnter).toBeUndefined();
+  act(() => launch().props.onClick());
+  expect(island().props["data-compact"]).toBe(false);
+});
+
+it("auto-opens when a reference chip is quoted in from the context menu", () => {
+  act(() => { renderer = create(<MapComposer {...defaults} />, { createNodeMock: nodeMock }); });
+  expect(island().props["data-compact"]).toBe(true);
+  act(() => renderer!.update(<MapComposer {...defaults} value={referenceText(ref)} />));
+  expect(island().props["data-compact"]).toBe(false);
+  expect(inputNode.focus).toHaveBeenCalled();
+  expect(renderer!.root.findByProps({ className: "map-reference-chips" })).toBeDefined();
+  // Escape with an empty textarea folds the island; the chip stays in the
+  // draft and is shown again on the next expand.
+  const onChange = vi.fn();
+  act(() => renderer!.update(<MapComposer {...defaults} value={referenceText(ref)} onChange={onChange} />));
+  act(() => textarea().props.onKeyDown(key("Escape")));
+  expect(island().props["data-compact"]).toBe(true);
+  expect(onChange).not.toHaveBeenCalled();
+  act(() => launch().props.onClick());
+  expect(renderer!.root.findByProps({ className: "map-reference-chips" })).toBeDefined();
+});
+
+it("expands with the c key unless the user is typing elsewhere", () => {
+  act(() => { renderer = create(<MapComposer {...defaults} />, { createNodeMock: nodeMock }); });
+  const ignored = [hotkey({ target: { tagName: "INPUT" } }), hotkey({ metaKey: true }),
+    hotkey({ isComposing: true }), hotkey({ key: "x" })];
+  for (const event of ignored) {
+    act(() => listeners.get("keydown")?.(event));
+    expect(island().props["data-compact"]).toBe(true);
+  }
+  const open = hotkey();
+  act(() => listeners.get("keydown")?.(open));
+  expect(island().props["data-compact"]).toBe(false);
+  expect(open.preventDefault).toHaveBeenCalledOnce();
+  expect(inputNode.focus).toHaveBeenCalledOnce();
+});
+
+it("expands on a fresh composer-focus request but ignores a stale one after remount", () => {
+  // A session switch remounts the composer with whatever signal count the app
+  // reached earlier; that history is not an ask to open the editor.
+  act(() => { renderer = create(<MapComposer {...defaults} focusSignal={2} />, { createNodeMock: nodeMock }); });
+  expect(island().props["data-compact"]).toBe(true);
+  expect(inputNode.focus).not.toHaveBeenCalled();
+  // "/", ⌘J, the palette, and prompt rewrite bump the signal — explicit asks.
+  act(() => renderer!.update(<MapComposer {...defaults} focusSignal={3} />));
+  expect(island().props["data-compact"]).toBe(false);
+  expect(inputNode.focus).toHaveBeenCalledOnce();
+});
+
+it("collapses on an outside click only while empty; a draft keeps it open", () => {
+  function Harness() {
+    const [value, setValue] = useState("");
+    return <MapComposer {...defaults} value={value} onChange={setValue} />;
+  }
+  act(() => { renderer = create(<Harness />, { createNodeMock: nodeMock }); });
+  act(() => launch().props.onClick());
+  expect(island().props["data-compact"]).toBe(false);
+  // Empty editor: a tap on the canvas folds it away.
+  act(() => listeners.get("pointerdown")?.({ target: outside }));
+  expect(island().props["data-compact"]).toBe(true);
+  // With typed text, neither outside clicks nor blur may hide the draft.
+  act(() => launch().props.onClick());
+  act(() => textarea().props.onChange({ target: { value: "Compare both baselines" } }));
+  act(() => listeners.get("pointerdown")?.({ target: outside }));
+  act(() => listeners.get("focusout")?.({ type: "focusout", relatedTarget: null }));
+  expect(island().props["data-compact"]).toBe(false);
+  expect(textarea().props.value).toBe("Compare both baselines");
+});
+
+it("preserves the draft across an explicit collapse and reopen", () => {
+  function Harness() {
+    const [value, setValue] = useState("");
+    return <MapComposer {...defaults} value={value} onChange={setValue} />;
+  }
+  act(() => { renderer = create(<Harness />, { createNodeMock: nodeMock }); });
+  act(() => launch().props.onClick());
+  act(() => textarea().props.onChange({ target: { value: "Keep this draft" } }));
+  // The chevron is the one explicit way to fold a panel that holds a draft.
+  act(() => renderer!.root.findByProps({ className: "map-island-collapse" }).props.onClick());
+  expect(island().props["data-compact"]).toBe(true);
+  expect(renderer!.root.findByType("small").children.join("")).toContain("Draft saved");
+  act(() => launch().props.onClick());
+  expect(island().props["data-compact"]).toBe(false);
+  expect(textarea().props.value).toBe("Keep this draft");
 });

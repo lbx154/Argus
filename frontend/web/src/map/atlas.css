@@ -54,3 +54,9 @@
 .map-canvas-wrap[data-reading=true] .react-flow__minimap,
 .map-canvas-wrap[data-reading=true] .react-flow__controls { opacity: 0; pointer-events: none; }
 .macro-reader-body { scrollbar-gutter: stable; overscroll-behavior: contain; }
+
+/* Detail-plane typography on dark paper: the ink-mixed accents adapt on their own;
+ * only the light-tuned reader frame and the amber note wash need a nudge. */
+[data-theme=dark] .macro-reader { border-color: rgb(var(--line)); border-top-color: var(--reader-accent, #8facc3); box-shadow: 0 20px 65px #00000055; }
+[data-theme=dark] .macro-notes { background: color-mix(in srgb, #c99b3f 13%, var(--map-paper)); }
+[data-theme=dark] .submap-step[data-status=superseded] { opacity: 0.6; filter: grayscale(0.3) brightness(0.92); }

@@ -325,6 +325,9 @@ export default function App() {
     setPendingReplyOpen,
   } = usePendingReplySession({
     activeSid,
+    // The map surfaces decisions through its banner and node highlight; the
+    // modal would cover the very trajectory the operator came to inspect.
+    autoOpen: workspaceView !== 'map',
     backlog: snap?.backlog,
     notify,
     pendingQuestions: snap?.pending_questions,
