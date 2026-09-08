@@ -1338,3 +1338,70 @@ f9d8a02bf(滚动前版本)直接经 runtime 调用验证无恙。
 - 上游同批的 Windows Job Objects 语义未验证(本机 POSIX 直通),
   Windows 侧行为归上游作者;shim 与独立 CLI 的 stdin 语义差异值得
   在 copilot 适配文档里记一笔。
+
+## 二十二、追加(2026-09-08 下午):Atlas 重塑第一波——说人话、画真图、可批注可展开
+
+操作者原话的三件事:卡片事件"说得不像人话";轨迹全是串行,没有并行
+图结构;整体要 reimagine 人机协作范式(暴露 agent 的搜索轨迹,双方都
+能导航、批注、扩展整个探索空间)。四个实施流并行 + 一个接线批,全部
+测试先红后绿,全量 tests/ 与前端 vitest(63 文件 422 用例)+ tsc 全绿。
+
+### 病根(调查结论,含活体样本)
+
+- 步骤卡直接渲染 harness 回执原文(线上样本:"Runner receipt: Provider
+  turn cap reached... ARGUS_SKILL_PROVIDER_TURN_CAP");步骤标题是写死
+  的"本轮执行记录";LLM 改写(map-copy)只覆盖聚焦卡;compact 缩放
+  档摘要被 CSS 藏掉;摘要因状态漂移退回"放大查看任务内部"。
+- 布局是"折叠时间线"(后来的工作永不回左边);12 路 idea portfolio
+  以 team.task 形式埋在单卡内部步骤;plan revision 事件被前缀过滤器
+  挡掉。样本 s-d9c7aeb2:19 卡几乎全 deps=[],真实扇形不可见。
+- 引用(quote)前端完整、后端零解析(agent 收到裸 JSON);批注不存在。
+
+### 落地(五个提交,见 git log)
+
+1. 说人话:harness 回执折叠为一句同事口吻的话(模式锚定到发射点原文,
+   带 "Runner receipt:" 才允许宽匹配,防误伤讨论预算/隔离政策的研究
+   散文),原文降级为"运行记录"附注;审查步骤结论化标题(审查通过/
+   需要调整/未通过);执行步骤标题取内容首句;compact 档两行摘要;
+   摘要漂移不再退化(终态任务也不再挂"描述更新中");narrative prompt
+   v7(禁引回执原文、摘要先讲结论)。
+2. 真图:team.task 升格为一等分支节点(fork/join 几何,16 条封顶 +
+   "还有 N 条"溢出药丸,点击回母卡);依赖秩布局 rankLayout(门控:
+   存在扇形边且 ≥30% 节点有依赖/扇形连接,老会话字节级不变,有测试
+   钉死);边语言分层(依赖实线箭头、扇形半透明细线、时序上下文更淡、
+   改道边带 superseded_reason 截断标签)。
+3. 投影:任务字段补 superseded_reason/node_key/parallel_safe/owns_paths
+   (list 值也过密钥红action);life.plan.node.superseded 进流带原因;
+   idea.portfolio.formed 以 formation: 命名空间单条转发(单遍历零额外
+   IO,躲开 team: 可删除约定)。
+4. 交互范式:`[[Argus引用]]` 后端真解析——转录里变成可读引文
+   `（引用：《…》）`,模型侧追加有界上下文块(4 引用/各 3 条记录/
+   4096 字符,同源红action,行级 startswith 与前端逐字对齐);地图批注
+   GET/POST /map-notes(JSONL+锁,node_id 字符集白名单防伪造摘要行),
+   最近 5 条注入 planner 现实摘要——**人在图上写的字,agent 每个规划
+   周期都读到**;带引用的派单把新任务 deps 挂到被引节点(终态非 done
+   不挂防级联跳过,bounded DAG 挂 entry 节点),"从这里展开"从此是图
+   语义。前端:右键菜单三动词(引用/添加批注/从这里展开——后者自动
+   切 task 路由),卡片批注徽标 + 详情侧栏,编辑器 Esc/点外可关、
+   保存失败留草稿。
+5. 对抗评审 1 must-fix + 7 should-fix 全部修入:must-fix 是镜头缩放
+   对分支药丸解引用不存在的 data.frame(团队扇形上屏即崩画布),修为
+   zoomTarget 过滤无 frame 节点 + 防御性可选链。
+
+### 已知边界(评审 note 级,接受或留波次二)
+
+- formation 事件目前是休眠数据(前端还没用它标注扇形宽度);绑定
+  FIFO 驱逐后客户端 formation 行不回收(≤32,可接受)。
+- 引用展开的事件检索接受任意 event_id(仅限本 session、已红action、
+  有界)——非地图内部事件也可被引用出来,speculative 风险已记录。
+- 徽标在 overview 密度下偏小;compact 固定高度在极端宽高比可能溢出;
+  引文行/上下文块暂为中文(与既有 marker 一致),en 用户体验待波次二。
+- map-history 的 sqlite 索引不回填已索引区间里的 superseded 事件。
+
+### 部署与观察
+
+部署本批需重启 8799 webapi(map/notes/references 路由)并滚三守护进程
+(planner 摘要读 map_notes.jsonl)。上线后值得看:批注是否真的改变
+planner 决策(digest 里 operator_map_notes 出现后下一 verdict);分支
+药丸的点击/悬停是否顺畅;新会话(有并行拓扑感知)是否开始产出真 DAG,
+让 rankLayout 门控自然打开。
