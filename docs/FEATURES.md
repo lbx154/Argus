@@ -315,6 +315,31 @@ interchangeable.
 - Use: roles read `INDEX.md` for progressive disclosure and edit the relevant
   page and index directly during reviewed work.
 - Scope: project workspace. Wiki facts do not silently become profile Skills.
+- Optional `## Insight`: a separately labeled interpretation, abstraction,
+  transferable lesson, or hypothesis grounded in the factual content. Omit it
+  when evidence is insufficient or it would only repeat the summary. Evidence,
+  scope, transfer, and uncertainty are writing guidance, not new schema fields.
+  Several independently useful insights may use subheadings.
+- Retrieval: search Markdown page bodies as well as the index, and cross-link
+  related accessible pages or projects with `#insight` anchors. Recheck scope
+  before applying an interpretation elsewhere; revise or withdraw it when new
+  evidence changes the conclusion. Descriptions and index entries must preserve
+  its status as an interpretation.
+
+An illustrative section follows; replace its example link and observations with
+the actual evidence available in the project:
+
+```markdown
+## Insight
+
+Interpretation: the boundary failures in [the observed cases](#observations)
+suggest that explicit interface contracts may matter more here than improving
+one component in isolation. This pattern may apply to independently maintained
+agent modules that exchange partially specified messages.
+
+The evidence covers one integration. Transfer to another project remains a
+hypothesis; systems with already-complete contracts may have a different bottleneck.
+```
 
 ### Framework self-maintenance
 
