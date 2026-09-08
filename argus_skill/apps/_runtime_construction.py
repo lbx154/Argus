@@ -42,13 +42,27 @@ def _manager_roots(args: argparse.Namespace) -> tuple[Path, Path, Path]:
     raw_state_root = str(getattr(args, "project_state_dir", "") or "").strip()
     state_root = Path(raw_state_root).expanduser() if raw_state_root else workdir
     from ..manager._session_ops import manager_pipeline_lock
-    from ..skills.stage_machine import migrate_legacy_research_stage
-    from ..skills.vertical_select import migrate_legacy_manager_state
+    from ..skills.stage_machine import (
+        legacy_research_stage_needs_migration,
+        migrate_legacy_research_stage,
+    )
+    from ..skills.vertical_select import (
+        legacy_manager_state_needs_migration,
+        migrate_legacy_manager_state,
+    )
 
-    with manager_pipeline_lock(session_root):
-        if raw_state_root:
-            migrate_legacy_manager_state(state_root, workdir)
-        migrate_legacy_research_stage(state_root)
+    # The daemon owns this lock throughout a mission. Ordinary Manager reads
+    # and prewarm must not wait behind it just to perform two no-op migrations.
+    # Only a real state import/stage migration needs the write boundary. Each
+    # migration rereads its inputs under that lock, since the daemon may have
+    # updated them while construction was waiting.
+    if (
+        raw_state_root and legacy_manager_state_needs_migration(state_root, workdir)
+    ) or legacy_research_stage_needs_migration(state_root):
+        with manager_pipeline_lock(session_root):
+            if raw_state_root:
+                migrate_legacy_manager_state(state_root, workdir)
+            migrate_legacy_research_stage(state_root)
     return workdir, state_root, session_root
 
 

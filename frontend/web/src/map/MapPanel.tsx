@@ -147,6 +147,12 @@ function MapCanvas({
     };
     try {
       const accepted = await composer.onSend(text, files, observe);
+      if (accepted && alive.current && splitDraft(text).refs.length > 0) {
+        // Referenced questions belong beside their live reply, including the
+        // waiting period and streamed text before the final response arrives.
+        setConversationOpen(true);
+        setAgentsOpen(false);
+      }
       if (!accepted) observe({ type: 'settled', outcome: 'error' });
       return accepted;
     } catch (error) {

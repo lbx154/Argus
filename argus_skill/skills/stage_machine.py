@@ -138,12 +138,12 @@ def normalize_stage_for_project(
     return normalized
 
 
-def migrate_legacy_research_stage(project_root: Path | str) -> bool:
-    """Persist the canonical-stage mapping for one legacy research state."""
+def _legacy_research_stage_payload(project_root: Path | str) -> dict | None:
+    """Build a canonical migration candidate without changing durable state."""
     root = Path(project_root)
     payload = read_pipeline_state(root)
     if str(payload.get("vertical") or "").strip().lower() != "research":
-        return False
+        return None
     order, _items = _active_vertical_checklist_defs(root)
     canonical = tuple(_normalize_stage(stage) for stage in order)
     raw = _normalize_stage(payload.get("current_stage"))
@@ -155,7 +155,7 @@ def migrate_legacy_research_stage(project_root: Path | str) -> bool:
     } if isinstance(stages, dict) else set()
     legacy_shape = bool(stage_keys - set(canonical))
     if mapped not in canonical or (raw == mapped and not legacy_shape):
-        return False
+        return None
     payload["current_stage"] = mapped
     payload["stages"] = {
         stage: {"status": "in_progress" if stage == mapped else "pending"}
@@ -167,7 +167,20 @@ def migrate_legacy_research_stage(project_root: Path | str) -> bool:
         f"Resume in {mapped} and satisfy its current checklist; legacy completion "
         "does not certify this stage."
     )
-    write_pipeline_state(root, payload)
+    return payload
+
+
+def legacy_research_stage_needs_migration(project_root: Path | str) -> bool:
+    """Read-only preflight; a writer must recheck after taking its write lock."""
+    return _legacy_research_stage_payload(project_root) is not None
+
+
+def migrate_legacy_research_stage(project_root: Path | str) -> bool:
+    """Persist the canonical-stage mapping for one legacy research state."""
+    payload = _legacy_research_stage_payload(project_root)
+    if payload is None:
+        return False
+    write_pipeline_state(project_root, payload)
     return True
 
 

@@ -273,6 +273,31 @@ def _load_state_payload(project_root: object) -> dict:
         ) from exc
 
 
+def _legacy_manager_state_payload(
+    state_root: Path | str,
+    legacy_root: Path | str,
+) -> dict | None:
+    target_root = Path(state_root).expanduser()
+    source_root = Path(legacy_root).expanduser()
+    try:
+        if target_root.resolve() == source_root.resolve():
+            return None
+    except OSError:
+        return None
+    source = _state_path(source_root)
+    if primary_pipeline_state_path(target_root).exists() or not source.is_file():
+        return None
+    return _load_state_payload(source_root) or None
+
+
+def legacy_manager_state_needs_migration(
+    state_root: Path | str,
+    legacy_root: Path | str,
+) -> bool:
+    """Inspect import eligibility without copying state or project domains."""
+    return _legacy_manager_state_payload(state_root, legacy_root) is not None
+
+
 def migrate_legacy_manager_state(
     state_root: Path | str,
     legacy_root: Path | str,
@@ -296,17 +321,10 @@ def migrate_legacy_manager_state(
     """
     target_root = Path(state_root).expanduser()
     source_root = Path(legacy_root).expanduser()
-    try:
-        if target_root.resolve() == source_root.resolve():
-            return False
-    except OSError:
+    payload = _legacy_manager_state_payload(target_root, source_root)
+    if payload is None:
         return False
     source = _state_path(source_root)
-    if primary_pipeline_state_path(target_root).exists() or not source.is_file():
-        return False
-    payload = _load_state_payload(source_root)
-    if not payload:
-        return False
 
     from ..verticals._data_domain import migrate_data_domains
 
