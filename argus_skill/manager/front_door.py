@@ -525,6 +525,7 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
             CLAUSE_PRECISE,
             CLAUSE_SEMANTIC,
             ContractConfirmation,
+            confirmation_changes,
             issue_confirmation,
             load_contract,
             make_clause,
@@ -590,15 +591,10 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
             return
 
         confirmation: ContractConfirmation | None = None
-        before_precise = {clause.id for clause in current.precise()}
-        after_precise = {
-            clause.id
-            for clause in proposed_clauses
-            if clause.kind == CLAUSE_PRECISE
-        }
-        changed = tuple(sorted(before_precise ^ after_precise))
-        if objective_changed:
-            changed += ("objective",)
+        changed = confirmation_changes(
+            current, objective=new_objective,
+            clauses=proposed_clauses, exclusions=proposed_exclusions,
+        )
         if changed:
             confirmation = issue_confirmation(
                 contract=current,

@@ -1,8 +1,8 @@
 """A Manager may clarify what it meant; it may not quietly move the goalposts.
 
-Operator decision (North-Star §9.3): the Manager clarifies semantic intent on
-its own, but changing a precise constraint — a target number, a baseline, a
-budget, the objective itself — needs the operator to agree.
+The Manager may clarify explicitly manager-owned intent on its own. Changing
+operator-owned requirements needs the operator to agree, independently of
+whether verification uses measurements or qualitative judgment.
 
 The failure this prevents is specific and is the reason a contract exists at
 all: a Manager that cannot meet a number relaxes the number, and the project
@@ -38,21 +38,21 @@ _READABLE = ("semantic", "the write-up should be readable by a systems engineer"
 def _contract():
     return new_contract(
         objective="make the attention kernel faster",
-        clauses=[make_clause(*_SPEEDUP), make_clause(*_READABLE)],
+        clauses=[make_clause(*_SPEEDUP), make_clause(*_READABLE, authority="manager")],
     )
 
 
 # -- what the Manager may do alone -------------------------------------------
 
 
-def test_semantic_clarification_needs_nobody(tmp_path: Path) -> None:
+def test_manager_owned_semantic_clarification_needs_nobody(tmp_path: Path) -> None:
     current = _contract()
 
     updated, revision = revise_contract(
         current=current,
         clauses=[
             make_clause(*_SPEEDUP),
-            make_clause(CLAUSE_SEMANTIC, "the write-up should name its baseline"),
+            make_clause(CLAUSE_SEMANTIC, "the write-up should name its baseline", authority="manager"),
         ],
         by="manager",
     )
@@ -82,7 +82,7 @@ def test_relaxing_a_precise_target_is_refused() -> None:
     with pytest.raises(ContractError) as excinfo:
         revise_contract(
             current=_contract(),
-            clauses=[make_clause(*_RELAXED), make_clause(*_READABLE)],
+            clauses=[make_clause(*_RELAXED), make_clause(*_READABLE, authority="manager")],
             by="manager",
         )
 
@@ -96,7 +96,7 @@ def test_adding_a_precise_constraint_is_refused_too() -> None:
             current=_contract(),
             clauses=[
                 make_clause(*_SPEEDUP),
-                make_clause(*_READABLE),
+                make_clause(*_READABLE, authority="manager"),
                 make_clause(CLAUSE_PRECISE, "must fit in 40GB"),
             ],
             by="manager",
@@ -122,7 +122,7 @@ def test_a_confirmation_covering_the_change_lets_it_through() -> None:
 
     updated, revision = revise_contract(
         current=current,
-        clauses=[make_clause(*_RELAXED), make_clause(*_READABLE)],
+        clauses=[make_clause(*_RELAXED), make_clause(*_READABLE, authority="manager")],
         by="manager",
         confirmation=confirmation,
     )
@@ -144,7 +144,7 @@ def test_a_confirmation_does_not_cover_a_change_it_never_named() -> None:
             current=current,
             clauses=[
                 make_clause(*_RELAXED),
-                make_clause(*_READABLE),
+                make_clause(*_READABLE, authority="manager"),
                 make_clause(CLAUSE_PRECISE, "and skip the correctness check"),
             ],
             by="manager",
@@ -160,7 +160,7 @@ def test_a_confirmation_cannot_be_replayed_after_the_contract_moves() -> None:
     confirmation = issue_confirmation(contract=current, covers=changed)
     updated, _ = revise_contract(
         current=current,
-        clauses=[make_clause(*_RELAXED), make_clause(*_READABLE)],
+        clauses=[make_clause(*_RELAXED), make_clause(*_READABLE, authority="manager")],
         by="manager",
         confirmation=confirmation,
     )
@@ -168,7 +168,7 @@ def test_a_confirmation_cannot_be_replayed_after_the_contract_moves() -> None:
     with pytest.raises(ContractError) as excinfo:
         revise_contract(
             current=updated,
-            clauses=[make_clause(*_READABLE)],
+            clauses=[make_clause(*_READABLE, authority="manager")],
             by="manager",
             confirmation=confirmation,
         )
@@ -186,7 +186,7 @@ def test_an_expired_confirmation_is_refused() -> None:
     with pytest.raises(ContractError) as excinfo:
         revise_contract(
             current=current,
-            clauses=[make_clause(*_RELAXED), make_clause(*_READABLE)],
+            clauses=[make_clause(*_RELAXED), make_clause(*_READABLE, authority="manager")],
             by="manager",
             confirmation=confirmation,
             now=2000.0,
@@ -250,7 +250,7 @@ def test_a_preserved_precise_clause_is_recorded_as_preserved() -> None:
         current=_contract(),
         clauses=[
             make_clause(*_SPEEDUP),
-            make_clause(CLAUSE_SEMANTIC, "name the baseline"),
+            make_clause(CLAUSE_SEMANTIC, "name the baseline", authority="manager"),
         ],
         by="manager",
     )
@@ -314,7 +314,7 @@ def test_a_new_operator_objective_drops_prior_task_constraints(
     changed = (make_clause(*_SPEEDUP).id, make_clause(*_RELAXED).id)
     updated, revision = revise_contract(
         current=current,
-        clauses=[make_clause(*_RELAXED), make_clause(*_READABLE)],
+        clauses=[make_clause(*_RELAXED), make_clause(*_READABLE, authority="manager")],
         by="manager",
         confirmation=issue_confirmation(contract=current, covers=changed),
     )

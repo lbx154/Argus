@@ -6,25 +6,15 @@ campaign identity hashes the objective, and ``VerticalDecision`` carries the
 target level and venue — but they were fragments with no single type and no
 rule about who may rewrite which part.
 
-The distinction this module adds is between two kinds of clause:
+Clause ``kind`` describes verification: ``precise`` is mechanically checkable,
+while ``semantic`` requires judgment. Its independent ``authority`` says who
+may change it: operator-owned requirements need specific confirmation; explicitly
+manager-owned working parameters may be refined autonomously, regardless of kind.
+An unpublished-data boundary can require judgment without becoming freely mutable.
 
-``precise``
-    A constraint that can be checked mechanically and that the operator
-    actually chose: a target number, a hardware budget, a named baseline, a
-    deadline. Changing one changes what "done" means, so the Manager may
-    propose it but not commit it alone (operator decision §9.3).
-
-``semantic``
-    A description of intent that a Reviewer judges: "the write-up should be
-    readable by a systems engineer", "prefer approaches that generalise". The
-    Manager clarifies these autonomously — that is the job, and requiring a
-    human for every rewording would make the contract read-only in practice.
-
-Why the split is enforced here rather than by asking the model nicely: a Manager
-that quietly relaxes a precise constraint it cannot meet produces a project that
-reports success against a goal nobody agreed to. That is the one failure mode a
-contract exists to prevent, and it is mechanical enough for the harness to own
-without judging any research.
+Unannotated requirements, including legacy clauses, remain operator-owned. Loading
+does not rewrite historical files or clause ids. The objective and explicit
+exclusions also belong to the operator; ambiguities are unanswered questions.
 
 Deliberate non-goal: this module does not decide whether a project is finished.
 Completion lives in :mod:`argus_skill.core.project_api`, and existing projects
@@ -47,6 +37,9 @@ from typing import Any, Iterable
 CLAUSE_PRECISE = "precise"
 CLAUSE_SEMANTIC = "semantic"
 _CLAUSE_KINDS = frozenset({CLAUSE_PRECISE, CLAUSE_SEMANTIC})
+AUTHORITY_OPERATOR = "operator"
+AUTHORITY_MANAGER = "manager"
+_CLAUSE_AUTHORITIES = frozenset({AUTHORITY_OPERATOR, AUTHORITY_MANAGER})
 
 CONTRACT_FILENAME = "goal_contract.json"
 
@@ -60,10 +53,11 @@ class ContractError(RuntimeError):
 
 @dataclass(frozen=True)
 class Clause:
-    """One requirement, tagged by how it can be checked."""
+    """One requirement, with independent verification kind and edit authority."""
 
     kind: str
     text: str
+    authority: str = AUTHORITY_OPERATOR
 
     @property
     def id(self) -> str:
@@ -71,13 +65,14 @@ class Clause:
 
         Content-derived rather than sequential so that a confirmation naming a
         clause cannot be silently redirected to a different one by reordering
-        the list.
+        the list. Ownership edits are checked as additions/removals from the
+        protected set, so keeping this legacy id cannot bypass confirmation.
         """
         raw = f"{self.kind}\0{self.text.strip()}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
     def to_dict(self) -> dict[str, Any]:
-        return {"id": self.id, "kind": self.kind, "text": self.text}
+        return {"id": self.id, "kind": self.kind, "text": self.text, "authority": self.authority}
 
 
 @dataclass(frozen=True)
@@ -98,6 +93,9 @@ class GoalContract:
     def semantic(self) -> tuple[Clause, ...]:
         return tuple(c for c in self.clauses if c.kind == CLAUSE_SEMANTIC)
 
+    def operator_owned(self) -> tuple[Clause, ...]:
+        return tuple(c for c in self.clauses if c.authority == AUTHORITY_OPERATOR)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "objective": self.objective,
@@ -112,7 +110,7 @@ class GoalContract:
 
 @dataclass(frozen=True)
 class ContractConfirmation:
-    """The operator agreeing to a specific change of precise constraints.
+    """The operator agreeing to a specific change of operator-owned requirements.
 
     Bound to the exact clause ids being added or removed and to the revision it
     was issued against. A blanket "the Manager may edit constraints" flag would
@@ -168,7 +166,7 @@ class ContractRevision:
 # -- construction ------------------------------------------------------------
 
 
-def make_clause(kind: str, text: str) -> Clause:
+def make_clause(kind: str, text: str, *, authority: str = AUTHORITY_OPERATOR) -> Clause:
     cleaned = str(text or "").strip()
     normalized = str(kind or "").strip().lower()
     if normalized not in _CLAUSE_KINDS:
@@ -177,7 +175,10 @@ def make_clause(kind: str, text: str) -> Clause:
         )
     if not cleaned:
         raise ContractError("a clause needs text")
-    return Clause(kind=normalized, text=cleaned)
+    owner = str(authority or "").strip().lower()
+    if owner not in _CLAUSE_AUTHORITIES:
+        raise ContractError(f"clause authority {authority!r} is not one of {sorted(_CLAUSE_AUTHORITIES)}")
+    return Clause(kind=normalized, text=cleaned, authority=owner)
 
 
 def new_contract(
@@ -206,8 +207,33 @@ def new_contract(
 def _dedup(clauses: Iterable[Clause]) -> tuple[Clause, ...]:
     seen: dict[str, Clause] = {}
     for clause in clauses:
-        seen.setdefault(clause.id, clause)
+        checked = make_clause(clause.kind, clause.text, authority=clause.authority)
+        prior = seen.get(checked.id)
+        if prior is not None and prior.authority != checked.authority:
+            raise ContractError("duplicate clause has conflicting modification authority")
+        seen.setdefault(checked.id, checked)
     return tuple(seen.values())
+
+
+def _protected_ids(clauses: Iterable[Clause], exclusions: Iterable[str]) -> set[str]:
+    return {c.id for c in _dedup(clauses) if c.authority == AUTHORITY_OPERATOR} | {
+        "exclusion:" + hashlib.sha256(str(text).strip().encode("utf-8")).hexdigest()[:16]
+        for text in exclusions if str(text).strip()
+    }
+
+
+def confirmation_changes(
+    current: GoalContract, *, objective: str | None = None,
+    clauses: Iterable[Clause] | None = None, exclusions: Iterable[str] | None = None,
+) -> tuple[str, ...]:
+    """Exact protected ids an operator handoff must authorize changing."""
+    before = _protected_ids(current.clauses, current.exclusions)
+    after = _protected_ids(
+        current.clauses if clauses is None else clauses,
+        current.exclusions if exclusions is None else exclusions,
+    )
+    changed = tuple(sorted(before ^ after))
+    return changed + (("objective",) if objective is not None and objective.strip() != current.objective else ())
 
 
 # -- revision ----------------------------------------------------------------
@@ -221,7 +247,7 @@ def issue_confirmation(
     ttl_seconds: float = _CONFIRMATION_TTL_SECONDS,
     now: float | None = None,
 ) -> ContractConfirmation:
-    """Mint the operator's agreement to change specific precise clauses.
+    """Mint the operator's agreement to change specific protected requirements.
 
     Bound to the contract revision it was issued against so that a confirmation
     cannot be held and replayed after the contract has moved on.
@@ -255,17 +281,21 @@ def revise_contract(
 ) -> tuple[GoalContract, ContractRevision]:
     """Apply a proposed change, or raise :class:`ContractError` saying why not.
 
-    Semantic clauses, exclusions and ambiguities move freely — clarifying intent
-    is the Manager's job. Precise clauses and the objective need a confirmation
-    covering exactly the ids that change.
+    Explicitly manager-owned clauses and ambiguities may change autonomously.
+    Operator-owned clauses, exclusions and the objective require confirmation,
+    independently of how a clause is checked. Changing ownership also requires
+    confirmation when it adds or removes an operator-owned requirement.
     """
     stamp = float(now if now is not None else time.time())
-    proposed = _dedup(clauses) if clauses is not None else current.clauses
+    proposed = _dedup(current.clauses if clauses is None else clauses)
 
-    before = {c.id: c for c in current.precise()}
-    after = {c.id: c for c in proposed if c.kind == CLAUSE_PRECISE}
-    added = tuple(sorted(set(after) - set(before)))
-    removed = tuple(sorted(set(before) - set(after)))
+    proposed_exclusions = current.exclusions if exclusions is None else tuple(
+        dict.fromkeys(str(v).strip() for v in exclusions if str(v).strip())
+    )
+    before = _protected_ids(current.clauses, current.exclusions)
+    after = _protected_ids(proposed, proposed_exclusions)
+    added = tuple(sorted(after - before))
+    removed = tuple(sorted(before - after))
 
     new_objective = current.objective if objective is None else str(objective).strip()
     if not new_objective:
@@ -281,7 +311,7 @@ def revise_contract(
             now=stamp,
         )
 
-    preserved = tuple(sorted(set(before) & set(after)))
+    preserved = tuple(sorted(before & after))
     revision = ContractRevision(
         revision=current.revision + 1,
         at=stamp,
@@ -295,11 +325,7 @@ def revise_contract(
     updated = GoalContract(
         objective=new_objective,
         clauses=proposed,
-        exclusions=(
-            current.exclusions
-            if exclusions is None
-            else tuple(dict.fromkeys(str(v).strip() for v in exclusions if str(v).strip()))
-        ),
+        exclusions=proposed_exclusions,
         ambiguities=(
             current.ambiguities
             if ambiguities is None
@@ -321,7 +347,7 @@ def _require_confirmation(
 ) -> None:
     if confirmation is None:
         raise ContractError(
-            "changing a precise constraint needs operator confirmation; "
+            "changing an operator-owned requirement needs operator confirmation; "
             f"unconfirmed: {', '.join(changed)}"
         )
     if confirmation.from_revision != current.revision:
@@ -334,7 +360,7 @@ def _require_confirmation(
     uncovered = tuple(c for c in changed if c not in confirmation.covers)
     if uncovered:
         raise ContractError(
-            "operator confirmation does not cover every precise change; "
+            "operator confirmation does not cover every protected change; "
             f"uncovered: {', '.join(uncovered)}"
         )
 
@@ -364,7 +390,14 @@ def load_contract(state_dir: Path | str) -> GoalContract | None:
         return GoalContract(
             objective=str(contract.get("objective") or ""),
             clauses=tuple(
-                Clause(kind=str(row.get("kind") or ""), text=str(row.get("text") or ""))
+                Clause(
+                    kind=str(row.get("kind") or ""), text=str(row.get("text") or ""),
+                    authority=(
+                        row["authority"]
+                        if isinstance(row.get("authority"), str) and row["authority"] in _CLAUSE_AUTHORITIES
+                        else AUTHORITY_OPERATOR
+                    ),
+                )
                 for row in contract.get("clauses") or []
                 if isinstance(row, dict) and str(row.get("kind") or "") in _CLAUSE_KINDS
             ),
@@ -458,20 +491,20 @@ def contract_briefing(
         "Committed operator objective:",
         f"- {contract.objective}",
     ]
-    precise = contract.precise()
-    if precise:
+    protected = contract.operator_owned()
+    if protected:
         lines.append(
-            "Operator-stated hard requirements. These are binding: work that "
+            "Operator-owned requirements (mechanically checked or judged). These are binding: work that "
             "does not satisfy them is not done, however good it is otherwise. "
             "You may not weaken one — if you believe one is wrong or "
             "unachievable, say so explicitly instead of quietly re-scoping."
         )
-        lines.extend(f"- {clause.text}" for clause in precise)
-    semantic = contract.semantic()
-    if semantic:
+        lines.extend(f"- [{clause.kind}] {clause.text}" for clause in protected)
+    working = tuple(c for c in contract.clauses if c.authority == AUTHORITY_MANAGER)
+    if working:
         lines.append("")
-        lines.append("Stated intent (judged, not measured):")
-        lines.extend(f"- {clause.text}" for clause in semantic)
+        lines.append("Manager-owned working requirements (may be refined within the operator's boundaries):")
+        lines.extend(f"- [{clause.kind}] {clause.text}" for clause in working)
     if contract.exclusions:
         lines.append("")
         lines.append("Explicitly does not count as success:")
@@ -494,6 +527,8 @@ def contract_briefing(
 __all__ = [
     "CLAUSE_PRECISE",
     "CLAUSE_SEMANTIC",
+    "AUTHORITY_OPERATOR",
+    "AUTHORITY_MANAGER",
     "CONTRACT_FILENAME",
     "Clause",
     "ContractConfirmation",
@@ -501,6 +536,7 @@ __all__ = [
     "ContractRevision",
     "GoalContract",
     "contract_briefing",
+    "confirmation_changes",
     "contract_path",
     "issue_confirmation",
     "load_contract",
