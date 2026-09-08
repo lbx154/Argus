@@ -1477,3 +1477,47 @@ running.
 Still pending: `/data/v-boxiuli/argus-runtime-latest` (8799 + daemons) runs code loaded at a97ea2840
 and its HEAD was accidentally fast-forwarded earlier; roll it cleanly to current main at a quiet
 moment so daemons pick up the venue-gate fix and both teams' work.
+
+## 24. Atlas wave three: frame rate and the hover island (2026-09-08 evening)
+
+Operator feedback mid-run: island expansion and card interactions feel low-FPS, animations too few,
+and the island should open on hover, not click. Shipped as `1e2e8d83f` + artifacts `362c82442`
+(rebased onto the paper team's `4d6e88d9d`; their artifacts commit conflicted with mine during
+rebase — resolution is always `git rebase --skip` the stale artifacts commit and rebuild at the
+merged source, never merge generated files).
+
+Frame-rate work, in descending order of impact:
+- Unfocused cards' `.macro-detail` is opacity:0 by design but still paid style/layout/paint for the
+  full inner submap (13 tasks × ~12 steps). `content-visibility: hidden` on
+  `.map-macro[data-focused="false"] .macro-detail` culls it (map.css).
+- Every relation edge subscribed to continuous zoom → all edges re-rendered every frame of a zoom
+  gesture. Bucketed to 1/24 steps in MapRelationEdge (≤4% size drift between steps absorbed by the
+  canvas transform).
+- The island animated width+left+height with a 25px-blur shadow: `left` no longer animates (snap;
+  corridor shift is 0 on wide canvases), `contain: layout` isolates its reflow, `will-change` +
+  translateZ(0) promote it, curve is 280ms cubic-bezier(0.32,0.72,0,1) with staggered content
+  (editor fades/slides 90ms behind the geometry).
+- `dataset.zoom` writes quantized to 2 decimals (no CSS consumer; attribute churn only).
+Headless-software measurement (fps.py in /tmp/atlas-shots, wheel-zoom+pan script): avg 40.3→44.3
+fps, p95 frame 66.7→50.0ms. Real-GPU clients gain more (culling+compositing under-measured there).
+
+Interaction/motion:
+- Island expands on pointerenter (hover-capable devices only; guarded `typeof window` for SSR
+  tests), folds on pointerleave after a 320ms grace unless a draft exists or focus is inside; all
+  wave-2 intent triggers (pill click, "c", quote insert, focusSignal) kept. Lifecycle tests updated
+  (16 composer tests).
+- Focus is a stage: `[data-detailed]` on .map-canvas-wrap dims unmounted-adjacent cards to 0.24
+  (hover restores 0.85) and the edge layer to 0.3; toolbar shrinks to icons (search re-grows on
+  focus-within); canvas fades in only after the opening fit (`data-fitted` gate) killing the
+  top-left first-frame flash.
+- Micro-delight: cards lift 2px on hover / compress on :active, chrome buttons scale 0.95 on press,
+  all gated by prefers-reduced-motion.
+- Branch pills (subagent): status washes/glyph parity with cards, k/N fan ordinal badge
+  (`fanIndex`/`fanCount` wired in MapPanel's branchNodes memo), running pills breathe; found and
+  fixed a cascade bug where branch.css's `--state` fallback beat map.css state classes.
+
+Suite: 67 files / 459 tests green, tsc clean. Deployed: demo checkout ff→362c82442, 8897 restarted
+with preserved env (owner had redeployed again — pid churns; always re-read /proc env), serving
+`index-XcbVTeLy.js`, map-notes 200. Overnight: session cron (~47min) keeps syncing origin/main to
+the demo (ff + digest-restart) and continues the backlog: search match count/cycling, PendingBanner
+"show on map" locate action, en reference lines, playback bar restyle, mobile/dark sweeps.
