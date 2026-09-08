@@ -204,11 +204,21 @@ def _parallel_final_review_passes(
             "inconsistent typography. Also judge composition, visual hierarchy, "
             "meaningful grouping, information density, spacing, and whether the "
             "mechanism reads immediately. Reject an unfinished collection of text "
-            "boxes even when its labels are individually legible. Return concise "
-            "pass/fail findings with page "
+            "boxes even when its labels are individually legible. Return a concise "
+            "natural-language assessment with page "
             "locations. The integrated Reviewer separately checks scientific claims "
             "against source code and raw evidence; do not launch other reviewers."
         )
+    prompts["Visual"] += (
+        "\n\nA coherent, readable composition with professional academic styling "
+        "should stand. Request a repair only for a concrete remaining defect in "
+        "scientific meaning, readability, rendering or presentation; give its page "
+        "and the affected detail. A preferred palette, font or alternate arrangement "
+        "alone must not reopen the design search or delay scientific review. "
+        "Judge the current render and do not repeat a concern it has already resolved. "
+        "Respect the paper's actual template and column layout; natural whitespace "
+        "or intentional typographic hierarchy is not a defect by itself."
+    )
     if "ColdRead" in prompts:
         prompts["ColdRead"] += (
             "\n\nThe host supplies paper/main.txt and paper/pages/page-*.png, "

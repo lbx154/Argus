@@ -65,17 +65,23 @@ def test_column_layout_comes_from_researched_venue_profile(
     assert pcs.figure_size("double")[0] > pcs.figure_size("single")[0]
 
 
-def test_column_layout_defaults_to_two_column_without_profile(
+@pytest.mark.parametrize("profile", [None, "not json", "{}", '{"two_column":"false"}'])
+def test_column_layout_requires_template_choice_without_valid_profile(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    profile: str | None,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert pcs._project_two_column() is True
-    # A corrupt profile also falls back to the two-column default.
-    research = tmp_path / "research"
-    research.mkdir()
-    (research / "VENUE_PROFILE.json").write_text("not json", encoding="utf-8")
-    assert pcs._project_two_column() is True
+    if profile is not None:
+        research = tmp_path / "research"
+        research.mkdir()
+        (research / "VENUE_PROFILE.json").write_text(profile, encoding="utf-8")
+    with pytest.raises(ValueError, match="Read its current template"):
+        pcs.figure_size()
+    # An explicit choice works without a cached profile, including for ICLR's
+    # single-column template. Unknown metadata must not silently narrow it.
+    assert pcs.figure_size("single", two_column=False)[0] == 5.5
+    assert pcs.figure_size("single", two_column=True)[0] == 3.3
 
 
 # ---- matplotlib-backed behaviour ------------------------------------------
@@ -103,7 +109,7 @@ def test_set_pub_style_unknown_palette_falls_back_to_default() -> None:
     pytest.importorskip("matplotlib")
     import matplotlib
     matplotlib.use("Agg")
-    colors = pcs.set_pub_style(palette="does-not-exist")
+    colors = pcs.set_pub_style(palette="does-not-exist", two_column=True)
     assert colors == pcs.PALETTES[pcs.DEFAULT_PALETTE]
 
 

@@ -1708,3 +1708,27 @@ At 20:46 UTC all three original worker PIDs were alive. CBC was running an
 actual empty-directory reproduction check; Diamond was consolidating its
 current-oracle results; S43 was implementing a joint GQA replay and repairing
 the released tests. No independent strong acceptance has been verified.
+
+The bounded figure-flow audit found and removed two remaining sources of
+unnecessary serial work: the lead may select a finished, locally reviewed
+candidate while the Curator drains optional alternatives in private directories;
+the actual PDF-only Visual prompt now preserves a professional, readable
+composition and distinguishes concrete defects from preferred palettes/fonts.
+Optional alternatives never gain authority over the chosen source or paper.
+The common Team guide also recognizes a Reviewer's explicitly granted authority
+to update its own report.
+
+Fixed-page venue layout review now respects the researched `two_column` flag
+rather than calling every conference two-column. The standalone chart helper
+no longer silently assumes two columns when its profile is absent or invalid;
+the Engineer supplies `two_column` from the existing author kit in that case,
+and matches the final size to the template's actual text/column width. Its demo
+sets its layout explicitly. The live legacy papers have no cached venue profile,
+so future use of a freshly copied helper must pass that argument. This does not
+change existing paper sources or figures.
+
+The 107-test figure follow-up group passed, including actual Visual dispatch,
+pass reuse, both venue column layouts, chart metadata/explicit-layout behavior,
+native-PPT routing, natural review and strong acceptance. Log:
+`/tmp/argus-science-first-figure-followup-tests-20260908.log` (overlaps the earlier
+group). All three daemons continue; current main-text figure counts are 3, 2, 2.

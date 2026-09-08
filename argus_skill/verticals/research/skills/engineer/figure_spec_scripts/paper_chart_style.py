@@ -81,23 +81,29 @@ def _project_two_column() -> bool:
     The venue-format research step writes ``research/VENUE_PROFILE.json`` from
     the venue's official author kit; its ``two_column`` field says whether the
     template is two-column. Walk up from the working directory to find it.
-    Defaults to two-column (the most common conference layout) when no profile
-    is found or it cannot be read.
+    An unavailable or incomplete profile requires an explicit ``two_column``
+    argument matching the actual template; never silently shrink a single-column
+    paper's figures using a two-column assumption.
     """
     import json
     from pathlib import Path
 
+    error = (
+        "Cannot determine the paper's column layout. Read its current template "
+        "and pass two_column=True or two_column=False explicitly, or provide "
+        "research/VENUE_PROFILE.json with a boolean two_column field."
+    )
     for root in [Path.cwd(), *Path.cwd().parents]:
         path = root / "research" / "VENUE_PROFILE.json"
         if path.is_file():
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                return True
-            if isinstance(payload, dict):
-                return bool(payload.get("two_column", True))
-            return True
-    return True
+            except (OSError, ValueError) as exc:
+                raise ValueError(error) from exc
+            if isinstance(payload, dict) and isinstance(payload.get("two_column"), bool):
+                return payload["two_column"]
+            raise ValueError(error)
+    raise ValueError(error)
 
 
 def figure_size(
@@ -288,7 +294,7 @@ def _demo(out_dir: str = "/tmp") -> list[str]:
     written.append(before)
 
     # AFTER — shared publication style + highlight Ours.
-    set_pub_style(column="single", palette="colorblind")
+    set_pub_style(column="single", palette="colorblind", two_column=True)
     fig, ax = plt.subplots()
     markers = ["o", "s", "D"]
     for (name, ys), m in zip(series.items(), markers):

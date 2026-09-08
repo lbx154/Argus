@@ -17,7 +17,9 @@ Every role may discover this Skill, but it does not erase role boundaries:
 - Planner delegates Team formation unchanged; Planner does not infer availability
   from its own role-specific Skill directory.
 - Engineer or an explicitly assigned lead forms and operates the Team.
-- Reviewer remains read-only and audits teammate evidence plus the lead synthesis.
+- Reviewer independently checks teammate evidence plus the lead synthesis. It
+  may update its own review report when its assigned operation grants that
+  authority; it never edits the work being reviewed.
 - Self may explain or route Team work, but does not execute it unless it is
   explicitly acting as the mission's Engineer/lead.
 
@@ -46,11 +48,16 @@ Use `python -m argus_skill.tools.team`.
 4. Inspect progress with `status --root <team_root>` and read landed `shards/*.jsonl` plus `leaderboard.json`.
 5. A task waiting on a real operator-owned decision is `blocked`, retains its owner and question, and is not retried. After the operator answers, run `resume --root <team_root> --task-id <task_id> --answer "<answer>"` to requeue it with that answer.
 6. Refresh or extend the backlog with `form`. Re-forming claimed, running, or blocked work preserves its lifecycle state; re-forming a done or failed task deliberately reopens it.
-7. After every teammate settles, set `pool-set --state draining`, read the final
-   shards, synthesize and verify the canonical artifact, then run
-   `dissolve --root <team_root>` before handing off to the normal mission
-   Reviewer. Reviewer validates the durable project artifacts and does not need
-   a live Team runtime.
+7. Once the required results are ready, set `pool-set --state draining`, read
+   their final shards, and synthesize and verify the canonical artifact. For
+   alternative candidates, the lead may use a completed, independently reviewed
+   result without waiting for every optional alternative. Remaining workers stay
+   confined to their assigned private outputs and may not alter the chosen
+   result or canonical synthesis. Return the completed work to the normal mission
+   Reviewer while the Curator reaps them. After all teammates settle, run
+   `dissolve --root <team_root>` at a normal status check; optional candidate
+   cleanup does not block review. Reviewer validates the durable project
+   artifacts and does not need a live Team runtime.
 
 The lead never manually spawns, claims, waits for, reassigns, or kills teammates. Those are Curator responsibilities.
 

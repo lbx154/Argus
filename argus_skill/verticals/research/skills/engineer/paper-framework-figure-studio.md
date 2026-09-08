@@ -84,8 +84,13 @@ With those tasks and paths prepared, the lead uses the existing control CLI:
 The Curator launches and reaps teammates. Continue scientific work and inspect
 `team status --root ...` at useful handoff points instead of polling. Once a
 suitable candidate is available, set `pool-set --state draining` to stop new
-starts, let running work settle, and `dissolve` the team. Only the lead Engineer
-chooses and promotes the final source and matching exports to `paper/figures/`,
+starts. The lead can immediately select a completed, locally reviewed candidate;
+do not wait for optional alternatives before integrating it or returning the
+scientific revision to the host Reviewer. The remaining workers keep their private
+output directories and never receive write authority over the selected source or
+formal paper. Let the Curator reap them while the main work continues; `dissolve`
+the team after they settle, at a normal status check. Only the lead Engineer
+promotes the final source and matching exports to `paper/figures/`,
 updates the caption/manuscript, and checks them against the latest science.
 Candidate workers never merge themselves or start more teams. Their reviews
 check only the candidate's scientific fidelity, readable render, and editable

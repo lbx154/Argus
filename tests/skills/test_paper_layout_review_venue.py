@@ -8,6 +8,10 @@ reads the researched venue profile rather than hardcoded page numbers.
 """
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
+
 from argus_skill.verticals.research.paper_layout_review import (
     _deterministic_assessment,
     _parse_review_text,
@@ -93,6 +97,17 @@ def test_figure_review_uses_good_enough_non_looping_standard() -> None:
     assert "Write a prose review, not JSON" in prompt
     assert "score_1_to_5" not in prompt
     assert "criteria_scores" not in prompt
+
+
+@pytest.mark.parametrize("two_column", [False, True])
+def test_conference_visual_prompt_respects_researched_column_layout(two_column) -> None:
+    prompt = _vision_prompt(
+        deterministic={}, threshold=3.5,
+        venue=replace(EIGHT_PAGE_CONFERENCE, two_column=two_column),
+    )
+    expected = "two-column" if two_column else "single-column"
+    assert f"standard {expected} conference paper" in prompt
+    assert ("awkward two-column imbalance" in prompt) is two_column
 
 
 def test_layout_review_never_demands_padding_to_fill_the_budget() -> None:

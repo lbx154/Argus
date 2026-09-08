@@ -30,6 +30,10 @@ class PaperRunner:
                      for p in Path(options.working_dir).rglob("*") if p.is_file()}
             assert files == {"paper/main.pdf", "paper/main.txt", "paper/pages/page-001.png"}
             assert "paper/pages/page-*.png" in kwargs["prompt"]
+        if label == "reviewer-visual":
+            assert "alone must not reopen the design search" in kwargs["prompt"]
+            assert "paper's actual template and column layout" in kwargs["prompt"]
+            assert "natural-language assessment" in kwargs["prompt"]
         assert options.sandbox_mode == "read-only"
         assert options.force_safe_mode
         return SimpleNamespace(

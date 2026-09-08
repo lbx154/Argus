@@ -1033,16 +1033,18 @@ def _vision_prompt(
     bpl = venue.body_page_limit
     end_matter = venue.end_matter_prose()
     review_lines = venue.review_linenumber_prose()
+    column_layout = "two-column" if venue.two_column else "single-column"
+    column_balance = "awkward two-column imbalance, " if venue.two_column else ""
     return (
         f"You are an independent visual reviewer for a {vn} paper that is being "
         "prepared for submission. Your job is to judge the rendered PDF screenshots as a polished, "
-        "standard two-column conference paper: visual beauty, professional layout, readability, "
+        f"standard {column_layout} conference paper: visual beauty, professional layout, readability, "
         f"and how well it follows {vn} paper norms. Do not act as the author and do not excuse "
         "poor visual work; be as strict as a proceedings layout reviewer.\n\n"
         "Inspect the screenshots page by page, using the automatically collected observations below "
         "as concrete hints. Treat the following as defects that make a page unready for submission: large blank lower-page "
         "regions before the body boundary, pages crowded with floats, cramped tables or plain tables laid out like logs, table/body overlap, tiny "
-        "unreadable fonts, awkward two-column imbalance, captions detached from content, weak page "
+        f"unreadable fonts, {column_balance}captions detached from content, weak page "
         "flow, square or low-quality figures, labels written as code rather than for readers, snake_case labels, heavy "
         f"gradients, photorealism, or visuals that look like debugging output rather than {vn} paper "
         "figures. A body page with only a couple of small tables and a large empty area usually "

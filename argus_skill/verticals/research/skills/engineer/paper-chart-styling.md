@@ -60,8 +60,10 @@ figures (teaser/pipeline/architecture) are not covered here — route those thro
    import matplotlib.pyplot as plt
 
    colors = set_pub_style(column="double", palette="colorblind")
-   # If the script runs outside the project tree, pass the layout explicitly:
-   # colors = set_pub_style(column="double", two_column=True, palette="colorblind")
+   # Without a researched venue profile, read the actual template and pass its
+   # layout explicitly to BOTH set_pub_style and figure_size. For a single-column kit:
+   # colors = set_pub_style(column="double", two_column=False, palette="colorblind")
+   # size = figure_size("double", two_column=False)
    ```
    - `palette` is one of `colorblind` (default), `muted` (cool journal tone), or
      `high_contrast` (talks/posters). All three are colour-blind-safe.
@@ -73,6 +75,10 @@ figures (teaser/pipeline/architecture) are not covered here — route those thro
    ```python
    fig, ax = plt.subplots(figsize=figure_size("single"))
    ```
+   Match the final width to the current template's actual `\columnwidth` or
+   `\textwidth`; the helper's dimensions are starting sizes, not venue facts.
+   Unknown column layout is an actionable argument error: inspect the existing
+   author kit and supply it, without asking the operator to choose a layout.
 
 5. **Encode redundantly and highlight the proposed method** so the figure reads
    in greyscale and under CVD, and the reader's eye lands on "Ours":
