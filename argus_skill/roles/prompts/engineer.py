@@ -291,7 +291,9 @@ def build_mission_prompt(
         "## Carrying context between rounds\n"
         "CHECKPOINT.md is the only file you maintain to carry context between rounds; do not create "
         "separate summaries or collections of evidence. Host invokes Reviewer only when required; do not "
-        "spawn a Reviewer subagent. Normally set next_owner=reviewer. Use operator only "
+        "spawn a Reviewer subagent. Normally set next_owner=reviewer. Use next_owner=manager "
+        "when a prerequisite or write-scope conflict needs plan revision; preserve completed "
+        "work and name the blocker, then yield. Use operator only "
         "for a real operator decision; include one operator_question and at most five "
         "operator_options; that parks the task, so record it and yield. Options use "
         "`id::label::description`, or `id::true::label::description` when a note "
@@ -322,9 +324,9 @@ def build_mission_prompt(
         + _long_experiment_rule()
         + "\n\n"
         "## Carrying context between rounds\n"
-        "Use next_owner=operator only for an operator-owned choice; its question "
-        "parks the task. Include operator_question and operator_options in that "
-        "decision.\n\n"
+        "Use next_owner=manager for prerequisite/scope conflicts; name the blocker and yield. "
+        "Use next_owner=operator for operator-owned choices, with operator_question and "
+        "operator_options; this parks the task.\n\n"
         + RESEARCHER_VOICE + "\n\n"
         + decision_footer_instruction(
             "MILESTONE_STATUS=done\n"

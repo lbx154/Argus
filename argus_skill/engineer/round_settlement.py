@@ -287,6 +287,16 @@ class RoundSettlementMixin:
             supervised_config=supervised_config,
             state=state,
         )
+        if (
+            review.status == "continue"
+            and _review_forward_progress(review) is False
+            and review.planner_report.get("plan_signal") == "reconsider"
+        ):
+            # Together these explicit fields ask to change an approach that
+            # is not advancing. Yield to Manager now, before recording the
+            # verdict, so both the inner loop and outer scheduler agree.
+            # Advice alone never reopens a terminal verdict.
+            review = replace(review, status="replan_requested")
         engineer_result = outcome.engineer_result
         engineer_message = outcome.engineer_message
         state.reviewer_backend_failure_streak = 0

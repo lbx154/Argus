@@ -49,6 +49,9 @@ Read state; do not edit. Engineer implements, runs commands and tests, and itera
 
 - Reuse settled and Manager decisions. Assign one task with its decision, inputs,
   and check; split only for dependencies or parallel work.
+- Required writes, including locks, must fit authorized paths.
+  Otherwise assign an authorized prerequisite owner and dependency; wait when no
+  owner can act. Never redispatch an unchanged permission blocker or widen authority.
 - Cited `life.planner.error`/`life.manager.intent.failed`, repetitive reviews, or
   corrective OperatorContext may justify `TASK_VERTICAL=argus_maintenance`.
   Require a harness hypothesis, executable check, exclusions, isolated

@@ -54,17 +54,14 @@ _INCREMENTAL_REREVIEW_BOUNDARY = (
     "repair round.\n\n"
 )
 
-# The Reviewer is the only role that can open the plan-challenge channel, and
-# `reconsider` is the single token that opens it. Until this block existed the
-# word appeared nowhere in any prompt while the example offered an invalid
-# `keep`, so the channel stayed shut and a campaign could close round after
-# locally correct round without anything ever questioning the plan itself.
-# Keep these values in step with ``argus_skill.reviewer._parsing``.
+# Keep these values in step with the parser and round settlement. Plan advice
+# alone is advisory; explicit no-progress plus reconsideration yields to Manager.
 _PLAN_SIGNAL_VOCABULARY = (
-    "`plan_signal` is `continue` or, if evidence lowers expected value, `reconsider`. "
-    "Add evidence-backed `plan_challenge` and `authority_impact`: `technical` for "
-    "working choices and team plans; `manager_contract`/`operator` for their "
-    "commitments only. Without a known `plan_alternative`, Manager uses `revise`.\n"
+    "Use `reconsider` if evidence lowers expected value, else `continue`. "
+    "Give evidenced `plan_challenge`; `authority_impact=technical` for working choices and team plans, "
+    "`manager_contract`/`operator` for commitments. "
+    "Without a known `plan_alternative`, Manager uses `revise`.\n"
+    "On `continue`, `forward_progress=false` + `plan_signal=reconsider` yields to Manager.\n"
 )
 
 
@@ -634,8 +631,8 @@ def render_reviewer_prompt(
     )
     handoff_policy = (
         "Use `done` when a direct task meets its requirements and decisive check. "
-        "Use `replan_requested` only to change the plan; `plan_signal` advises and "
-        "cannot override `status`. For a material gap, use `continue` and name the "
+        "Use `replan_requested` to change the plan; plan advice never reopens `done`. "
+        "For an in-scope material gap, use `continue` and name the "
         "next task. Leave optional hardening advisory."
         if direct_workflow
         else (
@@ -668,9 +665,9 @@ def render_reviewer_prompt(
         + "\n\n"
         + _PRODUCT_ACCEPTANCE_DIRECTIVE
         + "\n\n## Reviewer role\n"
-        "`done` means the outcome meets this verification profile. "
-        "Check essential uncertainty proportionately. Leave sources, outputs, and "
-        "builds unchanged; you may record your judgment with the vertical's command. "
+        "`done` meets this verification profile. "
+        "Check essential uncertainty; leave sources, outputs, and builds unchanged. "
+        "Record judgments with the vertical's command. "
         "Use `continue` for one material gap in scope, `replan_requested` for a wrong target or "
         "scope change, and `blocked` only for external obstacles. Use primary sources "
         "for external claims; community code may ground implementation details. "

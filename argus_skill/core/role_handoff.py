@@ -6,7 +6,7 @@ from typing import Literal, Mapping, Sequence
 
 from .operator_decision import normalize_agent_options, parse_agent_operator_options
 
-HandoffOwner = Literal["engineer", "reviewer", "operator"]
+HandoffOwner = Literal["engineer", "reviewer", "manager", "operator"]
 
 _EMPTY_VALUES = frozenset({"", "none", "n/a", "na", "null"})
 
@@ -68,6 +68,8 @@ def resolve_engineer_handoff(
         return EngineerHandoff("operator", question, options, source="structured")
     if owner == "engineer" and not question:
         return EngineerHandoff("engineer", source="structured")
+    if owner == "manager" and not question:
+        return EngineerHandoff("manager", source="structured")
     if question:
         return EngineerHandoff(
             "operator", question, options, source="operator_question"

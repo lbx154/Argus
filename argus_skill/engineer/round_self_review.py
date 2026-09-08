@@ -132,6 +132,36 @@ class RoundSelfReviewMixin:
                 continue_adaptor=continue_adaptor,
                 on_event=on_event,
             )
+        if handoff.next_owner == "manager":
+            # Asking the plan owner to repair a prerequisite is not a claim
+            # of completion. Like an operator handoff, it ends local work;
+            # it neither certifies the result nor grants additional authority.
+            result = (
+                str(outcome.decision.get("result") or "").strip()
+                if isinstance(outcome.decision, dict)
+                else ""
+            )
+            return self._settle_round(
+                review=ReviewDecision(
+                    status="replan_requested",
+                    reason="Engineer requested Manager intervention before continuing.",
+                    next_action="",
+                    review_source="engineer_manager_handoff",
+                    planner_report={
+                        "plan_signal": "reconsider",
+                        "challenge": result or outcome.engineer_message,
+                        "authority_impact": "technical",
+                    },
+                ),
+                round_index=round_index,
+                supervised_config=supervised_config,
+                workdir=workdir,
+                outcome=outcome,
+                state=state,
+                review_completed_hook=review_completed_hook,
+                continue_adaptor=continue_adaptor,
+                on_event=on_event,
+            )
         if (
             not supervised_config.require_independent_review
             and _milestone_is_blocked(outcome)
