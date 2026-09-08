@@ -50,7 +50,7 @@ def wait_json(path: Path, timeout: float = 10):
     raise AssertionError(f"Fixture did not become ready: {path}")
 
 
-def spawn_tree(monkeypatch, tmp_path):
+def spawn_tree(monkeypatch, tmp_path, *, batch_shim=False):
     marker = tmp_path / "descendants.json"
     release = tmp_path / "release"
     child = (
@@ -66,7 +66,14 @@ def spawn_tree(monkeypatch, tmp_path):
         "while not release.exists(): time.sleep(0.02)\n"
     )
     runner = AgentCliRunner(agent_bin=sys.executable, backend="codex")
-    monkeypatch.setattr(runner, "_build_command", lambda **kw: [sys.executable, "-u", "-c", parent])
+    command = [sys.executable, "-u", "-c", parent]
+    if batch_shim:
+        script = tmp_path / "provider fixture.py"
+        script.write_text(parent, encoding="utf-8")
+        shim = tmp_path / "provider fixture.cmd"
+        shim.write_text(f'@echo off\n"{sys.executable}" -u "{script}"\n', encoding="utf-8")
+        command = [str(shim)]
+    monkeypatch.setattr(runner, "_build_command", lambda **kw: command)
     _, process, failure, prompt_path = runner._spawn_turn_process(
         prompt="fixture", resume_thread_id=None, options=RunnerOptions(working_dir=str(tmp_path)),
     )
@@ -76,8 +83,9 @@ def spawn_tree(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("action", ["stop", "parent_first_exit"])
-def test_actual_runner_reaps_owned_child_and_grandchild(monkeypatch, tmp_path, action):
-    runner, process, held, release = spawn_tree(monkeypatch, tmp_path)
+@pytest.mark.parametrize("batch_shim", [False, True], ids=["exe", "cmd-shim"])
+def test_actual_runner_reaps_owned_child_and_grandchild(monkeypatch, tmp_path, action, batch_shim):
+    runner, process, held, release = spawn_tree(monkeypatch, tmp_path, batch_shim=batch_shim)
     unrelated = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(60)"])
     try:
         if action == "parent_first_exit":
