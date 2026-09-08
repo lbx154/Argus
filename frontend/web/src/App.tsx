@@ -96,6 +96,35 @@ const MapPanel = lazy(async () => {
   return { default: module.MapPanel };
 });
 
+/** Trailing-edge throttle for hot props. Streamed events arrive many times a
+ * second while agents work; the memoized map only needs a beat-level view. */
+function useThrottledValue<T>(value: T, ms: number): T {
+  const [current, setCurrent] = useState(value);
+  const latest = useRef(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stamp = useRef(0);
+  latest.current = value;
+  useEffect(() => {
+    if (value === current) return;
+    const due = stamp.current + ms - Date.now();
+    if (due <= 0) {
+      stamp.current = Date.now();
+      setCurrent(value);
+      return;
+    }
+    if (timer.current) return;
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      stamp.current = Date.now();
+      setCurrent(latest.current);
+    }, due);
+  }, [value, current, ms]);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  return current;
+}
+
 export default function App() {
   const { locale, t } = useI18n();
   const queryClient = useQueryClient();
@@ -340,6 +369,9 @@ export default function App() {
       localConversationEvents,
     );
   }, [events, localConversationEvents, transcriptQ.data]);
+  // The map view follows the stream at a beat, not per token.
+  const mapEvents = useThrottledValue(events, 250);
+  const mapConversationEvents = useThrottledValue(activityEvents, 250);
   const missionView = useMemo(
     () => snap ? projectMissionView(snap, activityEvents, artifactsQ.data ?? []) : null,
     [activityEvents, artifactsQ.data, snap],
@@ -899,9 +931,9 @@ export default function App() {
                 {workspaceView === 'mission' ? <span className="ml-auto hidden max-w-72 truncate text-[10px] text-ink-faint sm:block">{missionView?.active_role ? t('mission.roleActive', { role: missionView.active_role }) : t('mission.overview')}</span> : <span className="ml-auto" />}
                 {!kiosk && workspaceView !== 'map' ? <button type="button" onClick={() => setOverlay('operations')} className="rounded border border-line/60 px-2 py-1 text-[10px] text-ink-faint hover:border-blue/50 hover:text-blue">{t('mission.operations')}</button> : null}
               </div>
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={events} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
-                conversationEvents={activityEvents} connected={connected} artifacts={artifactsQ.data ?? []}
+                conversationEvents={mapConversationEvents} connected={connected} artifacts={artifactsQ.data ?? []}
                 deliveryCount={deliveryHistory.length} onOpenDelivery={() => {
                   const selection = defaultDeliverySelection(deliveryHistory, missionView?.routing.vertical || '');
                   if (selection) openDelivery(selection.receipt, selection.path);

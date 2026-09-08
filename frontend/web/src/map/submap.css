@@ -795,13 +795,17 @@
     transform: translateY(0);
   }
 }
+/* Transform+opacity only: the old box-shadow ring restyled and repainted on
+ * the main thread every frame for as long as anything was running. */
 @keyframes map-working {
   0%,
   100% {
-    box-shadow: 0 0 0 0 #4a86c510;
+    transform: scale(1);
+    opacity: 0.55;
   }
   50% {
-    box-shadow: 0 0 0 4px #4a86c528;
+    transform: scale(1.5);
+    opacity: 1;
   }
 }
 @keyframes map-step-working {

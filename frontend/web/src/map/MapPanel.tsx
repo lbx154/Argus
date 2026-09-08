@@ -8,7 +8,7 @@ import { splitDraft } from './presentation';
 import { useMapGrowth } from './useMapGrowth';
 import { stepIdentity } from './growth';
 import './motion.css';
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { replaceEqualDeep, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Background,
@@ -1222,7 +1222,9 @@ function MapCanvas({
   );
 }
 
-export function MapPanel({
+/** Memoized: the app re-renders on every streamed event and poll; the map
+ * only needs to follow its own (throttled) props, not that firehose. */
+export const MapPanel = memo(function MapPanel({
   snapshot,
   events,
   managerSteps = [],
@@ -1592,4 +1594,4 @@ export function MapPanel({
       )}
     </section>
   );
-}
+});
