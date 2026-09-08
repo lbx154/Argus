@@ -17,7 +17,10 @@
 .map-card-stages>span[data-active=true] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--step-color) 40%, transparent); }
 .map-card-stages>span[data-active=true] svg { animation: atlas-stage-pulse 1.8s ease-in-out infinite; }
 .map-card-bottom { padding-top: 9px; padding-bottom: 9px; }
-.map-edge-flow { pointer-events: none; animation: atlas-flow 2.8s linear infinite; filter: drop-shadow(0 0 3px #76b7cf88); }
+.map-edge-spark { position: absolute; left: 0; top: 0; border-radius: 50%; background: var(--atlas-flow, #3f9fba); box-shadow: 0 0 5px 1px #76b7cf59; offset-rotate: 0deg; animation: atlas-spark 2.8s linear infinite; pointer-events: none; will-change: offset-distance, opacity; }
+/* Inside an open card the active link pulses by opacity only (composited);
+ * the dash pattern itself stays still. */
+.submap-flow { pointer-events: none; animation: atlas-submap-flow 1.7s ease-in-out infinite; }
 .map-dispatch-trail { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 44; pointer-events: none; overflow: visible; filter: drop-shadow(0 0 7px #78c8d166); }
 .map-dispatch-trail path { opacity: 0; }
 .map-canvas-toolbar>button:hover, .map-workspace-actions button:not(:disabled):hover { border-color: #7ca9c8; background: rgb(var(--blue) / .045); }
@@ -26,11 +29,12 @@
 [data-theme=dark] .map-macro { box-shadow: 0 18px 60px #0004; }
 [data-theme=dark] .map-macro[data-active=true] { box-shadow: 0 0 0 8px #67a6c612, 0 0 85px #31779930; }
 [data-theme=dark] .map-relation-label { color: #9dc0dc; }
-@keyframes atlas-flow { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes atlas-spark { 0% { offset-distance: 0%; opacity: 0; } 12% { opacity: 0.95; } 82% { opacity: 0.95; } 100% { offset-distance: 100%; opacity: 0; } }
+@keyframes atlas-submap-flow { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
 @keyframes atlas-breathe { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
 @keyframes atlas-stage-pulse { 0%,100% { opacity: .6; } 50% { opacity: 1; } }
 @keyframes atlas-complete { 0% { box-shadow: 0 0 0 0 #69b39500; } 35% { box-shadow: 0 0 0 14px #69b39535, 0 18px 70px #4d9b7840; } 100% { box-shadow: 0 0 0 35px #69b39500; } }
-@media(prefers-reduced-motion:reduce) { .map-edge-flow, .map-dispatch-trail { display:none; } .map-macro[data-active=true]::before, .map-macro[data-completed-now=true], .map-card-stages>span[data-active=true] svg { animation:none; } .map-progress-line>span { transition:none; } }
+@media(prefers-reduced-motion:reduce) { .map-edge-spark, .map-dispatch-trail { display:none; } .submap-flow, .map-macro[data-active=true]::before, .map-macro[data-completed-now=true], .map-card-stages>span[data-active=true] svg { animation:none; } .map-progress-line>span { transition:none; } }
 
 .map-route-select { flex-shrink: 0; border: 1px solid rgb(var(--line) / .7); border-radius: 9px; padding: 7px 6px; font-size: 11px; color: rgb(var(--ink-dim)); background: transparent; max-width: 74px; }
 .map-route-select:focus-visible { outline: 2px solid rgb(var(--blue) / .45); }

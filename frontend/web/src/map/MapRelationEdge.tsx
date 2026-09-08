@@ -92,7 +92,25 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
         />
       )}
       </GrowthReveal>
-      {data?.active && <path className="map-edge-flow" d={route.path} pathLength={1} fill="none" stroke="var(--atlas-flow, #4b9cae)" strokeWidth={3 / zoom} strokeDasharray=".065 .935" strokeLinecap="round" aria-hidden="true" />}
+      {data?.active && (
+        <EdgeLabelRenderer>
+          {/* A spark drifting along the route replaces the old dash-offset
+           * stroke animation: offset-distance runs on the compositor, while
+           * dash offsets recalculated style and repainted a filtered path on
+           * the main thread every frame of every active edge, forever. */}
+          <div
+            className="map-edge-spark"
+            aria-hidden="true"
+            style={{
+              offsetPath: `path("${route.path}")`,
+              width: 8 / zoom,
+              height: 8 / zoom,
+              margin: `${-4 / zoom}px 0 0 ${-4 / zoom}px`,
+              animationDelay: `${-((id.charCodeAt(0) * 131 + id.length * 47) % 2800)}ms`,
+            }}
+          />
+        </EdgeLabelRenderer>
+      )}
       {label && text !== "" && point && (
         <EdgeLabelRenderer>
           <div

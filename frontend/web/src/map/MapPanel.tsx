@@ -1359,14 +1359,43 @@ export function MapPanel({
     paused,
   ]);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A refresh that lands mid-gesture commits a fresh node set under the
+  // operator's fingers — the profiled zoom stutter on live sessions. Track
+  // pointer activity on the panel and let refreshes wait out the gesture.
+  const interactingUntil = useRef(0);
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    const bump = () => {
+      interactingUntil.current = Date.now() + 900;
+    };
+    const drag = (event: PointerEvent) => {
+      if (event.buttons) bump();
+    };
+    el.addEventListener("wheel", bump, { passive: true });
+    el.addEventListener("pointerdown", bump);
+    el.addEventListener("pointermove", drag);
+    return () => {
+      el.removeEventListener("wheel", bump);
+      el.removeEventListener("pointerdown", bump);
+      el.removeEventListener("pointermove", drag);
+    };
+  }, []);
   useEffect(() => {
     if (source !== "live" || !approved || refreshTimer.current) return;
-    refreshTimer.current = setTimeout(() => {
+    const fire = () => {
+      const wait = interactingUntil.current - Date.now();
+      if (wait > 0) {
+        refreshTimer.current = setTimeout(fire, wait + 120);
+        return;
+      }
       refreshTimer.current = null;
       void client.invalidateQueries({
         queryKey: ["map-live", snapshot.session.id],
       });
-    }, 650);
+    };
+    refreshTimer.current = setTimeout(fire, 650);
   }, [updateKey, source, snapshot.session.id, client, approved]);
   useEffect(
     () => () => {
@@ -1414,6 +1443,7 @@ export function MapPanel({
   };
   return (
     <section
+      ref={sectionRef}
       className="argus-map"
       aria-label={zh ? "研究进度地图" : "Research progress map"}
     >

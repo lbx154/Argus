@@ -128,17 +128,14 @@
 [data-theme="dark"] .map-branch {
   box-shadow: 0 10px 36px #0004;
 }
+/* Opacity only: border-color keyframes ran on the main thread every frame. */
 @keyframes map-branch-breathe {
   0%,
   100% {
     opacity: 1;
-    border-color: color-mix(in srgb, var(--state) 30%, rgb(var(--line)));
-    border-left-color: var(--state);
   }
   50% {
-    opacity: 0.9;
-    border-color: color-mix(in srgb, var(--state) 62%, rgb(var(--line)));
-    border-left-color: var(--state);
+    opacity: 0.8;
   }
 }
 @media (prefers-reduced-motion: reduce) {

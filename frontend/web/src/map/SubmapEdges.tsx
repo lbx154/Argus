@@ -60,7 +60,7 @@ export function SubmapEdges({ layout, growing = {}, activeStep, activeTeamSteps 
               markerEnd={`url(#${marker})`}
             />
             </GrowthReveal>
-            {(activeStep === link.target || activeTeamSteps.includes(link.target)) && <path className="map-edge-flow" d={d} pathLength={1} fill="none" stroke="#4b9cae" strokeWidth="3" strokeDasharray=".09 .91" strokeLinecap="round" aria-hidden="true" />}
+            {(activeStep === link.target || activeTeamSteps.includes(link.target)) && <path className="submap-flow" d={d} pathLength={1} fill="none" stroke="#4b9cae" strokeWidth="3" strokeDasharray=".09 .91" strokeLinecap="round" aria-hidden="true" />}
             <g
               className="submap-relation-label"
               transform={`translate(${mx}, ${my})`}
