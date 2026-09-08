@@ -370,6 +370,7 @@ export interface LifePlannerDependencyDroppedEvent extends EventMsg {
 export interface LifePlannerParallelDroppedEvent extends EventMsg {
   type: "life.planner.parallel_dropped";
   payload_schema_version?: 1;
+  "cycle"?: number;
   "title": string;
   "text"?: string;
 }
