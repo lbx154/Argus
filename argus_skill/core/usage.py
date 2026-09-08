@@ -26,7 +26,11 @@ from ..provider_integrations.copilot_usage import (
 )
 from .event_catalog import CALL_SCOPED_EVENT_TYPES, EventType, canonical_event_type
 from .pricing import PricingQuote, PricingStatus, quote_copilot_usage, quote_token_usage
-from .runner_errors import is_pre_provider_refusal_error
+from .runner_errors import (
+    is_copilot_context_parser_error,
+    is_copilot_context_parser_refusal,
+    is_pre_provider_refusal_error,
+)
 from .token_usage import TokenUsage, extract_token_usage
 
 try:  # pragma: no cover - Windows usage mutations use portalocker below
@@ -90,13 +94,26 @@ class UsageRecord:
         return row
 
     @classmethod
-    def from_jsonable(cls, row: dict[str, Any]) -> "UsageRecord":
+    def from_jsonable(
+        cls, row: dict[str, Any], *, startup_receipt: dict[str, Any] | None = None,
+    ) -> "UsageRecord":
         cost = _optional_float(row.get("cost_usd"))
         pricing_status = _pricing_status(row.get("pricing_status"))
         pricing_tier = str(row.get("pricing_tier") or "unknown")
         error = str(row.get("error") or "")
         if (
-            is_pre_provider_refusal_error(error)
+            (is_pre_provider_refusal_error(error) or (
+                is_copilot_context_parser_refusal(
+                    error, provider=str(row.get("provider") or ""),
+                    call_id=str(row.get("call_id") or ""),
+                    run_label=str(row.get("run_label") or ""),
+                    status=str(row.get("status") or ""),
+                    thread_id=row.get("thread_id"),
+                    source=str(row.get("source") or ""), receipt=startup_receipt,
+                )
+                and row.get("premium_requests") is None
+                and row.get("premium_request_cost_usd") is None
+            ))
             and cost is None
             and row.get("total_nano_aiu") is None
             and not row.get("model_usage")
@@ -272,13 +289,20 @@ def build_usage_record(
     model_usage: Iterable[dict[str, Any]] | None = None,
     error: str = "",
     source: UsageSource = "run_exec",
+    startup_receipt: dict[str, Any] | None = None,
 ) -> UsageRecord:
     usage = token_usage or TokenUsage()
     normalized_model_usage = _normalize_model_usage(model_usage)
     normalized_provider = str(provider or "").strip().lower()
     premium_quote = quote_copilot_usage(premium_requests)
     missing_resume_target = (
-        is_pre_provider_refusal_error(error)
+        (is_pre_provider_refusal_error(error) or (
+            is_copilot_context_parser_refusal(
+                error, provider=normalized_provider, call_id=call_id,
+                run_label=run_label, status=status, thread_id=thread_id,
+                source=source, receipt=startup_receipt,
+            ) and premium_requests is None
+        ))
         and total_nano_aiu is None
         and provider_cost_usd is None
         and not normalized_model_usage
@@ -495,6 +519,7 @@ class UsageLedger:
             handle = self.path.open("r", encoding="utf-8")
         except OSError:
             return out
+        startup_receipts = None
         with handle:
             for raw in handle:
                 try:
@@ -503,7 +528,12 @@ class UsageLedger:
                     continue
                 if not isinstance(row, dict):
                     continue
-                record = UsageRecord.from_jsonable(row)
+                receipt = None
+                if is_copilot_context_parser_error(row.get("error")):
+                    if startup_receipts is None:
+                        startup_receipts = _startup_completion_receipts(self.project_root)
+                    receipt = startup_receipts.get(str(row.get("call_id") or ""))
+                record = UsageRecord.from_jsonable(row, startup_receipt=receipt)
                 if not record.call_id or record.call_id in seen:
                     continue
                 seen.add(record.call_id)
@@ -1689,3 +1719,31 @@ __all__ = [
     "summarize_usage",
     "usage_recorded_event",
 ]
+
+
+def _startup_completion_receipts(project_root: Path) -> dict[str, dict[str, Any]]:
+    """Read host lifecycle summaries, not raw provider/tool stream frames.
+
+    Ambiguous duplicate completion receipts fail closed. Only consulted when
+    an exact historical parser diagnostic needs the missing runner context.
+    """
+    receipts: dict[str, dict[str, Any]] = {}
+    seen: set[str] = set()
+    try:
+        with (project_root / "events.jsonl").open(encoding="utf-8") as handle:
+            for raw in handle:
+                try:
+                    event = json.loads(raw)
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(event, dict) or event.get("type") != "agent.io.complete":
+                    continue
+                call_id = str(event.get("call_id") or "")
+                if call_id in seen:
+                    receipts.pop(call_id, None)
+                else:
+                    receipts[call_id] = event
+                seen.add(call_id)
+    except OSError:
+        return {}
+    return receipts
