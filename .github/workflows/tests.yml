@@ -41,6 +41,9 @@ env:
     tests/core/test_release.py
     tests/core/test_cost_control.py
     tests/core/test_usage.py
+    tests/core/test_project_contract.py
+    tests/core/test_contract_authority.py
+    tests/core/test_copilot_parser_refusal.py
     tests/core/test_operator_messages.py
     tests/core/test_file_lock.py
     tests/core/test_daemon_lock.py
@@ -78,6 +81,14 @@ env:
     tests/daemon/test_windows_daemon_control.py
     tests/daemon/test_windows_terminal_process.py
     tests/core/test_agent_probe.py
+    tests/core/test_windows_job_environment.py
+    tests/agent_cli/test_windows_turn_ownership.py
+    tests/agent_cli/test_prompt_stdin_backpressure.py
+    tests/agent_cli/test_output_pipe_lifecycle.py
+    tests/agent_cli/test_provider_turn_cap.py
+    tests/roles/test_native_shell_contract.py
+    tests/tools/test_subagent_durable_owner.py
+    tests/test_opencode_backend.py
     tests/core/test_backend_readiness.py
     tests/core/test_cheap_route_models.py
     tests/maintenance/test_repair_pipeline.py
