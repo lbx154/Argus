@@ -281,3 +281,34 @@ def test_duplicate_references_are_deduplicated(tmp_path: Path) -> None:
     expansion = expand_operator_references(text, life)
     assert expansion.dep_task_ids == ["task-a"]
     assert expansion.context_block.count("- 任务 task-a") == 1
+
+
+def test_reference_lang_parses_normalizes_and_rejects_bad_types() -> None:
+    assert parse_card_reference(_marker()).lang == "zh"
+    assert parse_card_reference(_marker(lang="en")).lang == "en"
+    # Unknown locales fall back to the historical wording rather than guess.
+    assert parse_card_reference(_marker(lang="fr")).lang == "zh"
+    # A non-string lang is a shape violation like any other field.
+    assert parse_card_reference(_marker(lang=3)) is None
+
+
+def test_english_reference_renders_english_lines(tmp_path: Path) -> None:
+    life = _life(tmp_path)
+    result = expand_operator_references(
+        "Please fold this in:\n" + _marker(lang="en", step_title="Review passed"),
+        life,
+    )
+    assert '(Referenced: "Compare coverage" · Review passed)' in result.text
+    assert result.context_block.startswith(
+        "## Map nodes the operator referenced"
+    )
+    assert '- Task task-a "Compare coverage" (status ' in result.context_block
+    assert "objective:" in result.context_block
+    assert "Referenced step: Review passed" in result.context_block
+
+
+def test_reference_without_lang_keeps_chinese_wording(tmp_path: Path) -> None:
+    life = _life(tmp_path)
+    result = expand_operator_references("看看这里:\n" + _marker(), life)
+    assert "（引用：《Compare coverage》）" in result.text
+    assert result.context_block.startswith("## 操作员引用的地图节点")

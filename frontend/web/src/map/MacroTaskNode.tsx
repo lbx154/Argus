@@ -234,6 +234,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     source: data.source,
     task_id: task.id,
     task_title: title,
+    lang: zh ? "zh" : "en",
     part: data.partCount > 1 ? data.part : undefined,
     step_id: step?.id,
     step_title: step?.title,

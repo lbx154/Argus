@@ -91,6 +91,8 @@ export interface CardReference {
   event_ids: string[];
   team_id?: string;
   team_task_id?: string;
+  /** Locale at quote time; the server renders its expansion to match. */
+  lang?: string;
 }
 export const referenceText = (ref: CardReference) =>
   `[[Argus引用 ${JSON.stringify(ref)}]]\n`;
@@ -111,6 +113,7 @@ export function splitDraft(value: string) {
           (ref.step_id === undefined || typeof ref.step_id === "string") &&
           (ref.team_id === undefined || typeof ref.team_id === "string") &&
           (ref.team_task_id === undefined || typeof ref.team_task_id === "string") &&
+          (ref.lang === undefined || typeof ref.lang === "string") &&
           Array.isArray(ref.event_ids) &&
           ref.event_ids.every((id: unknown) => typeof id === "string")
         ) {

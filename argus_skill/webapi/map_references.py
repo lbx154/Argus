@@ -48,6 +48,7 @@ REFERENCE_MARKER_PREFIX = "[[Argus引用 "
 REFERENCE_MARKER_SUFFIX = "]]"
 
 CONTEXT_HEADER = "## 操作员引用的地图节点"
+CONTEXT_HEADER_EN = "## Map nodes the operator referenced"
 CONTEXT_BLOCK_MAX_CHARS = 4096
 MAX_EXPANDED_REFERENCES = 4
 MAX_EVENTS_PER_REFERENCE = 3
@@ -75,6 +76,8 @@ class CardReference:
     step_title: str = ""
     team_id: str = ""
     team_task_id: str = ""
+    # Locale the operator quoted under; old markers carry none and stay zh.
+    lang: str = "zh"
 
 
 @dataclass
@@ -121,7 +124,7 @@ def parse_card_reference(line: str) -> CardReference | None:
         isinstance(part, bool) or not isinstance(part, int) or part <= 0
     ):
         return None
-    for key in ("step_id", "step_title", "team_id", "team_task_id"):
+    for key in ("step_id", "step_title", "team_id", "team_task_id", "lang"):
         value = raw.get(key)
         if value is not None and not isinstance(value, str):
             return None
@@ -140,6 +143,7 @@ def parse_card_reference(line: str) -> CardReference | None:
         step_title=str(raw.get("step_title") or ""),
         team_id=str(raw.get("team_id") or ""),
         team_task_id=str(raw.get("team_task_id") or ""),
+        lang="en" if raw.get("lang") == "en" else "zh",
     )
 
 
@@ -234,6 +238,10 @@ def _inline_line(ref: CardReference, by_id: dict[str, Any]) -> str:
         str(getattr(item, "title", "") or "") or ref.task_title, TITLE_CLIP
     )
     step = _clip(ref.step_title, TITLE_CLIP)
+    if ref.lang == "en":
+        if step:
+            return f'(Referenced: "{title}" · {step})'
+        return f'(Referenced: "{title}")'
     if step:
         return f"（引用：《{title}》· {step}）"
     return f"（引用：《{title}》）"
@@ -244,24 +252,33 @@ def _context_entry(
     item: Any,
     event_texts: dict[str, str],
 ) -> str:
-    lines = [
-        f"- 任务 {item.id}《{_clip(item.title, TITLE_CLIP)}》"
-        f"(状态 {item.status})——目标: "
-        f"{_clip(item.objective or item.original_objective, OBJECTIVE_CLIP)}"
-    ]
-    if ref.step_title:
-        lines.append(f"  引用环节: {_clip(ref.step_title, TITLE_CLIP)}")
+    objective = _clip(item.objective or item.original_objective, OBJECTIVE_CLIP)
+    title = _clip(item.title, TITLE_CLIP)
+    if ref.lang == "en":
+        lines = [
+            f'- Task {item.id} "{title}" (status {item.status}) — '
+            f"objective: {objective}"
+        ]
+        if ref.step_title:
+            lines.append(f"  Referenced step: {_clip(ref.step_title, TITLE_CLIP)}")
+    else:
+        lines = [f"- 任务 {item.id}《{title}》(状态 {item.status})——目标: {objective}"]
+        if ref.step_title:
+            lines.append(f"  引用环节: {_clip(ref.step_title, TITLE_CLIP)}")
     excerpts = [
         event_texts[event_id]
         for event_id in ref.event_ids[:MAX_EVENTS_PER_REFERENCE]
         if event_id in event_texts
     ]
     if excerpts:
-        lines.append("  相关记录:")
+        lines.append("  Related records:" if ref.lang == "en" else "  相关记录:")
         lines.extend(f"  - {excerpt}" for excerpt in excerpts)
     if str(item.status) in _UNSATISFIABLE_STATUSES:
         lines.append(
-            f"  说明: 该任务已以「{item.status}」结束，新工作不会等待它。"
+            f'  Note: this task already ended as "{item.status}"; '
+            "new work will not wait for it."
+            if ref.lang == "en"
+            else f"  说明: 该任务已以「{item.status}」结束，新工作不会等待它。"
         )
     return "\n".join(lines)
 
@@ -313,9 +330,12 @@ def expand_operator_references(text: str, life_dir: Path | str) -> ReferenceExpa
             wanted_events.update(ref.event_ids[:MAX_EVENTS_PER_REFERENCE])
     event_texts = _event_texts_by_id(life_dir, wanted_events)
 
+    # The header follows the first quote's locale; a mixed message keeps each
+    # entry in the locale it was quoted under.
+    header = CONTEXT_HEADER_EN if parsed[0].lang == "en" else CONTEXT_HEADER
     entries: list[str] = []
     entry_tasks: set[str] = set()
-    used = len(CONTEXT_HEADER) + 1
+    used = len(header) + 1
     for ref in capped:
         item = by_id.get(ref.task_id)
         if item is None or ref.task_id in entry_tasks:
@@ -326,7 +346,7 @@ def expand_operator_references(text: str, life_dir: Path | str) -> ReferenceExpa
         entries.append(entry)
         entry_tasks.add(ref.task_id)
         used += len(entry) + 1
-    context_block = "\n".join([CONTEXT_HEADER, *entries]) if entries else ""
+    context_block = "\n".join([header, *entries]) if entries else ""
 
     dep_task_ids: list[str] = []
     skipped: list[str] = []
@@ -354,6 +374,7 @@ __all__ = [
     "CardReference",
     "CONTEXT_BLOCK_MAX_CHARS",
     "CONTEXT_HEADER",
+    "CONTEXT_HEADER_EN",
     "MAX_EXPANDED_REFERENCES",
     "REFERENCE_MARKER_PREFIX",
     "ReferenceExpansion",

@@ -100,3 +100,19 @@ it("does not use a later successful attempt as evidence for an earlier failed re
     "e7",
   ]);
 });
+
+it("carries the quote-time locale through the marker and rejects bad types", () => {
+  const ref = {
+    source: "live:s-test",
+    task_id: "a",
+    task_title: "Coverage",
+    event_ids: [],
+    lang: "en",
+  };
+  const parsed = splitDraft(referenceText(ref) + "question");
+  expect(parsed.refs).toEqual([ref]);
+  expect(parsed.text).toBe("question");
+  const bad = referenceText(ref).replace('"en"', "3");
+  expect(splitDraft(bad).refs).toEqual([]);
+  expect(splitDraft(bad).text).toBe(bad);
+});
