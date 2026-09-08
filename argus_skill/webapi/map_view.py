@@ -26,12 +26,18 @@ TASK_FIELDS = (
     "started_ts",
     "finished_ts",
     "superseded_by_plan_id",
+    "superseded_reason",
+    "node_key",
+    "parallel_safe",
+    "owns_paths",
     "acceptance_check",
 )
 EVENT_PREFIXES = (
     "life.mission.",
     "life.phase.",
     "life.planner.task_added",
+    # Low-frequency plan-identity transitions; at most one per retired node.
+    "life.plan.node.superseded",
     "round.start",
     "round.main.completed",
     "round.review.",
@@ -119,6 +125,12 @@ def normalize_events(
                 e["success"] = row["success"]
             if isinstance(row.get("review_skipped"), bool):
                 e["review_skipped"] = row["review_skipped"]
+            if kind == "life.plan.node.superseded":
+                # Keep the shape lean: structured keys only when present.
+                if row.get("reason"):
+                    e["reason"] = text(row["reason"])
+                if row.get("superseded_by_plan_id"):
+                    e["superseded_by_plan_id"] = text(row["superseded_by_plan_id"], 160)
             result.append(e)
         if kind in ("life.mission.completed", "life.mission.failed", "life.mission.orphaned"):
             active.discard(owner)
@@ -139,6 +151,9 @@ def read_map(
         for k, v in list(task.items()):
             if isinstance(v, str):
                 task[k] = text(v)
+            elif isinstance(v, list):
+                # owns_paths (and deps) are operator-visible strings too.
+                task[k] = [text(x) if isinstance(x, str) else x for x in v]
         task["summary"] = task.get("last_error") or task.get("notes") or ""
         task["role"] = "engineer"
         task["revision"] = digest(task)

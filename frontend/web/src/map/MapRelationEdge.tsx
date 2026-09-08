@@ -46,8 +46,12 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
           ...style,
           vectorEffect: "none",
           strokeWidth: Number(style?.strokeWidth || 2) / zoom,
+          // Keep the dash pattern chosen per edge kind, at screen scale.
           strokeDasharray: style?.strokeDasharray
-            ? `${4 / zoom} ${5 / zoom}`
+            ? String(style.strokeDasharray)
+                .split(/[\s,]+/)
+                .map((value) => Number(value) / zoom)
+                .join(" ")
             : undefined,
         }}
       />

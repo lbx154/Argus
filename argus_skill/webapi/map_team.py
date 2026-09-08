@@ -44,7 +44,11 @@ def remember_formations(rows: list[dict], task_ids: set[str], bindings: dict) ->
         # the map. A newly recorded parent gets a separate observation identity.
         if old and old["item_id"] == owner:
             continue
-        bindings[path] = {"item_id": owner, "ts": _number(row.get("ts"))}
+        binding = {"item_id": owner, "ts": _number(row.get("ts"))}
+        width = int(_number(row.get("width") or row.get("route_count")))
+        if width:
+            binding["width"] = width
+        bindings[path] = binding
     truncated = len(bindings) > MAX_TEAM_BINDINGS
     while len(bindings) > MAX_TEAM_BINDINGS:
         del bindings[next(iter(bindings))]
@@ -78,7 +82,7 @@ def previous_formations(life_dir: Path) -> list[dict]:
 
 def _sources(sid: str, root: Path, life_dir: Path, bindings: dict):
     if not bindings:
-        return (), [], False
+        return (), [], [], False
     try:
         from ..core.campaign_workdir import active_campaign_workdir
 
@@ -86,10 +90,11 @@ def _sources(sid: str, root: Path, life_dir: Path, bindings: dict):
         workdir = active_campaign_workdir(life_dir, workdir) or workdir
         teams = (workdir / ".argus" / "teams").resolve()
         if not teams.is_relative_to(workdir):
-            return (str(workdir), "outside-workdir"), [], False
+            return (str(workdir), "outside-workdir"), [], [], False
     except (OSError, ValueError):
-        return ("unavailable-workdir",), [], False
+        return ("unavailable-workdir",), [], [], False
     files = []
+    formations = []
     signature = [str(workdir)]
     truncated = False
     seen = set()
@@ -116,6 +121,10 @@ def _sources(sid: str, root: Path, life_dir: Path, bindings: dict):
             except OSError:
                 continue
             signature.append((str(board), binding["item_id"], binding["ts"], _stamp(task_dir)))
+            if board == base:
+                # Formation visibility follows exactly the evidence already in
+                # the signature, so a cached read stays a cached read.
+                formations.append((base.name, binding))
             if len(candidates) > MAX_TEAM_TASKS:
                 truncated = True
             for path in sorted(candidates[:MAX_TEAM_TASKS]):
@@ -128,7 +137,7 @@ def _sources(sid: str, root: Path, life_dir: Path, bindings: dict):
                 signature.append((str(path), stamp))
                 files.append((path, board.name, binding, stamp))
                 seen.add(path)
-    return tuple(signature), files, truncated
+    return tuple(signature), files, formations, truncated
 
 
 def source_signature(sid: str, root: Path, life_dir: Path, bindings: dict) -> tuple:
@@ -144,8 +153,36 @@ def event_id(owner: str, team_id: str, task_id: str) -> str:
     return "team:" + digest([owner, team_id, task_id])
 
 
+def formation_event_id(owner: str, team_id: str, ts: float) -> str:
+    # Formation is journal history, not a replaceable Team observation, so the
+    # id stays outside the removable "team:" namespace (map_feed only ever
+    # broadcasts removals for "team:"-prefixed ids).
+    return "formation:" + digest([owner, team_id, ts])
+
+
+def formation_events(formations: list) -> list[dict]:
+    events = {}
+    for team_id, binding in formations:
+        observation = {
+            "id": formation_event_id(binding["item_id"], team_id, binding["ts"]),
+            "item_id": binding["item_id"],
+            "type": "idea.portfolio.formed",
+            "ts": binding["ts"],
+            "association": "explicit",
+            "role": "engineer",
+            # Locale-agnostic projection: the frontend labels formations from
+            # the structured fields; there is no server-authored sentence.
+            "text": "",
+            "team_id": text(team_id, 160),
+        }
+        if binding.get("width"):
+            observation["width"] = int(binding["width"])
+        events.setdefault(observation["id"], observation)
+    return list(events.values())
+
+
 def project_team_events(sid: str, root: Path, life_dir: Path, bindings: dict, sources: tuple | None = None):
-    _signature, files, truncated = (
+    _signature, files, formations, truncated = (
         sources if sources is not None else _sources(sid, root, life_dir, bindings)
     )
     records = {}
@@ -204,4 +241,7 @@ def project_team_events(sid: str, root: Path, life_dir: Path, bindings: dict, so
             "updated_ts": max(started, finished),
         }
         records[key] = (stamp[3], observation)
-    return [records[key][1] for key in sorted(records)], truncated, _signature
+    return [
+        *formation_events(formations),
+        *(records[key][1] for key in sorted(records)),
+    ], truncated, _signature

@@ -104,8 +104,18 @@ export function useSemanticCamera(
       const id =
         lockedFocus.current ??
         (reading.current ? readerOwner.current : null) ??
-        zoomTarget(flow.getNodes(), viewport, point, center);
-      const contentScale = id ? flow.getNode(id)?.data.frame.scale || 1 : 1;
+        // Branch pills carry no frame and are never zoom subjects; focusing
+        // them would also dereference data.frame below and crash the canvas.
+        zoomTarget(
+          flow.getNodes().filter((n) => (n.data as { frame?: unknown }).frame),
+          viewport,
+          point,
+          center,
+        );
+      const contentScale = id
+        ? (flow.getNode(id)?.data as { frame?: { scale?: number } } | undefined)
+            ?.frame?.scale || 1
+        : 1;
       const normalAlpha =
         clamp((viewport.zoom - 0.3) / 0.14, 0, 1) *
         clamp((viewport.zoom * contentScale - 0.28) / 0.3, 0, 1);
@@ -161,8 +171,8 @@ export function useSemanticCamera(
             area.width / (node.width || 1440),
             area.height / (node.height || 1080),
           ),
-          el.clientWidth < 640 || node.data.layout.steps.length > 20
-            ? 0.6 / (node.data.frame.scale || 1)
+          el.clientWidth < 640 || (node.data.layout?.steps.length ?? 0) > 20
+            ? 0.6 / (node.data.frame?.scale || 1)
             : 0,
         ),
         MIN_ZOOM,

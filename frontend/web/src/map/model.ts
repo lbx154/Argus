@@ -16,7 +16,14 @@ export interface MapTask
   plan_version?: number;
   attempt?: number;
   superseded_by_plan_id?: string;
+  superseded_reason?: string;
   acceptance_check?: string;
+  /** Synthesized team branch node (display/navigation only, never a card). */
+  branch?: true;
+  parent_id?: string;
+  team_role?: string;
+  excerpt?: string;
+  overflow_count?: number;
 }
 export interface MapEvent {
   id: string;
@@ -79,7 +86,14 @@ export interface MapLink {
   id: string;
   source: string;
   target: string;
-  kind: "dependency" | "replacement" | "context" | "semantic" | "continuation";
+  kind:
+    | "dependency"
+    | "replacement"
+    | "context"
+    | "semantic"
+    | "continuation"
+    | "fanout"
+    | "fanin";
   label?: string;
   evidence?: string;
   target_plan_id?: string;
@@ -236,6 +250,175 @@ export function replayTasks(tasks: MapTask[], count: number): MapTask[] {
   return [...tasks]
     .sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0) || a.id.localeCompare(b.id))
     .slice(0, count);
+}
+
+/** How many team branches a card may fan out before the rest collapse into one overflow pill. */
+export const TEAM_BRANCH_CAP = 16;
+
+/** Local copy of submap's teamTitle: branch titles must not depend on submap.ts. */
+function teamBranchTitle(event: MapEvent, zh: boolean): string {
+  const route = event.team_task_id?.match(/route-(\d+)/)?.[1];
+  const label =
+    event.team_role === "idea-route"
+      ? zh
+        ? "研究路线"
+        : "Research route"
+      : event.team_role === "idea-review"
+        ? zh
+          ? "独立复核"
+          : "Independent review"
+        : event.team_role === "idea-selector"
+          ? zh
+            ? "方案选择"
+            : "Idea selection"
+          : "";
+  return label
+    ? `${label}${route ? ` ${route}` : ""}`
+    : event.title || (zh ? "并行子任务" : "Parallel task");
+}
+
+/** Short readable excerpt: scientific prose without the runner's control footer. */
+function branchExcerpt(text: string | undefined): string {
+  const joined = String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:RESULT|SUMMARY|NEXT_ACTION)\s*=\s*/i, "").trim())
+    .filter(
+      (line) =>
+        line &&
+        !/^(?:Decision\s*:|(?:MILESTONE_STATUS|NEXT_OWNER|OPERATOR_QUESTION|OPERATOR_OPTIONS)\s*=)/i.test(
+          line,
+        ),
+    )
+    .join(" ");
+  return joined.length > 160 ? `${joined.slice(0, 159)}…` : joined;
+}
+
+/** Promote each task's `team.task` events into lightweight branch nodes so a
+ * parallel portfolio fans out of its owning card and returns to it, instead of
+ * hiding as steps inside the card. Pure: the input graph is never mutated, and
+ * it is returned unchanged (same identity) when nothing is promoted.
+ * - node id = team event id (already a globally unique "team:…" digest);
+ *   an id that collides with an existing task is skipped, never redefined.
+ * - parent task → each root team node: kind "fanout".
+ * - team dependency edges (already in team-event-id space): kind "fanout".
+ * - terminal team nodes (no team children, e.g. the idea-selector) → parent
+ *   task: kind "fanin", so the fan visually closes on the owning card.
+ * - more than TEAM_BRANCH_CAP nodes: keep the first by ts and add a single
+ *   "+N more" overflow node that opens the parent card.
+ */
+export function promoteTeamBranches(
+  graph: MapGraph,
+  events: MapEvent[],
+  zh: boolean,
+): MapGraph {
+  const byParent = new Map<string, Map<string, MapEvent>>();
+  for (const event of events) {
+    if (event.type !== "team.task" || !event.item_id) continue;
+    const bucket = byParent.get(event.item_id) ?? new Map<string, MapEvent>();
+    bucket.set(event.id, event); // the latest revision of an event wins
+    byParent.set(event.item_id, bucket);
+  }
+  if (!byParent.size) return graph;
+  const taken = new Set(graph.tasks.map((task) => task.id));
+  const branches: MapTask[] = [];
+  const links: MapLink[] = [];
+  for (const task of graph.tasks) {
+    if (task.branch) continue;
+    const own = [...(byParent.get(task.id)?.values() ?? [])]
+      .filter((event) => !taken.has(event.id))
+      .sort((a, b) => a.ts - b.ts || a.id.localeCompare(b.id));
+    if (!own.length) continue;
+    const kept = own.slice(0, TEAM_BRANCH_CAP);
+    const keptIds = new Set(kept.map((event) => event.id));
+    for (const event of kept) {
+      taken.add(event.id);
+      branches.push({
+        id: event.id,
+        title: teamBranchTitle(event, zh),
+        objective: branchExcerpt(event.text),
+        excerpt: branchExcerpt(event.text),
+        status: event.status || "unknown",
+        deps: [],
+        pending_question: event.pending_question,
+        role: "team",
+        team_role: event.team_role,
+        ts: event.ts,
+        branch: true,
+        parent_id: task.id,
+      });
+    }
+    const hasChild = new Set(
+      kept.flatMap((event) =>
+        (event.deps ?? []).filter((dep) => keptIds.has(dep) && dep !== event.id),
+      ),
+    );
+    for (const event of kept) {
+      const deps = [...new Set(event.deps ?? [])].filter(
+        (dep) => keptIds.has(dep) && dep !== event.id,
+      );
+      if (deps.length)
+        for (const dep of deps)
+          links.push({
+            id: JSON.stringify(["fanout", dep, event.id]),
+            source: dep,
+            target: event.id,
+            kind: "fanout",
+          });
+      else
+        links.push({
+          id: JSON.stringify(["fanout", task.id, event.id]),
+          source: task.id,
+          target: event.id,
+          kind: "fanout",
+        });
+      if (!hasChild.has(event.id))
+        links.push({
+          id: JSON.stringify(["fanin", event.id, task.id]),
+          source: event.id,
+          target: task.id,
+          kind: "fanin",
+        });
+    }
+    const dropped = own.length - kept.length;
+    const overflowId = `team-overflow:${task.id}`;
+    if (dropped > 0 && !taken.has(overflowId)) {
+      taken.add(overflowId);
+      branches.push({
+        id: overflowId,
+        title: zh ? `还有 ${dropped} 条` : `+${dropped} more`,
+        objective: zh
+          ? "更多并行子任务收录在所属任务卡片中。"
+          : "The remaining parallel subtasks live inside the owning card.",
+        status: "recorded",
+        deps: [],
+        role: "team",
+        ts: own[TEAM_BRANCH_CAP]?.ts,
+        branch: true,
+        parent_id: task.id,
+        overflow_count: dropped,
+      });
+      links.push(
+        {
+          id: JSON.stringify(["fanout", task.id, overflowId]),
+          source: task.id,
+          target: overflowId,
+          kind: "fanout",
+        },
+        {
+          id: JSON.stringify(["fanin", overflowId, task.id]),
+          source: overflowId,
+          target: task.id,
+          kind: "fanin",
+        },
+      );
+    }
+  }
+  if (!branches.length) return graph;
+  return {
+    ...graph,
+    tasks: [...graph.tasks, ...branches],
+    links: [...graph.links, ...links],
+  };
 }
 
 /** Connect components with content/context links; recorded dependencies remain authoritative. */

@@ -1,0 +1,105 @@
+/* Promoted team branches (Atlas graph-structure batch). All node and edge
+ * styles introduced by the fan-out promotion live in this file; map.css,
+ * atlas.css and submap.css stay untouched. Colors reuse the atlas language:
+ * the shared --state palette from map.css and the paper/line/ink tokens. */
+
+.map-branch {
+  --state: #9babbc; /* map-state-* classes from map.css override this */
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  padding: 0 40px 0 30px;
+  background: var(--map-paper);
+  border: 2px solid rgb(var(--line) / 0.85);
+  border-left: 12px solid var(--state);
+  border-radius: 95px;
+  box-shadow: 0 10px 42px #16375010, 0 2px 6px #16375008;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: rgb(var(--ink));
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.map-branch:hover {
+  border-color: #7ca9c8;
+  box-shadow: 0 14px 52px #316d9820;
+}
+.map-branch:focus-visible {
+  outline: 6px solid rgb(var(--blue) / 0.45);
+  outline-offset: 6px;
+}
+.map-branch-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  color: var(--state);
+  background: color-mix(in srgb, var(--state) 12%, transparent);
+}
+.map-branch-glyph svg {
+  width: 44px;
+  height: 44px;
+}
+.map-branch-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 46px;
+  font-weight: 620;
+  line-height: 1.25;
+}
+.map-branch-dot {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--state);
+  box-shadow: 0 0 0 9px color-mix(in srgb, var(--state) 16%, transparent);
+}
+.map-branch[data-status="running"] .map-branch-dot {
+  animation: map-branch-pulse 1.8s ease-in-out infinite;
+}
+.map-branch[data-overflow="true"] {
+  border-style: dashed;
+  border-left-style: solid;
+  color: rgb(var(--ink-dim));
+}
+[data-theme="dark"] .map-branch {
+  box-shadow: 0 10px 36px #0004;
+}
+@keyframes map-branch-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.72);
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-branch[data-status="running"] .map-branch-dot {
+    animation: none;
+  }
+}
+
+/* Edge visual language for the promoted structure. Group-level opacity keeps
+ * the fan quiet and pushes chronological context further into the background;
+ * stroke width and dash pattern come from MapPanel's inline edge styles. */
+.react-flow__edge.map-edge-fanout,
+.react-flow__edge.map-edge-fanin {
+  opacity: 0.62;
+}
+.react-flow__edge.map-edge-context {
+  opacity: 0.55;
+}
