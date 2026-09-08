@@ -14,7 +14,8 @@ Return one recommendation to Manager with:
 - venue and track;
 - why the contribution fits;
 - current deadline;
-- body limit or word limit;
+- body limit or word limit for the exact track and submission type, including
+  which parts of references, appendices, limitations, and ethics count;
 - anonymity model;
 - required sections, disclosures, and end matter;
 - official author-kit URL.

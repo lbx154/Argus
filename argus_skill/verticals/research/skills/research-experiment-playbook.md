@@ -61,9 +61,10 @@ not a complete-looking experiment matrix.
    shapes, branches, numerical behavior, and end-to-end wiring, then run a
    known detectable positive control through the same evaluator path.
 6. Develop the method with real models or systems and the strongest
-   same-information baselines required by the claim. Use public or official
-   benchmarks where relevant; small tasks built from explicit executable rules
-   are valid scientific experiments when they isolate the claimed capability.
+   same-information baselines required by the claim. Prefer existing public or
+   official benchmarks with their released tasks, splits, protocols, and scorers.
+   Small custom benchmarks are allowed under the cost-aware benchmark policy
+   below, including as scientific evidence for a scoped mechanism claim.
    Choose models for task competence and claim scope, not release date.
 7. Keep every run reproducible from its code, explicit configuration, command,
    and raw output.
@@ -90,6 +91,62 @@ development panel sized for quick iteration is not the claim-bearing
 evaluation; once method and evaluation settle, run the comparison at the scale
 the claim needs and say in the research notes why that scale is enough.
 
+### Cost-aware benchmark policy
+
+Use established benchmarks by default for broad task-performance claims and
+large-scale evaluation. Small custom benchmarks are allowed when they consume
+no API calls or only a small amount within the existing authorized budget.
+Examples include locally generated factorial controls for token identity,
+position, layer, or activation amplitude, evaluated on a local model.
+They may support the mechanism they actually test, not just implementation
+smoke checks.
+
+Before dispatch, account for the total API calls and tokens across generation,
+labeling, evaluation, judging, and planned repetitions, as well as local compute.
+A small item count alone does not establish low cost. Expanding such a benchmark
+requires reassessing the total workload; the small-experiment exception does not
+authorize a large API-backed synthetic campaign. Existing project-specific
+restrictions, including a ban on paid APIs or custom tasks, still apply.
+
+Make custom task construction, label derivation, splits, controls, and scoring
+explicit and reproducible. Execute the experiments and preserve their actual
+results. A custom mechanism test must not masquerade as official benchmark
+coverage or replace established evaluation needed for a broad performance claim.
+
+### Planner scale assessment after a passing experiment
+
+Reviewer acceptance establishes that the current experiment meets its
+requirements; it does not by itself establish adequate research scale.
+Before advancing to Paper, Planner inspects the accepted results and actual
+configuration in its next normal planning turn. Compare training coverage,
+independent evaluation items, task or template families, model or agent scales,
+repetitions, and uncertainty with the operator's research objective. Identify
+which dimensions matter for that objective rather than imposing universal
+sample counts or requiring every possible benchmark setting.
+
+If coverage or precision is insufficient, stay in Experiment and assign an
+incremental expansion of the existing implementation. Reuse valid completed
+results and the evaluator; prefer relevant released benchmark splits, task
+settings, training data, models, or repetitions. Apply the cost-aware benchmark
+policy to any small custom experiment and its expansion. Do not count repeated
+identical runs as new independent evidence. Make sample counts configurable and validate against the
+selected configuration, not a hard-coded pilot count. A minimum count is not
+an exact-count requirement.
+
+Keep held-out data out of training and method selection. Expanding training
+creates a new checkpoint and comparison with fresh held-out confirmation;
+preserve the earlier results separately rather than silently pooling them.
+Use measured throughput and available resources to size the next run. Surface
+an actual access or budget blocker instead of quietly shrinking the objective.
+
+If scale is sufficient, state the evidence-based rationale in the existing
+research plan and Planner REASON, and request `ADVANCE_TO_STAGE=paper` with the
+writing task. Manager applies the transition. If insufficient, leave that
+field unset and explain the expansion in the task. Repeat this judgment after
+the expanded experiment is reviewed, not by rerunning an unchanged inspection.
+Do not replace this check with a narrower paper claim or a standalone
+validation-only mission.
+
 When the decisive comparison goes against the mechanism, because a matched
 ablation or the strongest same-information baseline wins on fresh evidence,
 the next move is not another variant of the same objective. Return to the
@@ -109,10 +166,10 @@ placeholder, or projected results: not in the runs, not in the research notes, a
 never in a manuscript.
 
 Choose benchmarks that expose the method's mechanism and real advantage rather
-than convenient saturated tasks. A benchmark the project builds itself is part
-of the claim: write down where every label comes from, check that a constant
-answer does not already score well, and make sure the targets it is meant to
-separate are separable on its items before any model is scored on it. Follow surprising positive evidence when it
+than convenient saturated tasks. Inspect the existing benchmark's label
+provenance, shortcut opportunities, and ability to distinguish the claimed
+mechanism; if unsuitable, select another established benchmark or a small
+custom experiment permitted by the cost-aware benchmark policy. Follow surprising positive evidence when it
 reveals a stronger contribution, then confirm it on untouched data. Keep
 relevant losses visible internally, but do not let defensive edge-case coverage
 replace the main result.
@@ -129,8 +186,10 @@ one would need.
 
 ## When the evidence is ready for Paper
 
-Enter Paper when Reviewer judges that credible evidence improves at least one
-scientifically meaningful dimension. Do not require a hard numeric margin,
+Enter Paper after Reviewer accepts the experiment and Planner's post-result
+scale assessment finds its coverage and precision sufficient for the objective.
+The evidence must improve at least one scientifically meaningful dimension.
+Do not require a hard numeric margin,
 wins on every headline metric, or dominance over every strong baseline. Keep
 uncertainty, relevant losses, and tradeoffs visible, and scope the thesis to
 what improved. Manager alone advances the stage.

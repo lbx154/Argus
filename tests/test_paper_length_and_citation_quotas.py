@@ -6,6 +6,9 @@ second-to-last page. Both punished short, complete papers and rewarded padding.
 The venue page count is a *ceiling*; citation sufficiency is proportional to
 what the paper claims. What must still fail is fabrication, over-length, and
 wrong templates.
+
+Full papers nevertheless have a near-limit writing target, developed through
+principle-level analysis rather than an experiment report or a numerical gate.
 """
 from __future__ import annotations
 
@@ -86,10 +89,76 @@ def test_over_length_is_still_enforced() -> None:
     assert "reflow content" in text
 
 
-def test_padding_is_explicitly_discouraged() -> None:
+def test_preflight_routes_expansion_to_the_writing_policy() -> None:
     text = _read("engineer/venue-format-preflight.md")
 
-    assert "Never pad to reach a page number" in text
+    assert "principle-led" in text
+    assert "toward its writing target" in text
+
+
+def test_full_paper_length_target_is_distinct_from_official_limit() -> None:
+    text = " ".join(_read("research-paper-playbook.md").split())
+
+    for required in (
+        "uses nearly all",
+        "not an official minimum",
+        "Never silently switch tracks",
+        "Do not infer body length from total PDF",
+        "If the limit is unknown",
+        "Actively expand principle-level analysis",
+        "Distinguish derivation, proposed explanation, and empirical observation",
+        "existing research notes",
+    ):
+        assert required in text
+
+
+@pytest.mark.parametrize("role,operation", [
+    ("engineer", "mission"),
+    ("reviewer", "evaluate"),
+])
+def test_live_paper_prompts_carry_length_policy(role: str, operation: str) -> None:
+    from argus_skill.verticals.research.prompt_policy import render_role_prompt_fragment
+
+    text = render_role_prompt_fragment(
+        role=role,
+        operation=operation,
+        stage="paper" if role == "engineer" else "review",
+        scope="" if role == "engineer" else "final_submission",
+        project_root=None,
+    )
+    assert "research-paper-playbook.md" in text
+    assert "principle-level analysis" in text
+    assert "derivations, and design tradeoffs" in text
+    assert "technically complete" not in text
+    assert "experiment report" in text
+    assert "not total PDF pages" in text
+    assert "short-paper and partial-edit requests" in text
+    assert "full unused body page" not in text
+    assert "shorter-paper exception" not in text
+
+
+def test_paper_skills_favor_principle_led_expansion() -> None:
+    for relative in (
+        "research-paper-playbook.md",
+        "research-review-playbook.md",
+        "engineer/venue-paper-drafting.md",
+        "engineer/references/paper-writing-craft.md",
+    ):
+        text = " ".join(_read(relative).split())
+        assert "principle-level analysis" in text
+        assert "technically complete" not in text
+        assert "full unused body page" not in text
+        assert "shorter-paper exception" not in text
+
+
+def test_compression_has_no_fixed_reduction_target() -> None:
+    for relative in (
+        "engineer/venue-paper-drafting.md",
+        "engineer/references/paper-writing-craft.md",
+    ):
+        text = " ".join(_read(relative).split())
+        assert "a cut of a third is normal" not in text
+        assert "target reduction fraction" in text
 
 
 # -- the layout reviewer's underfill signal ---------------------------------

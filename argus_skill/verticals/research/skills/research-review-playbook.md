@@ -12,6 +12,15 @@ publication-ready, and worth accepting at the selected venue. Judge it against
 strong accepted and best-paper-level work there. Meeting the letter of the
 requirements alone is not enough.
 
+Apply "Plan the manuscript length" in `research-paper-playbook.md` to a full
+paper. Compare its rendered body extent, under the exact track's counting
+rules, with the writing target. Judge the depth of principle-level analysis:
+does the reader understand why the mechanism follows, what the assumptions
+imply, and why the design choices differ from alternatives? Request expansion
+of terse reasoning, derivations, or tradeoffs. Experiments should support this argument, not turn the
+paper into an experiment report. Put actionable expansion requests in the
+existing `paper/REVIEW.md`. Respect an explicit short-paper or partial-edit request.
+
 ## What each reader can consult
 
 What a reader may consult depends on the operation. The fresh-context Narrative

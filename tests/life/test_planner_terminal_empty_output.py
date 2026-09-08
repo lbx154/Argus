@@ -8,6 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from argus_skill.core.event_catalog import EventType
 from argus_skill.core.models import RunnerResult
 from argus_skill.core.role_decision import encode_role_decision
@@ -880,6 +882,87 @@ def test_nonterminal_planning_replays_unassessed_current_stage_review_first(
         and event.get("recovered_item_id") == item.id
         for event in sink.events
     )
+
+
+@pytest.mark.parametrize("scale_sufficient", [False, True])
+def test_reviewed_experiment_reaches_planner_before_paper(
+    tmp_path: Path, monkeypatch, scale_sufficient: bool,
+) -> None:
+    from argus_skill.skills.stage_machine import current_stage
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    target = "paper" if scale_sufficient else "experiment"
+    title = "Write the paper" if scale_sufficient else "Expand released task coverage"
+
+    class ScalePlannerRunner(_EmptyPlannerThenManagerRunner):
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            assert run_label.startswith("planner.cycle")
+            self.planner_calls += 1
+            assert "Post-result experiment scale assessment" in prompt
+            return RunnerResult(
+                exit_code=0,
+                agent_messages=["\n".join([
+                    "PROJECT_DONE=false",
+                    "REASON=Reviewed coverage is sufficient for writing."
+                    if scale_sufficient
+                    else "REASON=Reviewed coverage needs more official task settings.",
+                    f"ADVANCE_TO_STAGE={target}",
+                    "TASK_KEY=scale-followup",
+                    f"TASK_TITLE={title}",
+                    f"TASK_OBJECTIVE={title} using the existing implementation and official benchmark.",
+                    "TASK_HYPOTHESIS=The next step addresses the reviewed coverage.",
+                    "TASK_GOAL_CONTRIBUTION=Support the operator research objective.",
+                    "TASK_EXPECTED_REGRESSIONS=Preserve accepted raw results.",
+                    "TASK_DECISION_RULE=Use coverage and precision for the objective.",
+                    "TASK_ACCEPTANCE_CHECK=Review direct artifacts against the objective.",
+                    "TASK_SCOPE=bounded",
+                ])],
+                stdout_lines=[],
+                stderr_lines=[],
+            )
+
+    supervisor, backend, _sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=False,
+        backend=ScalePlannerRunner(),
+    )
+    project = Path(supervisor.config.project_worktree)
+    persist_vertical(project, "research", workflow_mode="staged")
+    state_path = project / ".argus" / "PIPELINE_STATE.json"
+    state = json.loads(state_path.read_text())
+    state["current_stage"] = "experiment"
+    state_path.write_text(json.dumps(state))
+    item = supervisor.memory.backlog.add(BacklogItem.new(
+        title="Run the current experiment",
+        objective="Evaluate the existing official task panel.",
+        tags=["planner", "scope:bounded"],
+    ))
+    mission_path = create_mission_context(
+        life_dir=supervisor.memory.root, mission_id=item.id,
+        stage="experiment", objective=item.objective, scope="bounded",
+    )
+    record_reviewed_handoff(
+        mission_context_path=mission_path, round_index=1,
+        engineer_summary="The configured panel is complete.",
+        review=SimpleNamespace(
+            status="done", reason="The current comparison is accepted.",
+            next_action="", operator_question="",
+        ),
+        checkpoint_path=None,
+    )
+    supervisor.memory.backlog.mark_done(item.id, outcome={
+        "execution_status": "completed",
+        "review_status": "done",
+        "stage_certification": "not_assessed",
+        "interruption_kind": "none",
+        "resumable": False,
+    })
+
+    supervisor._plan_next_work()
+
+    assert backend.planner_calls == 1
+    assert backend.manager_calls == 0
+    assert current_stage(project) == target
+    assert [row.title for row in supervisor.memory.backlog.pending()] == [title]
 
 
 def test_newer_replan_review_blocks_older_stage_replay(

@@ -20,6 +20,39 @@ do not become the narrative.
 
 ## How to build the argument
 
+### Plan the manuscript length
+
+For a full-length conference paper, default to a substantive main body that
+uses nearly all of the selected track's permitted space. The official maximum
+is a compliance ceiling, not an official minimum; the near-limit length is our
+writing target. An operator-requested short paper,
+extended abstract, section-only revision, or a track with different length
+norms overrides this default. Never silently switch tracks to fit a short draft.
+
+Before drafting, verify the current official venue, track, and submission type,
+the applicable page or word limit, and what counts toward it. Set a section
+budget aimed at the final allowed body page and calibrate density against
+accepted papers in that same track. Do not infer body length from total PDF
+pages: references, appendices, limitations, and ethics sections count only as
+the official rules specify. If the limit is unknown, resolve it rather than
+assuming eight pages.
+
+Develop the argument toward this target throughout drafting, not only when
+something is missing. Actively expand principle-level analysis: explain why the
+problem has its structure, how the mechanism follows from the assumptions,
+derive the relevant relationships step by step, and explain design choices,
+tradeoffs, boundary cases, and differences from alternative approaches.
+Use worked conceptual examples when they clarify the reasoning.
+
+Experiments support the argument; they are not its organizing structure.
+Interpret results in terms of the mechanism and its predictions instead of
+expanding run chronology, setup inventories, or metric-by-metric reporting.
+Distinguish derivation, proposed explanation, and empirical observation.
+After compilation, compare actual counted body extent with the target and
+continue developing the principle-level explanation where it is still terse.
+Keep the target and actual counted body extent in the existing research notes;
+do not create a new report or validation-only task.
+
 1. Read the research notes in `RESEARCH_NOTES.md`, the selected venue profile, and the current official
    author kit. Before prose, classify the complete evidence as headline,
    mechanism, disambiguating control, scope-changing, or completeness evidence;
@@ -64,7 +97,7 @@ do not become the narrative.
    vector PDF after Introduction, targeting page 2 or 3, and keep the editable
    SVG source. Invoke the drawing component only when a figure is needed;
    reuse an existing suitable figure across writing rounds and prose-only edits.
-9. Compress after expanding: the final pass removes what serves no explicit
+9. Compress after expanding to the manuscript-length target: the final pass removes what serves no explicit
    claim and moves first-pass-unnecessary detail to the appendix while
    protecting every claim, number, named baseline and limit. Then read the
    paper once as a stranger and fix what fails.
@@ -93,14 +126,18 @@ abstract, introduction, or conclusion when the evidence supports a strong claim.
 ## When the draft is ready
 
 The full paper, bibliography, figures, tables, includes, and rendered output are
-present and mutually consistent. Manager alone advances the stage.
+present and mutually consistent. The counted body extent meets the planned
+length target and the main body develops the principles, mechanism, and design
+reasoning in depth. Being below the legal maximum alone does not establish readiness.
+Manager alone advances the stage.
 
 ## Research notes
 
 Replace the research notes at project-root `RESEARCH_NOTES.md`, beginning with
 `# Research notes — Paper stage`. Include only the current manuscript location,
 central thesis, evidence roles and placements,
-venue, and any known issue Review must inspect. Do not create another drafting
+venue, manuscript-length target and actual counted body extent, and any known
+issue Review must inspect. Do not create another drafting
 or format report.
 
 ## When another skill would help

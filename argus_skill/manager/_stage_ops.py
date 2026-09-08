@@ -963,6 +963,35 @@ class _StageDecisionMixin:
                     ),
                 )
 
+        if cur == "experiment":
+            from ..skills.vertical_select import resolve_vertical, resolve_workflow_mode
+
+            if (
+                resolve_vertical(root) == "research"
+                and resolve_workflow_mode(root) == "staged"
+                and (
+                    open_ended
+                    or bool(continuous_objective.strip())
+                    or planner_verdict is not None
+                )
+                and (
+                    getattr(review, "status", "") != "done"
+                    or getattr(planner_verdict, "advance_to_stage", "") != "paper"
+                )
+            ):
+                return StageTransition(
+                    "hold",
+                    cur,
+                    "Keep Experiment open for Planner's post-result scale assessment. "
+                    "After Reviewer accepts the current experiment, Planner must "
+                    "compare its training and evaluation coverage with the operator "
+                    "objective, expand under the benchmark policy if insufficient, or "
+                    "request ADVANCE_TO_STAGE=paper with the adequacy rationale.",
+                    current_stage=cur,
+                    source="planner_scale_assessment_hold",
+                    diagnostic="experiment_scale_assessment_required",
+                )
+
         manuscript_binding = getattr(review, "manuscript_snapshot", None)
         if isinstance(manuscript_binding, dict):
             try:
