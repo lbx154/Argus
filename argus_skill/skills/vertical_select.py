@@ -914,6 +914,7 @@ def reset_stage_for_new_intent(
     new_vertical: str,
     force_replacement: bool = False,
     evidence_root: Path | str | None = None,
+    start_stage: str = "",
 ) -> bool:
     """Reset ``current_stage`` to ``new_vertical``'s first stage when a
     genuinely NEW, operator-issued intent supersedes an already-finished prior
@@ -922,6 +923,10 @@ def reset_stage_for_new_intent(
     ``force_replacement=True`` to reset immediately even when the old pipeline
     was still in progress; ordinary bounded/reclassification calls retain the
     conservative completed-run-only behavior.
+
+    Direct artifact work may use the Manager's validated ``start_stage`` instead
+    of restarting discovery. A paper/review follow-up retains the existing
+    research selection and notes while retiring the previous completion.
 
     A successful reset also retires final certification of the prior intent
     by advancing the persisted research-target evidence cutoff.
@@ -977,13 +982,25 @@ def reset_stage_for_new_intent(
     if not new_order:
         return False
 
+    target_stage = str(start_stage or "").strip().lower() or new_order[0]
+    if start_stage and resolve_workflow_mode(project_root) != "direct":
+        raise ValueError("an explicit start stage requires direct workflow mode")
+    if target_stage not in new_order:
+        raise ValueError(f"invalid new-intent start stage: {target_stage!r}")
+    retain_research_context = (
+        old_vertical == new_vertical == "research"
+        and resolve_workflow_mode(project_root) == "direct"
+        and target_stage in {"paper", "review"}
+        and not force_replacement
+    )
+
     try:
         if force_replacement or new_vertical == "research":
             from .stage_machine import reset_stage_for_replacement_intent
 
             reset_stage_for_replacement_intent(
                 project_root,
-                target_stage=new_order[0],
+                target_stage=target_stage,
                 reason=(
                     "operator replaced the standing Manager objective; resetting "
                     f"the superseded {old_vertical!r} pipeline to the first stage "
@@ -991,8 +1008,8 @@ def reset_stage_for_new_intent(
                     if force_replacement
                     else (
                         f"prior vertical {old_vertical!r} was complete and a new "
-                        f"operator intent selected {new_vertical!r}; start its first "
-                        "stage without recording a research rollback."
+                        f"operator intent selected {new_vertical!r}; start its "
+                        f"requested {target_stage!r} stage without recording a research rollback."
                     )
                 ),
                 reset_by="manager",
@@ -1003,7 +1020,7 @@ def reset_stage_for_new_intent(
 
             rollback_stage(
                 project_root,
-                target_stage=new_order[0],
+                target_stage=target_stage,
                 reason=(
                     f"prior vertical {old_vertical!r} had already reached its own "
                     f"terminal stage (done); a genuinely new operator-issued "
@@ -1039,14 +1056,16 @@ def reset_stage_for_new_intent(
         # consume the legacy-import opportunity before the fresh portfolio is
         # formed, even if no earlier runtime reached library preparation.
         payload["legacy_selection_consumed"] = True
-        payload.pop("idea_portfolio", None)
-        payload["selected_idea"] = None
+        if not retain_research_context:
+            payload.pop("idea_portfolio", None)
+            payload["selected_idea"] = None
         payload["current_verdict"] = "in_progress"
-        payload["next_action"] = f"Continue the current {new_order[0]} stage."
+        payload["next_action"] = f"Continue the current {target_stage} stage."
         write_pipeline_state(project_root, payload)
         from ..verticals.research_bridge import clear_research_notes
 
-        clear_research_notes(Path(evidence_root or project_root))
+        if not retain_research_context:
+            clear_research_notes(Path(evidence_root or project_root))
     elif payload.get("research_target_level"):
         write_pipeline_state(project_root, payload)
     return True

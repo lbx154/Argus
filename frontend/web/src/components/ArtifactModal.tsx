@@ -42,6 +42,7 @@ export function ArtifactModal({
   const markdownPreview = info ? isMarkdownArtifact(info) : false;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState('');
+  const [previewAttempt, setPreviewAttempt] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [pdfOrientation, setPdfOrientation] = useState<'portrait' | 'landscape'>('portrait');
@@ -74,7 +75,7 @@ export function ArtifactModal({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [sid, path, info?.kind]);
+  }, [sid, path, info?.kind, previewAttempt]);
 
   const download = async (bundle = false) => {
     if (!sid || !path || !info) return;
@@ -196,6 +197,7 @@ export function ArtifactModal({
             name={info.name}
             className="min-h-0 overflow-hidden"
             onPageOrientation={setPdfOrientation}
+            onRetry={() => setPreviewAttempt((value) => value + 1)}
           />
         ) : null}
         {info?.kind === 'audio' && previewUrl ? (

@@ -7,6 +7,7 @@ import { BootSplash } from './components/BootSplash';
 import { I18nProvider } from './i18n';
 import { queryRetryPolicy } from './hooks';
 import { installStaleChunkRecovery } from './lib/preloadRecovery';
+import { RELEASE_ID } from '../../core/src/release.generated';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import 'katex/dist/katex.min.css';
@@ -14,7 +15,10 @@ import './index.css';
 
 // A cockpit left open across an update can still reference a deleted hashed
 // chunk. Reload the no-store shell before React turns that import into a blank UI.
-installStaleChunkRecovery(window, () => window.location.reload());
+installStaleChunkRecovery(window, () => window.location.reload(), {
+  releaseId: RELEASE_ID,
+  storage: () => window.sessionStorage,
+});
 
 // Runs before the first request so a QR-paired phone is authenticated for
 // every later load, not just the one carrying `?token=`.
