@@ -37,7 +37,9 @@ Write down, before any section:
   table that will carry its evidence;
 - the figure and table plan (Figure 1 explains the idea or mechanism; the first
   table carries the main result), and the page budget per section under the
-  venue's limit.
+  venue's limit. Apply "Plan the manuscript length" in
+  `research-paper-playbook.md`: a full-length paper defaults to using nearly all
+  permitted body space, with official counting rules and a section budget.
 
 Assign the complete evidence to roles while planning: **headline** (establishes
 the thesis; may recur where each location has a distinct job), **mechanism**
@@ -56,8 +58,10 @@ vocabulary and never appear in the manuscript.
    mental model, contribution claims. Rough, disposable, written to fix what
    the results must establish.
 2. **Results**, organized by the claims, each cluster closed by a takeaway that
-   states the pattern and its implication. Then **Method** and **Setup**, only
-   as deep as a reader needs to follow and reproduce.
+   states the pattern and its implication. Then **Method**: develop the
+   principle-level analysis from the length plan, explaining the mechanism,
+   assumptions, derivations, and design tradeoffs in depth. **Setup** provides
+   reproducibility detail; it does not replace this reasoning.
 3. **Final introduction**, from a blank page, now that the results stand: every
    claim maps to a results subsection and the preview carries the real
    headline numbers. Draft 0 is reference material, not the starting text.
@@ -68,8 +72,9 @@ vocabulary and never appear in the manuscript.
    contribution, not on a caveat.
 6. **Compression pass** over the whole draft: remove what serves no explicit
    claim, move detail the reader does not need on first pass to the appendix,
-   protect every claim, number, named baseline and limit. A cut of a third is
-   normal.
+   protect every claim, number, named baseline and limit. There is no target
+   reduction fraction. Develop principle-level analysis according to the
+   selected submission type's length target.
 7. **Stranger's read**: the questions in the craft reference, section 11. Fix
    what fails before compiling the final PDF.
 

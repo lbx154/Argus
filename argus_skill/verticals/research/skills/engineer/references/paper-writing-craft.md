@@ -171,7 +171,11 @@ setting. Future work and caveats are optional, not a closing ritual.
 ## 10. Compress after expanding
 
 The first complete draft should be comprehensive. The final pass then removes
-what does not serve an explicit claim; a cut of a third is normal. In order:
+what does not serve an explicit claim, without a target reduction fraction.
+Apply the manuscript-length target in `research-paper-playbook.md` for the
+selected submission type, focusing expansion on principle-level analysis:
+the mechanism, derivations, and design tradeoffs. When compression is needed,
+remove in order:
 repeated motivation, tutorial background the venue's reviewers already know,
 generic adjectives, duplicate definitions, long transitions, implementation
 detail that can move to the appendix, secondary analyses that can move to the
