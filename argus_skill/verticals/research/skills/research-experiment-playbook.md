@@ -111,6 +111,12 @@ On resume, check the actual recorded observations and the code/configuration
 that produced them before deciding whether work is complete. A copied
 `completed` flag or an old checkpoint is not that evidence. Reuse a complete,
 valid attempt; rerun only work made incomplete or invalid by a concrete defect.
+Check actual compute processes as well as any shell or launcher PID. An exited
+wrapper does not prove its children have stopped. Before replacing a run,
+confirm that every producer for its output has exited; use a separate attempt
+directory and preserve the old observations. Low GPU utilization while the CPU
+is working, or output buffered until completion, does not establish failure.
+Let healthy attempts finish before applying optional performance optimizations.
 When promoting a new result, validate the whole attempt first and switch the
 canonical reference together, rather than mixing raw rows, summaries, and
 completion records from different attempts. Use the existing run records and

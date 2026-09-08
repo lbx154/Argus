@@ -1849,3 +1849,32 @@ scientific guidelines, not new review fields, numerical quotas or role permissio
 At 22:35 UTC, CBC was running its compact-code experiment, Diamond had reached
 a third natural-input timing block, and S43 had submitted durable paired-state
 jobs for both models. No paper has been verified strong accepted.
+
+## 35. A dead shell is not a finished experiment (2026-09-08 UTC)
+
+S43's Engineer terminated the wrapper PIDs of its first paired-panel attempt
+while optimizing the implementation, then launched v2 into the same output
+directories. The two original Python processes were still alive, reparented,
+and consuming GPUs. The original task records had already said error/-15 and
+released their resource grants. The paper team verified the exact old process
+identities and independent groups, then terminated only those two old groups.
+Both output directories were still empty at cleanup; current v2 tasks were
+preserved. No paper or experiment files were edited by the paper team.
+
+Direct POSIX jobs now retain their launched group identity and settle remaining
+children before publishing a terminal record or releasing resources. A shell
+that returns zero while leaving work behind is not a successful complete run.
+Termination waits on the group, including TERM-resistant children, rather than
+returning as soon as the shell exits. Current/reused unrelated process groups
+are protected. Exit-sidecar reconciliation also waits for a live owner to finish
+settling its work. Genuine durable jobs still survive loss of their Python owner.
+
+The process/resource/owner-loss suite passed 121 tests with two native-Windows
+tests skipped on Linux. Real-process regressions reproduce wrapper termination
+and background children, assert resource release follows child exit, and ensure
+an unrelated process survives. Log:
+`/tmp/argus-direct-process-ownership-tests-20260908.log`.
+The experiment guide now distinguishes launcher status from real producer
+liveness and cautions against interrupting healthy CPU work for minor speedups.
+Operational receipts and the one continuation nudge are under
+`coherent-science-rollout/orphaned-direct-runs/` in the paper audit directory.

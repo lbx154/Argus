@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ...core.daemon_lock import is_process_group_running
 from ...daemon.state import (
     _terminate_windows_process_tree as terminate_windows_process_tree,
 )
@@ -276,6 +277,43 @@ def _run_contract_preflight(command: str, cwd: str) -> tuple[bool, str, str]:
 # Process termination
 # ---------------------------------------------------------------------------
 
+def _owned_process_group(proc: "subprocess.Popen[Any]") -> int:
+    """Return only this launch's private POSIX group, never a reused leader."""
+    if os.name == "nt" or proc.pid in {os.getpid(), os.getpgrp()}:
+        return 0
+    group = int(getattr(proc, "_argus_durable_process_group", 0) or 0)
+    if not group and proc.poll() is None:
+        try:
+            group = os.getpgid(proc.pid)
+        except OSError:
+            return 0
+    if group <= 0 or group != proc.pid:
+        return 0
+    if proc.poll() is not None:
+        try:
+            os.kill(group, 0)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            return 0
+        else:
+            # Popen already reaped our leader, so a process now holding that
+            # PID is a different launch. Its group is not ours to signal.
+            return 0
+    return group
+
+
+def _wait_group(proc: "subprocess.Popen[Any]", group: int, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        proc.poll()  # Reap the leader; zombie-only groups are already stopped.
+        if not is_process_group_running(group):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
 def _terminate_proc(proc: "subprocess.Popen[Any]", grace: float = 10.0) -> None:
     """Stop a run's whole process group, escalating SIGTERM -> SIGKILL.
 
@@ -284,9 +322,9 @@ def _terminate_proc(proc: "subprocess.Popen[Any]", grace: float = 10.0) -> None:
     (not just the shell) is what actually frees VRAM on an early-stop/timeout;
     terminating only the shell can orphan the trainer and leak the GPU.
     """
-    if proc.poll() is not None:
-        return
     if os.name == "nt":
+        if proc.poll() is not None:
+            return
         pid = proc.pid
         if pid > 0:
             tree_stopped = terminate_windows_process_tree(
@@ -309,29 +347,45 @@ def _terminate_proc(proc: "subprocess.Popen[Any]", grace: float = 10.0) -> None:
             except subprocess.TimeoutExpired:
                 pass
         return
+    group = _owned_process_group(proc)
+    if not group:
+        return
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        os.killpg(group, signal.SIGTERM)
     except (OSError, ProcessLookupError):
         try:
             proc.terminate()
         except OSError:
             pass
-    try:
-        proc.wait(timeout=grace)
+    if _wait_group(proc, group, grace):
         return
-    except subprocess.TimeoutExpired:
-        pass
+    if _owned_process_group(proc) != group:
+        return
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        os.killpg(group, signal.SIGKILL)
     except (OSError, ProcessLookupError):
         try:
             proc.kill()
         except OSError:
             pass
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
+    _wait_group(proc, group, 5.0)
+
+
+def _settle_direct_process_group(
+    proc: "subprocess.Popen[Any]", resource_lease: ResourceLease | None,
+) -> dict[str, Any]:
+    """Stop remaining owned work before publishing a result or releasing GPUs."""
+    group = _owned_process_group(proc)
+    if not group or not is_process_group_running(group):
+        return {}
+    _terminate_proc(proc)
+    # Even a SIGKILL-pending process in uninterruptible I/O still owns resources.
+    # Keep the owner and its claim alive until that actual process group exits.
+    while _owned_process_group(proc) == group and is_process_group_running(group):
+        if resource_lease is not None and not resource_lease.renew():
+            log.warning("could not renew resource lease during process cleanup")
+        time.sleep(0.5)
+    return {"orphan_process_group_id": group, "process_group_cleanup_succeeded": True}
 
 
 # ---------------------------------------------------------------------------
@@ -366,6 +420,7 @@ def _run_direct(
     worker_identity = _process_identity(os.getpid())
     claim_owner = f"{run_id}:{os.getpid()}:{time.time_ns()}"
     resource_lease: ResourceLease | None = None
+    proc: subprocess.Popen[Any] | None = None
     try:
         rejected, concern = experiment_launch_preflight(
             task_id=task_id,
@@ -417,6 +472,7 @@ def _run_direct(
                 "description": description, "command": command,
                 "pid": proc.pid, "worker_pid": os.getpid(),
                 "process_identity": command_identity,
+                "process_group_id": _owned_process_group(proc),
                 "worker_process_identity": worker_identity,
                 "started_at": time.time(), "mode": "direct",
                 "run_dir": run_dir,
@@ -458,6 +514,7 @@ def _run_direct(
                 # runs with start_new_session=True, so a GPU trainer it spawned
                 # would otherwise survive the timeout and leak the GPU.
                 _terminate_proc(proc)
+                _settle_direct_process_group(proc, resource_lease)
                 td = {"state": "timeout", "task_id": task_id,
                     "run_id": run_id,
                     "description": description, "command": command,
@@ -479,11 +536,13 @@ def _run_direct(
                 _alert_engineer(task_id, "TIMEOUT", td)
                 return
 
+            group_cleanup = _settle_direct_process_group(proc, resource_lease)
+
         elapsed = round(time.time() - start_time, 1)
         stdout_tail = _tail_file(stdout_path, 3000)
         stderr_tail = _tail_file(stderr_path, 3000)
         td = {
-            "state": "done" if proc.returncode == 0 else "error",
+            "state": "done" if proc.returncode == 0 and not group_cleanup else "error",
             "task_id": task_id, "run_id": run_id, "description": description,
             "command": command, "exit_code": proc.returncode,
             "elapsed_seconds": elapsed, "completed_at": time.time(),
@@ -494,12 +553,22 @@ def _run_direct(
             "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path),
             **timeout_fields,
+            **group_cleanup,
         }
+        if group_cleanup:
+            td["error"] = (
+                "The command exited before its child processes finished. "
+                "The remaining owned processes were stopped; preserve partial "
+                "outputs and use a command that waits for all of its work."
+            )
         _apply_supervisor_usage_fields(td, model="", totals=_ZERO_USAGE_TUPLE)
         _write_task(task_id, td)
-        _alert_engineer(task_id, "COMPLETED" if proc.returncode == 0 else "FAILED", td)
+        _alert_engineer(task_id, "COMPLETED" if td["state"] == "done" else "FAILED", td)
 
     except Exception as exc:
+        if proc is not None:
+            _terminate_proc(proc)
+            _settle_direct_process_group(proc, resource_lease)
         td = {
             "state": "error", "task_id": task_id,
             "run_id": run_id,

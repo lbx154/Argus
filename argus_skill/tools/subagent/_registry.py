@@ -239,7 +239,7 @@ def _launch_durable_command(
         'mv -f "$2" "$3"\n'
         'exit "$rc"\n'
     )
-    return subprocess.Popen(
+    proc = subprocess.Popen(
         ["bash", "-c", wrapper, "argus-durable-job", command, str(temporary), str(exit_path)],
         stdout=stdout,
         stderr=stderr,
@@ -247,6 +247,10 @@ def _launch_durable_command(
         start_new_session=os.name != "nt",
         env=_child_env() if env is None else env,
     )
+    # Retain the private group identity after the shell exits. Looking up the
+    # shell's PGID later fails precisely when its orphaned children need cleanup.
+    proc._argus_durable_process_group = proc.pid
+    return proc
 
 
 # ---------------------------------------------------------------------------
@@ -456,6 +460,10 @@ def reconcile_terminal_task(
 ) -> dict[str, Any]:
     """Recover a terminal direct/supervised job after its worker owner died."""
     if task.get("state") not in {"starting", "preflight", "waiting_resource", "running"}:
+        return task
+    if int(task.get("worker_pid") or 0) and _recorded_process_alive(task, "worker_pid"):
+        # A live owner still has to settle descendants and release its claims.
+        # The shell's exit sidecar alone cannot publish completion ahead of it.
         return task
     pid = int(task.get("pid") or 0)
     run_id = str(task.get("run_id") or "") or None
