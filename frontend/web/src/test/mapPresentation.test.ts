@@ -20,6 +20,8 @@ describe("map presentation and references", () => {
       step_id: "e1",
       step_title: "审查与反馈",
       event_ids: ["e1"],
+      team_id: 'idea-portfolio',
+      team_task_id: 'idea-portfolio-route-01',
     };
     const draft = referenceText(ref) + "增加极端偏移条件";
     expect(splitDraft(draft)).toEqual({

@@ -129,6 +129,8 @@ def read_map(
     sid: str, root: Path, life_dir: Path, *, event_state: dict | None = None,
     include_events: bool = True,
 ) -> dict:
+    from .map_team import previous_formations, project_team_events, remember_formations
+
     memory = LifeMemory.open(life_dir)
     tasks = []
     for item in memory.backlog.history():
@@ -174,6 +176,10 @@ def read_map(
             if append:
                 previous = state.get("events", [])
                 active = set(state.get("active", ()))
+            bindings = dict(state.get("team_bindings", {})) if append or retained_previous else {}
+            binding_truncated = bool(state.get("team_bindings_truncated")) if append or retained_previous else False
+            if not append:
+                binding_truncated |= remember_formations(previous_formations(life_dir), task_ids, bindings)
             start = max(0, size - 8 * 1024 * 1024)
             if append:
                 start = max(start, offset)
@@ -198,10 +204,15 @@ def read_map(
             events = list({e["id"]: e for e in [
                 *previous, *normalize_events(rows, task_ids, active),
             ]}.values())
+            binding_truncated |= remember_formations(rows, task_ids, bindings)
+            bindings = {path: binding for path, binding in bindings.items()
+                        if binding["item_id"] in task_ids}
             f.seek(max(0, consumed - 128))
             state.update(
                 identity=identity, offset=consumed, anchor=f.read(min(128, consumed)),
                 task_ids=task_ids, events=events[-2000:], active=active,
+                team_bindings=bindings,
+                team_bindings_truncated=binding_truncated,
                 truncated=truncated or len(events) > 2000,
                 reset=bool(state) and not append and not retained_previous
                 and state.get("task_ids") == task_ids,
@@ -212,6 +223,10 @@ def read_map(
         state.clear()
         state["reset"] = was_present
     meta = read_session_meta(root, sid)
+    team_events, team_truncated, team_signature = project_team_events(
+        sid, root, life_dir, state.get("team_bindings", {}),
+    ) if include_events else ([], False, ())
+    state["team_signature"] = team_signature
     return with_revisions({
         "id": f"live:{sid}",
         "title": meta.display_name if meta else sid,
@@ -219,6 +234,7 @@ def read_map(
         "description": "",
         "read_only": False,
         "tasks": tasks,
-        "events": events[-2000:],
-        "coverage": {"truncated": truncated or len(events) > 2000},
+        "events": [*events[-2000:], *team_events],
+        "coverage": {"truncated": truncated or len(events) > 2000 or team_truncated
+                     or bool(state.get("team_bindings_truncated"))},
     })

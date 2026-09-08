@@ -137,6 +137,23 @@
 .map-summary svg {
   color: #55927a;
 }
+.map-team-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 7px 28px;
+  border-bottom: 1px solid rgb(var(--line) / .6);
+  background: var(--map-paper);
+  color: rgb(var(--ink-faint));
+  font-size: 11px;
+}
+.map-team-progress > span { display: inline-flex; align-items: center; gap: 5px; }
+.map-team-progress strong, .map-team-progress b { color: rgb(var(--ink-dim)); font-weight: 550; font-variant-numeric: tabular-nums; }
+.map-card-team-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) {
+  .map-team-progress { padding: 7px 14px; gap: 7px 12px; }
+}
 .map-summary-note {
   margin-left: auto;
   font-size: 10px;

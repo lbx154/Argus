@@ -7,6 +7,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from ..core.session import read_session_meta
+from .map_team import source_signature
 from .map_view import digest, read_map
 
 
@@ -42,6 +43,8 @@ class MapFeed:
                     *(("events.jsonl",) if include_events else ()),
                 )),
                 meta.display_name if meta else sid,
+                source_signature(sid, root, life_dir, entry["events"].get("team_bindings", {}))
+                if include_events else (),
             )
             if entry.get("stamp") != stamp:
                 value = read_map(sid, root, life_dir, event_state=entry["events"],
@@ -59,6 +62,9 @@ class MapFeed:
                 )
                 while len(versions) > 8:
                     versions.popitem(last=False)
+                # Use the fingerprint taken before reading the Team records.
+                # A later writer must invalidate, not get blessed as cached.
+                stamp = (*stamp[:-1], entry["events"].get("team_signature", ()))
                 entry.update(stamp=stamp, value=value, revision=revision)
             value, revision = entry["value"], entry["revision"]
             previous = entry["versions"].get(after)
@@ -67,6 +73,7 @@ class MapFeed:
                         "reset_history": after in entry["invalidated"]}
             tasks, events = previous
             ids = {t["id"] for t in value["tasks"]}
+            event_ids = {e["id"] for e in value["events"]}
             return {
                 **value,
                 "cursor": revision,
@@ -74,4 +81,10 @@ class MapFeed:
                 "tasks": [t for t in value["tasks"] if tasks.get(t["id"]) != t["revision"]],
                 "events": [e for e in value["events"] if events.get(e["id"]) != e["revision"]],
                 "removed_task_ids": sorted(tasks.keys() - ids),
+                # Log history is retained by the client. Team snapshots are
+                # replaceable observations and must disappear when removed.
+                "removed_event_ids": sorted(
+                    event_id for event_id in events
+                    if event_id.startswith("team:") and event_id not in event_ids
+                ),
             }

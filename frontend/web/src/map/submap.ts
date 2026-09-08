@@ -29,13 +29,20 @@ export interface SubmapStep {
   id: string;
   kind: StepKind;
   title: string;
+  summary?: string;
   detail: string;
   status: string;
   ts?: number;
   round?: number;
   episode?: number;
-  source: "task" | "event" | "interval";
+  source: "task" | "event" | "interval" | "team";
   eventIds: string[];
+  teamId?: string;
+  teamTaskId?: string;
+  teamRole?: string;
+  deps?: string[];
+  updatedAt?: number;
+  revision?: string;
 }
 export const STEP_KINDS: StepKind[] = [
   "plan",
@@ -44,6 +51,38 @@ export const STEP_KINDS: StepKind[] = [
   "revision",
   "result",
 ];
+
+function teamTitle(event: MapEvent, zh: boolean): string {
+  const route = event.team_task_id?.match(/route-(\d+)/)?.[1];
+  const label = event.team_role === 'idea-route'
+    ? zh ? '研究路线' : 'Research route'
+    : event.team_role === 'idea-review'
+      ? zh ? '独立复核' : 'Independent review'
+      : event.team_role === 'idea-selector'
+        ? zh ? '方案选择' : 'Idea selection'
+        : '';
+  return label ? `${label}${route ? ` ${route}` : ''}` : event.title || (zh ? '并行子任务' : 'Parallel task');
+}
+
+function teamSummary(event: MapEvent, zh: boolean, waitingForDeps: boolean): string {
+  if (event.pending_question) return zh ? '需要答复，展开查看具体问题' : 'Needs your input; open to read the question';
+  if (event.status === 'failed') return zh ? '本次执行失败，展开查看原因' : 'This attempt failed; open to read the reason';
+  if (event.status === 'blocked') return zh ? '执行受阻，展开查看原因' : 'Work is blocked; open to read the reason';
+  if (event.status === 'done') return event.team_role === 'idea-review'
+    ? zh ? '独立复核已完成，展开查看记录' : 'Independent review completed; open to read the record'
+    : zh ? '子任务执行已完成，展开查看记录' : 'Subtask execution completed; open to read the record';
+  if (event.status === 'pending') return waitingForDeps
+    ? zh ? '等待前置子任务完成后开始' : 'Waiting for prerequisite subtasks to finish'
+    : zh ? '等待分配 Agent 执行' : 'Waiting for an agent to start';
+  if (ACTIVE.has(event.status || '')) return event.team_role === 'idea-route'
+    ? zh ? '正在开展来源研究，整理候选方案' : 'Researching sources and developing a candidate idea'
+    : event.team_role === 'idea-review'
+      ? zh ? '正在独立核对依据、创新性和风险' : 'Independently checking evidence, novelty and risks'
+      : event.team_role === 'idea-selector'
+        ? zh ? '正在对比研究路线及复核意见' : 'Comparing research routes and independent reviews'
+        : zh ? 'Agent 正在执行此子任务' : 'An agent is working on this subtask';
+  return zh ? '展开查看子任务执行记录' : 'Open to read the subtask record';
+}
 
 /** Keep scientific prose visible while hiding the runner's control footer. */
 export function readableRecord(value: string | undefined | null): string {
@@ -85,10 +124,42 @@ export function buildSubmap(
   let episode = 0;
   const sorted = events
     .filter((e) => e.item_id === task.id)
-    .sort((a, b) => a.ts - b.ts);
+    .sort((a, b) => a.ts - b.ts || (a.type === 'team.task' && b.type === 'team.task'
+      ? (a.team_task_id || a.id).localeCompare(b.team_task_id || b.id) : 0));
+  const teamEvents = new Map(sorted.filter((e) => e.type === 'team.task').map((e) => [e.id, e]));
   for (const e of sorted) {
     if (seen.has(e.id)) continue;
     seen.add(e.id);
+    if (e.type === 'team.task') {
+      const deps = [...new Set(e.deps || [])];
+      const dependencyTitles = deps.map((id) => teamEvents.has(id)
+        ? teamTitle(teamEvents.get(id)!, zh) : (zh ? '其他记录中的子任务' : 'Task outside this view'));
+      const description = readableRecord(e.text);
+      rows.push({
+        id: e.id,
+        kind: e.team_role === 'idea-review' || e.role === 'reviewer' ? 'review'
+          : e.team_role === 'idea-selector' ? 'plan' : 'execution',
+        title: teamTitle(e, zh),
+        summary: teamSummary(e, zh, deps.some((id) => teamEvents.has(id) && teamEvents.get(id)!.status !== 'done')),
+        detail: [
+          description,
+          e.reason && !description.includes(e.reason) ? e.reason : '',
+          e.pending_question ? `${zh ? '需要答复' : 'Needs input'}: ${e.pending_question}` : '',
+          dependencyTitles.length ? `${zh ? '依赖' : 'Depends on'}: ${dependencyTitles.join(' · ')}` : '',
+        ].filter(Boolean).join('\n\n'),
+        status: e.pending_question ? 'question' : e.status || 'unknown',
+        ts: e.ts,
+        source: 'team',
+        eventIds: [e.id],
+        teamId: e.team_id,
+        teamTaskId: e.team_task_id,
+        teamRole: e.team_role,
+        deps,
+        updatedAt: e.updated_ts,
+        revision: e.revision,
+      });
+      continue;
+    }
     if (e.type === "life.mission.started") episode++;
     const kind: StepKind | null =
       e.type.includes("review") ||
@@ -257,7 +328,8 @@ export interface SubmapLink {
     | "next_attempt"
     | "outcome"
     | "record_order"
-    | "snapshot";
+    | "snapshot"
+    | "dependency";
   label: string;
   explanation: string;
   contextual: boolean;
@@ -344,6 +416,42 @@ export function frameForSubmap(layout: Pick<SubmapLayout, "width" | "height">) {
 
 /** A relationship label states what the record actually supports. */
 export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
+  const team = steps.filter((step) => step.source === 'team');
+  if (team.length) {
+    const ordinary = steps.filter((step) => step.source !== 'team');
+    const byId = new Map(team.map((step) => [step.id, step]));
+    const brief = ordinary.find((step) => step.source === 'task' && step.kind === 'plan');
+    const branches: SubmapLink[] = [];
+    for (const target of team) {
+      for (const dependency of target.deps || []) {
+        const source = byId.get(dependency);
+        if (!source || source.id === target.id || source.teamId !== target.teamId) continue;
+        branches.push({
+          id: `link:${source.id}:${target.id}`,
+          source: source.id,
+          target: target.id,
+          relation: 'dependency',
+          label: zh ? '前置任务' : 'Depends on',
+          explanation: zh ? `${target.title} 的任务记录明确依赖 ${source.title}。`
+            : `${target.title} explicitly depends on ${source.title} in its taskboard.`,
+          contextual: false,
+        });
+      }
+      if (brief && !target.deps?.length) branches.push({
+        id: `link:${brief.id}:${target.id}`,
+        source: brief.id,
+        target: target.id,
+        relation: 'assignment',
+        label: zh ? '任务分支' : 'Branch',
+        explanation: zh ? '该子任务属于当前主任务；此线不表示等待主任务完成。'
+          : 'This worker belongs to the current mission; the link does not require the parent to finish first.',
+        contextual: true,
+      });
+    }
+    // Parallel workers have only their recorded dependencies. Do not connect
+    // neighboring workers into an invented serial execution/review chain.
+    return [...submapLinks(ordinary, zh), ...branches];
+  }
   return steps.slice(1).map((target, i) => {
     const source = steps[i];
     const sameEpisode = source.episode === target.episode;
@@ -432,6 +540,30 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
     };
   });
 }
+
+/** Keep adjacent route/review dependencies together when a card has room. */
+function stepPages(steps: SubmapStep[]): SubmapStep[][] {
+  const pages: SubmapStep[][] = [];
+  let page: SubmapStep[] = [];
+  for (let index = 0; index < steps.length;) {
+    const group = [steps[index++]];
+    while (index < steps.length && group.length < MAX_STEPS_PER_CARD) {
+      const previous = group.at(-1)!;
+      const next = steps[index];
+      if (previous.source !== 'team' || next.source !== 'team'
+        || previous.teamId !== next.teamId || !next.deps?.includes(previous.id)) break;
+      group.push(next);
+      index++;
+    }
+    if (page.length && page.length + group.length > MAX_STEPS_PER_CARD) {
+      pages.push(page);
+      page = [];
+    }
+    page.push(...group);
+  }
+  if (page.length) pages.push(page);
+  return pages;
+}
 export interface FocusNode {
   id: string;
   position: { x: number; y: number };
@@ -482,14 +614,15 @@ export function layoutScene(
   const lastCard = new Map<string, string>();
   for (const [ordinal, task] of graph.tasks.entries()) {
     const steps = buildSubmap(task, events, zh);
-    const count = Math.ceil(steps.length / MAX_STEPS_PER_CARD);
+    const pages = stepPages(steps);
+    const count = pages.length;
     // A part's ordinal is stable when subsequent events arrive. Original task
     // and step IDs remain the source of truth for references and model copy.
     const idFor = (part: number) =>
       part === 1 ? task.id : JSON.stringify(["part", task.id, part]);
+    let start = 0;
     for (let part = 1; part <= count; part++) {
-      const start = (part - 1) * MAX_STEPS_PER_CARD;
-      const slice = steps.slice(start, start + MAX_STEPS_PER_CARD);
+      const slice = pages[part - 1];
       const id = idFor(part);
       cards.push({
         id,
@@ -511,10 +644,13 @@ export function layoutScene(
           source: idFor(part - 1),
           target: id,
           kind: "continuation",
-          label: zh ? "继续" : "Continued",
-          evidence: `${task.title} · ${boundary.label} · ${steps[start - 1].title} → ${slice[0].title}`,
+          label: boundary ? zh ? "继续" : "Continued" : zh ? '更多分支' : 'More branches',
+          evidence: boundary
+            ? `${task.title} · ${boundary.label} · ${steps[start - 1].title} → ${slice[0].title}`
+            : `${task.title} · ${zh ? '同一任务的其他分支，不表示串行依赖。' : 'Other branches of the same mission, without a serial dependency.'}`,
         });
       }
+      start += slice.length;
     }
     lastCard.set(task.id, idFor(count));
   }

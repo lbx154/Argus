@@ -63,10 +63,18 @@ def register_map_live_routes(app, ctx, read_dataset):
         root, life_dir = ctx.project_root_or_404(sid), ctx.resolve_or_404(sid)
         value = feed.read(sid, root, life_dir, include_events=False)
         result = history_page(root, life_dir, value, after)
-        delta = feed.read(sid, root, life_dir, None if result["reset_history"] else task_after,
-                          include_events=False)
+        # Journal pagination and mutable Team observations have independent
+        # cursors. Reuse the live feed for Team changes, without mixing its
+        # recent journal tail back into the history pages.
+        delta = feed.read(
+            sid, root, life_dir,
+            task_after if result["incremental"] else None,
+        )
+        result["events"].extend(event for event in delta["events"] if event["type"] == "team.task")
         result.update(tasks=delta["tasks"], tasks_complete=not delta["incremental"],
-                      cursor=delta["cursor"], removed_task_ids=delta.get("removed_task_ids", []))
+                      cursor=delta["cursor"], removed_task_ids=delta.get("removed_task_ids", []),
+                      removed_event_ids=delta.get("removed_event_ids", []),
+                      team_events_complete=not delta["incremental"])
         return result
 
     def load(source, name, cards=None):

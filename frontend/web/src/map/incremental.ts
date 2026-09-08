@@ -36,8 +36,13 @@ export function mergeMapProgress(previous: Dataset | undefined, next: Dataset): 
   );
   for (const task of next.tasks) tasks.set(task.id, task);
   for (const id of next.removed_task_ids || []) tasks.delete(id);
-  const events = new Map(previous.events.map((event) => [event.id, event]));
+  // Team rows are mutable taskboard observations. A full refresh replaces
+  // them, while ordinary historical events remain available across windows.
+  const events = new Map(previous.events
+    .filter((event) => (next.incremental && !next.team_events_complete) || event.type !== 'team.task')
+    .map((event) => [event.id, event]));
   for (const event of next.events) events.set(event.id, event);
+  for (const id of next.removed_event_ids || []) events.delete(id);
   return replaceEqualDeep(previous, {
     ...previous, ...next,
     tasks: [...tasks.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0) || a.id.localeCompare(b.id)),
