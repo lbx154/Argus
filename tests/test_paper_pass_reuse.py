@@ -34,6 +34,8 @@ class PaperRunner:
             assert "alone must not reopen the design search" in kwargs["prompt"]
             assert "paper's actual template and column layout" in kwargs["prompt"]
             assert "natural-language assessment" in kwargs["prompt"]
+            assert "that alone is not broken reading order" in kwargs["prompt"]
+            assert "polish, not grounds to fail the paper" in kwargs["prompt"]
         assert options.sandbox_mode == "read-only"
         assert options.force_safe_mode
         return SimpleNamespace(

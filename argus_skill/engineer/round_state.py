@@ -28,6 +28,7 @@ from typing import Any
 
 from ..core.models import LoopStatus, RoundRecord
 from ..core.role_session import RoleSessionCapsule
+from ..core.secret_guard import SecretScanCache
 
 
 @dataclass
@@ -55,6 +56,7 @@ class RoundLoopState:
     # forever. Reset by any Engineer call that ends any other way.
     provider_turn_cap_streak: int = 0
     pending_secret_guard_notes: list[str] = field(default_factory=list)
+    secret_scan_cache: SecretScanCache = field(default_factory=SecretScanCache)
     engineer_session: RoleSessionCapsule | None = None
     reviewer_session: RoleSessionCapsule | None = None
 

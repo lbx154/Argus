@@ -217,7 +217,12 @@ def _parallel_final_review_passes(
         "alone must not reopen the design search or delay scientific review. "
         "Judge the current render and do not repeat a concern it has already resolved. "
         "Respect the paper's actual template and column layout; natural whitespace "
-        "or intentional typographic hierarchy is not a defect by itself."
+        "or intentional typographic hierarchy is not a defect by itself. Normal "
+        "top-of-page or bottom-of-page floats may occur between the two pages of a "
+        "continuing sentence; that alone is not broken reading order. Ordinary "
+        "trailing whitespace on the final references or appendix page is optional "
+        "polish, not grounds to fail the paper. Require a specific comprehension "
+        "or rendering problem before requesting forced float or page placement."
     )
     if "ColdRead" in prompts:
         prompts["ColdRead"] += (

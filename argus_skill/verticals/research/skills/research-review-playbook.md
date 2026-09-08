@@ -156,6 +156,14 @@ spacing preference does not affect clarity and the composition already meets
 the agreed visual standard, leave it alone. Update a changed data panel without
 redrawing the unaffected method figure.
 
+Apply the author kit's ordinary float conventions. A page-top or page-bottom
+figure/table may appear between the two pages of a continuing sentence; that
+alone is not broken reading order. Natural trailing whitespace on the final
+references or appendix page is optional polish. Do not demand forced placement,
+manual page breaks or sentence rewrites for these alone. A required repair must
+identify a specific comprehension problem, misleading placement, detached
+caption, overlap, clipping or actual illegibility.
+
 Find that a paper does not hold yet if it meets the technical requirements but
 is unimportant, timid, visually unfinished, or organized around caveats instead
 of contribution. Do not demand defensive qualifications that the evidence

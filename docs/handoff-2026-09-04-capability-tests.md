@@ -1733,7 +1733,7 @@ native-PPT routing, natural review and strong acceptance. Log:
 `/tmp/argus-science-first-figure-followup-tests-20260908.log` (overlaps the earlier
 group). All three daemons continue; current main-text figure counts are 3, 2, 2.
 
-## 29. Wave seven: history stops lying behind the cursor (2026-09 night)
+## 31. Wave seven: history stops lying behind the cursor (2026-09 night)
 
 The last wave-one backlog item. The sqlite history index upserted rewritten events in place, so an
 incremental reader whose cursor had passed that seq never saw the update — a step later retired as
@@ -1747,3 +1747,41 @@ Deploy used the §28 procedure for the first time: pre-clean generated files →
 `900f234fd` landed meanwhile, zero friction) → rebuild → push `3d815eb04` → ff demo → kill pid →
 systemd --user respawned on the new digest within seconds, bundle verified. The wave-one Atlas
 backlog is now EMPTY; further overnight rounds are sync + QA unless the operator queues new asks.
+
+## 32. Normal floats and repeated large-file inspection (2026-09-08 UTC)
+
+S43's actual visual assessment called normal page-top floats between pages of
+a continuing sentence, plus trailing appendix whitespace, blocking defects.
+The current PDF was inspected directly: these are ordinary template behavior.
+The Visual prompt, layout reviewer and shared review playbook now require a
+specific comprehension/rendering problem before demanding forced placement;
+ordinary final-page whitespace is optional polish. The scientific bar is
+unchanged. All three tasks received this guidance without changing their reviews.
+
+S43 also repeatedly spent 349–358 seconds between the Engineer's completed
+provider call and the host starting review. Its aggregate rewrites a 1.2 GB
+`refinement.jsonl`, and the file inspection repeatedly parses those records.
+The round loop now keeps an in-memory cache of fully inspected clean streaming
+content. Reuse still hashes every current byte, checks for concurrent mutation,
+and requires the same known credentials, pattern/record-key policy and source
+versus output scan mode. Failed, incomplete and changed content cannot reuse a
+result. Cache entries are never accepted from paper files or completion markers.
+The existing checks and redaction behavior remain in force.
+
+On a disposable two-megabyte copy of actual S43 records, full inspection took
+0.536 seconds and verified reuse after an identical rewrite took 0.0085 seconds
+(63x on that sample). The live source was only read, and the disposable file's
+bytes stayed identical. This is a local benchmark, not an observed live-worker
+speedup yet. Tests cover changed bytes despite identical size/mtime, newly known
+credentials, different scan modes, concurrent changes and failed scans.
+The 81-test secret-scan, Engineer-round, visual/reuse and voice group passed;
+log: `/tmp/argus-identical-scan-and-float-tests-20260908.log`.
+
+Operational cleanup aligned all three backlog acceptance descriptions with
+their already-enforced strong-accept setting. S43's continuation no longer
+presents the old `*_directed` completion markers as current valid evidence.
+The audit receipts are `current-task-contract-cleanup.json`,
+`float-readability-guidance.json` and `identical-scan-benchmark.json` in the
+`strong-accept-rollout` audit directory. Running task identities/statuses were
+preserved. Upgrade workers only at an actually recoverable point; never restart
+their scientific work because an observation window expired.

@@ -9,7 +9,7 @@ import re
 import stat
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -284,6 +284,61 @@ class _BinaryContentError(ValueError):
 
 class _OversizedLineError(ValueError):
     """A streamed artifact holds a single line above ``_MAX_STREAM_LINE_BYTES``."""
+
+
+@dataclass
+class SecretScanCache:
+    """In-memory reuse of completely scanned, clean streaming content.
+
+    A hit still requires reading and hashing every current byte. Timestamps or
+    completion markers never establish reuse. This cache is owned by one round
+    loop, not persisted in files that the Engineer could supply or modify.
+    """
+
+    _policy_digest: bytes = field(default=b"", repr=False)
+    _clean: dict[tuple[bool, bytes], None] = field(default_factory=dict, repr=False)
+    hits: int = 0
+
+    def prepare(self, known_values: Iterable[str]) -> None:
+        policy = {
+            "known_values": sorted({str(v) for v in known_values if len(str(v)) >= 8}),
+            "patterns": [
+                (pattern.pattern, pattern.flags, replacement)
+                for pattern, replacement in _ARTIFACT_SECRET_PATTERNS
+            ],
+            "record_keys": sorted(_HIGH_CONFIDENCE_ARTIFACT_RECORD_KEYS),
+        }
+        digest = hashlib.blake2b(json.dumps(policy, sort_keys=True).encode()).digest()
+        if digest != self._policy_digest:
+            self._clean.clear()
+            self._policy_digest = digest
+
+    def contains(self, digest: bytes, *, include_patterns: bool) -> bool:
+        if (include_patterns, digest) not in self._clean:
+            return False
+        self.hits += 1
+        return True
+
+    def remember(self, digest: bytes, *, include_patterns: bool) -> None:
+        key = (include_patterns, digest)
+        if key not in self._clean and len(self._clean) >= 128:
+            self._clean.pop(next(iter(self._clean)))
+        self._clean[key] = None
+
+
+def _scan_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev, metadata.st_ino, metadata.st_mode, metadata.st_size,
+        metadata.st_mtime_ns, metadata.st_ctime_ns,
+    )
+
+
+def _stream_file_digest(path: Path) -> bytes:
+    digest = hashlib.blake2b()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(_STREAM_CHUNK_BYTES), b""):
+            digest.update(chunk)
+    return digest.digest()
 
 
 def _git_changed_paths(root: Path) -> set[str] | None:
@@ -675,6 +730,7 @@ def _scrub_streaming(
     *,
     known_values: Iterable[str] = (),
     include_patterns: bool = True,
+    cache: SecretScanCache | None = None,
 ) -> int:
     """Scrub an oversized artifact in newline-aligned streamed chunks.
 
@@ -687,6 +743,19 @@ def _scrub_streaming(
     concurrently and the scrub refuses to replace it.
     Returns the replacement count; 0 leaves the artifact untouched.
     """
+    known_values = tuple(known_values)
+    scan_identity = None
+    if cache is not None:
+        cache.prepare(known_values)
+        scan_identity = _scan_file_identity(path.stat())
+        if cache._clean:
+            current_digest = _stream_file_digest(path)
+            if _scan_file_identity(path.stat()) != scan_identity:
+                raise ArtifactChangedDuringScrubError(
+                    "artifact changed while checking previously scanned content"
+                )
+            if cache.contains(current_digest, include_patterns=include_patterns):
+                return 0
     scan_digest = hashlib.blake2b()
     hit_count = 0
     with path.open("rb") as source:
@@ -700,6 +769,12 @@ def _scrub_streaming(
             )
             hit_count += count
     if not hit_count:
+        if cache is not None:
+            if _scan_file_identity(path.stat()) != scan_identity:
+                raise ArtifactChangedDuringScrubError(
+                    "artifact changed while secret guard was scanning it"
+                )
+            cache.remember(scan_digest.digest(), include_patterns=include_patterns)
         return 0
     tmp = path.with_name(
         f".{path.name}.secret-redact-{os.getpid()}-{time.time_ns()}"
@@ -761,9 +836,11 @@ def scrub_recent_text_artifacts(
     *,
     modified_since: float,
     known_values: Iterable[str] = (),
+    cache: SecretScanCache | None = None,
 ) -> SecretScrubReport:
     """Redact secrets from text files changed during the current engineer round."""
     root = Path(root).expanduser().resolve()
+    known_values = tuple(known_values)
     redacted_paths: list[str] = []
     errors: list[str] = []
     replacement_count = 0
@@ -870,6 +947,7 @@ def scrub_recent_text_artifacts(
                             metadata.st_mode,
                             known_values=known_values,
                             include_patterns=include_patterns,
+                            cache=cache,
                         )
                     except _BinaryContentError:
                         # Passed the head sniff but revealed NUL bytes later:

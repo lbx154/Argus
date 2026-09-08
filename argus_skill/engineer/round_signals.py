@@ -8,6 +8,7 @@ from typing import Callable
 from ..core.event_catalog import EventType
 from ..core.models import ReviewDecision
 from ..core.secret_guard import (
+    SecretScanCache,
     SecretScrubReport,
     known_secret_values,
     redact_secrets_record,
@@ -44,11 +45,13 @@ def _apply_round_secret_guard(
     round_index: int,
     round_max: int,
     on_event: Callable[[dict], None] | None,
+    cache: SecretScanCache | None = None,
 ) -> tuple[SecretScrubReport, str]:
     report = scrub_recent_text_artifacts(
         workdir,
         modified_since=modified_since,
         known_values=known_secret_values(),
+        cache=cache,
     )
     if not report.changed and not report.errors and not report.truncated:
         return report, ""
