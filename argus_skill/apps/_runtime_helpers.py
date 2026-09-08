@@ -242,6 +242,7 @@ class _ExecuteState:
 
         # Set by ``_prepare_execute_mission_context``.
         self.full_task: str = ""
+        self.planner_context: str = ""
         self.review_objective: str = ""
         self.seed: str | None = None
         self.mission_scope: str = ""

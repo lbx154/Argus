@@ -213,6 +213,7 @@ class _MissionRunner(Protocol):
         sink: EventSink,
         preload_injects: list[str] | None = None,
         prelude_context: str = "",
+        planner_context: str = "",
         scope: str = "",
         preplanned: bool = False,
     ) -> Any:  # MissionOutcome

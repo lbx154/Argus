@@ -369,6 +369,7 @@ class SkillLoopExecuteMixin:
         sink: EventSink,
         preload_injects: list[str] | None = None,  # noqa: ARG002 — protocol parity
         prelude_context: str = "",
+        planner_context: str = "",
         seed_thread_id: str | None = None,
         scope: str = "",
         preplanned: bool = False,
@@ -402,6 +403,9 @@ class SkillLoopExecuteMixin:
             return chat_outcome
 
         ex_state = _ExecuteState()
+        # This is an explicitly shared projection. Engineer prelude_context may
+        # contain role-exclusive runtime instructions and must never be reused.
+        ex_state.planner_context = planner_context
         self._build_execute_config(
             ex_state,
             working_dir_override=working_dir_override,
@@ -834,6 +838,7 @@ class SkillLoopExecuteMixin:
             from ..manager.plan_mode import draft_plan
             from ..roles.prompts import resolve_role_prompt
             from ..roles.prompts.planner import preview_request
+            from ._runtime_planning_context import bounded_planner_request
 
             planner_role_banner = resolve_role_prompt(
                 preview_request(workdir)
@@ -849,7 +854,15 @@ class SkillLoopExecuteMixin:
             )
             plan = draft_plan(
                 getattr(self, "planner_backend", None) or self._backend,
-                objective,
+                bounded_planner_request(
+                    objective,
+                    shared_context=ex_state.planner_context,
+                    checkpoint_path=getattr(config, "checkpoint_path", None),
+                    operator_state_root=getattr(
+                        config, "operator_question_policy_root", None
+                    ),
+                    mission_id=str(mission_id or ""),
+                ),
                 sink=sink,
                 model=getattr(args, "plan_model", None),
                 reasoning_effort=resolve_role_reasoning_effort(

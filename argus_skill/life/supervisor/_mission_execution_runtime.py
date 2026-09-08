@@ -105,7 +105,9 @@ class MissionExecutionRuntimeMixin:
     # Phase: claim/context
     # ------------------------------------------------------------------
 
-    def _build_mission_prelude(self, item: BacklogItem) -> str:
+    def _build_mission_prelude(
+        self, item: BacklogItem, *, for_planner: bool = False,
+    ) -> str:
         try:
             prelude = self.memory.render_prelude(objective=item.objective)
         except TypeError:
@@ -113,12 +115,16 @@ class MissionExecutionRuntimeMixin:
             prelude = self.memory.render_prelude()
         from ...core.operator_context import build_operator_context_block
 
-        operator_context, _revision = build_operator_context_block(
-            "engineer",
-            self.memory.root,
-            mission_id=item.id,
-            consume_once=False,
-        )
+        # Bounded Planner projects its own current OperatorContext immediately
+        # before drafting. Never mix in this Engineer-role snapshot.
+        operator_context = ""
+        if not for_planner:
+            operator_context, _revision = build_operator_context_block(
+                "engineer",
+                self.memory.root,
+                mission_id=item.id,
+                consume_once=False,
+            )
         if operator_context:
             # Live facts belong at the tail for provider prefix caching and
             # model recency; role/task policy above remains byte-stable.
@@ -141,9 +147,27 @@ class MissionExecutionRuntimeMixin:
             prelude = (
                 item_metadata + "\n---\n\n" + prelude if prelude else item_metadata
             )
-        rt = self.config.runtime_context
+        rt = "" if for_planner else self.config.runtime_context
         if rt:
             prelude = rt + "\n---\n\n" + prelude if prelude else rt
+        return prelude
+
+    def _build_planner_continuation_context(self, item: BacklogItem) -> str:
+        """Project shared memory/history, excluding execution-only policy."""
+        prelude = self._build_mission_prelude(item, for_planner=True)
+        # Read the project journal, never the global/cross-project timeline.
+        # Settlement retrieval ignores planning chatter and retains the latest
+        # completed/failed/replanned work even on a busy resumed mission.
+        try:
+            entries = self.memory.journal.tail_settlements(3)
+        except (AttributeError, OSError, ValueError):
+            entries = []
+        if entries:
+            history = "## Recent project outcomes (non-authoritative)\n" + "\n".join(
+                f"- {entry.title} ({entry.kind}): {entry.summary[:2000]}"
+                for entry in entries
+            )
+            prelude = prelude + "\n\n---\n\n" + history if prelude else history
         return prelude
 
     def _resolve_mission_workdir(self, item: BacklogItem) -> Path:
@@ -682,6 +706,10 @@ class MissionExecutionRuntimeMixin:
                     execute_kwargs["original_objective"] = original_objective
                 if "review_objective" in params or _accepts_kw:
                     execute_kwargs["review_objective"] = review_objective
+                if "planner_context" in params or _accepts_kw:
+                    execute_kwargs["planner_context"] = (
+                        self._build_planner_continuation_context(item)
+                    )
                 if "preplanned" in params or _accepts_kw:
                     execute_kwargs["preplanned"] = any(
                         str(tag).strip().lower() == "planner"
