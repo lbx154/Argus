@@ -42,7 +42,7 @@ import {
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
-import { ACTIVE, buildMap, connectMap, promoteTeamBranches, statusKey, type Dataset } from "./model";
+import { ACTIVE, buildMap, connectMap, formationWidths, promoteTeamBranches, statusKey, type Dataset } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, layoutGraph, relationPorts } from "./graphLayout";
 import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroData, type MacroNode } from "./MacroTaskNode";
@@ -237,6 +237,7 @@ function MapCanvas({
     return { links: atlasLinks, positions, frames, structure, branches, branchAnchor };
   }, [scene, promoted]);
   const growth = useMapGrowth(scene, !!data.history_loading);
+  const plannedWidths = useMemo(() => formationWidths(data.events), [data.events]);
   const submitFromMap: MapSend = async (text, files = []) => {
     const id = ++dispatchSerial.current;
     const source = canvasRef.current?.querySelector('.map-composer')?.getBoundingClientRect();
@@ -441,6 +442,7 @@ function MapCanvas({
           restoring: !!savedView.current?.camera && !initialFit.current,
           layout: scene.layouts[card.id],
           frame: scene.frames[card.id],
+          plannedWidth: plannedWidths.get(card.task.id),
           focused: false,
           detailed: false,
         },
@@ -461,6 +463,7 @@ function MapCanvas({
     readOnly,
     paused,
     seenCards,
+    plannedWidths,
   ]);
   useEffect(() => {
     setVisibleCount((c) => Math.min(Math.max(c, 1), graph.tasks.length));

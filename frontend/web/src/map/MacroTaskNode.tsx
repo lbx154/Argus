@@ -44,6 +44,8 @@ export type MacroData = MapCard & {
   dispatchState?: 'receiving' | 'landed';
   growingSteps?: Record<string, number>;
   growingLinks?: Record<string, number>;
+  /** Fan width the planner declared for this task's formation, if any. */
+  plannedWidth?: number;
   seenCards?: Set<string>;
   restoring?: boolean;
   readOnly: boolean;
@@ -405,7 +407,12 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           <div className="map-card-bottom">
             <span className={teamSteps.length ? 'map-card-team-summary' : undefined} title={range}>
               {teamSteps.length
-                ? zh ? `子任务 ${teamComplete}/${teamSteps.length} 完成 · ${teamRunning} 进行中` : `Subtasks ${teamComplete}/${teamSteps.length} done · ${teamRunning} running`
+                ? (zh ? `子任务 ${teamComplete}/${teamSteps.length} 完成 · ${teamRunning} 进行中` : `Subtasks ${teamComplete}/${teamSteps.length} done · ${teamRunning} running`)
+                  + ((data.plannedWidth ?? 0) > teamSteps.length
+                    ? zh ? ` · 计划并行 ×${data.plannedWidth}` : ` · planned ×${data.plannedWidth}`
+                    : "")
+                : data.plannedWidth && ACTIVE.has(task.status)
+                ? zh ? `并行编队 ×${data.plannedWidth} 展开中` : `Fanning out ×${data.plannedWidth}`
                 : data.partCount > 1
                 ? range
                 : `${layout.steps.length} ${zh ? "个环节" : "steps"}`}

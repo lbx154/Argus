@@ -45,6 +45,7 @@ export interface MapEvent {
   deps?: string[];
   owner?: string;
   reason?: string;
+  width?: number;
   pending_question?: string;
   started_ts?: number | null;
   finished_ts?: number | null;
@@ -306,6 +307,22 @@ function branchExcerpt(text: string | undefined): string {
  * - more than TEAM_BRANCH_CAP nodes: keep the first by ts and add a single
  *   "+N more" overflow node that opens the parent card.
  */
+/** Latest declared fan width per owning task. The planner announces how wide
+ * a formation is meant to be ("idea.portfolio.formed" carries `width`) before
+ * every branch has spawned; cards show it so intent reads ahead of reality. */
+export function formationWidths(events: MapEvent[]): Map<string, number> {
+  const latest = new Map<string, { ts: number; width: number }>();
+  for (const event of events) {
+    if (event.type !== "idea.portfolio.formed") continue;
+    const width = Number(event.width);
+    if (!Number.isInteger(width) || width <= 0) continue;
+    const previous = latest.get(event.item_id);
+    if (!previous || event.ts >= previous.ts)
+      latest.set(event.item_id, { ts: event.ts, width });
+  }
+  return new Map([...latest].map(([id, entry]) => [id, entry.width]));
+}
+
 export function promoteTeamBranches(
   graph: MapGraph,
   events: MapEvent[],
