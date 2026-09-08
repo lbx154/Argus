@@ -57,8 +57,8 @@ def test_presentation_and_figure_descriptions_preserve_routing_guidance() -> Non
     figure, _figure_body = _front_body(
         RESEARCH_ROOT / "engineer" / "figure-spec.md"
     )
-    assert "research-paper conceptual" in presentation["description"]
-    assert "image-2 is unavailable" in presentation["description"]
+    assert "Method D paper-figure reconstruction" in presentation["description"]
+    assert "Method B fallback routing" in presentation["description"]
     assert "Choosing how to draw a research figure" in figure["description"]
     assert "PPT Master" in figure["description"]
     assert "update_repo.py" in presentation_body

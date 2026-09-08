@@ -125,7 +125,7 @@ def test_review_combines_parallel_scientific_visual_and_language_passes() -> Non
     assert "academic language" in playbook
     assert "do not create separate scientific" in playbook
     assert "crawl old reports or history" in prompt
-    assert "never reopen selection or move backward" in prompt
+    assert "reopen selection, or move backward" in prompt
 
 
 def test_review_loads_its_single_stage_playbook(tmp_path: Path) -> None:
