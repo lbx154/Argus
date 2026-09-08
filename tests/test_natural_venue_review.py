@@ -122,6 +122,39 @@ def test_clear_natural_acceptance_with_only_optional_future_work_can_finish(pape
     assert "changed" in current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)
 
 
+def test_reviewer_edits_its_file_each_round_and_acknowledgement_is_not_the_review(paper):
+    from argus_skill.reviewer.review_file import ReviewFileStore
+
+    class WritingReviewer(ProseRunner):
+        backend = "copilot"
+
+        def run_exec(self, **kwargs):
+            if kwargs["run_label"] == "reviewer":
+                self.calls.append(kwargs)
+                ReviewFileStore(**kwargs["options"].review_output).write_review(self.prose)
+                return RunnerResult(exit_code=0, agent_messages=["已更新我的审稿文件。"])
+            return super().run_exec(**kwargs)
+
+    first = "作为 ICLR 审稿人，我建议 weak reject。现有机制对照很有价值，请补充未见种子实验。"
+    extracted = control(status="continue", quote=first)
+    extracted["venue_review"].update(recommendation="weak_reject", acceptance_clear=False)
+    reviewer = WritingReviewer(first, extracted)
+    result = evaluate(paper, reviewer)
+    assert result.status == "continue"
+    assert result.reason == first
+    assert (paper / "paper/REVIEW.md").read_text() == first
+    assert reviewer.calls[1]["options"].review_output is None
+
+    (paper / "paper/main.tex").write_text("Updated evidence and manuscript.")
+    second = ACCEPTANCE + "新增实验已经解决此前的问题，本轮无需继续返修。"
+    reviewer.prose = second
+    reviewer.extracted = control(revision=False, status="done")
+    result = evaluate(paper, reviewer)
+    assert result.final_submission_certified
+    assert (paper / "paper/REVIEW.md").read_text() == second
+    assert result.reason == second
+
+
 def test_natural_rejection_cannot_pass_an_adapter_done(paper):
     quote = "当前版本在 ICLR 只能判 borderline，还没有达到明确接收的标准。"
     extracted = control(revision=False, status="done", quote=quote)
@@ -132,6 +165,19 @@ def test_natural_rejection_cannot_pass_an_adapter_done(paper):
     assert not review.final_submission_certified
     assert not review.backend_unavailable
     assert review.reason == quote
+
+
+def test_acknowledgement_cannot_reuse_a_preexisting_acceptance_report(paper):
+    report = paper / "paper/REVIEW.md"
+    report.write_text(ACCEPTANCE)
+    runner = ProseRunner("已更新我的审稿文件。", control(revision=False, status="done"))
+    runner.backend = "copilot"
+
+    review = evaluate(paper, runner)
+
+    assert review.backend_unavailable
+    assert not review.final_submission_certified
+    assert report.read_text() == ACCEPTANCE
 
 
 def test_scientific_replan_feedback_goes_directly_back_to_engineer_in_review(paper):

@@ -100,6 +100,10 @@ export const useArtifact = (
     queryKey: ['artifact', sid, path, version],
     queryFn: ({ signal }) => api.artifact(sid!, path!, signal),
     enabled: !!sid && !!path,
+    // The Reviewer edits this same file every round. Keep an open opinion
+    // current without remounting the page or reloading PDF previews.
+    refetchInterval: (query) => path && /(?:^|[\\/])REVIEW\.md$/i.test(path)
+      && !isAuthenticationError(query.state.error) ? 2_000 : false,
   });
 
 export const useGitDiff = (sid: string | null, enabled = true) =>

@@ -72,6 +72,7 @@ class RunnerOptions:
     # Enable codex's native live web_search tool (``-c web_search="live"``).
     live_search: bool = False
     extra_args: list[str] | None = None
+    review_output: dict[str, str] | None = None
     working_dir: str | None = None
     watchdog_soft_idle_seconds: int | None = None
     watchdog_stalled_idle_seconds: int | None = None

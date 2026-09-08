@@ -507,6 +507,9 @@ class AgentCliBackend:
             kwargs["force_safe_mode"] = getattr(options, "force_safe_mode", False)
         if "disable_tools" in option_fields:
             kwargs["disable_tools"] = getattr(options, "disable_tools", False)
+        if "review_output" in option_fields:
+            output = getattr(options, "review_output", None)
+            kwargs["review_output"] = dict(output) if output else None
         if "isolate_workdir" in getattr(cli_cls, "__dataclass_fields__", {}):
             kwargs["isolate_workdir"] = getattr(options, "isolate_workdir", False)
         # Forward the live assistant-block callback the same guarded way — only

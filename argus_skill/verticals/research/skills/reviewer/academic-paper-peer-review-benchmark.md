@@ -11,7 +11,8 @@ venue, using its researched criteria and representative accepted work. Start wit
 claim-critical references to code, configuration, raw results, evaluators,
 baselines, bibliography, figures, and primary sources.
 
-Do not edit files, recursively inspect project history, or require separate
+Do not edit the manuscript, code, figures, or experiment evidence, recursively
+inspect project history, or require separate
 review reports. Return findings through the current Reviewer response; the
 integrated judgment is written only to `paper/REVIEW.md`.
 

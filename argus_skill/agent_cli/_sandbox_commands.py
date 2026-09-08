@@ -538,6 +538,11 @@ class CommandBuilderMixin:
             command.extend(["--model", options.model])
         if options.reasoning_effort:
             command.extend(["--reasoning-effort", options.reasoning_effort])
+        review_output = getattr(options, "review_output", None)
+        if review_output and not options.disable_tools:
+            from ..reviewer.review_file import copilot_review_file_args
+
+            command.extend(copilot_review_file_args(review_output))
         if options.isolate_workdir:
             command.extend([
                 "--no-custom-instructions",
@@ -546,10 +551,15 @@ class CommandBuilderMixin:
         if options.disable_tools:
             command.append(f"--available-tools={_COPILOT_NO_TOOLS_SENTINEL}")
         elif options.sandbox_mode == "read-only":
+            tools = "view,rg,glob"
+            if review_output:
+                tools += ",argus_review-read_review,argus_review-write_review"
             command.extend([
-                "--available-tools", "view,rg,glob",
+                "--available-tools", tools,
                 "--allow-tool", "view,rg,glob",
             ])
+            if review_output:
+                command.extend(["--allow-tool", "argus_review"])
         elif options.dangerous_yolo:
             command.append("--yolo")
         else:

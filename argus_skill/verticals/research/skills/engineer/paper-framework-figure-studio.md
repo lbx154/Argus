@@ -13,6 +13,92 @@ fallback, as defined below. Use precise mathematical/vector components inside
 the selected reconstruction when useful. Tool choice does not establish visual
 quality; inspect the actual figure and its publication-size inclusion.
 
+## Keep science moving while figures are drawn
+
+Most effort belongs to the contribution, methods, decisive experiments, and
+interpretation. Plan three informative figures for a full paper, with at least
+two distinct scientific figures: usually the mechanism, the main comparison,
+and an ablation, diagnostic, or generalization result. Each answers a different
+question from real evidence. Do not pad the count with decorative images,
+duplicate plots, or separately numbered pieces of the same diagram. A request
+for only one figure or a partial paper keeps its requested scope.
+
+When drawing needs more than a small local repair and scientific work can
+continue independently, delegate it in parallel. The lead Engineer supplies
+the scientific meaning, direct source material, the final column width, and
+the paper's palette; then continues methods, experiments, or analysis. Start
+with two or three genuinely different compositions, not a dozen polished
+versions. One good existing figure needs no competition. A larger batch, even
+twelve candidates, is an option only when it answers an unresolved design
+question and resources permit; it is never a quota. Stop expanding the search
+as soon as a scientifically faithful, refined candidate is good enough to use.
+Keep provider and compute capacity available for the scientific work.
+
+Use only a delegation interface actually available in the current session:
+
+- A provider's native subtask tool can draw one candidate in a private working
+  directory, or return a full design and editable source inline if the delegate
+  is read-only. Do not ask a read-only delegate to save files or accept a
+  path-only acknowledgement as its result. State the exact allowed output
+  directory and forbid edits to the parent manuscript, evidence, figures,
+  research notes, and `paper/REVIEW.md`. The lead persists an inline result.
+- For independent Engineer–Reviewer work, follow `agent-team-lead.md` and use
+  `python -m argus_skill.tools.team`. Manager/Planner prepares each candidate
+  as a direct, figure-only task with its own working directory and local task
+  state. Do not copy the parent paper's pipeline or venue state into it. An
+  empty directory alone is not an initialized direct task. Candidate Reviewer
+  judges only its figure; the paper's integrated Reviewer owns venue acceptance.
+  Each task's `cwd` points to its independent candidate tree and `owns_paths`
+  names only that tree's output directory. Keep the campaign registered with
+  the original running project so its resident Curator can execute the tasks.
+  `owns_paths` is a coordination rule, not a filesystem sandbox. If independent
+  task state cannot be prepared, use the available native subtask route or do
+  the small figure task locally while scientific jobs run.
+
+Keep candidates under an internal directory such as
+`.argus/figure_candidates/<figure-id>/<batch-id>/<candidate-id>/`. Give each
+worker its own copied input excerpts and data, plus the authoritative source
+locations for checking; do not share mutable PPT projects or output paths.
+An ordinary brief in that directory is enough. Do not create another
+project-visible planning or review document.
+
+For the Team route, write the prepared tasks to a private `tasks.jsonl` using
+the real fields `task_id`, `objective`, `acceptance_check`, `cwd`, and
+`owns_paths`. The objective names the input brief, a single candidate output,
+the actual PPT/plot render command, and the permitted writes. For example, a
+candidate with its own `cwd` owns `output/**`; its acceptance check requires a
+faithful, readable render and matching editable source. The runtime writes
+the result shard; do not fabricate a numerical beauty score for its leaderboard.
+With those tasks and paths prepared, the lead uses the existing control CLI:
+
+```bash
+"${ARGUS_SKILL_PYTHON:-python3}" -m argus_skill.tools.team form \
+  --root "$ARGUS_FIGURE_TEAM_ROOT" --team-id "$ARGUS_FIGURE_TEAM_ID" \
+  --cwd "$ARGUS_FIGURE_PARENT_WORKDIR" \
+  --mission "Draw the specified figure candidates while the lead advances the science" \
+  --tasks "$ARGUS_FIGURE_TASKS_FILE"
+"${ARGUS_SKILL_PYTHON:-python3}" -m argus_skill.tools.team pool-set \
+  --root "$ARGUS_FIGURE_TEAM_ROOT" --width 2 --state running
+```
+
+The Curator launches and reaps teammates. Continue scientific work and inspect
+`team status --root ...` at useful handoff points instead of polling. Once a
+suitable candidate is available, set `pool-set --state draining` to stop new
+starts, let running work settle, and `dissolve` the team. Only the lead Engineer
+chooses and promotes the final source and matching exports to `paper/figures/`,
+updates the caption/manuscript, and checks them against the latest science.
+Candidate workers never merge themselves or start more teams. Their reviews
+check the candidate artifact and do not duplicate the host's full-paper passes.
+
+After selection, inspect once at publication size, repair concrete problems,
+and retain the accepted composition. Record the chosen source/export paths and
+any remaining material defect briefly in the existing checkpoint. A new review
+round is not a reason to reopen the design search. Reopen only for changed
+scientific content, a specific fidelity/readability defect, or explicit operator
+feedback; update the smallest affected part. A data refresh does not require a
+new framework layout. Optional cosmetic preferences do not delay scientific
+review or an otherwise acceptable paper.
+
 ## Default Method D; fallback Method B
 
 This is the routing contract for conceptual, method, architecture, taxonomy,
@@ -51,11 +137,12 @@ to pause the paper or ask the operator to configure an API.
    silently substituting another method.
 3. Use `paper-illustration-image2.md` to generate a visual design blueprint from
    a minimal disclosure-safe prompt. Do not upload a whole private manuscript,
-   raw experiment data, credentials, or code. Start with one candidate; reuse it
-   and repair locally rather than repeatedly calling the API for text or
-   geometry fixes. Preserve the actual returned image and prompt alongside
+   raw experiment data, credentials, or code. Use at most one initial API
+   blueprint per selected design direction; cheap layout sketches can establish
+   the alternatives first. Reuse it and repair locally rather than repeatedly
+   calling the API for text or geometry fixes. Preserve the actual returned image and prompt alongside
    the drawing source, without credentials. A failed request is not a blueprint.
-4. The active Engineer model reconstructs the design as editable objects, restoring
+4. The active Engineer or assigned figure worker reconstructs the design as editable objects, restoring
    every scientific label, value, branch, and arrow from authoritative sources,
    not from generated image text or geometry. Follow an explicit model choice;
    Method D does not require a particular reconstruction model. Inspect the
@@ -78,7 +165,7 @@ to pause the paper or ask the operator to configure an API.
    do not claim an Office rendering was inspected when it was not.
 
 **Method B is the fallback: direct native PPT design without an image API.**
-The active Engineer studies the references, designs the composition, and uses
+The Engineer or assigned figure worker studies the references, designs the composition, and uses
 the installed PPT Master to create native editable shapes, connectors, and
 text. Follow `engineer/presentation-master.md` for the actual toolkit route.
 Keep the PPTX and its canonical generation source, plus the matching vector
@@ -133,8 +220,8 @@ machinery and unmistakable scientific structure.
   machinery quiet. Use numbered phases only when they clarify reading order.
   Follow the geometry and semantic requirements below.
 
-For a new or aesthetically unsuccessful figure, sketch two genuinely different
-compositions before detailed rendering; choose by scientific reading order,
+For a new or aesthetically unsuccessful figure, use the small candidate batch
+above before detailed rendering; choose by scientific reading order,
 clarity, and economy at the actual paper width. Reuse a good composition during
 local repairs. Do not create a separate process report or ask the operator to
 make routine layout decisions.
@@ -270,8 +357,9 @@ fits the paper's actual claim before drawing anything:
 
 Never deliver an uncorrected one-shot raster as the final claim-bearing figure.
 An optional image blueprint is a design reference, not scientific evidence.
-Emit an editable structured source, render it, inspect the render, and revise
-until it meets the figure requirements.
+Emit an editable structured source, render it, inspect the render, and repair
+identified defects. Once it meets the figure requirements, preserve the selected
+composition and return attention to the science.
 Decompose complex figures — build panels and modules separately, then compose.
 
 | Composition | Primary route |

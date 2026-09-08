@@ -1,6 +1,6 @@
 ---
 name: "Turning results into tables and figures"
-description: "Turn raw outputs into paper tables and figures using PPT Master, HTML/SVG, ECharts, Recharts, Vega, FigureSpec, or the single SciencePlots/Matplotlib approach for data figures."
+description: "Turn raw outputs into tables and figures using native PPT Master or SciencePlots/Matplotlib, with optional HTML/SVG, ECharts, Recharts, Vega, or FigureSpec components inside the chosen route."
 ---
 
 # Turning results into tables and figures
@@ -14,6 +14,18 @@ Conceptual, method, and architecture figures follow
 image blueprint and editable PPT Master reconstruction; **Method B is the
 fallback** using direct native PPT design when D is
 unavailable or unsuitable. Do not introduce a separate SVG workflow.
+
+Scientific analysis is the main work. For a full paper, aim for three figures
+and include at least two distinct, informative scientific figures. Usually these
+explain the mechanism, show the main comparison, and resolve a mechanism or
+scope question through an ablation, diagnostic, or generalization result. Use
+existing evidence, not fabricated or duplicate panels to fill a count.
+
+Delegate substantial drawing or layout work in parallel using the isolated
+candidate workflow in `paper-framework-figure-studio.md`; continue analysis and
+decisive experiments in the main task. The lead Engineer owns selection and
+promotion into the manuscript. Reuse a selected, checked composition; refresh
+affected values from new raw rows without repeatedly redesigning the figure.
 
 ## Analysis
 
@@ -33,8 +45,9 @@ unavailable or unsuitable. Do not introduce a separate SVG workflow.
   for method/architecture pipelines: design meaningful groups and visual
   hierarchy from code and paper, then use PPT Master with an editable PPTX
   and included vector PDF.
-- Use PPT Master, HTML/SVG, ECharts, Recharts, Vega, or FigureSpec for other conceptual
-  and interactive-source figures when appropriate.
+- Keep other conceptual figures on the same native PPT route. ECharts,
+  Recharts, Vega, or HTML/SVG can supply an internal data component; FigureSpec
+  may supply coordinates. They do not create a separate framework workflow.
 - Use real measured values, correct units, conventional axes, readable labels,
   and uncertainty when scientifically relevant.
 - Make the winning comparison and takeaway immediately visible.

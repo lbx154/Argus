@@ -56,6 +56,8 @@ class RunnerOptions:
     # backends use the path-only discovery block in the prompt.
     skill_paths: list[str] | None = None
     extra_args: list[str] | None = None
+    # Host-bound write capability for the independent Reviewer's own report.
+    review_output: dict[str, str] | None = None
     skip_git_repo_check: bool = False
     # Enable codex's native live web_search tool for this call (``codex exec
     # --search``). Off by default; turned on for the research/ideation stage so

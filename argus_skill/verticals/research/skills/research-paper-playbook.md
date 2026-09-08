@@ -90,8 +90,12 @@ do not create a new report or validation-only task.
    is not.
 7. Resolve citations against primary sources and keep claims consistent with
    the executed code and raw results.
-8. Produce editable figure sources, publication-size exports, and a readable
-   rendered paper. For the method pipeline, use
+8. Plan three informative scientific figures for a full paper, with at least
+   two distinct figures. Usually show the mechanism, main comparison, and an
+   ablation, diagnostic, or generalization finding; each answers a different
+   question from real evidence. A table or duplicate panel does not substitute
+   for a scientific figure. Produce editable sources, publication-size exports,
+   and a readable rendered paper. For the method pipeline, use
    `engineer/paper-framework-figure-studio.md`: design the composition from the
    current manuscript and executed code, with meaningful groups, visual hierarchy,
    balanced spacing, restrained scientific colors, and publication-size type.
@@ -102,6 +106,13 @@ do not create a new report or validation-only task.
    targeting page 2 or 3, and keep its canonical editable source.
    Invoke the component only when a figure is needed;
    reuse an existing suitable figure across writing rounds and prose-only edits.
+   When drawing is substantial, use its isolated parallel-candidate workflow
+   while the lead Engineer advances methods, experiments, and the argument.
+   Two or three compositions usually suffice; do not require twelve candidates.
+   The lead alone selects and merges the result. Once it is checked, keep the
+   selected composition and repair only changed science or a concrete defect.
+   Most effort stays on scientific substance; optional cosmetic variations
+   must not dominate the schedule or delay independent scientific review.
 9. Compress after expanding to the manuscript-length target: the final pass removes what serves no explicit
    claim and moves first-pass-unnecessary detail to the appendix while
    protecting every claim, number, named baseline and limit. Then read the

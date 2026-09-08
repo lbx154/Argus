@@ -51,6 +51,16 @@ Use the general mission operation for that scope. The narrower `narrative_edit`
 operation below applies to a prose-only repair; it must not prevent an
 explicitly authorized scientific improvement in a full final review.
 
+Keep most effort on scientific substance. Identify the next decisive method,
+baseline, experiment, or analysis while substantial figure work runs in isolated
+parallel tasks through `engineer/paper-framework-figure-studio.md`. These bounded
+figure tasks may have their own Engineer–Reviewer loop; they judge only their
+candidate artifact and do not duplicate the host's full-paper assessments.
+The main Engineer owns the final scientific meaning, selection, and merge.
+Review the current science while candidate drawings are in progress; defer only
+the affected final figure inspection. A cosmetic search must not keep an
+otherwise acceptable paper in an endless loop.
+
 1. Preserve the pre-edit manuscript source closure and rendered PDF in internal
    mission state; do not use Git as the scientific baseline.
 2. Run `narrative_edit` as a fresh-context Engineer operation. Start from the
@@ -114,6 +124,18 @@ palette and precise mathematical typography.
 Regenerate the included PDF. A successful
 render or font check alone does not establish that the figure is visually sound.
 
+A full paper should aim for three informative figures and include at least two
+distinct scientific figures, usually the mechanism, main comparison, and an
+ablation, diagnostic, or generalization result. Judge their contribution to
+understanding; ask for a missing scientific view rather than decorative filler
+or a duplicated plot. Once a selected figure has passed fidelity and
+publication-size inspection, close the finding and preserve its composition.
+Reopen it only for a changed scientific quantity or mechanism, a specific
+remaining or introduced defect, or explicit operator feedback. If a color or
+spacing preference does not affect clarity and the composition already meets
+the agreed visual standard, leave it alone. Update a changed data panel without
+redrawing the unaffected method figure.
+
 Find that a paper does not hold yet if it meets the technical requirements but
 is unimportant, timid, visually unfinished, or organized around caveats instead
 of contribution. Do not demand defensive qualifications that the evidence
@@ -133,13 +155,15 @@ be repeated after every number. Keep unaffected passages intact.
 
 ## Recording the judgment
 
-`paper/REVIEW.md` contains `Scientific:`, `Visual:`, and `Language:` assessments,
-the strongest case for a venue reviewer to accept the paper, issues that would
-justify rejection at the venue, the integrated Reviewer's judgment, and the
-next action. The paper is complete only when the integrated Reviewer finds
-that it holds and reports the corresponding result:
-
-`done`
+The integrated Reviewer edits its own `paper/REVIEW.md` each round, replacing
+stale feedback with a current assessment of the science, figures, and language,
+the strongest case for acceptance, remaining rejection-level issues, its
+judgment, and a constructive next action. Write this naturally; no fixed section
+labels or output structure are required. Resolved findings stay closed rather
+than being copied forward as active objections. State the current venue
+recommendation and whether substantive repairs remain in ordinary language.
+The host interprets that judgment to continue revision or complete the mission;
+Reviewer does not need to emit a workflow token or decision footer.
 
 At this final stage, completion also requires an explicit independent
 recommendation for the currently selected venue. Explain it naturally in the

@@ -25,6 +25,7 @@ export function ArtifactModal({
   deliveries = [],
   onSelectDelivery,
   onSelectPath,
+  reviewActivity,
 }: {
   sid: string | null;
   path: string | null;
@@ -33,6 +34,7 @@ export function ArtifactModal({
   deliveries?: DeliveryReceipt[];
   onSelectDelivery?: (receipt: DeliveryReceipt) => void;
   onSelectPath?: (path: string) => void;
+  reviewActivity?: 'revising' | 'reviewing';
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -47,6 +49,7 @@ export function ArtifactModal({
   const [expanded, setExpanded] = useState(false);
   const [pdfOrientation, setPdfOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const pdfPreview = info?.kind === 'pdf' || path?.toLowerCase().endsWith('.pdf') === true;
+  const reviewDocument = Boolean(path && /(?:^|[\\/])REVIEW\.md$/i.test(path));
 
   useEffect(() => {
     if (!path || !pdfPreview) return;
@@ -173,6 +176,14 @@ export function ArtifactModal({
         ) : null}
         {info && markdownPreview ? (
           <div className="min-h-52 overflow-auto rounded-lg border border-line bg-bg p-4 text-sm text-ink-dim scroll-thin">
+            {reviewDocument && <div className="mb-4 border-b border-line pb-3 text-xs leading-5 text-ink-faint" role="status">
+              {reviewActivity === 'revising'
+                ? (zh ? '正在根据这份意见修改论文，修改后的版本尚待复审。' : 'The paper is being revised against this opinion; the revised version awaits review.')
+                : reviewActivity === 'reviewing'
+                  ? (zh ? 'Reviewer 正在更新本轮审稿意见，内容会自动刷新。' : 'The Reviewer is updating this round’s opinion. This file refreshes automatically.')
+                  : (zh ? '这是最近保存的审稿意见，文件更新后会自动刷新。' : 'This is the latest saved review. Changes to this file appear automatically.')}
+              {info.mtime != null && <div>{zh ? '最近更新：' : 'Last updated: '}{new Date(info.mtime * 1000).toLocaleString(locale)}</div>}
+            </div>}
             <MarkdownContent artifacts={files.map((file) => ({ path: file.path }))} onOpenArtifact={onSelectPath}>{info.preview || t('artifact.empty')}</MarkdownContent>
           </div>
         ) : null}

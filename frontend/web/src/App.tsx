@@ -376,6 +376,10 @@ export default function App() {
     () => snap ? projectMissionView(snap, activityEvents, artifactsQ.data ?? []) : null,
     [activityEvents, artifactsQ.data, snap],
   );
+  const reviewActivity = snap?.daemon.alive && missionView?.routing.vertical === 'research'
+    ? missionView.active_role.startsWith('reviewer') ? 'reviewing'
+      : missionView.active_role.startsWith('engineer') ? 'revising' : undefined
+    : undefined;
   const conversationDelivery = useMemo(
     () => latestConversationDelivery(activityEvents),
     [activityEvents],
@@ -857,6 +861,7 @@ export default function App() {
         key={`${deliveryCenter.selection.sid}:${deliveryCenter.selection.receipt.delivery_id}`}
         sid={deliveryCenter.selection.sid} path={deliveryCenter.selection.path}
         delivery={deliveryCenter.selection.receipt} deliveries={deliveryHistory}
+        reviewActivity={deliveryCenter.selection.sid === loadedSid ? reviewActivity : undefined}
         onSelectDelivery={openDelivery} onSelectPath={deliveryCenter.selectPath} onClose={deliveryCenter.close}
       />}
       {!kiosk && sidebarOpen ? (
@@ -1123,7 +1128,9 @@ export default function App() {
           }}
         />
       ) : null}
-      <ArtifactModal sid={activeSid} path={artifactPath} onClose={() => setArtifactPath(null)} />
+      <ArtifactModal sid={activeSid} path={artifactPath}
+        reviewActivity={activeSid === loadedSid ? reviewActivity : undefined}
+        onClose={() => setArtifactPath(null)} />
       <TaskDetailModal
         sid={activeSid}
         itemId={taskItemId}

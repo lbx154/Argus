@@ -9,8 +9,9 @@ from argus_skill.skills.vertical_select import persist_vertical
 
 
 class _Backend:
-    def __init__(self, status: str) -> None:
+    def __init__(self, status: str, venue_review: dict | None = None) -> None:
         self.status = status
+        self.venue_review = venue_review
         self.prompt = ""
         self.options = None
 
@@ -24,6 +25,7 @@ class _Backend:
                 "reason": "Independent judgment from the inspected evidence.",
                 "next_action": "" if self.status == "done" else "Choose a better direction.",
                 "operator_question": None,
+                "venue_review": self.venue_review,
             })],
         )
 
@@ -63,8 +65,20 @@ def test_research_target_is_prompt_context_not_output_schema(tmp_path: Path) -> 
 def test_reviewer_verdict_is_not_rewritten_from_formal_result_labels(
     tmp_path: Path,
 ) -> None:
-    persist_vertical(tmp_path, "research", research_target_level="doctoral")
-    backend = _Backend("done")
+    persist_vertical(
+        tmp_path, "research", research_target_level="doctoral", target_venue="ICLR",
+    )
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "main.tex").write_text("Current manuscript")
+    (paper / "main.pdf").write_bytes(b"Current rendered paper")
+    # The aspirational target must not override an independent acceptance of
+    # the current paper. Final submission still needs an actual venue judgment.
+    backend = _Backend("done", {
+        "venue": "ICLR", "recommendation": "weak_accept",
+        "acceptance_clear": True, "rationale": "The current evidence supports acceptance.",
+        "blocking_issues": [], "revision_required": False,
+    })
     decision = Reviewer(backend).evaluate(
         objective="judge the current result",
         round_index=1,
@@ -76,3 +90,4 @@ def test_reviewer_verdict_is_not_rewritten_from_formal_result_labels(
     )
 
     assert decision.status == "done"
+    assert decision.final_submission_certified

@@ -42,7 +42,7 @@ Write down, before any section:
 - the contribution claims, each paired with the results subsection, figure or
   table that will carry its evidence;
 - the figure and table plan (Figure 1 explains the idea or mechanism; the first
-  table carries the main result), and the page budget per section under the
+  table normally carries the main result), and the page budget per section under the
   venue's limit. Apply "Plan the manuscript length" in
   `research-paper-playbook.md`: a full-length paper defaults to using nearly all
   permitted body space, with official counting rules and a section budget.
@@ -103,8 +103,12 @@ Include every intended claim-bearing experiment, figure, table, and citation.
 
 ## 3. Figures and tables
 
-Every figure and table carries a scientific claim. Figure 1 should explain the
-method or central mechanism. Table 1 should normally present the main
+Every figure and table carries a scientific claim. For a full paper, aim for
+three informative figures and include at least two distinct scientific figures.
+Figure 1 should explain the method or central mechanism; the others normally
+show the main comparison and an ablation, diagnostic, or generalization result.
+Choose distinct questions from actual evidence, without decorative filler or
+renumbered pieces of one diagram. Table 1 should normally present the main
 quantitative result. For a method pipeline, open `paper-framework-figure-studio.md`
 and design the current code and paper as a composed, grouped figure through
 PPT Master; keep the native editable PPTX and include its vector PDF export.
@@ -115,6 +119,13 @@ conditions that matter, and the decisive number when the number is the point or
 the pattern when the pattern is the point. The visual carries the complete
 matrix; the caption identifies its reader-facing structure rather than reading
 every cell aloud.
+
+Keep most effort on scientific contribution, experiments, and explanation.
+Substantial drawing can run in isolated parallel tasks through the figure
+studio while the lead continues that work. The lead Engineer selects and
+integrates the best faithful candidate, then preserves the checked composition.
+New prose or a new review round does not justify another design search; update
+only changed science or a concrete figure defect.
 
 ## 4. Files and finish
 

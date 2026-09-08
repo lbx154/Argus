@@ -475,6 +475,8 @@ def _parallel_final_review_passes(
 def _persist_research_review(
     decision: ReviewDecision,
     config: "ReviewerConfig",
+    *,
+    authored_text: str | None = None,
 ) -> None:
     """Overwrite the one research review file at the Review stage."""
     workdir = Path(config.working_dir or ".").expanduser().resolve()
@@ -533,7 +535,7 @@ def _persist_research_review(
     path = artifact_root / "paper" / "REVIEW.md"
     from ..manager.source_writeback import atomic_write
 
-    atomic_write(path, text)
+    atomic_write(path, authored_text if authored_text is not None else text)
 
     from ..core.pipeline_state import read_pipeline_state, write_pipeline_state
 
@@ -756,6 +758,28 @@ class Reviewer:
             "" if resume else static,
             (_REEVALUATE_HEADER + delta_base) if resume else delta_base,
         )
+        review_output = None
+        review_output_dir = None
+        authored_review = None
+        if venue_required and str(getattr(self.runner, "backend", "")).lower() == "copilot":
+            from tempfile import TemporaryDirectory
+
+            review_output_dir = TemporaryDirectory(prefix="argus-review-output-")
+            review_output = {
+                "path": str(Path(artifact_root).resolve() / "paper" / "REVIEW.md"),
+                "receipt": str(Path(review_output_dir.name) / "written.json"),
+            }
+            prompt += (
+                "\n\nYou own the single report paper/REVIEW.md and have explicit permission "
+                "to edit it through argus_review's read_review and write_review tools. "
+                "This is the sole exception to the read-only review instructions. "
+                "Read the preceding opinion when useful, then replace it with this round's "
+                "complete current assessment in natural prose. Confirm resolved issues and "
+                "give constructive next experiments that strengthen the contribution. "
+                "Do not create a second review report or modify the manuscript, code, "
+                "figures, or experiment data. Your written report is the authoritative "
+                "review text; after saving it, your final reply can simply confirm the update."
+            )
         try:
             result = gateway_run_exec(
                 self.runner,
@@ -764,14 +788,15 @@ class Reviewer:
                 options=RunnerOptions(
                     model=config.model,
                     reasoning_effort=config.reasoning_effort,
-                    # Reviewer is an independent read-only judge. It must never
-                    # repair evidence, curate Wiki pages, or edit checkpoints.
+                    # Only its report is writable through review_output. The
+                    # independent judge must not repair evidence or checkpoints.
                     dangerous_yolo=False,
                     full_auto=False,
                     sandbox_mode="read-only",
                     isolate_workdir=False,
                     skip_git_repo_check=config.skip_git_repo_check,
                     extra_args=list(config.extra_args) if config.extra_args else None,
+                    review_output=review_output,
                     skill_paths=native_skill_paths,
                     working_dir=config.working_dir,
                     # Search is available for the rare turn that proposes a
@@ -780,6 +805,10 @@ class Reviewer:
                 ),
                 run_label="reviewer",
             )
+            if review_output and result.exit_code == 0 and not getattr(result, "fatal_error", None):
+                from .review_file import ReviewFileStore
+
+                authored_review = ReviewFileStore(**review_output).authored_review()
         except Exception as exc:  # noqa: BLE001
             msg = f"Reviewer runner raised {type(exc).__name__}: {exc}"
             log.exception("reviewer runner raised")
@@ -790,6 +819,9 @@ class Reviewer:
                 backend_unavailable=True,
                 backend_stop_kind="backend_unavailable",
             )
+        finally:
+            if review_output_dir is not None:
+                review_output_dir.cleanup()
         rev_in = int(getattr(result, "input_tokens", 0) or 0)
         rev_cached = int(getattr(result, "cached_input_tokens", 0) or 0)
         rev_out = int(getattr(result, "output_tokens", 0) or 0)
@@ -833,13 +865,14 @@ class Reviewer:
                 backend_exit_code=result.exit_code,
                 backend_stop_kind=backend_stop_kind,
             )
-        process_decision = latest_role_decision(result, "reviewer")
+        process_decision = None if authored_review is not None else latest_role_decision(result, "reviewer")
         # A recorded decision is already structured; reading it directly keeps
         # the runtime from serialising its own payload back to JSON text and
         # re-parsing that. `decision_messages` stays the evidence quoted back to
         # the operator when nothing parses.
         decision_messages = (
-            [json.dumps(process_decision, ensure_ascii=True)]
+            [authored_review] if authored_review is not None
+            else [json.dumps(process_decision, ensure_ascii=True)]
             if process_decision is not None
             else result.agent_messages
         )
@@ -945,7 +978,7 @@ class Reviewer:
             )
             if parsed.backend_unavailable:
                 return parsed
-        _persist_research_review(parsed, config)
+        _persist_research_review(parsed, config, authored_text=authored_review)
         return parsed
 
     def _render(

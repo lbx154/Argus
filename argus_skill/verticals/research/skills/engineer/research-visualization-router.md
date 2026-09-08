@@ -10,12 +10,26 @@ default Method D with Method B as the fallback, through
 `paper-framework-figure-studio.md`. Keep the editable source and final included
 export. Quantitative plots remain on their data-figure route.
 
+Keep most effort on methods, experiments, and scientific interpretation.
+For substantial drawing work, use the isolated parallel-candidate workflow in
+`paper-framework-figure-studio.md` while the lead advances the science. The
+lead selects and merges one checked result; retain its composition across
+rounds unless scientific content, a concrete defect, or operator feedback
+requires a change. Cosmetic alternatives alone do not hold up the paper.
+
 ## What Figure 1 must show
 
 Every complete paper needs a real Figure 1 that communicates the problem,
 mechanism, and claim-bearing flow at a glance. Embed an exported PDF, SVG, or
 high-resolution PNG through `\includegraphics` or `\includesvg`; a boxed
 paragraph or table inside a figure environment does not count.
+
+For a full paper, aim for three informative figures and include at least two
+distinct scientific figures: normally a mechanism overview, a main result,
+and a diagnostic, ablation, or generalization result. Each figure should answer
+a different scientific question. Keep a partial-paper or single-figure request
+within its scope; never invent evidence or split one graphic merely to fill
+the count.
 
 ## Choose from what the figure needs to express
 
@@ -61,8 +75,9 @@ float placement does not require redrawing the figure.
 - Make the caption explain definitions and interpretation rather than repeat the
   graphic.
 
-For browser figures, keep assets local, disable animation, use fixed dimensions,
-and render the existing SVG or a PDF:
+For browser-rendered data components inside the chosen route, keep assets
+local, disable animation, use fixed dimensions, and render the existing SVG or
+a PDF:
 
 ```bash
 RENDER=$(find "$ARGUS_SKILL_HOME" . -name browser_render.py \
@@ -79,5 +94,6 @@ rather than trigger `figure root contains no SVG`.
 
 Paper is responsible for complete figures and a successful manuscript compile,
 not a separate visual check. During final Review, inspect every page and every
-figure at actual publication size; repair the source and rerender until the
-strict visual assessment and integrated review find that the paper holds.
+figure at actual publication size, close resolved findings, and repair specific
+remaining fidelity or readability problems. Preserve already approved
+compositions while the integrated Reviewer judges the current science and paper.
