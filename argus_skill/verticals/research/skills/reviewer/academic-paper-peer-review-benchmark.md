@@ -28,6 +28,13 @@ integrated judgment is written only to `paper/REVIEW.md`.
    algorithm. Passing numerical tests is not a proof for all admissible inputs;
    conversely, do not demand a theorem for a purely empirical claim. A useful
    repair identifies the missing argument or decisive counterexample to examine.
+   Check the claimed execution boundary as well as final output equality. An
+   online method must produce each decision using information available then;
+   offline replay with future context or channel data does not establish it.
+   Required side information needs a realizable source and consistent cost.
+   Block sizes, framing, delay and setup amortization must describe the same
+   deployment. A component microbenchmark cannot establish a whole-loop claim;
+   propose the smallest real-interface experiment that can test that claim.
 3. **Evidence** — results establish the stated contribution, and the strongest
    same-information published baseline receives a fair comparison. Match relevant
    implementation maturity, batching, precision and resource accounting; a slower

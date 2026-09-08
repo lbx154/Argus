@@ -30,6 +30,17 @@ with different selection rules or states do not isolate a component interaction.
 Start with a decisive paired pilot, then confirm the claim's intended scope;
 preserve adverse and null cells instead of selecting only the favorable pairs.
 
+Match the execution boundary and information timeline to the claim. For an
+online protocol, run each decision with only the context and transmitted data
+available by that point; complete-trace reconstruction does not establish that
+the receiver could act on time. Keep validation-only future data out of the
+decision path. Show how required side information reaches the actual receiver,
+and include its cost unless the declared interface really provides it. Align
+block lengths, framing, termination, latency and setup amortization with the
+deployment being measured. For a whole-system claim, exercise the actual loop,
+including its terminal or bonus decisions, and distinguish component timing
+from full-loop performance. Start with a meaningful pilot of that interface.
+
 ## How to develop the evidence
 
 1. Read the research notes in `RESEARCH_NOTES.md` and trace every load-bearing thesis element to concrete

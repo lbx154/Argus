@@ -1878,3 +1878,21 @@ The experiment guide now distinguishes launcher status from real producer
 liveness and cautions against interrupting healthy CPU work for minor speedups.
 Operational receipts and the one continuation nudge are under
 `coherent-science-rollout/orphaned-direct-runs/` in the paper audit directory.
+
+## 36. Test the claimed information timeline and execution boundary (2026-09-08 UTC)
+
+CBC's latest compact coder reproduced the offline records but decoded an entire
+split at once, which did not establish the paper's per-step causal interface.
+Diamond's proof-path improvement transferred to natural inputs, but its full
+cached-decoding boundary still needs testing against the fastest matched dense
+path. Both Engineers are now implementing these scientific experiments themselves.
+
+The experiment and scientific review guides explicitly connect the claim to its
+execution boundary: information must be available at the actual decision time,
+side information must have a realizable source and consistent cost, and framing,
+block size, delay and setup amortization must describe the same deployment.
+Whole-trace reconstruction does not prove timely online action; a component
+microbenchmark does not prove a whole-loop claim. The guides call for a meaningful
+pilot of the claimed interface, without imposing unrelated application tests or
+new structured review output. The 48-test policy/protocol/natural-review group
+passed (`/tmp/argus-causal-execution-guidance-tests-20260908.log`).
