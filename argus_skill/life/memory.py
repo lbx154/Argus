@@ -1798,6 +1798,44 @@ class Backlog:
                 _append_jsonl(self.archive_path, [archived.to_jsonable()])
             return archived
 
+    def record_acceptance_dependency_assessment(
+        self,
+        item_id: str,
+        *,
+        expected_fingerprint: str,
+        expected_started_ts: float | None,
+        expected_owner: str,
+        assessment: dict[str, Any] | None,
+    ) -> tuple[BacklogItem | None, bool]:
+        """Merge a preflight result only while the same claimed contract holds."""
+        from ..core.acceptance_dependencies import (
+            CACHE_KEY,
+            contract_fingerprint,
+            mission_acceptance_contract,
+        )
+
+        with self._locked():
+            items = self._load()
+            current = next((row for row in items if row.id == item_id), None)
+            if current is None or current.status != "running" or (
+                current.started_ts != expected_started_ts or current.running_owner != expected_owner
+            ):
+                return current, False
+            if contract_fingerprint(mission_acceptance_contract(current)) != expected_fingerprint:
+                # This preflight did no Engineer work. Release only its own
+                # claim so the next tick handles the newly supplied contract.
+                current.status = "pending"
+                current.started_ts = None
+                current.running_owner = ""
+                self._save(items)
+                return current, False
+            decision = dict(current.manager_decision or {})
+            if assessment is not None and decision.get(CACHE_KEY) != assessment:
+                decision[CACHE_KEY] = assessment
+                current.manager_decision = decision
+                self._save(items)
+            return current, True
+
     def continue_with_operator_reply(
         self,
         item_id: str,

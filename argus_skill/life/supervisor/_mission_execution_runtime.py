@@ -564,6 +564,13 @@ class MissionExecutionRuntimeMixin:
         item = state.item
         state.t0 = time.time()
         try:
+            from ._acceptance_guard import acceptance_guard_outcome
+
+            guarded = acceptance_guard_outcome(self, state)
+            if guarded is not None:
+                state.outcome = guarded
+                state.elapsed = time.time() - state.t0
+                return
             execute_kwargs: dict[str, Any] = {
                 "objective": item.objective,
                 "sink": state.cost_sink,

@@ -98,6 +98,16 @@ class MissionExecutionMixin(
         self._invoke_mission_runner(state)
         self._derive_basic_outcome_fields(state)
 
+        if getattr(state.outcome, "acceptance_assessment_superseded", False):
+            # Preflight lost its contract/claim while the provider was running.
+            # Meter that call, then leave the current task untouched. In
+            # particular, never settle the newer task using this old outcome.
+            return {
+                "success": False, "status": "claim_lost", "item_id": item.id,
+                "recoverable": True, "stop_reason": state.stop_reason,
+                "cost_usd": state.usd, "known_cost_usd": state.known_usd,
+            }
+
         paused_result = self._maybe_pause_for_recoverable_stop(state)
         if paused_result is not None:
             return paused_result
