@@ -1,14 +1,69 @@
 ---
 name: "Composing a conceptual paper figure"
-description: "Create one publication-ready conceptual figure from the current paper and direct evidence, composed as strong published figures are."
+description: "Default to Method D: reference figures, an image-API design blueprint, and editable PPT Master reconstruction; use Method B local vector drawing as the fallback."
 ---
 
 # Composing a conceptual paper figure
 
 Use this in Paper for Figure 1 or another conceptual, method, architecture, or
 taxonomy figure. Read the research notes in `RESEARCH_NOTES.md`, the current manuscript, the executed method,
-and direct result sources. Create only the editable figure source and the final
-export included by the paper.
+and direct result sources. Keep the editable figure source and the final
+export included by the paper, plus the actual design blueprint and prompt when
+Method D is used.
+
+## Default Method D; fallback Method B
+
+This is the routing contract for conceptual, method, architecture, taxonomy,
+teaser, and graphical-abstract figures. Quantitative charts, including the data
+panel of a mixed figure, stay on the SciencePlots/Matplotlib route.
+An explicit operator choice overrides the default.
+
+**Method D is the default: reference figures -> image-API design blueprint ->
+editable SVG reconstruction -> native PPTX through PPT Master -> paper export.**
+
+1. Reuse an existing suitable figure or blueprint before creating another.
+   A prose-only edit, compile, or new Review round does not justify regeneration.
+   Ground labels and connections in the current manuscript and executed method.
+   Inspect suitable published reference figures before generating a new
+   blueprint; learn their composition without copying artwork. Keep source
+   pointers in the existing research notes, not an exemplar collection.
+2. Check the configured image route, disclosure authorization, available budget,
+   and installed PPT Master via `engineer/presentation-master.md`. This default
+   does not authorize spending beyond the task budget, uploading confidential
+   material, changing providers, or installing tools. If a prerequisite is
+   unavailable or the task's privacy, time, or output constraints rule it out,
+   use Method B and state the concrete reason in the existing research notes
+   or task response. If the operator explicitly requires Method D only or an
+   output format the fallback cannot deliver, surface the blocker instead of
+   silently substituting another method.
+3. Use `paper-illustration-image2.md` to generate a visual design blueprint from
+   a minimal disclosure-safe prompt. Do not upload a whole private manuscript,
+   raw experiment data, credentials, or code. Start with one candidate; reuse it
+   and repair locally rather than repeatedly calling the API for text or
+   geometry fixes. Preserve the actual returned image and prompt alongside
+   the drawing source, without credentials. A failed request is not a blueprint.
+4. The active Engineer model reconstructs the design as editable SVG, restoring
+   every scientific label, value, branch, and arrow from authoritative sources,
+   not from generated image text or geometry. Follow an explicit model choice;
+   Method D does not require a particular reconstruction model. Inspect the
+   actual image rather than claiming that a local drawing used an API.
+5. Follow `engineer/presentation-master.md` and its installed upstream workflow
+   to export native editable PPTX objects. Do not paste the blueprint as a
+   whole-slide raster and call it editable. Retain the upstream-required source
+   and export files, and include a publication-ready vector PDF in the paper.
+6. Inspect the rendered figure at the actual publication width, repair the
+   editable source, and rerender. Check native PPTX text and object editability.
+   If PDF/PNG previews come from SVG rather than a PowerPoint render, say so;
+   do not claim an Office rendering was inspected when it was not.
+
+**Method B is the fallback: direct local vector drawing without an image API.**
+The active model designs the figure and writes SVG or local drawing code
+(for example, Python/PyMuPDF). For method pipelines use
+`research-svg-pipeline.md`; for other compositions use the suitable local
+vector tools below. Keep editable source and the included vector export.
+Method B does not require PPT Master or image-generation credentials. It must
+preserve the same scientific fidelity and publication-size readability as D;
+never relabel a Method B drawing as an API-assisted reconstruction.
 
 ## Choose a composition archetype first
 
@@ -57,9 +112,10 @@ fits the paper's actual claim before drawing anything:
 
 ## Geometry and typography
 
-- one entry point and one exit, with a single dominant left-to-right reading
-  direction; return or training arrows are the permitted exception and must
-  look different (dashed or a distinct color);
+- a clear reading order: use a dominant left-to-right flow for a real pipeline,
+  but keep parallel analyses and alternatives parallel rather than inventing a
+  serial dependency; return or training arrows must look different (dashed or
+  a distinct color);
 - connectors terminate at explicit node boundaries; no shaft or arrowhead
   enters an unrelated node, label, or panel; if arrows must cross, fix the
   layout rather than the arrows;
@@ -79,12 +135,16 @@ fits the paper's actual claim before drawing anything:
 
 ## From an editable source to the finished figure
 
-Never generate the figure as a raster image in one shot: emit an editable
-structured source, render it, inspect the render, and revise until it meets
-the figure requirements.
+Never deliver the final claim-bearing figure as an uncorrected one-shot raster.
+Method D's generated image is a design reference, not scientific evidence.
+Emit an editable structured source, render it, inspect the render, and revise
+until it meets the figure requirements.
 Decompose complex figures — build panels and modules separately, then compose.
 
-| Composition | Primary route |
+The following local tools support Method B or exact subcomponents of a Method D
+reconstruction; they do not override the default above.
+
+| Composition | Local vector tool |
 |---|---|
 | Pipeline strip or method architecture | Drawing the method in SVG (`research-svg-pipeline.md`): model-authored compact horizontal SVG grounded in code and paper, staggered geometry, Times New Roman, cropped vector PDF export |
 | Contrast diptych, lineage panels | Editable native objects through PPT Master; for a contrast diptych draw one diagram and apply the delta programmatically so the panels are guaranteed identical except the edit |
@@ -97,6 +157,7 @@ reading direction, one highlighting device, decodable legend, text budget,
 notation match, font size, no crossings, and a caption with takeaway, panel
 walk, and color decode.
 
-Paper needs a complete, credible figure and a successful compile. Do not create
+Paper needs a complete, credible figure and a successful compile. Apart from
+the actual blueprint/prompt and upstream-required project files, do not create
 layout reports, exemplar collections, provenance records, or visual-review
 files. The strict page-by-page visual judgment is made once, in Review.

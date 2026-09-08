@@ -6,7 +6,8 @@ description: "Choose a renderer that faithfully represents the evidence for each
 # Choosing how to draw a research figure
 
 Use this in Paper before creating a figure. Choose the renderer from the
-figure's semantics, then create only its source and final included export.
+figure's semantics, then keep its source and final included export. For Method D,
+also retain the actual API blueprint and prompt with the source.
 
 ## What Figure 1 must show
 
@@ -20,23 +21,26 @@ paragraph or table inside a figure environment does not count.
 | Need | Route |
 |---|---|
 | Any paper data/metric/result chart, including uncertainty or ablation | Matplotlib/SciencePlots through Styling data figures for publication |
-| Method pipeline or architecture overview | Drawing the method in SVG: synthesize compact horizontal SVG from the current code and paper, with staggered layout and Times New Roman |
-| Other conceptual or teaser figure | Composing a conceptual paper figure; editable native PPTX through PPT Master when appropriate |
-| Exact load-bearing topology | FigureSpec, Draw.io, Graphviz, or browser SVG |
-| Rich browser composition | Self-contained HTML/CSS/SVG rendered with `research_visual_scripts/browser_render.py` |
+| Conceptual, method pipeline, architecture, taxonomy, or teaser figure | Composing a conceptual paper figure: default Method D, image-API blueprint followed by editable native PPTX through PPT Master; Method B local vector drawing is the fallback |
+| Exact load-bearing topology | Preserve exact connections during D reconstruction; FigureSpec, Draw.io, Graphviz, or browser SVG can supply exact subcomponents or the Method B fallback |
+| Rich browser composition | Self-contained HTML/CSS/SVG rendered with `research_visual_scripts/browser_render.py` as a local vector tool, not a competing default for concept figures |
 | Non-claim-bearing illustrative asset | image-2 only when configured; compose it inside an editable deterministic figure |
 
 Topology fidelity takes priority over decorative richness. A polished Figure 1
 does not need depth, icons, or decorative complexity. Never use generated image
 text or geometry for scientific labels, arrows, values, or branch conditions.
 
-For the default method-pipeline route, open `research-svg-pipeline.md` and use
-`python -m argus_skill.verticals.research.pipeline_figure`. The active model
-designs the SVG; the tool crops outside whitespace, verifies Times New Roman,
-and exports a vector PDF for the manuscript. Image-generation credentials and
-PPT software are unnecessary for this route.
-Use it only when the figure actually needs drawing; reuse an existing suitable
-SVG/PDF across rounds. Include the PDF after Introduction, preferably on page
+For conceptual figures, open `paper-framework-figure-studio.md` for the canonical
+Method D / Method B contract, including reference inspection, authorized image
+generation, editable reconstruction, and explicit fallback disclosure. Do not
+silently choose local drawing while describing it as API-assisted.
+For a Method B method pipeline, `research-svg-pipeline.md` and
+`python -m argus_skill.verticals.research.pipeline_figure` remain available:
+the active model designs a compact horizontal SVG, and the tool crops it,
+verifies Times New Roman, and exports a vector PDF without image credentials
+or PPT software. These renderer-specific requirements do not apply to Method D.
+Draw only when needed; reuse an existing suitable figure or blueprint across
+rounds. Include the method overview PDF after Introduction, preferably on page
 2 or 3; a LaTeX placement adjustment does not require redrawing the figure.
 
 ## Shared requirements

@@ -144,12 +144,11 @@ def test_research_data_figures_have_one_renderer_path() -> None:
     assert "single SciencePlots/Matplotlib data-figure path" in normalized_analysis
     assert "Any paper data/metric/result chart" in normalized_router
     assert (
-        "Other conceptual or teaser figure | "
-        "Composing a conceptual paper figure"
+        "Conceptual, method pipeline, architecture, taxonomy, or teaser figure | "
+        "Composing a conceptual paper figure: default Method D"
     ) in normalized_router
-    assert (
-        "Method pipeline or architecture overview | Drawing the method in SVG"
-    ) in normalized_router
+    assert "Method B local vector drawing is the fallback" in normalized_router
+    assert "For a Method B method pipeline" in normalized_router
 
 
 def test_chart_skill_has_no_builtin_venue_api() -> None:

@@ -1,6 +1,22 @@
 # Research SVG pipeline figures
 
-Research Paper now uses **Research SVG Pipeline** for method and architecture
+Research concept, method, and architecture figures default to **Method D**:
+inspect reference figures, obtain an authorized image-API design blueprint,
+then reconstruct editable SVG and native PPTX through PPT Master and export a
+vector PDF for the paper. See the canonical
+[`paper-framework-figure-studio.md`](../argus_skill/verticals/research/skills/engineer/paper-framework-figure-studio.md)
+contract. The active reconstruction model is not fixed by this workflow.
+
+**Method B**, direct local vector drawing, is the fallback when D is unavailable
+or unsuitable under the task's budget, privacy, time, or output constraints.
+Disclose why B was used; never describe a local drawing as API-generated.
+An explicit D-only or native-PPTX request must surface missing prerequisites
+rather than silently fall back to an incompatible deliverable. Preserve the
+actual D blueprint and prompt without credentials; never take scientific labels,
+data, or connections from generated imagery. Quantitative charts continue to use
+SciencePlots/Matplotlib, not image generation.
+
+**Research SVG Pipeline** is the Method B renderer for method and architecture
 diagrams. The current Engineer model reads the manuscript and executed method
 code, designs a compact horizontal SVG with staggered modules and Times New
 Roman, then renders a vector PDF for the paper. This uses the existing Engineer
@@ -37,8 +53,9 @@ method, not an evaluated research result.
 
 ## Use in a research project
 
-The Paper playbook, visualization router and Engineer prompt point to
-`engineer/research-svg-pipeline.md`. It is packaged with the Research vertical.
+The Paper playbook, visualization router and Engineer prompt select Method D
+first and point to `engineer/research-svg-pipeline.md` for the Method B pipeline
+fallback. Both skills are packaged with the Research vertical.
 The existing integrated Review checks the drawing against the code and paper
 and judges its rendered layout. There is no extra stage or review record.
 

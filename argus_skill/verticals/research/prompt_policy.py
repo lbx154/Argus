@@ -602,13 +602,17 @@ def _engineer_fragment(
             _hardware_block_for_stage(stage, project_root),
             narrative_packaging,
             (
-                "## On-demand method figure\n"
-                "Only when a method pipeline needs drawing, open "
-                "engineer/research-svg-pipeline.md and use "
-                "python -m argus_skill.verticals.research.pipeline_figure. "
+                "## On-demand concept figure\n"
+                "Only when a conceptual, method, or architecture figure needs drawing, "
+                "open engineer/paper-framework-figure-studio.md. Default to Method D: "
+                "reference figures, an authorized image-API design blueprint, then "
+                "editable SVG reconstruction and native PPTX through PPT Master. "
+                "Method B direct local vector drawing is the disclosed fallback; "
+                "engineer/research-svg-pipeline.md provides its pipeline renderer. "
                 "Reuse an existing suitable figure; do not invoke the component every "
-                "round or for prose-only edits. The current Engineer designs the SVG "
-                "from code and manuscript; no separate model call is needed. Include "
+                "round or for prose-only edits. Reuse a suitable blueprint without "
+                "another paid request. Follow the skill's budget, privacy, model-choice "
+                "and fallback requirements; generated content is not evidence. Include "
                 "the vector PDF after the Introduction, targeting page 2 or 3 in the "
                 "compiled paper, and keep the editable SVG source."
                 if stage == "paper" and not narrative_edit else ""

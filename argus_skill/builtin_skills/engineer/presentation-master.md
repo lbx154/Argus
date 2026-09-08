@@ -1,6 +1,6 @@
 ---
 name: "PPT Master for Presentations and Paper Figures (Argus adapter)"
-description: "Use the installed hugohe3/ppt-master workflow for the research vertical's default LiveFigure-style procedural native-PPTX research-paper conceptual figure route, as well as editable PPTX decks and templates. It remains usable when image-2 is unavailable."
+description: "Use the installed hugohe3/ppt-master workflow for Method D research-paper conceptual figure reconstruction, as well as native PPTX decks and templates. PPT conversion remains usable when image-2 is unavailable."
 ---
 
 # PPT Master — Argus Adapter
@@ -11,10 +11,12 @@ to commit `2e29f3d3cfc379c689b07027d0fa776b9ff79291`.
 
 ## When to use
 
-For research-paper conceptual figures, use PPT Master as the renderer for the
-LiveFigure-style default: evidence-bound semantic contract, same-domain
-exemplar/style retrieval, multiple layout plans, procedural native objects,
-rendered visual critique, and bounded source-level repair. Paper-facing uses
+For research-paper conceptual figures, use PPT Master for Method D's editable
+reconstruction after reference inspection and an authorized image-API design
+blueprint. The canonical routing and fallback contract is
+`engineer/paper-framework-figure-studio.md` in the active Research vertical;
+Method B direct local vector drawing is the fallback, not a second default.
+Paper-facing uses
 include conceptual figures, method overviews, architecture diagrams, teasers,
 and graphical abstracts. The toolkit can produce these through
 SVG/design-spec/PPTX routes without image-2 or another generative image backend.
@@ -33,8 +35,10 @@ SKILL_DIR="$PPT_MASTER_ROOT/skills/ppt-master"
 ```
 
 The status command validates the pinned revision, required toolkit files, clean
-checkout, and dependencies for the active Python. If it fails, stop and report
-that the operator must run:
+checkout, and dependencies for the active Python. If it fails, do not attempt
+PPT conversion. Research concept figures may use the disclosed Method B fallback
+unless the operator explicitly requires Method D or native PPTX; for those
+requests, report the blocker and that the operator must run:
 
 ```bash
 ${ARGUS_SKILL_BIN:-argus-skill} --install-ppt-master
