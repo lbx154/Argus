@@ -181,6 +181,8 @@ def _launch_durable_command(
     exit_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = exit_path.with_name(exit_path.name + ".tmp")
     if os.name == "nt":
+        from ...core.windows_job import durable_windows_creationflags
+
         wrapper = (
             "$__command = [Environment]::GetEnvironmentVariable('ARGUS_DURABLE_COMMAND', 'Process')\n"
             "$__tmp = [Environment]::GetEnvironmentVariable('ARGUS_DURABLE_TMP', 'Process')\n"
@@ -226,6 +228,7 @@ def _launch_durable_command(
             creationflags=(
                 getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
                 | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                | durable_windows_creationflags()
             ),
         )
     wrapper = (

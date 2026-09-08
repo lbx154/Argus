@@ -178,9 +178,12 @@ def _spawn_windows_worker(
     env = _child_env()
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    from ...core.windows_job import durable_windows_creationflags
+
     creationflags = (
         getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        | durable_windows_creationflags()
     )
     with (log_dir / "worker.log").open("ab") as worker_log:
         return subprocess.Popen(
