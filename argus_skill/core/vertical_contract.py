@@ -177,6 +177,7 @@ class VerticalContract:
     mission_prelude: MissionPrelude | None = None
     library_preparer: Callable[[VerticalLibraryContext], None] | None = None
     stage_completion_validator: Callable[..., object] | None = None
+    automatic_stage_completion: Callable[..., object] | None = None
     planner_task_validator: Callable[[str, Path, Any], object] | None = None
     review_purchase_policy: Callable[..., PlannerReviewPurchaseDecision] | None = None
     iteration_assessor: IterationAssessmentHook | None = None
@@ -581,6 +582,15 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         raise VerticalContractError(
             f"vertical {name!r} has a non-callable stage completion validator"
         )
+    automatic_stage_completion = getattr(
+        provider, "automatic_stage_completion_ready", None
+    )
+    if automatic_stage_completion is not None and not callable(
+        automatic_stage_completion
+    ):
+        raise VerticalContractError(
+            f"vertical {name!r} has a non-callable automatic stage completion hook"
+        )
     planner_task_validator = getattr(provider, "planner_task_issues", None)
     if planner_task_validator is not None and not callable(planner_task_validator):
         raise VerticalContractError(
@@ -744,6 +754,7 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
             else None
         ),
         stage_completion_validator=stage_completion_validator,
+        automatic_stage_completion=automatic_stage_completion,
         planner_task_validator=planner_task_validator,
         review_purchase_policy=review_purchase_policy,
         iteration_assessor=iteration_assessor,

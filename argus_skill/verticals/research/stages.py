@@ -481,6 +481,26 @@ def stage_completion_issues(
     return ()
 
 
+def automatic_stage_completion_ready(
+    *,
+    stage: str,
+    project_root: Path,
+    state_root: Path,
+) -> bool:
+    """Only a completed mandatory portfolio closes without Manager judgment."""
+    from .idea_portfolio import portfolio_required
+
+    return bool(
+        str(stage or "").strip().lower() == "idea"
+        and portfolio_required(state_root)
+        and not stage_completion_issues(
+            stage,
+            project_root,
+            state_root=state_root,
+        )
+    )
+
+
 def iteration_assessment(
     *,
     stage: str,
@@ -655,6 +675,7 @@ __all__ = [
     "render_role_prompt_context",
     "review_purchase_policy",
     "stage_completion_issues",
+    "automatic_stage_completion_ready",
     "iteration_assessment",
     "completion_gate",
     "PAPER_MISSION",
