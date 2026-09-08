@@ -1233,7 +1233,7 @@ class MissionExecutionSettlementMixin:
             else []
         )
         try:
-            from ..delivery import referenced_delivery_paths
+            from ..delivery import referenced_delivery_paths, reviewed_change_paths
 
             referenced = referenced_delivery_paths(
                 delivery_workspace,
@@ -1248,6 +1248,13 @@ class MissionExecutionSettlementMixin:
             reviewer_artifacts.extend(
                 path for path in referenced if path not in known_artifacts
             )
+            if success and not reviewer_artifacts:
+                # A terse accepted direct handoff may omit every filename.
+                # Recover only authored files actually inspected by its final
+                # independent Reviewer, not arbitrary workspace contents.
+                reviewer_artifacts.extend(reviewed_change_paths(
+                    delivery_workspace, self.memory.root, item.id,
+                ))
         except Exception:  # noqa: BLE001 - receipt construction remains fail-soft
             log.debug("completion file links could not be resolved", exc_info=True)
         try:

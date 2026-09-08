@@ -4,9 +4,12 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from argus_skill.life.delivery import (
     build_delivery_receipt,
     referenced_delivery_paths,
+    reviewed_change_paths,
 )
 
 
@@ -148,3 +151,73 @@ def test_failed_mission_has_no_delivery_receipt(tmp_path: Path) -> None:
         workspace=tmp_path,
         state_root=tmp_path,
     ) is None
+
+
+def _reviewed_edit_events(paths: list[str], *, item_id: str = "task-web") -> list[dict]:
+    return [
+        {"item_id": item_id, **event} for event in [
+            {"type": "life.mission.started"},
+            {
+                "type": "engineer.progress", "kind": "tool_use",
+                "agent_layer": "engineer", "tool_name": "apply_patch",
+                "text": "apply_patch: *** Begin Patch\n" + "\n".join(
+                    f"*** Add File: {path}\n+contents" for path in paths
+                ),
+            },
+            {"type": "round.review.started"},
+            *[{
+                "type": "engineer.progress", "kind": "tool_use",
+                "agent_layer": "reviewer", "tool_name": "view",
+                "text": "view: " + json.dumps({"path": path}),
+            } for path in paths],
+            {"type": "round.review.completed", "status": "done", "review_source": "reviewer"},
+        ]
+    ]
+
+
+def test_reviewed_changes_recover_product_without_delivering_context_or_fixtures(tmp_path) -> None:
+    names = [
+        "REPORT.md", "index.html", "app.js", "package.json", "tests/example.html",
+        "tmp/preview.html", ".autors/receipt.md", ".env", "credentials.json",
+    ]
+    for name in [*names, "existing.html", "unmentioned.html"]:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("contents", encoding="utf-8")
+    outside = tmp_path.parent / "outside.html"
+    outside.write_text("private", encoding="utf-8")
+    events = _reviewed_edit_events([str(tmp_path / name) for name in names] + [str(outside)])
+    events.insert(-1, {
+        "item_id": "task-web", "type": "engineer.progress", "kind": "tool_use",
+        "agent_layer": "reviewer", "tool_name": "view",
+        "text": 'view: {"path": "existing.html"}',
+    })
+    (tmp_path / "events.jsonl").write_text("\n".join(map(json.dumps, events)), encoding="utf-8")
+
+    assert reviewed_change_paths(tmp_path, tmp_path, "task-web") == ["index.html", "REPORT.md"]
+    assert reviewed_change_paths(tmp_path, tmp_path, "other-task") == []
+
+
+@pytest.mark.parametrize("ending", [
+    [{"type": "round.review.completed", "status": "revise", "review_source": "reviewer"}],
+    [{"type": "round.review.completed", "status": "done", "review_source": "engineer"}],
+    [{"type": "round.review.started"}],
+    [{"type": "life.mission.started"}],
+])
+def test_reviewed_changes_never_reuse_a_previous_accepted_review(tmp_path, ending) -> None:
+    (tmp_path / "index.html").write_text("product", encoding="utf-8")
+    events = _reviewed_edit_events(["index.html"])
+    events.extend({"item_id": "task-web", **event} for event in ending)
+    (tmp_path / "events.jsonl").write_text("\n".join(map(json.dumps, events)), encoding="utf-8")
+
+    assert reviewed_change_paths(tmp_path, tmp_path, "task-web") == []
+
+
+@pytest.mark.parametrize("failed_event_index", [1, 3])
+def test_failed_file_edits_or_reads_do_not_become_delivery_evidence(tmp_path, failed_event_index) -> None:
+    (tmp_path / "index.html").write_text("product", encoding="utf-8")
+    events = _reviewed_edit_events(["index.html"])
+    events.insert(failed_event_index + 1, {**events[failed_event_index], "status": "failed"})
+    (tmp_path / "events.jsonl").write_text("\n".join(map(json.dumps, events)), encoding="utf-8")
+
+    assert reviewed_change_paths(tmp_path, tmp_path, "task-web") == []

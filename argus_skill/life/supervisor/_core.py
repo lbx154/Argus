@@ -1365,6 +1365,7 @@ class LifeSupervisor(
                 build_delivery_receipt,
                 linked_report_paths,
                 referenced_delivery_paths,
+                reviewed_change_paths,
             )
 
             outcome = latest.get("outcome")
@@ -1401,6 +1402,10 @@ class LifeSupervisor(
                 # its outputs when a terse handoff only says "checks passed".
                 candidates.extend(referenced_delivery_paths(workspace, [goal_items[extra["item_id"]].objective], limit=12))
             candidates = [*linked_report_paths(workspace, candidates), *candidates]
+            if not candidates:
+                candidates.extend(reviewed_change_paths(
+                    workspace, self.memory.root, str(latest.get("item_id") or ""),
+                ))
             from ...skills.vertical_select import resolve_vertical_if_decided
 
             if resolve_vertical_if_decided(self._artifact_root()) == "software":

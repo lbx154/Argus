@@ -23,6 +23,6 @@ function AuthenticatedHtmlPreview({ html, title, className, sid, path }: { html:
   </div>;
   return <div className={`flex min-h-0 w-full flex-1 flex-col ${className}`}>
     {!!preview.data?.warnings.length && <p className="shrink-0 bg-warn/10 px-3 py-2 text-xs text-warn" role="status">{zh ? '部分配套资源无法加载，页面可能不完整。' : 'Some linked assets are unavailable; the preview may be incomplete.'}</p>}
-    <iframe title={title} srcDoc={preview.data?.html ?? html} sandbox="allow-scripts" referrerPolicy="no-referrer" className="min-h-0 w-full flex-1 border-0 bg-white" />
+    <iframe title={title} srcDoc={preview.data?.html ?? html} sandbox="allow-scripts allow-downloads" referrerPolicy="no-referrer" className="min-h-0 w-full flex-1 border-0 bg-white" />
   </div>;
 }

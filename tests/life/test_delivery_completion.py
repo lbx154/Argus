@@ -360,3 +360,38 @@ def test_terminal_delivery_identity_changes_for_new_completed_work_in_one_sessio
     replay = supervisor._build_terminal_project_delivery("Second goal done")
     assert first["delivery_id"] != second["delivery_id"]
     assert second["delivery_id"] == replay["delivery_id"]
+
+
+def test_terminal_delivery_recovers_reviewed_product_from_an_older_direct_settlement(tmp_path):
+    supervisor, memory = _delivery_supervisor(tmp_path)
+    workspace = supervisor._project_workdir()
+    (workspace / "index.html").write_text("<h1>Travel planner</h1>", encoding="utf-8")
+    item_id = "direct-website"
+    events = [
+        {"type": "life.mission.started"},
+        {
+            "type": "engineer.progress", "kind": "tool_use", "agent_layer": "engineer",
+            "tool_name": "apply_patch", "text": "apply_patch: *** Begin Patch\n*** Add File: index.html\n+product",
+        },
+        {"type": "round.review.started"},
+        {
+            "type": "engineer.progress", "kind": "tool_use", "agent_layer": "reviewer",
+            "tool_name": "view", "text": 'view: {"path": "index.html"}',
+        },
+        {"type": "round.review.completed", "status": "done", "review_source": "reviewer"},
+    ]
+    with (memory.root / "events.jsonl").open("a", encoding="utf-8") as handle:
+        for event in events:
+            handle.write(json.dumps({"item_id": item_id, **event}) + "\n")
+    assert supervisor._emit({
+        "type": "life.mission.completed", "item_id": item_id,
+        "success": True, "status": "done", "overall_complete": True,
+        "summary": "Browser checks passed.", "final_output": "RESULT=The travel planner is complete.",
+        "execution_workdir": str(workspace), "delivery_candidates": [],
+        "outcome": {"review_status": "done"}, "delivery": None,
+    })
+
+    receipt = supervisor._build_terminal_project_delivery("Complete")
+
+    assert receipt["primary_target"]["path"] == "index.html"
+    assert receipt["delivery_id"] == f"delivery:project-{memory.root.name}-{item_id}:task_completed"

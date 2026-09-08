@@ -158,6 +158,51 @@ def test_reviewed_engineer_path_survives_malformed_reviewer_link(tmp_path) -> No
     )
 
 
+def test_direct_reviewed_website_delivers_when_both_final_messages_omit_files(tmp_path) -> None:
+    supervisor, sink = _make_supervisor(tmp_path, _Outcome(
+        success=True, status="done", final_review_status="done",
+        final_review_source="reviewer", final_review_reason="Browser checks passed.",
+        final_output="RESULT=The responsive travel planner is complete.",
+    ))
+    workdir = supervisor._project_workdir()
+    workdir.mkdir(parents=True, exist_ok=True)
+    (workdir / "index.html").write_text("<!doctype html><h1>Travel planner</h1>", encoding="utf-8")
+    item = BacklogItem.new(
+        title="Create travel planner", objective="Create a responsive travel planner",
+        tags=["manager_direct", "scope:bounded", "review:required"],
+    )
+    supervisor.memory.backlog.add(item)
+    original_execute = supervisor.runner.execute
+
+    def execute(**kwargs):
+        events = [
+            {"type": "life.mission.started"},
+            {
+                "type": "engineer.progress", "kind": "tool_use", "agent_layer": "engineer",
+                "tool_name": "apply_patch", "text": "apply_patch: *** Begin Patch\n*** Add File: index.html\n+product",
+            },
+            {"type": "round.review.started"},
+            {
+                "type": "engineer.progress", "kind": "tool_use", "agent_layer": "reviewer",
+                "tool_name": "view", "text": 'view: {"path": "index.html"}',
+            },
+            {"type": "round.review.completed", "status": "done", "review_source": "reviewer"},
+        ]
+        with (supervisor.memory.root / "events.jsonl").open("a", encoding="utf-8") as handle:
+            for event in events:
+                handle.write(json.dumps({"item_id": item.id, **event}) + "\n")
+        return original_execute(**kwargs)
+
+    supervisor.runner.execute = execute
+    supervisor.tick()
+
+    completed = _completed_event(sink)
+    assert completed["overall_complete"] is True
+    assert completed["delivery_candidates"] == ["index.html"]
+    assert completed["delivery"]["primary_target"]["path"] == "index.html"
+    assert completed["delivery"]["review_status"] == "done"
+
+
 @pytest.mark.parametrize(
     ("open_ended", "expected_complete"),
     [(False, True), (True, False)],

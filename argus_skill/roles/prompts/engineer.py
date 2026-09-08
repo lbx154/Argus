@@ -300,7 +300,7 @@ def build_mission_prompt(
         + decision_footer_instruction(
             "MILESTONE_STATUS=done\n"
             "RESULT=one or two operator-facing sentences in the operator's language: "
-            "what changed, the decisive check, and any remaining obstacle; do not repeat "
+            "changes, output file paths, decisive checks, and blockers; omit "
             "decision or status fields\n"
             "NEXT_OWNER=reviewer"
         )
@@ -329,7 +329,7 @@ def build_mission_prompt(
         + decision_footer_instruction(
             "MILESTONE_STATUS=done\n"
             "RESULT=one or two operator-facing sentences in the operator's language: "
-            "what changed, the decisive check, and any remaining obstacle; do not repeat "
+            "changes, output file paths, decisive checks, and blockers; omit "
             "decision or status fields\n"
             "NEXT_OWNER=reviewer"
         )

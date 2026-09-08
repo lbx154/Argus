@@ -194,8 +194,9 @@ def test_structured_role_fields_are_explicitly_operator_facing(tmp_path) -> None
         assert "field names or status tokens in their values" in planner_prompt
     for engineer_prompt in (engineer, continuation):
         assert "one or two operator-facing sentences in the operator's language" in engineer_prompt
-        assert 'what changed, the decisive check, and any remaining obstacle' in engineer_prompt
-        assert 'do not repeat decision or status fields' in engineer_prompt
+        assert 'output file paths' in engineer_prompt
+        assert 'decisive checks' in engineer_prompt
+        assert 'omit decision or status fields' in engineer_prompt
     assert "REASON, NEXT_ACTION, and OPERATOR_QUESTION are human-facing" in reviewer
     assert 'Omit internal values and template names' in reviewer
 

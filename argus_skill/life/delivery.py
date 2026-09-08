@@ -9,6 +9,7 @@ become completion receipts.
 from __future__ import annotations
 
 import html
+import json
 import re
 import time
 from pathlib import Path
@@ -31,6 +32,107 @@ _PLAIN_FILE_RE = re.compile(
     re.IGNORECASE,
 )
 _TERMINAL_PUNCTUATION = " \t\r\n\"'<>[](){}.,;，。；："
+_PATCH_OUTPUT_RE = re.compile(r"^\*\*\* (?:Add|Update) File: (.+)$", re.MULTILINE)
+_PRESENTATION_SUFFIXES = {".html", ".pdf", ".md", ".markdown", ".csv", ".tsv"}
+
+
+def reviewed_change_paths(
+    workspace: Path | str,
+    state_root: Path | str,
+    item_id: str,
+) -> list[str]:
+    """Recover authored presentation files inspected in the accepted review.
+
+    Some direct handoffs only contain a status footer. The normalized mission
+    trace still identifies the Engineer's file edits and the Reviewer's reads.
+    Their intersection is evidence; a directory listing or shell command is
+    not. Keep only the final accepted review in the latest mission attempt.
+    """
+    from .memory import _read_jsonl_tail
+
+    if not item_id:
+        return []
+    event_types = {
+        "life.mission.started", "round.start", "round.review.started",
+        "round.review.completed", "engineer.progress",
+    }
+    events = _read_jsonl_tail(
+        Path(state_root) / "events.jsonl",
+        600,
+        predicate=lambda row: row.get("item_id") == item_id
+        and row.get("type") in event_types
+        and (row.get("type") != "engineer.progress" or row.get("kind") == "tool_use"),
+        raw_predicate=lambda raw: item_id.encode() in raw,
+    )
+    root = Path(workspace)
+    edited: set[str] = set()
+    inspected: list[str] = []
+    reviewing = False
+    accepted = False
+    for event in events:
+        kind = event.get("type")
+        if kind == "life.mission.started":
+            edited.clear()
+        if kind in {"life.mission.started", "round.start", "round.review.started"}:
+            inspected.clear()
+            accepted = False
+            reviewing = kind == "round.review.started"
+            continue
+        if kind == "round.review.completed":
+            accepted = bool(
+                reviewing and event.get("status") == "done"
+                and event.get("review_source") == "reviewer"
+            )
+            reviewing = False
+            continue
+        if event.get("kind") != "tool_use":
+            continue
+        tool = str(event.get("tool_name") or "").casefold()
+        text = str(event.get("text") or "")
+        paths: list[object] = []
+        if tool == "apply_patch":
+            paths.extend(_PATCH_OUTPUT_RE.findall(text))
+        else:
+            try:
+                arguments = json.loads(text.partition(": ")[2])
+            except (ValueError, TypeError):
+                continue
+            if isinstance(arguments, dict):
+                paths.append(
+                    arguments.get("path") or arguments.get("file_path")
+                    or arguments.get("filePath")
+                )
+        role = str(event.get("agent_layer") or event.get("actor") or "").split("-", 1)[0]
+        for candidate in paths:
+            path = _workspace_relative_reference(root, candidate)
+            if not path or Path(path).suffix.lower() not in _PRESENTATION_SUFFIXES:
+                continue
+            # Test fixtures and scratch outputs require an explicit final-file
+            # declaration; merely editing and inspecting them is insufficient.
+            if any(
+                part.casefold() in {"tmp", "temp", "tests", "test", "fixtures", "node_modules"}
+                for part in Path(path).parts
+            ):
+                continue
+            if role == "engineer" and tool in {"apply_patch", "create", "write", "write_file", "edit"}:
+                if event.get("status") == "failed":
+                    edited.discard(path)
+                else:
+                    edited.add(path)
+                    if path in inspected:
+                        inspected.remove(path)
+            elif role == "reviewer" and reviewing and tool in {"view", "read", "read_file"}:
+                if event.get("status") == "failed":
+                    if path in inspected:
+                        inspected.remove(path)
+                elif path in edited and path not in inspected:
+                    inspected.append(path)
+    if not accepted:
+        return []
+    inspected.sort(key=lambda path: (
+        Path(path).suffix.lower() != ".html", Path(path).suffix.lower() != ".pdf",
+    ))
+    return inspected[:MAX_DELIVERY_TARGETS]
 
 
 def _referenced_path_candidates(text: object) -> list[str]:
@@ -315,4 +417,5 @@ __all__ = [
     "MAX_DELIVERY_TARGETS",
     "build_delivery_receipt",
     "referenced_delivery_paths",
+    "reviewed_change_paths",
 ]
