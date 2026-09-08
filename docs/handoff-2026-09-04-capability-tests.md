@@ -1634,3 +1634,21 @@ can still load lazy modules. Resolve generated-artifact merge conflicts by
 building the merged source, not by selecting an old bundle. The live paper
 audit and operational records are under
 `/data/v-boxiuli/argus-academic-figure-refinement-20260908/`.
+
+## 28. Wave six: declared fan width; the 8897 supervisor discovered (2026-09 night)
+
+Wave six (`25a06b2a5`, artifacts `fc85fd9a9`): the unread `width` on `idea.portfolio.formed` now
+shows on the owning card — "并行编队 ×N 展开中 / Fanning out ×N" before branches spawn, and
+"计划并行 ×N / planned ×N" beside the subtask tally while realized < declared. `formationWidths`
+helper in model.ts (latest event per task wins), threaded through MapPanel node data; 462 tests.
+
+Deployment discovery: the teammate's 8897 webapi runs under **systemd --user with auto-restart**
+(ppid = systemd). Killing the pid races their respawn — my relaunch lost with "address already in
+use", while THEIR respawn booted from the ff'd checkout and picked up the new digest on its own.
+Revised procedure: ff the checkout, kill the pid, then only VERIFY the respawn serves the new
+bundle; never launch a competing process. (If the tree is behind or dirty, still hands off.)
+Also institutionalized: clean generated files (checkout release.generated/tui/manifest + clean
+dist) BEFORE any rebase — verification builds dirty the tree and block it otherwise; hit twice.
+
+Their `7c319ffa2` landed minutes later and their unit already serves it (superset of wave six).
+Backlog: map-history sqlite superseded backfill.
