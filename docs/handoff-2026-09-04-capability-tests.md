@@ -1576,3 +1576,16 @@ commit, rebuild, re-commit, push.
 
 Remaining backlog: en reference/context lines (map_references.py + presentation.ts), formation
 width labels beyond the k/N pills, map-history sqlite superseded backfill, runtime-latest roll.
+
+## 27. Wave five: quotes speak the operator's language (2026-09-09 night)
+
+`2c24be8c6` + artifacts `f328766ce`. The `[[Argus引用 {json}]]` marker gains an optional `lang`
+field written by the frontend at quote time (`MacroTaskNode.reference()`, `presentation.ts` type +
+splitDraft validation mirror); `map_references.py` renders the inline replacement, the context
+header (`CONTEXT_HEADER_EN`), the entry lines, and the terminal-status note in that locale. Wire
+format unchanged; old markers default zh; a non-string lang is a shape violation on both parsers
+(kept in lockstep). Red-first pytest (parse/normalize, English rendering, legacy default) + a
+frontend marker round-trip test; webapi suite green except the two known environmental QR pairing
+failures; frontend 460/tsc clean. Demo synced + restarted (this wave touches python, so the digest
+rule applied for real). Backlog now: formation width labels beyond k/N, map-history sqlite
+superseded backfill, runtime-latest roll.
