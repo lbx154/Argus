@@ -1,10 +1,11 @@
 /* Promoted team branches (Atlas graph-structure batch). All node and edge
  * styles introduced by the fan-out promotion live in this file; map.css,
  * atlas.css and submap.css stay untouched. Colors reuse the atlas language:
- * the shared --state palette from map.css and the paper/line/ink tokens. */
+ * the same --state hues as map.css (mapped locally below, since this sheet
+ * loads later) and the paper/line/ink tokens, so both themes self-adapt. */
 
 .map-branch {
-  --state: #9babbc; /* map-state-* classes from map.css override this */
+  --state: #9babbc; /* fallback; the local map-state-* mapping below wins */
   position: relative;
   width: 100%;
   height: 100%;
@@ -13,8 +14,10 @@
   align-items: center;
   gap: 26px;
   padding: 0 40px 0 30px;
-  background: var(--map-paper);
-  border: 2px solid rgb(var(--line) / 0.85);
+  /* Status wash strong enough to read at far zoom, mirroring the cards'
+   * micro wash; mixing against the paper token keeps dark theme honest. */
+  background: color-mix(in srgb, var(--state) 14%, var(--map-paper));
+  border: 2px solid color-mix(in srgb, var(--state) 30%, rgb(var(--line)));
   border-left: 12px solid var(--state);
   border-radius: 95px;
   box-shadow: 0 10px 42px #16375010, 0 2px 6px #16375008;
@@ -24,9 +27,33 @@
   color: rgb(var(--ink));
   transition: box-shadow 0.15s, border-color 0.15s;
 }
+/* Local copy of the atlas state palette (same hues as map.css). branch.css
+ * loads after map.css, so the pill's own --state fallback used to shadow the
+ * shared single-class .map-state-* overrides; the two-class selectors below
+ * win the cascade deterministically. */
+.map-branch.map-state-done {
+  --state: #528e73;
+}
+.map-branch.map-state-running {
+  --state: #4a86c5;
+}
+.map-branch.map-state-failed {
+  --state: #bd785f;
+}
+.map-branch.map-state-question {
+  --state: #bd923f;
+}
+.map-branch.map-state-paused {
+  --state: #a58a56;
+}
+.map-branch.map-state-superseded {
+  --state: #9588a8;
+}
 .map-branch:hover {
-  border-color: #7ca9c8;
-  box-shadow: 0 14px 52px #316d9820;
+  border-color: color-mix(in srgb, var(--state) 58%, rgb(var(--line)));
+  border-left-color: var(--state);
+  box-shadow: 0 14px 52px color-mix(in srgb, var(--state) 22%, transparent),
+    0 2px 8px #16375012;
 }
 .map-branch:focus-visible {
   outline: 6px solid rgb(var(--blue) / 0.45);
@@ -47,6 +74,15 @@
   width: 44px;
   height: 44px;
 }
+/* Status glyph before the title: the cards' micro watermark alphabet. */
+.map-branch-state {
+  flex: none;
+  margin-right: -6px;
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1;
+  color: color-mix(in srgb, var(--state) 82%, rgb(var(--ink)));
+}
 .map-branch-title {
   flex: 1;
   min-width: 0;
@@ -57,6 +93,20 @@
   font-weight: 620;
   line-height: 1.25;
 }
+/* Fan ordinal ("k/N"): present only when MapPanel supplies both numbers. */
+.map-branch-fan {
+  flex: none;
+  font-family: "Geist Mono Variable", monospace;
+  font-size: 30px;
+  font-weight: 620;
+  line-height: 1;
+  letter-spacing: 1px;
+  padding: 9px 16px;
+  border-radius: 40px;
+  color: color-mix(in srgb, var(--state) 70%, rgb(var(--ink)));
+  background: color-mix(in srgb, var(--state) 14%, transparent);
+  border: 2px solid color-mix(in srgb, var(--state) 30%, transparent);
+}
 .map-branch-dot {
   flex: none;
   width: 26px;
@@ -65,8 +115,10 @@
   background: var(--state);
   box-shadow: 0 0 0 9px color-mix(in srgb, var(--state) 16%, transparent);
 }
-.map-branch[data-status="running"] .map-branch-dot {
-  animation: map-branch-pulse 1.8s ease-in-out infinite;
+/* A running pill breathes like the cards' live ring: opacity and border
+ * only, on a calmer 2.4s cadence. The left rail is pinned so it never dims. */
+.map-branch[data-status="running"] {
+  animation: map-branch-breathe 2.4s ease-in-out infinite;
 }
 .map-branch[data-overflow="true"] {
   border-style: dashed;
@@ -76,19 +128,21 @@
 [data-theme="dark"] .map-branch {
   box-shadow: 0 10px 36px #0004;
 }
-@keyframes map-branch-pulse {
+@keyframes map-branch-breathe {
   0%,
   100% {
-    transform: scale(1);
     opacity: 1;
+    border-color: color-mix(in srgb, var(--state) 30%, rgb(var(--line)));
+    border-left-color: var(--state);
   }
   50% {
-    transform: scale(0.72);
-    opacity: 0.55;
+    opacity: 0.9;
+    border-color: color-mix(in srgb, var(--state) 62%, rgb(var(--line)));
+    border-left-color: var(--state);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .map-branch[data-status="running"] .map-branch-dot {
+  .map-branch[data-status="running"] {
     animation: none;
   }
 }

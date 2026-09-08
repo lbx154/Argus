@@ -145,6 +145,9 @@ function MapCanvas({
   const camera = useSemanticCamera(canvasRef, !readOnly);
   const nodesReady = useNodesInitialized();
   const initialFit = useRef(false);
+  // Gates the canvas fade-in: the first frames render at an arbitrary
+  // viewport until the opening fit lands, and nobody should see that.
+  const [fitted, setFitted] = useState(false);
   const savedView = useRef<ReturnType<typeof recalledView> | null>(null);
   if (!savedView.current) savedView.current = recalledView(viewKey);
   const [seenCards] = useState(() => new Set(savedView.current?.scene?.cards.map((card) => card.id)));
@@ -270,6 +273,7 @@ function MapCanvas({
       initialFit.current = true;
       if (savedView.current?.camera) camera.restore(savedView.current.camera);
       else camera.fit();
+      setFitted(true);
     });
     return () => cancelAnimationFrame(frame);
   }, [nodesReady, camera.fit, camera.restore, data.history_loading, copyReady]);
@@ -535,24 +539,38 @@ function MapCanvas({
   const previousBranchNodes = useRef<BranchFlowNode[]>([]);
   const branchNodes = useMemo(
     () => {
-      const next = atlas.branches.map<BranchFlowNode>((task) => ({
-        id: task.id,
-        type: "branch",
-        position: atlas.positions[task.id] ?? { x: 0, y: 0 },
-        width: BRANCH_FRAME.width,
-        height: BRANCH_FRAME.height,
-        style: { width: BRANCH_FRAME.width, height: BRANCH_FRAME.height },
-        hidden: !visibleIds.has(task.id),
-        draggable: false,
-        selectable: false,
-        focusable: false,
-        data: {
-          task,
-          zh,
-          parentCardId: atlas.branchAnchor.get(task.id)!,
-          open: camera.enter,
-        },
-      }));
+      // Fan ordinals: "3/5" on a pill tells how wide this parallel push is.
+      const fanTotal = new Map<string, number>();
+      for (const task of atlas.branches) {
+        const owner = task.parent_id ?? "";
+        fanTotal.set(owner, (fanTotal.get(owner) ?? 0) + 1);
+      }
+      const fanSeen = new Map<string, number>();
+      const next = atlas.branches.map<BranchFlowNode>((task) => {
+        const owner = task.parent_id ?? "";
+        const ordinal = (fanSeen.get(owner) ?? 0) + 1;
+        fanSeen.set(owner, ordinal);
+        return {
+          id: task.id,
+          type: "branch",
+          position: atlas.positions[task.id] ?? { x: 0, y: 0 },
+          width: BRANCH_FRAME.width,
+          height: BRANCH_FRAME.height,
+          style: { width: BRANCH_FRAME.width, height: BRANCH_FRAME.height },
+          hidden: !visibleIds.has(task.id),
+          draggable: false,
+          selectable: false,
+          focusable: false,
+          data: {
+            task,
+            zh,
+            parentCardId: atlas.branchAnchor.get(task.id)!,
+            open: camera.enter,
+            fanIndex: ordinal,
+            fanCount: fanTotal.get(owner)!,
+          },
+        };
+      });
       previousBranchNodes.current = replaceEqualDeep(previousBranchNodes.current, next);
       return previousBranchNodes.current;
     },
@@ -849,6 +867,8 @@ function MapCanvas({
           ref={canvasRef}
           className="map-canvas-wrap"
           data-focused={!!camera.focusId}
+          data-detailed={camera.detailed}
+          data-fitted={fitted}
         >
           {conversationOpen && <MapConversation events={actions.conversationEvents} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
           {agentsOpen && data.kind === 'live' && <aside className="map-agent-drawer nowheel nodrag nopan">

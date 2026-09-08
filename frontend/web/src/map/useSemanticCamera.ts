@@ -217,7 +217,9 @@ export function useSemanticCamera(
         "--context-alpha",
         String(id ? 1 - alpha * 0.72 : 1),
       );
-      el.dataset.zoom = viewport.zoom.toFixed(3);
+      // Nothing selects on the attribute (it aids inspection only); two
+      // decimals spare an attribute invalidation on almost every frame.
+      el.dataset.zoom = viewport.zoom.toFixed(2);
       el.style.setProperty("--map-zoom", String(viewport.zoom));
       setFocusId(alpha > 0 && id ? id : null);
       setDetailed(alpha >= 0.55);

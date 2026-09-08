@@ -20,7 +20,10 @@ const CYCLE_STROKE = "#dc6648";
 
 /** Curves follow their ports; label type stays readable at overview scale. */
 export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEdge>) {
-  const zoom = useStore((s) => s.transform[2]);
+  // Zoom only drives screen-constant sizing here. Bucketing it means a zoom
+  // gesture re-renders every edge at step boundaries (≤4% size drift between
+  // steps, absorbed by the canvas transform) instead of on every frame.
+  const zoom = useStore((s) => Math.round(s.transform[2] * 24) / 24 || s.transform[2]);
   const arrow = `relation-arrow-${useId().replace(/:/g, "")}`;
   const store = useStoreApi();
   const layout = relationLayout(store, zoom);

@@ -252,9 +252,17 @@
     0 3px 12px #24364c07,
     0 1px 2px #24364c05;
   transition:
-    box-shadow 0.15s,
-    border-color 0.15s;
+    box-shadow 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease;
   cursor: pointer;
+}
+.map-card:hover {
+  transform: translateY(-2px);
+}
+.map-card:active {
+  transform: translateY(0) scale(0.988);
+  transition-duration: 0.08s;
 }
 [data-theme="dark"] .map-card {
   border-color: rgb(255 255 255 / 0.09);
@@ -899,4 +907,81 @@ button.map-attention-jump:hover {
 @media (max-width: 900px) {
   .map-progress-strip { width: 90px; }
   .map-count-chip > span:last-child { display: none; }
+}
+
+/* --- Frame-rate work: cull invisible paint, animate on the compositor. --- */
+/* An unfocused card's inner submap is opacity:0 by design, yet its whole
+ * subtree still took part in style, layout, and paint. Skipping it here is
+ * the single biggest smoothness win while panning or zooming the overview. */
+.map-macro[data-focused="false"] .macro-detail {
+  content-visibility: hidden;
+}
+/* Focus is a stage: everything that is not the opened card steps back. */
+.map-macro {
+  transition: opacity 0.35s ease;
+}
+.map-canvas-wrap[data-detailed="true"] .map-macro[data-focused="false"] {
+  opacity: 0.24;
+}
+.map-canvas-wrap[data-detailed="true"] .map-macro[data-focused="false"]:hover {
+  opacity: 0.85;
+}
+.argus-map .react-flow__edges {
+  transition: opacity 0.35s ease;
+}
+.map-canvas-wrap[data-detailed="true"] .react-flow__edges {
+  opacity: 0.3;
+}
+.map-canvas-wrap[data-detailed="true"] .react-flow__node-branch {
+  opacity: 0.35;
+}
+/* The first frame renders at an arbitrary viewport before the camera fits;
+ * fade the canvas in once the opening framing is in place. */
+.map-canvas-wrap .react-flow {
+  transition: opacity 0.5s ease;
+}
+.map-canvas-wrap[data-fitted="false"] .react-flow {
+  opacity: 0;
+  transition: none;
+}
+/* While a task is open the toolbar shrinks to icons so it stops sitting on
+ * the card heading; the search box grows back the moment it is focused. */
+.map-search {
+  transition: width 0.25s ease;
+}
+.map-canvas-wrap[data-detailed="true"] .map-search:not(:focus-within) {
+  width: 38px;
+}
+.map-canvas-wrap[data-detailed="true"] .map-search:not(:focus-within) input {
+  opacity: 0;
+}
+.map-canvas-wrap[data-detailed="true"] .map-canvas-toolbar > button:not(.map-back-button) span {
+  display: none;
+}
+/* Light touch feedback on the chrome. */
+.map-canvas-toolbar > button,
+.map-workspace-actions button,
+button.map-attention-jump {
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.map-canvas-toolbar > button:active,
+.map-workspace-actions button:active,
+button.map-attention-jump:active {
+  transform: scale(0.95);
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-macro,
+  .argus-map .react-flow__edges,
+  .map-canvas-wrap .react-flow,
+  .map-search,
+  .map-card,
+  .map-canvas-toolbar > button,
+  .map-workspace-actions button,
+  button.map-attention-jump {
+    transition: none;
+  }
+  .map-card:hover,
+  .map-card:active {
+    transform: none;
+  }
 }

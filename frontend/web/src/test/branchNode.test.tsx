@@ -1,7 +1,11 @@
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import type { NodeProps } from "@xyflow/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { BranchNode, type BranchFlowNode } from "../map/BranchNode";
+import {
+  BranchNode,
+  type BranchData,
+  type BranchFlowNode,
+} from "../map/BranchNode";
 import type { MapTask } from "../map/model";
 
 vi.mock("@xyflow/react", async (original) => ({
@@ -22,10 +26,14 @@ const branch = (patch: Partial<MapTask> = {}): MapTask => ({
   ...patch,
 });
 
-const propsFor = (task: MapTask, open = vi.fn()) =>
+const propsFor = (
+  task: MapTask,
+  open = vi.fn(),
+  extra: Partial<BranchData> = {},
+) =>
   ({
     id: task.id,
-    data: { task, zh: false, parentCardId: "m-card", open },
+    data: { task, zh: false, parentCardId: "m-card", open, ...extra },
   }) as unknown as NodeProps<BranchFlowNode>;
 
 let renderer: ReactTestRenderer | undefined;
@@ -73,6 +81,72 @@ it("marks a running branch and a needs-input branch truthfully", () => {
       "data-status"
     ],
   ).toBe("question");
+});
+
+it("speaks the cards' status class and glyph language on every pill", () => {
+  const cases: Array<[Partial<MapTask>, string, string | undefined]> = [
+    [{ status: "done" }, "done", "✓"],
+    [{ status: "running" }, "running", "▶"],
+    [{ status: "failed" }, "failed", "✕"],
+    [{ status: "done", pending_question: "Which?" }, "question", "?"],
+    [{ status: "paused" }, "paused", "‖"],
+    [{ status: "superseded" }, "superseded", "↪"],
+    [{ status: "pending" }, "pending", undefined],
+  ];
+  for (const [patch, state, glyph] of cases) {
+    act(() => {
+      renderer = create(<BranchNode {...propsFor(branch(patch))} />);
+    });
+    const pill = renderer!.root.findByProps({ "data-testid": "map-branch" });
+    expect(pill.props["data-status"]).toBe(state);
+    expect(pill.props.className).toContain(`map-state-${state}`);
+    const marks = renderer!.root.findAllByProps({
+      className: "map-branch-state",
+    });
+    if (glyph) expect(marks.map((mark) => mark.children)).toEqual([[glyph]]);
+    else expect(marks).toEqual([]);
+    act(() => renderer!.unmount());
+    renderer = undefined;
+  }
+});
+
+it("wears a k/N ordinal badge only when both fan coordinates arrive", () => {
+  const open = vi.fn();
+  act(() => {
+    renderer = create(
+      <BranchNode {...propsFor(branch(), open, { fanIndex: 2, fanCount: 5 })} />,
+    );
+  });
+  const badge = renderer!.root.findByProps({ "data-testid": "map-branch-fan" });
+  expect(badge.children).toEqual(["2/5"]);
+  expect(badge.props.title).toBe("Parallel branch 2 of 5");
+  // The badge is decoration: the pill still opens the owning card.
+  act(() =>
+    renderer!.root.findByProps({ "data-testid": "map-branch" }).props.onClick(),
+  );
+  expect(open).toHaveBeenCalledWith("m-card");
+  for (const extra of [{ fanIndex: 2 }, { fanCount: 5 }, {}]) {
+    act(() => renderer!.unmount());
+    act(() => {
+      renderer = create(<BranchNode {...propsFor(branch(), vi.fn(), extra)} />);
+    });
+    expect(
+      renderer!.root.findAllByProps({ "data-testid": "map-branch-fan" }),
+    ).toEqual([]);
+  }
+});
+
+it("localises the ordinal badge title", () => {
+  act(() => {
+    renderer = create(
+      <BranchNode
+        {...propsFor(branch(), vi.fn(), { zh: true, fanIndex: 1, fanCount: 3 })}
+      />,
+    );
+  });
+  expect(
+    renderer!.root.findByProps({ "data-testid": "map-branch-fan" }).props.title,
+  ).toBe("并行分支 1 / 3");
 });
 
 it("renders the overflow pill that leads back into the parent card", () => {

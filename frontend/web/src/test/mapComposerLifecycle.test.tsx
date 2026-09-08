@@ -145,10 +145,35 @@ it("stays a pill when the camera focuses a card; only the pill click opens it", 
   act(() => renderer!.update(<MapComposer {...defaults} overview={false} />));
   expect(island().props["data-compact"]).toBe(true);
   expect(inputNode.focus).not.toHaveBeenCalled();
-  // Hover is not intent either: the dock no longer expands on pointer enter.
-  expect(island().props.onPointerEnter).toBeUndefined();
+  // Without hover capability (touch), a passing pointer is not intent.
+  act(() => island().props.onPointerEnter());
+  expect(island().props["data-compact"]).toBe(true);
   act(() => launch().props.onClick());
   expect(island().props["data-compact"]).toBe(false);
+});
+
+it("expands on hover and folds after the pointer leaves an empty editor", () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("window", {
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    matchMedia: () => ({ matches: true }),
+  });
+  act(() => { renderer = create(<MapComposer {...defaults} />, { createNodeMock: nodeMock }); });
+  expect(island().props["data-compact"]).toBe(true);
+  act(() => island().props.onPointerEnter());
+  expect(island().props["data-compact"]).toBe(false);
+  // The editor is empty and unfocused: leaving folds it after the grace.
+  act(() => island().props.onPointerLeave());
+  act(() => { vi.advanceTimersByTime(400); });
+  expect(island().props["data-compact"]).toBe(true);
+  // With a draft, leaving keeps it open — nothing may hide typed text.
+  act(() => renderer!.update(<MapComposer {...defaults} value="keep me" />));
+  act(() => island().props.onPointerEnter());
+  act(() => island().props.onPointerLeave());
+  act(() => { vi.advanceTimersByTime(400); });
+  expect(island().props["data-compact"]).toBe(false);
+  vi.useRealTimers();
 });
 
 it("auto-opens when a reference chip is quoted in from the context menu", () => {

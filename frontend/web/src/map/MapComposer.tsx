@@ -60,10 +60,10 @@ export function MapComposer({
   const sentTimer = useRef<ReturnType<typeof setTimeout>>();
   const [attachmentNotice, setAttachmentNotice] = useState("");
   const [sent, setSent] = useState(false);
-  // Expansion is explicit intent only — the pill click, the "c" key, an app
-  // focus request, or a fresh reference chip. Focusing a card flips the camera
-  // to detail view and must never expand the editor on its own. A draft that
-  // is already present at mount stays visible so no text hides silently.
+  // Expansion follows the pointer or explicit intent — hovering the island,
+  // the pill click, the "c" key, an app focus request, or a fresh reference
+  // chip. Focusing a card flips the camera to detail view and must never
+  // expand the editor on its own. A draft present at mount stays visible.
   const [expanded, setExpanded] = useState(() => Boolean(value.trim() || attachments.length));
   const [inputHeight, setInputHeight] = useState(44);
   const currentValue = useRef(value);
@@ -166,6 +166,30 @@ export function MapComposer({
     if (dock.current?.contains(document.activeElement))
       (document.activeElement as HTMLElement | null)?.blur();
   };
+  // Approaching the island opens it, no click needed; leaving folds an empty,
+  // unfocused editor after a short grace so a grazing pass never flickers it.
+  // Touch devices keep tap-to-open (hover there would double-fire with taps).
+  const hoverTimer = useRef<ReturnType<typeof setTimeout>>();
+  const hoverCapable = useRef(
+    typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(hover: hover) and (pointer: fine)").matches,
+  );
+  useEffect(() => () => clearTimeout(hoverTimer.current), []);
+  const hoverEnter = () => {
+    if (!hoverCapable.current) return;
+    clearTimeout(hoverTimer.current);
+    setExpanded(true);
+  };
+  const hoverLeave = () => {
+    if (!hoverCapable.current) return;
+    clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => {
+      if (currentDraft.current) return;
+      if (dock.current?.contains(document.activeElement)) return;
+      setExpanded(false);
+    }, 320);
+  };
   const submit = async () => {
     if (!text.trim() || pending || submitting.current) return;
     submitting.current = true;
@@ -230,6 +254,8 @@ export function MapComposer({
       data-state={state}
       data-pending={pending}
       style={{ "--map-editor-height": `${inputHeight}px` } as CSSProperties}
+      onPointerEnter={hoverEnter}
+      onPointerLeave={hoverLeave}
       onTransitionEnd={(event) => {
         if (event.target === dock.current && event.propertyName === "width") resizeInput();
       }}

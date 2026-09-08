@@ -18,6 +18,11 @@ export type BranchData = {
   /** The card the fan belongs to; a branch pill only navigates there. */
   parentCardId: string;
   open: (id: string) => void;
+  /** Optional 1-based position of this pill within its fan. When both
+   * fanIndex and fanCount are present, a small mono "k/N" ordinal badge
+   * renders; when either is missing the pill renders exactly as before. */
+  fanIndex?: number;
+  fanCount?: number;
 } & Record<string, unknown>;
 export type BranchFlowNode = Node<BranchData, "branch">;
 
@@ -25,6 +30,17 @@ const GLYPHS: Record<string, typeof GitBranch> = {
   "idea-route": Route,
   "idea-review": ShieldCheck,
   "idea-selector": ListChecks,
+};
+
+/** The same watermark alphabet the macro cards speak at micro density
+ * (map.css); statuses outside the set stay glyph-free on purpose. */
+const STATE_GLYPHS: Record<string, string> = {
+  done: "✓",
+  failed: "✕",
+  question: "?",
+  paused: "‖",
+  running: "▶",
+  superseded: "↪",
 };
 
 const STATES: Record<string, [string, string]> = {
@@ -46,12 +62,14 @@ const STATES: Record<string, [string, string]> = {
 export const BranchNode = memo(function BranchNode({
   data,
 }: NodeProps<BranchFlowNode>) {
-  const { task, zh } = data;
+  const { task, zh, fanIndex, fanCount } = data;
   const state = statusKey(task);
   const Glyph = task.overflow_count
     ? MoreHorizontal
     : GLYPHS[task.team_role ?? ""] ?? GitBranch;
   const stateLabel = (STATES[state] ?? STATES.unknown)[zh ? 0 : 1];
+  const stateGlyph = STATE_GLYPHS[state];
+  const fanned = typeof fanIndex === "number" && typeof fanCount === "number";
   return (
     <button
       type="button"
@@ -80,7 +98,25 @@ export const BranchNode = memo(function BranchNode({
       <span className="map-branch-glyph" aria-hidden="true">
         <Glyph />
       </span>
+      {stateGlyph && (
+        <span className="map-branch-state" aria-hidden="true">
+          {stateGlyph}
+        </span>
+      )}
       <span className="map-branch-title">{task.title}</span>
+      {fanned && (
+        <span
+          className="map-branch-fan"
+          data-testid="map-branch-fan"
+          title={
+            zh
+              ? `并行分支 ${fanIndex} / ${fanCount}`
+              : `Parallel branch ${fanIndex} of ${fanCount}`
+          }
+        >
+          {`${fanIndex}/${fanCount}`}
+        </span>
+      )}
       <span className="map-branch-dot" aria-hidden="true" />
     </button>
   );

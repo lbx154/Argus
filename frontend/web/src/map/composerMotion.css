@@ -8,14 +8,20 @@
   --island-clear-left: 392px;
   --island-clear-right: 176px;
   --composer-width: clamp(320px, calc(100% - var(--island-clear-left) - var(--island-clear-right)), 560px);
-  --island-ease: ease-out;
+  /* iOS-island feel: fast start, long soft landing. */
+  --island-ease: cubic-bezier(0.32, 0.72, 0, 1);
   left: min(
     max(50%, calc(var(--island-clear-left) + var(--composer-width) / 2)),
     calc(100% - var(--composer-width) / 2 - 13px)
   );
   width: var(--composer-width);
   max-width: calc(100% - 26px);
-  transition: width 200ms var(--island-ease), left 200ms var(--island-ease);
+  /* Only width animates; `left` snaps (the corridor shift is 0 on wide
+   * canvases, and animating it doubled the per-frame layout work). The dock
+   * subtree is layout-contained so the expansion never reflows the canvas. */
+  transition: width 280ms var(--island-ease);
+  contain: layout;
+  will-change: width;
 }
 .map-composer-dock.map-island-dock[data-compact="true"] {
   left: 50%;
@@ -36,8 +42,10 @@
   border-radius: 25px;
   background: var(--map-paper);
   box-shadow: 0 9px 28px #233b5510, 0 2px 5px #233b5509;
-  transition: height 200ms var(--island-ease), border-radius 200ms var(--island-ease),
+  transition: height 280ms var(--island-ease), border-radius 280ms var(--island-ease),
     background-color 220ms ease, border-color 220ms ease, box-shadow 260ms ease;
+  transform: translateZ(0);
+  will-change: height;
 }
 .map-island-dock .map-island-surface:focus-within {
   border-color: #a0b8cb;
@@ -74,15 +82,15 @@
   text-align: left;
   color: rgb(var(--ink));
   opacity: 0;
-  transform: translateY(-5px);
+  transform: translateY(-7px) scale(0.985);
   pointer-events: none;
-  transition: opacity 100ms ease, transform 200ms var(--island-ease);
+  transition: opacity 90ms ease, transform 280ms var(--island-ease);
 }
 .map-island-dock[data-compact="true"] .map-island-launch {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
   pointer-events: auto;
-  transition: opacity 140ms ease 60ms, transform 200ms var(--island-ease);
+  transition: opacity 160ms ease 70ms, transform 280ms var(--island-ease);
 }
 .map-island-launch:focus-visible {
   outline: 2px solid #a3bccf;
@@ -166,13 +174,13 @@
   padding: 16px 15px 13px;
   opacity: 1;
   transform: translateY(0);
-  transition: opacity 140ms ease 60ms, transform 200ms var(--island-ease);
+  transition: opacity 180ms ease 90ms, transform 280ms var(--island-ease) 40ms;
 }
 .map-island-dock[data-compact="true"] .map-composer-editor {
   opacity: 0;
-  transform: translateY(7px);
+  transform: translateY(9px);
   pointer-events: none;
-  transition: opacity 85ms ease, transform 200ms var(--island-ease);
+  transition: opacity 80ms ease, transform 280ms var(--island-ease);
 }
 .map-island-dock .map-composer textarea {
   display: block;
@@ -245,9 +253,9 @@
   0%, 100% { transform: scaleY(.38); opacity: .65; }
   50% { transform: scaleY(1); opacity: 1; }
 }
+/* Hovering the island expands it (handled in MapComposer with a leave grace
+ * period); the border glow below only bridges the first hover frames. */
 @media (hover: hover) and (pointer: fine) {
-  .map-composer-dock.map-island-dock[data-compact="true"]:hover { width: 278px; }
-  .map-composer-dock.map-island-dock[data-compact="true"][data-pending="true"]:hover { width: 340px; }
   .map-island-dock[data-compact="true"] .map-island-surface:hover {
     border-color: #a0b8cb;
     box-shadow: 0 10px 32px #233b5516;
