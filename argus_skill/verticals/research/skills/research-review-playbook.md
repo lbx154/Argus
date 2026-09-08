@@ -77,6 +77,21 @@ test, while a feasible method or experiment improvement receives a real attempt.
 Record only the necessary continuation context in the existing research notes
 and checkpoint, without a new progress report or required template.
 
+For a new mathematical guarantee that carries the contribution, complete the
+claim and its justification alongside the implementation: state the domain and
+assumptions, establish the result, handle relevant boundary cases, and explain
+how the executed algorithm satisfies them. Numerical tests check implementation
+fidelity; they do not prove a claim over all admissible inputs. This does not
+require adding a theorem to an empirical paper that makes no such guarantee.
+
+Claims about component effects or interactions require the relevant factors to
+be compared on identical experimental units and conditions. A targeted shared-
+state result and a separate independent-state panel do not establish an
+interaction when their inputs or selections differ. Run the discriminating
+paired comparison and preserve all its outcomes. Keep retained method variants
+explicitly selectable or preserve their actual executable source, so an updated
+default cannot silently change what a published reproduction command computes.
+
 The following editing sequence is for a prose-only repair. A full scientific
 revision uses the broader operation above, followed by the same host-owned
 independent assessments and integrated judgment:

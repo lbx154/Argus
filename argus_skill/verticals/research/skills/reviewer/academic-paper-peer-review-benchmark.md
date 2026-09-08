@@ -23,6 +23,11 @@ integrated judgment is written only to `paper/REVIEW.md`.
 2. **Implementation fidelity** — the executed code implements the method the
    paper claims, and positive controls show the evaluator can detect the target
    effect.
+   If a mathematical guarantee is central to the contribution, check its stated
+   assumptions, proof, relevant boundary cases and correspondence to the actual
+   algorithm. Passing numerical tests is not a proof for all admissible inputs;
+   conversely, do not demand a theorem for a purely empirical claim. A useful
+   repair identifies the missing argument or decisive counterexample to examine.
 3. **Evidence** — results establish the stated contribution, and the strongest
    same-information published baseline receives a fair comparison. Match relevant
    implementation maturity, batching, precision and resource accounting; a slower
@@ -37,6 +42,12 @@ integrated judgment is written only to `paper/REVIEW.md`.
    reproduction entry point with the current configuration when either changed,
    using a supported small run before an expensive full execution; internal tests
    alone do not establish that the advertised command works.
+   Retained variants must remain explicitly selectable or reproducible from
+   their preserved executable source; a changed default cannot stand for an
+   earlier method. For component-effect or interaction claims, check that the
+   compared cells share experimental identities and conditions. Different
+   panels or selection rules support descriptive observations, not that causal
+   inference. Propose a matched comparison that could distinguish the explanations.
 4. **Completeness** — every experiment, ablation, control, section, figure, and
    table required by the thesis is present and interpreted.
 5. **Literature** — material premises and closest competitors use genuine,

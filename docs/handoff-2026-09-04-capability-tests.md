@@ -1822,3 +1822,30 @@ page-float rules. CBC and Diamond remain on their healthy original workers
 (1960261, 1960332); do not interrupt their scientific work just to synchronize
 revision labels. Detailed receipts are under the paper audit directory's
 `coherent-science-rollout/s43-upgrade/`. No strong acceptance is claimed.
+
+## 34. Prove the claimed guarantee and compare the same units (2026-09-08 UTC)
+
+The latest S43 review identified three scientific gaps: a new guarantee needs
+its argument, the retained independent certificate must still be reproducible
+after changing the default, and differences between separately selected joint
+and independent panels do not establish an interaction. Argus is implementing
+the proof/variant repair and a paired panel itself; the paper team has not edited
+its manuscript, experiments, figures or grades.
+
+The research experiment/review guides now state these principles explicitly.
+A mathematical guarantee central to the contribution needs assumptions, a
+justification covering relevant boundaries, and correspondence to the executed
+algorithm. Tests check implementation, without replacing that argument; empirical
+work is not required to invent a theorem. Component-effect and interaction claims
+use the same experimental units and conditions, with all paired outcomes retained.
+Retained implementations stay selectable or replayable from their preserved
+source/config; paper builds must not silently replace the scientific variant.
+Partial diagnostic/timing observations are retained with their failure context
+before retrying an incomplete attempt.
+
+The 48-test research-protocol, adapted-skill, paper-policy and natural-review group
+passed; `/tmp/argus-proof-paired-evidence-tests-20260908.log`. These are concise
+scientific guidelines, not new review fields, numerical quotas or role permissions.
+At 22:35 UTC, CBC was running its compact-code experiment, Diamond had reached
+a third natural-input timing block, and S43 had submitted durable paired-state
+jobs for both models. No paper has been verified strong accepted.

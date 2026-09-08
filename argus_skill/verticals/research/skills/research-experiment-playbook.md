@@ -22,6 +22,14 @@ A credible improvement in any meaningful dimension can carry the
 contribution; the target is a result that a top reviewer would remember,
 not a complete-looking experiment matrix.
 
+When the thesis attributes an effect or interaction to particular components,
+cross those components on the same experimental units. Match the input, model
+state, layer/group, resource budget and evaluator conditions that could explain
+the difference, and use those shared identities in the analysis. Two panels
+with different selection rules or states do not isolate a component interaction.
+Start with a decisive paired pilot, then confirm the claim's intended scope;
+preserve adverse and null cells instead of selecting only the favorable pairs.
+
 ## How to develop the evidence
 
 1. Read the research notes in `RESEARCH_NOTES.md` and trace every load-bearing thesis element to concrete
@@ -83,6 +91,9 @@ not a complete-looking experiment matrix.
    new partial run. Publish completion only after the workers finish producing
    data and the raw configuration/repeat identities, counts, and scientific invariants
    agree with the declared run. Preserve interrupted attempts separately.
+   A failed process may already have emitted useful diagnostics or timing rows.
+   Retain those rows and the failure context before retrying in a fresh attempt;
+   incompleteness prevents promotion but is not a reason to erase observations.
 8. Treat weak results as optimization signals. Change the method,
    implementation, benchmark, baseline, controls, or scale when development
    evidence identifies a concrete reason — the design and the runs live
@@ -113,6 +124,13 @@ or an old saved result cannot substitute for the public entry point. A changed
 oracle or evaluator also requires updating every affected headline comparison,
 not just the smallest positive case; reuse evidence whose execution contract
 did not change.
+
+If the paper retains an earlier method or certificate alongside a new one,
+keep both reproducible through an explicit variant choice or the preserved
+executed source and configuration. Changing the default must not silently make
+the published command run a different method from its cited panel. A paper
+build may consume validated results or emit a reproducible runner, but it must
+not silently replace the scientific implementation or its configuration.
 
 Scale the evidence to the claim, not to the first configuration that ran. A
 thesis about language models in general is tested across families and sizes;
