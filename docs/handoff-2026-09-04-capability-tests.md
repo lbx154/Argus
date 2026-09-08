@@ -1732,3 +1732,18 @@ pass reuse, both venue column layouts, chart metadata/explicit-layout behavior,
 native-PPT routing, natural review and strong acceptance. Log:
 `/tmp/argus-science-first-figure-followup-tests-20260908.log` (overlaps the earlier
 group). All three daemons continue; current main-text figure counts are 3, 2, 2.
+
+## 29. Wave seven: history stops lying behind the cursor (2026-09 night)
+
+The last wave-one backlog item. The sqlite history index upserted rewritten events in place, so an
+incremental reader whose cursor had passed that seq never saw the update — a step later retired as
+superseded stayed "done/running" in full-history views forever. Fix in map_history.py: delete +
+reinsert under an explicit monotonic counter persisted in the index state (bare rowids reuse max+1
+after a delete and can land exactly ON a handed-out cursor — the first fix attempt proved that the
+hard way). Red-first test (`test_updated_event_behind_the_cursor_is_redelivered`); webapi suite 520
+passed / 2 skipped (pairing deselected as the known environmental reds).
+
+Deploy used the §28 procedure for the first time: pre-clean generated files → rebase (their
+`900f234fd` landed meanwhile, zero friction) → rebuild → push `3d815eb04` → ff demo → kill pid →
+systemd --user respawned on the new digest within seconds, bundle verified. The wave-one Atlas
+backlog is now EMPTY; further overnight rounds are sync + QA unless the operator queues new asks.
