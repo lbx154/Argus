@@ -94,6 +94,26 @@ def test_reviewed_chinese_book_title_resolves_to_existing_delivery(
     ) == ["餐饮企业运营手册.md"]
 
 
+def test_framework_format_lists_recover_only_safe_explicit_files(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    figures = workspace / "paper" / "figures"
+    figures.mkdir(parents=True)
+    for suffix in ("pptx", "pdf", "png", "key"):
+        (figures / f"method.{suffix}").write_bytes(b"output")
+    (figures / "unmentioned.pptx").write_bytes(b"other output")
+    (tmp_path / "outside.pptx").write_bytes(b"private")
+    if os.name != "nt":
+        (figures / "escape.pptx").symlink_to(tmp_path / "outside.pptx")
+
+    assert referenced_delivery_paths(workspace, [
+        "Delivered `paper/figures/method.{pptx,pdf,png,key,exe}`.",
+        "paper/figures/method.pptx is editable.",
+        "Reject ../outside.{pptx,pdf} and paper/figures/escape.{pptx,pdf}.",
+    ]) == [
+        "paper/figures/method.pptx", "paper/figures/method.pdf", "paper/figures/method.png",
+    ]
+
+
 def test_intermediate_success_has_no_delivery_even_with_an_artifact(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     state = tmp_path / "state"

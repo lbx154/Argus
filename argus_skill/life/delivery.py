@@ -28,8 +28,12 @@ _WINDOWS_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_])/?[A-Za-z]:[\\/][^\s<>\[\]()`\"']+",
 )
 _PLAIN_FILE_RE = re.compile(
-    r"(?<![\w:/\\.-])([A-Za-z0-9_./-]+\.(?:html|md|markdown|csv|tsv|json|txt|py|js|mjs|css|pdf|png|jpg|jpeg|webp))(?=$|[^\w/\\.-]|\.(?=\s|$))",
+    r"(?<![\w:/\\.-])([A-Za-z0-9_./-]+\.(?:html|md|markdown|csv|tsv|json|txt|py|js|mjs|css|pdf|pptx|png|jpg|jpeg|webp))(?=$|[^\w/\\.-]|\.(?=\s|$))",
     re.IGNORECASE,
+)
+_BRACED_FILE_RE = re.compile(
+    r"(?<![\w:/\\.-])(?P<stem>[A-Za-z0-9_./-]+)\.\{"
+    r"(?P<suffixes>[A-Za-z0-9]+(?:\s*,\s*[A-Za-z0-9]+){0,11})\}",
 )
 _TERMINAL_PUNCTUATION = " \t\r\n\"'<>[](){}.,;，。；："
 _PATCH_OUTPUT_RE = re.compile(r"^\*\*\* (?:Add|Update) File: (.+)$", re.MULTILINE)
@@ -143,6 +147,14 @@ def _referenced_path_candidates(text: object) -> list[str]:
     candidates.extend(match.group(1) for match in _INLINE_CODE_RE.finditer(body))
     candidates.extend(match.group(1) for match in _BOOK_TITLE_TARGET_RE.finditer(body))
     candidates.extend(match.group(0) for match in _WINDOWS_PATH_RE.finditer(body))
+    # Figure handoffs commonly name one explicit stem with several formats.
+    # Expand only literal suffix lists; each file still passes confinement and
+    # the existing suffix policy. This never invokes a shell or scans a folder.
+    for match in _BRACED_FILE_RE.finditer(body):
+        candidates.extend(
+            f"{match.group('stem')}.{suffix.strip()}"
+            for suffix in match.group("suffixes").split(",")
+        )
     candidates.extend(match.group(1) for match in _PLAIN_FILE_RE.finditer(body))
     return candidates
 
