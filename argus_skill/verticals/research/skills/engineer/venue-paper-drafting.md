@@ -99,9 +99,11 @@ Include every intended claim-bearing experiment, figure, table, and citation.
 
 Every figure and table carries a scientific claim. Figure 1 should explain the
 method or central mechanism. Table 1 should normally present the main
-quantitative result. For a method pipeline, open `research-svg-pipeline.md` and
-draw the current code and paper as a compact, horizontal, staggered SVG with
-Times New Roman; include its vector PDF export. Use readable publication-scale
+quantitative result. For conceptual and method figures, open
+`paper-framework-figure-studio.md`: default Method D (image-API blueprint plus
+editable PPT Master reconstruction), with Method B local vector drawing as the
+disclosed fallback. Keep labels and connections grounded in code and paper and
+include the vector PDF export. Use readable publication-scale
 typography and conventional axes, units, captions, and uncertainty. A caption
 tells the reader what to see: the question the figure answers, the comparison
 conditions that matter, and the decisive number when the number is the point or

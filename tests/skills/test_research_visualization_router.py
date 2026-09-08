@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
 from argus_skill.skills.builtins import (
@@ -156,6 +157,59 @@ def test_concept_figures_leave_strict_acceptance_to_review() -> None:
     assert "editable native PPTX through PPT Master" in router
     assert "source and final included export" in router
     assert "not a separate visual check" in router
-    assert "Create only the editable figure source and the final" in studio
+    assert "Keep the editable figure source and the final" in studio
+    assert "actual design blueprint and prompt" in studio
     assert "The strict page-by-page visual judgment is made once, in Review" in studio
     assert "visual-review\nfiles" in studio
+
+
+@pytest.mark.parametrize("skill", [
+    "engineer/research-visualization-router.md",
+    "engineer/paper-framework-figure-studio.md",
+    "engineer/research-results-analysis-and-figures.md",
+    "engineer/venue-paper-drafting.md",
+    "research-paper-playbook.md",
+    "research-review-playbook.md",
+])
+def test_concept_figure_consumers_keep_d_default_and_b_fallback(skill: str) -> None:
+    texts = dict(iter_vertical_skill_texts("research"))
+    content = " ".join(texts[skill].split())
+    assert "Method D" in content
+    assert "Method B" in content
+    assert "fallback" in content
+    assert "paper-framework-figure-studio.md" in content or skill.endswith(
+        "/paper-framework-figure-studio.md"
+    )
+    assert "Use this as the default for a method" not in content
+
+
+def test_concept_default_preserves_authority_editability_and_reuse() -> None:
+    texts = dict(iter_vertical_skill_texts("research"))
+    studio = " ".join(texts["engineer/paper-framework-figure-studio.md"].split())
+    for requirement in (
+        "Method D is the default",
+        "Method B is the fallback",
+        "Inspect suitable published reference figures before generating",
+        "disclosure authorization",
+        "does not authorize spending beyond the task budget",
+        "state the concrete reason",
+        "output format the fallback cannot deliver",
+        "surface the blocker",
+        "Preserve the actual returned image and prompt",
+        "without credentials",
+        "A failed request is not a blueprint",
+        "Do not paste the blueprint as a whole-slide raster",
+        "Method B does not require PPT Master",
+        "Method D does not require a particular reconstruction model",
+        "Reuse an existing suitable figure or blueprint",
+        "Quantitative charts",
+        "stay on the SciencePlots/Matplotlib route",
+    ):
+        assert requirement in studio
+    fallback = " ".join(texts["engineer/research-svg-pipeline.md"].split())
+    assert "Use this for the Method B fallback" in fallback
+    assert "Times New Roman" in fallback
+    assert "pipeline_figure" in fallback
+    image = " ".join(texts["engineer/paper-illustration-image2.md"].split())
+    assert "visual design blueprint" in image
+    assert "Do not generate quantitative result plots" in image

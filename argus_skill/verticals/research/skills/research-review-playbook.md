@@ -84,13 +84,20 @@ Review. The stage never rolls back.
 
 For the method pipeline, compare the actual drawing against the executed code
 and manuscript: labels, branches, training/inference arrows and the highlighted
-mechanism must agree. Inspect its compact horizontal, staggered layout and Times
-New Roman at the included publication size. Inspect the existing PDF; do not
+mechanism must agree. Apply `engineer/paper-framework-figure-studio.md`:
+Method D is the default, with Method B as the disclosed local-vector fallback.
+For D, verify that the actual blueprint was reconstructed into native editable
+objects, not pasted as a whole-slide image; generated content is not evidence.
+Do not reject a suitable existing figure or a justified B fallback merely
+because no image API was used. Judge composition and readable typography at the
+included publication size; Times New Roman and staggered geometry are specific
+to the B pipeline renderer, not requirements for D. Inspect the existing PDF; do not
 invoke the drawing component merely because Review started. Default placement
 is after Introduction, preferably on page 2 or 3; fix float placement in LaTeX
 without redrawing. Require repairs to surplus whitespace, unreadable
-labels, clipping and connector collisions; repair the editable SVG with
-`engineer/research-svg-pipeline.md` and regenerate the included PDF. A successful
+labels, clipping and connector collisions; repair the existing editable source
+through its original route (`engineer/research-svg-pipeline.md` for B pipelines)
+and regenerate the included PDF without needless API calls. A successful
 render or font check alone does not establish that the figure is visually sound.
 
 Find that a paper does not hold yet if it meets the technical requirements but
@@ -134,7 +141,8 @@ finding. Do not read all the sources in advance.
 | Scientific completeness is under review | `reviewer/academic-paper-peer-review-benchmark.md` | Judge contribution, evidence, and paper value |
 | A material claim or citation is disputed | `engineer/claims-against-evidence.md` or `engineer/citation-check.md` | Trace the claim to raw evidence or a primary source |
 | Visual quality needs venue calibration | `engineer/paper-exemplar-pdf-learning.md` | Compare the rendered paper with strong accepted work |
-| The method pipeline needs repair | `engineer/research-svg-pipeline.md` | Repair SVG fidelity, compact geometry, typography and the included PDF |
+| A concept or method figure needs repair | `engineer/paper-framework-figure-studio.md` | Repair the existing D or B source without unnecessary regeneration |
+| An existing Method B pipeline needs repair | `engineer/research-svg-pipeline.md` | Repair SVG fidelity, compact geometry, typography and the included PDF |
 | PDF-only argument and language are under review | `reviewer/venue-academic-language-review.md` | Judge evidence hierarchy and prose from the rendered paper without internal context |
 | Private implementation detail may have leaked | `engineer/paper-infrastructure-review.md` | Inspect the current paper for internal leakage |
 | A repaired paper needs venue compilation | `engineer/venue-format-preflight.md` | Recompile under the official author kit |

@@ -1,12 +1,15 @@
 ---
 name: "Drawing the method in SVG"
-description: "Synthesize a compact, horizontal ICLR-style method pipeline from executed research code and the current manuscript, with staggered SVG geometry and Times New Roman."
+description: "Method B fallback: synthesize a compact horizontal method pipeline locally from code and manuscript, with staggered SVG geometry and Times New Roman."
 ---
 
 # Drawing the method in SVG
 
-Use this as the default for a method, architecture, or pipeline figure in Paper,
-and for a concrete pipeline repair in Review. You, the active Engineer model,
+Use this for the Method B fallback or an explicitly requested local method,
+architecture, or pipeline drawing, and for repairs to an existing figure made
+with this renderer. Concept figures default to Method D in
+`paper-framework-figure-studio.md`; do not bypass that route silently.
+You, the active Engineer model,
 design the figure from the research; the tool handles cropping, real font
 verification, and SVG/PDF export. It needs no image-generation service.
 

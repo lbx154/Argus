@@ -23,11 +23,13 @@ figure sources, and final exports used by `paper/main.tex`.
 
 - Use the single SciencePlots/Matplotlib data-figure path for quantitative paper
   charts.
-- Use Drawing the method in SVG (`research-svg-pipeline.md`) for method/architecture
-  pipelines: synthesize compact horizontal, staggered SVG from code and paper,
-  with Times New Roman and an included vector PDF.
-- Use PPT Master, HTML/SVG, ECharts, Recharts, Vega, or FigureSpec for other conceptual
-  and interactive-source figures when appropriate.
+- For conceptual and method/architecture figures, follow
+  `paper-framework-figure-studio.md`: default Method D (image-API blueprint,
+  editable reconstruction through PPT Master), with Method B local vector
+  drawing as the disclosed fallback. `research-svg-pipeline.md` is the Method B
+  pipeline renderer, not the default for all method figures.
+- HTML/SVG, ECharts, Recharts, Vega, and FigureSpec remain local composition
+  tools where appropriate; they do not change the concept-figure default.
 - Use real measured values, correct units, conventional axes, readable labels,
   and uncertainty when scientifically relevant.
 - Make the winning comparison and takeaway immediately visible.
