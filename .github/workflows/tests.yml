@@ -44,6 +44,8 @@ env:
     tests/core/test_project_contract.py
     tests/core/test_contract_authority.py
     tests/core/test_copilot_parser_refusal.py
+    tests/apps/test_bounded_planner_continuation.py
+    tests/life/test_self_referential_acceptance.py
     tests/core/test_operator_messages.py
     tests/core/test_file_lock.py
     tests/core/test_daemon_lock.py
