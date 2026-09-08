@@ -31,6 +31,17 @@ export interface MapEvent {
   attempt?: number;
   success?: boolean;
   review_skipped?: boolean;
+  title?: string;
+  team_id?: string;
+  team_task_id?: string;
+  team_role?: string;
+  deps?: string[];
+  owner?: string;
+  reason?: string;
+  pending_question?: string;
+  started_ts?: number | null;
+  finished_ts?: number | null;
+  updated_ts?: number;
   next_action?: string;
   association?: "explicit" | "single_active_window";
 }
@@ -47,6 +58,8 @@ export interface Dataset {
   incremental?: boolean;
   tasks_complete?: boolean;
   removed_task_ids?: string[];
+  removed_event_ids?: string[];
+  team_events_complete?: boolean;
   reset_history?: boolean;
   history_cursor?: string;
   history_loading?: boolean;

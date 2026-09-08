@@ -37,6 +37,20 @@ it("merges paged history without duplicates and drops explicitly removed tasks",
   expect(mergeMapProgress(first, { ...first, reset_history: true, events: [] }).events).toEqual([]);
 });
 
+it('updates Team observations by identity and removes deleted workers without losing history', () => {
+  const team = { id: 'team:route', item_id: 'a', type: 'team.task', ts: 1, text: 'Research route', status: 'running', revision: 'v1' };
+  const previous = { ...first, events: [...first.events, team, { ...team, id: 'team:deleted' }] };
+  const changed = { ...team, status: 'done', revision: 'v2' };
+  const next = mergeMapProgress(previous, { ...first, incremental: true, tasks: [], events: [changed], removed_event_ids: ['team:deleted'] });
+  expect(next.events).toEqual([first.events[0], changed]);
+  expect(next.tasks[0]).toBe(first.tasks[0]);
+  const reset = mergeMapProgress(previous, { ...first, incremental: false, events: [changed] });
+  expect(reset.events).toEqual([first.events[0], changed]);
+  const historyPage = mergeMapProgress(previous, { ...first, incremental: true,
+    tasks: [], events: [changed], team_events_complete: true });
+  expect(historyPage.events).toEqual([first.events[0], changed]);
+});
+
 it("keeps closed step copy when its task progresses or model selection changes", () => {
   const progressed = { ...first, tasks: [{ ...first.tasks[0], status: "done", revision: "r2", finished_ts: 9999 }] };
   const copy = { cards: { e1: saved }, relations: [], model_revision: "different" };

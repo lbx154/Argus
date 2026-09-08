@@ -89,6 +89,8 @@ export interface CardReference {
   step_id?: string;
   step_title?: string;
   event_ids: string[];
+  team_id?: string;
+  team_task_id?: string;
 }
 export const referenceText = (ref: CardReference) =>
   `[[Argus引用 ${JSON.stringify(ref)}]]\n`;
@@ -107,6 +109,8 @@ export function splitDraft(value: string) {
           (ref.step_title === undefined ||
             typeof ref.step_title === "string") &&
           (ref.step_id === undefined || typeof ref.step_id === "string") &&
+          (ref.team_id === undefined || typeof ref.team_id === "string") &&
+          (ref.team_task_id === undefined || typeof ref.team_task_id === "string") &&
           Array.isArray(ref.event_ids) &&
           ref.event_ids.every((id: unknown) => typeof id === "string")
         ) {

@@ -72,6 +72,21 @@ interface MapWorkspaceActions {
 
 const NODE_TYPES = { task: MacroTaskNode };
 const EDGE_TYPES = { relation: MapRelationEdge };
+
+export function MapTeamProgress({ events, zh }: { events: Dataset['events']; zh: boolean }) {
+  const team = [...new Map(events.filter((event) => event.type === 'team.task').map((event) => [event.id, event])).values()];
+  if (!team.length) return null;
+  const complete = team.filter((event) => event.status === 'done').length;
+  const running = team.filter((event) => ACTIVE.has(event.status || '')).length;
+  const failed = team.filter((event) => event.status === 'failed').length;
+  return <div className="map-team-progress" role="status" aria-label={zh ? '子任务进度' : 'Subtask progress'}>
+    <strong>{zh ? '子任务' : 'Subtasks'}</strong>
+    <span><Check size={12} /><b>{complete}/{team.length}</b> {zh ? '已完成' : 'completed'}</span>
+    <span><b>{running}</b> {zh ? '进行中' : 'running'}</span>
+    <span><b>{failed}</b> {zh ? '失败' : 'failed'}</span>
+  </div>;
+}
+
 function MapCanvas({
   data,
   zh,
@@ -539,6 +554,7 @@ function MapCanvas({
             : "Scroll to zoom · drag to pan · select a task to explore"}
         </span>
       </div>
+      <MapTeamProgress events={data.events} zh={zh} />
       {data.kind === 'live' && <div className="map-workspace-actions">
         <button type="button" aria-expanded={conversationOpen} onClick={() => { setConversationOpen((open) => !open); setAgentsOpen(false); }}><MessageCircle size={15} />{zh ? '对话' : 'Conversation'}</button>
         <button type="button" aria-expanded={agentsOpen} onClick={() => { setAgentsOpen((open) => !open); setConversationOpen(false); }}><i data-active={!!activePhase || composer.pending} />{zh ? 'Agent 动态' : 'Agent activity'}</button>
@@ -947,12 +963,18 @@ export function MapPanel({
     staleTime: Infinity,
     gcTime: 2 * 60 * 60 * 1000,
     refetchOnMount: "always",
-    refetchInterval: (query) => approved && query.state.data?.history_loading ? 400 : false,
+    refetchInterval: (query) => !approved ? false : query.state.data?.history_loading ? 400
+      : !mapIsPaused(snapshot) || query.state.data?.events.some((event) => event.type === 'team.task' && ACTIVE.has(event.status || '')) ? 3000 : false,
   });
   const paused = source === "live" && mapIsPaused(snapshot);
+  const latestMapEvent = events.filter((e) => e.run_label !== "map-summary" &&
+    /^(life\.(mission\.|phase\.|planner\.task_added)|round\.|agent\.message|team\.|idea\.portfolio\.)/.test(String(e.type))).at(-1);
   const updateKey = JSON.stringify([
-    events.filter((e) => e.run_label !== "map-summary" &&
-      /^(life\.(mission\.|phase\.|planner\.task_added)|round\.|agent\.message)/.test(String(e.type))).at(-1)?.ts,
+    latestMapEvent?.ts,
+    latestMapEvent?.event_id || latestMapEvent?.id,
+    latestMapEvent?.revision,
+    latestMapEvent?.updated_ts,
+    latestMapEvent?.status,
     snapshot.backlog,
     paused,
   ]);

@@ -109,6 +109,70 @@ describe("task submap evidence", () => {
   });
 });
 
+describe('parallel Team task evidence', () => {
+  const worker = (index: number, review = false, extra: Partial<MapEvent> = {}): MapEvent => {
+    const route = `route-${String(index).padStart(2, '0')}`;
+    return event(`team:${route}${review ? '-review' : ''}`, 'team.task', {
+      ts: 10, team_id: 'ideas', team_task_id: `ideas-${route}${review ? '-review' : ''}`,
+      team_role: review ? 'idea-review' : 'idea-route', role: review ? 'reviewer' : 'engineer',
+      title: review ? 'Review route' : 'Investigate route', text: 'Source-grounded investigation',
+      status: review ? 'pending' : 'running', deps: review ? [`team:${route}`] : [],
+      ...extra,
+    });
+  };
+  const activeTask = { ...task, status: 'running' };
+
+  it('preserves every worker and its real failure while the parent is running', () => {
+    const rows = buildSubmap(activeTask, [
+      worker(1, false, { status: 'failed', reason: 'Required source report is missing.' }),
+      worker(1, true), worker(2), worker(2, true),
+      worker(3, false, { item_id: 'another-project-task' }),
+    ], true);
+    const workers = rows.filter((row) => row.source === 'team');
+    expect(workers).toHaveLength(4);
+    expect(workers[0]).toMatchObject({
+      id: 'team:route-01', title: '研究路线 01', status: 'failed',
+      teamId: 'ideas', teamTaskId: 'ideas-route-01', eventIds: ['team:route-01'],
+    });
+    expect(workers[0].detail).toContain('Required source report is missing.');
+    expect(workers[1]).toMatchObject({ title: '独立复核 01', kind: 'review', status: 'pending' });
+    expect(workers[1].detail).toContain('依赖: 研究路线 01');
+    expect(rows.some((row) => row.teamRole === 'idea-selector')).toBe(false);
+  });
+
+  it('draws recorded route/review dependencies without serializing independent routes', () => {
+    const rows = buildSubmap(activeTask, [worker(1), worker(1, true), worker(2), worker(2, true)], true);
+    const links = submapLinks(rows, true);
+    expect(links.filter((link) => link.relation === 'dependency').map((link) => [link.source, link.target])).toEqual([
+      ['team:route-01', 'team:route-01-review'], ['team:route-02', 'team:route-02-review'],
+    ]);
+    expect(links.filter((link) => link.source === `${task.id}:brief`)).toHaveLength(2);
+    expect(links.filter((link) => link.source === `${task.id}:brief`).every((link) => link.contextual)).toBe(true);
+    expect(links.some((link) => link.source === 'team:route-01-review' && link.target === 'team:route-02')).toBe(false);
+  });
+
+  it('keeps twelve route/review pairs readable across cards and stable on status updates', () => {
+    const observations = [event('e1', 'life.mission.started'), event('e2', 'round.start', { round_index: 1 }),
+      ...Array.from({ length: 12 }, (_, index) => [worker(index + 1), worker(index + 1, true)]).flat()];
+    const graph = buildMap([activeTask]);
+    const scene = layoutScene(graph, observations, true);
+    expect(scene.cards).toHaveLength(3);
+    expect(Object.values(scene.layouts).flatMap((layout) => layout.steps).filter((row) => row.source === 'team')).toHaveLength(24);
+    for (const layout of Object.values(scene.layouts)) {
+      expect(layout.steps.length).toBeLessThanOrEqual(12);
+      const ids = new Set(layout.steps.map((step) => step.id));
+      for (const step of layout.steps.filter((row) => row.source === 'team'))
+        expect((step.deps || []).every((id) => ids.has(id))).toBe(true);
+    }
+    expect(scene.cards[1].start).toBe(scene.cards[0].end + 1);
+    expect(scene.cards[2].start).toBe(scene.cards[1].end + 1);
+    const completed = layoutScene(graph, observations.map((row) => row.id === 'team:route-01'
+      ? { ...row, status: 'done', revision: 'finished', updated_ts: 90 } : row), true, scene);
+    expect(completed.positions).toBe(scene.positions);
+    expect(Object.values(completed.layouts).flatMap((layout) => layout.steps).find((row) => row.id === 'team:route-01')?.status).toBe('done');
+  });
+});
+
 describe("semantic zoom focus geometry", () => {
   const nodes = [
     { id: "a", position: { x: 344, y: 0 }, width: 272, height: 212 },
