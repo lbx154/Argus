@@ -149,3 +149,27 @@ def test_npx_cmd_avoids_blocked_powershell_wrapper_without_changing_policy(tmp_p
     allowed = run(format_native_shell_command(["npx.cmd"]))
     assert allowed.returncode == 0, allowed.stderr
     assert allowed.stdout.strip() == "cmd-wrapper-ok"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native PowerShell expression preflight regression")
+def test_powershell_static_expression_is_not_treated_as_missing_executable(tmp_path) -> None:
+    from argus_skill.tools.subagent._experiment_preflight import experiment_launch_preflight
+
+    marker = tmp_path / "expression-output"
+    path = str(marker).replace("'", "''")
+    command = f"[IO.File]::WriteAllText('{path}','native-expression-ok')"
+    rejected, reason = experiment_launch_preflight(
+        task_id="expression-fixture", command=command, cwd=str(tmp_path), run_dir=None,
+    )
+    assert not rejected, reason
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+        capture_output=True, text=True, check=False, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert marker.read_text() == "native-expression-ok"
+    rejected, reason = experiment_launch_preflight(
+        task_id="missing-fixture", command="argus-intentionally-missing-executable-9741",
+        cwd=str(tmp_path), run_dir=None,
+    )
+    assert rejected and "not available on PATH" in reason

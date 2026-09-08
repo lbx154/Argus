@@ -236,7 +236,12 @@ def test_official_durable_launchers_survive_turn_stop(monkeypatch, tmp_path, lau
         deadline = time.monotonic() + 15
         while not durable_ready.exists() and time.monotonic() < deadline:
             time.sleep(0.02)
-        assert durable_ready.exists(), "Durable command did not start"
+        diagnostics = ""
+        if not durable_ready.exists():
+            for file in sorted((tmp_path / ".argus_subagents").rglob("*")):
+                if file.is_file() and file.suffix in {".log", ".json"}:
+                    diagnostics += f"\n{file.name}: {file.read_text(encoding='utf-8', errors='replace')[-4000:]}"
+        assert durable_ready.exists(), "Durable command did not start" + diagnostics
         runner._terminate_process(process)
         assert not held.exited(100), "Registered independent work died with provider"
         durable_release.touch()

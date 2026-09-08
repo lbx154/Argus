@@ -132,6 +132,12 @@ def _flags(command: str) -> dict[str, str]:
 
 
 def _command_executable(command: str) -> str:
+    if os.name == "nt" and command.lstrip().startswith("["):
+        # PowerShell type literals/casts/static member expressions such as
+        # [IO.File]::WriteAllText(...) have no leading external executable.
+        # Get-Command cannot validate such an expression as a program name;
+        # PowerShell itself must evaluate it when the durable command runs.
+        return ""
     try:
         tokens = shlex.split(command)
     except ValueError:
