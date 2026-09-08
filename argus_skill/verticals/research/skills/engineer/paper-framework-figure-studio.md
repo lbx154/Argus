@@ -187,6 +187,14 @@ rendered output as well as the vector figure at the manuscript's actual width.
    composition problem before cosmetic details. Render the repaired PPT again
    and confirm that the formal PDF/PNG and manuscript contain this version.
 
+Two conversion details need special care. Native theme faces such as `+mn-lt`
+and `+mj-lt` can resolve to a different font from the authoring SVG; inspect
+the actual PPT theme and its glyph coverage. Use ordinary letters positioned
+at real subscript/superscript baselines when modifier-letter glyphs are absent.
+For a short multiline label, use separate native text objects with explicit
+baselines when the converter does not preserve line breaks. A merged line or
+an automatic text-box wrap must not clip the figure or alter its notation.
+
 These are drawing decisions for the Engineer, not a form the operator must
 fill out or a structured output template for the Reviewer.
 
