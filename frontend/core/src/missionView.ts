@@ -394,6 +394,7 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
       'done',
     );
   } else if (type === EVENT_TYPES.ROUND_REVIEW_STARTED) {
+    view.review = { status: '', reason: '', rejected_attempts: view.review.rejected_attempts };
     setRole(view, 'reviewer', 'active', 'Reviewing benchmark evidence', ts);
     addRoleWork(view, event, 'reviewer', 'review', 'Review started', '', 'active');
   } else if (type === EVENT_TYPES.ROUND_REVIEW_DEFERRED) {
@@ -402,7 +403,8 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     setRole(view, 'reviewer', 'waiting', 'Review deferred for one round', ts);
     addTimeline(view, event, 'engineer', 'Continued before review', nextStep, 'info');
   } else if (type === EVENT_TYPES.ROUND_REVIEW_COMPLETED) {
-    const status = S(event, 'status');
+    const reviewSkipped = event.review_skipped === true;
+    const status = reviewSkipped ? 'skipped' : S(event, 'status');
     const reason = S(event, 'reason');
     view.review = {
       status,
@@ -417,15 +419,16 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
         updated_at: ts,
       };
     }
-    setRole(view, 'reviewer', status === 'done' ? 'done' : 'rejected', status === 'done' ? 'Accepted evidence' : 'Requested another attempt', ts);
-    addTimeline(view, event, 'reviewer', status === 'done' ? 'Evidence accepted' : 'Attempt rejected', reason, status === 'done' ? 'success' : 'error');
+    const reviewTitle = reviewSkipped ? 'Review not performed' : status === 'done' ? 'Evidence accepted' : 'Attempt rejected';
+    setRole(view, 'reviewer', reviewSkipped ? 'waiting' : status === 'done' ? 'done' : 'rejected', reviewSkipped ? reviewTitle : status === 'done' ? 'Accepted evidence' : 'Requested another attempt', ts);
+    addTimeline(view, event, 'reviewer', reviewTitle, reason, reviewSkipped ? 'info' : status === 'done' ? 'success' : 'error');
     const nextAction = S(event, 'next_action');
     addRoleWork(
       view,
       event,
       'reviewer',
-      'verdict',
-      status === 'done' ? 'Evidence accepted' : 'Attempt rejected',
+      reviewSkipped ? 'review' : 'verdict',
+      reviewTitle,
       nextAction ? `${reason}\n\nNext action: ${nextAction}` : reason,
       status,
     );

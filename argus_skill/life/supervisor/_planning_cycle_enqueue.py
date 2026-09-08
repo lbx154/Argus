@@ -123,7 +123,7 @@ def _research_stage_ready_for_close(
     state_root: Path,
     evidence_root: Path,
 ) -> bool:
-    """Promote the research vertical's first stage when its blockers are gone."""
+    """Auto-close a completed portfolio; other Idea paths require adjudication."""
     try:
         from ...core.pipeline_state import read_pipeline_state
         from ...verticals._base import (
@@ -131,11 +131,18 @@ def _research_stage_ready_for_close(
             vertical_checklist_stage_order,
             vertical_stage_completion_issues,
         )
+        from ...verticals.research.idea_portfolio import portfolio_required
 
         pipeline = read_pipeline_state(state_root)
         if not isinstance(pipeline, dict):
             return False
         if str(pipeline.get("vertical") or "").strip() != "research":
+            return False
+        # Locked, exploratory, and direct Idea paths have no portfolio gate.
+        # An empty list of machine-checkable issues is not evidence that their
+        # research passed review. Let Reviewer/Manager close those paths; an
+        # automatic advance here would discard the Planner's unfinished work.
+        if not portfolio_required(state_root):
             return False
         definition = load_vertical("research", project_root=state_root)
         order = tuple(vertical_checklist_stage_order(definition))

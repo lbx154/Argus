@@ -58,6 +58,17 @@ def test_map_generation_does_not_become_a_research_step():
     assert [e["type"] for e in events] == ["life.mission.started", "round.start"]
 
 
+def test_map_preserves_whether_a_review_actually_ran():
+    rows = [
+        {"type": "round.review.completed", "item_id": "a", "status": "continue",
+         "review_skipped": skipped, "ts": ts}
+        for ts, skipped in enumerate((True, False), 1)
+    ]
+    events = normalize_events(rows, {"a"})
+    assert [event["review_skipped"] for event in events] == [True, False]
+    assert all(event["status"] == "continue" for event in events)
+
+
 def test_copy_routes_require_auth_and_check_task_event_ownership(tmp_path, monkeypatch):
     sid, life = sample(tmp_path)
     client = TestClient(create_app(global_root=tmp_path, auth_token="test"))

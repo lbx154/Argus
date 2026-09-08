@@ -10,14 +10,17 @@ from __future__ import annotations
 
 import json
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
 
+from ..event_catalog import EventType, canonical_event_type
 from ._dispatch import reduce_mission_view_event
 from ._reduce_helpers import _number, _upsert
 from ._view_state import (
     _PIPELINE_ROLE_NAMES,
     _ROLE_NAMES,
+    MISSION_BOOTSTRAP_MAX_BYTES,
     MISSION_SKILL_CONTENT_MAX_BYTES,
     _locked,
     _read_unlocked,
@@ -34,6 +37,63 @@ def _bootstrap_view(root: Path) -> dict[str, Any]:
             reduce_mission_view_event(view, event)
     view["bootstrapped"] = True
     return view
+
+
+@lru_cache(maxsize=8)
+def _review_projection(root: Path, fingerprints: tuple) -> dict[str, Any]:
+    """Replay only review ownership/verdicts; the source logs remain untouched."""
+    view = empty_mission_view()
+    # Never join a start from the rotated log across an omitted current prefix.
+    names = ("events.jsonl",) if fingerprints[1] and fingerprints[1][2] > MISSION_BOOTSTRAP_MAX_BYTES else ("events.jsonl.1", "events.jsonl")
+    for name in names:
+        for event in _tail_jsonl(root / name):
+            kind = canonical_event_type(event.get("type"))
+            if kind in {
+                EventType.LIFE_MISSION_STARTED,
+                EventType.ROUND_REVIEW_STARTED,
+                EventType.ROUND_REVIEW_COMPLETED,
+            }:
+                if kind != EventType.LIFE_MISSION_STARTED and event.get("item_id") not in {None, "", view["mission"]["id"]}:
+                    continue
+                reduce_mission_view_event(view, event)
+    return view
+
+
+def _refresh_review_projection(root: Path, view: dict[str, Any]) -> None:
+    # A still-running daemon can keep writing the older reducer's projection.
+    # Correct the response copy, without changing its file/schema under that writer.
+    fingerprints = []
+    for name in ("events.jsonl.1", "events.jsonl"):
+        try:
+            stat = (root / name).stat()
+            fingerprints.append((stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns))
+        except OSError:
+            fingerprints.append(None)
+    replay = _review_projection(root, tuple(fingerprints))
+    mission = view.get("mission", {})
+    if (
+        not replay["mission"]["id"]
+        or replay["mission"]["id"] != mission.get("id")
+        or replay["mission"]["started_at"] != mission.get("started_at")
+    ):
+        # A bounded tail that omits this mission's start cannot establish its
+        # rejection count. Do not replace it with another mission's projection.
+        return
+    view["review"] = dict(replay["review"])
+    for key in ("timeline", "role_work"):
+        corrected = {row["id"]: row for row in replay[key] if row["title"] == "Review not performed"}
+        view[key] = [{**row, **corrected.get(row["id"], {})} for row in view.get(key, [])]
+    reviewer = next(role for role in replay["roles"] if role["role"] == "reviewer")
+    for role in view.get("roles", []):
+        if (
+            replay["review"]["status"] == "skipped"
+            and role["role"] == "reviewer"
+            and role.get("status") == "rejected"
+            and role.get("updated_at") == reviewer["updated_at"]
+        ):
+            role.update(reviewer)
+            if role["status"] != "active" and view.get("active_role") == "reviewer":
+                view["active_role"] = ""
 
 
 def merge_mission_view_snapshot(
@@ -89,6 +149,20 @@ def merge_mission_view_snapshot(
         else:
             mission["title"] = mission.get("title") or objective.splitlines()[0][:240]
     if active:
+        if (
+            str(active.get("id") or "") != owner_id
+            or mission.get("completed_at") is not None
+            or (
+                active.get("started_ts") is not None
+                and (
+                    mission.get("started_at") is None
+                    or active["started_ts"] > mission["started_at"]
+                )
+            )
+        ):
+            # Claim timestamps precede their mission-start event slightly.
+            # Only a later claim establishes a new attempt of the same task.
+            view["review"] = {"status": "", "reason": "", "rejected_attempts": 0}
         if (
             str(active.get("id") or "") != owner_id
             or mission.get("completed_at") is not None
@@ -406,8 +480,10 @@ def snapshot_mission_view(
         # Daemon/role/backlog rows are a live overlay, not event-sourced facts.
         # Merge them into the response copy only; persisting them corrupts role
         # handoff state when a temporary Manager activity later goes idle.
+        response = json.loads(json.dumps(view))
+        _refresh_review_projection(path, response)
         response = merge_mission_view_snapshot(
-            json.loads(json.dumps(view)),
+            response,
             **kwargs,
         )
         _apply_manuscript_review_freshness(

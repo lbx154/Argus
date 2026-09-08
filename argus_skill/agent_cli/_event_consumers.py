@@ -180,8 +180,10 @@ class EventConsumerMixin:
         and therefore the unit the per-call allowance counts. Each dialect
         exposes a different receipt for it:
 
-        - copilot: ``model.call_finished`` fires once per model request
-          (verified against a persisted engineer call: 43 of them).
+        - copilot: ``model.call_finished`` fires once per model request.
+          Native subagents share stdout but have separate conversations; their
+          events carry a top-level ``agentId`` and do not consume the parent
+          conversation's allowance.
         - claude family / cursor / grok: one ``assistant`` frame per assistant
           message, carrying that request's ``message.usage``.
         - opencode: one ``step_finish`` per step (reason ``tool-calls`` for the
@@ -195,7 +197,9 @@ class EventConsumerMixin:
         """
         event_type = str(event.get("type") or "").strip()
         if self.backend == BACKEND_COPILOT:
-            return event_type == "model.call_finished"
+            agent_id = event.get("agentId")
+            is_subagent = isinstance(agent_id, str) and bool(agent_id.strip())
+            return event_type == "model.call_finished" and not is_subagent
         if self.backend in CLAUDE_FAMILY or self.backend in (
             BACKEND_CURSOR,
             BACKEND_GROK,

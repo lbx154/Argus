@@ -2,13 +2,55 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from argus_skill.life.supervisor import _planning_cycle_enqueue as module
+from argus_skill.skills.vertical_select import persist_vertical
+
+
+@pytest.mark.parametrize(
+    ("workflow_mode", "target_level", "direction"),
+    [
+        ("staged", "publishable", "locked"),
+        ("staged", "exploratory", "broad"),
+        ("direct", "publishable", "broad"),
+    ],
+)
+def test_no_portfolio_requirement_does_not_certify_unfinished_idea(
+    tmp_path: Path,
+    workflow_mode: str,
+    target_level: str,
+    direction: str,
+) -> None:
+    from argus_skill.verticals.research.stages import stage_completion_issues
+
+    state_root = tmp_path / "state"
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    persist_vertical(
+        state_root,
+        "research",
+        workflow_mode=workflow_mode,
+        research_target_level=target_level,
+        research_direction_mode=direction,
+    )
+    # This empty gate caused a failed Idea mission's recovery plan to be
+    # discarded. These paths still need a real Reviewer/Manager decision.
+    assert stage_completion_issues("idea", workdir, state_root=state_root) == ()
+    assert not module._research_stage_ready_for_close(
+        state_root=state_root,
+        evidence_root=workdir,
+    )
 
 
 def test_research_first_stage_ready_when_provider_gate_is_empty(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    monkeypatch.setattr(
+        "argus_skill.verticals.research.idea_portfolio.portfolio_required",
+        lambda _root: True,
+    )
     monkeypatch.setattr(
         "argus_skill.core.pipeline_state.read_pipeline_state",
         lambda _root: {"vertical": "research", "current_stage": "idea"},
@@ -52,6 +94,10 @@ def test_research_auto_close_derives_first_stage_not_old_literal(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
+        "argus_skill.verticals.research.idea_portfolio.portfolio_required",
+        lambda _root: True,
+    )
+    monkeypatch.setattr(
         "argus_skill.core.pipeline_state.read_pipeline_state",
         lambda _root: {"vertical": "research", "current_stage": "research"},
     )
@@ -74,6 +120,10 @@ def test_research_first_stage_does_not_close_with_blockers(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    monkeypatch.setattr(
+        "argus_skill.verticals.research.idea_portfolio.portfolio_required",
+        lambda _root: True,
+    )
     monkeypatch.setattr(
         "argus_skill.core.pipeline_state.read_pipeline_state",
         lambda _root: {"vertical": "research", "current_stage": "idea"},

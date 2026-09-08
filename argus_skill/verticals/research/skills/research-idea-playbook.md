@@ -47,6 +47,10 @@ cheap, easy to confirm, or easy to defend.
 
 When a portfolio exists, an internal Team worker performs only its assigned
 route or review and never creates another portfolio.
+Native read-only research delegates must return their full source report inline;
+the parent saves that report to the assigned internal path before review. Do not
+ask a read-only delegate to write files or accept a path-only confirmation as a
+saved report. This does not replace the portfolio Team's durable task outputs.
 
 ## When the idea is ready
 

@@ -305,6 +305,13 @@ def reduce_round_event(
             _timeline(view, event, role=role, title=label, detail=_text(event, "action_summary") or _text(event, "text"))
 
     elif event_type == EventType.ROUND_REVIEW_STARTED:
+        # A fresh review has no verdict yet; keep prior attempts in history,
+        # rather than presenting their reason as the current review's result.
+        view["review"] = {
+            "status": "",
+            "reason": "",
+            "rejected_attempts": int(view.get("review", {}).get("rejected_attempts") or 0),
+        }
         _set_role(view, "reviewer", "active", "Reviewing benchmark evidence", ts)
         _role_work(
             view,
@@ -342,7 +349,8 @@ def reduce_round_event(
         )
 
     elif event_type == EventType.ROUND_REVIEW_COMPLETED:
-        status = _text(event, "status")
+        review_skipped = event.get("review_skipped") is True
+        status = "skipped" if review_skipped else _text(event, "status")
         reason = _text(event, "reason")
         review_source = _text(event, "review_source") or "reviewer"
         view["review"] = {
@@ -363,7 +371,17 @@ def reduce_round_event(
                 "summary": _text(event, "frontier_summary", 2000),
                 "updated_at": ts,
             }
-        if review_source == "engineer_self_review" and status == "done":
+        if review_skipped:
+            _set_role(view, "reviewer", "waiting", "Review not performed", ts)
+            _timeline(
+                view,
+                event,
+                role="reviewer",
+                title="Review not performed",
+                detail=reason,
+                tone="info",
+            )
+        elif review_source == "engineer_self_review" and status == "done":
             _set_role(view, "engineer", "done", "Self-verified", ts)
             _set_role(view, "reviewer", "done", "Independent review not required", ts)
             _timeline(
@@ -392,8 +410,8 @@ def reduce_round_event(
             view,
             event,
             role="reviewer",
-            kind="verdict",
-            title="Evidence accepted" if status == "done" else "Attempt rejected",
+            kind="review" if review_skipped else "verdict",
+            title="Review not performed" if review_skipped else "Evidence accepted" if status == "done" else "Attempt rejected",
             detail=detail,
             status=status,
         )

@@ -735,6 +735,166 @@ def test_new_mission_resets_prior_review_projection(tmp_path: Path) -> None:
     assert view["active_role"] == "engineer"
 
 
+@pytest.mark.parametrize("status", ["continue", "blocked", "done"])
+def test_skipped_review_is_not_a_verdict_or_rejected_attempt(tmp_path: Path, status: str) -> None:
+    emit(tmp_path, "round.review.completed", 1, status="continue", reason="Add a control.")
+    view = emit(
+        tmp_path,
+        "round.review.completed",
+        2,
+        round_index=2,
+        status=status,
+        reason="Session turn allowance exhausted; review did not run.",
+        next_action="Resume from the saved checkpoint.",
+        review_skipped=True,
+    )
+    assert view["review"]["status"] == "skipped"
+    assert view["review"]["rejected_attempts"] == 1
+    assert view["timeline"][-1]["title"] == "Review not performed"
+    assert view["timeline"][-1]["tone"] == "info"
+    work = view["role_work"][-1]
+    assert work["status"] == "skipped"
+    assert work["kind"] == "review"
+    assert "saved checkpoint" in work["detail"]
+    assert next(role for role in view["roles"] if role["role"] == "reviewer")["status"] == "waiting"
+
+
+def test_new_review_clears_prior_verdict_without_erasing_history(tmp_path: Path) -> None:
+    emit(
+        tmp_path,
+        "round.review.completed",
+        1,
+        status="continue",
+        reason="Add a control.",
+        manuscript_snapshot={"path": "old-paper.md"},
+    )
+    view = emit(tmp_path, "round.review.started", 2, round_index=2)
+    assert view["review"] == {"status": "", "reason": "", "rejected_attempts": 1}
+    assert view["active_role"] == "reviewer"
+    assert any(item["detail"] == "Add a control." for item in view["timeline"])
+    assert any(item["detail"] == "Add a control." for item in view["role_work"])
+
+
+def test_snapshot_corrects_old_review_projection_without_rewriting_it(tmp_path: Path) -> None:
+    events = [
+        {"type": "life.mission.started", "ts": 1, "item_id": "current"},
+        {"type": "round.review.completed", "ts": 2, "event_id": "skipped",
+         "status": "continue", "reason": "Turn allowance reached.", "review_skipped": True},
+        {"type": "round.review.started", "ts": 3, "round_index": 2},
+    ]
+    for event in events:
+        view = update_mission_view_event(tmp_path, event)
+    view["bootstrapped"] = True
+    view["review"] = {"status": "continue", "reason": "Turn allowance reached.", "rejected_attempts": 1}
+    for key in ("timeline", "role_work"):
+        for row in view[key]:
+            if row["title"] == "Review not performed":
+                row.update(title="Attempt rejected", tone="error", status="continue", kind="verdict")
+    view_file = tmp_path / "mission-view.json"
+    event_file = tmp_path / "events.jsonl"
+    view_file.write_text(json.dumps(view))
+    event_file.write_text("".join(json.dumps(event) + "\n" for event in events))
+    before = view_file.read_bytes()
+
+    def snapshot():
+        return snapshot_mission_view(tmp_path, session={}, daemon={}, roles=[], backlog=[], continuous={})
+
+    result = snapshot()
+    assert result["review"] == {"status": "", "reason": "", "rejected_attempts": 0}
+    assert any(row["title"] == "Review not performed" and row["tone"] == "info" for row in result["timeline"])
+    assert any(row["title"] == "Review not performed" and row["status"] == "skipped" for row in result["role_work"])
+    assert view_file.read_bytes() == before
+
+    # A later real rejection invalidates the read cache while the older writer
+    # still incorrectly includes its earlier skipped attempt in the counter.
+    event_file.write_text(event_file.read_text() + json.dumps({
+        "type": "round.review.completed", "ts": 4, "status": "continue", "reason": "Add a control.",
+    }) + "\n")
+    view["review"] = {"status": "continue", "reason": "Add a control.", "rejected_attempts": 2}
+    view_file.write_text(json.dumps(view))
+    before = view_file.read_bytes()
+    result = snapshot()
+    assert result["review"]["rejected_attempts"] == 1
+    assert result["review"]["reason"] == "Add a control."
+    assert view_file.read_bytes() == before
+
+    # A tail that belongs to another mission must not overwrite this snapshot.
+    view["mission"].update(id="new-mission", started_at=5)
+    view["review"] = {"status": "", "reason": "", "rejected_attempts": 0}
+    view_file.write_text(json.dumps(view))
+    assert snapshot()["review"] == view["review"]
+
+    # Live ownership can advance before the old daemon writes its projection.
+    view["mission"].update(id="current", started_at=1)
+    view["review"] = {"status": "continue", "reason": "Old verdict.", "rejected_attempts": 2}
+    view_file.write_text(json.dumps(view))
+    event_file.write_text(event_file.read_text() + json.dumps({
+        "type": "life.mission.started", "ts": 5, "item_id": "new-mission",
+    }) + "\n" + json.dumps({
+        "type": "round.review.completed", "ts": 6, "item_id": "current",
+        "status": "continue", "reason": "Late event from the prior task.",
+    }) + "\n")
+    before = view_file.read_bytes()
+    result = snapshot_mission_view(
+        tmp_path, session={}, daemon={"alive": True},
+        roles=[{"role": "engineer", "active": True}],
+        backlog=[{"id": "new-mission", "status": "running", "started_ts": 5}],
+        continuous={},
+    )
+    assert result["mission"]["id"] == "new-mission"
+    assert result["review"] == {"status": "", "reason": "", "rejected_attempts": 0}
+    assert result["active_role"] == "engineer"
+    assert view_file.read_bytes() == before
+
+
+def test_review_replay_does_not_bridge_a_truncated_current_log(tmp_path: Path, monkeypatch) -> None:
+    from argus_skill.core.mission_view import _snapshot
+
+    view = emit(tmp_path, "life.mission.started", 1, item_id="current")
+    view["bootstrapped"] = True
+    view["review"] = {"status": "continue", "reason": "Retained verdict", "rejected_attempts": 3}
+    (tmp_path / "mission-view.json").write_text(json.dumps(view))
+    (tmp_path / "events.jsonl.1").write_text(json.dumps({
+        "type": "life.mission.started", "ts": 1, "item_id": "current",
+    }) + "\n")
+    (tmp_path / "events.jsonl").write_text(" " * 100 + "\n" + json.dumps({
+        "type": "round.review.completed", "ts": 4, "item_id": "current",
+        "status": "continue", "reason": "Latest verdict",
+    }) + "\n")
+    monkeypatch.setattr(_snapshot, "MISSION_BOOTSTRAP_MAX_BYTES", 64)
+    result = snapshot_mission_view(tmp_path, session={}, daemon={}, roles=[], backlog=[], continuous={})
+    assert result["review"] == view["review"]
+
+
+def test_review_snapshot_uses_event_identity_despite_earlier_claim_timestamp(tmp_path: Path) -> None:
+    events = [
+        {"type": "life.mission.started", "ts": 10.004, "item_id": "current"},
+        {"type": "round.review.completed", "ts": 11, "item_id": "current",
+         "status": "continue", "reason": "Check the real control.", "review_skipped": False},
+    ]
+    for event in events:
+        view = update_mission_view_event(tmp_path, event)
+    view["bootstrapped"] = True
+    view["review"]["rejected_attempts"] = 2
+    view_file = tmp_path / "mission-view.json"
+    view_file.write_text(json.dumps(view))
+    (tmp_path / "events.jsonl").write_text("".join(json.dumps(event) + "\n" for event in events))
+    before = view_file.read_bytes()
+    kwargs = dict(session={}, daemon={"alive": True}, roles=[], continuous={})
+    result = snapshot_mission_view(tmp_path, backlog=[{
+        "id": "current", "status": "running", "started_ts": 10.0,
+    }], **kwargs)
+    assert result["review"]["reason"] == "Check the real control."
+    assert result["review"]["rejected_attempts"] == 1
+    assert view_file.read_bytes() == before
+
+    # The next claim of the same task must not inherit the earlier verdict.
+    result = snapshot_mission_view(tmp_path, backlog=[{
+        "id": "current", "status": "running", "started_ts": 12.0,
+    }], **kwargs)
+    assert result["review"] == {"status": "", "reason": "", "rejected_attempts": 0}
+
+
 def test_snapshot_keeps_current_mission_owner_ahead_of_stale_pending_work(
     tmp_path: Path,
 ) -> None:

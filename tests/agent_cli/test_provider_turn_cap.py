@@ -70,7 +70,8 @@ class _LiveFakeProc:
     process, letting the reader thread close its pipe.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, native_subagents: int = 0) -> None:
+        self.native_subagents = native_subagents
         self.stdout = self._endless_turns()
         self.stderr = iter([])
         self.stdin = _FakeStdin()
@@ -80,6 +81,12 @@ class _LiveFakeProc:
     def _endless_turns(self):
         index = 0
         while not self.terminated:
+            for agent_index in range(self.native_subagents):
+                yield json.dumps({
+                    "type": "model.call_finished",
+                    "agentId": f"native-agent-{agent_index}",
+                    "data": {"turnId": str(index), "outcome": "success"},
+                })
             yield json.dumps({
                 "type": "model.call_start",
                 "data": {"turnId": str(index)},
@@ -201,6 +208,72 @@ def test_call_under_the_allowance_completes_untouched(
     assert result.thread_id == "sess-under-cap"
 
 
+def test_native_subagent_turns_do_not_exhaust_the_parent_allowance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_PROVIDER_TURN_CAP", raising=False)
+    # Copilot multiplexes the twelve native task agents into the same stdout.
+    # The parent has its own growing transcript and must still get 40 turns.
+    process = _LiveFakeProc(native_subagents=12)
+    runner, terminations = _capped_runner(monkeypatch, process)
+    completed: list[dict] = []
+
+    def _record_before_termination(_stream: str, line: str) -> None:
+        # The pipe reader may queue later events before termination; inspect
+        # the boundary when termination fires, not the drained stdout tail.
+        if not process.terminated and '"model.call_finished"' in line:
+            completed.append(json.loads(line))
+
+    runner.event_callback = _record_before_termination
+
+    result = runner.run_exec(
+        prompt="research twelve independent routes",
+        resume_thread_id=None,
+        options=RunnerOptions(),
+        run_label="engineer-r2",
+    )
+
+    parent_turns = [event for event in completed if not event.get("agentId")]
+    child_turns = [event for event in completed if event.get("agentId")]
+    assert len(parent_turns) == 40
+    assert len(child_turns) == 480
+    assert terminations == ["terminate"]
+    assert process.terminated is True
+    assert result.provider_turn_cap_hit is True
+    assert result.provider_turns == 40
+    assert result.turn_failed is True
+
+
+def test_completed_native_fanout_keeps_only_parent_provider_turns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ARGUS_SKILL_PROVIDER_TURN_CAP", raising=False)
+    lines = _copilot_turn_lines(1)
+    for turn in range(4):
+        for agent in range(12):
+            lines.append(json.dumps({
+                "type": "model.call_finished",
+                "agentId": f"native-agent-{agent}",
+                "parentId": "previous-event",
+                "data": {"turnId": str(turn), "outcome": "success"},
+            }))
+    lines.extend(_copilot_turn_lines(2, with_result=True))
+    runner, terminations = _capped_runner(monkeypatch, _ExitedFakeProc(lines))
+
+    result = runner.run_exec(
+        prompt="combine the completed route reports",
+        resume_thread_id=None,
+        options=RunnerOptions(),
+        run_label="engineer-r2",
+    )
+
+    assert terminations == []
+    assert result.turn_completed is True
+    assert result.provider_turn_cap_hit is False
+    assert result.provider_turns == 3
+    assert result.agent_messages[-1] == "all done"
+
+
 def test_zero_disables_the_allowance(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", "0")
     runner, terminations = _capped_runner(
@@ -299,8 +372,29 @@ def test_real_subprocess_smoke_stub_cli_is_wound_down_at_the_allowance(
     ("backend", "event", "ends_turn"),
     [
         (BACKEND_COPILOT, {"type": "model.call_finished", "data": {}}, True),
+        (
+            BACKEND_COPILOT,
+            {"type": "model.call_finished", "agentId": "native-agent", "data": {}},
+            False,
+        ),
+        (
+            BACKEND_COPILOT,
+            {"type": "model.call_finished", "agentId": None, "data": {}},
+            True,
+        ),
+        (
+            BACKEND_COPILOT,
+            {"type": "model.call_finished", "agentId": "", "data": {}},
+            True,
+        ),
+        (
+            BACKEND_COPILOT,
+            {"type": "model.call_finished", "parentId": "previous-event", "data": {}},
+            True,
+        ),
         (BACKEND_COPILOT, {"type": "assistant.message_delta", "data": {}}, False),
         (BACKEND_CLAUDE, {"type": "assistant", "message": {}}, True),
+        (BACKEND_CLAUDE, {"type": "assistant", "agentId": "agent", "message": {}}, True),
         (BACKEND_CLAUDE, {"type": "result", "subtype": "success"}, False),
         (
             BACKEND_CODEX,

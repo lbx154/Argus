@@ -109,8 +109,9 @@ export function buildSubmap(
     const round = e.round_index;
     const finished =
       e.type.endsWith(".completed") || e.type.endsWith(".failed");
+    const reviewSkipped = kind === "review" && e.review_skipped === true;
     const status =
-      e.status ||
+      (reviewSkipped ? "skipped" : e.status) ||
       (e.success === false || e.type.endsWith(".failed")
         ? "failed"
         : e.success === true
@@ -118,8 +119,9 @@ export function buildSubmap(
           : finished
             ? "recorded"
             : "started");
-    const title =
-      kind === "review"
+    const title = reviewSkipped
+      ? zh ? "审查未执行" : "Review not performed"
+      : kind === "review"
         ? finished
           ? zh
             ? "审查意见"
@@ -150,9 +152,13 @@ export function buildSubmap(
       id: e.id,
       kind,
       title,
-      detail:
+      detail: [
         readableRecord(e.text) ||
-        (zh ? "暂无详细记录" : "Details are not available yet."),
+          (zh ? "暂无详细记录" : "Details are not available yet."),
+        reviewSkipped && e.next_action
+          ? `${zh ? "下一步" : "Next action"}: ${e.next_action}`
+          : "",
+      ].filter(Boolean).join("\n\n"),
       status,
       ts: e.ts,
       round,
@@ -161,7 +167,7 @@ export function buildSubmap(
       eventIds: [e.id],
     });
     if (
-      e.next_action &&
+      !reviewSkipped && e.next_action &&
       ["continue", "blocked", "replan", "replan_requested"].includes(
         e.status || "",
       )
@@ -213,6 +219,8 @@ export function buildSubmap(
     const key = `${row.episode}:${row.round}:${row.kind}`;
     const previous = mergeable ? groups.get(key) : undefined;
     if (previous) {
+      if (row.kind === "review") previous.title = row.status === "skipped"
+        ? row.title : zh ? "审查与反馈" : "Review & feedback";
       previous.detail = row.detail;
       previous.status = row.status;
       previous.eventIds.push(...row.eventIds);
@@ -220,7 +228,7 @@ export function buildSubmap(
     } else {
       const copy = {
         ...row,
-        title: mergeable
+        title: mergeable && row.status !== "skipped"
           ? row.kind === "review"
             ? zh
               ? "审查与反馈"

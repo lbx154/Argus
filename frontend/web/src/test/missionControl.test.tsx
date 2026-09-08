@@ -244,6 +244,41 @@ describe('MissionControl', () => {
     });
   });
 
+  it('shows current recovery progress while keeping the failed task in history', () => {
+    const view = emptyMissionView();
+    view.mission = { ...view.mission, id: 'current', status: 'working' };
+    view.active_role = 'reviewer';
+    view.dag = [
+      { id: 'old', title: 'Prior paper attempt', objective: '', status: 'failed', deps: [], branch_id: 'old', parent_branch_id: null },
+      { id: 'current', title: 'Validate recovered evidence', objective: '', status: 'running', deps: [], branch_id: 'current', parent_branch_id: null },
+    ];
+    view.role_work = [{ id: 'review', ts: 3, role: 'reviewer', kind: 'review', title: 'Checking recovered evidence', detail: '', status: 'active', item_id: 'current', mission_id: 'current' }];
+    const markup = renderToStaticMarkup(<MissionControl view={view} />);
+    expect(markup).toContain('Reviewer — Checking recovered evidence');
+    expect(markup).not.toContain('A step failed — check the task below.');
+    expect(markup).toContain('Prior paper attempt');
+    expect(markup).toContain('Failed');
+
+    view.mission.id = 'old';
+    expect(renderToStaticMarkup(<MissionControl view={view} />)).toContain('A step failed — check the task below.');
+  });
+
+  it('does not count skipped reviews as rejected attempts and clears stale verdicts on review start', () => {
+    const view = emptyMissionView();
+    reduceMissionViewEvent(view, { type: 'round.review.completed', ts: 1, status: 'continue', reason: 'Add a control.' });
+    reduceMissionViewEvent(view, { type: 'round.review.completed', ts: 2, status: 'continue', reason: 'Turn allowance reached.', next_action: 'Resume from checkpoint.', review_skipped: true });
+    expect(view.review).toEqual({ status: 'skipped', reason: 'Turn allowance reached.', rejected_attempts: 1 });
+    expect(view.timeline.at(-1)).toMatchObject({ title: 'Review not performed', tone: 'info' });
+    expect(view.role_work.at(-1)).toMatchObject({ kind: 'review', status: 'skipped', detail: 'Turn allowance reached.\n\nNext action: Resume from checkpoint.' });
+    expect(view.roles.find((role) => role.role === 'reviewer')?.status).toBe('waiting');
+
+    reduceMissionViewEvent(view, { type: 'round.review.started', ts: 3, round_index: 3 });
+    expect(view.review).toEqual({ status: '', reason: '', rejected_attempts: 1 });
+    expect(view.active_role).toBe('reviewer');
+    expect(view.timeline.some((item) => item.detail === 'Add a control.')).toBe(true);
+    expect(view.timeline.some((item) => item.detail === 'Turn allowance reached.')).toBe(true);
+  });
+
   it('keeps live stage and active role aligned with terminal events', () => {
     const view = emptyMissionView();
     reduceMissionViewEvent(view, {

@@ -117,6 +117,8 @@ def normalize_events(
                 e["round_index"] = number
             if isinstance(row.get("success"), bool):
                 e["success"] = row["success"]
+            if isinstance(row.get("review_skipped"), bool):
+                e["review_skipped"] = row["review_skipped"]
             result.append(e)
         if kind in ("life.mission.completed", "life.mission.failed", "life.mission.orphaned"):
             active.discard(owner)

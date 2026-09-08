@@ -30,6 +30,7 @@ export interface MapEvent {
   round_index?: number;
   attempt?: number;
   success?: boolean;
+  review_skipped?: boolean;
   next_action?: string;
   association?: "explicit" | "single_active_window";
 }

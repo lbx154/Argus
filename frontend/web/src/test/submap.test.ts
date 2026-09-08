@@ -83,6 +83,21 @@ describe("task submap evidence", () => {
     expect(rounds[0].eventIds).toEqual(["e2", "e3"]);
     expect(rounds[1].eventIds).toEqual(["e5"]);
   });
+  it("keeps skipped-review continuation instructions without inventing a rejection", () => {
+    const rows = buildSubmap(task, [
+      event("e1", "round.review.started", { round_index: 1 }),
+      event("e2", "round.review.completed", {
+        round_index: 1, status: "continue", review_skipped: true,
+        text: "The session reached its turn allowance; no review ran.",
+        next_action: "Resume from the saved checkpoint.",
+      }),
+    ], true);
+    expect(rows.find((row) => row.kind === "review")).toMatchObject({
+      title: "审查未执行", status: "skipped", eventIds: ["e1", "e2"],
+    });
+    expect(rows.find((row) => row.kind === "review")?.detail).toContain("Resume from the saved checkpoint.");
+    expect(rows.some((row) => row.kind === "revision")).toBe(false);
+  });
   it("does not turn an unsuccessful completed mission into success", () => {
     expect(
       buildSubmap(

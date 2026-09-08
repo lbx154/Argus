@@ -218,9 +218,14 @@ export function MissionControl({
     || view.storage.wiki_retired_compressed,
   );
   const hasCapabilities = Boolean(activeSkills.length || retainedWikiPages.length || hasSavedKnowledge);
+  const missionStatus = view.mission.status.toLowerCase();
+  const missionRunning = ['working', 'grounding', 'framed'].includes(missionStatus);
   const healthNeedsAttention = ['degraded', 'red', 'critical'].includes(view.health?.toLowerCase() ?? '');
   const missionFailed = ['failed', 'error'].includes(view.mission.status.toLowerCase());
-  const stepFailed = view.dag.some((node) => node.status.toLowerCase() === 'failed');
+  // Historical failures remain in the route; they do not replace the status
+  // of a different task that is currently running or being reviewed.
+  const stepFailed = view.dag.some((node) => node.status.toLowerCase() === 'failed'
+    && (node.id === view.mission.id || (!missionRunning && !activeNode)));
   const missionPaused = ['hold', 'paused'].includes(view.stage.id.toLowerCase());
   const deliveryFailed = view.outcome.execution_status?.toLowerCase() === 'failed'
     && view.stage.id.toLowerCase() === 'delivery';
@@ -238,8 +243,6 @@ export function MissionControl({
     .filter((item) => ACTIVE_WORK_STATUSES.includes(item.status.toLowerCase()))
     .sort((left, right) => right.ts - left.ts);
   const currentWork = activeWork.find((item) => item.role === view.active_role) ?? activeWork[0];
-  const missionStatus = view.mission.status.toLowerCase();
-  const missionRunning = ['working', 'grounding', 'framed'].includes(missionStatus);
   const missionDone = TERMINAL_MISSION_STATUSES.includes(missionStatus);
   const outcome = outcomeLabels(view.outcome, t)[0] ?? statusLabel(view.mission.status, t);
   const statusNarrative = needsAttention
