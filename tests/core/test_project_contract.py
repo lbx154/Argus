@@ -17,6 +17,8 @@ from pathlib import Path
 import pytest
 
 from argus_skill.core.project_contract import (
+    AUTHORITY_MANAGER,
+    AUTHORITY_OPERATOR,
     CLAUSE_PRECISE,
     CLAUSE_SEMANTIC,
     ContractError,
@@ -60,6 +62,47 @@ def test_manager_owned_semantic_clarification_needs_nobody(tmp_path: Path) -> No
     assert updated.revision == 2
     assert revision.added == () and revision.removed == ()
     assert len(updated.semantic()) == 1
+
+
+def test_operator_owned_semantic_boundary_needs_confirmation() -> None:
+    """How a boundary is checked must not decide who may remove it."""
+    privacy = make_clause(
+        CLAUSE_SEMANTIC,
+        "do not send unpublished data to external services",
+        AUTHORITY_OPERATOR,
+    )
+    current = new_contract(objective="analyse the project", clauses=[privacy])
+
+    with pytest.raises(ContractError, match="operator confirmation"):
+        revise_contract(current=current, clauses=[], by="manager")
+
+
+def test_manager_owned_precise_parameter_can_change_without_confirmation() -> None:
+    """A mechanical working parameter is not necessarily an operator boundary."""
+    current = new_contract(
+        objective="analyse the project",
+        clauses=[
+            make_clause(
+                CLAUSE_PRECISE,
+                "inspect the latest 20 records",
+                AUTHORITY_MANAGER,
+            )
+        ],
+    )
+
+    updated, _ = revise_contract(
+        current=current,
+        clauses=[
+            make_clause(
+                CLAUSE_PRECISE,
+                "inspect the latest 30 records",
+                AUTHORITY_MANAGER,
+            )
+        ],
+        by="manager",
+    )
+
+    assert updated.clauses[0].text == "inspect the latest 30 records"
 
 
 def test_recording_an_ambiguity_needs_nobody() -> None:
@@ -221,6 +264,31 @@ def test_a_saved_contract_round_trips(tmp_path: Path) -> None:
     assert loaded.objective == "make the attention kernel faster"
     assert len(loaded.precise()) == 1
     assert len(loaded.semantic()) == 1
+    assert loaded.precise()[0].authority == AUTHORITY_OPERATOR
+    assert loaded.semantic()[0].authority == AUTHORITY_MANAGER
+
+
+def test_legacy_contract_infers_authority_from_checkability(tmp_path: Path) -> None:
+    (tmp_path / "goal_contract.json").write_text(
+        """
+        {
+          "contract": {
+            "objective": "legacy",
+            "clauses": [
+              {"kind": "precise", "text": "at least 10"},
+              {"kind": "semantic", "text": "keep it readable"}
+            ]
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    loaded = load_contract(tmp_path)
+
+    assert loaded is not None
+    assert loaded.precise()[0].authority == AUTHORITY_OPERATOR
+    assert loaded.semantic()[0].authority == AUTHORITY_MANAGER
 
 
 def test_the_revision_history_is_append_only(tmp_path: Path) -> None:

@@ -12,9 +12,10 @@ may change it: operator-owned requirements need specific confirmation; explicitl
 manager-owned working parameters may be refined autonomously, regardless of kind.
 An unpublished-data boundary can require judgment without becoming freely mutable.
 
-Unannotated requirements, including legacy clauses, remain operator-owned. Loading
-does not rewrite historical files or clause ids. The objective and explicit
-exclusions also belong to the operator; ambiguities are unanswered questions.
+New unannotated requirements default to operator ownership. Legacy files preserve
+their historical defaults only during loading (precise: operator, semantic:
+manager), without rewriting files or clause ids. Explicit authority always wins.
+The objective and exclusions also belong to the operator; ambiguities are questions.
 
 Deliberate non-goal: this module does not decide whether a project is finished.
 Completion lives in :mod:`argus_skill.core.project_api`, and existing projects
@@ -96,6 +97,9 @@ class GoalContract:
     def operator_owned(self) -> tuple[Clause, ...]:
         return tuple(c for c in self.clauses if c.authority == AUTHORITY_OPERATOR)
 
+    def manager_owned(self) -> tuple[Clause, ...]:
+        return tuple(c for c in self.clauses if c.authority == AUTHORITY_MANAGER)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "objective": self.objective,
@@ -166,7 +170,7 @@ class ContractRevision:
 # -- construction ------------------------------------------------------------
 
 
-def make_clause(kind: str, text: str, *, authority: str = AUTHORITY_OPERATOR) -> Clause:
+def make_clause(kind: str, text: str, authority: str | None = AUTHORITY_OPERATOR) -> Clause:
     cleaned = str(text or "").strip()
     normalized = str(kind or "").strip().lower()
     if normalized not in _CLAUSE_KINDS:
@@ -175,7 +179,7 @@ def make_clause(kind: str, text: str, *, authority: str = AUTHORITY_OPERATOR) ->
         )
     if not cleaned:
         raise ContractError("a clause needs text")
-    owner = str(authority or "").strip().lower()
+    owner = str(AUTHORITY_OPERATOR if authority is None else authority).strip().lower()
     if owner not in _CLAUSE_AUTHORITIES:
         raise ContractError(f"clause authority {authority!r} is not one of {sorted(_CLAUSE_AUTHORITIES)}")
     return Clause(kind=normalized, text=cleaned, authority=owner)
@@ -372,6 +376,16 @@ def contract_path(state_dir: Path | str) -> Path:
     return Path(state_dir) / CONTRACT_FILENAME
 
 
+def _stored_authority(row: dict[str, Any]) -> str:
+    if "authority" not in row:
+        # Migration preserves the permissions of already-committed contracts;
+        # kind is never consulted once an explicit authority has been recorded.
+        return AUTHORITY_OPERATOR if row.get("kind") == CLAUSE_PRECISE else AUTHORITY_MANAGER
+    raw = row.get("authority")
+    normalized = raw.strip().lower() if isinstance(raw, str) else ""
+    return normalized if normalized in _CLAUSE_AUTHORITIES else AUTHORITY_OPERATOR
+
+
 def load_contract(state_dir: Path | str) -> GoalContract | None:
     """The committed contract, or ``None`` when this project has none.
 
@@ -392,11 +406,7 @@ def load_contract(state_dir: Path | str) -> GoalContract | None:
             clauses=tuple(
                 Clause(
                     kind=str(row.get("kind") or ""), text=str(row.get("text") or ""),
-                    authority=(
-                        row["authority"]
-                        if isinstance(row.get("authority"), str) and row["authority"] in _CLAUSE_AUTHORITIES
-                        else AUTHORITY_OPERATOR
-                    ),
+                    authority=_stored_authority(row),
                 )
                 for row in contract.get("clauses") or []
                 if isinstance(row, dict) and str(row.get("kind") or "") in _CLAUSE_KINDS

@@ -49,17 +49,30 @@ def test_authority_cannot_be_downgraded_by_relabeling_a_clause():
     assert revision.removed == (boundary.id,)
 
 
-def test_legacy_semantic_requirement_is_conservative_without_rewriting_the_file(tmp_path):
+def test_legacy_permissions_are_preserved_without_rewriting_the_file(tmp_path):
     path = tmp_path / 'goal_contract.json'
     payload = {'contract': {'objective': 'Review a manuscript', 'clauses': [
-        {'kind': 'semantic', 'text': 'Preserve confidential information'},
+        {'kind': 'semantic', 'text': 'Keep the report readable'},
+        {'kind': 'precise', 'text': 'Stay within the agreed budget'},
     ]}, 'history': []}
     path.write_text(json.dumps(payload))
     before = path.read_bytes()
     current = load_contract(tmp_path)
+    assert current.semantic()[0].authority == 'manager'
+    assert current.precise()[0].authority == 'operator'
     with pytest.raises(ContractError, match='operator confirmation'):
         revise_contract(current=current, clauses=[], by='manager')
     assert path.read_bytes() == before
+
+
+def test_unknown_explicit_authority_does_not_grant_manager_edit_permission(tmp_path):
+    path = tmp_path / 'goal_contract.json'
+    path.write_text(json.dumps({'contract': {'objective': 'Review', 'clauses': [
+        {'kind': 'semantic', 'text': 'Keep source material private', 'authority': 'unknown'},
+    ]}}))
+    current = load_contract(tmp_path)
+    with pytest.raises(ContractError, match='operator confirmation'):
+        revise_contract(current=current, clauses=[], by='manager')
 
 
 def test_authority_round_trip_and_prompt_distinguish_binding_intent_from_working_parameters(tmp_path):

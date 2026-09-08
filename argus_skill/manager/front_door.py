@@ -522,6 +522,7 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
     """
     try:
         from ..core.project_contract import (
+            AUTHORITY_OPERATOR,
             CLAUSE_PRECISE,
             CLAUSE_SEMANTIC,
             ContractConfirmation,
@@ -541,11 +542,11 @@ def _record_goal_contract(mem: Any, body: str, decision: Any) -> None:
         target = str(getattr(decision, "research_target_level", "") or "").strip()
         if target:
             clauses.append(
-                make_clause(CLAUSE_SEMANTIC, f"research target level: {target}")
+                make_clause(CLAUSE_SEMANTIC, f"research target level: {target}", AUTHORITY_OPERATOR)
             )
         venue = str(getattr(decision, "target_venue", "") or "").strip()
         if venue:
-            clauses.append(make_clause(CLAUSE_SEMANTIC, f"target venue: {venue}"))
+            clauses.append(make_clause(CLAUSE_SEMANTIC, f"target venue: {venue}", AUTHORITY_OPERATOR))
         exclusions = tuple(getattr(decision, "exclusions", ()) or ())
         ambiguities = tuple(getattr(decision, "ambiguities", ()) or ())
         current = load_contract(state_dir)

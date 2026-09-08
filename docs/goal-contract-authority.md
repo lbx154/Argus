@@ -17,11 +17,13 @@ boundary = make_clause("semantic", "Use only approved data sources")
 working = make_clause("precise", "Explore in batches of 8", authority="manager")
 ```
 
-`operator` is the default. Legacy clauses without authority also load as
-operator-owned, without rewriting the file or changing clause ids. Existing
-semantic working parameters should be explicitly delegated before autonomous
-revision. That delegation requires the same specific confirmation as removing
-an operator-owned requirement.
+`operator` is the default for new clauses. For compatibility, legacy files
+without authority preserve the previous precise/operator and semantic/manager
+mapping only during loading. This does not rewrite files or change clause ids;
+it also does not retroactively infer ownership of old qualitative requirements.
+Record explicit authority when migrating them. Once authority is present,
+checkability never changes it. Unknown explicit authority remains operator-owned.
+Delegating an operator-owned clause to the Manager requires specific confirmation.
 
 Changes to operator-owned clauses, the objective, and explicit exclusions need
 a confirmation bound to the changed ids and current contract revision. Use
