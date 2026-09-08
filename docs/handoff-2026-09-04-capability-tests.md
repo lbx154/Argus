@@ -1521,3 +1521,39 @@ with preserved env (owner had redeployed again — pid churns; always re-read /p
 `index-XcbVTeLy.js`, map-notes 200. Overnight: session cron (~47min) keeps syncing origin/main to
 the demo (ff + digest-restart) and continues the backlog: search match count/cycling, PendingBanner
 "show on map" locate action, en reference lines, playback bar restyle, mobile/dark sweeps.
+
+## 25. The frame-rate investigation: measure, don't guess (2026-09-08 night)
+
+Operator still felt low FPS after §24. Proper profiling (playwright + CDP Performance.getMetrics per
+scenario; script at /tmp/atlas-shots/profile.py) rewrote the story:
+
+- In isolation the wave-3 build is a solid 60fps (idle/zoom/pan p95 16.8ms, main thread <3%). The
+  earlier 40-44fps numbers were machine-load artifacts (vitest/builds running beside the probe).
+- On the LIVE demo (running daemon) idle watching burned 18-24% main thread with a style recalc
+  EVERY frame (593/10s), and zooming stuttered (p95 33ms, layout 330ms/4s).
+- `document.getAnimations()` (with effect.getKeyframes()) pinned the per-frame restyler:
+  `map-working` animated **box-shadow** on the running-phase dots — one animation, one style pass
+  per frame, forever, whenever anything runs. Two dash-offset SVG loops (`atlas-flow` on active
+  edges, with drop-shadow filter; submap link flow) painted on the main thread the same way.
+  The websocket-token-storm hypothesis measured FALSE that moment (3 frames/10s idle), but the
+  memo+throttle guard is in anyway — streams do get chatty when agents write.
+
+Fixes (`a75b7402e`, `eed0e2dd1` + artifacts): map-working → scale+opacity keyframes; active-edge
+flow → `.map-edge-spark`, a dot drifting via offset-path/offset-distance keyframes on the
+compositor (EdgeLabelRenderer div, per-edge negative animation-delay so sparks don't sync); submap
+link pulse and branch breathe → opacity-only; MapPanel wrapped in `memo` with `events`/
+`conversationEvents` throttled to a 250ms beat in App (`useThrottledValue`); live incremental
+refreshes defer while the pointer is active (900ms window, wheel/pointerdown/drag listeners on the
+map section) so poll commits stop landing mid-gesture.
+
+Lessons now standard: (1) profile per scenario with CDP metric deltas before touching anything;
+(2) `document.getAnimations()` + getKeyframes finds main-thread animations in seconds; (3) infinite
+keyframes may only animate transform/opacity (offset-distance ok); anything else — box-shadow,
+border-color, stroke-dashoffset, filters — taxes every frame while it exists; (4) measure on the
+LIVE deployment: static sandboxes hide every cost that only running sessions trigger.
+
+Deploy note: the paper-optimization agent is actively developing INSIDE /data/v-boxiuli/argus-atlas-main
+tonight (uncommitted python+App.tsx WIP, own webapi process on 8897 serving my previous build
+`index-CGQAUThu.js` = wave-3+sparks+deferral). Per the no-touching-others'-WIP rule the final two
+fixes ride main and land on the demo at their next roll or the overnight ff-only sync once the tree
+is clean. Everything of ours is pushed: main = eed0e2dd1 at the time of writing.
