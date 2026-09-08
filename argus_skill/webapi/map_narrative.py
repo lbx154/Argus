@@ -13,7 +13,7 @@ from ..core.file_lock import exclusive_file_lock
 from .map_model import MapModel, resolve_map_model, run_map_model
 from .map_view import digest, task_content_revision, text
 
-PROMPT_VERSION = 6
+PROMPT_VERSION = 7
 _LOCK = threading.Lock()
 _SOURCES: WeakValueDictionary = WeakValueDictionary()
 
@@ -153,6 +153,8 @@ def generate(
 为每个 key 输出：title（任务卡使用的简短具体标题，子卡标题不会被改动）；summary（两三句，中文 35-90 字）；detail（150-500 字，可用简洁 Markdown，写目标/已做工作/发现/下一步，有依据才写具体数字）。
 任务卡标题写研究主题，不复述文件路径、执行命令或内部交接步骤；定位产物所需的路径可以放在详情中。
 严格区分计划、正在执行、已完成、失败和修订建议。子卡片描述所选事件当时的事实，任务当前状态可能晚于事件，不用后来成功改写先前失败。没有结果就说明正在做什么，不编造结果。标题保持任务的科研目标，不因暂时受阻而改成故障标题。把 smoke 写为“初步验证”、pipeline 写为“流程”、fixture 写为“样本”。去掉套话、英文长指令和开发术语，不写“该节点”“智能体”“赋能”“可追溯”等宣传文案。保留科研方法和局限。
+运行层的回执（单次调用的轮次额度用完、换新会话、配额或冷却等待、环境变量名等）改写成一句平实的话，说明它对研究进展意味着什么，例如“换了个新会话接着做，之前的进展都在”；不逐字引用回执，不出现环境变量名，也不写“engineer-r1 会话”这类内部称呼。
+summary 先写发现或结论，再写过程：写“发现X不成立”，不写“进行了X的检查”。
 relations 可选择有内容联系的任务，使用 2-8 字关系词（如“检验假设”“比较方法”“汇总结果”），给出依据；这是内容关联，不改变执行依赖。仅连已给定任务，不自连，不重复，无法判断就不输出关联。
 必须覆盖每一个 card key。"""
     output_schema = schema([d["key"] for d in documents], [t["id"] for t in tasks])

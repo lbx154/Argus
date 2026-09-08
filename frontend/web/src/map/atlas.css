@@ -39,7 +39,8 @@
 /* At overview scale show fewer details instead of shrinking everything to illegible text. */
 .macro-summary { --overview-type: calc(1 / var(--map-zoom, .24) / var(--summary-scale, 1)); }
 .map-macro:not([data-overview-density=full]) .map-card { display: flex; flex-direction: column; min-height: 0; height: var(--summary-height); justify-content: center; }
-.map-macro:not([data-overview-density=full]) .map-card-copy { display: none; }
+.map-macro[data-overview-density=micro] .map-card-copy { display: none; }
+.map-macro[data-overview-density=compact] .map-card-copy { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: max(11px, calc(9px * var(--overview-type))); line-height: 1.55; margin-bottom: 8px; }
 .map-macro:not([data-overview-density=full]) .map-card h3 { font-size: max(15px, calc(12px * var(--overview-type))); line-height: 1.4; min-height: 0; margin-bottom: 10px; }
 .map-macro:not([data-overview-density=full]) .map-card-number, .map-macro:not([data-overview-density=full]) .map-status { font-size: max(10px, calc(8px * var(--overview-type))); }
 .map-macro:not([data-overview-density=full]) .map-card-stages { margin-top: auto; margin-bottom: 8px; }

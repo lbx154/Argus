@@ -84,6 +84,78 @@ function teamSummary(event: MapEvent, zh: boolean, waitingForDeps: boolean): str
   return zh ? '展开查看子任务执行记录' : 'Open to read the subtask record';
 }
 
+export const noDetails = (zh: boolean) =>
+  zh ? "暂无详细记录" : "No details available yet.";
+
+// One colleague-voiced sentence per recognized piece of harness plumbing.
+// `match` applies only to text that carries an explicit "Runner receipt:"
+// tail — proof the record came from the harness. `bare` is an exact,
+// start-anchored emitted opening (round_stop_signals.py, _idle_cycle.py) for
+// receipts that arrive without the marker. Research prose that merely talks
+// about budgets or quarantine policy must never be replaced by a canned line.
+const HARNESS_NOTES: Array<{ match: RegExp; bare?: RegExp; zh: string; en: string }> = [
+  {
+    match: /provider[\s-]?turn/i,
+    bare: /^One Engineer call used its whole per-call provider-turn allowance/,
+    zh: "继续换了个新会话接着做，之前的进展都在",
+    en: "Continued in a fresh session; earlier progress is kept",
+  },
+  {
+    match: /budget (limit|cap|exhausted)|blocking budget|预算上限/i,
+    bare: /^Paused because this project reached its budget limit/,
+    zh: "花费到了预算上限，先暂停；提高预算后可以继续",
+    en: "Paused at the budget limit; work resumes once the budget is raised",
+  },
+  {
+    match: /quarantin/i,
+    bare: /^The task signature is quarantined out of planner rotation/,
+    zh: "这个方向连续失败，先搁置，不再自动重试",
+    en: "This direction kept failing and is set aside; it will not retry on its own",
+  },
+  {
+    match:
+      /backend[\s\S]{0,24}?(fail|unavailable|paused)|backend_failure|provider cooldown|configured model is unavailable/i,
+    bare: /^(?:backend failure; retrying in a fresh|The backend has failed the same way \d+ times in a row)/,
+    zh: "模型服务暂时不稳定，稍后会自动重试",
+    en: "The model service was briefly unavailable; it retries after a short wait",
+  },
+];
+
+/** Say what a harness record means for the research; move the raw receipt aside. */
+export function humanizeHarnessNote(
+  text: string,
+  zh: boolean,
+): { summary: string; receipt: string } {
+  const raw = String(text || "").trim();
+  const marker = raw.search(/Runner receipt:/i);
+  const tail = marker >= 0 ? raw.slice(marker).trim() : "";
+  const rule = tail
+    ? HARNESS_NOTES.find((note) => note.match.test(raw))
+    : HARNESS_NOTES.find((note) => note.bare?.test(raw));
+  if (rule) return { summary: zh ? rule.zh : rule.en, receipt: tail || raw };
+  return { summary: "", receipt: tail };
+}
+
+function clipSentence(value: string, limit = 140): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const match = text.match(/^.*?[。！？!?.](?=\s|$)/);
+  const sentence = (match ? match[0] : text).trim();
+  return sentence.length > limit
+    ? `${sentence.slice(0, limit - 1).trimEnd()}…`
+    : sentence;
+}
+
+function titleClause(prose: string): string {
+  const clause = prose
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(/[。！？；;：:，,\n]|\.(?=\s|$)|[!?](?=\s|$)/)[0]
+    ?.trim();
+  // Too-short clauses are fragments ("First", "然后"), not titles.
+  return clause && clause.length >= 6 && clause.length <= 40 ? clause : "";
+}
+
 /** Keep scientific prose visible while hiding the runner's control footer. */
 export function readableRecord(value: string | undefined | null): string {
   return String(value || "")
@@ -190,13 +262,26 @@ export function buildSubmap(
           : finished
             ? "recorded"
             : "started");
+    const note = humanizeHarnessNote(e.text || "", zh);
+    const raw = String(e.text || "");
+    const cut = note.receipt ? raw.lastIndexOf(note.receipt) : -1;
+    const prose = readableRecord(cut >= 0 ? raw.slice(0, cut) : raw);
+    const reviewVerdictTitle =
+      status === "done"
+        ? zh ? "审查通过" : "Review passed"
+        : status === "continue"
+          ? zh ? "审查：继续推进" : "Review: keep going"
+          : ["blocked", "replan", "replan_requested"].includes(status)
+            ? zh ? "审查：需要调整" : "Review: needs a change"
+            : status === "failed"
+              ? zh ? "审查未通过" : "Review failed"
+              : "";
+    const clause = kind === "execution" ? titleClause(prose) : "";
     const title = reviewSkipped
       ? zh ? "审查未执行" : "Review not performed"
       : kind === "review"
         ? finished
-          ? zh
-            ? "审查意见"
-            : "Review outcome"
+          ? reviewVerdictTitle || (zh ? "审查意见" : "Review outcome")
           : zh
             ? "开始审查"
             : "Review started"
@@ -208,26 +293,30 @@ export function buildSubmap(
             ? zh
               ? "任务进入计划"
               : "Added to plan"
-            : e.type === "life.mission.started"
-              ? zh
-                ? "开始执行"
-                : "Execution started"
-              : e.type === "round.main.completed"
+            : clause ||
+              (e.type === "life.mission.started"
                 ? zh
-                  ? "本轮执行记录"
-                  : "Round execution"
-                : zh
-                  ? "执行尝试"
-                  : "Execution attempt";
+                  ? "开始执行"
+                  : "Execution started"
+                : e.type === "round.main.completed"
+                  ? zh
+                    ? "本轮执行记录"
+                    : "Round execution"
+                  : zh
+                    ? "执行尝试"
+                    : "Execution attempt");
     rows.push({
       id: e.id,
       kind,
       title,
+      summary: note.summary || clipSentence(prose) || undefined,
       detail: [
-        readableRecord(e.text) ||
-          (zh ? "暂无详细记录" : "Details are not available yet."),
+        prose || note.summary || noDetails(zh),
         reviewSkipped && e.next_action
           ? `${zh ? "下一步" : "Next action"}: ${e.next_action}`
+          : "",
+        note.receipt
+          ? `${zh ? "——运行记录：" : "— runner receipt: "}${note.receipt.replace(/^Runner receipt:\s*/i, "")}`
           : "",
       ].filter(Boolean).join("\n\n"),
       status,
@@ -290,26 +379,17 @@ export function buildSubmap(
     const key = `${row.episode}:${row.round}:${row.kind}`;
     const previous = mergeable ? groups.get(key) : undefined;
     if (previous) {
-      if (row.kind === "review") previous.title = row.status === "skipped"
-        ? row.title : zh ? "审查与反馈" : "Review & feedback";
+      // Titles/summaries are display-only: the latest observation of the merged
+      // round carries the most complete record, so it names the node.
+      previous.title = row.title;
+      // A closing event with empty text must not erase the round's story.
+      previous.summary = row.summary ?? previous.summary;
       previous.detail = row.detail;
       previous.status = row.status;
       previous.eventIds.push(...row.eventIds);
       if (row.source === "interval") previous.source = "interval";
     } else {
-      const copy = {
-        ...row,
-        title: mergeable && row.status !== "skipped"
-          ? row.kind === "review"
-            ? zh
-              ? "审查与反馈"
-              : "Review & feedback"
-            : zh
-              ? "执行尝试"
-              : "Execution attempt"
-          : row.title,
-        eventIds: [...row.eventIds],
-      };
+      const copy = { ...row, eventIds: [...row.eventIds] };
       merged.push(copy);
       if (mergeable) groups.set(key, copy);
     }
