@@ -1635,7 +1635,23 @@ building the merged source, not by selecting an old bundle. The live paper
 audit and operational records are under
 `/data/v-boxiuli/argus-academic-figure-refinement-20260908/`.
 
-## 28. Wave six: declared fan width; the 8897 supervisor discovered (2026-09 night)
+Follow-up from the real run: S43's old `*_directed` directories retained copied
+success records beside later partial raw files. Argus also found a shared-score
+shift defect, repaired its own implementation, and restarted both model panels
+in new `*_shift_corrected` directories. Do not infer full scientific completion
+from a marker or a previously observed PID alone. Check the current producer
+handles, actual configuration/repeat coverage and invariants, and source/config
+identity; preserve each attempt and promote a validated set together. These
+requirements now appear in the experiment, analysis and experiment-review guides.
+
+The backend also keeps tool-free classification, acceptance-dependency and
+review-control protocol text in `agent_io.jsonl` rather than forwarding it as
+public research progress. Normal Engineer, Reviewer and Manager replies remain
+visible; usage and diagnostics remain recorded. This addresses the visible
+`RECEIPT_ARTIFACT` / `DEPENDENCY_STATUS` plumbing without changing the frontend
+team's interface. The official Reviewer remains the author of its own report.
+
+## 29. Wave six: declared fan width; the 8897 supervisor discovered (2026-09 night)
 
 Wave six (`25a06b2a5`, artifacts `fc85fd9a9`): the unread `width` on `idea.portfolio.formed` now
 shows on the owning card — "并行编队 ×N 展开中 / Fanning out ×N" before branches spawn, and
@@ -1652,3 +1668,6 @@ dist) BEFORE any rebase — verification builds dirty the tree and block it othe
 
 Their `7c319ffa2` landed minutes later and their unit already serves it (superset of wave six).
 Backlog: map-history sqlite superseded backfill.
+
+Use the named user-service restart command in section 28 for deliberate web
+updates; it keeps restart ownership explicit and preserves the paper workers.

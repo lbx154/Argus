@@ -231,7 +231,7 @@ def test_prompt_catalog_accepts_research_operations(tmp_path: Path) -> None:
     assert "overwrite paper/REVIEW.md" not in cold.role_banner
     assert "overwrite paper/REVIEW.md" not in science.role_banner
     assert contract.banner("reviewer") in integrated.role_banner
-    assert "host writes paper/REVIEW.md" in integrated.role_banner
+    assert "you own paper/REVIEW.md" in integrated.role_banner
     assert contract.engineer_operation("paper") == "author_draft"
     assert contract.engineer_operation("review") == "narrative_edit"
 

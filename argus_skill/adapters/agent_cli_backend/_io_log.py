@@ -39,6 +39,12 @@ _DEFAULT_AGENT_IO_MAX_BYTES = 128 * 1024 * 1024
 _DEFAULT_AGENT_IO_KEEP = 2
 _RAW_TRANSCRIPT_NAME = "agent_io.jsonl"
 
+# These calls interpret control state; their protocol stays in the diagnostic
+# transcript, rather than appearing as research progress for the operator.
+_INTERNAL_CONTROL_RUN_LABELS = frozenset({
+    "manager-frontdoor-classify", "planner.acceptance_dependencies", "reviewer_control",
+})
+
 
 def raw_transcript_path(log_path: "Path | None") -> "Path | None":
     """Sibling of the history log that holds the verbatim provider transcript.
@@ -382,8 +388,11 @@ class AgentIOLogger:
         # echo that same prompt as user.message; keep exactly one copy while
         # preserving every non-identical raw frame.
         persist_raw = bool(log_path and io_mode == "full" and not duplicate_prompt)
-        forward_live = self.external_event_callback is not None and (
-            _needed_for_live_progress(stream, line)
+        run_label = str(ctx.get("run_label") or stream.rsplit(".", 1)[0])
+        forward_live = (
+            self.external_event_callback is not None
+            and run_label not in _INTERNAL_CONTROL_RUN_LABELS
+            and _needed_for_live_progress(stream, line)
         )
         if not persist_raw and not forward_live:
             return

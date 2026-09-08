@@ -623,7 +623,9 @@ _REVIEWER_RESEARCH_JUDGEMENT = (
     _AMBITIOUS_RESEARCH_POLICY
     + " Distinguish scientific failure from implementation or evaluator failure. "
     "Keep defects in the current stage and specify the repair; never request rollback. "
-    "In Review, give the complete judgment naturally; the host writes paper/REVIEW.md. "
+    "In Review, you own paper/REVIEW.md: update it through the provided report tool "
+    "when available, giving the complete judgment naturally. The host preserves your "
+    "opinion and binds it to the current paper. "
     "Engineer performs the requested scientific repairs and experiments directly in Review "
     "and returns for independent re-review; do not create parallel review records."
 )

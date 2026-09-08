@@ -13,6 +13,10 @@ separate result-review file.
 
 - Is the executed path faithful to the selected mechanism?
 - Did the evaluator and positive control work?
+- Do the raw observations actually cover the declared configurations and
+  repetitions, with exclusions or failures visible and claim-critical
+  invariants satisfied? Recompute the relevant aggregate from those rows;
+  a success flag, old table, or copied completion record is not sufficient.
 - Does the experiment directly test the claimed capability? Which control
   distinguishes it from the strongest shortcut explanation?
 - Were baselines real, competitive, and fairly resourced?

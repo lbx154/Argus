@@ -41,6 +41,40 @@ def test_raw_transcript_is_a_sibling_of_the_history_log() -> None:
     assert raw_transcript_path(None) is None
 
 
+@pytest.mark.parametrize("label", [
+    "manager-frontdoor-classify", "planner.acceptance_dependencies", "reviewer_control",
+    "engineer-r1", "reviewer", "manager-frontdoor-direct",
+])
+def test_control_protocol_is_diagnostic_while_real_updates_stay_visible(tmp_path, monkeypatch, label):
+    from argus_skill.adapters.agent_cli_backend._io_log import AgentIOLogger
+
+    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_MODE", "full")
+    live = []
+    logger = AgentIOLogger(external_event_callback=lambda *event: live.append(event))
+    logger.start_call(
+        call_id="c1", run_label=label, log_path=tmp_path / "events.jsonl",
+        model="model", prompt="Current work",
+    )
+    # Visibility follows the actual role, not keyword stripping: a real
+    # reviewer may need to discuss this text when explaining a process defect.
+    line = json.dumps({"type": "assistant.message", "data": {
+        "content": "DEPENDENCY_STATUS=assessed; source token fixture-secret",
+    }})
+    logger.stream_event_callback(
+        label + ".stdout", line, backend_name="copilot",
+        known_secret_values=("fixture-secret",),
+    )
+    logger.close("c1")
+
+    rows = _rows(tmp_path / "agent_io.jsonl")
+    assert len(rows) == 1 and "DEPENDENCY_STATUS" in rows[0]["line"]
+    assert "fixture-secret" not in rows[0]["line"]
+    if label in {"engineer-r1", "reviewer", "manager-frontdoor-direct"}:
+        assert live == [(label + ".stdout", rows[0]["line"])]
+    else:
+        assert live == []
+
+
 class _Backend:
     """Captures what the real spawn path writes, per destination."""
 

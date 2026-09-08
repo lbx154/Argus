@@ -67,7 +67,12 @@ not a complete-looking experiment matrix.
    below, including as scientific evidence for a scoped mechanism claim.
    Choose models for task competence and claim scope, not release date.
 7. Keep every run reproducible from its code, explicit configuration, command,
-   and raw output.
+   and raw output. Give each attempt its own output directory. If an existing
+   directory must be reused, invalidate the earlier completion marker before
+   opening or truncating any raw file; never leave a prior success beside a
+   new partial run. Publish completion only after the workers finish producing
+   data and the raw configuration/repeat identities, counts, and scientific invariants
+   agree with the declared run. Preserve interrupted attempts separately.
 8. Treat weak results as optimization signals. Change the method,
    implementation, benchmark, baseline, controls, or scale when development
    evidence identifies a concrete reason — the design and the runs live
@@ -80,6 +85,15 @@ Choose sample counts from coverage of independent items and the precision
 needed for the claim; explain the choice in the research notes. Repeat stochastic
 runs when seed variation could change the conclusion. Rerunning deterministic
 comparisons adds no independent evidence.
+
+On resume, check the actual recorded observations and the code/configuration
+that produced them before deciding whether work is complete. A copied
+`completed` flag or an old checkpoint is not that evidence. Reuse a complete,
+valid attempt; rerun only work made incomplete or invalid by a concrete defect.
+When promoting a new result, validate the whole attempt first and switch the
+canonical reference together, rather than mixing raw rows, summaries, and
+completion records from different attempts. Use the existing run records and
+research notes; this does not require a new reporting document.
 
 Scale the evidence to the claim, not to the first configuration that ran. A
 thesis about language models in general is tested across families and sizes;

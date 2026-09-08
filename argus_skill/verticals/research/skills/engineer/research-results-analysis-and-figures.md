@@ -30,6 +30,11 @@ affected values from new raw rows without repeatedly redesigning the figure.
 ## Analysis
 
 - Compute every paper number from raw rows; never hard-code an expected result.
+- Before aggregating, match raw configuration/repeat identities and counts to
+  the declared run, account for failures and exclusions, and verify the
+  claim-critical invariants. A copied completion marker or a previously
+  generated table cannot make a partial or changed run complete. Keep data,
+  code/configuration, and summaries from the same validated attempt together.
 - Compare compatible data, models, budgets, evaluators, and uncertainty.
 - Prefer a small counterfactual regression when it directly tests whether a
   result or figure changes under a claim-critical input change.
