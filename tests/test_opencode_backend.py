@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from argus_skill.adapters.agent_cli_backend import _needed_for_live_progress
+from argus_skill.agent_cli import _run_exec
 from argus_skill.agent_cli import _sandbox_commands as sandbox_commands
 from argus_skill.agent_cli import agent_cli_runner as runner_mod
 from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
@@ -335,6 +336,11 @@ def test_opencode_recovers_completed_turn_when_json_stream_ends_early(
     }
     process = _FakeProcess([json.dumps(step_start)])
     run_kwargs: dict[str, object] = {}
+    delivered_prompts: list[str] = []
+
+    def fake_spawn(*args, **kwargs):
+        delivered_prompts.append(kwargs["stdin"].read())
+        return process
 
     def fake_run(*args, **kwargs):
         run_kwargs.update(kwargs)
@@ -345,7 +351,7 @@ def test_opencode_recovers_completed_turn_when_json_stream_ends_early(
             stderr="",
         )
 
-    monkeypatch.setattr(runner_mod.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(_run_exec, "spawn_owned_process", fake_spawn)
     monkeypatch.setattr(runner_mod.subprocess, "run", fake_run)
     monkeypatch.setattr(
         AgentCliRunner,
@@ -362,7 +368,7 @@ def test_opencode_recovers_completed_turn_when_json_stream_ends_early(
     )
     usage = extract_token_usage(result.json_events)
 
-    assert process.stdin.text == "Reply with exactly OK.\n"
+    assert delivered_prompts == ["Reply with exactly OK.\n"]
     assert result.thread_id == "ses-123"
     assert result.last_agent_message == "OK"
     assert streamed == ["OK"]

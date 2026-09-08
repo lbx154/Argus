@@ -19,7 +19,7 @@ import time
 
 import pytest
 
-from argus_skill.agent_cli import agent_cli_runner as runner_mod
+from argus_skill.agent_cli import _run_exec
 from argus_skill.agent_cli._env import _provider_turn_cap
 from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus_skill.agent_cli.runner_backend import (
@@ -142,7 +142,7 @@ def _capped_runner(
 ) -> tuple[AgentCliRunner, list[str]]:
     terminations: list[str] = []
     monkeypatch.setattr(
-        runner_mod.subprocess, "Popen", lambda *args, **kwargs: process
+        _run_exec, "spawn_owned_process", lambda *args, **kwargs: process
     )
     monkeypatch.setattr(
         AgentCliRunner, "_resolve_executable", staticmethod(lambda value: value)
