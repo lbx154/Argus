@@ -352,7 +352,7 @@ class RoleSessionCapsule:
             root = Path(self.mission_context_path).parent
             mission_lines = (
                 f"\nMission contract: `{self.mission_context_path}`"
-                f"\nLatest reviewed handoff: `{root / 'latest.json'}`"
+                f"\nLatest work handoff (may await review): `{root / 'latest.json'}`"
                 f"\nSemantic task frontier: `{root / 'frontier.json'}`"
             )
         return (

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import time
 from pathlib import Path
@@ -126,20 +127,54 @@ def _brief_items(value: Any, *, limit: int = 6) -> list[str]:
 
 def _latest_reviewed_handoff(root: Path) -> dict[str, Any]:
     """Read the newest sealed Reviewer handoff, ignoring Engineer-only seals."""
-    for path in reversed(sorted(root.glob("round-*.json"))):
+    candidates: list[tuple[float, str, dict[str, Any]]] = []
+    for path in root.glob("round-*.json"):
         payload = _read_json_object(path)
         if str(payload.get("kind") or "") == "round_reviewed_handoff":
-            return payload
-    return {}
+            try:
+                created = float(payload.get("created_at") or 0)
+            except (TypeError, ValueError):
+                created = 0
+            if not math.isfinite(created) or created <= 0:
+                try:
+                    created = path.stat().st_mtime
+                except OSError:
+                    continue
+            candidates.append((created, path.name, payload))
+    # A resumed mission starts counting rounds at one again. Filename order
+    # can therefore select an older review from before the restart.
+    return max(candidates, key=lambda entry: entry[:2])[2] if candidates else {}
 
 
-def render_mission_brief(path: Path | str | None) -> str:
+def _latest_unreviewed_engineer(root: Path) -> tuple[dict[str, Any], Path | None]:
+    path = root / "latest.json"
+    latest = _read_json_object(path)
+    if latest.get("kind") == "handoff_ref":
+        reference = latest.get("handoff")
+        if not isinstance(reference, Mapping) or not reference.get("path"):
+            return {}, None
+        path = Path(str(reference["path"])).expanduser()
+        try:
+            local_reference = path.resolve().parent == root.resolve()
+        except (OSError, RuntimeError, ValueError):
+            return {}, None
+        if not local_reference:
+            return {}, None
+        latest = _read_json_object(path)
+    if latest.get("kind") != "round_engineer_handoff":
+        return {}, None
+    return latest, path
+
+
+def render_mission_brief(
+    path: Path | str | None, *, include_engineer_account: bool = True,
+) -> str:
     """Project canonical mission/frontier state into one compact role briefing.
 
     The projection selects named semantic fields only. It never reads a
-    checkpoint or transcript and writes no state of its own. The prior round's
-    capped Engineer account is carried explicitly so a fresh continuation does
-    not have to infer work from Reviewer status enums.
+    checkpoint or transcript and writes no state of its own. Unreviewed work is
+    distinguished from the last reviewed state. A Reviewer that already receives
+    the current Engineer response can omit that duplicate account.
     """
     if not path:
         return ""
@@ -156,6 +191,16 @@ def render_mission_brief(path: Path | str | None) -> str:
             frontier = _read_json_object(Path(frontier_path).expanduser())
 
     reviewed = _latest_reviewed_handoff(mission_path.parent)
+    pending_engineer, pending_path = _latest_unreviewed_engineer(mission_path.parent)
+    if pending_engineer and reviewed:
+        try:
+            pending_time = float(pending_engineer.get("created_at") or 0)
+            reviewed_time = float(reviewed.get("created_at") or 0)
+        except (TypeError, ValueError):
+            pending_time = reviewed_time = 0
+        if 0 < pending_time <= reviewed_time and math.isfinite(reviewed_time):
+            # A stale reference must not make already reviewed work look pending.
+            pending_engineer, pending_path = {}, None
     review = reviewed.get("review")
     review = review if isinstance(review, Mapping) else {}
     status = _brief_text(review.get("status"), limit=40)
@@ -204,17 +249,25 @@ def render_mission_brief(path: Path | str | None) -> str:
     reason = _brief_text(review.get("reason"))
     if reason:
         result = f"{status}: {reason}" if status else reason
-        lines.append(f"- Decisive result: {result}")
-    engineer_summary = _brief_text(reviewed.get("engineer_summary"), limit=1200)
-    if engineer_summary:
-        lines.append(f"- Engineer account: {engineer_summary}")
+        review_label = "Previous review" if pending_engineer else "Last review"
+        lines.append(f"- {review_label}: {result}")
+    if pending_path is not None:
+        lines.append(f"- Latest work awaiting review: `{pending_path}`")
+    engineer_summary = _brief_text(
+        (pending_engineer or reviewed).get("engineer_summary"), limit=1200,
+    )
+    if engineer_summary and include_engineer_account:
+        label = "Unreviewed Engineer work" if pending_engineer else "Reviewed Engineer work"
+        lines.append(f"- {label}: {engineer_summary}")
     if reviewed and status != "done":
         missing = _brief_items(frontier.get("remaining_work"))
         if missing:
-            lines.append("- Missing condition: " + "; ".join(missing))
+            label = "Previously missing condition" if pending_engineer else "Missing condition"
+            lines.append(f"- {label}: " + "; ".join(missing))
     next_action = _brief_text(review.get("next_action"))
     if next_action:
-        lines.append(f"- Next action: {next_action}")
+        label = "Previously requested action" if pending_engineer else "Next action"
+        lines.append(f"- {label}: {next_action}")
     if isinstance(review.get("venue_review"), Mapping):
         reviewed_round = max(1, int(reviewed.get("round") or 1))
         feedback_path = mission_path.parent / f"round-{reviewed_round:04d}.json"
@@ -281,8 +334,9 @@ def create_mission_context(
     checkpoint_path = root / CHECKPOINT_FILENAME
     _initialize_checkpoint(checkpoint_path)
     existing_created_at = time.time()
+    existing: dict[str, Any] = {}
     try:
-        existing = json.loads(path.read_text(encoding="utf-8"))
+        existing = _read_json_object(path)
         existing_created_at = float(existing.get("created_at") or existing_created_at)
     except (OSError, ValueError, TypeError):
         pass
@@ -293,15 +347,49 @@ def create_mission_context(
         save_task_frontier,
     )
 
-    frontier = load_task_frontier(frontier_path) or TaskFrontier.initial(
-        mission_id=str(mission_id),
-        objective=objective,
-        invariants=[acceptance_check, *(non_goals or [])],
-        hypothesis=plan_hypothesis,
-        remaining_work=[acceptance_check] if acceptance_check else [],
-        uncertainty="Unresolved until reviewed evidence narrows it.",
-        next_decision_point=decision_rule,
+    frontier = load_task_frontier(frontier_path)
+    initial_only = frontier is not None and not any((
+        frontier.transition_count, frontier.history, frontier.artifacts,
+        frontier.evidence, frontier.resolved_obligations, frontier.new_obligations,
+        frontier.regressed_obligations, frontier.proxy_changes,
+        frontier.active_regression, frontier.unchanged_failure_streak,
+    )) and (
+        frontier.current_hypothesis in {"", str(existing.get("plan_hypothesis") or "")}
+        and frontier.next_decision_point in {"", str(existing.get("decision_rule") or "")}
+        and frontier.uncertainty in {"", "Unresolved until reviewed evidence narrows it."}
+        and set(frontier.remaining_work).issubset(frontier.invariants)
     )
+    if initial_only:
+        frontier = None
+    if frontier is None:
+        frontier = TaskFrontier.initial(
+            mission_id=str(mission_id),
+            objective=objective,
+            invariants=[acceptance_check, *(non_goals or [])],
+            hypothesis=plan_hypothesis,
+            remaining_work=[acceptance_check] if acceptance_check else [],
+            uncertainty="Unresolved until reviewed evidence narrows it.",
+            next_decision_point=decision_rule,
+        )
+    else:
+        # Rebind only the operator's contract. Preserve learned scientific state,
+        # including prior transitions and concerns unrelated to that contract.
+        previous_contract = {
+            str(existing.get("acceptance_check") or ""),
+            *(str(value) for value in existing.get("non_goals") or []),
+        }
+        frontier.objective = str(objective or "").strip()
+        frontier.invariants = list(dict.fromkeys(
+            [value for value in frontier.invariants if value not in previous_contract]
+            + [value for value in [acceptance_check, *(non_goals or [])] if value]
+        ))
+        previous_acceptance = str(existing.get("acceptance_check") or "")
+        if previous_acceptance and previous_acceptance in frontier.remaining_work:
+            frontier.remaining_work = list(dict.fromkeys(
+                [value for value in frontier.remaining_work if value != previous_acceptance]
+                + ([acceptance_check] if acceptance_check else [])
+            ))
+        frontier.updated_at = time.time()
     save_task_frontier(frontier_path, frontier)
     payload = {
         "schema_version": CONTEXT_PACKET_VERSION,
@@ -346,7 +434,12 @@ def create_mission_context(
         _atomic_write_json(root / "latest.json", payload)
     else:
         latest = _read_json_object(latest_path)
-        if str(latest.get("kind") or "") != "mission_context":
+        if (
+            str(latest.get("kind") or "") != "mission_context"
+            and latest.get("mission") != {"path": str(path)}
+        ):
+            # Current references already resolve the refreshed contract. Avoid
+            # racing a new round by overwriting its latest pointer needlessly.
             _atomic_write_json(latest_path, _attach_mission_metadata(path, latest))
     return path
 

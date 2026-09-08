@@ -1896,3 +1896,35 @@ microbenchmark does not prove a whole-loop claim. The guides call for a meaningf
 pilot of the claimed interface, without imposing unrelated application tests or
 new structured review output. The 48-test policy/protocol/natural-review group
 passed (`/tmp/argus-causal-execution-guidance-tests-20260908.log`).
+
+## 37. Current work in the briefing; current goals in task state (2026-09-08 UTC)
+
+CBC's real Reviewer noted that its current Engineer handoff was newer than the
+brief's account. The brief selected only a previously reviewed Engineer summary
+and labelled it as current decisive work. It also chose the last review by
+lexicographic round filename, which selects an old higher-numbered round after
+a daemon restart resets numbering. Both have now been corrected: review records
+are ordered by their recorded time, new unreviewed work is identified explicitly,
+and the Reviewer omits the duplicated Engineer account because its current
+response is already supplied separately. A stale latest reference does not reopen
+work already reviewed, and malformed optional references do not break review.
+
+The task-state references no longer call `latest.json` necessarily reviewed.
+Refreshing a mission also rebinds an untouched initial state to the current
+operator goal; recorded scientific progress is preserved. Current handoff pointers
+are not needlessly rewritten during contract refresh. These changes preserve
+checkpoint contents, learned evidence/history and Reviewer authority.
+
+The three live metadata packets were synchronized from their existing backlog
+items without restarting workers. Their old initial state had still contained
+the superseded SVG/TikZ route and weak-accept minimum; all now carry the current
+science-first native-PPT goal and strong-accept criterion. Only operational
+mission/state metadata was updated; checkpoints and learned progress were verified
+unchanged. Receipt: `coherent-science-rollout/mission-context-rebind.json` under
+the paper audit directory. Latest reports, figures and experiment data were not
+edited by the paper team.
+
+The 81-test context, semantic-state, reviewer deduplication/resume, acceptance and
+voice group passed, plus ruff and whitespace checks. Log:
+`/tmp/argus-current-review-brief-tests-20260908.log`. No new Reviewer output schema
+or scientific score is introduced, and no strong acceptance is claimed.

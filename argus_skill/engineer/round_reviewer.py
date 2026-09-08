@@ -160,7 +160,9 @@ class RoundReviewerMixin:
                 "canonical checkpoint. Read the current Engineer summary and the "
                 "files it points to, then give your judgment on this round."
             )
-        mission_brief = render_mission_brief(supervised_config.context_packet_path)
+        mission_brief = render_mission_brief(
+            supervised_config.context_packet_path, include_engineer_account=False,
+        )
         reviewer_background_context = "\n\n".join(
             part
             for part in (

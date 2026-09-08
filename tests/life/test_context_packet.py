@@ -265,8 +265,8 @@ def test_mission_brief_projects_only_named_authoritative_fields(tmp_path: Path) 
         "- Changed surface: argus_skill/life/context_packet.py\n"
         "- Tools/resources: tool: tools/native_check.py (public native verifier)\n"
         "- Native check: python -m pytest tests/life/test_context_packet.py\n"
-        "- Decisive result: continue: The focused check passed but one condition remains.\n"
-        "- Engineer account: Implemented the focused behavior and ran its check.\n"
+        "- Last review: continue: The focused check passed but one condition remains.\n"
+        "- Reviewed Engineer work: Implemented the focused behavior and ran its check.\n"
         "- Missing condition: public entry-point trial\n"
         "- Next action: Exercise the public entry point."
     )
@@ -293,12 +293,161 @@ def test_mission_brief_accepts_legacy_sparse_mission_context(tmp_path: Path) -> 
     )
 
 
+def test_mission_brief_uses_newest_review_after_round_numbers_restart(tmp_path: Path) -> None:
+    mission = create_mission_context(
+        life_dir=tmp_path, mission_id="restarted", stage="review", objective="Improve the paper",
+    )
+    for round_index, created_at, marker in ((9, 100.0, "OLD_REVIEW"), (1, 200.0, "CURRENT_REVIEW")):
+        path = record_reviewed_handoff(
+            mission_context_path=mission, round_index=round_index,
+            engineer_summary=marker + "_WORK",
+            review=SimpleNamespace(status="continue", reason=marker, next_action=marker + "_ACTION"),
+            checkpoint_path=mission.parent / "CHECKPOINT.md",
+        )
+        payload = json.loads(path.read_text())
+        payload["created_at"] = created_at
+        path.write_text(json.dumps(payload))
+
+    brief = render_mission_brief(mission)
+    assert "CURRENT_REVIEW" in brief
+    assert "OLD_REVIEW" not in brief
+
+
+def test_pending_engineer_work_is_not_replaced_by_an_older_reviewed_account(tmp_path: Path) -> None:
+    mission = create_mission_context(
+        life_dir=tmp_path, mission_id="pending-review", stage="review", objective="Improve the paper",
+    )
+    record_reviewed_handoff(
+        mission_context_path=mission, round_index=1, engineer_summary="OLD_ENGINEER_ACCOUNT",
+        review=SimpleNamespace(status="continue", reason="PRIOR_FINDING", next_action="PRIOR_REPAIR"),
+        checkpoint_path=mission.parent / "CHECKPOINT.md",
+    )
+    current = record_engineer_handoff(
+        mission_context_path=mission, round_index=2, engineer_summary="CURRENT_SCIENTIFIC_WORK",
+        checkpoint_path=mission.parent / "CHECKPOINT.md",
+    )
+    brief = render_mission_brief(mission)
+    assert "Previous review: continue: PRIOR_FINDING" in brief
+    assert "Previously requested action: PRIOR_REPAIR" in brief
+    assert f"Latest work awaiting review: `{current}`" in brief
+    assert "Unreviewed Engineer work: CURRENT_SCIENTIFIC_WORK" in brief
+    assert "OLD_ENGINEER_ACCOUNT" not in brief
+    assert "CURRENT_SCIENTIFIC_WORK" not in render_mission_brief(
+        mission, include_engineer_account=False,
+    )
+
+
+def test_refresh_rebinds_initial_contract_without_overwriting_checkpoint_or_handoff(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus_skill.life import context_packet
+
+    args = dict(life_dir=tmp_path, mission_id="strong-target", stage="review")
+    mission = create_mission_context(**args, objective="Old drawing route", acceptance_check="weak accept")
+    checkpoint = mission.parent / "CHECKPOINT.md"
+    checkpoint.write_text("Existing scientific evidence")
+    handoff = record_engineer_handoff(
+        mission_context_path=mission, round_index=3, engineer_summary="Ready for independent review",
+        checkpoint_path=checkpoint,
+    )
+    handoff_before = handoff.read_bytes()
+    created_at = json.loads(mission.read_text())["created_at"]
+    write = context_packet._atomic_write_json
+
+    def no_latest_rewrite(path, payload):
+        assert path != mission.parent / "latest.json"
+        return write(path, payload)
+
+    monkeypatch.setattr(context_packet, "_atomic_write_json", no_latest_rewrite)
+
+    create_mission_context(**args, objective="Science first; editable PPT", acceptance_check="strong accept")
+
+    frontier = json.loads((mission.parent / "frontier.json").read_text())
+    assert frontier["objective"] == "Science first; editable PPT"
+    assert frontier["invariants"] == ["strong accept"]
+    assert frontier["remaining_work"] == ["strong accept"]
+    assert frontier["transition_count"] == 0
+    assert checkpoint.read_text() == "Existing scientific evidence"
+    assert handoff.read_bytes() == handoff_before
+    assert json.loads((mission.parent / "latest.json").read_text())["handoff"]["path"] == str(handoff)
+    assert json.loads(mission.read_text())["created_at"] == created_at
+
+
+def test_stale_latest_reference_does_not_reopen_reviewed_work(tmp_path: Path) -> None:
+    mission = create_mission_context(
+        life_dir=tmp_path, mission_id="already-reviewed", stage="review", objective="Improve the paper",
+    )
+    record_engineer_handoff(
+        mission_context_path=mission, round_index=1, engineer_summary="Completed change",
+        checkpoint_path=mission.parent / "CHECKPOINT.md",
+    )
+    old_reference = (mission.parent / "latest.json").read_bytes()
+    record_reviewed_handoff(
+        mission_context_path=mission, round_index=1, engineer_summary="Completed change",
+        review=SimpleNamespace(status="continue", reason="Current assessment", next_action="New experiment"),
+        checkpoint_path=mission.parent / "CHECKPOINT.md",
+    )
+    (mission.parent / "latest.json").write_bytes(old_reference)
+
+    brief = render_mission_brief(mission)
+    assert "Last review: continue: Current assessment" in brief
+    assert "Reviewed Engineer work: Completed change" in brief
+    assert "awaiting review" not in brief
+
+
+def test_invalid_optional_work_reference_does_not_break_the_brief(tmp_path: Path) -> None:
+    mission = create_mission_context(
+        life_dir=tmp_path, mission_id="bad-reference", stage="review",
+        objective="Current goal", acceptance_check="Current standard",
+    )
+    (mission.parent / "latest.json").write_text(json.dumps({
+        "kind": "handoff_ref", "handoff": {"path": "bad\u0000path"},
+    }))
+    brief = render_mission_brief(mission)
+    assert "Current standard" in brief
+    assert "awaiting review" not in brief
+
+
+def test_contract_refresh_preserves_reviewed_science(tmp_path: Path) -> None:
+    from argus_skill.core.task_frontier import load_task_frontier, save_task_frontier
+
+    args = dict(life_dir=tmp_path, mission_id="learned-state", stage="review")
+    mission = create_mission_context(**args, objective="Earlier goal", acceptance_check="old minimum")
+    record_reviewed_handoff(
+        mission_context_path=mission, round_index=1, engineer_summary="Measured a meaningful change",
+        review=SimpleNamespace(
+            status="continue", reason="A mechanism is supported", next_action="Test generalization",
+            frontier_report={
+                "change": "information_gain", "summary": "A useful negative result",
+                "evidence": ["paired experiment"], "remaining_work": ["new scientific test", "old minimum"],
+                "resolved_obligations": ["numerical correctness"],
+            },
+        ),
+        checkpoint_path=mission.parent / "CHECKPOINT.md",
+    )
+    path = mission.parent / "frontier.json"
+    frontier = load_task_frontier(path)
+    frontier.invariants.append("valid scientific assumption")
+    save_task_frontier(path, frontier)
+    history = frontier.history.copy()
+
+    create_mission_context(**args, objective="Stronger goal", acceptance_check="new minimum")
+
+    current = load_task_frontier(path)
+    assert current.objective == "Stronger goal"
+    assert current.invariants == ["valid scientific assumption", "new minimum"]
+    assert current.remaining_work == ["new scientific test", "new minimum"]
+    assert current.evidence == ["paired experiment"]
+    assert current.resolved_obligations == ["numerical correctness"]
+    assert current.transition_count == 1 and current.history == history
+
+
 def _mission_brief_from_prompt(prompt: str) -> str:
     start = prompt.index("## MissionBrief")
     return prompt[start:].split("\n\n", 1)[0]
 
 
-def test_public_skill_loop_ab_injects_same_brief_into_isolated_roles(
+def test_public_skill_loop_brief_preserves_contract_and_advances_current_work(
     tmp_path: Path,
 ) -> None:
     """A=no packet preserves old input; B gives both fresh roles identical state."""
@@ -348,7 +497,10 @@ def test_public_skill_loop_ab_injects_same_brief_into_isolated_roles(
     assert len(old_prompts) == len(new_prompts) == 2
     assert all("## MissionBrief" not in prompt for prompt in old_prompts)
     briefs = [_mission_brief_from_prompt(prompt) for prompt in new_prompts]
-    assert briefs[0] == briefs[1] == expected_brief
+    assert briefs[0] == expected_brief
+    assert briefs[1].startswith(expected_brief + "\n")
+    assert "Latest work awaiting review" in briefs[1]
+    assert "Unreviewed Engineer work" not in briefs[1]
     reviewer_prompt = next(
         prompt for label, prompt, _options in new_history if label == "reviewer"
     )
@@ -357,6 +509,7 @@ def test_public_skill_loop_ab_injects_same_brief_into_isolated_roles(
         "edits outside it): " + "; ".join(owned_paths)
     )
     assert boundary in reviewer_prompt
+    assert reviewer_prompt.count("public flow exercised") == 1
     assert [path for path in owned_paths if path in reviewer_prompt] == owned_paths
     assert all("TRANSCRIPT" not in prompt for prompt in new_prompts)
 
