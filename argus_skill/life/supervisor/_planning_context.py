@@ -914,6 +914,9 @@ class PlanningContextMixin:
                 "dropped_dependency_note": bool(
                     getattr(self, "_planner_dropped_dependency_keys", []) or []
                 ),
+                "dropped_parallel_note": bool(
+                    getattr(self, "_planner_dropped_parallel_marks", []) or []
+                ),
             }
         except Exception:  # noqa: BLE001 - an unreadable input disables the skip
             log.debug("planner input signature failed; skip disabled", exc_info=True)
@@ -1102,6 +1105,25 @@ class PlanningContextMixin:
             "the tasks were enqueued without them. Team ids, task labels quoted "
             "in evidence, and nodes you have not created are not dependencies. "
             "Depend only on node keys from this plan or on existing backlog items."
+        )
+
+    def _planner_dropped_parallel_runtime_note(self) -> str:
+        """Tell the planner once which tasks lost their parallel flag."""
+        dropped = list(getattr(self, "_planner_dropped_parallel_marks", []) or [])
+        if not dropped:
+            return ""
+        self._planner_dropped_parallel_marks = []
+        lines = "\n".join(
+            f"- {title!r}: {reason}" for title, reason in dropped
+        )
+        return (
+            "PARALLEL FLAGS DROPPED FROM YOUR LAST PLAN:\n"
+            f"{lines}\n"
+            "A task shares a mission slot only when it sets "
+            "TASK_PARALLEL_SAFE=true together with usable TASK_OWNS_PATHS — "
+            "literal, relative, project-internal paths (no wildcards), "
+            "disjoint from every co-running task's paths. Without them the "
+            "task runs serially."
         )
 
     def _manager_planner_feedback_runtime_note(self) -> str:

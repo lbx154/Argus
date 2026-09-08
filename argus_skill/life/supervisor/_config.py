@@ -196,6 +196,9 @@ class LifeSupervisorConfig:
     holds_stage_authority: bool = True
     worker_id: str = "primary"
     coordinate_parallel_claims: bool = False
+    # Campaign-wide mission slot count (the daemon's effective width). The
+    # Planner digest reads it so plans can deliberately fill spare slots.
+    mission_slots: int = 1
 
 
 class _MissionRunner(Protocol):

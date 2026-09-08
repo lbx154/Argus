@@ -107,6 +107,7 @@ class EventType(StrEnum):
     LIFE_PLANNER_VERIFICATION_PROBE = "life.planner.verification_probe"
     LIFE_PLANNER_STALL_ESCALATION = "life.planner.stall_escalation"
     LIFE_PLANNER_DEPENDENCY_DROPPED = "life.planner.dependency_dropped"
+    LIFE_PLANNER_PARALLEL_DROPPED = "life.planner.parallel_dropped"
     LIFE_PLANNER_ERROR = "life.planner.error"
     LIFE_RUNTIME_FAILURE_CIRCUIT_OPENED = "life.runtime_failure.circuit_opened"
     LIFE_RUNTIME_FAILURE_CIRCUIT_BLOCKED = "life.runtime_failure.circuit_blocked"
@@ -216,6 +217,7 @@ SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
     EventType.LIFE_PLANNER_TASK_ADDED,
     EventType.LIFE_PLANNER_TASK_SKIPPED,
     EventType.LIFE_PLANNER_DEPENDENCY_DROPPED,
+    EventType.LIFE_PLANNER_PARALLEL_DROPPED,
     EventType.LIFE_PLANNER_VERDICT,
     EventType.LIFE_PLANNER_WAITING,
     EventType.LIFE_PLANNER_WAITING_WOKEN,

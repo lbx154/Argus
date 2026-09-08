@@ -85,6 +85,7 @@ class PlannerOrchestrationMixin:
         contract_note = self._planner_waiting_contract_runtime_note()
         manager_feedback = self._manager_planner_feedback_runtime_note()
         dropped_deps = self._planner_dropped_dependency_runtime_note()
+        dropped_parallel = self._planner_dropped_parallel_runtime_note()
         n = int(getattr(self, "_consecutive_idle_planner_cycles", 0))
         if n < 2:
             return "\n\n".join(
@@ -93,6 +94,7 @@ class PlannerOrchestrationMixin:
                     resolution_note,
                     manager_feedback,
                     dropped_deps,
+                    dropped_parallel,
                     contract_note,
                     base,
                 )
@@ -112,6 +114,7 @@ class PlannerOrchestrationMixin:
                 resolution_note,
                 manager_feedback,
                 dropped_deps,
+                dropped_parallel,
                 contract_note,
                 note,
                 base,
@@ -154,6 +157,68 @@ class PlannerOrchestrationMixin:
         for item in backlog_rows:
             status = str(getattr(item, "status", "") or "unknown")
             backlog_counts[status] = backlog_counts.get(status, 0) + 1
+
+        # Width-2 daemons spent months running serially because the Planner
+        # could not see the second slot: admission needs every co-running
+        # task to declare disjoint owned paths, and nothing ever said so.
+        # Rendered only for multi-slot campaigns so serial ones pay nothing.
+        mission_slots = int(getattr(self.config, "mission_slots", 1) or 1)
+        slot_lines: list[str] = []
+        if mission_slots > 1:
+            running_rows = [
+                item for item in backlog_rows if item.status == "running"
+            ]
+            free_slots = max(0, mission_slots - len(running_rows))
+            slot_lines.append(
+                f"- mission_slots: {mission_slots} total; "
+                f"{len(running_rows)} running; {free_slots} free"
+            )
+            # The claim gate also refuses everything while a paused external
+            # job declares no owned paths, so those rows block a "free" slot
+            # exactly like an unowned running mission does.
+            unowned = [
+                item
+                for item in running_rows
+                if not (
+                    getattr(item, "parallel_safe", False)
+                    and getattr(item, "owns_paths", None)
+                )
+            ] + [
+                item
+                for item in backlog_rows
+                if item.status == "paused_external_work"
+                and not getattr(item, "owns_paths", None)
+            ]
+            if free_slots and unowned:
+                slot_lines.append(
+                    "- parallel_slot: a spare mission slot sits idle while "
+                    f"task {unowned[0].id} runs or waits without declared "
+                    "path ownership. Tasks share slots only when every "
+                    "co-running task sets TASK_PARALLEL_SAFE=true with "
+                    "disjoint TASK_OWNS_PATHS — literal relative paths, no "
+                    "wildcards; stage-closing and framework-maintenance "
+                    "work always runs alone."
+                )
+            elif free_slots:
+                slot_lines.append(
+                    f"- parallel_slot: {free_slots} free; independent tasks "
+                    "declared parallel-safe with disjoint TASK_OWNS_PATHS "
+                    "can run now."
+                )
+
+        def _active_item_line(item: Any) -> str:
+            base = (
+                f"- {item.status} task {item.id}: {item.title}; "
+                f"deps={item.deps}"
+            )
+            if mission_slots <= 1:
+                return base
+            owns = list(getattr(item, "owns_paths", None) or [])
+            safe = "true" if getattr(item, "parallel_safe", False) else "false"
+            return (
+                f"{base}; parallel_safe={safe}; "
+                f"owns_paths=[{', '.join(owns)}]"
+            )
 
         # A subagent event wait is bound by matching the Planner's own words
         # against a live work_id, exactly. The ids were never shown to it, so
@@ -237,8 +302,9 @@ class PlannerOrchestrationMixin:
                 f"- current_stage: {pipeline.get('current_stage') or self._current_pipeline_stage() or '(unset)'}",
                 f"- stage_statuses: {', '.join(stage_rows) or '(none)'}",
                 f"- backlog_counts: {json.dumps(backlog_counts, sort_keys=True)}",
+                *slot_lines,
                 *(
-                    f"- {item.status} task {item.id}: {item.title}; deps={item.deps}"
+                    _active_item_line(item)
                     for item in backlog_rows
                     if item.status in {"pending", "running", "paused_external_work"}
                 ),

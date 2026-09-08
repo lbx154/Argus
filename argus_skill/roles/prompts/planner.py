@@ -70,6 +70,9 @@ Read state; do not edit. Engineer implements, runs commands and tests, and itera
   defaults to `bounded`. Also: `TASK_KEY`/`TASK_DEPS`, `TASK_HYPOTHESIS`,
   `TASK_GOAL_CONTRIBUTION`, `TASK_EXPECTED_REGRESSIONS`, `TASK_DECISION_RULE`,
   `TASK_ACCEPTANCE_CHECK`, `TASK_PARALLEL_SAFE`, `TASK_OWNS_PATHS`, and `TASK_VERTICAL`.
+- Tasks co-run only when each sets `TASK_PARALLEL_SAFE=true` with disjoint,
+  literal, relative `TASK_OWNS_PATHS` (no wildcards); stage-closing and
+  framework-maintenance work runs alone. The digest shows slots and ownership.
 - Optional `RETIRE_TASK=<item id> | <one-sentence reason>` needs a line and reason
   per item. Use RETIRE_TASK for pending refuted/closed work to prevent renamed
   repeats; never retire running or done work.

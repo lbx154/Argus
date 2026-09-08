@@ -799,6 +799,7 @@ class LifeWorkerBootMixin:
         if effective_width == 1:
             return
         rf_state.sup.config.coordinate_parallel_claims = True
+        rf_state.sup.config.mission_slots = effective_width
 
         from ..apps._runtime import build_life_runner
 
@@ -812,6 +813,7 @@ class LifeWorkerBootMixin:
             user_inbox=None,
             parallel_worker=True,
             holds_stage_authority=False,
+            mission_slots=effective_width,
         )
         for index in range(1, effective_width):
             ns = _runner_namespace(rf_state.cfg)

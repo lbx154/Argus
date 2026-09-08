@@ -438,6 +438,11 @@ class _PlanCycleState:
         self.added_titles: list[str] = []
         self.added_impact_scores: list[int] = []
         self.skipped_duplicate_titles: list[str] = []
+        # (title, reason) for tasks whose requested parallel_safe flag was
+        # stripped during canonicalization. Collected here and reported only
+        # for tasks that actually commit, so dedup-skipped proposals do not
+        # spam the journal on replan loops.
+        self.dropped_parallel: list[tuple[str, str]] = []
         self.skipped_certification_reproposal_titles: list[str] = []
         self.skipped_certification_reproposal_reasons: list[str] = []
         self.skipped_recent_failure_titles: list[str] = []

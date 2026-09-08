@@ -330,7 +330,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.mission.skipped': case 'life.mission.orphaned': case 'life.mission.requeued':
     case 'life.manager.plan_challenge.decided': case 'life.vertical.resolved':
     case 'life.manager.backend_resolved': case 'life.planner.backend_resolved':
-    case 'life.planner.dependency_dropped':
+    case 'life.planner.dependency_dropped': case 'life.planner.parallel_dropped':
     case 'life.engineer.backend_resolved': case 'life.reviewer.backend_resolved': case 'life.curator.backend_resolved':
     case 'life.runtime_failure.circuit_opened': case 'life.runtime_failure.circuit_blocked': case 'life.runtime_failure.canary_passed':
     case 'life.plan.revision.proposed': case 'life.plan.revision.rejected': case 'life.plan.revision.committed': case 'life.plan.node.superseded':

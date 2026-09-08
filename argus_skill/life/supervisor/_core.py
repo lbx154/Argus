@@ -240,6 +240,10 @@ class LifeSupervisor(
         # item or durable job. They were dropped rather than rejecting the
         # plan; the next planner prompt says so once, then this clears.
         self._planner_dropped_dependency_keys: list[tuple[str, list[str]]] = []
+        # Tasks whose parallel_safe flag was stripped at enqueue (missing or
+        # invalid owns_paths, or stage-closing). Same one-shot contract as
+        # the dropped-dependency note above.
+        self._planner_dropped_parallel_marks: list[tuple[str, str]] = []
         self._parallel_plan_fingerprint: tuple[tuple[str, ...], ...] | None = None
         self._parallel_plan_after = 0.0
         # Wall-clock (monotonic) of the first idle pass in the current idle

@@ -570,6 +570,10 @@ class PlanningCycleEnqueueMixin:
                     and not Path(str(path)).is_absolute()
                     and Path(str(path)).parts
                     and ".." not in Path(str(path)).parts
+                    # The claim gate refuses glob syntax outright; keeping such
+                    # a path here would advertise a task as slot-ready that can
+                    # never be admitted.
+                    and not any(char in str(path) for char in "*?[]{}!")
                 )
             ]
             canonical_stage_closing = bool(
@@ -583,6 +587,30 @@ class PlanningCycleEnqueueMixin:
                 or _independent_review_forced()
                 or getattr(task, "require_independent_review", True)
             )
+            requested_parallel = bool(getattr(task, "parallel_safe", False))
+            canonical_parallel = bool(
+                requested_parallel
+                and canonical_owns_paths
+                and not canonical_stage_closing
+            )
+            if requested_parallel and not canonical_parallel:
+                # The plan asked for a shared slot but did not unlock it.
+                # Silence here left width-2 daemons serial for months: the
+                # Planner kept omitting owned paths and never learned why
+                # nothing co-ran. Reported at commit time, once per enqueued
+                # task, so dedup-skipped replans do not repeat the event.
+                state.dropped_parallel.append((
+                    task.title,
+                    (
+                        "stage-closing work always runs alone"
+                        if canonical_stage_closing
+                        else (
+                            "TASK_PARALLEL_SAFE was set without usable "
+                            "TASK_OWNS_PATHS — literal relative paths, no "
+                            "wildcards — so the task will run serially"
+                        )
+                    ),
+                ))
             task = replace(
                 task,
                 scope=canonical_scope,
@@ -595,11 +623,7 @@ class PlanningCycleEnqueueMixin:
                 require_independent_review=canonical_require_review,
                 skip_stage_transition=False,
                 allow_skill_changes=False,
-                parallel_safe=bool(
-                    getattr(task, "parallel_safe", False)
-                    and canonical_owns_paths
-                    and not canonical_stage_closing
-                ),
+                parallel_safe=canonical_parallel,
                 owns_paths=canonical_owns_paths,
             )
             from ...skills.stage_machine import current_stage
@@ -919,6 +943,14 @@ class PlanningCycleEnqueueMixin:
                     task_tags.remove("review:waived")
                 if "review:required" not in task_tags:
                     task_tags.append("review:required")
+                if getattr(task, "parallel_safe", False):
+                    # The claim gate refuses framework maintenance outright;
+                    # the flag would only mislead the digest and the Planner.
+                    task = replace(task, parallel_safe=False)
+                    state.dropped_parallel.append((
+                        task.title,
+                        "framework maintenance always runs alone",
+                    ))
                 evidence_reason = str(
                     getattr(task, "evidence", "")
                     or getattr(task, "hypothesis", "")
@@ -1241,6 +1273,26 @@ class PlanningCycleEnqueueMixin:
                 )
         if unresolved:
             self._planner_dropped_dependency_keys = list(unresolved)
+        if state.dropped_parallel:
+            committed_titles = {item.title for _task, item in state.pending_items}
+            marks: list[tuple[str, str]] = []
+            for title, reason in state.dropped_parallel:
+                if title in committed_titles and (title, reason) not in marks:
+                    marks.append((title, reason))
+            if marks:
+                self._planner_dropped_parallel_marks = marks
+                for title, reason in marks:
+                    self._emit(
+                        {
+                            "type": EventType.LIFE_PLANNER_PARALLEL_DROPPED,
+                            "cycle": self._planning_cycles,
+                            "title": title,
+                            "text": (
+                                "the plan marked this task parallel-safe but "
+                                "the flag was dropped: " + reason
+                            ),
+                        }
+                    )
         if revision_request is None and state.pending_items:
             try:
                 self.memory.backlog.add_many([item for _task, item in state.pending_items])

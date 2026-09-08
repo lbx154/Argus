@@ -367,6 +367,13 @@ export interface LifePlannerDependencyDroppedEvent extends EventMsg {
   "text"?: string;
 }
 
+export interface LifePlannerParallelDroppedEvent extends EventMsg {
+  type: "life.planner.parallel_dropped";
+  payload_schema_version?: 1;
+  "title": string;
+  "text"?: string;
+}
+
 export interface LifePlannerTaskSkippedEvent extends EventMsg {
   type: "life.planner.task_skipped";
   payload_schema_version?: 1;
@@ -1233,6 +1240,7 @@ export interface EventPayloadByType {
   "life.runtime_failure.canary_passed": LifeRuntimeFailureCanaryPassedEvent;
   "life.planner.task_added": LifePlannerTaskAddedEvent;
   "life.planner.dependency_dropped": LifePlannerDependencyDroppedEvent;
+  "life.planner.parallel_dropped": LifePlannerParallelDroppedEvent;
   "life.planner.task_skipped": LifePlannerTaskSkippedEvent;
   "life.manager.intent.completed": LifeManagerIntentCompletedEvent;
   "life.manager.intent.failed": LifeManagerIntentFailedEvent;
