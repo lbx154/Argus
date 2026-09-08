@@ -1294,3 +1294,47 @@ owns_paths)、辅助槽的实际并发占用、Atlas 网络面板里 /map 请求
 - 一次性反馈注记在"prompt 已组装、模型调用前中止"的路径上会白耗
   (与 dropped_dependency 同一取舍,评审确认为既有模式)。
 - 17 张决策卡仍压在 ~/.argus-skill/maintenance/pending/ 等操作者。
+
+## 二十一、事故记录(2026-09-08 上午):copilot 提示词投递断裂与十五分钟修复
+
+### 事故
+
+07:14 滚动三守护进程到 de4ef341d 后,第一个规划周期(07:15)起所有
+one-shot copilot 调用统一报 "No prompt provided...",planner 连续
+出错进退避循环,三台守护进程全部命中(papermaker 16 次、restaurant
+16 次、agent-comm 10 次,全部集中在 07:15-07:16)。提示词本身完好
+(agent_io 记录 45,751 字符)——是投递不到 CLI。
+
+### 根因(git bisect + 双 CLI 复现实锤)
+
+首坏提交 7614bf720("own provider turns with private Job Objects",
+本日凌晨上游批次):把提示词投递从子进程 stdin 管道改成临时文件
+(规避"读者未启动先写管道"的死锁)。独立安装的 copilot CLI
+(~/.local/bin)接受普通文件 stdin,但机队实际解析到的是 VS Code 的
+copilotCLIShim.js——它只认 FIFO stdin,对普通文件回答 "No prompt
+provided"。手工复现:同一 argv,`< file` 失败、`cat file |` 成功。
+f9d8a02bf(滚动前版本)直接经 runtime 调用验证无恙。
+
+### 修复:591e39950("Feed the prompt through a pipe the copilot shim will read")
+
+投递改回真管道,由 daemon 线程喂入——读者启动前父进程不写一字节,
+7614bf720 要防的死锁依旧防着(既有 backpressure/watchdog/spawn 失败
+三组测试原样全绿);子进程不读完就退出时,写线程收 broken pipe 自行
+了结,不悬挂。新回归测试:子进程 assert stat.S_ISFIFO(stdin),在
+临时文件投递上先红后绿。07:50 滚动三守护进程 + 8799 webapi 到修复
+版,planner 真实调用、Engineer 论文工序、事件等待/空转跳过全部核实
+正常;事故窗口合计约十五分钟,损失若干次空转 copilot 调用。
+
+### 落位与善后
+
+- main = 995e30a6c(修复 591e39950 + 发布产物重建提交);
+  runtime-latest 干净 detach 于 995e30a6c,web dist 为新源码构建。
+- 守护进程跑 591e39950 源(与 995e30a6c 源码逐字节一致,后者只多
+  生成物),下次滚动自然对齐版本号。
+- 8801 webapi 归 TUI 会话私有(env 钉着旧 release digest),未动,
+  由其属主自行重启换版。
+- de4ef341d 前的另一处教训:schema 加字段后只跑了 fixtures 生成器
+  没跑 types 生成器,被 web build 的 --check 拦下——生成器要成对跑。
+- 上游同批的 Windows Job Objects 语义未验证(本机 POSIX 直通),
+  Windows 侧行为归上游作者;shim 与独立 CLI 的 stdin 语义差异值得
+  在 copilot 适配文档里记一笔。
