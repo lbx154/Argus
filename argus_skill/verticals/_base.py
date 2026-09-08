@@ -16,6 +16,7 @@ from typing import TypeAlias
 from ..core.vertical_contract import (
     IterationAssessment,
     VerticalContract,
+    VerticalContractError,
     vertical_contract,
 )
 from ._data_domain import DataDomain, load_data_domain
@@ -97,18 +98,6 @@ def vertical_checklist_optional_stages(
 ) -> frozenset[str]:
     """Return stages whose checklist is explicitly declared optional."""
     return _contract(mod).checklist_optional_stages
-
-
-def vertical_stage_auto_close_allowed(
-    mod: VerticalDefinition,
-    *,
-    stage: str,
-    project_root: Path,
-    state_root: Path,
-) -> bool:
-    return _contract(mod).auto_close_allowed(
-        stage, project_root, state_root=state_root,
-    )
 
 
 def vertical_stage_aliases(mod: VerticalDefinition) -> dict[str, str]:
@@ -269,6 +258,34 @@ def vertical_stage_completion_issues(
     )
 
 
+def vertical_automatic_stage_completion_ready(
+    mod: VerticalDefinition,
+    *,
+    stage: str,
+    project_root: Path,
+    state_root: Path,
+) -> bool:
+    """Only explicit provider opt-in with a real boolean permits automatic close.
+
+    Empty completion issues may mean no machine gate applies. A missing hook
+    therefore declines automatic closure; malformed values never certify it.
+    """
+    contract = _contract(mod)
+    hook = contract.automatic_stage_completion
+    if hook is None:
+        return False
+    ready = hook(
+        stage=stage,
+        project_root=project_root,
+        state_root=state_root,
+    )
+    if not isinstance(ready, bool):
+        raise VerticalContractError(
+            f"vertical {contract.name!r} automatic stage completion hook returned a non-boolean"
+        )
+    return ready
+
+
 def vertical_iteration_assessment(
     mod: VerticalDefinition,
     *,
@@ -314,7 +331,6 @@ __all__ = [
     "vertical_checklist_stage_order",
     "vertical_checklist_items",
     "vertical_checklist_optional_stages",
-    "vertical_stage_auto_close_allowed",
     "vertical_role_banner",
     "vertical_requires_independent_review",
     "vertical_completion_contract_version",
@@ -328,6 +344,7 @@ __all__ = [
     "vertical_planner_task_issues",
     "vertical_workflow_mode",
     "vertical_search_altitude",
+    "vertical_automatic_stage_completion_ready",
     "vertical_stage_completion_issues",
     "vertical_stage_primary_deliverables",
 ]

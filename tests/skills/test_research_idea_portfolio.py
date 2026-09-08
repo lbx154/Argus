@@ -172,14 +172,15 @@ def test_selector_does_not_exist_until_all_route_reviews_finish(
 
 def test_team_local_owner_ids_and_compact_handoff(tmp_path: Path) -> None:
     from argus_skill.life.supervisor._planning_cycle_enqueue import (
-        _research_stage_ready_for_close,
+        _automatic_stage_target,
     )
+    from argus_skill.verticals.research.stages import CHECKLIST_STAGE_ORDER
 
     _state(tmp_path)
     root = ensure_idea_portfolio(tmp_path, direction="reliable agents")
-    assert not _research_stage_ready_for_close(
+    assert _automatic_stage_target(
         state_root=tmp_path, evidence_root=tmp_path,
-    )
+    ) == ""
     routes = _complete_routes_and_reviews(tmp_path, root, first_owner="w1")
     ensure_idea_portfolio(tmp_path, direction="reliable agents")
     _complete_selector(
@@ -191,9 +192,9 @@ def test_team_local_owner_ids_and_compact_handoff(tmp_path: Path) -> None:
     ensure_idea_portfolio(tmp_path, direction="reliable agents")
 
     assert idea_portfolio_completion_issues(tmp_path) == ()
-    assert _research_stage_ready_for_close(
+    assert _automatic_stage_target(
         state_root=tmp_path, evidence_root=tmp_path,
-    )
+    ) == CHECKLIST_STAGE_ORDER[1]
     selected = idea_portfolio_selection(tmp_path)
     assert selected is not None
     assert "winner_detail" not in selected

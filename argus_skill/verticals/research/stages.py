@@ -435,22 +435,6 @@ def _review_document_issues(
     return ()
 
 
-def stage_auto_close_allowed(
-    stage: str,
-    project_root: Path,  # noqa: ARG001 - vertical hook contract
-    *,
-    state_root: Path,
-) -> bool:
-    """Only a required portfolio gives Idea a decisive automatic gate.
-
-    Locked, exploratory, and direct paths still require Reviewer/Manager
-    adjudication even when their machine-checkable issues are empty.
-    """
-    from .idea_portfolio import portfolio_required
-
-    return stage == CHECKLIST_STAGE_ORDER[0] and portfolio_required(state_root)
-
-
 def stage_completion_issues(
     stage: str,
     project_root: Path,
@@ -495,6 +479,26 @@ def stage_completion_issues(
             )
         )
     return ()
+
+
+def automatic_stage_completion_ready(
+    *,
+    stage: str,
+    project_root: Path,
+    state_root: Path,
+) -> bool:
+    """Only a completed mandatory portfolio closes without Manager judgment."""
+    from .idea_portfolio import portfolio_required
+
+    return bool(
+        str(stage or "").strip().lower() == "idea"
+        and portfolio_required(state_root)
+        and not stage_completion_issues(
+            stage,
+            project_root,
+            state_root=state_root,
+        )
+    )
 
 
 def iteration_assessment(
@@ -671,7 +675,7 @@ __all__ = [
     "render_role_prompt_context",
     "review_purchase_policy",
     "stage_completion_issues",
-    "stage_auto_close_allowed",
+    "automatic_stage_completion_ready",
     "iteration_assessment",
     "completion_gate",
     "PAPER_MISSION",
