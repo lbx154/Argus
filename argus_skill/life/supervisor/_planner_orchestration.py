@@ -6,6 +6,7 @@ import json
 import logging
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 from ._config import LifeSupervisorConfig
@@ -121,6 +122,42 @@ class PlannerOrchestrationMixin:
             )
             if part
         )
+
+    def _operator_map_note_lines(self) -> list[str]:
+        """Render the operator's pinned Atlas map notes, newest last.
+
+        The notes file is written by the web layer
+        (``webapi.map_notes`` — one JSONL row per note). A campaign without
+        notes pays one existence probe and no read; any failure renders
+        nothing because the digest is advisory.
+        """
+        root = getattr(self.memory, "root", None)
+        if not root:
+            return []
+        path = Path(root) / "map_notes.jsonl"
+        try:
+            if not path.is_file():
+                return []
+            from ..memory import _read_jsonl_tail
+
+            rows = _read_jsonl_tail(path, 5)
+        except Exception:  # noqa: BLE001 - the digest is advisory
+            return []
+        from ...core.secret_guard import redact_secrets_text
+
+        lines: list[str] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            node_id = str(row.get("node_id") or "").strip()
+            text = " ".join(str(row.get("text") or "").split())
+            if not node_id or not text:
+                continue
+            text = redact_secrets_text(text)[:200]
+            lines.append(f"  - on task {node_id}: {text}")
+        if not lines:
+            return []
+        return ["- operator_map_notes:", *lines]
 
     def _planner_current_reality_note(self) -> str:
         """Render host-read state so Planner does not rediscover bookkeeping."""
@@ -318,6 +355,7 @@ class PlannerOrchestrationMixin:
                     if awaiting
                     else "- awaiting_operator_answer: (none)"
                 ),
+                *self._operator_map_note_lines(),
                 f"- git_changed_paths ({len(changed_paths)}): {changed_preview}",
                 f"- checkpoint_blockers: {'; '.join(blockers) or '(none declared)'}",
                 "The host already read pipeline state, backlog, checkpoint blockers, "

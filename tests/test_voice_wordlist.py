@@ -110,6 +110,9 @@ VOICE_CLEAN_FILES: tuple[str, ...] = (
     "argus_skill/verticals/kernelbench/stages.py",
     "argus_skill/verticals/nanochat/stages.py",
     "argus_skill/verticals/speedrun/stages.py",
+    "argus_skill/webapi/map_notes.py",
+    "argus_skill/webapi/map_references.py",
+    "argus_skill/webapi/routes/map_notes.py",
 )
 
 # One pattern per retired word family, matched case-insensitively on word

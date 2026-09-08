@@ -85,6 +85,48 @@ def _merge_context_refs(
     return merged
 
 
+def _attachable_reference_deps(
+    mem: Any,
+    reference_deps: list[str] | None,
+    *,
+    exclude: set[str],
+) -> list[str]:
+    """Referenced backlog ids a NEW item may safely list as ``deps``.
+
+    Only ids present in the backlog whose status can still satisfy a
+    dependency are kept: ``done`` (immediately satisfied — the new item is
+    ready at once) or a live status (the new item waits its turn). A dep on a
+    failed/skipped/superseded/aborted task would make the new item
+    permanently unsatisfiable and ``memory._cascade_blocked`` would skip it,
+    so those ids — and ids that no longer exist — are dropped here. The
+    reference expansion already told the operator/model which ones were
+    dropped (``webapi.map_references``); this is the authoritative re-check
+    at persist time.
+    """
+    if not reference_deps:
+        return []
+    from ..life.memory import _TERMINAL_STATUSES
+
+    try:
+        statuses = {
+            str(item.id): str(item.status)
+            for item in mem.backlog.history()
+        }
+    except Exception:  # noqa: BLE001 - deps are an attachment, not the mission
+        return []
+    attachable: list[str] = []
+    for dep in dict.fromkeys(str(dep) for dep in reference_deps):
+        if not dep or dep in exclude:
+            continue
+        status = statuses.get(dep)
+        if status is None:
+            continue
+        if status in _TERMINAL_STATUSES and status != "done":
+            continue
+        attachable.append(dep)
+    return attachable
+
+
 def _bounded_dag_model() -> str:
     """Model for decomposing a bounded Manager task into backlog DAG nodes.
 
@@ -228,6 +270,7 @@ def enqueue_mission(
     cancelled: Callable[[], bool] | None = None,
     prepared_handoff: front_door.PreparedManagerHandoff | None = None,
     context_refs: list[dict[str, str]] | None = None,
+    reference_deps: list[str] | None = None,
 ) -> tuple[Any | None, bool, int | None]:
     """Persist one Manager-authored mission and report executor availability."""
     if chat_state.get("blocked_item_id"):
@@ -301,6 +344,13 @@ def enqueue_mission(
             title_body = execution_body if contextual_body else body
             compact = " ".join(title_body.split()).replace("`", "")
             title = compact if len(compact) <= 96 else compact[:93] + "..."
+            # Operator-quoted map nodes attach the new work where the operator
+            # pointed instead of leaving it dangling at the end of the graph.
+            item_deps = _attachable_reference_deps(
+                mem,
+                reference_deps,
+                exclude={str(root_task_id or "")},
+            )
             item = BacklogItem.new(
                 item_id=root_task_id,
                 title=title,
@@ -347,6 +397,7 @@ def enqueue_mission(
                 ],
                 iterate=False,
                 iteration_max_cycles=1,
+                deps=item_deps,
                 context_refs=_merge_context_refs(context_refs),
                 original_objective=execution_body,
                 manager_decision=decision_evidence(division) or {"routed": True},
@@ -368,7 +419,7 @@ def enqueue_mission(
                     "item_id": item.id,
                     "title": item.title,
                     "objective": item.objective,
-                    "deps": [],
+                    "deps": list(item.deps),
                     "priority": item.priority,
                     "source": "manager_operator",
                     "operator_priority": True,
@@ -568,6 +619,14 @@ def enqueue_mission(
             )
             for index, node in enumerate(nodes)
         }
+        # Operator-quoted map nodes become deps of the plan's ENTRY nodes so
+        # the whole new subgraph attaches where the operator pointed. Nodes
+        # with in-plan deps inherit the ordering transitively.
+        entry_deps = _attachable_reference_deps(
+            mem,
+            reference_deps,
+            exclude=set(ids.values()),
+        )
         items: list[BacklogItem] = []
         priority = min(head_priority - 1, -1)
         from ..core.campaign_workdir import (
@@ -675,7 +734,7 @@ def enqueue_mission(
                 ],
                 iterate=not direct_workflow,
                 iteration_max_cycles=1 if direct_workflow else 3,
-                deps=[ids[dep] for dep in node.deps],
+                deps=[ids[dep] for dep in node.deps] or list(entry_deps),
                 plan_id=plan_id,
                 plan_version=0 if direct_workflow else 1,
                 node_key="" if direct_workflow else node.key,

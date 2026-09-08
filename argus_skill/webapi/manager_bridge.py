@@ -251,6 +251,26 @@ def manager_message(
             "reply": "project no longer exists; the message was not processed",
         }
 
+    # Atlas card references: replace each ``[[Argus引用 {...}]]`` marker line
+    # with a readable inline line in the persisted operator text, and carry the
+    # bounded context block separately so only the model-facing bodies (triage
+    # send_body / TEAM routing body) receive it — never the journal.
+    reference_context = ""
+    reference_deps: list[str] = []
+    from .map_references import REFERENCE_MARKER_PREFIX, expand_operator_references
+
+    if REFERENCE_MARKER_PREFIX in operator_text:
+        try:
+            expansion = expand_operator_references(operator_text, life_dir)
+        except Exception:  # noqa: BLE001 — a quoted card must never block the turn
+            log.exception("map reference expansion failed")
+            expansion = None
+        if expansion is not None and expansion.matched:
+            operator_text = expansion.text
+            body = compose_message_body(operator_text, resolved_attachments).strip()
+            reference_context = expansion.context_block
+            reference_deps = list(expansion.dep_task_ids)
+
     from ..core.operator_context import import_deterministic_credential
 
     safe_body, credential_record = import_deterministic_credential(
@@ -288,10 +308,15 @@ def manager_message(
         except Exception:  # noqa: BLE001
             pass
         _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
+        _ask_question = (
+            f"{_question}\n\n{reference_context}"
+            if reference_context
+            else _question
+        )
         reply = _answer_inline(
             sid,
             life_dir,
-            compose_message_body(_question, resolved_attachments),
+            compose_message_body(_ask_question, resolved_attachments),
         )
         return emitter.respond(reply, {"kind": "chat"})
 
@@ -391,6 +416,8 @@ def manager_message(
             ),
             resolved_attachments,
         ).strip()
+        if reference_context:
+            routing_body = f"{routing_body}\n\n{reference_context}"
         chat_state["_frontdoor_contextual_text"] = body
         chat_state["_frontdoor_dispatch_body"] = routing_body
 
@@ -512,6 +539,7 @@ def manager_message(
                 _cancelled,
                 emitter,
                 attachment_context_refs=message_attachment_refs,
+                reference_deps=reference_deps,
             )
         except Exception as exc:  # noqa: BLE001
             if _cancelled():

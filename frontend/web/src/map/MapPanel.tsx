@@ -21,6 +21,7 @@ import {
   useNodesState,
   useNodesInitialized,
   type Edge,
+  type OnNodesChange,
 } from "@xyflow/react";
 import {
   ArrowLeft,
@@ -41,10 +42,13 @@ import {
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
-import { ACTIVE, buildMap, connectMap, statusKey, type Dataset } from "./model";
+import { ACTIVE, buildMap, connectMap, promoteTeamBranches, statusKey, type Dataset } from "./model";
 import { layoutScene } from "./submap";
-import { edgeLanes, relationPorts } from "./graphLayout";
-import { MacroTaskNode, MapArtifactContext, type MacroData, type MacroNode } from "./MacroTaskNode";
+import { edgeLanes, layoutGraph, relationPorts } from "./graphLayout";
+import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroData, type MacroNode } from "./MacroTaskNode";
+import { groupNotesByNode } from "./notes";
+import "./notes.css";
+import { BranchNode, BRANCH_FRAME, type BranchFlowNode } from "./BranchNode";
 import { INITIAL_VIEWPORT, useSemanticCamera } from "./useSemanticCamera";
 import { useMapCopy } from "./useMapCopy";
 import { MapComposer, type MapComposerProps } from "./MapComposer";
@@ -54,6 +58,7 @@ import "@xyflow/react/dist/style.css";
 import "./map.css";
 import "./submap.css";
 import "./atlas.css";
+import "./branch.css";
 import { MapRelationEdge } from "./MapRelationEdge";
 import { MapHistoryChoice } from "./MapHistoryChoice";
 import { livePollInterval, mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
@@ -70,8 +75,9 @@ interface MapWorkspaceActions {
   onAnswer: () => void;
 }
 
-const NODE_TYPES = { task: MacroTaskNode };
+const NODE_TYPES = { task: MacroTaskNode, branch: BranchNode };
 const EDGE_TYPES = { relation: MapRelationEdge };
+type AtlasNode = MacroNode | BranchFlowNode;
 
 export function MapTeamProgress({ events, zh }: { events: Dataset['events']; zh: boolean }) {
   const team = [...new Map(events.filter((event) => event.type === 'team.task').map((event) => [event.id, event])).values()];
@@ -149,6 +155,71 @@ function MapCanvas({
     sceneCache.current = replaceEqualDeep(sceneCache.current, next);
     return sceneCache.current;
   }, [graph, data.events, zh, links]);
+  // Team fan-out promotion: parallel `team.task` work leaves its owning card
+  // as small branch pills and returns to it, instead of hiding as steps.
+  const promotedCache = useRef<ReturnType<typeof promoteTeamBranches> | null>(null);
+  const promoted = useMemo(() => {
+    promotedCache.current = replaceEqualDeep(
+      promotedCache.current,
+      promoteTeamBranches(graph, data.events, zh),
+    );
+    return promotedCache.current!;
+  }, [graph, data.events, zh]);
+  // Compose cards and branch pills into one geometry. Same caching discipline
+  // as layoutScene: streaming prose/status changes never re-run the search.
+  const atlasCache = useRef<{
+    structure: string;
+    positions: Record<string, { x: number; y: number }>;
+  } | null>(null);
+  const atlas = useMemo(() => {
+    const branches = promoted.tasks.filter((task) => task.branch);
+    if (!branches.length)
+      return {
+        links: scene.links,
+        positions: scene.positions,
+        frames: scene.frames,
+        structure: scene.structure,
+        branches,
+        branchAnchor: new Map<string, string>(),
+      };
+    // The fan attaches to the task's last card, matching how layoutScene
+    // re-anchors outgoing task links on multi-part cards.
+    const anchor = new Map<string, string>();
+    for (const card of scene.cards) anchor.set(card.task.id, card.id);
+    const branchAnchor = new Map(
+      branches.map((task) => [task.id, anchor.get(task.parent_id!) ?? task.parent_id!]),
+    );
+    const frames: typeof scene.frames = { ...scene.frames };
+    for (const task of branches) frames[task.id] = { ...BRANCH_FRAME, scale: 1 };
+    const atlasLinks = [
+      ...scene.links,
+      ...promoted.links
+        .filter((link) => link.kind === "fanout" || link.kind === "fanin")
+        .map((link) => ({
+          ...link,
+          source: anchor.get(link.source) ?? link.source,
+          target: anchor.get(link.target) ?? link.target,
+        })),
+    ];
+    // Branch pills join the layout right after their owning card, keeping the
+    // rank layout's chronological frontier truthful.
+    const byCard = new Map<string, string[]>();
+    for (const task of branches) {
+      const card = branchAnchor.get(task.id)!;
+      byCard.set(card, [...(byCard.get(card) ?? []), task.id]);
+    }
+    const ids = scene.cards.flatMap((card) => [card.id, ...(byCard.get(card.id) ?? [])]);
+    const structure = JSON.stringify([
+      ids.map((id) => [id, frames[id].width, frames[id].height]),
+      atlasLinks.map((link) => [link.source, link.target, link.kind]),
+    ]);
+    const positions =
+      atlasCache.current?.structure === structure
+        ? atlasCache.current.positions
+        : layoutGraph(ids, atlasLinks, frames);
+    atlasCache.current = { structure, positions };
+    return { links: atlasLinks, positions, frames, structure, branches, branchAnchor };
+  }, [scene, promoted]);
   const growth = useMapGrowth(scene, !!data.history_loading);
   const submitFromMap: MapSend = async (text, files = []) => {
     const id = ++dispatchSerial.current;
@@ -200,7 +271,7 @@ function MapCanvas({
     if (!nodesReady) return;
     const frame = requestAnimationFrame(camera.fitUpdatedScene);
     return () => cancelAnimationFrame(frame);
-  }, [scene.structure, nodesReady, camera.fitUpdatedScene]);
+  }, [atlas.structure, nodesReady, camera.fitUpdatedScene]);
   const composerRef = useRef(composer);
   composerRef.current = composer;
   const quote = useCallback(
@@ -223,13 +294,64 @@ function MapCanvas({
     x: number;
     y: number;
   } | null>(null);
+  const noteClient = useQueryClient();
+  const notesQ = useQuery({
+    queryKey: ["map-notes", sessionId],
+    queryFn: ({ signal }) => api.mapNotes(sessionId, signal),
+    enabled: data.kind === "live" && !readOnly,
+    staleTime: 60_000,
+  });
+  const notesScope = useMemo(
+    () => ({ notes: groupNotesByNode(notesQ.data?.notes ?? []) }),
+    [notesQ.data],
+  );
+  const [noteEditor, setNoteEditor] = useState<{
+    ref: CardReference;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [noteText, setNoteText] = useState("");
+  const [noteError, setNoteError] = useState(false);
+  useEffect(() => {
+    if (!noteEditor) return;
+    const dismiss = (e: PointerEvent) => {
+      if (!(e.target as Element).closest(".map-note-editor")) setNoteEditor(null);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setNoteEditor(null);
+      }
+    };
+    window.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", key, true);
+    return () => {
+      window.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", key, true);
+    };
+  }, [noteEditor]);
+  const saveNote = async () => {
+    const editor = noteEditor;
+    const text = noteText.trim();
+    if (!editor || !text) return;
+    setNoteError(false);
+    try {
+      await api.addMapNote(sessionId, { node_id: editor.ref.task_id, text });
+      await noteClient.invalidateQueries({ queryKey: ["map-notes", sessionId] });
+      setNoteEditor(null);
+      setNoteText("");
+    } catch {
+      // Keep the editor and the draft so nothing is silently lost.
+      setNoteError(true);
+    }
+  };
   const showMenu = useCallback(
     (ref: CardReference, point: { x: number; y: number }) => {
       if (readOnly) return;
       setMenu({
         ref,
         x: Math.min(window.innerWidth - 180, point.x),
-        y: Math.min(window.innerHeight - 70, point.y),
+        y: Math.min(window.innerHeight - 140, point.y),
       });
     },
     [readOnly],
@@ -262,7 +384,7 @@ function MapCanvas({
       return replaceEqualDeep(previous, scene.cards.map((card) => ({
         id: card.id,
         type: "task",
-        position: scene.positions[card.id],
+        position: atlas.positions[card.id] ?? scene.positions[card.id],
         width: scene.frames[card.id].width,
         height: scene.frames[card.id].height,
         style: {
@@ -292,6 +414,7 @@ function MapCanvas({
   }, [
     graph,
     scene,
+    atlas,
     zh,
     setNodes,
     camera.enter,
@@ -323,15 +446,20 @@ function MapCanvas({
     return () => window.clearInterval(timer);
   }, [playing, graph.tasks.length, camera.detailed]);
   const visibleIds = useMemo(
-    () =>
-      new Set(
+    () => {
+      const visible = new Set(
         scene.cards
           .filter(
             (card) => data.kind === "live" || card.ordinal <= visibleCount,
           )
           .map((card) => card.id),
-      ),
-    [scene.cards, visibleCount, data.kind],
+      );
+      // A branch pill appears and disappears with its owning card.
+      for (const [id, card] of atlas.branchAnchor)
+        if (visible.has(card)) visible.add(id);
+      return visible;
+    },
+    [scene.cards, visibleCount, data.kind, atlas.branchAnchor],
   );
   const previousDisplay = useRef<MacroNode[]>([]);
   const displayNodes = useMemo(
@@ -389,43 +517,90 @@ function MapCanvas({
       composer.historical,
     ],
   );
+  // Branch pills are display/navigation only; structural sharing keeps their
+  // node data identities stable so idle pills never re-render.
+  const previousBranchNodes = useRef<BranchFlowNode[]>([]);
+  const branchNodes = useMemo(
+    () => {
+      const next = atlas.branches.map<BranchFlowNode>((task) => ({
+        id: task.id,
+        type: "branch",
+        position: atlas.positions[task.id] ?? { x: 0, y: 0 },
+        width: BRANCH_FRAME.width,
+        height: BRANCH_FRAME.height,
+        style: { width: BRANCH_FRAME.width, height: BRANCH_FRAME.height },
+        hidden: !visibleIds.has(task.id),
+        draggable: false,
+        selectable: false,
+        focusable: false,
+        data: {
+          task,
+          zh,
+          parentCardId: atlas.branchAnchor.get(task.id)!,
+          open: camera.enter,
+        },
+      }));
+      previousBranchNodes.current = replaceEqualDeep(previousBranchNodes.current, next);
+      return previousBranchNodes.current;
+    },
+    [atlas, visibleIds, zh, camera.enter],
+  );
+  const flowNodes = useMemo<AtlasNode[]>(
+    () => (branchNodes.length ? [...displayNodes, ...branchNodes] : displayNodes),
+    [displayNodes, branchNodes],
+  );
   const edges: Edge[] = useMemo(
     () => {
-      const visibleLinks = scene.links.filter(
+      const visibleLinks = atlas.links.filter(
         (e) =>
           visibleIds.has(e.source) &&
           visibleIds.has(e.target) &&
           (e.kind !== "replacement" || showReplacements),
       );
+      // Single pass over the visible links, covering all edge kinds including
+      // the promoted fanout/fanin edges; no per-edge rescans.
       const lanes = edgeLanes(visibleLinks);
-      return visibleLinks.map((e, index) => ({
+      const taskByCard = new Map(scene.cards.map((card) => [card.id, card.task]));
+      const activeTargets = new Set<string>();
+      if (data.kind === "live" && !paused) {
+        for (const card of scene.cards)
+          if (ACTIVE.has(card.task.status)) activeTargets.add(card.id);
+        for (const task of atlas.branches)
+          if (ACTIVE.has(task.status)) activeTargets.add(task.id);
+      }
+      return visibleLinks.map((e, index) => {
+        const fan = e.kind === "fanout" || e.kind === "fanin";
+        return {
           id: e.id,
           source: e.source,
           target: e.target,
           ...relationPorts(
-            { ...scene.positions[e.source], ...scene.frames[e.source] },
-            { ...scene.positions[e.target], ...scene.frames[e.target] },
+            { ...atlas.positions[e.source], ...atlas.frames[e.source] },
+            { ...atlas.positions[e.target], ...atlas.frames[e.target] },
           ),
           type: "relation",
           data: {
             growthDelay: growth.links[e.id],
-            active: data.kind === "live" && !paused && scene.cards.some((card) => card.id === e.target && ACTIVE.has(card.task.status)),
+            active: activeTargets.has(e.target),
             lane: lanes[index],
           },
           className: `map-edge-${e.kind}`,
-          label:
-            e.label ||
-            (e.kind === "replacement"
-              ? zh
-                ? "转入新计划"
-                : "New plan"
-              : e.kind === "dependency"
-                ? zh
-                  ? "依赖"
-                  : "Dependency"
-                : zh
-                  ? "同一研究"
-                  : "Related work"),
+          // Fan edges carry no label: the pill itself names the branch.
+          label: fan
+            ? undefined
+            : e.label ||
+              (e.kind === "replacement"
+                ? (taskByCard.get(e.source)?.superseded_reason || "")
+                    .replace(/\s+/g, " ")
+                    .slice(0, 60) ||
+                  (zh ? "转入新计划" : "New plan")
+                : e.kind === "dependency"
+                  ? zh
+                    ? "依赖"
+                    : "Dependency"
+                  : zh
+                    ? "同一研究"
+                    : "Related work"),
           labelStyle: {
             fontSize: 30,
             fill: e.kind === "replacement" ? "#95809f" : "#6685a4",
@@ -441,9 +616,16 @@ function MapCanvas({
                 : e.kind === "dependency"
                   ? "#527fa7"
                   : "#7594ad",
-            strokeWidth: e.kind === "dependency" ? 1.55 : 1.3,
+            // Dependencies stay the strongest line; fan edges are thinner and
+            // translucent (branch.css), context is a fainter, sparser dash.
+            strokeWidth: e.kind === "dependency" ? 1.55 : fan ? 0.95 : 1.3,
             vectorEffect: "non-scaling-stroke",
-            strokeDasharray: e.kind === "dependency" ? undefined : "5 6",
+            strokeDasharray:
+              e.kind === "dependency" || fan
+                ? undefined
+                : e.kind === "context"
+                  ? "3 10"
+                  : "4 5",
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
@@ -453,18 +635,19 @@ function MapCanvas({
           },
           ariaLabel:
             e.evidence ||
-            (e.kind === "dependency"
-              ? `Dependency: ${e.source} → ${e.target}`
-              : `Plan replacement: ${e.source} → ${e.target_plan_id} (${e.target_count} tasks, representative ${e.target})`),
-        }));
+            (fan
+              ? `Team branch: ${e.source} → ${e.target}`
+              : e.kind === "dependency"
+                ? `Dependency: ${e.source} → ${e.target}`
+                : `Plan replacement: ${e.source} → ${e.target_plan_id} (${e.target_count} tasks, representative ${e.target})`),
+        };
+      });
     },
     [
-      scene.links,
+      atlas,
       visibleIds,
       showReplacements,
       zh,
-      scene.positions,
-      scene.frames,
       growth,
       data.kind,
       paused,
@@ -505,6 +688,7 @@ function MapCanvas({
     [actions.artifacts, actions.onOpenArtifact],
   );
   return (
+    <MapNotesContext.Provider value={notesScope}>
     <MapArtifactContext.Provider value={artifactScope}>
       <div className="map-progress-line" role="progressbar" aria-label={zh ? "已完成任务" : "Completed tasks"} aria-valuemin={0} aria-valuemax={data.tasks.length || 1} aria-valuenow={complete}><span style={{ width: `${data.tasks.length ? complete / data.tasks.length * 100 : 0}%` }} /></div>
       <div className="map-summary">
@@ -679,12 +863,12 @@ function MapCanvas({
               ]).map(([label, prompt]) => <button key={label} type="button" onClick={() => { composer.onChange(prompt); requestAnimationFrame(() => canvasRef.current?.querySelector('textarea')?.focus()); }}>{label} ↗</button>)}</div>}
             </div>
           ) : (
-            <ReactFlow<MacroNode>
-              nodes={displayNodes}
+            <ReactFlow<AtlasNode>
+              nodes={flowNodes}
               edges={edges}
               nodeTypes={NODE_TYPES}
               edgeTypes={EDGE_TYPES}
-              onNodesChange={onNodesChange}
+              onNodesChange={onNodesChange as OnNodesChange<AtlasNode>}
               onMove={camera.onMove}
               defaultViewport={INITIAL_VIEWPORT}
               minZoom={0.035}
@@ -720,9 +904,11 @@ function MapCanvas({
               />
               <MiniMap
                 nodeColor={(n) =>
-                  statusKey((n.data as MacroData).task) === "done"
-                    ? "#b5d6c7"
-                    : "#a7bfd9"
+                  n.type === "branch"
+                    ? "#c5d4e2"
+                    : statusKey((n.data as MacroData).task) === "done"
+                      ? "#b5d6c7"
+                      : "#a7bfd9"
                 }
                 maskColor="var(--map-minimap-mask)"
                 maskStrokeColor="#85aacf"
@@ -781,6 +967,75 @@ function MapCanvas({
               >
                 {zh ? "引用" : "Reference"}
               </button>
+              {data.kind === "live" && (
+                <>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setNoteText("");
+                      setNoteEditor({ ref: menu.ref, x: menu.x, y: menu.y });
+                      setMenu(null);
+                    }}
+                  >
+                    {zh ? "添加批注" : "Add a note"}
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      composer.onRouteOverrideChange?.("task");
+                      quote(menu.ref);
+                      setMenu(null);
+                    }}
+                  >
+                    {zh ? "从这里展开" : "Branch from here"}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+          {noteEditor && !readOnly && (
+            <div
+              className="map-note-editor nodrag nopan"
+              style={{
+                left: Math.min(window.innerWidth - 320, noteEditor.x),
+                top: Math.min(window.innerHeight - 240, noteEditor.y),
+              }}
+            >
+              <small>
+                {zh
+                  ? `批注《${noteEditor.ref.task_title}》`
+                  : `Note on “${noteEditor.ref.task_title}”`}
+              </small>
+              <textarea
+                autoFocus
+                maxLength={2000}
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder={
+                  zh
+                    ? "写下你的观察，Argus 在下个规划周期会读到"
+                    : "Your observation; Argus reads it next planning cycle"
+                }
+              />
+              {noteError && (
+                <small className="map-note-error">
+                  {zh
+                    ? "没有保存上，稍后再试；草稿还在"
+                    : "Not saved; try again — the draft is kept"}
+                </small>
+              )}
+              <div className="map-note-actions">
+                <button onClick={() => setNoteEditor(null)}>
+                  {zh ? "取消" : "Cancel"}
+                </button>
+                <button
+                  className="is-primary"
+                  disabled={!noteText.trim()}
+                  onClick={() => void saveNote()}
+                >
+                  {zh ? "保存" : "Save"}
+                </button>
+              </div>
             </div>
           )}
           {(graph.cyclic || graph.missing > 0) && (
@@ -843,6 +1098,7 @@ function MapCanvas({
         </div>
       )}
     </MapArtifactContext.Provider>
+    </MapNotesContext.Provider>
   );
 }
 

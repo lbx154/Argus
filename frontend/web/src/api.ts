@@ -733,6 +733,10 @@ export const api = {
       P(sid, '/mission/abort'),
       { reason },
     ),
+  mapNotes: (sid: string, signal?: AbortSignal) =>
+    getJson<{ notes: import('./map/notes').MapNote[] }>(P(sid, '/map-notes'), signal),
+  addMapNote: (sid: string, body: { node_id: string; text: string; author?: string }) =>
+    postJson<{ note: import('./map/notes').MapNote }>(P(sid, '/map-notes'), body),
   answerPending: (sid: string, itemId: string, text: string) =>
     postJson<{
       answered_item_id: string;

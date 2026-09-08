@@ -1,0 +1,110 @@
+/* Operator margin notes: badge on the card, list in the detail view, editor popover. */
+
+.macro-note-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 8px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgb(var(--line) / 0.35);
+  color: rgb(var(--ink));
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.macro-notes {
+  position: absolute;
+  right: 18px;
+  top: 64px;
+  max-width: 280px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid rgb(var(--line) / 0.5);
+  border-left: 3px solid rgb(var(--line));
+  border-radius: 8px;
+  background: var(--map-paper);
+  font-size: 12px;
+  line-height: 1.5;
+  z-index: 3;
+}
+.macro-notes small {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgb(var(--ink) / 0.55);
+}
+.macro-notes p {
+  margin: 0 0 6px;
+  color: rgb(var(--ink) / 0.9);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.macro-notes p:last-child {
+  margin-bottom: 0;
+}
+
+.map-note-editor {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+  padding: 12px;
+  border: 1px solid rgb(var(--line) / 0.6);
+  border-radius: 10px;
+  background: var(--map-paper);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.18);
+}
+.map-note-editor small {
+  font-size: 11px;
+  color: rgb(var(--ink) / 0.65);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.map-note-editor textarea {
+  min-height: 84px;
+  resize: vertical;
+  padding: 8px;
+  border: 1px solid rgb(var(--line) / 0.5);
+  border-radius: 6px;
+  background: transparent;
+  color: rgb(var(--ink));
+  font: inherit;
+  font-size: 13px;
+}
+.map-note-error {
+  color: rgb(200 80 60);
+  font-size: 11px;
+}
+.map-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.map-note-actions button {
+  padding: 5px 12px;
+  border: 1px solid rgb(var(--line) / 0.5);
+  border-radius: 6px;
+  background: transparent;
+  color: rgb(var(--ink));
+  font-size: 12px;
+  cursor: pointer;
+}
+.map-note-actions button.is-primary {
+  background: rgb(var(--ink));
+  color: var(--map-paper);
+  border-color: rgb(var(--ink));
+}
+.map-note-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

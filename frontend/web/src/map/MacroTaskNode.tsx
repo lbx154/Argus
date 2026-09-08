@@ -19,6 +19,7 @@ import type { MapCopy, CardReference } from "./presentation";
 import { ACTIVE, statusKey } from "./model";
 import {
   STEP_KINDS,
+  noDetails,
   type StepKind,
   type SubmapLayout,
   type SubmapStep,
@@ -61,6 +62,11 @@ export type MacroData = MapCard & {
 export type MacroNode = Node<MacroData, "task">;
 /** Artifact previews change often and are only read inside the open reader;
  * context keeps them out of every node's data so updates skip idle nodes. */
+/** Operator margin notes per node id; provided once by MapPanel so note
+ * updates never churn every node's data object. */
+export const MapNotesContext = createContext<{
+  notes: Record<string, import("./notes").MapNote[]>;
+}>({ notes: {} });
 export const MapArtifactContext = createContext<{
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
@@ -122,6 +128,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
 }: NodeProps<MacroNode>) {
   const { task, ordinal, zh, layout: currentLayout, focused, detailed } = data;
   const { artifacts, onOpenArtifact } = useContext(MapArtifactContext);
+  const cardNotes = useContext(MapNotesContext).notes[task.id] ?? [];
   // Only density thresholds trigger React work; continuous zoom typography is CSS.
   const density = useStore((state) => {
     const width = state.transform[2] * data.frame.width;
@@ -168,6 +175,14 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     data.frame.height / 218,
   );
   const copy = data.copy?.cards || {};
+  // Drifted status makes the generated summary dated, not wrong: keep showing
+  // yesterday's prose and only hint that a refresh is on its way.
+  // Only promise a refresh while the task is still moving: a terminal task
+  // whose copy never regenerates would wear the hint forever.
+  const staleSummary =
+    Boolean(copy[task.id]?.summary) &&
+    copy[task.id]?.task_status !== task.status &&
+    (ACTIVE.has(task.status) || task.status === "pending");
   const stepCopy = (step: SubmapStep) => {
     const saved = copy[step.id];
     if (step.source !== 'team') return saved;
@@ -189,11 +204,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       ? layout.steps
           .map((step) => stepCopy(step)?.summary || currentStep(step).summary || currentStep(step).detail)
           .filter(
-            (value) =>
-              value &&
-              !["暂无详细记录", "Details are not available yet."].includes(
-                value,
-              ),
+            (value) => value && ![noDetails(true), noDetails(false)].includes(value),
           )
           .at(-1)
       : undefined;
@@ -346,12 +357,20 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               {stateLabel(displayedState)}
             </span>
           </div>
-          <h3><MarkdownExcerpt>{title}</MarkdownExcerpt></h3>
+          <h3>
+            <MarkdownExcerpt>{title}</MarkdownExcerpt>
+            {cardNotes.length > 0 && (
+              <span
+                className="macro-note-badge"
+                title={zh ? "操作员批注" : "Operator notes"}
+              >
+                {cardNotes.length}
+              </span>
+            )}
+          </h3>
           <div className="map-card-copy"><MarkdownExcerpt>
             {partSummary ||
-              (copy[task.id]?.task_status === task.status
-                ? copy[task.id]?.summary
-                : "") ||
+              copy[task.id]?.summary ||
               task.pending_question ||
               task.summary ||
               task.objective ||
@@ -374,7 +393,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                 : `${layout.steps.length} ${zh ? "个环节" : "steps"}`}
             </span>
             <span className="map-card-submap-hint">
-              {zh ? "查看进展" : "View progress"}
+              {staleSummary
+                ? zh ? "描述更新中" : "Summary updating"
+                : zh ? "查看进展" : "View progress"}
               <ChevronRight size={12} />
             </span>
           </div>
@@ -418,6 +439,14 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </span>
           ))}
         </div>
+        {cardNotes.length > 0 && (
+          <aside className="macro-notes" aria-label={zh ? "操作员批注" : "Operator notes"}>
+            <small>{zh ? "批注" : "Notes"}</small>
+            {cardNotes.map((note) => (
+              <p key={note.id}>{note.text}</p>
+            ))}
+          </aside>
+        )}
         <SubmapEdges layout={layout} growing={data.growingLinks} activeStep={activeStep} activeTeamSteps={activeTeamSteps} />
         {layout.columns.map((col) => (
           <div
@@ -476,7 +505,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                 {stepCopy(step)?.summary ||
                   currentStep(step).summary ||
                   step.detail ||
-                  (zh ? "暂无详细记录" : "Details are not available yet")}
+                  noDetails(zh)}
               </MarkdownExcerpt></div>
               <div className="submap-step-foot">
                 <span title={sourceLabel(step, zh)}>
@@ -545,7 +574,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             <h3><MarkdownExcerpt>{detail.title}</MarkdownExcerpt></h3>
             <div className="macro-reader-body">
               <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>
-                {cleanDeliverySummary(stepCopy(detail)?.detail || detail.detail || (zh ? "暂无详细记录。" : "No details available yet."))}
+                {cleanDeliverySummary(stepCopy(detail)?.detail || detail.detail || noDetails(zh))}
               </MarkdownContent>
             </div>
             <footer>

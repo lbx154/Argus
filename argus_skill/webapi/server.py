@@ -684,6 +684,9 @@ def create_app(
     from .routes.map_datasets import register_map_dataset_routes
 
     register_map_dataset_routes(app, ctx)
+    from .routes.map_notes import register_map_note_routes
+
+    register_map_note_routes(app, ctx)
 
     # ── static web UI (optional) ──────────────────────────────────────────
     # When the React frontend has been built (`npm run build` in frontend/web),
