@@ -548,22 +548,29 @@ class PlanningCycleMixin(
                         and reviewed_signature != self._final_submission_signature()
                     ):
                         continue
-                return (
-                    item,
-                    SimpleNamespace(
-                        status="done",
-                        reason=str(review["reason"]).strip(),
-                        next_action=str(review.get("next_action") or "").strip(),
-                        operator_question=str(
-                            review.get("operator_question") or ""
-                        ).strip(),
-                        review_source="reviewer",
-                        manuscript_snapshot=manuscript_binding,
-                        venue_review=review.get("venue_review"),
-                        venue_review_snapshot=review.get("venue_review_snapshot"),
-                    ),
-                    mission_scope,
+                recovered_review = SimpleNamespace(
+                    status="done",
+                    reason=str(review["reason"]).strip(),
+                    next_action=str(review.get("next_action") or "").strip(),
+                    operator_question=str(
+                        review.get("operator_question") or ""
+                    ).strip(),
+                    review_source="reviewer",
+                    manuscript_snapshot=manuscript_binding,
+                    venue_review=review.get("venue_review"),
+                    venue_review_snapshot=review.get("venue_review_snapshot"),
                 )
+                if mission_scope == "final_submission":
+                    from ...skills.vertical_select import resolve_vertical_if_decided
+
+                    if resolve_vertical_if_decided(root) == "research":
+                        from ...core.venue_review import current_venue_acceptance_issue
+
+                        if current_venue_acceptance_issue(
+                            recovered_review, state_root=root, artifact_root=candidate_root,
+                        ):
+                            continue
+                return item, recovered_review, mission_scope
             return None
         return None
 

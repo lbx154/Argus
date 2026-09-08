@@ -30,6 +30,12 @@ Prefer representations that explain the mechanism: token sequences, sparse
 rows, interval glyphs, geometric bounds, aligned comparison panels, and actual
 data plots. Small geometry must stay schematic unless backed by real values;
 use ellipses where drawn counts are arbitrary and explain the abstraction.
+Build enough of the real structure to make the contribution visible: preserve
+important internal operations, interfaces, and before/after relationships.
+Use reusable native groups and careful alignment for Figma-level precision.
+Resolve sparse layouts by exposing missing scientific structure or tightening
+the composition; resolve crowding through grouping and concise labels. Neither
+generic prose cards nor decorative filler supplies scientific detail.
 
 ## Native PPT mathematical typography
 
@@ -78,9 +84,14 @@ whitespace, proper math, connector routing, grayscale separation, and notation
 against the paper. Shorten prose or enlarge/rearrange geometry when cramped;
 never fix crowding by shrinking ordinary type below 8 pt.
 
-Embed the final vector PDF, rebuild the paper, and inspect it at its actual
-size. Preserve scientific content and numerical results. The independent
-Reviewer makes the final judgment. Do not self-edit stage certificates or
-declare a figure attractive merely because technical validation passed.
+For a figure worker, inspect only the assigned candidate against its brief and
+return it with the source and direct evidence; do not modify the parent paper.
+The main Engineer selects and embeds the final vector PDF, rebuilds changed
+inputs, and inspects the inclusion at its actual size. Preserve an accepted
+composition, scientific content, and numerical results. Complete the current
+Engineer turn and return to the host, whose formal Reviewer judges the complete
+paper. Do not dispatch an integrated/full-paper Reviewer, write the main
+`paper/REVIEW.md`, or self-edit stage certificates. Technical validation alone
+does not establish visual quality.
 List individual final source/PDF/PNG paths in the handoff; keep obsolete
 variants out of the formal filenames.

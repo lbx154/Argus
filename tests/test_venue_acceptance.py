@@ -14,6 +14,8 @@ from argus_skill.core.venue_review import (
     normalize_venue_review,
     paper_review_snapshot,
     requires_venue_review,
+    selected_acceptance_minimum,
+    venue_review_issue,
 )
 from argus_skill.reviewer import Reviewer, ReviewerConfig
 from argus_skill.reviewer._parsing import decision_from_payload, parse_decision_text
@@ -64,6 +66,53 @@ def test_explicit_clear_acceptance_is_bound_to_current_paper(paper, rating):
     payload = review.to_event_payload()
     assert payload["venue_review"]["recommendation"] == rating
     assert payload["venue_review_snapshot"] == paper_review_snapshot(paper)
+
+
+@pytest.mark.parametrize("rating", ["weak_accept", "accept", "strong_accept", "best_paper"])
+def test_strong_accept_goal_uses_the_real_rating_without_upgrading_it(paper, rating):
+    state = read_pipeline_state(paper)
+    state["venue_acceptance_minimum"] = "strong_accept"
+    write_pipeline_state(paper, state)
+    reason = "The current result is sound; a held-out mechanism test can establish its wider value."
+    review = ReviewDecision(status="done", reason=reason, next_action="", venue_review=assessment(rating))
+
+    enforce_venue_acceptance(
+        review, venue="ICLR", minimum=selected_acceptance_minimum(paper),
+        before=paper_review_snapshot(paper), artifact_root=paper,
+    )
+
+    sufficient = rating in {"strong_accept", "best_paper"}
+    assert review.final_submission_certified is sufficient
+    assert review.status == ("done" if sufficient else "continue")
+    assert review.venue_review["recommendation"] == rating
+    assert review.reason == reason
+    assert not review.backend_unavailable
+    assert bool(current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)) is not sufficient
+    if not sufficient:
+        assert "actual strong accept quality" in review.next_action
+    assert read_pipeline_state(paper)["current_stage"] == "review"
+
+
+def test_raising_the_operator_bar_invalidates_a_previous_weak_accept(paper):
+    review = ReviewDecision(status="done", reason="Current paper accepted.", next_action="", venue_review=assessment())
+    enforce_venue_acceptance(review, venue="ICLR", before=paper_review_snapshot(paper), artifact_root=paper)
+    assert current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper) == ""
+
+    state = read_pipeline_state(paper)
+    state["venue_acceptance_minimum"] = "strong_accept"
+    write_pipeline_state(paper, state)
+
+    assert "strong_accept or better" in current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)
+    assert review.venue_review["recommendation"] == "weak_accept"
+
+
+def test_invalid_explicit_acceptance_minimum_cannot_silently_lower_the_bar(paper):
+    state = read_pipeline_state(paper)
+    state["venue_acceptance_minimum"] = "typo"
+    write_pipeline_state(paper, state)
+    assert "invalid operator" in venue_review_issue(
+        assessment("best_paper"), venue="ICLR", minimum=selected_acceptance_minimum(paper),
+    )
 
 
 @pytest.mark.parametrize("report", [assessment(clear=False), assessment(issues=["Missing strongest matched baseline."])])
@@ -178,6 +227,40 @@ def test_reviewer_uses_the_selected_venue_from_a_separate_state_directory(paper)
     )
     assert review.final_submission_certified
     assert current_venue_acceptance_issue(review, state_root=state_root, artifact_root=paper) == ""
+
+
+def test_formal_reviewer_gets_the_operator_bar_from_control_state(paper):
+    state_root = paper / "session-state"
+    persist_vertical(state_root, "research", target_venue="ICLR")
+    state = read_pipeline_state(state_root)
+    state.update(current_stage="review", venue_acceptance_minimum="strong_accept")
+    write_pipeline_state(state_root, state)
+    runner = _Runner(assessment())
+    config = ReviewerConfig(
+        active_vertical="research", working_dir=str(paper),
+        artifact_root=str(paper), vertical_state_root=str(state_root),
+    )
+    review = Reviewer(runner).evaluate(
+        objective="Improve this paper to strong acceptance", round_index=1,
+        session_id=None, main_summary="Stronger evidence added.", main_error=None,
+        scope="final_submission", config=config,
+    )
+    assert "completion bar is strong accept" in runner.prompt
+    assert review.status == "continue"
+    assert not review.final_submission_certified
+    assert "Recommendation: weak_accept" in (paper / "paper/REVIEW.md").read_text()
+    prior_fingerprint = review.static_fingerprint
+
+    state["venue_acceptance_minimum"] = "weak_accept"
+    write_pipeline_state(state_root, state)
+    review = Reviewer(runner).evaluate(
+        objective="Judge the current paper", round_index=2, session_id=None,
+        main_summary="No paper changes", main_error=None, scope="final_submission",
+        config=config, resume_thread_id="old-session", prior_static_fingerprint=prior_fingerprint,
+    )
+    assert review.final_submission_certified
+    assert review.static_fingerprint != prior_fingerprint
+    assert not review.session_resumed
 
 
 def test_unclassified_nonpaper_review_does_not_invent_a_venue_requirement(tmp_path):

@@ -1589,3 +1589,48 @@ frontend marker round-trip test; webapi suite green except the two known environ
 failures; frontend 460/tsc clean. Demo synced + restarted (this wave touches python, so the digest
 rule applied for real). Backlog now: formation width labels beyond k/N, map-history sqlite
 superseded backfill, runtime-latest roll.
+
+## 28. Paper workflow ownership and the strong-accept target (2026-09-08 UTC)
+
+The paper team owns research workflow changes; the other team owns frontend
+work. Coordinate through literal `main` and preserve each other's work. The
+operator now explicitly requires the three existing ICLR papers to reach an
+independent **strong accept**, through Argus's own scientific work. The paper
+team must not edit manuscripts, experiments, figures or review judgments by hand.
+
+The paper runtime now supports an operator-controlled
+`venue_acceptance_minimum` in the project's central pipeline state. It is
+`strong_accept` for `s-cbc15c0e`, `s-78dd04e4`, and `s-43de93ea`; the default
+elsewhere remains weak accept. The host must preserve the Reviewer's actual
+rating and continue work below this bar. A past weak acceptance cannot be
+reused after the bar changes. Do not weaken this setting or rewrite scores.
+
+`323cdb74c` / `ec159db4b` already gave the formal Reviewer a file-bound MCP
+capability for its own `paper/REVIEW.md`, with ordinary prose rather than a
+required template. On the live CBC paper at 19:17 UTC, it wrote a fresh review,
+the host interpreted weak reject as continue, and Engineer r2 started without
+stopping. This is also the owner of final review: Engineer should return each
+reviewable scientific increment to the host, rather than running a second
+integrated-review loop inside its own provider call. Isolated figure candidates
+may run in parallel; the lead validates and incorporates them.
+
+The current three PDFs each contain two scientific figures. New framework
+figures use existing Method D, automatically falling back to Method B when the
+image route is unavailable, and editable native PPT. Preserve good selected
+compositions. Favor meaningful mechanism detail and scientific hierarchy over
+plain box chains, empty whitespace, or paragraph cards; do not spend most
+research time repeatedly polishing figures. Keep raw adverse evidence.
+
+Deployment coordination: port **8897 belongs to the user service**
+`argus-atlas-investor-web.service`, whose `KillMode=process` preserves paper
+workers. Use `systemctl --user restart argus-atlas-investor-web.service` after
+the tested main build. Do not launch a competing `setsid/nohup ... --web` on
+8897: repeated manual launches have made systemd spin in a restart loop. The
+paper team will coordinate worker upgrades with the running experiments; avoid
+restarting those workers during a frontend deployment. Never restart the tunnel.
+
+Retain old hashed assets when publishing a new build, so already-open clients
+can still load lazy modules. Resolve generated-artifact merge conflicts by
+building the merged source, not by selecting an old bundle. The live paper
+audit and operational records are under
+`/data/v-boxiuli/argus-academic-figure-refinement-20260908/`.

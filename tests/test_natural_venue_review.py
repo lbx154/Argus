@@ -122,6 +122,28 @@ def test_clear_natural_acceptance_with_only_optional_future_work_can_finish(pape
     assert "changed" in current_venue_acceptance_issue(review, state_root=paper, artifact_root=paper)
 
 
+def test_strong_accept_objective_does_not_promote_an_aspirational_rating(paper):
+    state = read_pipeline_state(paper)
+    state["venue_acceptance_minimum"] = "strong_accept"
+    write_pipeline_state(paper, state)
+    prose = ACCEPTANCE + "若新增的独立机制实验成功，未来有望达到 strong accept。"
+    result = evaluate(paper, ProseRunner(prose, control(revision=False, status="done")))
+    assert result.status == "continue"
+    assert not result.final_submission_certified
+    assert result.venue_review["recommendation"] == "weak_accept"
+    assert result.reason == prose
+    assert "实际达到 strong accept" in result.next_action
+
+    (paper / "paper/main.tex").write_text("New mechanism evidence and revised argument.")
+    (paper / "paper/main.pdf").write_bytes(b"Updated paper with the new evidence")
+    quote = "作为 ICLR 审稿人，我对当前版本的明确建议是 strong accept。"
+    new_control = control(revision=False, status="done", quote=quote)
+    new_control["venue_review"]["recommendation"] = "strong_accept"
+    result = evaluate(paper, ProseRunner(quote + "新增机制实验已解决关键贡献问题。", new_control))
+    assert result.final_submission_certified
+    assert result.venue_review["recommendation"] == "strong_accept"
+
+
 def test_reviewer_edits_its_file_each_round_and_acknowledgement_is_not_the_review(paper):
     from argus_skill.reviewer.review_file import ReviewFileStore
 

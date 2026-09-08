@@ -32,6 +32,14 @@ def selected_venue(state_root: Path | str) -> str:
     return str(state.get("target_venue") or state.get("venue") or "").strip()
 
 
+def selected_acceptance_minimum(state_root: Path | str) -> str:
+    """Read the operator's bar, independently of the Reviewer's own rating."""
+    from .pipeline_state import read_pipeline_state
+
+    value = read_pipeline_state(state_root).get("venue_acceptance_minimum", "weak_accept")
+    return re.sub(r"[\s-]+", "_", str(value).strip().lower())
+
+
 def configure_venue_revisions(config: Any) -> None:
     """Remove quality-convergence ceilings while preserving operational stops."""
     config.max_rounds = 0
@@ -82,7 +90,7 @@ def normalize_venue_review(value: Any) -> dict[str, Any] | None:
     return normalized
 
 
-def venue_review_issue(value: Any, *, venue: str) -> str:
+def venue_review_issue(value: Any, *, venue: str, minimum: str = "weak_accept") -> str:
     assessment = normalize_venue_review(value)
     if not venue:
         return "no selected venue for the final paper review"
@@ -90,8 +98,10 @@ def venue_review_issue(value: Any, *, venue: str) -> str:
         return "missing or invalid explicit venue recommendation"
     if _venue_key(assessment["venue"]) != _venue_key(venue):
         return f"reviewed venue {assessment['venue']!r} differs from selected venue {venue!r}"
-    if assessment["recommendation"] not in ACCEPTED_RECOMMENDATIONS:
-        return f"venue recommendation is {assessment['recommendation']}; weak_accept or better is required"
+    if minimum not in ACCEPTED_RECOMMENDATIONS:
+        return f"invalid operator venue acceptance minimum: {minimum!r}"
+    if RECOMMENDATIONS.index(assessment["recommendation"]) < RECOMMENDATIONS.index(minimum):
+        return f"venue recommendation is {assessment['recommendation']}; {minimum} or better is required"
     if assessment["acceptance_clear"] is not True:
         return "Reviewer did not clearly support acceptance at the selected venue"
     if assessment["blocking_issues"]:
@@ -116,7 +126,10 @@ def paper_review_snapshot(project_root: Path | str) -> dict[str, str] | None:
 
 def current_venue_acceptance_issue(review: Any, *, state_root: Path | str, artifact_root: Path | str) -> str:
     """Finalizers use the same recommendation and exact-file binding as Reviewer."""
-    issue = venue_review_issue(getattr(review, "venue_review", None), venue=selected_venue(state_root))
+    issue = venue_review_issue(
+        getattr(review, "venue_review", None), venue=selected_venue(state_root),
+        minimum=selected_acceptance_minimum(state_root),
+    )
     if issue:
         return issue
     if getattr(review, "review_source", "") != "reviewer":
@@ -162,6 +175,7 @@ def _keep_final_repairs_in_place(decision: Any) -> None:
 
 def enforce_venue_acceptance(
     decision: Any, *, venue: str, before: dict[str, str] | None, artifact_root: Path | str,
+    minimum: str = "weak_accept",
 ) -> None:
     """Apply the stated minimum to the Reviewer's own assessment, never re-grade it."""
     decision.venue_review_required = True
@@ -178,7 +192,7 @@ def enforce_venue_acceptance(
         decision.next_action = "Retry the independent Reviewer on the same paper and clarify its actual recommendation for the selected venue in ordinary prose."
         return
     current = paper_review_snapshot(artifact_root)
-    issue = venue_review_issue(assessment, venue=venue)
+    issue = venue_review_issue(assessment, venue=venue, minimum=minimum)
     if not before or not current:
         issue = "a complete manuscript source and rendered PDF are required for final acceptance"
     elif before != current:
@@ -207,10 +221,35 @@ def enforce_venue_acceptance(
     if not decision.next_action.strip():
         repairs = "; ".join(assessment["blocking_issues"]) or assessment["rationale"]
         decision.next_action = "Revise the current paper against the selected venue's standard: " + repairs
+    if (
+        minimum in ACCEPTED_RECOMMENDATIONS
+        and assessment["recommendation"] in ACCEPTED_RECOMMENDATIONS
+        and RECOMMENDATIONS.index(assessment["recommendation"]) < RECOMMENDATIONS.index(minimum)
+    ):
+        # A sincere weak accept must not silently end a strong-accept mission,
+        # nor be relabelled as strong accept. Preserve the review verbatim and
+        # carry the higher scientific objective to Engineer as separate guidance.
+        from .operator_messages import uses_cjk
+
+        label = minimum.replace("_", " ")
+        instruction = (
+            f"用户要求论文实际达到 {label}。保留 Reviewer 对当前版本的真实评级，"
+            "继续落实意见中最有价值、可行的贡献、方法和实验改进；"
+            "先做能区分科学解释的检验，再更新论文并送正式 Reviewer 复审。"
+            "不能只改措辞、重画合格图或把评级改高来结束。"
+            if uses_cjk(decision.reason)
+            else f"The operator requires actual {label} quality. Preserve this honest rating "
+            "and pursue the review's most valuable feasible contribution, method, and "
+            "experimental improvements. Run the decisive test, update the paper, and return "
+            "to the formal Reviewer. Wording changes, redrawing sound figures, or relabelling "
+            "the rating do not meet that objective."
+        )
+        decision.next_action = instruction + "\n\n" + decision.next_action
     _keep_final_repairs_in_place(decision)
 
 
-def venue_review_instruction(venue: str) -> str:
+def venue_review_instruction(venue: str, *, minimum: str = "weak_accept") -> str:
+    minimum_label = minimum.replace("_", " ")
     return (
         "## Final paper acceptance — mandatory operator standard\n"
         f"Act as an independent reviewer for the currently selected venue: {venue or '(not selected)'}. "
@@ -218,7 +257,8 @@ def venue_review_instruction(venue: str) -> str:
         "and claim-critical evidence. Judge novelty, significance, soundness, evidence, "
         "reproducibility, presentation, and fit at that venue. Finishing edits, compiling, "
         "an old certificate, or the Engineer's confidence is not an acceptance decision.\n"
-        "Only a clear weak accept, accept, strong accept, or best-paper-level recommendation "
+        f"The operator's completion bar is {minimum_label}. Only a clear {minimum_label} "
+        "or stronger recommendation "
         "with no reject-level issues permits completion. Borderline, rejection, "
         "uncertain acceptance, or incomplete evidence requires further revision and concrete "
         "repairs. Do not inflate a rating to end the loop or treat the minimum as a target "
@@ -236,6 +276,13 @@ def venue_review_instruction(venue: str) -> str:
         "reopen selection, or send ordinary scientific revisions back through earlier stages. "
         "A strong negative or boundary result can be publishable, but completeness and "
         "honesty alone do not establish novelty or significance.\n"
+        "Judge the current version honestly even when it falls below the operator's bar. "
+        "A higher bar is a research objective, not a requested rating. Explain the remaining "
+        "contribution or evidence gap and a promising, feasible way to address it. For a "
+        "strong-accept target, a useful mechanism, effective method, broader predictive "
+        "principle, or decisive external test can matter more than another compliance check. "
+        "Try the cheapest informative version first; keep adverse results and reassess "
+        "the proposed direction instead of endlessly repeating an uninformative experiment.\n"
         "Give constructive, creative, respectful feedback that helps Engineer aim for "
         "strong acceptance and best-paper quality. Begin with specific evidence-backed "
         "strengths and verified progress since the preceding review; close resolved issues "
@@ -269,7 +316,7 @@ def venue_review_instruction(venue: str) -> str:
         "acceptance blockers from these feasible quality improvements and from speculative "
         "future-work ideas that do not hold completion. Completion is justified "
         "when no remaining actionable high-impact repair is supported; do not manufacture "
-        "endless optional experiments. Clear weak accept remains the minimum, while "
+        f"endless optional experiments. Clear {minimum_label} remains the minimum, while "
         "best-paper quality is the aspiration.\n"
         "Write the review naturally in the operator's language. No JSON, fixed fields, "
         "decision footer, or prescribed review template is required. State your actual "

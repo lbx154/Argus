@@ -43,9 +43,19 @@ the count.
 | Data chart component in a PPT figure | ECharts with actual data and fixed dimensions; inspect the vector export in the final PPT |
 | Non-claim-bearing illustrative asset | image-2 only when configured; compose it inside an editable deterministic figure |
 
-Topology fidelity takes priority over decorative richness. A polished Figure 1
+Decorative depth here means simulated 3D, shadows, and ornaments. Preserve the
+method's real architectural depth and informative detail. Topology fidelity
+takes priority over decorative richness. A polished Figure 1
 does not need depth, icons, or decorative complexity. Never use generated image
 text or geometry for scientific labels, arrows, values, or branch conditions.
+
+Aim for the alignment, reusable visual components, and hierarchy of a precise
+Figma design within the native PPT workflow. Give the scientific mechanism
+visible form through sequences, sets, intervals, matrices, subcomponents,
+interfaces, and actual transformations as appropriate. A generic chain of text
+cards or an empty overview is insufficient when it hides the contribution.
+Choose an informative composition from inspected strong papers, with enough
+detail to explain the mechanism and enough space to read it at publication size.
 
 For method and conceptual figures, open `paper-framework-figure-studio.md`
 before drawing. Method D is the default: learn from suitable reference figures,
@@ -60,6 +70,11 @@ or ask the operator for image API setup. `academic-vector-figures.md` covers
 precise math and chart components. There is no separate SVG workflow. SVG can remain an
 internal asset format of a selected renderer. Reuse suitable figures across
 rounds and name the actual workflow used without inventing a blueprint.
+FigureSpec and Graphviz may calculate geometry or supply an internal component;
+their default node-and-arrow output is not a finished framework figure. A
+browser-rendered text-card layout is likewise not a third conceptual route.
+Compose the scientific objects in the selected native PPT workflow. Existing
+quantitative charts keep their faithful data-rendering route.
 Include the vector PDF after Introduction, preferably on page 2 or 3; changing
 float placement does not require redrawing the figure.
 
@@ -96,4 +111,8 @@ Paper is responsible for complete figures and a successful manuscript compile,
 not a separate visual check. During final Review, inspect every page and every
 figure at actual publication size, close resolved findings, and repair specific
 remaining fidelity or readability problems. Preserve already approved
-compositions while the integrated Reviewer judges the current science and paper.
+compositions. Figure workers perform local candidate checks only. Once the main
+Engineer completes the round's work, return to the host for its formal Reviewer
+to assess the current complete paper. Engineer must not dispatch an
+integrated/full-paper Reviewer, create a second paper-wide review loop, or write
+the main `paper/REVIEW.md`.

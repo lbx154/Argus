@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from argus_skill.core.manuscript_snapshot import manuscript_snapshot
+from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
 from argus_skill.core.stage_certificate import record_stage_review
 from argus_skill.core.venue_review import paper_review_snapshot
 from argus_skill.life.context_packet import (
@@ -190,6 +191,43 @@ def test_certification_recovery_uses_separate_execution_workdir(
 
     assert supervisor._reconcile_reviewed_stage_empty_plan(None) == "complete"
     assert supervisor._journal_has_final_certification() is True
+
+
+def test_old_weak_accept_cannot_close_a_new_strong_accept_goal(tmp_path: Path) -> None:
+    supervisor, _project, _item = _make_final_review(
+        tmp_path, scope="final_submission", bind_handoff=True, separate_roots=True,
+    )
+    state_root = supervisor._artifact_root()
+    state = read_pipeline_state(state_root)
+    state["venue_acceptance_minimum"] = "strong_accept"
+    write_pipeline_state(state_root, state)
+
+    assert supervisor._reconcile_reviewed_stage_empty_plan(None) != "complete"
+    assert not supervisor._journal_has_final_certification()
+
+
+def test_current_signature_cannot_hide_a_rating_below_the_operator_bar(tmp_path: Path) -> None:
+    supervisor, project, item = _make_final_review(
+        tmp_path, scope="final_submission", bind_handoff=True, separate_roots=True,
+    )
+    state_root = supervisor._artifact_root()
+    state = read_pipeline_state(state_root)
+    state["venue_acceptance_minimum"] = "strong_accept"
+    write_pipeline_state(state_root, state)
+    supervisor._emit({
+        "type": "life.mission.completed", "item_id": item.id,
+        "scope": "final_submission", "success": True, "status": "done",
+        "final_submission_certified": True,
+        "final_submission_signature": supervisor._final_submission_signature(),
+        "manuscript_snapshot": manuscript_snapshot(project),
+        "venue_review": _accepted_venue_review(),
+        "venue_review_snapshot": paper_review_snapshot(project),
+    })
+
+    assert not supervisor._journal_has_final_certification()
+    assert _research_project_done_issue(
+        state_root, supervisor.memory.journal.all(), evidence_root=project,
+    ) == "missing_exploratory_reviewer_certification"
 
 
 @pytest.mark.parametrize("completion_path", ["planner", "bounded"])

@@ -1,6 +1,6 @@
 ---
 name: "Composing a conceptual paper figure"
-description: "Default to Method D: image-first design and editable PPT Master reconstruction; fall back to Method B direct native PPT design, with refined academic composition and optional ECharts components."
+description: "Default to Method D with Method B native PPT fallback; compose precise, informative academic figures with Figma-level visual care, meaningful mechanism detail, and optional ECharts components."
 ---
 
 # Composing a conceptual paper figure
@@ -88,7 +88,16 @@ starts, let running work settle, and `dissolve` the team. Only the lead Engineer
 chooses and promotes the final source and matching exports to `paper/figures/`,
 updates the caption/manuscript, and checks them against the latest science.
 Candidate workers never merge themselves or start more teams. Their reviews
-check the candidate artifact and do not duplicate the host's full-paper passes.
+check only the candidate's scientific fidelity, readable render, and editable
+source against the supplied brief. They do not judge the whole paper or its
+venue recommendation. The main Engineer finishes this round's scientific
+repairs, integrates the chosen figure when ready, recompiles changed inputs,
+and returns the current artifacts and evidence to the host. The host invokes
+the formal Reviewer on the complete current paper. Do not spawn a native agent
+or Team to act as an integrated/full-paper Reviewer, start another paper-wide
+review loop, or write the main `paper/REVIEW.md`. The existing host review may
+request another revision; a worker's local figure approval does not complete
+the paper. Pending optional design alternatives do not hold the main turn.
 
 After selection, inspect once at publication size, repair concrete problems,
 and retain the accepted composition. Record the chosen source/export paths and
@@ -121,7 +130,10 @@ to pause the paper or ask the operator to configure an API.
    from the selected venue or comparable conferences. Choose references for
    the mechanism and composition, not just a famous paper's name. Study reading
    order, visual representations, information density, type, spacing, and color
-   semantics without copying artwork. Keep the paper URL, figure number, and
+   semantics without copying artwork. Recover how the reference exposes its
+   mechanism through concrete objects and internal relationships; a reference
+   is useful only after its actual graphic has been inspected. Reuse references
+   already inspected for this paper when they still fit. Keep the paper URL, figure number, and
    the useful design observation in the existing research notes, not an
    exemplar collection. An operator-rejected figure is not suitable for reuse
    merely because it compiles, has no overlaps, or uses the suggested colors.
@@ -184,8 +196,27 @@ can retain the established SciencePlots/Matplotlib route.
 ## Publication style
 
 Apply these defaults to a new figure unless the paper already has an established
-style. Aim for a carefully composed academic illustration, with quiet inherited
-machinery and unmistakable scientific structure.
+style. Aim for a carefully composed academic illustration with the precision of
+a strong Figma design: consistent reusable components, clear alignment, optical
+balance, and deliberate information hierarchy. This is a visual standard within
+the D/B native PPT workflow, not a requirement to add another design tool.
+
+The overview should explain the scientific idea at a glance and reveal useful
+mechanism detail on a closer look at the same publication size. Give a reader
+real objects to follow: aligned token or codeword ribbons, candidate sets,
+intervals and thresholds, tensor blocks, page/graph neighborhoods, meaningful
+branches, or before/after states, as the actual method warrants. Richness comes
+from those relationships. Do not invent modules, sampled values, or toy results
+to make the canvas look busy.
+
+Avoid both a wall of prose boxes and an empty input–model–output strip that hides
+the contribution. Expose the key transformation inside its group, keep labels
+beside the objects they explain, and use whitespace to separate relationships.
+If the figure feels sparse because the mechanism is missing, add the supported
+mechanism; if its content is complete, tighten the canvas instead of decorating
+it. If it feels crowded, reorganize groups or move explanation to the caption
+while retaining the scientific structure and readable type. Judge this once
+with the candidate inspection; do not introduce a density score or a new gate.
 
 - Start with the scientific reading order, two or three levels of visual
   hierarchy, and meaningful phase containers. Show tokens, candidate sets,
@@ -247,9 +278,11 @@ rendered output as well as the vector figure at the manuscript's actual width.
    span with endpoints. Use a module box only for a real module. Do not turn
    every sentence or formula into another card.
 3. Lay out a quiet backbone, then place the contribution where the eye should
-   land. Prefer one reading direction, two or three major groups, and at most
-   one zoom. Draw the minimal mechanism first and put secondary conditions in
-   a compact annotation or caption instead of another full panel.
+   land. Use a clear overview with groups and focused detail views where the
+   mechanism needs them. Show the load-bearing internal operations, interfaces,
+   and feedback; a module name alone does not explain a contribution. Let the
+   mechanism determine the number of panels, preserving readable type and a
+   clear reading order. Move supporting derivations into the caption.
 4. Use a small spacing unit at the final paper size, such as 4 pt. Align shared
    baselines and edges, give labels comfortable padding, and reserve a wider
    gap between semantic groups than between objects inside a group. Check
@@ -288,11 +321,13 @@ fill out or a structured output template for the Reviewer.
 ## Choose a composition archetype first
 
 Strong published figures reuse a small set of compositions. Pick the one that
-fits the paper's actual claim before drawing anything:
+fits the paper's actual claim before drawing anything. No archetype is the
+default for every paper. The exemplar names below illustrate structures;
+they do not replace inspecting relevant figures from the current paper's area.
 
 | Archetype | Use when | Structure | Exemplars |
 |---|---|---|---|
-| Pipeline strip | The contribution is a method with a traceable forward pass (the default) | One horizontal band: input at far left, two to four enclosed modules, output at far right; training or feedback signals drawn as visually distinct arrows over the flow; stages may be numbered and walked in order by the caption | RAG, InstructGPT, DreamFusion |
+| Pipeline strip | The contribution has a traceable forward transformation | A shared visual spine carries concrete inputs and intermediate representations through the real operations; expose the contribution inside its group and distinguish genuine training or feedback paths | RAG, InstructGPT, DreamFusion |
 | Contrast diptych | The contribution is best stated as a delta against a standard approach | Two panels, old left and new right, drawn as the same diagram differing in exactly one visible attribute — a deleted box, a changed loss, one added matrix; the method panel may get more area | DPO, Chain-of-Thought, ReAct |
 | Lineage progression | The contribution generalizes a known paradigm | Three lettered panels: two familiar paradigms, then the contribution in the terminal position; panel letters cited from the body text | VAR |
 | Overview plus zoom | The novelty lives inside one block of an otherwise standard pipeline | Panel (a): the full pipeline at cartoon level showing where the block sits; panel (b): the single novel unit magnified with its internal wiring and dimensions | Stable Diffusion 3, NSA |
@@ -307,11 +342,11 @@ fits the paper's actual claim before drawing anything:
 3. Make the contribution unmistakable through subtraction or one minimal
    difference wherever possible — delete a box the baseline needs, mark the
    inherited parts frozen, change one token — so the baseline diagram is one
-   visual edit away from yours. When subtraction is impossible, use exactly one
-   highlighting device: terminal panel position, one reserved accent color
+   visual edit away from yours. When subtraction is impossible, choose a clear
+   primary emphasis: terminal panel position, one reserved accent color
    against a muted base, an ours-versus-existing legend, or extra area. Render
-   standard inherited machinery in quiet gray; a figure where everything is
-   equally loud says nothing.
+   standard inherited machinery quietly while preserving its meaningful
+   structure. Secondary details should support the primary emphasis.
 4. Keep color semantic: one color means one concept, identically in every panel
    and matched to the results charts. If a legend line cannot state what a
    color means, remove the color. Stay within about six categorical colors,
@@ -351,7 +386,8 @@ fits the paper's actual claim before drawing anything:
 - gloss any named component a general reviewer may not know — no bare acronym
   in a box;
 - every visible name, direction, and value matches the paper and executed
-  method verbatim; regenerate the figure when notation changes.
+  method verbatim; update affected notation in the source and matching export
+  without redesigning the accepted composition.
 
 ## From an editable source to the finished figure
 
@@ -373,7 +409,7 @@ Decompose complex figures — build panels and modules separately, then compose.
 | Results teaser | Matplotlib through Styling data figures for publication |
 
 Inspect every render at actual publication size against the design rules above:
-reading direction, one highlighting device, decodable legend, text budget,
+reading direction, clear primary emphasis, decodable legend, text budget,
 notation match, font size, no crossings, and a caption with takeaway, panel
 walk, and color decode.
 
@@ -381,8 +417,10 @@ Also judge the whole composition: does the mechanism read immediately, are
 groups and emphasis clear, and does the figure look as carefully designed as
 the accepted examples? Legible text and a clean export alone are insufficient.
 Recompose a crowded collection of text boxes instead of only nudging labels.
-Compare the actual exported figure with the starting version: better spacing,
-hierarchy, mathematical notation, and deliberate emphasis must be visible.
+For an explicitly needed redesign, compare the actual exported figure with the
+starting version: stronger mechanism expression, spacing, hierarchy, and
+mathematical notation should be visible. Preserve a suitable checked figure
+when those requirements already hold.
 Keep one canonical source for every formal export. If a PPTX is also delivered,
 inspect it separately and ensure it depicts the same final composition; an old
 deck must not be presented as the source of a new PDF. Name each final source
@@ -391,3 +429,5 @@ and export with its complete individual path in the handoff so it is openable.
 Paper needs a complete, credible figure and a successful compile. Do not create
 layout reports, exemplar collections, provenance records, or visual-review
 files. The strict page-by-page visual judgment is made once, in Review.
+That formal judgment belongs to the host's Reviewer after the main Engineer
+returns; it is not a request for Engineer to dispatch another paper reviewer.

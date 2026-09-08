@@ -43,8 +43,11 @@ affected values from new raw rows without repeatedly redesigning the figure.
   charts.
 - Use Composing a conceptual paper figure (`paper-framework-figure-studio.md`)
   for method/architecture pipelines: design meaningful groups and visual
-  hierarchy from code and paper, then use PPT Master with an editable PPTX
-  and included vector PDF.
+  hierarchy from code and paper, expose the real mechanism with informative
+  objects and internal relationships, then use PPT Master with an editable PPTX
+  and included vector PDF. Bring the alignment and component consistency of a
+  strong Figma design without replacing the mechanism with text cards or
+  empty decorative space.
 - Keep other conceptual figures on the same native PPT route. ECharts,
   Recharts, Vega, or HTML/SVG can supply an internal data component; FigureSpec
   may supply coordinates. They do not create a separate framework workflow.
@@ -54,5 +57,9 @@ affected values from new raw rows without repeatedly redesigning the figure.
 - For diagrams, preserve exact semantic geometry and prevent connector
   penetration, overlap, clipping, and ambiguous direction.
 
-Embed every claim-bearing table and figure in `paper/main.tex`. Final
-judgments about the science, figures, and language are made together in Review.
+The main Engineer embeds the selected claim-bearing tables and figures in
+`paper/main.tex`; a figure worker returns only its isolated candidate and local
+checks. After the round's scientific and figure work is complete, the main
+Engineer returns to the host, which invokes the formal Reviewer on the whole
+current paper. Do not dispatch a native integrated/full-paper Reviewer,
+duplicate that paper-wide review, or write the main `paper/REVIEW.md`.

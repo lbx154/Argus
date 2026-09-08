@@ -1,6 +1,6 @@
 ---
 name: "FigureSpec: drawing exact diagrams from JSON"
-description: "After using Choosing how to draw a research figure to select a simple diagram with exact connections, generate deterministic editable SVG diagrams of architectures, workflows, method pipelines, or successive reviews from structured JSON. Do not select FigureSpec directly for visually rich conceptual or method figures in a paper; compare installed PPT Master and HTML/SVG routes first."
+description: "Use Choosing how to draw a research figure first; prepare exact graph geometry or a local vector component inside the selected Method D/B native PPT composition through PPT Master. FigureSpec is not a standalone framework-figure route; quantitative plots keep SciencePlots/Matplotlib."
 ---
 
 # FigureSpec: drawing exact diagrams from JSON
@@ -8,148 +8,92 @@ description: "After using Choosing how to draw a research figure to select a sim
 > Adapted from ARIS `figure-spec` skill (MIT, © 2026 wanshuiyin).
 > Renderer script copied verbatim into `figure_spec_scripts/` beside this skill.
 
-## When to use this renderer
+## Scope
 
-Use FigureSpec when architecture, workflow, successive reviews, ER/dependency graphs,
-labels, colors, and arrow targets must be exact and editable. Use *Choosing how
-to draw a research figure* to decide whether FigureSpec, browser SVG, diagrams,
-PPT Master, data-chart tooling, or image-2 best fits a paper figure.
+Use FigureSpec for a small exact topology, neighborhood, or geometric component
+whose node positions and connections come from the method or source data.
+`research-visualization-router.md` chooses the main figure route first.
+Conceptual and framework figures use `paper-framework-figure-studio.md`:
+Method D by default, with direct native PPT Method B when an image interface is
+unavailable. This renderer supplies geometry or a component to that composition.
+It does not replace the framework with its default boxes and arrows, and an
+editable SVG alone does not satisfy the native PowerPoint source requirement.
 
-The two skills are complementary; both can live in the same paper.
-Data/metric/result plots stay with matplotlib (the existing
-`research-results-analysis-and-figures` skill covers those).
+Quantitative data, metric, result, and uncertainty plots stay on the existing
+SciencePlots/Matplotlib route. ECharts can supply a genuine data component in a
+PPT figure. A schematic neighborhood is not a measured result; preserve the
+original graph data or mark the example as schematic.
 
-## Core properties
+## Source and renderer
 
-- **Deterministic** — running the renderer twice on the same spec
-  produces byte-identical SVG. Critical for reproducibility.
-- **Editable** — output SVG opens cleanly in Inkscape / Illustrator
-  for last-mile polish.
-- **No AI in the loop** — the spec → SVG step is pure code; only the
-  **drafting of the spec** is an LLM task.
+The JSON specification is the editable source. Rendering the same specification
+produces deterministic SVG; keep it as an internal component. Edit the source
+specification when its geometry changes, then rebuild the component and the
+affected native PPT objects. Ordinary data plotting and PPT's internal SVG
+conversion remain available; there is no separate SVG framework workflow.
 
-## Tool location
-
-Renderer: `figure_spec_scripts/figure_renderer.py`, shipped beside this
-skill. Resolve its location rather than guessing its path within the Python installation:
+The renderer is `figure_spec_scripts/figure_renderer.py`, shipped beside this
+skill. Set `ARGUS_FIGURE_COMPONENT_DIR` to the assigned candidate's private
+component directory and save its `spec.json` there first. Resolve the renderer's
+real path and use the same path for every command:
 
 ```bash
 RENDER=$(find "$ARGUS_SKILL_HOME" . -name figure_renderer.py \
   -path '*figure_spec_scripts*' 2>/dev/null | head -1)
-python "$RENDER" render spec.json --output paper/figures/arch.svg
-python figure_renderer.py validate spec.json
-python figure_renderer.py schema
+"${ARGUS_SKILL_PYTHON:-python3}" "$RENDER" schema
+"${ARGUS_SKILL_PYTHON:-python3}" "$RENDER" validate "$ARGUS_FIGURE_COMPONENT_DIR/spec.json"
+"${ARGUS_SKILL_PYTHON:-python3}" "$RENDER" render "$ARGUS_FIGURE_COMPONENT_DIR/spec.json" \
+  --output "$ARGUS_FIGURE_COMPONENT_DIR/neighborhood.svg"
 ```
 
-## How to draw the figure
-
-### Step 1 — understand the diagram goal
-
-Engineer drafts a short brief: what the figure communicates, who reads
-it, what the takeaway is. Constraints (column width vs full-page,
-greyscale vs color) matter for the spec.
-
-### Step 2 — draft the FigureSpec JSON
-
-The schema:
+A small schematic geometry example is:
 
 ```json
 {
-  "title": "Argus Research Architecture",
-  "canvas": {"width": 800, "height": 500},
+  "title": "Schematic neighborhood geometry",
+  "canvas": {"width": 320, "height": 180},
   "style": {
     "font_family": "Arial",
-    "font_size": 14,
-    "palette": ["#2563EB", "#10B981", "#EA580C"]
+    "font_size": 16,
+    "bg_color": "#FFFFFF"
   },
   "nodes": [
-    {"id": "planner", "label": "Planner", "x": 100, "y": 200,
-     "shape": "rounded", "fill": "#DBEAFE", "stroke": "#2563EB"},
-    {"id": "engineer", "label": "Engineer", "x": 350, "y": 100,
-     "shape": "rounded", "fill": "#D1FAE5", "stroke": "#10B981"},
-    {"id": "reviewer", "label": "Reviewer", "x": 350, "y": 300,
-     "shape": "rounded", "fill": "#FFEDD5", "stroke": "#EA580C"}
+    {"id": "query", "label": "q", "x": 70, "y": 90,
+     "width": 36, "height": 36, "shape": "circle",
+     "fill": "#EEF6F3", "stroke": "#008F7A"},
+    {"id": "a", "label": "a", "x": 240, "y": 45,
+     "width": 36, "height": 36, "shape": "circle",
+     "fill": "#FFFFFF", "stroke": "#3C5488"},
+    {"id": "b", "label": "b", "x": 240, "y": 135,
+     "width": 36, "height": 36, "shape": "circle",
+     "fill": "#FFFFFF", "stroke": "#3C5488"}
   ],
   "edges": [
-    {"from": "planner", "to": "engineer", "label": "task"},
-    {"from": "engineer", "to": "reviewer", "label": "evidence"},
-    {"from": "reviewer", "to": "planner", "label": "judgment",
-     "style": "dashed"}
-  ],
-  "groups": [
-    {"id": "harness", "label": "Execution framework",
-     "node_ids": ["planner"], "fill": "#F3F4F6", "stroke": "#9CA3AF"}
+    {"from": "query", "to": "a", "color": "#008F7A"},
+    {"from": "query", "to": "b", "color": "#ACB6C4", "style": "dashed"}
   ]
 }
 ```
 
-Allowed: `shape ∈ {rect, rounded, circle, diamond, ellipse}`,
-`style ∈ {solid, dashed, dotted}`. Nodes and groups use explicit `fill` and
-`stroke` colors.
+Use actual method labels and edge meanings in a paper; this syntax example is
+not an architecture template. The renderer clips endpoints to their source and
+target boundaries but does not route around unrelated nodes. Choose coordinates
+with clear connector space; Graphviz may help calculate it. Inspect the
+component's topology, labels, and scaling, then compose its exact nodes and
+connectors with the other scientific objects in native PPT through PPT Master.
+Do not route a failed component into a browser text-card framework instead.
 
-### Step 3 — render and check the specification
+## Return the component to its owner
 
-```bash
-python figure_renderer.py validate spec.json   # schema-only check
-python figure_renderer.py render spec.json --output paper/figures/arch.svg
-```
+A figure worker reviews only the assigned component or candidate against the
+brief, then returns its source, preview, and evidence. It never writes the
+parent manuscript, formal figures, or `paper/REVIEW.md`. The main Engineer
+selects and merges the candidate, exports the matching vector PDF, checks the
+included figure at publication size, and completes the current turn. The host's
+formal Reviewer then judges the complete paper. Do not spawn an
+integrated/full-paper Reviewer or another paper-wide review loop.
 
-If the specification fails a check, the renderer prints structured errors with
-JSON-pointer paths so the engineer can fix the spec directly.
-
-### Step 4 — visual review
-
-Open the SVG. Check:
-- All node labels readable at intended print size
-- No edge crossing through a node
-- Color palette consistent with paper figures
-- Greyscale-readable if the venue prints greyscale
-
-If any of these fail, edit the spec (NOT the SVG — the SVG is the
-output, the spec is the source of truth) and re-render.
-
-### Who makes the final judgment
-
-Do not launch a separate Reviewer from Paper. The checks above are ordinary
-engineering checks needed to produce a complete compilable draft. During
-Review, the assigned read-only visual pass inspects the rendered SVG at final
-paper size together with the spec and manuscript, and the integrated Reviewer
-decides whether the repaired paper is publication-ready.
-
-## Design patterns
-
-Common spec shapes that work well — copy then adapt:
-
-- **Layered architecture** — nodes in horizontal rows (y = 100/200/300),
-  edges flow downward
-- **Hub-and-spoke** — one central node + radial edges
-- **Pipeline with feedback** — left-to-right edges plus one dashed
-  return edge
-- **Successive reviews** — vertical stack of nodes, each with a "judgment"
-  edge to a side column
-
-The renderer clips edge endpoints to source and target boundaries, positions
-labels, and renders groups. It does not obstacle-route around unrelated nodes.
-Use FigureSpec only when each declared straight/curved edge has clear space;
-otherwise reposition nodes or choose Graphviz, Draw.io, browser SVG, or PPT
-Master. Always inspect the final render for connector penetration and overlap.
-
-## Anti-patterns
-
-- ❌ Using it automatically for every teaser/conceptual figure — first route by
-  what the figure expresses and the available tools using *Choosing how to draw a research figure*.
-- ❌ Hand-editing the SVG — your changes are lost the next time
-  someone re-renders. Edit the spec.
-- ❌ Embedding arbitrary inline SVG / raster in a node — keep the spec abstract;
-  if raster content is essential, return to the router.
-- ❌ Using this for data plots — matplotlib already covers that
-  better
-
-## Where the figure and its source belong
-
-- Renders to `paper/figures/<name>.svg`
-- Spec lives at `paper/figures/<name>.spec.json` so future re-renders
-  are reproducible and visible in `git diff`
-- Add the SVG to LaTeX with `\includegraphics{figures/<name>.svg}`
-  (most modern TeX engines handle SVG directly; for older toolchains,
-  convert to PDF with `inkscape --export-type=pdf`)
+The complete framework keeps a canonical native PPTX and matching PDF/PNG.
+Only the chosen components enter its source tree. Include the final PDF with
+`\includegraphics`; an ordinary pdfLaTeX build does not directly accept SVG.
+Keep already approved compositions and spend the main effort on the science.

@@ -344,6 +344,25 @@ class PlanningContextMixin:
                 continue
             extra = getattr(entry, "extra", {}) or {}
             if isinstance(extra, dict) and bool(extra.get("final_submission_certified")):
+                from ...skills.vertical_select import resolve_vertical_if_decided
+
+                if (
+                    resolve_vertical_if_decided(self._artifact_root()) == "research"
+                    and (Path(self._project_workdir()) / "paper/main.tex").is_file()
+                ):
+                    from types import SimpleNamespace
+
+                    from ...core.venue_review import current_venue_acceptance_issue
+
+                    if current_venue_acceptance_issue(
+                        SimpleNamespace(
+                            venue_review=extra.get("venue_review"),
+                            venue_review_snapshot=extra.get("venue_review_snapshot"),
+                            review_source="reviewer",
+                        ),
+                        state_root=self._artifact_root(), artifact_root=self._project_workdir(),
+                    ):
+                        continue
                 manuscript_binding = extra.get("manuscript_snapshot")
                 if (
                     (Path(self._project_workdir()) / "paper/main.tex").is_file()

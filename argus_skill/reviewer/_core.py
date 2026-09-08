@@ -667,6 +667,7 @@ class Reviewer:
             enforce_venue_acceptance,
             paper_review_snapshot,
             requires_venue_review,
+            selected_acceptance_minimum,
             selected_venue,
             venue_review_instruction,
         )
@@ -681,6 +682,7 @@ class Reviewer:
             operation=operation,
         )
         venue = selected_venue(state_root) if venue_required else ""
+        acceptance_minimum = selected_acceptance_minimum(state_root) if venue_required else "weak_accept"
         venue_snapshot = paper_review_snapshot(artifact_root) if venue_required else None
         reviewed_manuscript_snapshot = None
         try:
@@ -729,7 +731,7 @@ class Reviewer:
         if venue_required:
             # A changed selected venue changes the static fingerprint, preventing
             # reuse of a Reviewer session calibrated to a different conference.
-            venue_policy = "\n\n" + venue_review_instruction(venue)
+            venue_policy = "\n\n" + venue_review_instruction(venue, minimum=acceptance_minimum)
             static += venue_policy
         prompt_block_stats = {
             name: dict(stats)
@@ -975,6 +977,7 @@ class Reviewer:
         if venue_required:
             enforce_venue_acceptance(
                 parsed, venue=venue, before=venue_snapshot, artifact_root=artifact_root,
+                minimum=acceptance_minimum,
             )
             if parsed.backend_unavailable:
                 return parsed
