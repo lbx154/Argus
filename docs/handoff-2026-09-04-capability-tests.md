@@ -1418,3 +1418,62 @@ planner 决策(digest 里 operator_map_notes 出现后下一 verdict);分支
 - 冒烟:GET/POST /map-notes 全链路通(批注已入 s-d9c7aeb2 的
   map_notes.jsonl,planner 下个规划周期可读);三守护进程 active/
   waiting 健康。8801 webapi 仍归 TUI 会话属主。
+
+## 23. Atlas wave two: legibility, camera, composer, deployment channel (2026-09-08 midday)
+
+Wave two of the Atlas overhaul shipped as `2e22588aa` + artifacts `7ddc57c1a`, rebased onto the
+paper-optimization team's `91c99b4c3`/`70b91a193`. Division of labor per operator: this session owns
+the frontend; the other agent owns paper optimization; collaboration through origin/main only; both
+land on the cloudflare demo.
+
+What shipped (frontend only, no python behavior changes):
+- Overview legibility: density-adaptive cards (`data-overview-density`) — compact drops copy/hints
+  for a 3-line title; micro becomes a state-tinted post-it (13% state wash, 6px left rail, watermark
+  glyph ✓/✕/?/‖/▶/↪ via CSS `::before` keyed on `.map-state-*`). Live tasks breathe (ring on
+  `[data-active=true]`, reduced-motion → static). Superseded cards recede (opacity+desaturate).
+- Header: segmented progress strip (done/running/question/failed partition, one-pass tally memo in
+  MapPanel) + count chips; the attention chip is a button that jumps to the first
+  pending-question/failed task. Minimap node colors = full status palette (heatmap).
+- Camera (subagent): focused card fills 0.72 of min(canvas) (cap 0.85, contain floor kept); overview
+  fit centers on the visible canvas (the old bottom dead band came from asymmetric viewingArea
+  reserves); reader zoom keeps 48px headroom above the rect; `motionDuration` formalizes the
+  reduced-motion gate. Pure helpers exported; 11 unit tests (`semanticCamera.test.ts`).
+- Edges (subagent): kind-hued strokes/pills via CSS vars in new `edges.css` (dependency steel /
+  related neutral / plan-change amber, dark overrides; legend swatches share the variables so they
+  cannot drift); larger kind-colored arrowheads; fan edges +0.4px with join dots (`pointAlong` in
+  relationGeometry); label pills restyled as metadata with `title=` full phrase, CSS-only ellipsis at
+  150px (no more mid-word cuts), hard-hidden below zoom 0.5; collision pass now bucketed to 1/8 zoom
+  steps (identity-stable across tiny zooms).
+- Composer (subagent): root cause of the auto-expand was `overview={!camera.detailed}` forcing
+  `compact=false` on card focus, plus hover-expand and a stale focusSignal on remount. Now an explicit
+  `expanded` state that only user intent sets (pill click, "c" hotkey, quote insert, fresh
+  focusSignal); Escape-empty/outside-click collapse; drafts always survive with a visible "草稿已保留"
+  pill hint; expanded panel clamps to clear legend and minimap; 200ms ease-out, no bounce.
+- Submap/reader typography (subagent, CSS only): step cards get real hierarchy (14px titles, 3-line
+  copy clamp, status left-borders, kind-colored selected ring), column labels 13px + rail, stage-key
+  chips filled/ghost, reader gets kind ribbon (pure sibling selector `.submap-step.is-selected ~
+  .macro-reader`), 18px title, 64ch measure, tonal Reference button; notes aside amber.
+- Decision modal: `usePendingReplySession` gained `autoOpen` (App passes `workspaceView !== 'map'`)
+  and sessionStorage single-prompt-per-tab (`argus.decision.prompted.v1`) — the map is never hijacked
+  on entry; other views prompt once per tab per decision. 3 unit tests.
+- Keyboard: `/` focus search, `F` fit, ←/→ walk cards chronologically while focused (guarded for
+  inputs/IME). Hint line in the summary bar updated.
+
+Verification: vitest 67 files / 454 tests green; tsc clean; visual QA via playwright loop on a
+private sandbox (copied only `projects/s-cbc15c0e` + state root files into a scratch HOME, ran
+`--web --no-daemon` on a free port from this clone — pattern works and avoids touching the shared
+demo while iterating).
+
+Deployment mechanics learned: the web client bakes `RELEASE_SOURCE_DIGEST` at build; the server
+reports the digest of the code it loaded at startup. Any dist rebuild therefore requires restarting
+the webapi process from the same checkout, or clients see "backend and client installations are out
+of sync". Deployed by ff-ing `/data/v-boxiuli/argus-atlas-main` to `7ddc57c1a` and restarting 8897
+with its exact env (token/home read from /proc; command unchanged; log at
+`/tmp/argus-8897-restart-20260908.log`). Verified: served bundle == checkout dist
+(`index-OZUr6pFB.js`), `/api/meta` digest match true, map-notes 200, external viewers reconnected
+over the tunnel immediately, live screenshot shows wave-2 rendering with the demo project actively
+running.
+
+Still pending: `/data/v-boxiuli/argus-runtime-latest` (8799 + daemons) runs code loaded at a97ea2840
+and its HEAD was accidentally fast-forwarded earlier; roll it cleanly to current main at a quiet
+moment so daemons pick up the venue-gate fix and both teams' work.
