@@ -1557,3 +1557,22 @@ tonight (uncommitted python+App.tsx WIP, own webapi process on 8897 serving my p
 `index-CGQAUThu.js` = wave-3+sparks+deferral). Per the no-touching-others'-WIP rule the final two
 fixes ride main and land on the demo at their next roll or the overnight ff-only sync once the tree
 is clean. Everything of ours is pushed: main = eed0e2dd1 at the time of writing.
+
+## 26. Overnight wave four and the first clean sync (2026-09-09 night)
+
+Wave four (`55d1a5c20` + artifacts `0b1aa9f03`, rebased onto the paper team's science-first release
+`ec159db4b`): search shows k/n and Enter cycles matches (Escape clears without backing the camera
+out; one shared predicate feeds dim/count/jump), the decision banner gains a "Show on map /
+在地图上查看" jump wired to locateAttention, the loading state shows three ghost cards with a
+transform-only sheen, and the historical playback bar got real buttons. Suite 459 green on the
+merged base.
+
+Deploy: the teammate's WIP landed as ec159db4b and their tree came clean, so the overnight sync
+ff'd /data/v-boxiuli/argus-atlas-main to 0b1aa9f03 and restarted 8897 (pid 1849043) — the demo now
+carries every pending fix including the map-working compositor pulse and the memo/throttle guard.
+Recurring lesson for rebases while the other team ships artifacts: reset the stale "Rebuild release
+artifacts" commit first (mixed reset + checkout generated + clean dist), rebase the source-only
+commit, rebuild, re-commit, push.
+
+Remaining backlog: en reference/context lines (map_references.py + presentation.ts), formation
+width labels beyond the k/N pills, map-history sqlite superseded backfill, runtime-latest roll.
