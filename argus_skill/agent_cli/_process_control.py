@@ -13,6 +13,7 @@ import time
 from typing import Any
 
 from ..core.daemon_lock import is_process_group_running
+from ..core.windows_job import terminate_owned_process
 
 
 def windows_hidden_subprocess_kwargs() -> dict[str, Any]:
@@ -121,6 +122,8 @@ class ProcessControlMixin:
         *,
         include_detached_children: bool = False,
     ) -> None:
+        if terminate_owned_process(process) is not None:
+            return
         if os.name != "nt":
             process_group_id = process.pid
             child_groups: set[int] = set()

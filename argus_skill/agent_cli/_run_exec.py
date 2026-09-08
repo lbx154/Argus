@@ -18,6 +18,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..core.windows_job import spawn_owned_process, terminate_owned_process
 from ._env import (
     _CAPTURE_JSON_EVENTS_ENV,
     _CAPTURE_STDERR_LINES_ENV,
@@ -130,6 +131,10 @@ class RunExecMixin:
                 process=process, command=command, options=options, state=state
             )
         finally:
+            # Includes callback/reader/setup exceptions. Windows ownership is
+            # handle-based and remains valid even after the provider exits.
+            if getattr(process, "_argus_windows_job", None) is not None:
+                terminate_owned_process(process)
             if prompt_path is not None:
                 prompt_path.unlink(missing_ok=True)
 
@@ -146,6 +151,14 @@ class RunExecMixin:
         no durable owner, regardless of the command text that created it.
         """
         process_group_id = int(getattr(process, "pid", 0) or 0)
+        job = getattr(process, "_argus_windows_job", None)
+        if job is not None:
+            had_descendants = job.active_processes() > 0
+            cleaned = terminate_owned_process(process)
+            if had_descendants:
+                state.orphan_process_group_id = process_group_id
+                state.orphan_process_group_cleanup_succeeded = bool(cleaned)
+            return
         if (
             os.name == "nt"
             or process_group_id <= 0
@@ -234,35 +247,27 @@ class RunExecMixin:
                     prompt_path,
                 )
         try:
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                # Pin UTF-8 explicitly: without this, text mode uses the OS locale
-                # encoding, which is cp1252 on Windows and raises UnicodeEncodeError
-                # when the prompt or streamed model output contains non-Latin-1
-                # characters (e.g. "\u2192", CJK, emoji). errors="replace" keeps the
-                # reader from crashing on malformed bytes mid-stream.
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                cwd=options.working_dir or None,
-                env=self._child_env(options, executable=command[0]),
-                **background_subprocess_kwargs(),
-            )
+            with self._prompt_stdin(stdin_prompt) as child_stdin:
+                process = spawn_owned_process(
+                    command,
+                    popen_factory=subprocess.Popen,
+                    stdin=child_stdin,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    # Pin UTF-8: Windows locale encodings cannot represent all
+                    # prompt/output text. Malformed bytes cannot break readers.
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                    cwd=options.working_dir or None,
+                    env=self._child_env(options, executable=command[0]),
+                    **background_subprocess_kwargs(),
+                )
         except BaseException:
             if prompt_path is not None:
                 prompt_path.unlink(missing_ok=True)
             raise
-        if stdin_prompt is not None:
-            self._write_prompt(
-                process=process,
-                prompt=stdin_prompt,
-            )
-        else:
-            self._close_stdin(process)
         return command, process, None, prompt_path
 
     def _stream_turn_output(
@@ -321,32 +326,44 @@ class RunExecMixin:
         stdout_closed = False
         stderr_closed = False
 
+        pipe_errors: queue.SimpleQueue[Exception] = queue.SimpleQueue()
+
         def consume_pipe(stream_name: str, pipe) -> None:
-            if pipe is None:
-                raise RuntimeError(f"{stream_name} pipe was not created")
-            for line in pipe:
-                if stop_queueing.is_set():
-                    # Keep draining the OS pipe so an independently owned
-                    # process cannot block on inherited stdout/stderr, but no
-                    # longer retain output after the provider drain closes.
-                    continue
-                item = (stream_name, line.rstrip("\n"))
+            try:
+                if pipe is None:
+                    raise RuntimeError(f"{stream_name} pipe was not created")
+                for line in pipe:
+                    if stop_queueing.is_set():
+                        # An independent job can retain the write end. Keep
+                        # draining it without retaining late output or blocking
+                        # the completed invocation; close here on actual EOF.
+                        continue
+                    item = (stream_name, line.rstrip("\n"))
+                    while not stop_queueing.is_set():
+                        try:
+                            line_queue.put(item, timeout=0.1)
+                            last_reader_enqueue_at[0] = time.monotonic()
+                            break
+                        except queue.Full:
+                            continue
+            except Exception as exc:
+                if not stop_queueing.is_set():
+                    pipe_errors.put(exc)
+            finally:
+                if pipe is not None:
+                    close = getattr(pipe, "close", None)
+                    if callable(close):
+                        try:
+                            close()
+                        except OSError:
+                            pass
                 while not stop_queueing.is_set():
                     try:
-                        line_queue.put(item, timeout=0.1)
+                        line_queue.put((stream_name, None), timeout=0.1)
                         last_reader_enqueue_at[0] = time.monotonic()
                         break
                     except queue.Full:
                         continue
-            if stop_queueing.is_set():
-                return
-            while not stop_queueing.is_set():
-                try:
-                    line_queue.put((stream_name, None), timeout=0.1)
-                    last_reader_enqueue_at[0] = time.monotonic()
-                    return
-                except queue.Full:
-                    continue
 
         process_id = int(getattr(process, "pid", 0) or 0)
         stdout_thread = threading.Thread(
@@ -361,8 +378,6 @@ class RunExecMixin:
             name=f"argus-provider-pipe-{process_id}-stderr",
             daemon=True,
         )
-        stdout_thread.start()
-        stderr_thread.start()
 
         def check_external_interrupt() -> bool:
             if state.watchdog_terminated or process.poll() is not None:
@@ -414,259 +429,262 @@ class RunExecMixin:
             state.watchdog_terminated = True
             return True
 
-        while True:
-            if process.poll() is not None:
-                if provider_exited_at is None:
-                    provider_exited_at = time.monotonic()
-                if not state.process_group_cleanup_checked:
-                    state.process_group_cleanup_checked = True
-                    self._cleanup_orphan_process_group(process, state)
-                if stdout_closed and stderr_closed:
-                    break
-                post_exit_elapsed = time.monotonic() - provider_exited_at
-                reader_quiet = (
-                    time.monotonic() - last_reader_enqueue_at[0]
-                    >= _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS
-                )
-                if post_exit_elapsed >= _POST_EXIT_PIPE_DRAIN_MAX_SECONDS or (
-                    post_exit_elapsed >= _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS
-                    and reader_quiet
-                    and line_queue.empty()
-                ):
-                    # A separately owned durable process may inherit the
-                    # provider's pipes. Stop retaining new output after a
-                    # bounded/quiet drain, then consume everything already
-                    # queued before returning. Reader threads continue
-                    # discarding from the OS pipe until its real owner closes.
-                    stop_queueing.set()
-                    if line_queue.empty():
+        try:
+            stdout_thread.start()
+            stderr_thread.start()
+            while True:
+                if not pipe_errors.empty():
+                    raise RuntimeError("Provider output reader failed") from pipe_errors.get()
+                if process.poll() is not None:
+                    if provider_exited_at is None:
+                        provider_exited_at = time.monotonic()
+                    if not state.process_group_cleanup_checked:
+                        state.process_group_cleanup_checked = True
+                        self._cleanup_orphan_process_group(process, state)
+                    if stdout_closed and stderr_closed:
                         break
-            check_external_interrupt()
-            check_wall_clock_limit()
-            try:
-                stream_name, text = line_queue.get(timeout=0.25)
-            except KeyboardInterrupt:
-                # Operator Ctrl-C while the agent CLI is "thinking": the main
-                # thread blocks on this queue.get almost the entire subprocess
-                # lifetime, so an interrupt lands here. Terminate the child
-                # (terminate -> kill via the shared helper) so it is not
-                # orphaned and does not keep burning tokens, then re-raise so
-                # the interactive caller can return to its prompt.
-                if process.poll() is None:
-                    self._terminate_process(
-                        process,
-                        include_detached_children=self.backend == BACKEND_OPENCODE,
+                    post_exit_elapsed = time.monotonic() - provider_exited_at
+                    reader_quiet = (
+                        time.monotonic() - last_reader_enqueue_at[0]
+                        >= _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS
                     )
-                raise
-            except queue.Empty:
-                now = time.monotonic()
-                idle_seconds = now - last_activity_at
-
+                    if post_exit_elapsed >= _POST_EXIT_PIPE_DRAIN_MAX_SECONDS or (
+                        post_exit_elapsed >= _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS
+                        and reader_quiet
+                        and line_queue.empty()
+                    ):
+                        # A separately owned durable process may inherit the
+                        # provider's pipes. Stop retaining new output after a
+                        # bounded/quiet drain, then consume everything already
+                        # queued before returning. Reader threads continue
+                        # discarding from the OS pipe until its real owner closes.
+                        stop_queueing.set()
+                        if line_queue.empty():
+                            break
                 check_external_interrupt()
                 check_wall_clock_limit()
-
-                if (
-                    soft_idle > 0
-                    and options.inactivity_callback is not None
-                    and process.poll() is None
-                    and idle_seconds >= soft_idle
-                    and (now - last_soft_check_at) >= soft_idle
-                ):
-                    last_soft_check_at = now
-                    snapshot = InactivitySnapshot(
-                        idle_seconds=idle_seconds,
-                        command=command,
-                        thread_id=state.thread_id,
-                        last_agent_message=(
-                            state.agent_messages[-1] if state.agent_messages else ""
-                        ),
-                        stdout_tail=list(state.stdout_lines)[-50:],
-                        stderr_tail=list(state.stderr_lines)[-50:],
-                        run_label=run_label,
-                    )
-                    decision = options.inactivity_callback(snapshot)
-                    if decision == "restart":
-                        state.watchdog_reason = (
-                            f"Restart requested by stall sub-agent after {int(idle_seconds)}s idle."
-                        )
-                        self._emit(
-                            self._stream_name("stderr", run_label),
-                            f"[watchdog] {state.watchdog_reason}",
-                        )
+                try:
+                    stream_name, text = line_queue.get(timeout=0.25)
+                except KeyboardInterrupt:
+                    # Operator Ctrl-C while the agent CLI is "thinking": the main
+                    # thread blocks on this queue.get almost the entire subprocess
+                    # lifetime, so an interrupt lands here. Terminate the child
+                    # (terminate -> kill via the shared helper) so it is not
+                    # orphaned and does not keep burning tokens, then re-raise so
+                    # the interactive caller can return to its prompt.
+                    if process.poll() is None:
                         self._terminate_process(
                             process,
                             include_detached_children=self.backend == BACKEND_OPENCODE,
                         )
-                        state.watchdog_terminated = True
+                    raise
+                except queue.Empty:
+                    now = time.monotonic()
+                    idle_seconds = now - last_activity_at
 
-                last_message_chars = len(state.agent_messages[-1]) if state.agent_messages else 0
-                for stage in idle_escalation.newly_due(idle_seconds):
-                    if process.poll() is not None:
-                        break
-                    if stage == WARNING_STAGE:
-                        self._emit(
-                            self._stream_name("stderr", run_label),
-                            "[watchdog] No model stream event for "
-                            f"{int(idle_seconds)}s (warning threshold "
-                            f"{soft_idle}s, pid={process.pid}, "
-                            f"thread={state.thread_id or '-'}, "
-                            f"stdout_lines={state.stdout_line_count}, "
-                            f"stderr_lines={state.stderr_line_count}, "
-                            f"last_message_chars={last_message_chars}); "
-                            "capturing diagnostics and continuing.",
-                        )
-                    elif stage == STALLED_STAGE:
-                        self._emit(
-                            self._stream_name("stderr", run_label),
-                            "[watchdog] Model call is likely stalled after "
-                            f"{int(idle_seconds)}s without a stream event "
-                            f"(threshold {stalled_idle}s, pid={process.pid}); "
-                            f"stdout_lines={state.stdout_line_count}, "
-                            f"stderr_lines={state.stderr_line_count}; continuing "
-                            "until the hard deadline.",
-                        )
-                    elif stage == TERMINATE_STAGE:
-                        state.watchdog_reason = (
-                            "Forced restart after hard idle timeout "
-                            f"({hard_idle}s without a model stream event)."
-                        )
-                        self._emit(
-                            self._stream_name("stderr", run_label),
-                            f"[watchdog] {state.watchdog_reason}",
-                        )
-                        self._terminate_process(
-                            process,
-                            include_detached_children=self.backend == BACKEND_OPENCODE,
-                        )
-                        state.watchdog_terminated = True
-                continue
+                    check_external_interrupt()
+                    check_wall_clock_limit()
 
-            if text is None:
-                if stream_name == "stdout":
-                    stdout_closed = True
-                else:
-                    stderr_closed = True
-                continue
-
-            last_activity_at = time.monotonic()
-            idle_escalation.reset()
-            output_stream = self._stream_name(stream_name, run_label)
-            self._emit(output_stream, text)
-
-            if stream_name == "stdout":
-                state.stdout_line_count += 1
-                state.stdout_lines.append(text)
-                event = self._parse_json_line(text)
-                if event is None:
-                    continue
-                state.json_event_count += 1
-                if (
-                    provider_turn_cap > 0
-                    and not state.watchdog_terminated
-                    and self._event_ends_provider_turn(event)
-                ):
-                    state.provider_turns += 1
                     if (
-                        state.provider_turns >= provider_turn_cap
+                        soft_idle > 0
+                        and options.inactivity_callback is not None
                         and process.poll() is None
+                        and idle_seconds >= soft_idle
+                        and (now - last_soft_check_at) >= soft_idle
                     ):
-                        # The allowance is a housekeeping boundary, not an
-                        # error: the caller reads this exact prefix, keeps the
-                        # work, and continues the task in a fresh session with
-                        # the checkpoint and a summary.
-                        state.provider_turn_cap_hit = True
-                        state.watchdog_reason = (
-                            "Provider turn cap reached: this "
-                            f"{run_label or 'agent'} call used "
-                            f"{state.provider_turns} provider turns (allowance "
-                            f"{provider_turn_cap}, ARGUS_SKILL_PROVIDER_TURN_CAP). "
-                            "Each further turn would resend the whole grown "
-                            "transcript; the harness continues this work in a "
-                            "fresh session instead."
+                        last_soft_check_at = now
+                        snapshot = InactivitySnapshot(
+                            idle_seconds=idle_seconds,
+                            command=command,
+                            thread_id=state.thread_id,
+                            last_agent_message=(
+                                state.agent_messages[-1] if state.agent_messages else ""
+                            ),
+                            stdout_tail=list(state.stdout_lines)[-50:],
+                            stderr_tail=list(state.stderr_lines)[-50:],
+                            run_label=run_label,
                         )
-                        self._emit(
-                            self._stream_name("stderr", run_label),
-                            f"[watchdog] {state.watchdog_reason}",
-                        )
-                        self._terminate_process(
-                            process,
-                            include_detached_children=self.backend == BACKEND_OPENCODE,
-                        )
-                        state.watchdog_terminated = True
-                if self._event_has_tool_activity(event):
-                    state.tool_activity_observed = True
-                observed_model = self._event_usage_model(event)
-                if observed_model:
-                    state.usage_model = observed_model
-                if self._retain_json_event(event):
-                    state.events.append(event)
-                _msgs_before = len(state.agent_messages)
-                _last_text_before = len(state.agent_messages[-1]) if state.agent_messages else 0
-                (
-                    state.thread_id,
-                    state.turn_completed,
-                    state.turn_failed,
-                    state.fatal_error,
-                ) = self._consume_event(
-                    event=event,
-                    thread_id=state.thread_id,
-                    agent_messages=state.agent_messages,
-                    turn_completed=state.turn_completed,
-                    turn_failed=state.turn_failed,
-                    fatal_error=state.fatal_error,
-                    write_state=state.opencode_write,
-                    disable_tools=options.disable_tools,
-                )
-                # Stream each NEW assistant block to the opt-in callback the
-                # instant it lands — this is what lets the Manager chat front-door
-                # render the reply live instead of after the whole turn. Default
-                # ``None`` (every daemon/role turn) skips this entirely, so the
-                # hot path is unchanged. A callback fault must never break the run.
-                # As in the ACP path, the callback receives the accumulated element
-                # (a growing superset), so the UI merges it in place by message_id.
-                _cb = options.on_agent_message
-                if _cb is not None and state.agent_messages:
-                    _new_count = len(state.agent_messages)
-                    if _new_count > _msgs_before:
-                        for _blk in state.agent_messages[_msgs_before:]:
+                        decision = options.inactivity_callback(snapshot)
+                        if decision == "restart":
+                            state.watchdog_reason = (
+                                f"Restart requested by stall sub-agent after {int(idle_seconds)}s idle."
+                            )
+                            self._emit(
+                                self._stream_name("stderr", run_label),
+                                f"[watchdog] {state.watchdog_reason}",
+                            )
+                            self._terminate_process(
+                                process,
+                                include_detached_children=self.backend == BACKEND_OPENCODE,
+                            )
+                            state.watchdog_terminated = True
+
+                    last_message_chars = len(state.agent_messages[-1]) if state.agent_messages else 0
+                    for stage in idle_escalation.newly_due(idle_seconds):
+                        if process.poll() is not None:
+                            break
+                        if stage == WARNING_STAGE:
+                            self._emit(
+                                self._stream_name("stderr", run_label),
+                                "[watchdog] No model stream event for "
+                                f"{int(idle_seconds)}s (warning threshold "
+                                f"{soft_idle}s, pid={process.pid}, "
+                                f"thread={state.thread_id or '-'}, "
+                                f"stdout_lines={state.stdout_line_count}, "
+                                f"stderr_lines={state.stderr_line_count}, "
+                                f"last_message_chars={last_message_chars}); "
+                                "capturing diagnostics and continuing.",
+                            )
+                        elif stage == STALLED_STAGE:
+                            self._emit(
+                                self._stream_name("stderr", run_label),
+                                "[watchdog] Model call is likely stalled after "
+                                f"{int(idle_seconds)}s without a stream event "
+                                f"(threshold {stalled_idle}s, pid={process.pid}); "
+                                f"stdout_lines={state.stdout_line_count}, "
+                                f"stderr_lines={state.stderr_line_count}; continuing "
+                                "until the hard deadline.",
+                            )
+                        elif stage == TERMINATE_STAGE:
+                            state.watchdog_reason = (
+                                "Forced restart after hard idle timeout "
+                                f"({hard_idle}s without a model stream event)."
+                            )
+                            self._emit(
+                                self._stream_name("stderr", run_label),
+                                f"[watchdog] {state.watchdog_reason}",
+                            )
+                            self._terminate_process(
+                                process,
+                                include_detached_children=self.backend == BACKEND_OPENCODE,
+                            )
+                            state.watchdog_terminated = True
+                    continue
+
+                if text is None:
+                    if stream_name == "stdout":
+                        stdout_closed = True
+                    else:
+                        stderr_closed = True
+                    continue
+
+                last_activity_at = time.monotonic()
+                idle_escalation.reset()
+                output_stream = self._stream_name(stream_name, run_label)
+                self._emit(output_stream, text)
+
+                if stream_name == "stdout":
+                    state.stdout_line_count += 1
+                    state.stdout_lines.append(text)
+                    event = self._parse_json_line(text)
+                    if event is None:
+                        continue
+                    state.json_event_count += 1
+                    if (
+                        provider_turn_cap > 0
+                        and not state.watchdog_terminated
+                        and self._event_ends_provider_turn(event)
+                    ):
+                        state.provider_turns += 1
+                        if (
+                            state.provider_turns >= provider_turn_cap
+                            and process.poll() is None
+                        ):
+                            # The allowance is a housekeeping boundary, not an
+                            # error: the caller reads this exact prefix, keeps the
+                            # work, and continues the task in a fresh session with
+                            # the checkpoint and a summary.
+                            state.provider_turn_cap_hit = True
+                            state.watchdog_reason = (
+                                "Provider turn cap reached: this "
+                                f"{run_label or 'agent'} call used "
+                                f"{state.provider_turns} provider turns (allowance "
+                                f"{provider_turn_cap}, ARGUS_SKILL_PROVIDER_TURN_CAP). "
+                                "Each further turn would resend the whole grown "
+                                "transcript; the harness continues this work in a "
+                                "fresh session instead."
+                            )
+                            self._emit(
+                                self._stream_name("stderr", run_label),
+                                f"[watchdog] {state.watchdog_reason}",
+                            )
+                            self._terminate_process(
+                                process,
+                                include_detached_children=self.backend == BACKEND_OPENCODE,
+                            )
+                            state.watchdog_terminated = True
+                    if self._event_has_tool_activity(event):
+                        state.tool_activity_observed = True
+                    observed_model = self._event_usage_model(event)
+                    if observed_model:
+                        state.usage_model = observed_model
+                    if self._retain_json_event(event):
+                        state.events.append(event)
+                    _msgs_before = len(state.agent_messages)
+                    _last_text_before = len(state.agent_messages[-1]) if state.agent_messages else 0
+                    (
+                        state.thread_id,
+                        state.turn_completed,
+                        state.turn_failed,
+                        state.fatal_error,
+                    ) = self._consume_event(
+                        event=event,
+                        thread_id=state.thread_id,
+                        agent_messages=state.agent_messages,
+                        turn_completed=state.turn_completed,
+                        turn_failed=state.turn_failed,
+                        fatal_error=state.fatal_error,
+                        write_state=state.opencode_write,
+                        disable_tools=options.disable_tools,
+                    )
+                    # Stream each NEW assistant block to the opt-in callback the
+                    # instant it lands — this is what lets the Manager chat front-door
+                    # render the reply live instead of after the whole turn. Default
+                    # ``None`` (every daemon/role turn) skips this entirely, so the
+                    # hot path is unchanged. A callback fault must never break the run.
+                    # As in the ACP path, the callback receives the accumulated element
+                    # (a growing superset), so the UI merges it in place by message_id.
+                    _cb = options.on_agent_message
+                    if _cb is not None and state.agent_messages:
+                        _new_count = len(state.agent_messages)
+                        if _new_count > _msgs_before:
+                            for _blk in state.agent_messages[_msgs_before:]:
+                                try:
+                                    _cb(_blk)
+                                except Exception:  # noqa: BLE001 — UI callback must not break the turn
+                                    pass
+                        elif _new_count == _msgs_before and len(state.agent_messages[-1]) > _last_text_before:
                             try:
-                                _cb(_blk)
+                                _cb(state.agent_messages[-1])
                             except Exception:  # noqa: BLE001 — UI callback must not break the turn
                                 pass
-                    elif _new_count == _msgs_before and len(state.agent_messages[-1]) > _last_text_before:
-                        try:
-                            _cb(state.agent_messages[-1])
-                        except Exception:  # noqa: BLE001 — UI callback must not break the turn
-                            pass
-            else:
-                state.stderr_line_count += 1
-                state.stderr_lines.append(text)
+                else:
+                    state.stderr_line_count += 1
+                    state.stderr_lines.append(text)
 
-        stop_queueing.set()
-        if process.poll() is None:
-            process.wait(timeout=10.0)
-
-        pipe_readers = (
-            (process.stdout, stdout_thread),
-            (process.stderr, stderr_thread),
-        )
-        for pipe, reader in pipe_readers:
-            if os.name != "posix" and reader.is_alive() and pipe is not None:
-                try:
-                    os.close(pipe.fileno())
-                except (AttributeError, OSError, ValueError):
-                    pass
-        for pipe, reader in pipe_readers:
-            if os.name == "posix" and reader.is_alive():
-                continue
-            reader.join(timeout=2.0)
-            if not reader.is_alive() and pipe is not None:
-                close = getattr(pipe, "close", None)
-                try:
+            if not pipe_errors.empty():
+                raise RuntimeError("Provider output reader failed") from pipe_errors.get()
+            if process.poll() is None:
+                process.wait(timeout=10.0)
+        except BaseException:
+            if process.poll() is None:
+                self._terminate_process(
+                    process, include_detached_children=self.backend == BACKEND_OPENCODE,
+                )
+            raise
+        finally:
+            stop_queueing.set()
+            # Closing a stream underneath another thread's blocking read can
+            # itself block on Windows. Readers own close and drain late output
+            # until an independently owned writer releases its handles.
+            for pipe, reader in ((process.stdout, stdout_thread), (process.stderr, stderr_thread)):
+                if reader.ident is not None:
+                    reader.join(timeout=0.05)
+                else:
+                    close = getattr(pipe, "close", None)
                     if callable(close):
                         close()
-                except OSError:
-                    pass
+
         return state
 
     def _finalize_turn_result(
