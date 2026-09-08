@@ -21,6 +21,11 @@ and deterministic in the final figure. Do not generate quantitative result plots
    disclosure-safe prompt grounded in the current paper and forbid unsupported
    content. Do not send private manuscripts, code, data, or credentials without
    authorization; keep secrets out of prompts and project files.
+   Carry Figure Studio's publication style into the prompt: a white background,
+   ink `#28344A`, navy `#3C5488`, teal `#008F7A`, at most one or two accents,
+   thin strokes, deliberate whitespace, and clear scientific grouping. Keep
+   long explanations in the caption; exact mathematics is restored during
+   editable reconstruction.
 2. Generate one candidate with `python -m argus_skill.tools.image_api generate`.
 3. Inspect the actual output for accidental text, watermarks, logos, misleading
    symbolism, or content not supported by the paper.

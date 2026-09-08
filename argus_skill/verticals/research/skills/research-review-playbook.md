@@ -38,6 +38,19 @@ claim-critical references without recursively inspecting history.
 
 ## How to read and revise the paper
 
+For a full `final_submission` mission, Engineer owns the substantive repairs
+and high-impact improvements requested by the final Reviewer, including a
+decisive baseline, control, method test, or explanatory analysis when needed.
+This is full conference peer review of the contribution, novelty, methods,
+experimental design, results, and conclusions, alongside presentation. Engineer
+directly runs the needed scientific work in the current Review mission, revises
+the paper, and returns for independent re-review. Do not roll back to Idea,
+Experiment, or Paper, or turn a normal scientific repair into a request to
+restart the earlier workflow.
+Use the general mission operation for that scope. The narrower `narrative_edit`
+operation below applies to a prose-only repair; it must not prevent an
+explicitly authorized scientific improvement in a full final review.
+
 1. Preserve the pre-edit manuscript source closure and rendered PDF in internal
    mission state; do not use Git as the scientific baseline.
 2. Run `narrative_edit` as a fresh-context Engineer operation. Start from the
@@ -84,20 +97,19 @@ Review. The stage never rolls back.
 
 For the method pipeline, compare the actual drawing against the executed code
 and manuscript: labels, branches, training/inference arrows and the highlighted
-mechanism must agree. Apply `engineer/paper-framework-figure-studio.md`:
-Method D is the default, with Method B as the disclosed local-vector fallback.
-For D, verify that the actual blueprint was reconstructed into native editable
-objects, not pasted as a whole-slide image; generated content is not evidence.
-Do not reject a suitable existing figure or a justified B fallback merely
-because no image API was used. Judge composition and readable typography at the
-included publication size; Times New Roman and staggered geometry are specific
-to the B pipeline renderer, not requirements for D. Inspect the existing PDF; do not
+mechanism must agree. Inspect the whole composition at the included publication
+size: meaningful groups, visual hierarchy, balanced spacing, and typography
+should make the mechanism immediately understandable. A crowded collection of
+text boxes is visually unfinished even when its labels are legible.
+Inspect the existing PDF; do not
 invoke the drawing component merely because Review started. Default placement
 is after Introduction, preferably on page 2 or 3; fix float placement in LaTeX
 without redrawing. Require repairs to surplus whitespace, unreadable
-labels, clipping and connector collisions; repair the existing editable source
-through its original route (`engineer/research-svg-pipeline.md` for B pipelines)
-and regenerate the included PDF without needless API calls. A successful
+labels, clipping and connector collisions. Recompose an unfinished figure with
+`engineer/paper-framework-figure-studio.md`: default Method D (image blueprint
+and editable PPT Master reconstruction), with Method B local drawing as the
+fallback. Preserve the academic palette and precise mathematical typography.
+Regenerate the included PDF. A successful
 render or font check alone does not establish that the figure is visually sound.
 
 Find that a paper does not hold yet if it meets the technical requirements but
@@ -127,6 +139,53 @@ that it holds and reports the corresponding result:
 
 `done`
 
+At this final stage, completion also requires an explicit independent
+recommendation for the currently selected venue. Explain it naturally in the
+operator's language, with the supporting evidence and remaining weaknesses.
+No JSON, fixed fields, decision footer, or prescribed review template is required.
+Only a clearly supported weak accept or higher with no reject-level issue may
+pass. Borderline, rejection, uncertainty, missing evidence, or a mismatched venue
+continues Review. The host enforces the threshold and binds the judgment to the
+actual paper and figure bytes; a previous approval or successful compile is
+insufficient.
+
+There is no quality-revision count ceiling. Keep revising in the current stage
+until the threshold is met, with explicit operator stops and resource/backend
+failures handled separately. Do not inflate the recommendation to end a long
+run, lower the venue, or hide adverse evidence. Where the contribution or
+evidence is too weak, give Engineer substantive scientific repairs and decisive
+experiments to execute directly within this final Review.
+
+## Constructive feedback and improvement after final review
+
+Help Engineer build the strongest paper the evidence can support. Start each
+round with specific verified strengths and progress, explain why those results
+matter, and close resolved findings. Be encouraging and respectful without
+generic praise, personal criticism, invented novelty, or inflated ratings.
+
+Prioritize feasible improvements by scientific value. For each item, identify
+the opportunity, a concrete change, and a decisive validation with appropriate
+controls and a success criterion. Offer creative hypotheses, method alternatives,
+or analyses when they could strengthen the contribution; identify them as
+untested and start with the cheapest informative test. Preserve adverse results.
+Distinguish acceptance blockers, actionable high-impact improvements, and
+speculative future-work ideas.
+
+The final review must lead to actual changes when there are feasible,
+high-impact improvements left, even if the current paper already merits weak
+accept. Explain those opportunities and ask Engineer to revise before completion.
+Engineer implements the feedback, records the changes and validation in the
+existing `CHECKPOINT.md`, and returns for independent re-review. A failed proposed
+hypothesis can be resolved by evidence and a supported alternative; agreement
+with Reviewer is not a scientific result. Reviewer checks the actual paper and
+experiments, recognizes the progress, and closes resolved findings.
+
+Aim toward strong acceptance and best-paper quality. Clear weak accept is still
+the minimum, and speculative future-work ideas do not hold completion. Do not
+invent endless experiments, repeat resolved objections, or demand arbitrary
+rewrites merely to sustain the loop. Use ordinary prose throughout the review;
+the host handles internal routing and preserves the complete feedback.
+
 Do not create separate scientific, visual, language, or revision-history files,
 or files declaring the paper ready.
 
@@ -141,8 +200,7 @@ finding. Do not read all the sources in advance.
 | Scientific completeness is under review | `reviewer/academic-paper-peer-review-benchmark.md` | Judge contribution, evidence, and paper value |
 | A material claim or citation is disputed | `engineer/claims-against-evidence.md` or `engineer/citation-check.md` | Trace the claim to raw evidence or a primary source |
 | Visual quality needs venue calibration | `engineer/paper-exemplar-pdf-learning.md` | Compare the rendered paper with strong accepted work |
-| A concept or method figure needs repair | `engineer/paper-framework-figure-studio.md` | Repair the existing D or B source without unnecessary regeneration |
-| An existing Method B pipeline needs repair | `engineer/research-svg-pipeline.md` | Repair SVG fidelity, compact geometry, typography and the included PDF |
+| The method pipeline needs composition or visual repair | `engineer/paper-framework-figure-studio.md` | Repair the canonical composition and included vector PDF; inspect any delivered PPTX separately |
 | PDF-only argument and language are under review | `reviewer/venue-academic-language-review.md` | Judge evidence hierarchy and prose from the rendered paper without internal context |
 | Private implementation detail may have leaked | `engineer/paper-infrastructure-review.md` | Inspect the current paper for internal leakage |
 | A repaired paper needs venue compilation | `engineer/venue-format-preflight.md` | Recompile under the official author kit |

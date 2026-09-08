@@ -263,8 +263,15 @@ def build_mission_prompt(
     if next_action:
         delta_sections.append(
             "## Reviewer guidance from prior round\n"
-            "The previous round was judged incomplete. Address the\n"
-            "following before declaring done:\n\n"
+            "Build on the verified progress and address the following before declaring done. "
+            "Final paper review can request high-impact improvements even after the minimum "
+            "acceptance bar is met. Implement those changes and validate them, then return "
+            "for independent review. Scientific repairs and new experiments for a final "
+            "paper happen directly in the current Review stage, without rolling back "
+            "or waiting for an earlier-stage mission. For each actionable suggestion, record the actual change "
+            "and decisive evidence in the existing CHECKPOINT.md. If a suggested hypothesis "
+            "fails, retain the result and explain the evidence-backed alternative; the "
+            "Reviewer decides whether that resolves the item.\n\n"
             + sanitize_model_visible_text(next_action)
         )
     sections.append(

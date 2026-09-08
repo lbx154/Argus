@@ -8,6 +8,7 @@ import pytest
 
 from argus_skill.core.manuscript_snapshot import manuscript_snapshot
 from argus_skill.core.stage_certificate import record_stage_review
+from argus_skill.core.venue_review import paper_review_snapshot
 from argus_skill.life.context_packet import (
     create_mission_context,
     record_reviewed_handoff,
@@ -48,6 +49,14 @@ class _Runner:
         self.manager = _CompletingManager()
 
 
+def _accepted_venue_review():
+    return {
+        "venue": "ICLR", "recommendation": "weak_accept", "acceptance_clear": True,
+        "rationale": "The current paper's matched controls establish a useful, novel boundary.",
+        "blocking_issues": [], "revision_required": False,
+    }
+
+
 def _make_final_review(
     tmp_path: Path,
     *,
@@ -66,7 +75,7 @@ def _make_final_review(
         "Decision: done\nThe final submission satisfies the review gate.\n",
         encoding="utf-8",
     )
-    persist_vertical(state_root, "research", research_target_level="exploratory")
+    persist_vertical(state_root, "research", research_target_level="exploratory", target_venue="ICLR")
     state_path = state_root / ".argus" / "PIPELINE_STATE.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     state["current_stage"] = "review"
@@ -117,6 +126,8 @@ def _make_final_review(
         operator_question="",
         review_source="reviewer" if bind_handoff else "",
         manuscript_snapshot=manuscript_snapshot(project) if bind_handoff else None,
+        venue_review=_accepted_venue_review(),
+        venue_review_snapshot=paper_review_snapshot(project),
     )
     record_reviewed_handoff(
         mission_context_path=mission_path,
@@ -133,6 +144,9 @@ def _make_final_review(
         manager_action="hold",
         manager_reason="The old runtime deferred final-stage consumption.",
         manuscript_binding=manuscript_snapshot(project),
+        contract_root=state_root,
+        venue_review=_accepted_venue_review(),
+        venue_review_snapshot=paper_review_snapshot(project),
     )
     memory.backlog.mark_done(
         item.id,
@@ -203,6 +217,8 @@ def test_completion_uses_separate_execution_workdir(
         "final_submission_certified": True,
         "final_submission_signature": supervisor._final_submission_signature(),
         "manuscript_snapshot": manuscript_snapshot(project),
+        "venue_review": _accepted_venue_review(),
+        "venue_review_snapshot": paper_review_snapshot(project),
     })
     assert supervisor._journal_has_final_certification() is True
     supervisor.config.final_certification_gate = False

@@ -383,13 +383,15 @@ def academic_paper_review_block() -> str:
         "assessment is supplied, inspect every rendered page, figure, and table at publication "
         "size yourself; that inspection is the assessment, and the absence of host-side "
         "passes is never by itself a reason to withhold `done` or to wait for the host. "
-        "Report scientific correctness and importance, rendered layout, visual "
+        "Perform full conference peer review of contribution, novelty, methodology, "
+        "experimental design, results, conclusions, scientific correctness and importance, rendered layout, visual "
         "quality, academic argument and language, and whether the paper follows the "
         "venue's rules. Do not load the research notes or crawl old reports or history. "
-        "Put all three results inside the `REASON=` value of your closing lines as "
-        "`Scientific: ... | Visual: ... | Language: ...`; do not leave them only in the "
-        "prose above. Do not edit files or change stage state. Never reopen "
-        "selection or move backward. "
+        "Write a natural review with evidence and constructive, actionable guidance; "
+        "no fixed fields or review template is required. Engineer implements scientific "
+        "repairs, including method changes and new experiments, directly inside this "
+        "final Review and returns for re-review. Do not edit files, change stage state, "
+        "reopen selection, or move backward. "
         + paper_reviewer_standard()
         + " For each required "
         "narrative repair, identify its location, the concrete obstacle to understanding "
@@ -575,6 +577,7 @@ def _engineer_fragment(
     operation: str,
 ) -> str:
     narrative_edit = operation == "narrative_edit"
+    scientific_revision = stage == "review" and not narrative_edit
     # The research notes supply evidence roles; current repair feedback arrives through
     # the normal round context. Do not preload REVIEW.md or historical reports.
     context = active_research_context(
@@ -599,25 +602,41 @@ def _engineer_fragment(
         for block in (
             _stage_playbook_block(stage),
             context,
-            _hardware_block_for_stage(stage, project_root),
+            _hardware_block_for_stage("experiment" if scientific_revision else stage, project_root),
             narrative_packaging,
             (
-                "## On-demand concept figure\n"
-                "Only when a conceptual, method, or architecture figure needs drawing, "
-                "open engineer/paper-framework-figure-studio.md. Default to Method D: "
-                "reference figures, an authorized image-API design blueprint, then "
-                "editable SVG reconstruction and native PPTX through PPT Master. "
-                "Method B direct local vector drawing is the disclosed fallback; "
-                "engineer/research-svg-pipeline.md provides its pipeline renderer. "
+                "## On-demand method figure\n"
+                "Only when a method or architecture figure needs drawing, open "
+                "engineer/paper-framework-figure-studio.md. Method D is the default: "
+                "reference figures, an actual image design blueprint, and native editable "
+                "PPT Master reconstruction. Method B is the fallback when D is unavailable "
+                "or the task constraints rule it out. There is no separate SVG workflow. "
+                "engineer/academic-vector-figures.md supplies Matplotlib and TikZ guidance "
+                "for mathematical components or Method B local drawing. Locate PPT Master with "
+                "python -m argus_skill.tools.ppt_master status. "
                 "Reuse an existing suitable figure; do not invoke the component every "
-                "round or for prose-only edits. Reuse a suitable blueprint without "
-                "another paid request. Follow the skill's budget, privacy, model-choice "
-                "and fallback requirements; generated content is not evidence. Include "
+                "round or for prose-only edits. The current Engineer grounds the "
+                "drawing in code and manuscript and inspects the rendered composition "
+                "at publication size. Include "
                 "the vector PDF after the Introduction, targeting page 2 or 3 in the "
-                "compiled paper, and keep the editable SVG source."
+                "compiled paper, and keep the canonical editable drawing source. "
+                "Use restrained academic typography and thin strokes; oversized "
+                "headings and a wall of colored cards do not establish visual quality."
                 if stage == "paper" and not narrative_edit else ""
             ),
             _narrative_editor_block() if narrative_edit else "",
+            (
+                "## Scientific revision within final Review\n"
+                "The final Reviewer judges the full paper as a conference submission. "
+                "Directly implement its scientific suggestions here: repair methods or "
+                "evaluators, add fair baselines and controls, run the decisive experiments, "
+                "and revise the supported claims and manuscript. Preserve raw and adverse "
+                "results. Use the existing resource and experiment controls at the scale "
+                "the claim requires. Keep the current paper and stage; do not roll back "
+                "to Idea, Experiment, or Paper, or wait for an earlier-stage mission. "
+                "Return the actual changes and validation for independent re-review."
+                if scientific_revision else ""
+            ),
             stage_policy,
         )
         if block
@@ -665,7 +684,14 @@ def _reviewer_fragment(
             "Do not edit either snapshot."
         )
     if stage == "review" or scope == "final_submission":
-        policy = academic_paper_review_block()
+        policy = (
+            academic_paper_review_block()
+            + "\n\nFinal completion requires your explicit selected-venue "
+            "recommendation: clearly weak_accept or better, with no reject-level "
+            "issues. Borderline, reject, uncertainty, or missing evidence continues "
+            "revision without a quality-round ceiling. Do not equate a repaired "
+            "edit with a paper worthy of acceptance or inflate a rating to stop."
+        )
     else:
         policy = (
             "## Reviewer responsibility\n"

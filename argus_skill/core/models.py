@@ -209,11 +209,18 @@ class ReviewDecision:
     engineer_aborted_before_review: bool = False
     research_result: dict[str, Any] | None = None
     manuscript_snapshot: dict[str, str] | None = None
+    venue_review: dict[str, Any] | None = None
+    # These are host-owned facts; the parser never accepts them from a model.
+    venue_review_required: bool = False
+    venue_review_passed: bool = False
+    venue_review_snapshot: dict[str, str] | None = None
 
     @property
     def final_submission_certified(self) -> bool:
-        """A final-submission caller may treat a ``done`` verdict as certified."""
-        return self.status == "done"
+        """A paper's final acceptance requires its explicit venue recommendation."""
+        return self.status == "done" and (
+            not self.venue_review_required or self.venue_review_passed
+        )
 
     def to_event_payload(self, **extras: Any) -> dict[str, Any]:
         """Build the compact ``round.review.completed`` event."""
@@ -248,6 +255,11 @@ class ReviewDecision:
         }
         if isinstance(self.manuscript_snapshot, dict):
             payload["manuscript_snapshot"] = dict(self.manuscript_snapshot)
+        if self.venue_review_required or self.venue_review is not None:
+            payload["venue_review"] = self.venue_review
+            payload["venue_review_required"] = self.venue_review_required
+            payload["venue_review_passed"] = self.venue_review_passed
+            payload["venue_review_snapshot"] = self.venue_review_snapshot
         report = self.planner_report if isinstance(self.planner_report, dict) else {}
         forward_progress = report.get("forward_progress")
         if isinstance(forward_progress, bool):

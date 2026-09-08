@@ -1442,6 +1442,22 @@ class LifeSupervisor(
                     review_validity_message = (
                         "unbound (certification did not record the manuscript version)"
                     )
+            if final_submission_certified and resolve_vertical_if_decided(self._artifact_root()) == "research":
+                from types import SimpleNamespace
+
+                from ...core.venue_review import current_venue_acceptance_issue
+
+                acceptance_issue = current_venue_acceptance_issue(
+                    SimpleNamespace(
+                        venue_review=latest.get("venue_review"),
+                        venue_review_snapshot=latest.get("venue_review_snapshot"),
+                        review_source="reviewer",
+                    ),
+                    state_root=self.memory.root, artifact_root=workspace,
+                )
+                if acceptance_issue:
+                    final_submission_certified = False
+                    review_validity_message = acceptance_issue
             receipt = build_delivery_receipt(
                 # A session can complete several goals. The final settled task
                 # makes each delivery new while reconnects stay idempotent.

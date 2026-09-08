@@ -90,43 +90,43 @@ def test_renderer_preserves_source_and_cli_reports_input_errors(tmp_path: Path, 
     assert source.read_text() == DRAWING
 
 
-def test_research_paper_and_review_receive_d_default_with_svg_fallback() -> None:
+def test_svg_workflow_is_removed_and_paper_uses_method_d_with_b_fallback() -> None:
     texts = dict(iter_vertical_skill_texts("research"))
     skill = "engineer/research-svg-pipeline.md"
-    assert skill in texts
-    assert skill in texts["research-paper-playbook.md"]
-    assert skill in texts["research-review-playbook.md"]
+    assert skill not in texts
+    assert skill not in texts["research-paper-playbook.md"]
+    assert skill not in texts["research-review-playbook.md"]
     prompt = render_role_prompt_fragment(
         role="engineer", operation="author_draft", stage="paper", scope="",
         project_root=None,
     )
-    assert skill in prompt
     assert "engineer/paper-framework-figure-studio.md" in prompt
-    assert "Default to Method D" in prompt
-    assert "Method B direct local vector drawing is the disclosed fallback" in prompt
     assert "PPT Master" in prompt
+    assert "Method D is the default" in prompt
+    assert "Method B is the fallback" in prompt
+    assert "Matplotlib" in prompt
+    assert "TikZ" in prompt
+    assert "engineer/academic-vector-figures.md" in prompt
+    assert "argus_skill.tools.ppt_master status" in prompt
+    assert "pipeline_figure" not in prompt
     assert "Reuse an existing suitable figure" in prompt
     assert "after the Introduction" in prompt
     assert "page 2 or 3" in prompt
     for stage in ("paper", "review"):
         checklist = " ".join(item.statement for item in STAGE_CHECKLISTS[stage])
-        assert "Method D" in checklist
-        assert "Method B" in checklist
-        assert "paper-framework-figure-studio.md" in checklist
-        assert "Times New Roman" not in checklist
+        assert "PPT Master" in checklist
+        assert "visual hierarchy" in checklist
     for stage in ("idea", "experiment", "review"):
         prompt = render_role_prompt_fragment(
             role="engineer", operation="", stage=stage, scope="", project_root=None,
         )
         assert "pipeline_figure" not in prompt
-        assert "## On-demand concept figure" not in prompt
     for stage in ("paper", "review"):
         prompt = render_role_prompt_fragment(
             role="engineer", operation="narrative_edit", stage=stage, scope="",
             project_root=None,
         )
         assert "pipeline_figure" not in prompt
-        assert "## On-demand concept figure" not in prompt
         assert "Fresh-context Narrative Editor" in prompt
 
 

@@ -4,6 +4,8 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import argus_skill
 from argus_skill.core.manuscript_narrative_runtime import (
     isolated_pdf_workspace,
@@ -229,7 +231,7 @@ def test_prompt_catalog_accepts_research_operations(tmp_path: Path) -> None:
     assert "overwrite paper/REVIEW.md" not in cold.role_banner
     assert "overwrite paper/REVIEW.md" not in science.role_banner
     assert contract.banner("reviewer") in integrated.role_banner
-    assert "overwrite paper/REVIEW.md" in integrated.role_banner
+    assert "host writes paper/REVIEW.md" in integrated.role_banner
     assert contract.engineer_operation("paper") == "author_draft"
     assert contract.engineer_operation("review") == "narrative_edit"
 
@@ -267,7 +269,16 @@ def test_internal_snapshot_is_immutable_and_cold_workspace_contains_only_pdf(
 
 def test_post_edit_passes_use_snapshot_and_pdf_only_cold_workspace(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from argus_skill.core import manuscript_narrative_runtime
+
+    def render_fixture(paper):
+        (paper / "pages").mkdir()
+        (paper / "pages" / "page-001.png").write_bytes(b"rendered-page")
+        (paper / "main.txt").write_text("PDF-derived text")
+
+    monkeypatch.setattr(manuscript_narrative_runtime, "_prepare_readable_pdf", render_fixture)
     project = tmp_path / "project"
     state = tmp_path / "state"
     paper = project / "paper"
@@ -345,9 +356,48 @@ def test_post_edit_passes_use_snapshot_and_pdf_only_cold_workspace(
     science_prompt = runner.shared.calls["reviewer-scientificloss"]["prompt"]
     cold_call = runner.shared.calls["reviewer-coldread"]
     assert str(snapshot / "before" / "paper") in science_prompt
-    assert cold_call["files"] == ["paper/main.pdf"]
+    assert cold_call["files"] == [
+        "paper/main.pdf", "paper/main.txt", "paper/pages/page-001.png",
+    ]
     assert cold_call["working_dir"] != project
     assert "SECRET_PRIOR_REVIEW" not in cold_call["prompt"]
+
+
+def test_readable_review_workspace_renders_every_page_from_only_the_current_pdf(
+    tmp_path: Path,
+) -> None:
+    fitz = pytest.importorskip("pymupdf")
+    project = tmp_path / "project"
+    paper = project / "paper"
+    paper.mkdir(parents=True)
+    (paper / "main.tex").write_text("PRIVATE_SOURCE_DO_NOT_COPY")
+    (paper / "REVIEW.md").write_text("STALE_PASS_DO_NOT_COPY")
+    (paper / "preview").mkdir()
+    (paper / "preview" / "page-001.png").write_bytes(b"STALE_PREVIEW")
+    with fitz.open() as doc:
+        doc.new_page(width=300, height=400).insert_text((25, 40), "Current rendered finding")
+        doc.new_page(width=400, height=300).insert_text((25, 40), "Second landscape page")
+        doc.save(paper / "main.pdf")
+    original = (paper / "main.pdf").read_bytes()
+
+    with isolated_pdf_workspace(project, readable=True) as isolated:
+        isolated_paper = isolated / "paper"
+        assert (isolated_paper / "main.pdf").read_bytes() == original
+        text = (isolated_paper / "main.txt").read_text()
+        assert "## PDF page 1" in text and "Current rendered finding" in text
+        assert "## PDF page 2" in text and "Second landscape page" in text
+        assert "PRIVATE_SOURCE" not in text and "STALE_PASS" not in text
+        images = sorted((isolated_paper / "pages").glob("*.png"))
+        assert [p.name for p in images] == ["page-001.png", "page-002.png"]
+        assert [(fitz.Pixmap(str(p)).width, fitz.Pixmap(str(p)).height) for p in images] == [
+            (600, 800), (800, 600),
+        ]
+        assert not (isolated_paper / "REVIEW.md").exists()
+        assert not (isolated_paper / "main.tex").exists()
+        assert not (isolated_paper / "preview").exists()
+    assert not isolated.exists()
+    assert not (paper / "pages").exists()
+    assert not (paper / "main.txt").exists()
 
 
 def test_narrative_measurements_are_candidates_not_repetition_penalties() -> None:

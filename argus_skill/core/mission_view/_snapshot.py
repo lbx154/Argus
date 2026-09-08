@@ -337,6 +337,14 @@ def _apply_manuscript_review_freshness(
             "status": "unbound",
             "message": "unbound (certified manuscript cannot be read)",
         }
+    if freshness.get("status") == "current" and isinstance(outcome.get("venue_review_snapshot"), dict):
+        from ..venue_review import paper_review_snapshot
+
+        if paper_review_snapshot(workdir) != outcome["venue_review_snapshot"]:
+            freshness = {
+                "status": "stale",
+                "message": "the paper or its figures changed after the venue recommendation",
+            }
     if freshness.get("status") == "current":
         outcome["review_validity"] = "current"
         return

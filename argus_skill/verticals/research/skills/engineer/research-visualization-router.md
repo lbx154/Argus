@@ -5,9 +5,10 @@ description: "Choose a renderer that faithfully represents the evidence for each
 
 # Choosing how to draw a research figure
 
-Use this in Paper before creating a figure. Choose the renderer from the
-figure's semantics, then keep its source and final included export. For Method D,
-also retain the actual API blueprint and prompt with the source.
+Use this in Paper before creating a figure. Conceptual and method figures use
+default Method D with Method B as the fallback, through
+`paper-framework-figure-studio.md`. Keep the editable source and final included
+export. Quantitative plots remain on their data-figure route.
 
 ## What Figure 1 must show
 
@@ -21,27 +22,31 @@ paragraph or table inside a figure environment does not count.
 | Need | Route |
 |---|---|
 | Any paper data/metric/result chart, including uncertainty or ablation | Matplotlib/SciencePlots through Styling data figures for publication |
-| Conceptual, method pipeline, architecture, taxonomy, or teaser figure | Composing a conceptual paper figure: default Method D, image-API blueprint followed by editable native PPTX through PPT Master; Method B local vector drawing is the fallback |
-| Exact load-bearing topology | Preserve exact connections during D reconstruction; FigureSpec, Draw.io, Graphviz, or browser SVG can supply exact subcomponents or the Method B fallback |
-| Rich browser composition | Self-contained HTML/CSS/SVG rendered with `research_visual_scripts/browser_render.py` as a local vector tool, not a competing default for concept figures |
+| Method pipeline or architecture overview | Composing a conceptual paper figure: default Method D blueprint and editable native PPTX through PPT Master; Method B local drawing is the fallback |
+| Mathematical operators, bounds, or geometric reasoning | Precise Matplotlib mathtext or TikZ/LaTeX components within Method D reconstruction, or Method B fallback |
+| Other conceptual or teaser figure | Composing a conceptual paper figure: default Method D, with Method B fallback when unavailable or unsuitable |
+| Exact load-bearing topology | FigureSpec, Draw.io, or Graphviz as exact components in the selected Method D/B workflow |
+| Rich browser composition | An editable local component within the selected Method D/B workflow; browser export is a renderer, not another workflow |
 | Non-claim-bearing illustrative asset | image-2 only when configured; compose it inside an editable deterministic figure |
 
 Topology fidelity takes priority over decorative richness. A polished Figure 1
 does not need depth, icons, or decorative complexity. Never use generated image
 text or geometry for scientific labels, arrows, values, or branch conditions.
 
-For conceptual figures, open `paper-framework-figure-studio.md` for the canonical
-Method D / Method B contract, including reference inspection, authorized image
-generation, editable reconstruction, and explicit fallback disclosure. Do not
-silently choose local drawing while describing it as API-assisted.
-For a Method B method pipeline, `research-svg-pipeline.md` and
-`python -m argus_skill.verticals.research.pipeline_figure` remain available:
-the active model designs a compact horizontal SVG, and the tool crops it,
-verifies Times New Roman, and exports a vector PDF without image credentials
-or PPT software. These renderer-specific requirements do not apply to Method D.
-Draw only when needed; reuse an existing suitable figure or blueprint across
-rounds. Include the method overview PDF after Introduction, preferably on page
-2 or 3; a LaTeX placement adjustment does not require redrawing the figure.
+For method and conceptual figures, open `paper-framework-figure-studio.md`
+before drawing. Method D is the default: learn from suitable reference figures,
+obtain an actual image design blueprint, reconstruct exact editable objects
+through PPT Master, and export the paper figure. Use its refined academic
+palette, thin strokes, whitespace, and real mathematical typography.
+
+Method B is the fallback when the configured image route or required Method D
+prerequisites are unavailable or the task's constraints rule it out. Use native
+objects or local drawing code; `academic-vector-figures.md` provides Matplotlib
+and TikZ/LaTeX guidance. There is no separate SVG workflow. SVG can remain an
+internal asset format of a selected renderer. Reuse suitable figures across
+rounds and name the actual workflow used without inventing a blueprint.
+Include the vector PDF after Introduction, preferably on page 2 or 3; changing
+float placement does not require redrawing the figure.
 
 ## Shared requirements
 

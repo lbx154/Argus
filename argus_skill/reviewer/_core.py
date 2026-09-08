@@ -99,7 +99,12 @@ def _parallel_final_review_passes(
         "Read the current paper in read-only mode. Do not edit files. Start from "
         "paper/main.tex and its rendered output, then follow only direct references "
         "needed for this assigned pass. Return a concise pass/fail assessment with "
-        "specific blocking findings and repairs."
+        "evidence-backed strengths, verified progress, and specific blocking findings "
+        "with constructive repairs. For each material finding, explain the opportunity, "
+        "a feasible change, and its decisive validation or success criterion. Credit "
+        "resolved findings; separate useful high-impact improvements from speculative "
+        "stretch ideas. Encourage Engineer through concrete progress and promising "
+        "directions while keeping the assessment honest."
     )
     if comparison is None:
         # Compatibility for direct callers that have not entered the narrative-edit
@@ -187,14 +192,29 @@ def _parallel_final_review_passes(
     # raw evidence from the integrated scientific Reviewer.
     if pdf_only_visual:
         prompts["Visual"] = (
-            "Read only paper/main.pdf in this isolated read-only workspace. "
+            "Read only paper/main.pdf and its host-rendered derivatives in this "
+            "isolated read-only workspace. Open every image in paper/pages/page-*.png; "
+            "these are the actual PDF pages, rendered by the host. paper/main.txt "
+            "contains text extracted from the same PDF for navigation. Reading PDF "
+            "binary bytes or extracted text alone is not visual inspection. "
             "Inspect every rendered page and every included figure and table at "
             "publication scale. Reject visible overlap, clipping, overflow, connector "
             "penetration, wrong arrows, unreadable labels, malformed tables, visually "
             "misleading plots, abnormal whitespace, broken float placement, or "
-            "inconsistent typography. Return concise pass/fail findings with page "
+            "inconsistent typography. Also judge composition, visual hierarchy, "
+            "meaningful grouping, information density, spacing, and whether the "
+            "mechanism reads immediately. Reject an unfinished collection of text "
+            "boxes even when its labels are individually legible. Return concise "
+            "pass/fail findings with page "
             "locations. The integrated Reviewer separately checks scientific claims "
             "against source code and raw evidence; do not launch other reviewers."
+        )
+    if "ColdRead" in prompts:
+        prompts["ColdRead"] += (
+            "\n\nThe host supplies paper/main.txt and paper/pages/page-*.png, "
+            "derived only from the current paper/main.pdf. Use the extracted text "
+            "and rendered pages to read the paper; the file viewer may expose the "
+            "PDF itself only as compressed binary bytes."
         )
     prompts = {
         label: prompt
@@ -280,13 +300,27 @@ def _parallel_final_review_passes(
     if pdf_only_visual or comparison is not None:
         from ..core.manuscript_narrative_runtime import isolated_pdf_workspace
 
-        for label in ("Visual", "ColdRead"):
-            if label in prompts and (label == "ColdRead" or pdf_only_visual):
-                working_dirs[label] = workspace_stack.enter_context(
-                    isolated_pdf_workspace(workdir)
-                )
-                if pdf_sha256(working_dirs[label]) != pdf_digest:
-                    pass_keys.pop(label, None)
+        try:
+            for label in ("Visual", "ColdRead"):
+                if label in prompts and (label == "ColdRead" or pdf_only_visual):
+                    working_dirs[label] = workspace_stack.enter_context(
+                        isolated_pdf_workspace(workdir, readable=True)
+                    )
+                    if pdf_sha256(working_dirs[label]) != pdf_digest:
+                        pass_keys.pop(label, None)
+        except (OSError, RuntimeError) as exc:
+            workspace_stack.close()
+            for backend in pass_runners.values():
+                close = getattr(backend, "close_acp_clients", None)
+                if callable(close):
+                    close()
+            return ReviewDecision(
+                status="blocked",
+                reason=f"Rendered paper review inputs are unavailable: {exc}",
+                next_action="Restore PDF page rendering before running the paper review.",
+                backend_unavailable=True,
+                backend_stop_kind="backend_unavailable",
+            )
 
     def inspect(label: str) -> Any:
         return gateway_run_exec(
@@ -457,7 +491,7 @@ def _persist_research_review(
         return
     from ..skills.stage_machine import current_stage
 
-    if current_stage(state_root) != "review":
+    if current_stage(state_root) != "review" and not decision.venue_review_required:
         return
     report = decision.planner_report if isinstance(decision.planner_report, dict) else {}
     accept_case = str(
@@ -472,9 +506,20 @@ def _persist_research_review(
         or ("" if decision.status == "done" else decision.reason)
         or ""
     ).strip()
+    if decision.venue_review is not None:
+        challenge = "\n".join(f"- {issue}" for issue in decision.venue_review["blocking_issues"])
     text = (
         "# Authoritative review\n\n"
         f"**Judgment:** {decision.status}\n\n"
+        + (
+            "## Selected-venue assessment\n"
+            f"Venue: {decision.venue_review['venue']}\n\n"
+            f"Recommendation: {decision.venue_review['recommendation']}\n\n"
+            f"Clear acceptance: {decision.venue_review['acceptance_clear']}\n\n"
+            f"{decision.venue_review['rationale']}\n\n"
+            if decision.venue_review is not None else ""
+        )
+        +
         "## Scientific, visual, and language assessment\n"
         f"{decision.reason or 'Not assessed.'}\n\n"
         "## Strongest accept case\n"
@@ -567,9 +612,9 @@ class Reviewer:
         memory_maintenance_enabled: bool = True,
     ) -> None:
         self.runner = runner
-        # The Reviewer speaks normally and ends with named decision lines. JSON
-        # remains parser-only backward compatibility for already-running old
-        # sessions; no backend receives an output schema.
+        # Final paper reviews use natural prose; a tool-free internal reader
+        # translates only their stated judgment into round-control metadata.
+        # Other operations keep their existing minimal closing-line protocol.
         self._last_prompt_block_stats: dict[str, dict[str, int]] = {}
         # Optional agent-native library roots. The Reviewer searches and reads
         # relevant Markdown itself; the runtime never injects Skill bodies.
@@ -614,6 +659,26 @@ class Reviewer:
         native_skill_paths = [
             str(path) for path in getattr(review_libraries, "native_paths", [])
         ]
+        from ..core.pipeline_state import read_pipeline_state
+        from ..core.venue_review import (
+            enforce_venue_acceptance,
+            paper_review_snapshot,
+            requires_venue_review,
+            selected_venue,
+            venue_review_instruction,
+        )
+        from ..skills.vertical_select import resolve_vertical_if_decided
+
+        artifact_root = Path(config.artifact_root or config.working_dir or ".")
+        state_root = Path(config.vertical_state_root or config.working_dir or ".")
+        venue_required = requires_venue_review(
+            vertical=config.active_vertical or resolve_vertical_if_decided(state_root) or "",
+            stage=str(read_pipeline_state(state_root).get("current_stage") or ""),
+            scope=scope,
+            operation=operation,
+        )
+        venue = selected_venue(state_root) if venue_required else ""
+        venue_snapshot = paper_review_snapshot(artifact_root) if venue_required else None
         reviewed_manuscript_snapshot = None
         try:
             from ..core.manuscript_snapshot import manuscript_snapshot
@@ -657,10 +722,23 @@ class Reviewer:
             resumed=False,
             **common,
         )
+        venue_policy = ""
+        if venue_required:
+            # A changed selected venue changes the static fingerprint, preventing
+            # reuse of a Reviewer session calibrated to a different conference.
+            venue_policy = "\n\n" + venue_review_instruction(venue)
+            static += venue_policy
         prompt_block_stats = {
             name: dict(stats)
             for name, stats in self._last_prompt_block_stats.items()
         }
+        if venue_policy:
+            extra_bytes = len(venue_policy.encode("utf-8"))
+            extra_stats = {"chars": len(venue_policy), "bytes": extra_bytes, "estimated_tokens": (extra_bytes + 3) // 4}
+            prompt_block_stats["venue_acceptance"] = extra_stats
+            for name, amount in extra_stats.items():
+                if "static_total" in prompt_block_stats:
+                    prompt_block_stats["static_total"][name] = prompt_block_stats["static_total"].get(name, 0) + amount
         fingerprint_input = bytearray(static.encode("utf-8"))
         new_fp = hashlib.sha256(fingerprint_input).hexdigest()
         resume = (
@@ -771,7 +849,10 @@ class Reviewer:
                     "Reviewer backend returned empty output; this says nothing "
                     "about the Engineer's work."
                 ),
-                next_action="Retry Reviewer; do not manufacture an Engineer gap.",
+                next_action=(
+                    "Retry the independent Reviewer and clarify the current venue recommendation in ordinary prose."
+                    if venue_required else "Retry Reviewer; do not manufacture an Engineer gap."
+                ),
                 backend_unavailable=True,
                 backend_stop_kind="backend_unavailable",
                 input_tokens=rev_in,
@@ -787,17 +868,49 @@ class Reviewer:
             if process_decision is not None
             else _find_decision_in_messages(decision_messages)
         )
+        if venue_required and (parsed is None or parsed.venue_review is None):
+            from ._prose_decision import interpret_prose_review
+
+            # Provider events may already carry the ordinary prose inside the
+            # compatibility envelope. Preserve its full text, not a clipped parse.
+            review_text = (
+                "\n\n".join(
+                    str(process_decision.get(key) or "").strip()
+                    for key in ("reason", "next_action")
+                    if str(process_decision.get(key) or "").strip()
+                )
+                if process_decision is not None
+                else str(decision_messages[-1]).strip()
+            )
+            try:
+                parsed, control_result = interpret_prose_review(
+                    self.runner, review_text=review_text, venue=venue, config=config,
+                )
+                rev_in += int(control_result.input_tokens or 0)
+                rev_cached += int(control_result.cached_input_tokens or 0)
+                rev_out += int(control_result.output_tokens or 0)
+                rev_reasoning_output_tokens += int(control_result.reasoning_output_tokens or 0)
+                rev_premium += float(control_result.premium_requests or 0)
+            except Exception:  # noqa: BLE001 - interpretation cannot certify by default
+                log.exception("could not interpret the final Reviewer's natural judgment")
+                parsed = None
         if parsed is None:
             from ._parsing import describe_unparsed_verdict
 
             return ReviewDecision(
                 status="blocked",
                 reason=(
-                    describe_unparsed_verdict(decision_messages)
+                    (
+                        "The final review's current venue recommendation could not be read reliably."
+                        if venue_required else describe_unparsed_verdict(decision_messages)
+                    )
                     + " This is a Reviewer/backend failure, not evidence that "
                     "implementation is incomplete."
                 ),
-                next_action="Retry Reviewer; do not manufacture an Engineer gap.",
+                next_action=(
+                    "Retry the independent Reviewer and clarify the current venue recommendation in ordinary prose."
+                    if venue_required else "Retry Reviewer; do not manufacture an Engineer gap."
+                ),
                 backend_unavailable=True,
                 backend_stop_kind="backend_unavailable",
                 input_tokens=rev_in,
@@ -822,13 +935,15 @@ class Reviewer:
         parsed.static_fingerprint = new_fp
         parsed.session_resumed = bool(resume)
         parsed.manuscript_snapshot = reviewed_manuscript_snapshot
-        # The L2 reviewer's judgment is authoritative — the harness must not
-        # second-guess its scientific judgment from structured result labels or
-        # keyword heuristics on the engineer's summary.
-        # If a generic role-acknowledgment turn slips through, that is a
-        # reviewer-prompt concern (the reviewer is told to demand concrete
-        # evidence and verify when it is missing/contradictory), not a harness
-        # post-filter.
+        # Reviewer owns the scientific recommendation. The host enforces the
+        # operator's explicit minimum and current-file binding, not prose or
+        # research-result keyword heuristics.
+        if venue_required:
+            enforce_venue_acceptance(
+                parsed, venue=venue, before=venue_snapshot, artifact_root=artifact_root,
+            )
+            if parsed.backend_unavailable:
+                return parsed
         _persist_research_review(parsed, config)
         return parsed
 

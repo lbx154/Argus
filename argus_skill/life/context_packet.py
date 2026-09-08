@@ -215,6 +215,13 @@ def render_mission_brief(path: Path | str | None) -> str:
     next_action = _brief_text(review.get("next_action"))
     if next_action:
         lines.append(f"- Next action: {next_action}")
+    if isinstance(review.get("venue_review"), Mapping):
+        reviewed_round = max(1, int(reviewed.get("round") or 1))
+        feedback_path = mission_path.parent / f"round-{reviewed_round:04d}.json"
+        lines.append(
+            f"- Complete final-review feedback: `{feedback_path}`. Read review.next_action "
+            "and review.venue_review before revising; the brief above is abbreviated."
+        )
 
     return "\n".join(lines) if len(lines) > 1 else ""
 
@@ -393,10 +400,13 @@ def record_reviewed_handoff(
         return None
     mission_path = Path(mission_context_path)
     root = mission_path.parent
+    # Keep the canonical final-review handoff complete. In particular, a long
+    # experimental plan must not lose its controls or final success criterion.
+    feedback_limit = None if isinstance(getattr(review, "venue_review", None), dict) else 4000
     review_payload: dict[str, Any] = {
         "status": str(getattr(review, "status", "") or ""),
-        "reason": str(getattr(review, "reason", "") or "")[:4000],
-        "next_action": str(getattr(review, "next_action", "") or "")[:4000],
+        "reason": str(getattr(review, "reason", "") or "")[:feedback_limit],
+        "next_action": str(getattr(review, "next_action", "") or "")[:feedback_limit],
         "operator_question": str(getattr(review, "operator_question", "") or "")[:1000],
     }
     review_source = str(getattr(review, "review_source", "") or "").strip()
@@ -405,6 +415,10 @@ def record_reviewed_handoff(
     manuscript_binding = getattr(review, "manuscript_snapshot", None)
     if isinstance(manuscript_binding, dict):
         review_payload["manuscript_snapshot"] = dict(manuscript_binding)
+    for key in ("venue_review", "venue_review_snapshot"):
+        value = getattr(review, key, None)
+        if isinstance(value, dict):
+            review_payload[key] = dict(value)
     mission = _read_json_object(mission_path)
     if (
         str(mission.get("scope") or "").strip().lower() == "final_submission"

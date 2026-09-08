@@ -4,8 +4,8 @@ import type {
   PDFDocumentProxy,
   RenderTask,
 } from 'pdfjs-dist';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { useI18n } from '../i18n';
+import { loadPdfEngine, resetPdfEngine } from '../lib/pdfEngine';
 import { Spinner } from './primitives';
 
 export function pdfContainScale(
@@ -31,11 +31,13 @@ export function PdfPreview({
   name,
   className = '',
   onPageOrientation,
+  onRetry,
 }: {
   src: string;
   name: string;
   className?: string;
   onPageOrientation?: (orientation: 'portrait' | 'landscape') => void;
+  onRetry?: () => void;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -48,6 +50,7 @@ export function PdfPreview({
   const [loading, setLoading] = useState(true);
   const [rendering, setRendering] = useState(false);
   const [error, setError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     const element = viewportRef.current;
@@ -77,10 +80,9 @@ export function PdfPreview({
         if (!response.ok) throw new Error(`PDF request failed (${response.status})`);
         return response.arrayBuffer();
       }),
-      import('pdfjs-dist'),
+      loadPdfEngine(),
     ]).then(async ([bytes, pdfjs]) => {
       if (!alive) return;
-      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
       task = pdfjs.getDocument({ data: new Uint8Array(bytes) });
       const loaded = await task.promise;
       if (!alive) return;
@@ -95,9 +97,9 @@ export function PdfPreview({
     return () => {
       alive = false;
       controller.abort();
-      void task?.destroy();
+      void task?.destroy().catch(() => {});
     };
-  }, [src]);
+  }, [src, loadAttempt]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -194,8 +196,23 @@ export function PdfPreview({
       <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-auto bg-surface/60 p-4 scroll-thin">
         {loading ? <div className="absolute inset-0 flex items-center justify-center"><Spinner /></div> : null}
         {error ? (
-          <div className="m-auto max-w-sm rounded border border-err/35 bg-err/5 p-4 text-center text-sm text-err">
-            {zh ? 'PDF 无法渲染' : 'Unable to render PDF'} · {error}
+          <div role="alert" className="m-auto max-w-sm rounded border border-err/35 bg-err/5 p-4 text-center text-sm text-err">
+            <p>{zh ? 'PDF 暂时无法预览' : 'PDF preview is temporarily unavailable'}</p>
+            <button
+              type="button"
+              onClick={() => {
+                resetPdfEngine();
+                if (onRetry) onRetry();
+                else setLoadAttempt((value) => value + 1);
+              }}
+              className="mt-3 rounded border border-line bg-panel px-3 py-1.5 text-ink hover:border-blue/50"
+            >
+              {zh ? '重试预览' : 'Retry preview'}
+            </button>
+            <details className="mt-3 break-words text-xs text-ink-dim">
+              <summary>{zh ? '错误详情' : 'Error details'}</summary>
+              {error}
+            </details>
           </div>
         ) : null}
         {!error ? (

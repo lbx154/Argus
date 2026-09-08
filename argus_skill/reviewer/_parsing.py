@@ -18,6 +18,7 @@ from ..core.operator_decision import (
     parse_agent_operator_options,
 )
 from ..core.research_contract import normalize_research_result
+from ..core.venue_review import normalize_venue_review
 
 _STATUSES = {"done", "continue", "blocked", "replan_requested"}
 _PLAN_SIGNALS = {"continue", "reconsider"}
@@ -331,6 +332,7 @@ def decision_from_payload(payload: Mapping[str, Any]) -> ReviewDecision | None:
             research_result=normalize_research_result(
                 payload.get("research_result")
             ),
+            venue_review=normalize_venue_review(payload.get("venue_review")),
             planner_report=_planner_report_from_payload(payload),
             frontier_report=_frontier_report(payload.get("frontier_report")),
             session_signal=_session_signal(payload.get("session_signal")),
@@ -350,6 +352,7 @@ _VERDICT_KEYS = (
     "OPERATOR_OPTIONS",
     "CHECKPOINT_RECOMMENDED",
     "RESEARCH_RESULT",
+    "VENUE_REVIEW",
     "FORWARD_PROGRESS",
     "PLAN_SIGNAL",
     "PLAN_CHALLENGE",
@@ -369,7 +372,7 @@ def _compact_research_result_blocks(text: str) -> str:
     """Keep JSON evidence strings out of the line-based control-field reader."""
     from ..core.role_reply import _line_pattern
 
-    pattern = _line_pattern(("RESEARCH_RESULT",))
+    pattern = _line_pattern(("RESEARCH_RESULT", "VENUE_REVIEW"))
     decoder = json.JSONDecoder()
     chunks: list[str] = []
     consumed = offset = 0
@@ -398,7 +401,8 @@ def _compact_research_result_blocks(text: str) -> str:
             continue
         if not isinstance(payload, dict):
             continue
-        chunks.extend((text[consumed:start], "RESEARCH_RESULT=" + json.dumps(payload)))
+        field = "VENUE_REVIEW" if "VENUE_REVIEW" in stripped.upper().split("=", 1)[0].split(":", 1)[0] else "RESEARCH_RESULT"
+        chunks.extend((text[consumed:start], field + "=" + json.dumps(payload)))
         consumed = end
     return "".join((*chunks, text[consumed:])) if chunks else text
 
@@ -441,11 +445,17 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
     if raw_research_result is None:
         raw_research_result = _load_json(read_block(text, "RESEARCH_RESULT", _VERDICT_KEYS))
     research_result = normalize_research_result(raw_research_result)
+    raw_venue_review = _load_json(read_optional(values, "VENUE_REVIEW"))
+    if raw_venue_review is None:
+        raw_venue_review = _load_json(read_block(text, "VENUE_REVIEW", _VERDICT_KEYS))
+    venue_review = normalize_venue_review(raw_venue_review)
+    from ..core.venue_review import FINAL_REVIEW_FEEDBACK_CHARS
+
     return _apply_model_judgment_policy(
         ReviewDecision(
             status=status,
-            reason=reason.strip()[:5000],
-            next_action=read_block(text, "NEXT_ACTION", _VERDICT_KEYS).strip()[:1500],
+            reason=reason.strip()[:FINAL_REVIEW_FEEDBACK_CHARS if venue_review is not None else 5000],
+            next_action=read_block(text, "NEXT_ACTION", _VERDICT_KEYS).strip()[:FINAL_REVIEW_FEEDBACK_CHARS if venue_review is not None else 1500],
             operator_question=read_optional(values, "OPERATOR_QUESTION")[:500],
             operator_options=parse_agent_operator_options(
                 decision_footer_text(text)
@@ -454,6 +464,7 @@ def _parse_named_verdict(text: str) -> ReviewDecision | None:
                 read_optional(values, "CHECKPOINT_RECOMMENDED").casefold() == "true"
             ),
             research_result=research_result,
+            venue_review=venue_review,
             planner_report=_planner_report(
                 forward_progress=(
                     True

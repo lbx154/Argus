@@ -91,13 +91,16 @@ do not create a new report or validation-only task.
 7. Resolve citations against primary sources and keep claims consistent with
    the executed code and raw results.
 8. Produce editable figure sources, publication-size exports, and a readable
-   rendered paper. For conceptual, method, and architecture figures, follow
-   `engineer/paper-framework-figure-studio.md`: default Method D (reference
-   figures, image-API design blueprint, editable SVG and PPT Master reconstruction),
-   with Method B direct local vector drawing as the disclosed fallback.
-   Include the method overview's vector PDF after Introduction, targeting page
-   2 or 3, and keep editable source. Draw only when needed; reuse an existing
-   suitable figure or blueprint across writing rounds and prose-only edits.
+   rendered paper. For the method pipeline, use
+   `engineer/paper-framework-figure-studio.md`: design the composition from the
+   current manuscript and executed code, with meaningful groups, visual hierarchy,
+   balanced spacing, restrained scientific colors, and publication-size type.
+   Use default Method D: a real image design blueprint and editable PPT Master
+   reconstruction. Method B local drawing is the fallback; Matplotlib or TikZ
+   can supply precise mathematical components. Include the vector PDF after Introduction,
+   targeting page 2 or 3, and keep its canonical editable source.
+   Invoke the component only when a figure is needed;
+   reuse an existing suitable figure across writing rounds and prose-only edits.
 9. Compress after expanding to the manuscript-length target: the final pass removes what serves no explicit
    claim and moves first-pass-unnecessary detail to the appendix while
    protecting every claim, number, named baseline and limit. Then read the
@@ -154,8 +157,7 @@ task, then return here. Do not read all the sources in advance.
 | Strong paper structure or visual calibration is needed | `engineer/paper-exemplar-pdf-learning.md` | Study open-access Oral, Outstanding, or Best Papers |
 | A material citation is uncertain | `engineer/citation-check.md` | Resolve and repair it from primary sources |
 | Data results need paper figures | `engineer/paper-chart-styling.md` | Produce consistent publication-size data charts |
-| A method pipeline or architecture overview is needed | `engineer/paper-framework-figure-studio.md` | Default Method D; preserve code-grounded labels and topology |
-| A local method-pipeline fallback is needed | `engineer/research-svg-pipeline.md` | Method B: compact horizontal SVG from code and paper, with Times New Roman |
+| A method pipeline or architecture overview is needed | `engineer/paper-framework-figure-studio.md` | Default Method D, Method B fallback; keep editable source and include its vector PDF |
 | A conceptual or method figure is needed | `engineer/research-visualization-router.md` | Select the faithful rendering route |
 | Figure 1 needs an editable composition | `engineer/paper-framework-figure-studio.md` | Build the conceptual figure and final export |
 | Compilation or venue structure is uncertain | `engineer/venue-format-preflight.md` | Compile against the official author kit |

@@ -217,12 +217,14 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "The manuscript, bibliography, figures, included source files, and rendered "
                 "output are present, mutually consistent, and compile under the selected "
-                "venue's current official rules. Conceptual and method figures follow "
-                "paper-framework-figure-studio.md: default Method D (image-API blueprint "
-                "and editable PPT Master reconstruction), with Method B local vector "
-                "drawing as the disclosed fallback. Labels and topology are grounded "
-                "in the manuscript and executed code, with editable source and an "
-                "included vector PDF export. Quantitative charts stay data-driven. "
+                "venue's current official rules. A method overview figure follows the "
+                "Figure Studio composition workflow: default Method D with an actual "
+                "image blueprint and editable PPT Master reconstruction, or Method B "
+                "local drawing fallback, retaining its canonical editable "
+                "source and included vector PDF export. Ground it in the "
+                "manuscript and executed code, with clear grouping, visual hierarchy, "
+                "balanced spacing, and publication-size typography. Use proper "
+                "mathematical typesetting and restrained strokes and emphasis. "
                 "Reuse a suitable existing figure; draw only when needed. Default PDF "
                 "placement is after Introduction, preferably on page 2 or 3, subject to "
                 "the author kit and actual Introduction length. "
@@ -312,13 +314,16 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "wrong arrow, unreadable label, malformed table, misleading plot, abnormal "
                 "whitespace, broken float placement, or inconsistent typography means "
                 "the paper does not yet hold visually. A method overview figure must "
-                "match the manuscript and the executed code, with editable source "
-                "and a legible included vector export. Apply the Method D default "
-                "and Method B fallback in paper-framework-figure-studio.md; a justified "
-                "fallback is valid, and an API blueprint is not scientific evidence. "
-                "Check native editability for D, without imposing the B pipeline "
-                "renderer's font or geometry on it. That the paper compiled says "
-                "nothing about how it looks. The "
+                "match the manuscript and the executed code, with clear grouping and "
+                "visual hierarchy, balanced spacing, publication-size typography, and "
+                "a legible included vector export. Inspect the actual rendered PPT Master "
+                "composition for default Method D, or the actual Method B fallback "
+                "composition, including Matplotlib or TikZ. "
+                "A crowded collection of text boxes is visually unfinished even when "
+                "individual labels are readable. Judge restraint, alignment, negative "
+                "space, and mathematical typography against strong published figures; "
+                "heavy card borders or oversized headings require composition repair. "
+                "That the paper compiled says nothing about how it looks. The "
                 "whole paper must look publication-ready."
             ),
             evidence_hint="the complete rendered paper and all included figures and tables",
@@ -517,15 +522,11 @@ def iteration_assessment(
     mission: Any,
     outcome: Any,
 ) -> IterationAssessment | None:
-    """The Reviewer's final judgment stands; nothing re-grades it.
+    """Do not re-grade the Reviewer's science from research-result categories.
 
-    This hook used to re-open a ``done`` final review whenever the structured
-    ``research_result`` grades fell short of the target level (a Reviewer
-    calling the work a ``finite_verification`` or leaving novelty
-    ``unverified``). One campaign then ran 75 certification missions, each
-    reviewed ``done`` and each re-queued, and never completed. A human final
-    reviewer who accepts a paper has accepted it; the grades are a summary of
-    that judgment, not a second judge.
+    Final paper acceptance is enforced before completion by core.venue_review:
+    the Reviewer must explicitly recommend clear weak accept or better for the
+    selected venue and current manuscript. This hook adds no second score.
     """
     _ = (stage, scope, project_root, state_root, mission, outcome)
     return None
@@ -608,7 +609,9 @@ _REVIEWER_RESEARCH_JUDGEMENT = (
     _AMBITIOUS_RESEARCH_POLICY
     + " Distinguish scientific failure from implementation or evaluator failure. "
     "Keep defects in the current stage and specify the repair; never request rollback. "
-    "In Review, overwrite paper/REVIEW.md and create no parallel review record."
+    "In Review, give the complete judgment naturally; the host writes paper/REVIEW.md. "
+    "Engineer performs the requested scientific repairs and experiments directly in Review "
+    "and returns for independent re-review; do not create parallel review records."
 )
 
 _MANAGER_RESEARCH_STEWARDSHIP = (

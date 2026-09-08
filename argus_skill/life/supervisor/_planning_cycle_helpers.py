@@ -167,6 +167,20 @@ def _research_project_done_issue(
                         continue
                 except Exception:  # noqa: BLE001 - unreadable binding fails closed
                     continue
+            if vertical == "research":
+                from types import SimpleNamespace
+
+                from ...core.venue_review import current_venue_acceptance_issue
+
+                if current_venue_acceptance_issue(
+                    SimpleNamespace(
+                        venue_review=extra.get("venue_review"),
+                        venue_review_snapshot=extra.get("venue_review_snapshot"),
+                        review_source="reviewer",
+                    ),
+                    state_root=Path(str(project_root)), artifact_root=candidate_root,
+                ):
+                    continue
             return ""
     if target_level is None:
         return ""

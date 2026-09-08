@@ -305,6 +305,10 @@ class SkillLoop(
                 routed_vertical,
                 project_root=vertical_state_root,
             ).engineer_operation(active_stage, default=MISSION)
+        if routed_vertical == "research" and scope.strip().lower().replace("-", "_") == "final_submission":
+            # Venue-level revision may need new evidence or a method repair.
+            # The narrower narrative editor remains available for prose tasks.
+            engineer_operation = MISSION
         engineer_prompt_context = resolve_role_prompt(
             mission_request(
                 vertical_state_root,
@@ -371,38 +375,47 @@ class SkillLoop(
         def adapt_after_rejections(rounds: list[RoundRecord]) -> str:
             return self._adapt_after_rejections(mission, state, rounds)
 
+        from .core.venue_review import configure_venue_revisions, requires_venue_review
+        from .skills.vertical_select import resolve_vertical_if_decided
+
+        venue_revisions = requires_venue_review(
+            vertical=self.config.active_vertical or resolve_vertical_if_decided(vertical_state_root) or "",
+            stage=active_stage, scope=scope,
+        )
+        round_config = SupervisedConfig(
+            max_rounds=self.config.max_rounds,
+            require_independent_review=self.config.require_independent_review,
+            no_progress_threshold=self.config.no_progress_threshold,
+            soft_round_limit=self.config.soft_round_limit,
+            hard_escalate_rounds=self.config.hard_escalate_rounds,
+            backend_failure_threshold=self.config.backend_failure_threshold,
+            backend_failure_backoff_seconds=self.config.backend_failure_backoff_seconds,
+            session_id=self.config.session_id,
+            role_session_policy=self.config.role_session_policy,
+            role_session_max_turns=self.config.role_session_max_turns,
+            role_session_max_input_tokens=self.config.role_session_max_input_tokens,
+            role_session_dir=(
+                Path(self.config.context_packet_path).expanduser().resolve().parent / "role-sessions"
+                if self.config.context_packet_path else None
+            ),
+            checkpoint_path=self.config.checkpoint_path,
+            context_packet_path=self.config.context_packet_path,
+            engineer_log_path=self.config.engineer_log_path,
+            engineer_operation=engineer_operation,
+            narrative_mission_id=run_id,
+            operator_questions_allowed=self.config.operator_questions_allowed,
+            operator_question_policy_root=self.config.operator_question_policy_root,
+        )
+        if venue_revisions:
+            # Quality rejection keeps the research review loop open. Transport,
+            # empty-output, resource, and explicit operator-stop handling remain.
+            configure_venue_revisions(round_config)
+
         status, rounds, final_message, reason, last_thread_id = supervised.run(
             objective=reviewer_task,
             original_objective=request_anchor,
             engineer_prompt_builder=build_prompt,
-            supervised_config=SupervisedConfig(
-                max_rounds=self.config.max_rounds,
-                require_independent_review=self.config.require_independent_review,
-                no_progress_threshold=self.config.no_progress_threshold,
-                soft_round_limit=self.config.soft_round_limit,
-                hard_escalate_rounds=self.config.hard_escalate_rounds,
-                backend_failure_threshold=self.config.backend_failure_threshold,
-                backend_failure_backoff_seconds=self.config.backend_failure_backoff_seconds,
-                session_id=self.config.session_id,
-                role_session_policy=self.config.role_session_policy,
-                role_session_max_turns=self.config.role_session_max_turns,
-                role_session_max_input_tokens=(
-                    self.config.role_session_max_input_tokens
-                ),
-                role_session_dir=(
-                    Path(self.config.context_packet_path).expanduser().resolve().parent
-                    / "role-sessions"
-                    if self.config.context_packet_path
-                    else None
-                ),
-                checkpoint_path=self.config.checkpoint_path,
-                context_packet_path=self.config.context_packet_path,
-                engineer_log_path=self.config.engineer_log_path,
-                engineer_operation=engineer_operation,
-                narrative_mission_id=run_id,
-                operator_questions_allowed=self.config.operator_questions_allowed,
-                operator_question_policy_root=self.config.operator_question_policy_root,
-            ),
+            supervised_config=round_config,
             workdir=workdir,
             on_event=self.on_event,
             seed_thread_id=seed_thread_id,

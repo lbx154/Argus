@@ -155,3 +155,30 @@ def test_solo_transcript_delivery_becomes_openable(tmp_path: Path) -> None:
         ("team.md", "delivery"),
         ("result.txt", "delivery"),
     ]
+
+
+def test_reviewed_framework_pptx_is_exposed_as_a_downloadable_binary(tmp_path: Path) -> None:
+    sid = "s-framework-delivery"
+    life = tmp_path / "projects" / sid
+    workspace = tmp_path / "workspace"
+    life.mkdir(parents=True)
+    (workspace / "paper" / "figures").mkdir(parents=True)
+    for suffix in ("pptx", "pdf", "png"):
+        (workspace / "paper" / "figures" / f"method.{suffix}").write_bytes(b"output")
+    write_session_meta(
+        tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(workspace)),
+    )
+    update_mission_view_event(life, {
+        "type": "life.mission.completed", "item_id": "redraw-framework",
+        "success": True, "status": "done",
+        "summary": "Reviewed paper/figures/method.{pptx,pdf,png}.",
+    })
+
+    rows = list_project_artifacts(sid, global_root=tmp_path)
+
+    assert rows is not None
+    assert [(row["path"], row["kind"]) for row in rows] == [
+        ("paper/figures/method.pptx", "binary"),
+        ("paper/figures/method.pdf", "pdf"),
+        ("paper/figures/method.png", "image"),
+    ]

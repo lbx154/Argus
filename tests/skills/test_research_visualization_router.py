@@ -56,7 +56,8 @@ def test_router_requires_real_deterministic_figure1_fallback() -> None:
 
     assert "what figure 1 must show" in content
     assert "ppt master" in content
-    assert "browser svg" in content
+    assert "method d" in content and "method b" in content
+    assert "no separate svg workflow" in content
     assert "boxed\nparagraph or table" in content
     assert "\\includegraphics" in body
     studio = texts["engineer/paper-framework-figure-studio.md"]
@@ -155,10 +156,10 @@ def test_concept_figures_leave_strict_acceptance_to_review() -> None:
     studio = texts["engineer/paper-framework-figure-studio.md"]
 
     assert "editable native PPTX through PPT Master" in router
-    assert "source and final included export" in router
+    assert "source and final included" in router
     assert "not a separate visual check" in router
-    assert "Keep the editable figure source and the final" in studio
-    assert "actual design blueprint and prompt" in studio
+    assert "Keep one canonical source for every formal export" in studio
+    assert "Preserve the actual returned image and prompt" in studio
     assert "The strict page-by-page visual judgment is made once, in Review" in studio
     assert "visual-review\nfiles" in studio
 
@@ -206,10 +207,9 @@ def test_concept_default_preserves_authority_editability_and_reuse() -> None:
         "stay on the SciencePlots/Matplotlib route",
     ):
         assert requirement in studio
-    fallback = " ".join(texts["engineer/research-svg-pipeline.md"].split())
-    assert "Use this for the Method B fallback" in fallback
-    assert "Times New Roman" in fallback
-    assert "pipeline_figure" in fallback
+    assert "engineer/research-svg-pipeline.md" not in texts
+    assert "Matplotlib, TikZ/LaTeX" in studio
+    assert "academic-vector-figures.md" in studio
     image = " ".join(texts["engineer/paper-illustration-image2.md"].split())
     assert "visual design blueprint" in image
     assert "Do not generate quantitative result plots" in image

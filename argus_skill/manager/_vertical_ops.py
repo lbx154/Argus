@@ -1113,6 +1113,7 @@ class _VerticalDecisionMixin:
         from ..core.pipeline_state import (
             legacy_pipeline_state_path,
             primary_pipeline_state_path,
+            read_pipeline_state,
         )
 
         pipeline_states = [
@@ -1121,12 +1122,24 @@ class _VerticalDecisionMixin:
         ]
         with _restore_files_on_error(pipeline_states):
             stages = self.plan_stages(vertical)
+            direction_mode = decision.research_direction_mode or None
+            if (
+                vertical == old_vertical == "research"
+                and decision.workflow_mode == "direct"
+                and not force_stage_reset
+            ):
+                # Editing an existing artifact does not re-select the research
+                # direction merely because its now-known mechanism is locked.
+                direction_mode = (
+                    read_pipeline_state(self.project_root).get("research_direction_mode")
+                    or direction_mode
+                )
             persist_vertical(
                 self.project_root,
                 vertical,
                 domain=decision.domain or None,
                 research_target_level=decision.research_target_level or None,
-                research_direction_mode=decision.research_direction_mode or None,
+                research_direction_mode=direction_mode,
                 workflow_mode=decision.workflow_mode,
                 start_stage=decision.start_stage,
                 target_venue=decision.target_venue or None,
@@ -1138,6 +1151,7 @@ class _VerticalDecisionMixin:
                 new_vertical=vertical,
                 force_replacement=force_stage_reset,
                 evidence_root=self.execution_workdir,
+                start_stage=(decision.start_stage if decision.workflow_mode == "direct" else ""),
             )
             self._adopt_operator_objective(vertical, decision, task)
         division = Division(

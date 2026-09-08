@@ -1,15 +1,17 @@
 ---
 name: "Composing a conceptual paper figure"
-description: "Default to Method D: reference figures, an image-API design blueprint, and editable PPT Master reconstruction; use Method B local vector drawing as the fallback."
+description: "Default to Method D: image-first design and editable PPT Master reconstruction; use Method B local drawing as the fallback, with refined academic colors and typography."
 ---
 
 # Composing a conceptual paper figure
 
 Use this in Paper for Figure 1 or another conceptual, method, architecture, or
 taxonomy figure. Read the research notes in `RESEARCH_NOTES.md`, the current manuscript, the executed method,
-and direct result sources. Keep the editable figure source and the final
-export included by the paper, plus the actual design blueprint and prompt when
-Method D is used.
+and direct result sources. Create the canonical editable figure source and the
+matching vector PDF and PNG. Method D is the default and Method B is the
+fallback, as defined below. Use precise mathematical/vector components inside
+the selected reconstruction when useful. Tool choice does not establish visual
+quality; inspect the actual figure and its publication-size inclusion.
 
 ## Default Method D; fallback Method B
 
@@ -19,7 +21,7 @@ panel of a mixed figure, stay on the SciencePlots/Matplotlib route.
 An explicit operator choice overrides the default.
 
 **Method D is the default: reference figures -> image-API design blueprint ->
-editable SVG reconstruction -> native PPTX through PPT Master -> paper export.**
+editable reconstruction -> native PPTX through PPT Master -> paper export.**
 
 1. Reuse an existing suitable figure or blueprint before creating another.
    A prose-only edit, compile, or new Review round does not justify regeneration.
@@ -30,7 +32,7 @@ editable SVG reconstruction -> native PPTX through PPT Master -> paper export.**
 2. Check the configured image route, disclosure authorization, available budget,
    and installed PPT Master via `engineer/presentation-master.md`. This default
    does not authorize spending beyond the task budget, uploading confidential
-   material, changing providers, or installing tools. If a prerequisite is
+   material, changing providers, or installing tools. Existing operator authorization applies; do not request it again. If a prerequisite is
    unavailable or the task's privacy, time, or output constraints rule it out,
    use Method B and state the concrete reason in the existing research notes
    or task response. If the operator explicitly requires Method D only or an
@@ -42,7 +44,7 @@ editable SVG reconstruction -> native PPTX through PPT Master -> paper export.**
    and repair locally rather than repeatedly calling the API for text or
    geometry fixes. Preserve the actual returned image and prompt alongside
    the drawing source, without credentials. A failed request is not a blueprint.
-4. The active Engineer model reconstructs the design as editable SVG, restoring
+4. The active Engineer model reconstructs the design as editable objects, restoring
    every scientific label, value, branch, and arrow from authoritative sources,
    not from generated image text or geometry. Follow an explicit model choice;
    Method D does not require a particular reconstruction model. Inspect the
@@ -57,13 +59,67 @@ editable SVG reconstruction -> native PPTX through PPT Master -> paper export.**
    do not claim an Office rendering was inspected when it was not.
 
 **Method B is the fallback: direct local vector drawing without an image API.**
-The active model designs the figure and writes SVG or local drawing code
-(for example, Python/PyMuPDF). For method pipelines use
-`research-svg-pipeline.md`; for other compositions use the suitable local
-vector tools below. Keep editable source and the included vector export.
+The active model designs the figure with native objects or local drawing code,
+including Matplotlib, TikZ/LaTeX, or other appropriate vector tools. For precise
+mathematics and physical-unit layout, use `academic-vector-figures.md`. Keep the
+canonical editable source and the included vector export. SVG may be an internal
+source/export format, but there is no separate SVG workflow or routing entry.
 Method B does not require PPT Master or image-generation credentials. It must
 preserve the same scientific fidelity and publication-size readability as D;
 never relabel a Method B drawing as an API-assisted reconstruction.
+
+## Publication style
+
+Apply these defaults to a new figure unless the paper already has an established
+style. Aim for a carefully composed academic illustration, with quiet inherited
+machinery and unmistakable scientific structure.
+
+- Start with the scientific reading order, two or three levels of visual
+  hierarchy, and meaningful phase containers. Show tokens, candidate sets,
+  matrices or operators where they explain the mechanism. Keep prose in the
+  caption instead of adding a full-width paragraph inside the figure.
+- Use a white canvas, charcoal text, 0.5–0.9 pt strokes at publication size,
+  and one or two restrained semantic accents. Pale fill belongs only where it
+  helps group the mechanism. Align edges and baselines, allow visible internal
+  padding, and leave connector corridors open. Do not give every step a large
+  colored card, heavy rounded border, or pill badge.
+- Default to a restrained scientific palette: ink `#28344A`, muted labels
+  `#69768A`, rules `#ACB6C4`, navy `#3C5488`, and teal `#008F7A`. Use pale
+  tints `#EFF2F7` and `#EEF6F3` only for the selected semantic groups. A muted
+  terracotta `#C17664` may replace one accent for a necessary contrast; do not
+  accumulate all colors. Avoid a separate peach/yellow/green/purple fill for
+  every module. Preserve a paper's existing coherent scientific palette when
+  it is already stronger, and check grayscale and color-vision separation.
+- Use a coherent sans-serif hierarchy for module names and annotations;
+  mathematical notation may use a compatible math face. A manuscript's Times
+  body font does not require every diagram label to use Times New Roman.
+- Size ordinary labels for the actual included paper width (normally 8–9 pt,
+  never below 8 pt). Panel headings generally need only 9–10 pt; avoid a large
+  slogan across the top. Use short panel letters where useful. Let content set
+  geometry and move prose into the caption instead of reducing type.
+- Render real subscripts, superscripts, set notation, Greek letters, and
+  operators with Matplotlib mathtext or LaTeX/TikZ when appropriate. A failed
+  font or PPT conversion calls for a different math representation or renderer,
+  not shipping programming-style substitutes such as `C_t` or `J(pi)` when the
+  paper uses mathematical notation.
+- Reserve one accent for the contribution or selected path, with inherited
+  machinery quiet. Use numbered phases only when they clarify reading order.
+  Follow the geometry and semantic requirements below.
+
+For a new or aesthetically unsuccessful figure, sketch two genuinely different
+compositions before detailed rendering; choose by scientific reading order,
+clarity, and economy at the actual paper width. Reuse a good composition during
+local repairs. Do not create a separate process report or ask the operator to
+make routine layout decisions.
+
+Open `engineer/academic-vector-figures.md` for physical-unit Matplotlib,
+mathematical typography, or TikZ/SVG composition. If PPT Master is selected,
+locate it with `python -m argus_skill.tools.ppt_master status`; the
+reported `skill_root` contains the toolkit instructions, layout references,
+`scripts/svg_quality_checker.py`, `scripts/svg_to_pptx.py`, and
+`scripts/pptx_to_svg.py`. Use `engineer/presentation-master.md` to install it if
+needed. Use native shapes and text, then inspect the converted PPTX through its
+rendered output as well as the vector figure at the manuscript's actual width.
 
 ## Choose a composition archetype first
 
@@ -135,19 +191,17 @@ fits the paper's actual claim before drawing anything:
 
 ## From an editable source to the finished figure
 
-Never deliver the final claim-bearing figure as an uncorrected one-shot raster.
-Method D's generated image is a design reference, not scientific evidence.
+Never deliver an uncorrected one-shot raster as the final claim-bearing figure.
+An optional image blueprint is a design reference, not scientific evidence.
 Emit an editable structured source, render it, inspect the render, and revise
 until it meets the figure requirements.
 Decompose complex figures — build panels and modules separately, then compose.
 
-The following local tools support Method B or exact subcomponents of a Method D
-reconstruction; they do not override the default above.
-
-| Composition | Local vector tool |
+| Composition | Primary route |
 |---|---|
-| Pipeline strip or method architecture | Drawing the method in SVG (`research-svg-pipeline.md`): model-authored compact horizontal SVG grounded in code and paper, staggered geometry, Times New Roman, cropped vector PDF export |
-| Contrast diptych, lineage panels | Editable native objects through PPT Master; for a contrast diptych draw one diagram and apply the delta programmatically so the panels are guaranteed identical except the edit |
+| Pipeline strip or method architecture | Method D by default: image design blueprint and native editable PPT Master reconstruction; Method B fallback: native objects or local Matplotlib/TikZ drawing |
+| Contrast diptych, lineage panels | Use one programmatic source for aligned panels; apply the delta to a shared diagram so the panels differ only where the science differs |
+| Mathematical bounds, operators, or geometry | TikZ/LaTeX or Matplotlib mathtext with vector output; combine with SVG/PPT when needed for the surrounding architecture |
 | Panels of verbatim text (prompts, trajectories, rubrics) | HTML/CSS with inline SVG rendered headlessly to vector PDF — the only route with a real text-layout engine; verify the render visually since headless failures are silent |
 | Exact load-bearing topology, taxonomy trees | Graphviz for layout coordinates, restyled through SVG; or FigureSpec, Draw.io, browser SVG |
 | Results teaser | Matplotlib through Styling data figures for publication |
@@ -157,7 +211,17 @@ reading direction, one highlighting device, decodable legend, text budget,
 notation match, font size, no crossings, and a caption with takeaway, panel
 walk, and color decode.
 
-Paper needs a complete, credible figure and a successful compile. Apart from
-the actual blueprint/prompt and upstream-required project files, do not create
+Also judge the whole composition: does the mechanism read immediately, are
+groups and emphasis clear, and does the figure look as carefully designed as
+the accepted examples? Legible text and a clean export alone are insufficient.
+Recompose a crowded collection of text boxes instead of only nudging labels.
+Compare the actual exported figure with the starting version: better spacing,
+hierarchy, mathematical notation, and deliberate emphasis must be visible.
+Keep one canonical source for every formal export. If a PPTX is also delivered,
+inspect it separately and ensure it depicts the same final composition; an old
+deck must not be presented as the source of a new PDF. Name each final source
+and export with its complete individual path in the handoff so it is openable.
+
+Paper needs a complete, credible figure and a successful compile. Do not create
 layout reports, exemplar collections, provenance records, or visual-review
 files. The strict page-by-page visual judgment is made once, in Review.

@@ -53,6 +53,9 @@ def record_stage_review(
     manager_action: str,
     manager_reason: str = "",
     manuscript_binding: dict[str, str] | None = None,
+    contract_root: Path | str | None = None,
+    venue_review: dict[str, Any] | None = None,
+    venue_review_snapshot: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Record one independently reviewed stage-closing attempt."""
     normalized_stage = str(stage or "").strip().lower()
@@ -63,7 +66,7 @@ def record_stage_review(
         from ..skills.stage_machine import completion_contract_fingerprint
 
         checklist_fingerprint = completion_contract_fingerprint(
-            project_root,
+            contract_root or project_root,
             normalized_stage,
             version=1,
         )
@@ -82,7 +85,11 @@ def record_stage_review(
         "evidence_fingerprint": _evidence_fingerprint(item),
         "recorded_at": now,
         "project_root": str(Path(project_root).resolve()),
+        "contract_root": str(Path(contract_root or project_root).resolve()),
     }
+    if venue_review is not None:
+        record["venue_review"] = dict(venue_review)
+        record["venue_review_snapshot"] = venue_review_snapshot
     try:
         from .manuscript_snapshot import manuscript_snapshot
 
@@ -139,6 +146,28 @@ def all_stage_reviews(state_root: Path | str) -> dict[str, dict[str, Any]]:
                 result["review_status"] = "stale"
                 result["freshness_status"] = freshness.get("status")
                 result["stale_reason"] = freshness.get("message")
+        if str(stage) == "review" and project_root:
+            from ..skills.vertical_select import resolve_vertical
+
+            contract_root = result.get("contract_root") or state_root
+            if resolve_vertical(contract_root) == "research":
+                from types import SimpleNamespace
+
+                from .venue_review import current_venue_acceptance_issue
+
+                issue = current_venue_acceptance_issue(
+                    SimpleNamespace(
+                        venue_review=result.get("venue_review"),
+                        venue_review_snapshot=result.get("venue_review_snapshot"),
+                        review_source="reviewer",
+                    ),
+                    state_root=contract_root, artifact_root=project_root,
+                )
+                if issue:
+                    result["certified"] = False
+                    result["review_status"] = "stale"
+                    result["freshness_status"] = "venue_acceptance_required"
+                    result["stale_reason"] = issue
         reviews[str(stage)] = result
     return reviews
 

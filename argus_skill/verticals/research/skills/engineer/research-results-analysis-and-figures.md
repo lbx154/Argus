@@ -9,6 +9,12 @@ Read the executed code, explicit configuration, raw outputs, evaluator results,
 and the current research notes in `RESEARCH_NOTES.md`. Produce only analysis code, paper tables, editable
 figure sources, and final exports used by `paper/main.tex`.
 
+Conceptual, method, and architecture figures follow
+`paper-framework-figure-studio.md`: **Method D is the default**, using an actual
+image blueprint and editable PPT Master reconstruction; **Method B is the
+fallback** using local drawing tools such as Matplotlib or TikZ when D is
+unavailable or unsuitable. Do not introduce a separate SVG workflow.
+
 ## Analysis
 
 - Compute every paper number from raw rows; never hard-code an expected result.
@@ -23,13 +29,12 @@ figure sources, and final exports used by `paper/main.tex`.
 
 - Use the single SciencePlots/Matplotlib data-figure path for quantitative paper
   charts.
-- For conceptual and method/architecture figures, follow
-  `paper-framework-figure-studio.md`: default Method D (image-API blueprint,
-  editable reconstruction through PPT Master), with Method B local vector
-  drawing as the disclosed fallback. `research-svg-pipeline.md` is the Method B
-  pipeline renderer, not the default for all method figures.
-- HTML/SVG, ECharts, Recharts, Vega, and FigureSpec remain local composition
-  tools where appropriate; they do not change the concept-figure default.
+- Use Composing a conceptual paper figure (`paper-framework-figure-studio.md`)
+  for method/architecture pipelines: design meaningful groups and visual
+  hierarchy from code and paper, then use PPT Master with an editable PPTX
+  and included vector PDF.
+- Use PPT Master, HTML/SVG, ECharts, Recharts, Vega, or FigureSpec for other conceptual
+  and interactive-source figures when appropriate.
 - Use real measured values, correct units, conventional axes, readable labels,
   and uncertainty when scientifically relevant.
 - Make the winning comparison and takeaway immediately visible.

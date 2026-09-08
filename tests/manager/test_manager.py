@@ -779,6 +779,50 @@ def test_replacement_intent_can_commit_a_supplied_locked_idea(tmp_path) -> None:
     assert state["current_stage"] == "idea"
 
 
+@pytest.mark.parametrize("start_stage", ["paper", "review"])
+def test_completed_paper_artifact_revision_keeps_direction_and_selected_start(
+    tmp_path, monkeypatch, start_stage,
+) -> None:
+    from argus_skill.core.pipeline_state import read_pipeline_state, write_pipeline_state
+
+    persist_vertical(
+        tmp_path, "research", workflow_mode="staged",
+        research_target_level="publishable", research_direction_mode="broad",
+    )
+    state = read_pipeline_state(tmp_path)
+    state.update(
+        current_stage="review", current_verdict="certified",
+        stages={stage: {"status": "done"} for stage in RESEARCH_STAGES},
+        selected_idea={"route": "previously-reviewed-method"},
+        research_target_set_at=1.0,
+    )
+    write_pipeline_state(tmp_path, state)
+    notes = tmp_path / "RESEARCH_NOTES.md"
+    notes.write_text("Existing scientific result and evidence pointers.")
+    # The completed-paper certificate is an input to this dispatch test;
+    # certificate validation has independent coverage.
+    monkeypatch.setattr(
+        "argus_skill.manager._vertical_ops.vertical_select.vertical_reached_own_terminal_stage",
+        lambda *_args: True,
+    )
+    manager = Manager(project_root=tmp_path)
+    decision = VerticalDecision(
+        choice="existing", vertical="research", workflow_mode="direct",
+        start_stage=start_stage, execution_task="Redraw the existing framework figure",
+        research_target_level="publishable", research_direction_mode="locked",
+    )
+    manager.commit_vertical_decision("Redraw the paper's framework figure", decision)
+
+    state = read_pipeline_state(tmp_path)
+    assert state["current_stage"] == start_stage
+    assert state["current_verdict"] == "in_progress"
+    assert state["research_direction_mode"] == "broad"
+    assert state["selected_idea"] == {"route": "previously-reviewed-method"}
+    assert state["research_target_set_at"] > 1.0
+    assert notes.read_text() == "Existing scientific result and evidence pointers."
+    assert state["stages"]["review"]["status"] != "done"
+
+
 def test_failed_vertical_commit_restores_pipeline_state(tmp_path, monkeypatch):
     manager = Manager(project_root=tmp_path, runner=_existing("research"))
     manager.divide("seed the research pipeline")

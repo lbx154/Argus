@@ -992,6 +992,21 @@ class _StageDecisionMixin:
                     diagnostic="experiment_scale_assessment_required",
                 )
 
+        from ..core.venue_review import current_venue_acceptance_issue, requires_venue_review
+        from ..skills.vertical_select import resolve_vertical
+
+        if requires_venue_review(
+            vertical=resolve_vertical(root), stage=cur, scope=mission_scope,
+        ) and str(getattr(review, "status", "")) == "done":
+            acceptance_issue = current_venue_acceptance_issue(
+                review, state_root=root, artifact_root=self.execution_workdir,
+            )
+            if acceptance_issue:
+                return StageTransition(
+                    "hold", cur, acceptance_issue, current_stage=cur,
+                    source="venue_acceptance_hold", diagnostic="final_venue_acceptance_required",
+                )
+
         manuscript_binding = getattr(review, "manuscript_snapshot", None)
         if isinstance(manuscript_binding, dict):
             try:

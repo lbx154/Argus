@@ -26,9 +26,10 @@ class PaperRunner:
         options = kwargs["options"]
         self.shared.calls.append(label)
         if label in {"reviewer-visual", "reviewer-coldread"}:
-            files = [p.relative_to(options.working_dir).as_posix()
-                     for p in Path(options.working_dir).rglob("*") if p.is_file()]
-            assert files == ["paper/main.pdf"]
+            files = {p.relative_to(options.working_dir).as_posix()
+                     for p in Path(options.working_dir).rglob("*") if p.is_file()}
+            assert files == {"paper/main.pdf", "paper/main.txt", "paper/pages/page-001.png"}
+            assert "paper/pages/page-*.png" in kwargs["prompt"]
         assert options.sandbox_mode == "read-only"
         assert options.force_safe_mode
         return SimpleNamespace(
@@ -41,7 +42,17 @@ class PaperRunner:
 
 
 @pytest.fixture
-def paper_review(tmp_path):
+def paper_review(tmp_path, monkeypatch):
+    from argus_skill.core import manuscript_narrative_runtime
+
+    # These tests exercise caching and dispatch; real PDF rendering is covered
+    # by the readable-workspace tests with an actual multi-page PDF.
+    def render_fixture(paper):
+        (paper / "pages").mkdir()
+        (paper / "pages" / "page-001.png").write_bytes(b"rendered-page")
+        (paper / "main.txt").write_text("PDF-derived text")
+
+    monkeypatch.setattr(manuscript_narrative_runtime, "_prepare_readable_pdf", render_fixture)
     project, state = tmp_path / "project", tmp_path / "state"
     paper = project / "paper"
     paper.mkdir(parents=True)
@@ -56,6 +67,24 @@ def paper_review(tmp_path):
         model="test-reviewer", active_vertical="research", working_dir=str(project),
         vertical_state_root=str(state), narrative_snapshot_root=str(snapshot),
     )
+
+
+def test_unavailable_page_rendering_never_launches_or_caches_a_visual_pass(
+    paper_review, monkeypatch,
+):
+    from argus_skill.core import manuscript_narrative_runtime
+
+    def unavailable(_paper):
+        raise RuntimeError("PDF renderer unavailable")
+
+    monkeypatch.setattr(manuscript_narrative_runtime, "_prepare_readable_pdf", unavailable)
+    _, config = paper_review
+    runner = PaperRunner()
+    result = _parallel_final_review_passes(runner, config)
+    assert result.backend_unavailable
+    assert "PDF renderer unavailable" in result.reason
+    assert runner.shared.calls == []
+    assert not config.paper_pass_cache
 
 
 def test_unchanged_paper_skips_loss_and_reuses_pdf_assessments(paper_review):

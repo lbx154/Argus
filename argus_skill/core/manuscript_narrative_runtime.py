@@ -2,7 +2,8 @@
 
 Nothing in this module writes a project-facing review artifact. Snapshot state
 lives under the vertical/session state root; cold readers receive a temporary
-workspace containing one rendered PDF and nothing else.
+workspace containing only the rendered PDF and, when requested, readable
+page images and text derived from that same PDF.
 """
 from __future__ import annotations
 
@@ -198,9 +199,41 @@ def snapshot_after_edit(
     )
 
 
+def _prepare_readable_pdf(paper: Path) -> None:
+    """Render on the host before a read-only CLI reviewer receives the PDF.
+
+    Some CLI file viewers expose PDFs as binary text and cannot run a renderer
+    in read-only mode. Only derivatives of the copied PDF enter this workspace;
+    manuscript source, earlier reviews, and project previews remain excluded.
+    """
+    try:
+        import pymupdf as fitz
+    except ImportError as exc:
+        raise RuntimeError(
+            "PDF review requires PyMuPDF; install argus-skill[paper]"
+        ) from exc
+    pages = paper / "pages"
+    pages.mkdir()
+    try:
+        with fitz.open(paper / "main.pdf") as document:
+            if document.needs_pass or not len(document):
+                raise ValueError("the PDF is encrypted or contains no pages")
+            text_pages = []
+            for index, page in enumerate(document, 1):
+                page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False).save(
+                    pages / f"page-{index:03d}.png"
+                )
+                text_pages.append(f"## PDF page {index}\n\n{page.get_text(sort=True)}")
+            (paper / "main.txt").write_text("\n\n".join(text_pages), encoding="utf-8")
+    except Exception as exc:
+        raise RuntimeError(f"could not prepare rendered PDF review inputs: {exc}") from exc
+
+
 @contextmanager
-def isolated_pdf_workspace(project_root: Path | str) -> Iterator[Path]:
-    """Yield a temporary workspace whose sole paper input is ``main.pdf``."""
+def isolated_pdf_workspace(
+    project_root: Path | str, *, readable: bool = False,
+) -> Iterator[Path]:
+    """Yield an isolated PDF, optionally with its host-rendered pages and text."""
     source = Path(project_root).expanduser().resolve() / "paper" / "main.pdf"
     if not source.is_file():
         raise FileNotFoundError(f"rendered paper is missing: {source}")
@@ -209,6 +242,8 @@ def isolated_pdf_workspace(project_root: Path | str) -> Iterator[Path]:
         paper = root / "paper"
         paper.mkdir()
         shutil.copy2(source, paper / "main.pdf")
+        if readable:
+            _prepare_readable_pdf(paper)
         yield root
 
 

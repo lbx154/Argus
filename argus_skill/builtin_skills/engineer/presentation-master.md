@@ -1,6 +1,6 @@
 ---
 name: "PPT Master for Presentations and Paper Figures (Argus adapter)"
-description: "Use the installed hugohe3/ppt-master workflow for Method D research-paper conceptual figure reconstruction, as well as native PPTX decks and templates. PPT conversion remains usable when image-2 is unavailable."
+description: "Use installed hugohe3/ppt-master for editable Method D paper-figure reconstruction, decks, and templates; Figure Studio owns Method D default and Method B fallback routing."
 ---
 
 # PPT Master — Argus Adapter
@@ -11,20 +11,21 @@ to commit `2e29f3d3cfc379c689b07027d0fa776b9ff79291`.
 
 ## When to use
 
-For research-paper conceptual figures, use PPT Master for Method D's editable
-reconstruction after reference inspection and an authorized image-API design
-blueprint. The canonical routing and fallback contract is
-`engineer/paper-framework-figure-studio.md` in the active Research vertical;
-Method B direct local vector drawing is the fallback, not a second default.
-Paper-facing uses
+For research-paper conceptual figures, Figure Studio defaults to Method D:
+an image design blueprint followed by native editable PPT Master reconstruction,
+with Method B local drawing as the fallback. Preserve the evidence-bound
+semantic contract, same-domain
+exemplar/style retrieval, multiple layout plans, procedural native objects,
+rendered visual critique, and bounded source-level repair. Paper-facing uses
 include conceptual figures, method overviews, architecture diagrams, teasers,
 and graphical abstracts. The toolkit can produce these through
 SVG/design-spec/PPTX routes without image-2 or another generative image backend.
 
 Do not use PPT Master merely to restyle an ordinary statistical chart; data
 figures use the research vertical's SciencePlots route. Use Draw.io,
-FigureSpec, or Mermaid/Graphviz instead only for an explicitly documented
-supporting exact-topology exception.
+FigureSpec, or Mermaid/Graphviz for exact topology. Matplotlib, TikZ/LaTeX,
+and local vector components support precise mathematical typography inside
+the selected Method D/B workflow. Do not add a separate SVG workflow.
 
 ## Locate and load the real skill
 
@@ -35,10 +36,8 @@ SKILL_DIR="$PPT_MASTER_ROOT/skills/ppt-master"
 ```
 
 The status command validates the pinned revision, required toolkit files, clean
-checkout, and dependencies for the active Python. If it fails, do not attempt
-PPT conversion. Research concept figures may use the disclosed Method B fallback
-unless the operator explicitly requires Method D or native PPTX; for those
-requests, report the blocker and that the operator must run:
+checkout, and dependencies for the active Python. If it fails, stop and report
+that the operator must run:
 
 ```bash
 ${ARGUS_SKILL_BIN:-argus-skill} --install-ppt-master

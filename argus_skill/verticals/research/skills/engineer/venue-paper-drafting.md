@@ -12,6 +12,12 @@ Read `references/paper-writing-craft.md`
 once before drafting and keep it open while revising; it is the how, this file
 is the order.
 
+Conceptual, method, and architecture figures follow
+`paper-framework-figure-studio.md`: **Method D is the default**, using an actual
+image blueprint and editable PPT Master reconstruction; **Method B is the
+fallback** using local drawing tools such as Matplotlib or TikZ when D is
+unavailable or unsuitable. Do not introduce a separate SVG workflow.
+
 ## The standard
 
 The standard is a strong accepted paper at the selected venue, the kind the
@@ -99,11 +105,10 @@ Include every intended claim-bearing experiment, figure, table, and citation.
 
 Every figure and table carries a scientific claim. Figure 1 should explain the
 method or central mechanism. Table 1 should normally present the main
-quantitative result. For conceptual and method figures, open
-`paper-framework-figure-studio.md`: default Method D (image-API blueprint plus
-editable PPT Master reconstruction), with Method B local vector drawing as the
-disclosed fallback. Keep labels and connections grounded in code and paper and
-include the vector PDF export. Use readable publication-scale
+quantitative result. For a method pipeline, open `paper-framework-figure-studio.md`
+and design the current code and paper as a composed, grouped figure through
+PPT Master; keep the native editable PPTX and include its vector PDF export.
+Use readable publication-scale
 typography and conventional axes, units, captions, and uncertainty. A caption
 tells the reader what to see: the question the figure answers, the comparison
 conditions that matter, and the decisive number when the number is the point or

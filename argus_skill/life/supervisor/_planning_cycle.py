@@ -559,6 +559,8 @@ class PlanningCycleMixin(
                         ).strip(),
                         review_source="reviewer",
                         manuscript_snapshot=manuscript_binding,
+                        venue_review=review.get("venue_review"),
+                        venue_review_snapshot=review.get("venue_review_snapshot"),
                     ),
                     mission_scope,
                 )
@@ -630,6 +632,8 @@ class PlanningCycleMixin(
                 "final_submission_certified": True,
                 "final_submission_signature": self._final_submission_signature(),
                 "manuscript_snapshot": dict(manuscript_binding),
+                "venue_review": getattr(review, "venue_review", None),
+                "venue_review_snapshot": getattr(review, "venue_review_snapshot", None),
                 "certification_recovered": True,
             }):
                 return ""
