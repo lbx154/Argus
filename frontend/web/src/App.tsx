@@ -640,7 +640,7 @@ export default function App() {
         );
       } else if (daemon && Number(daemon.rc ?? 0) !== 0) {
         notify('error', reply || `Task queued, but executor did not start: ${String(daemon.error || 'unknown error')}`);
-      } else if (reply) {
+      } else if (reply && !observe) {
         notify('success', reply);
       }
       snapQ.refetch?.();

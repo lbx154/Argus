@@ -38,6 +38,7 @@ export type MacroData = MapCard & {
   live: boolean;
   paused?: boolean;
   growthDelay?: number;
+  dispatchState?: 'receiving' | 'landed';
   growingSteps?: Record<string, number>;
   growingLinks?: Record<string, number>;
   seenCards?: Set<string>;
@@ -253,6 +254,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       data-part={data.part}
       data-arrive={arrive}
       data-growing={data.growthDelay != null}
+      data-dispatch={data.dispatchState}
       style={{ animationDelay: `${data.growthDelay ?? 0}ms` }}
       data-focused={focused}
       data-detailed={detailed}

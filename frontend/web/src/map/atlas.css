@@ -20,7 +20,6 @@
 .map-edge-flow { pointer-events: none; animation: atlas-flow 2.8s linear infinite; filter: drop-shadow(0 0 3px #76b7cf88); }
 .map-dispatch-trail { position: fixed; inset: 0; width: 100vw; height: 100dvh; z-index: 44; pointer-events: none; overflow: visible; filter: drop-shadow(0 0 7px #78c8d166); }
 .map-dispatch-trail path { opacity: 0; }
-.map-dispatch-flight { background: linear-gradient(115deg, rgb(var(--panel)), rgb(var(--panel)) 65%, #74b9c31b); border-color: #79abc766; box-shadow: 0 20px 70px #22496829, 0 3px 12px #22496812; }
 .map-canvas-toolbar>button:hover, .map-workspace-actions button:not(:disabled):hover { border-color: #7ca9c8; background: rgb(var(--blue) / .045); }
 .map-relation-label { color: #557a97; border-color: #8daec53b; font-size: 11px; box-shadow: 0 3px 10px #1c486510; }
 .submap-step[data-active=true] { background: linear-gradient(130deg, #6ca1c407, var(--map-paper) 60%); }

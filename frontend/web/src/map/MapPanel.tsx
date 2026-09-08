@@ -137,8 +137,8 @@ function MapCanvas({
   const growth = useMapGrowth(scene, !!data.history_loading);
   const submitFromMap: MapSend = async (text, files = []) => {
     const id = ++dispatchSerial.current;
-    const source = canvasRef.current?.querySelector('textarea')?.getBoundingClientRect();
-    setFlight({ id, text: splitDraft(text).text.replace(/\s+/g, ' ').slice(0, 180), origin: { x: source?.left ?? 20, y: source?.top ?? innerHeight - 100 } });
+    const source = canvasRef.current?.querySelector('.map-composer')?.getBoundingClientRect();
+    setFlight({ id, text: splitDraft(text).text.replace(/\s+/g, ' ').slice(0, 180), origin: { x: source?.left ?? 20, y: source?.top ?? innerHeight - 100, width: source?.width ?? 260, height: source?.height ?? 56 } });
     let hasTask = false;
     const observe: DispatchObserver = (result) => {
       if (result.type === 'task') hasTask = true;
@@ -315,7 +315,7 @@ function MapCanvas({
   const previousDisplay = useRef<MacroNode[]>([]);
   const displayNodes = useMemo(
     () => {
-      const next = nodes.map((n) => ({
+      const next = nodes.map<MacroNode>((n) => ({
         ...n,
         hidden: !visibleIds.has(n.id),
         data: {
@@ -328,6 +328,9 @@ function MapCanvas({
           detailed: camera.detailed && n.id === camera.focusId,
           canvasSize: camera.canvasSize,
           growthDelay: growth.cards[n.id],
+          dispatchState: flight?.result?.type === 'task' && flight.result.taskId === n.data.task.id && !composer.historical
+            ? flight.landed ? 'landed' : 'receiving'
+            : undefined,
           growingSteps: Object.fromEntries(n.data.layout.steps.flatMap((step) => {
             const delay = growth.steps[stepIdentity(n.id, step.id)];
             return delay == null ? [] : [[step.id, delay]];
@@ -363,6 +366,8 @@ function MapCanvas({
       copy,
       zh,
       growth,
+      flight,
+      composer.historical,
       actions.artifacts,
       actions.onOpenArtifact,
     ],
@@ -546,8 +551,9 @@ function MapCanvas({
               taskId={focusedNode?.data.task.id || snapshot.mission_view?.mission.id || undefined}
               paused={paused && !composer.pending} onClose={() => setAgentsOpen(false)} />
           </aside>}
-          {flight && !readOnly && <MapDispatchMotion flight={flight} canvas={canvasRef} zh={zh} pendingLabel={pendingLabel} historical={composer.historical}
+          {flight && !readOnly && <MapDispatchMotion flight={flight} canvas={canvasRef} zh={zh} historical={composer.historical}
             onReveal={(taskId) => { if (data.tasks.some((task) => task.id === taskId)) camera.fit(); }}
+            onLand={(id) => setFlight((current) => current?.id === id ? { ...current, landed: true } : current)}
             onFinish={(id) => setFlight((current) => current?.id === id ? null : current)} />}
           <div className="map-canvas-toolbar nowheel">
             <label className="map-search">
@@ -736,7 +742,9 @@ function MapCanvas({
             </button>
           </div>
           {!readOnly && (
-            <MapComposer {...composer} onSend={submitFromMap} onCancel={cancelFromMap} overview={!camera.detailed && graph.tasks.length > 0} />
+            <MapComposer {...composer} pendingLabel={pendingLabel}
+              dispatchStatus={flight?.result?.type === 'task' ? flight.landed || composer.historical ? 'task' : 'launching' : flight?.result?.outcome}
+              onSend={submitFromMap} onCancel={cancelFromMap} overview={!camera.detailed} />
           )}
           {menu && !readOnly && (
             <div
