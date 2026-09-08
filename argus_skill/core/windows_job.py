@@ -191,7 +191,8 @@ def spawn_owned_process(command, *, popen_factory=subprocess.Popen, **kwargs):
     process = None
     try:
         kwargs["creationflags"] = kwargs.get("creationflags", 0) | _CREATE_SUSPENDED
-        kwargs["env"] = {**(kwargs.get("env") or os.environ), _JOB_ENV: job.name}
+        environment = kwargs.get("env")
+        kwargs["env"] = {**(os.environ if environment is None else environment), _JOB_ENV: job.name}
         process = popen_factory(command, **kwargs)
         # Retaining the Popen process handle prevents PID reuse during resume.
         process._argus_windows_job = job
