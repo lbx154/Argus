@@ -90,7 +90,7 @@ def test_renderer_preserves_source_and_cli_reports_input_errors(tmp_path: Path, 
     assert source.read_text() == DRAWING
 
 
-def test_research_paper_and_review_receive_svg_route() -> None:
+def test_research_paper_defaults_to_ppt_studio_and_keeps_svg_repairs_available() -> None:
     texts = dict(iter_vertical_skill_texts("research"))
     skill = "engineer/research-svg-pipeline.md"
     assert skill in texts
@@ -100,15 +100,17 @@ def test_research_paper_and_review_receive_svg_route() -> None:
         role="engineer", operation="author_draft", stage="paper", scope="",
         project_root=None,
     )
-    assert skill in prompt
-    assert "pipeline_figure" in prompt
+    assert "engineer/paper-framework-figure-studio.md" in prompt
+    assert "PPT Master" in prompt
+    assert "argus_skill.tools.ppt_master status" in prompt
+    assert "pipeline_figure" not in prompt
     assert "Reuse an existing suitable figure" in prompt
     assert "after the Introduction" in prompt
     assert "page 2 or 3" in prompt
     for stage in ("paper", "review"):
         checklist = " ".join(item.statement for item in STAGE_CHECKLISTS[stage])
-        assert "Times New Roman" in checklist
-        assert "staggered" in checklist
+        assert "PPT Master" in checklist
+        assert "visual hierarchy" in checklist
     for stage in ("idea", "experiment", "review"):
         prompt = render_role_prompt_fragment(
             role="engineer", operation="", stage=stage, scope="", project_root=None,

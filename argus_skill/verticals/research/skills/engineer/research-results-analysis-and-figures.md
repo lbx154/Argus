@@ -23,9 +23,10 @@ figure sources, and final exports used by `paper/main.tex`.
 
 - Use the single SciencePlots/Matplotlib data-figure path for quantitative paper
   charts.
-- Use Drawing the method in SVG (`research-svg-pipeline.md`) for method/architecture
-  pipelines: synthesize compact horizontal, staggered SVG from code and paper,
-  with Times New Roman and an included vector PDF.
+- Use Composing a conceptual paper figure (`paper-framework-figure-studio.md`)
+  for method/architecture pipelines: design meaningful groups and visual
+  hierarchy from code and paper, then use PPT Master with an editable PPTX
+  and included vector PDF.
 - Use PPT Master, HTML/SVG, ECharts, Recharts, Vega, or FigureSpec for other conceptual
   and interactive-source figures when appropriate.
 - Use real measured values, correct units, conventional axes, readable labels,

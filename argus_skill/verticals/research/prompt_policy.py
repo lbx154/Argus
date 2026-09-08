@@ -566,14 +566,17 @@ def _engineer_fragment(
             narrative_packaging,
             (
                 "## On-demand method figure\n"
-                "Only when a method pipeline needs drawing, open "
-                "engineer/research-svg-pipeline.md and use "
-                "python -m argus_skill.verticals.research.pipeline_figure. "
+                "Only when a method or architecture figure needs drawing, open "
+                "engineer/paper-framework-figure-studio.md. Design the composition "
+                "and visual hierarchy first, then use PPT Master for native editable "
+                "PPTX and a vector PDF. Locate the toolkit with "
+                "python -m argus_skill.tools.ppt_master status. "
                 "Reuse an existing suitable figure; do not invoke the component every "
-                "round or for prose-only edits. The current Engineer designs the SVG "
-                "from code and manuscript; no separate model call is needed. Include "
+                "round or for prose-only edits. The current Engineer grounds the "
+                "drawing in code and manuscript and inspects the rendered composition "
+                "at publication size. Include "
                 "the vector PDF after the Introduction, targeting page 2 or 3 in the "
-                "compiled paper, and keep the editable SVG source."
+                "compiled paper, and keep the editable PPTX and drawing source."
                 if stage == "paper" and not narrative_edit else ""
             ),
             _narrative_editor_block() if narrative_edit else "",

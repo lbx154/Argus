@@ -8,7 +8,41 @@ description: "Create one publication-ready conceptual figure from the current pa
 Use this in Paper for Figure 1 or another conceptual, method, architecture, or
 taxonomy figure. Read the research notes in `RESEARCH_NOTES.md`, the current manuscript, the executed method,
 and direct result sources. Create only the editable figure source and the final
-export included by the paper.
+export included by the paper. Use PPT Master for method and architecture figures;
+the editable source includes the native PPTX and its drawing source, with a
+vector PDF included by the paper.
+
+## Publication style
+
+Apply these defaults to a new figure unless the paper already has an established
+style. They preserve the composed PPT figure route used for Argus's visual
+examples; changing the file extension alone does not reproduce that quality.
+
+- Start with the scientific reading order, two or three levels of visual
+  hierarchy, and meaningful phase containers. Show tokens, candidate sets,
+  matrices or operators where they explain the mechanism. Keep prose in the
+  caption instead of adding a full-width paragraph inside the figure.
+- Use a warm-white canvas (`#FBFAF7`), dark text/strokes (`#1F2933`), rounded
+  modules, generous internal padding and aligned boundaries. Use restrained
+  semantic fills: input `#FFE2D1`, computation `#FFF2BD`, state `#DCECFF`, model
+  `#E2F7DF`, output `#EADFFF`. Select only the roles the figure needs.
+- Use a coherent sans-serif hierarchy for module names and annotations;
+  mathematical notation may use a compatible math face. A manuscript's Times
+  body font does not require every diagram label to use Times New Roman.
+- Size labels for the actual included paper width (at least 8 pt). For a
+  1280-unit canvas printed 5.5 inches wide, ordinary labels need at least 26
+  units. Let the content set card sizes and connector corridors; retain visible
+  padding around text. Use larger group headings and smaller annotations.
+- Reserve one accent for the contribution or selected path, with inherited
+  machinery quiet. Use numbered phases only when they clarify reading order.
+  Follow the geometry and semantic requirements below.
+
+Locate PPT Master with `python -m argus_skill.tools.ppt_master status`; the
+reported `skill_root` contains the toolkit instructions, layout references,
+`scripts/svg_quality_checker.py`, `scripts/svg_to_pptx.py`, and
+`scripts/pptx_to_svg.py`. Use `engineer/presentation-master.md` to install it if
+needed. Use native shapes and text, then inspect the converted PPTX through its
+rendered output as well as the vector figure at the manuscript's actual width.
 
 ## Choose a composition archetype first
 
@@ -86,7 +120,7 @@ Decompose complex figures — build panels and modules separately, then compose.
 
 | Composition | Primary route |
 |---|---|
-| Pipeline strip or method architecture | Drawing the method in SVG (`research-svg-pipeline.md`): model-authored compact horizontal SVG grounded in code and paper, staggered geometry, Times New Roman, cropped vector PDF export |
+| Pipeline strip or method architecture | Editable native objects through PPT Master, using the publication style and composition above; SVG may be the authoring intermediate |
 | Contrast diptych, lineage panels | Editable native objects through PPT Master; for a contrast diptych draw one diagram and apply the delta programmatically so the panels are guaranteed identical except the edit |
 | Panels of verbatim text (prompts, trajectories, rubrics) | HTML/CSS with inline SVG rendered headlessly to vector PDF — the only route with a real text-layout engine; verify the render visually since headless failures are silent |
 | Exact load-bearing topology, taxonomy trees | Graphviz for layout coordinates, restyled through SVG; or FigureSpec, Draw.io, browser SVG |
@@ -96,6 +130,11 @@ Inspect every render at actual publication size against the design rules above:
 reading direction, one highlighting device, decodable legend, text budget,
 notation match, font size, no crossings, and a caption with takeaway, panel
 walk, and color decode.
+
+Also judge the whole composition: does the mechanism read immediately, are
+groups and emphasis clear, and does the figure look as carefully designed as
+the accepted examples? Legible text and a clean export alone are insufficient.
+Recompose a crowded collection of text boxes instead of only nudging labels.
 
 Paper needs a complete, credible figure and a successful compile. Do not create
 layout reports, exemplar collections, provenance records, or visual-review

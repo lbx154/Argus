@@ -5,8 +5,9 @@ description: "Synthesize a compact, horizontal ICLR-style method pipeline from e
 
 # Drawing the method in SVG
 
-Use this as the default for a method, architecture, or pipeline figure in Paper,
-and for a concrete pipeline repair in Review. You, the active Engineer model,
+Use this for an explicitly selected SVG workflow or a concrete repair to an
+existing SVG figure. New method and architecture figures normally use
+`paper-framework-figure-studio.md` and PPT Master. You, the active Engineer model,
 design the figure from the research; the tool handles cropping, real font
 verification, and SVG/PDF export. It needs no image-generation service.
 

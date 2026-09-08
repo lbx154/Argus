@@ -187,14 +187,29 @@ def _parallel_final_review_passes(
     # raw evidence from the integrated scientific Reviewer.
     if pdf_only_visual:
         prompts["Visual"] = (
-            "Read only paper/main.pdf in this isolated read-only workspace. "
+            "Read only paper/main.pdf and its host-rendered derivatives in this "
+            "isolated read-only workspace. Open every image in paper/pages/page-*.png; "
+            "these are the actual PDF pages, rendered by the host. paper/main.txt "
+            "contains text extracted from the same PDF for navigation. Reading PDF "
+            "binary bytes or extracted text alone is not visual inspection. "
             "Inspect every rendered page and every included figure and table at "
             "publication scale. Reject visible overlap, clipping, overflow, connector "
             "penetration, wrong arrows, unreadable labels, malformed tables, visually "
             "misleading plots, abnormal whitespace, broken float placement, or "
-            "inconsistent typography. Return concise pass/fail findings with page "
+            "inconsistent typography. Also judge composition, visual hierarchy, "
+            "meaningful grouping, information density, spacing, and whether the "
+            "mechanism reads immediately. Reject an unfinished collection of text "
+            "boxes even when its labels are individually legible. Return concise "
+            "pass/fail findings with page "
             "locations. The integrated Reviewer separately checks scientific claims "
             "against source code and raw evidence; do not launch other reviewers."
+        )
+    if "ColdRead" in prompts:
+        prompts["ColdRead"] += (
+            "\n\nThe host supplies paper/main.txt and paper/pages/page-*.png, "
+            "derived only from the current paper/main.pdf. Use the extracted text "
+            "and rendered pages to read the paper; the file viewer may expose the "
+            "PDF itself only as compressed binary bytes."
         )
     prompts = {
         label: prompt
@@ -280,13 +295,27 @@ def _parallel_final_review_passes(
     if pdf_only_visual or comparison is not None:
         from ..core.manuscript_narrative_runtime import isolated_pdf_workspace
 
-        for label in ("Visual", "ColdRead"):
-            if label in prompts and (label == "ColdRead" or pdf_only_visual):
-                working_dirs[label] = workspace_stack.enter_context(
-                    isolated_pdf_workspace(workdir)
-                )
-                if pdf_sha256(working_dirs[label]) != pdf_digest:
-                    pass_keys.pop(label, None)
+        try:
+            for label in ("Visual", "ColdRead"):
+                if label in prompts and (label == "ColdRead" or pdf_only_visual):
+                    working_dirs[label] = workspace_stack.enter_context(
+                        isolated_pdf_workspace(workdir, readable=True)
+                    )
+                    if pdf_sha256(working_dirs[label]) != pdf_digest:
+                        pass_keys.pop(label, None)
+        except (OSError, RuntimeError) as exc:
+            workspace_stack.close()
+            for backend in pass_runners.values():
+                close = getattr(backend, "close_acp_clients", None)
+                if callable(close):
+                    close()
+            return ReviewDecision(
+                status="blocked",
+                reason=f"Rendered paper review inputs are unavailable: {exc}",
+                next_action="Restore PDF page rendering before running the paper review.",
+                backend_unavailable=True,
+                backend_stop_kind="backend_unavailable",
+            )
 
     def inspect(label: str) -> Any:
         return gateway_run_exec(

@@ -1,7 +1,11 @@
 # Research SVG pipeline figures
 
-Research Paper now uses **Research SVG Pipeline** for method and architecture
-diagrams. The current Engineer model reads the manuscript and executed method
+Research Paper normally uses **Figure Studio with PPT Master** for new method
+and architecture diagrams. It preserves composition design, grouped modules,
+typographic hierarchy, and native editable PPTX with a vector PDF export.
+
+**Research SVG Pipeline** remains available for explicitly selected SVG work
+and repairs to existing SVG figures. The current Engineer model reads the manuscript and executed method
 code, designs a compact horizontal SVG with staggered modules and Times New
 Roman, then renders a vector PDF for the paper. This uses the existing Engineer
 session, without a separate model call or image-generation credentials.
@@ -37,8 +41,9 @@ method, not an evaluated research result.
 
 ## Use in a research project
 
-The Paper playbook, visualization router and Engineer prompt point to
-`engineer/research-svg-pipeline.md`. It is packaged with the Research vertical.
+The Paper playbook, visualization router and Engineer prompt default to
+`engineer/paper-framework-figure-studio.md` and PPT Master. The optional
+`engineer/research-svg-pipeline.md` is also packaged with the Research vertical.
 The existing integrated Review checks the drawing against the code and paper
 and judges its rendered layout. There is no extra stage or review record.
 

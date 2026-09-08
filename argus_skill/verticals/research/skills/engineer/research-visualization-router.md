@@ -20,7 +20,7 @@ paragraph or table inside a figure environment does not count.
 | Need | Route |
 |---|---|
 | Any paper data/metric/result chart, including uncertainty or ablation | Matplotlib/SciencePlots through Styling data figures for publication |
-| Method pipeline or architecture overview | Drawing the method in SVG: synthesize compact horizontal SVG from the current code and paper, with staggered layout and Times New Roman |
+| Method pipeline or architecture overview | Composing a conceptual paper figure: design the composition first, then use editable native PPTX through PPT Master and export a vector PDF |
 | Other conceptual or teaser figure | Composing a conceptual paper figure; editable native PPTX through PPT Master when appropriate |
 | Exact load-bearing topology | FigureSpec, Draw.io, Graphviz, or browser SVG |
 | Rich browser composition | Self-contained HTML/CSS/SVG rendered with `research_visual_scripts/browser_render.py` |
@@ -30,14 +30,18 @@ Topology fidelity takes priority over decorative richness. A polished Figure 1
 does not need depth, icons, or decorative complexity. Never use generated image
 text or geometry for scientific labels, arrows, values, or branch conditions.
 
-For the default method-pipeline route, open `research-svg-pipeline.md` and use
-`python -m argus_skill.verticals.research.pipeline_figure`. The active model
-designs the SVG; the tool crops outside whitespace, verifies Times New Roman,
-and exports a vector PDF for the manuscript. Image-generation credentials and
-PPT software are unnecessary for this route.
-Use it only when the figure actually needs drawing; reuse an existing suitable
-SVG/PDF across rounds. Include the PDF after Introduction, preferably on page
-2 or 3; a LaTeX placement adjustment does not require redrawing the figure.
+For the default method/architecture route, open `paper-framework-figure-studio.md`
+before drawing. Use its composition and publication style with the installed
+PPT Master toolkit (`python -m argus_skill.tools.ppt_master status`). Keep native
+editable shapes/text in the PPTX and include its vector PDF in the manuscript.
+PPT Master may use SVG as its authoring intermediate; keep the composition,
+typographic hierarchy and grouped modules through conversion.
+
+`research-svg-pipeline.md` remains available for a specifically requested SVG
+workflow or a repair to an existing suitable SVG. It is an exporter, not a
+replacement for composition design. Reuse suitable figures across rounds.
+Include the PDF after Introduction, preferably on page 2 or 3; a LaTeX placement
+adjustment does not require redrawing the figure.
 
 ## Shared requirements
 
