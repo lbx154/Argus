@@ -39,6 +39,7 @@ def finalize_result(
     token_usage: TokenUsage | None = None,
     premium_requests: float | None = None,
     error: str = "",
+    startup_receipt: dict | None = None,
 ) -> RunnerResult:
     backend = ctx.backend
     persisted_error = redact_secrets_text(
@@ -161,6 +162,7 @@ def finalize_result(
                 thread_id=result.thread_id,
                 model_usage=result.model_usage,
                 error=persisted_error,
+                startup_receipt=startup_receipt,
             )
             appended = UsageLedger(
                 ctx.usage_project_root,

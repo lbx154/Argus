@@ -523,13 +523,15 @@ class CommandBuilderMixin:
         resume_thread_id: str | None,
         options,
     ) -> list[str]:
+        # Use the same loader policy as readiness and warm ACP. Copilot's npm
+        # loader can select an older base installation with --no-auto-update,
+        # even when the same executable normally selects a compatible update.
         command = [
             self.agent_bin,
             "--output-format",
             "json",
             "--stream",
             "on",
-            "--no-auto-update",
             "--no-ask-user",
         ]
         if options.model:

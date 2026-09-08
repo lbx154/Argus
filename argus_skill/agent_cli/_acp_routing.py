@@ -25,6 +25,10 @@ _ACP_MANAGER_LABELS = frozenset(
         "manager-frontdoor-classify",
         "manager-classify-fast",
         "manager-classify-grounded",
+        "manager-classify-grounded-retry",
+        "manager-classify-context-retry",
+        "manager-classify-field-retry",
+        "manager-classify-tool-loop-retry",
         "manager-quick-reply",
         "simple-1",
         "chat-1",
@@ -159,6 +163,8 @@ class AcpRoutingMixin:
             return result
         if run_label in _ACP_LEAN_LABELS:
             return result
-        if run_label in {"simple-1", "chat-1"} and result.thread_id:
+        # Grounding retries can also fail after a metered ACP turn started.
+        # Preserve that result/usage instead of replaying it in another CLI.
+        if result.thread_id:
             return result
         return None

@@ -414,4 +414,5 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
             else "completed"
         ),
         error=safe_failure_text,
+        startup_receipt=complete_row,
     )

@@ -15,6 +15,7 @@ import pytest
 
 from argus_skill.agent_cli import agent_cli_runner, copilot_acp
 from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
+from argus_skill.agent_cli.models import AgentRunResult
 from argus_skill.agent_cli.runner_backend import BACKEND_COPILOT
 
 
@@ -106,6 +107,13 @@ def test_copilot_manager_acp_defaults_on_with_explicit_rollback(monkeypatch) -> 
     assert runner._acp_enabled("manager-frontdoor-classify") is True
     assert runner._acp_enabled("manager-classify-fast") is True
     assert runner._acp_enabled("manager-classify-grounded") is True
+    for retry in (
+        "manager-classify-grounded-retry",
+        "manager-classify-context-retry",
+        "manager-classify-field-retry",
+        "manager-classify-tool-loop-retry",
+    ):
+        assert runner._acp_enabled(retry) is True
     assert runner._acp_enabled("simple-1") is True
     assert (
         runner._acp_enabled(
@@ -118,6 +126,65 @@ def test_copilot_manager_acp_defaults_on_with_explicit_rollback(monkeypatch) -> 
 
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_ACP", "0")
     assert runner._acp_enabled("simple-1") is False
+
+
+@pytest.mark.parametrize("retry", [
+    "manager-classify-grounded-retry",
+    "manager-classify-context-retry",
+    "manager-classify-field-retry",
+    "manager-classify-tool-loop-retry",
+])
+def test_grounded_initial_success_and_retry_reuse_effective_cli(monkeypatch, retry):
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_ACP", "1")
+    monkeypatch.delenv("ARGUS_SKILL_COPILOT_ACP_LABELS", raising=False)
+    acp_proc = _FakeAcpProc()
+    commands = []
+
+    def popen(command, *args, **kwargs):
+        commands.append(command)
+        if "--acp" not in command:
+            raise AssertionError("retry switched from successful ACP to one-shot CLI")
+        return acp_proc
+
+    monkeypatch.setattr(agent_cli_runner.subprocess, "Popen", popen)
+    runner = AgentCliRunner("copilot-bin", backend=BACKEND_COPILOT)
+    for label in ("manager-classify-grounded", retry):
+        result = runner.run_exec(
+            prompt="inspect and classify" if label.endswith("grounded") else "correct grounding",
+            resume_thread_id=None,
+            options=RunnerOptions(sandbox_mode="read-only"),
+            run_label=label,
+        )
+        assert result.turn_completed and result.exit_code == 0
+    assert len(commands) == 1
+    assert sum(row.get("method") == "session/prompt" for row in acp_proc.written) == 2
+
+
+@pytest.mark.parametrize("label", ["manager-classify-grounded", "manager-classify-grounded-retry"])
+def test_started_grounded_acp_failure_is_not_replayed_or_discarded(monkeypatch, label):
+    monkeypatch.setenv("ARGUS_SKILL_COPILOT_ACP", "1")
+    monkeypatch.delenv("ARGUS_SKILL_COPILOT_ACP_LABELS", raising=False)
+    failed = AgentRunResult(
+        command=["copilot-bin", "--acp"], exit_code=1,
+        thread_id="already-started", turn_completed=False, turn_failed=True,
+        fatal_error="network failure after prompt submission",
+        json_events=[{"type": "usage", "input_tokens": 123}],
+    )
+
+    class Client:
+        def run_prompt(self, **kwargs):
+            return failed
+
+    monkeypatch.setattr(copilot_acp, "get_client", lambda *a, **kw: Client())
+
+    def no_second_process(*args, **kwargs):
+        raise AssertionError("a started ACP turn must retain its failure and usage")
+
+    monkeypatch.setattr(agent_cli_runner.subprocess, "Popen", no_second_process)
+    result = AgentCliRunner("copilot-bin", backend=BACKEND_COPILOT).run_exec(
+        prompt="inspect", resume_thread_id=None, options=RunnerOptions(), run_label=label,
+    )
+    assert result is failed
 
 
 def test_prewarm_honors_acp_rollback_and_label_override(monkeypatch) -> None:

@@ -65,6 +65,38 @@ class _SequenceDecisionRunner:
         return _DecisionResult(json.dumps(next(self._decisions)))
 
 
+def test_copilot_grounding_and_retry_do_not_require_optional_context_flag(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_MANAGER_FAST_ROUTE", "0")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
+
+    class OlderCliRunner:
+        _backend_name = "copilot"
+
+        def __init__(self):
+            self.calls = []
+
+        def run_exec(self, *, prompt, options, run_label, resume_thread_id=None):
+            self.calls.append((run_label, options))
+            # No --context is required for default context. Native older CLI
+            # installations must still reach both grounded provider turns.
+            assert "--context" not in (options.extra_args or [])
+            return _DecisionResult(json.dumps({
+                "choice": "new", "vertical": "custom_runtime", "workflow_mode": "staged",
+                "execution_task": "Build the custom runtime.", "confidence": 0.8,
+                "rationale": "repository-specific capability",
+            }), tool_activity_observed=len(self.calls) == 2)
+
+    runner = OlderCliRunner()
+    decision = Manager(project_root=tmp_path, runner=runner).decide_vertical(
+        "Build a project-specific runtime not covered by a built-in capability."
+    )
+    assert decision.vertical == "custom_runtime"
+    assert [label for label, _ in runner.calls] == [
+        "manager-classify-grounded", "manager-classify-grounded-retry",
+    ]
+    assert runner.calls[0][1] is runner.calls[1][1]
+
+
 def test_contextual_route_retries_missing_standalone_execution_task(
     tmp_path,
     monkeypatch,

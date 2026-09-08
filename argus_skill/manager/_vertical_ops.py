@@ -750,8 +750,6 @@ class _VerticalDecisionMixin:
             [
                 "--no-custom-instructions",
                 "--disable-builtin-mcps",
-                "--context",
-                "default",
             ]
             if backend_name == "copilot"
             else (["--ephemeral"] if backend_name == "codex" else None)
