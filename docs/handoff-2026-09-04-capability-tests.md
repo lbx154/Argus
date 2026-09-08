@@ -1405,3 +1405,16 @@ f9d8a02bf(滚动前版本)直接经 runtime 调用验证无恙。
 planner 决策(digest 里 operator_map_notes 出现后下一 verdict);分支
 药丸的点击/悬停是否顺畅;新会话(有并行拓扑感知)是否开始产出真 DAG,
 让 rankLayout 门控自然打开。
+
+### §22 部署落位记录(2026-09-08 09:00 前后)
+
+- main = a97ea2840(四个功能提交 + 发布产物;rebase 于另一团队的
+  PR #117 之上,用独立 worktree 完成以免动其未提交工作区)。
+- 部署时与另一团队的滚动**交叉**:对方 08:55 用 env 钉定的
+  `argus-runtime-20260908-89f1af4e2` checkout 抢占了 8799 端口并重启了
+  s-d9c7aeb2 守护进程(其 rev 不含本批)。因 a97ea2840 ⊃ 89f1af4e2,
+  已做一次收敛:s-d9c7aeb2 与 8799 webapi 均回到 runtime-latest
+  (a97ea2840,无 env 覆盖)。若对方流程再次接管,请操作者仲裁 rev。
+- 冒烟:GET/POST /map-notes 全链路通(批注已入 s-d9c7aeb2 的
+  map_notes.jsonl,planner 下个规划周期可读);三守护进程 active/
+  waiting 健康。8801 webapi 仍归 TUI 会话属主。
