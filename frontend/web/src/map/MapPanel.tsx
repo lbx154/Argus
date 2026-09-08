@@ -392,6 +392,24 @@ function MapCanvas({
     };
   }, [menu]);
   const [query, setQuery] = useState("");
+  // One predicate serves the dimmed-card filter, the match counter, and Enter
+  // cycling, so the three can never disagree about what "a match" is.
+  const cardSearchText = useCallback(
+    (card: { task: { id: string; title: string; objective?: string }; part: number }) =>
+      `${card.task.title} ${card.task.objective ?? ""} ${copy?.cards[card.task.id]?.title || ""} ${copy?.cards[card.task.id]?.summary || ""} ${card.part > 1 ? (zh ? `续篇 ${card.part - 1}` : `Continued ${card.part - 1}`) : ""}`.toLowerCase(),
+    [copy, zh],
+  );
+  const matches = useMemo(
+    () =>
+      query
+        ? scene.cards.filter((card) =>
+            cardSearchText(card).includes(query.toLowerCase()),
+          )
+        : [],
+    [query, scene.cards, cardSearchText],
+  );
+  const [matchCursor, setMatchCursor] = useState(0);
+  useEffect(() => setMatchCursor(0), [query]);
   const [visibleCount, setVisibleCount] = useState(graph.tasks.length);
   const [playing, setPlaying] = useState(false);
   const [showReplacements, setShowReplacements] = useState(false);
@@ -509,10 +527,7 @@ function MapCanvas({
         style: {
           ...n.style,
           opacity:
-            query &&
-            !`${n.data.task.title} ${n.data.task.objective} ${copy?.cards[n.data.task.id]?.title || ""} ${copy?.cards[n.data.task.id]?.summary || ""} ${n.data.part > 1 ? (zh ? `续篇 ${n.data.part - 1}` : `Continued ${n.data.part - 1}`) : ""}`
-              .toLowerCase()
-              .includes(query.toLowerCase())
+            query && !cardSearchText(n.data).includes(query.toLowerCase())
               ? 0.22
               : 1,
         },
@@ -527,6 +542,7 @@ function MapCanvas({
       camera.detailed,
       camera.canvasSize,
       query,
+      cardSearchText,
       copy,
       zh,
       growth,
@@ -861,7 +877,7 @@ function MapCanvas({
         <button type="button" aria-expanded={agentsOpen} onClick={() => { setAgentsOpen((open) => !open); setConversationOpen(false); }}><i data-active={!!activePhase || composer.pending} />{zh ? 'Agent 动态' : 'Agent activity'}</button>
         <button type="button" className="map-delivery-toggle" disabled={!actions.deliveryCount} onClick={actions.onOpenDelivery}><PackageCheck size={15} />{zh ? '交付成果' : 'Deliveries'}{actions.deliveryCount > 0 && <span>{actions.deliveryCount}</span>}</button>
       </div>}
-      {data.kind === 'live' && !readOnly && <PendingBanner questions={snapshot.pending_questions ?? []} backlog={snapshot.backlog} onAnswer={actions.onAnswer} />}
+      {data.kind === 'live' && !readOnly && <PendingBanner questions={snapshot.pending_questions ?? []} backlog={snapshot.backlog} onAnswer={actions.onAnswer} onLocate={locateAttention} />}
       <div className="map-workspace">
         <div
           ref={canvasRef}
@@ -886,19 +902,29 @@ function MapCanvas({
               <input
                 aria-label={zh ? "搜索地图任务" : "Search map tasks"}
                 placeholder={zh ? "搜索任务…" : "Find a task…"}
+                title={zh ? "Enter 逐个跳转匹配" : "Enter jumps through matches"}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    const match = scene.cards.find((card) =>
-                      `${card.task.title} ${card.task.objective} ${copy?.cards[card.task.id]?.title || ""} ${copy?.cards[card.task.id]?.summary || ""} ${card.part > 1 ? (zh ? `续篇 ${card.part - 1}` : `Continued ${card.part - 1}`) : ""}`
-                        .toLowerCase()
-                        .includes(query.toLowerCase()),
-                    );
-                    if (match) focus(match.id);
+                  if (e.key === "Enter" && matches.length) {
+                    focus(matches[matchCursor % matches.length].id);
+                    setMatchCursor((cursor) => cursor + 1);
+                  } else if (e.key === "Escape" && query) {
+                    // Clear the search without also backing the camera out.
+                    e.stopPropagation();
+                    setQuery("");
                   }
                 }}
               />
+              {query && (
+                <span className="map-search-count" aria-live="polite">
+                  {matches.length
+                    ? `${(matchCursor % matches.length) + 1}/${matches.length}`
+                    : zh
+                      ? "无匹配"
+                      : "0 found"}
+                </span>
+              )}
             </label>
             <button
               onClick={locateCurrent}
@@ -1590,7 +1616,14 @@ export const MapPanel = memo(function MapPanel({
           />
         </ReactFlowProvider>
       ) : (
-        <div className="map-empty">{zh ? "正在载入地图…" : "Loading map…"}</div>
+        <div className="map-empty is-loading" aria-busy="true">
+          <div className="map-ghosts" aria-hidden>
+            <i />
+            <i />
+            <i />
+          </div>
+          {zh ? "正在载入地图…" : "Loading map…"}
+        </div>
       )}
     </section>
   );

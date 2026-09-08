@@ -985,3 +985,88 @@ button.map-attention-jump:active {
     transform: none;
   }
 }
+
+/* --- Search feedback: how many matches, and where Enter goes next. --- */
+.map-search-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: rgb(var(--ink-faint));
+  background: rgb(var(--line) / 0.35);
+  border-radius: 8px;
+  padding: 2px 7px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* --- Loading skeleton: three quiet ghost cards while history streams in. --- */
+.map-empty.is-loading .map-ghosts {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 6px;
+}
+.map-empty.is-loading .map-ghosts i {
+  position: relative;
+  overflow: hidden;
+  width: 118px;
+  height: 84px;
+  border-radius: 9px;
+  border: 1px solid rgb(var(--line) / 0.6);
+  background: color-mix(in srgb, rgb(var(--line)) 12%, var(--map-paper));
+}
+.map-empty.is-loading .map-ghosts i::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.35) 50%,
+    transparent 70%
+  );
+  transform: translateX(-100%);
+  animation: map-ghost-sheen 1.6s ease-in-out infinite;
+}
+[data-theme="dark"] .map-empty.is-loading .map-ghosts i::after {
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.07) 50%,
+    transparent 70%
+  );
+}
+.map-empty.is-loading .map-ghosts i:nth-child(2)::after { animation-delay: 140ms; }
+.map-empty.is-loading .map-ghosts i:nth-child(3)::after { animation-delay: 280ms; }
+@keyframes map-ghost-sheen {
+  60%, 100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-empty.is-loading .map-ghosts i::after { animation: none; }
+}
+/* --- Playback bar (historical datasets): quiet, but no longer an afterthought. --- */
+.map-playback button {
+  border: 1px solid rgb(var(--line) / 0.7);
+  border-radius: 8px;
+  width: 30px;
+  height: 26px;
+  justify-content: center;
+  background: var(--map-paper);
+  transition: transform 0.12s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.map-playback button:not(:disabled):hover {
+  border-color: #7ca9c8;
+  color: rgb(var(--blue));
+}
+.map-playback button:not(:disabled):active {
+  transform: scale(0.94);
+}
+.map-playback input {
+  height: 4px;
+  border-radius: 3px;
+}
+.map-playback .map-count {
+  background: rgb(var(--line) / 0.35);
+  border-radius: 8px;
+  padding: 2px 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-playback button { transition: none; }
+}

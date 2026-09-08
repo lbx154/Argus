@@ -6,10 +6,13 @@ export function PendingBanner({
   questions,
   backlog,
   onAnswer,
+  onLocate,
 }: {
   questions: Array<Record<string, unknown>>;
   backlog: BacklogItem[];
   onAnswer: () => void;
+  /** Map view only: jump the camera to the blocked task. */
+  onLocate?: () => void;
 }) {
   const { t } = useI18n();
   const cards = operatorDecisionCards(
@@ -28,6 +31,11 @@ export function PendingBanner({
         </div>
       </div>
       {cards.length > 1 ? <span className="font-mono text-xs text-ink-faint">+{cards.length - 1}</span> : null}
+      {onLocate ? (
+        <button onClick={onLocate} className="shrink-0 text-xs text-ink-dim hover:text-gold">
+          {t('pending.showOnMap')}
+        </button>
+      ) : null}
       <button onClick={onAnswer} className="shrink-0 text-xs font-medium text-gold hover:text-gold-soft">
         {t('pending.reviewRespond')}
       </button>
