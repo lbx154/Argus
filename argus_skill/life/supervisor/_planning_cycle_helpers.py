@@ -167,7 +167,11 @@ def _research_project_done_issue(
                         continue
                 except Exception:  # noqa: BLE001 - unreadable binding fails closed
                     continue
-            if vertical == "research":
+            # A venue recommendation can only exist for a submission-shaped
+            # deliverable; exploratory campaigns without a paper must not be
+            # held for an acceptance no reviewer could ever record. Mirrors
+            # the signature/manuscript gates above.
+            if vertical == "research" and submission_candidate_exists:
                 from types import SimpleNamespace
 
                 from ...core.venue_review import current_venue_acceptance_issue

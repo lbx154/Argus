@@ -89,6 +89,7 @@ RESEARCH_MOVED_SKILLS = set(
 RESEARCH_SKILLS = RESEARCH_BASE_SKILLS | RESEARCH_MOVED_SKILLS | {
     "engineer/venue-paper-drafting.md",
     "engineer/venue-format-preflight.md",
+    "engineer/academic-vector-figures.md",
     "reviewer/venue-academic-language-review.md",
 }
 
