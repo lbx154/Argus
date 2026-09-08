@@ -72,11 +72,17 @@ describe('Sidebar session identity and health', () => {
     expect(markup).not.toContain('Codex · gpt-5');
   });
 
-  it('flags a live incompatible daemon instead of presenting it as healthy', () => {
+  it.each([
+    undefined,
+    'daemon protocol argus.daemon/2 is incompatible with argus.daemon/1',
+    'daemon capabilities missing: manager.directive.v1',
+    'daemon release manifest does not match its loaded source',
+  ])('keeps a real compatibility failure visible: %s', (error) => {
     const markup = sidebarMarkup([{
       ...rows[0],
       daemon_alive: true,
       daemon_protocol_compatible: false,
+      daemon_protocol_error: error,
       uptime_seconds: 120,
     }]);
 
@@ -84,6 +90,36 @@ describe('Sidebar session identity and health', () => {
     expect(markup).not.toContain('title="Argus running"');
     expect(markup).not.toContain('running · 2m');
     expect(markup).not.toContain('aria-label="Resume"');
+  });
+
+  it('shows a live older release as running with an optional update', () => {
+    const markup = sidebarMarkup([{
+      ...rows[0],
+      daemon_alive: true,
+      daemon_protocol_compatible: false,
+      daemon_protocol_error: 'daemon release is incompatible with WebAPI release',
+      uptime_seconds: 120,
+    }]);
+
+    expect(markup).toContain('title="Argus running"');
+    expect(markup).toContain('running · 2m');
+    expect(markup).toContain('Update available');
+    expect(markup).not.toContain('Update required');
+    expect(markup).not.toContain('aria-label="Resume"');
+  });
+
+  it('does not show an old release as running after the executor stops', () => {
+    const markup = sidebarMarkup([{
+      ...rows[0],
+      daemon_alive: false,
+      daemon_protocol_compatible: false,
+      daemon_protocol_error: 'daemon release is incompatible with WebAPI release',
+      uptime_seconds: 120,
+    }]);
+
+    expect(markup).toContain('title="stopped"');
+    expect(markup).not.toContain('running · 2m');
+    expect(markup).not.toContain('Update available');
   });
 
   it('uses a compact, collapsible project group without exposing the full path', () => {

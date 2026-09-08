@@ -241,6 +241,11 @@ export function Sidebar({
                     ? (project.label || project.display_name || '').trim()
                     : project.objective.trim() || project.id || t('sidebar.unnamedSession');
                   const incompatible = project.daemon_alive && project.daemon_protocol_compatible === false;
+                  // A release difference does not stop an existing executor.
+                  // Keep actual protocol/capability failures visibly distinct.
+                  const updateAvailable = incompatible
+                    && project.daemon_protocol_error === 'daemon release is incompatible with WebAPI release';
+                  const updateRequired = incompatible && !updateAvailable;
                   const resumable = !project.daemon_alive && project.last_active > 0 && Boolean(project.workdir?.trim());
                   return (
                     <div
@@ -266,19 +271,27 @@ export function Sidebar({
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <StatusDot
-                            ok={project.daemon_alive && !incompatible}
-                            title={incompatible ? t('sidebar.updateRequired') : project.daemon_alive ? t('sidebar.daemonAlive') : t('sidebar.stopped')}
+                            ok={project.daemon_alive && !updateRequired}
+                            title={updateRequired ? t('sidebar.updateRequired') : project.daemon_alive ? t('sidebar.daemonAlive') : t('sidebar.stopped')}
                           />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
                         </div>
-                        <div className="mt-1 min-w-0 truncate pl-3.5 text-[11px] text-ink-faint">
-                          <span className={`min-w-0 truncate ${incompatible ? 'text-warn' : ''}`}>
-                            {incompatible
+                        <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-3.5 text-[11px] text-ink-faint">
+                          <span className={`min-w-0 truncate ${updateRequired ? 'text-warn' : ''}`}>
+                            {updateRequired
                               ? t('sidebar.updateRequired')
                               : project.daemon_alive
                                 ? t('sidebar.runningFor', { uptime: uptime(project.uptime_seconds) })
                                 : ago(project.last_active)}
                           </span>
+                          {updateAvailable && (
+                            <span
+                              title={t('sidebar.updateAvailableHint')}
+                              className="shrink-0 rounded border border-line px-1 text-[10px] leading-4"
+                            >
+                              {t('sidebar.updateAvailable')}
+                            </span>
+                          )}
                         </div>
                       </button>
                       {resumable && onResume ? (
