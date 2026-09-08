@@ -163,7 +163,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes: gpt-5.4-mini on codex/copilot, planner model otherwise", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT", "low", "reasoning effort for bounded DAG decomposition", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0", "optional wall-clock cap for one Engineer turn; disabled by default", "mission"),
-    Knob("ARGUS_SKILL_PROVIDER_TURN_CAP", "40", "per-call provider-turn allowance for one Engineer/Reviewer CLI call; at the allowance the call winds down with a checkpoint and the task continues in a fresh session (0 disables)", "mission"),
+    Knob("ARGUS_SKILL_PROVIDER_TURN_CAP", "0", "optional per-call interaction allowance for Engineer/Reviewer; disabled by default (0). If explicitly enabled, save a checkpoint and continue in a fresh session", "mission"),
     Knob("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "600", "model stream inactivity before a diagnostic warning (0=off)", "mission"),
     Knob("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", "1800", "model stream inactivity before likely-stalled alerting (0=off)", "mission"),
     Knob("ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS", "0", "optional model stream inactivity limit before terminating the current provider process group; disabled by default", "mission"),

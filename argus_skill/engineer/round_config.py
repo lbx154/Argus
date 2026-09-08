@@ -259,6 +259,10 @@ class SupervisedConfig:
 
     # Zero means no arbitrary round ceiling; explicit positive budgets still work.
     max_rounds: int = 0
+    # Separate from the provider's per-call allowance: zero permits as many
+    # checkpointed context rotations as this mission needs. Actual budget,
+    # provider, and operator stops still apply on every call.
+    provider_turn_cap_streak_limit: int = 0
     # Keep the historical reviewed loop by default. Planner-classified
     # low-risk bounded work may opt into an Engineer self-review completion.
     require_independent_review: bool = True

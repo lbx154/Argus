@@ -35,6 +35,10 @@ def selected_venue(state_root: Path | str) -> str:
 def configure_venue_revisions(config: Any) -> None:
     """Remove quality-convergence ceilings while preserving operational stops."""
     config.max_rounds = 0
+    # Reaching a per-call context allowance is housekeeping, not a failed
+    # scientific revision. A long figure/experiment repair can need more than
+    # three fresh sessions before it is ready for independent review.
+    config.provider_turn_cap_streak_limit = 0
     config.stall_threshold = 0
     config.soft_round_limit = 0
     config.hard_escalate_rounds = 0

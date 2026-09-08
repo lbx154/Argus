@@ -357,6 +357,10 @@ def provider_turn_cap_review_decision(
     """
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     summary = str(wind_down_summary or "").strip()
+    rotations = (
+        f"{streak}/{streak_limit} in a row"
+        if streak_limit > 0 else f"{streak} checkpointed session rotations"
+    )
     next_action = (
         "Continue the same task in a fresh session; the previous session ended "
         "at its per-call provider-turn allowance, not because anything went "
@@ -371,7 +375,7 @@ def provider_turn_cap_review_decision(
         status="continue",
         reason=(
             "One Engineer call used its whole per-call provider-turn allowance "
-            f"({streak}/{streak_limit} in a row); reviewer skipped. The work so "
+            f"({rotations}); reviewer skipped. The work so "
             "far is kept and the task continues in a fresh session from the "
             f"checkpoint. Runner receipt: {error_text}"
         ),

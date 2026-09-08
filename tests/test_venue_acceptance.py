@@ -205,6 +205,7 @@ def test_quality_revision_continues_beyond_round_limits_without_disabling_stops(
     config = SupervisedConfig(max_rounds=50, stall_threshold=4, soft_round_limit=12, hard_escalate_rounds=24)
     configure_venue_revisions(config)
     assert config.max_rounds == 0
+    assert config.provider_turn_cap_streak_limit == 0
     assert config.require_independent_review
     kwargs = {
         "no_progress_streak": 0, "no_progress_threshold": config.no_progress_threshold,

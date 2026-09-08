@@ -211,7 +211,7 @@ def test_call_under_the_allowance_completes_untouched(
 def test_native_subagent_turns_do_not_exhaust_the_parent_allowance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_PROVIDER_TURN_CAP", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", "40")
     # Copilot multiplexes the twelve native task agents into the same stdout.
     # The parent has its own growing transcript and must still get 40 turns.
     process = _LiveFakeProc(native_subagents=12)
@@ -247,7 +247,7 @@ def test_native_subagent_turns_do_not_exhaust_the_parent_allowance(
 def test_completed_native_fanout_keeps_only_parent_provider_turns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_PROVIDER_TURN_CAP", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", "40")
     lines = _copilot_turn_lines(1)
     for turn in range(4):
         for agent in range(12):
@@ -274,17 +274,24 @@ def test_completed_native_fanout_keeps_only_parent_provider_turns(
     assert result.agent_messages[-1] == "all done"
 
 
-def test_zero_disables_the_allowance(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", "0")
+@pytest.mark.parametrize("configured", [None, "0"])
+@pytest.mark.parametrize("run_label", ["engineer-r1", "reviewer"])
+def test_default_and_zero_allow_more_than_120_interactions(
+    monkeypatch: pytest.MonkeyPatch, configured: str | None, run_label: str,
+) -> None:
+    if configured is None:
+        monkeypatch.delenv("ARGUS_SKILL_PROVIDER_TURN_CAP", raising=False)
+    else:
+        monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", configured)
     runner, terminations = _capped_runner(
-        monkeypatch, _ExitedFakeProc(_copilot_turn_lines(4, with_result=True))
+        monkeypatch, _ExitedFakeProc(_copilot_turn_lines(125, with_result=True))
     )
 
     result = runner.run_exec(
         prompt="task",
         resume_thread_id=None,
         options=RunnerOptions(),
-        run_label="engineer-r1",
+        run_label=run_label,
     )
 
     assert terminations == []
@@ -309,7 +316,8 @@ def test_manager_labels_are_never_cut(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.turn_completed is True
 
 
-def test_allowance_applies_to_reviewer_labels() -> None:
+def test_explicit_allowance_applies_to_reviewer_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", "40")
     assert _provider_turn_cap("reviewer") == 40
     assert _provider_turn_cap("reviewer-cold-read") == 40
     assert _provider_turn_cap("engineer-r7") == 40
@@ -321,7 +329,7 @@ def test_allowance_applies_to_reviewer_labels() -> None:
 def test_wind_down_call_gets_only_a_small_allowance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("ARGUS_SKILL_PROVIDER_TURN_CAP", raising=False)
+    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", "40")
     assert _provider_turn_cap("engineer-r3.winddown") == 8
     monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", "4")
     assert _provider_turn_cap("engineer-r3.winddown") == 4

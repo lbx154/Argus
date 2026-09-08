@@ -19,15 +19,11 @@ _DEFAULT_CAPTURE_JSON_EVENTS = 2048
 _DEFAULT_STREAM_QUEUE_LINES = 4096
 _ENGINEER_TURN_MAX_SECONDS_ENV = "ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS"
 _DEFAULT_ENGINEER_TURN_MAX_SECONDS = 0
-# One CLI call is one conversation with the provider, and the CLI resends the
-# whole grown transcript on every provider turn inside it, so a single call
-# left alone can spend more than a whole mission should (a measured worst case:
-# 430 provider turns and 59.9M input tokens in ONE Engineer call). None of the
-# driven CLIs exposes a per-call turn limit, so the runner counts provider
-# turns from the event stream and winds the call down at this allowance; the
-# round loop then continues the task in a fresh session from the checkpoint.
+# An operator can opt into per-call context rotation. By default there is no
+# fixed interaction-count ceiling: Engineer finishes a meaningful increment
+# and the independent Reviewer decides whether the task is complete.
 _PROVIDER_TURN_CAP_ENV = "ARGUS_SKILL_PROVIDER_TURN_CAP"
-_DEFAULT_PROVIDER_TURN_CAP = 40
+_DEFAULT_PROVIDER_TURN_CAP = 0
 # The wind-down call ("write the checkpoint, reply with a summary") resumes the
 # very conversation that just used its whole allowance, so it gets only a small
 # allowance of its own.

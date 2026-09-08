@@ -65,12 +65,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Consecutive Engineer calls allowed to each use their whole per-call
-# provider-turn allowance before the mission stops. Each capped call already
-# spends a full allowance of provider turns, so a run of them is the very
-# spend pattern the allowance exists to end.
-_PROVIDER_TURN_CAP_STREAK_LIMIT = 3
-
 # The longest the backend-failure hold sleeps between checks of the daemon's
 # stop and abort signals. The hold itself can grow to the hour scale; a
 # shutdown or an abort must not wait behind it.
@@ -769,6 +763,7 @@ class RoundExecutionMixin:
         if engineer_session is None:
             raise RuntimeError("engineer role session was not initialized")
         state.provider_turn_cap_streak += 1
+        streak_limit = max(0, supervised_config.provider_turn_cap_streak_limit)
         checkpoint_path = supervised_config.checkpoint_path
         wind_down_summary = ""
         wind_down_usage: dict[str, int] = {}
@@ -802,7 +797,7 @@ class RoundExecutionMixin:
             exit_code=engineer_result.exit_code,
             wind_down_summary=wind_down_summary,
             streak=state.provider_turn_cap_streak,
-            streak_limit=_PROVIDER_TURN_CAP_STREAK_LIMIT,
+            streak_limit=streak_limit,
         )
         try:
             checkpoint_available = bool(
@@ -816,7 +811,7 @@ class RoundExecutionMixin:
                 "round_index": round_index,
                 "round_max": supervised_config.max_rounds,
                 "streak": state.provider_turn_cap_streak,
-                "streak_limit": _PROVIDER_TURN_CAP_STREAK_LIMIT,
+                "streak_limit": streak_limit,
                 "checkpoint_path": (
                     str(checkpoint_path) if checkpoint_path is not None else ""
                 ),
@@ -851,7 +846,7 @@ class RoundExecutionMixin:
         state.last_engineer_message = (
             wind_down_summary or state.last_engineer_message
         )
-        if state.provider_turn_cap_streak >= _PROVIDER_TURN_CAP_STREAK_LIMIT:
+        if streak_limit and state.provider_turn_cap_streak >= streak_limit:
             return control_return((
                 "error",
                 state.rounds,
