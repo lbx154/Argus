@@ -37,7 +37,7 @@ def test_no_portfolio_requirement_does_not_certify_unfinished_idea(
     # This empty gate caused a failed Idea mission's recovery plan to be
     # discarded. These paths still need a real Reviewer/Manager decision.
     assert stage_completion_issues("idea", workdir, state_root=state_root) == ()
-    assert not module._research_stage_ready_for_close(
+    assert not module._automatic_stage_target(
         state_root=state_root,
         evidence_root=workdir,
     )
@@ -47,10 +47,6 @@ def test_research_first_stage_ready_when_provider_gate_is_empty(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(
-        "argus_skill.verticals.research.idea_portfolio.portfolio_required",
-        lambda _root: True,
-    )
     monkeypatch.setattr(
         "argus_skill.core.pipeline_state.read_pipeline_state",
         lambda _root: {"vertical": "research", "current_stage": "idea"},
@@ -66,21 +62,21 @@ def test_research_first_stage_ready_when_provider_gate_is_empty(
     )
     gate_call: dict[str, object] = {}
 
-    def completion_issues(*args, **kwargs):
+    def automatic_completion(*args, **kwargs):
         gate_call.update({"args": args, **kwargs})
-        return ()
+        return True
 
     monkeypatch.setattr(
-        "argus_skill.verticals._base.vertical_stage_completion_issues",
-        completion_issues,
+        "argus_skill.verticals._base.vertical_automatic_stage_completion_ready",
+        automatic_completion,
     )
     state_root = tmp_path / "state"
     evidence_root = tmp_path / "workdir"
 
-    assert module._research_stage_ready_for_close(
+    assert module._automatic_stage_target(
         state_root=state_root,
         evidence_root=evidence_root,
-    )
+    ) == "build"
     assert gate_call == {
         "args": (definition,),
         "stage": "idea",
@@ -94,10 +90,6 @@ def test_research_auto_close_derives_first_stage_not_old_literal(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "argus_skill.verticals.research.idea_portfolio.portfolio_required",
-        lambda _root: True,
-    )
-    monkeypatch.setattr(
         "argus_skill.core.pipeline_state.read_pipeline_state",
         lambda _root: {"vertical": "research", "current_stage": "research"},
     )
@@ -109,8 +101,12 @@ def test_research_auto_close_derives_first_stage_not_old_literal(
         "argus_skill.verticals._base.vertical_checklist_stage_order",
         lambda _definition: ("idea", "build", "experiment", "paper", "review"),
     )
+    monkeypatch.setattr(
+        "argus_skill.verticals._base.vertical_automatic_stage_completion_ready",
+        lambda *_args, **_kwargs: True,
+    )
 
-    assert not module._research_stage_ready_for_close(
+    assert not module._automatic_stage_target(
         state_root=tmp_path / "state",
         evidence_root=tmp_path / "workdir",
     )
@@ -120,10 +116,6 @@ def test_research_first_stage_does_not_close_with_blockers(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(
-        "argus_skill.verticals.research.idea_portfolio.portfolio_required",
-        lambda _root: True,
-    )
     monkeypatch.setattr(
         "argus_skill.core.pipeline_state.read_pipeline_state",
         lambda _root: {"vertical": "research", "current_stage": "idea"},
@@ -137,11 +129,11 @@ def test_research_first_stage_does_not_close_with_blockers(
         lambda _definition: ("idea", "build"),
     )
     monkeypatch.setattr(
-        "argus_skill.verticals._base.vertical_stage_completion_issues",
-        lambda *_args, **_kwargs: ("selection incomplete",),
+        "argus_skill.verticals._base.vertical_automatic_stage_completion_ready",
+        lambda *_args, **_kwargs: False,
     )
 
-    assert not module._research_stage_ready_for_close(
+    assert not module._automatic_stage_target(
         state_root=tmp_path / "state",
         evidence_root=tmp_path / "workdir",
     )

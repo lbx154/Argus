@@ -13,7 +13,13 @@ do not infer rules from another conference.
 
 - Use the official document class, style files, review mode, paper size,
   columns, fonts, bibliography behavior, and anonymity rules.
-- Treat the venue's body limit as a ceiling, not a quota. Never pad to reach a page number or word target; reflow content that exceeds the current limit.
+- Treat the venue's body limit as a compliance ceiling, not a quota imposed by
+  the venue; reflow content that exceeds the current limit.
+- Separately compare the rendered, officially counted body extent with the
+  writing target from `research-paper-playbook.md`. Total PDF pages including
+  excluded end matter do not establish body length. Record the actual extent
+  and target in existing research notes. Use the playbook's principle-led
+  expansion guidance to develop a short body toward its writing target.
 - Include all required sections, disclosures, checklists, and end matter in the
   venue's required order.
 - Resolve every citation and reference; remove placeholders and compilation

@@ -82,9 +82,12 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
             statement=(
                 "Implement the selected mechanism and real strong published baselines "
                 "through real entry points. Do not rename a local heuristic after a paper. "
-                "Choose models for task competence and claim scope. Use appropriate "
-                "public or official benchmarks or controlled tasks with labels derived "
-                "from explicit rules, and a real evaluator. Keep "
+                "Choose models for task competence and claim scope. Prefer appropriate "
+                "existing public or official benchmarks with their released tasks, "
+                "splits, protocols, and real evaluators. Small custom benchmarks are "
+                "allowed under the cost-aware benchmark policy in "
+                "research-experiment-playbook.md: no API calls or only a small amount "
+                "within the authorized budget, respecting project-specific restrictions. Keep "
                 "explicit run configuration beside the code and verify the smallest "
                 "faithful path before claim-bearing execution."
             ),
@@ -141,6 +144,11 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "templates cannot explain it; a handful of development items or one model "
                 "family supports only a correspondingly narrow claim. Otherwise improve the "
                 "method or experiment in the current Experiment stage."
+                " After Reviewer accepts the current experiment, Planner must apply "
+                "the post-result scale assessment in research-experiment-playbook.md "
+                "against the operator objective. If insufficient, expand the existing "
+                "experiment under that benchmark policy before requesting Paper; "
+                "a narrower claim does not substitute for that assessment."
             ),
             evidence_hint="claim-bearing comparisons, controls, and direct raw outputs",
         ),
@@ -473,6 +481,26 @@ def stage_completion_issues(
     return ()
 
 
+def automatic_stage_completion_ready(
+    *,
+    stage: str,
+    project_root: Path,
+    state_root: Path,
+) -> bool:
+    """Only a completed mandatory portfolio closes without Manager judgment."""
+    from .idea_portfolio import portfolio_required
+
+    return bool(
+        str(stage or "").strip().lower() == "idea"
+        and portfolio_required(state_root)
+        and not stage_completion_issues(
+            stage,
+            project_root,
+            state_root=state_root,
+        )
+    )
+
+
 def iteration_assessment(
     *,
     stage: str,
@@ -647,6 +675,7 @@ __all__ = [
     "render_role_prompt_context",
     "review_purchase_policy",
     "stage_completion_issues",
+    "automatic_stage_completion_ready",
     "iteration_assessment",
     "completion_gate",
     "PAPER_MISSION",

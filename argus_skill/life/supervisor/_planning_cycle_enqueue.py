@@ -118,47 +118,41 @@ def _stage_closing_forced() -> bool:
     ).strip().casefold() in {"1", "true", "yes", "on"}
 
 
-def _research_stage_ready_for_close(
+def _automatic_stage_target(
     *,
     state_root: Path,
     evidence_root: Path,
-) -> bool:
-    """Auto-close a completed portfolio; other Idea paths require adjudication."""
+) -> str:
+    """Return the next stage when the active vertical certifies auto-completion."""
     try:
         from ...core.pipeline_state import read_pipeline_state
         from ...verticals._base import (
             load_vertical,
+            vertical_automatic_stage_completion_ready,
             vertical_checklist_stage_order,
-            vertical_stage_completion_issues,
         )
-        from ...verticals.research.idea_portfolio import portfolio_required
 
         pipeline = read_pipeline_state(state_root)
         if not isinstance(pipeline, dict):
-            return False
-        if str(pipeline.get("vertical") or "").strip() != "research":
-            return False
-        # Locked, exploratory, and direct Idea paths have no portfolio gate.
-        # An empty list of machine-checkable issues is not evidence that their
-        # research passed review. Let Reviewer/Manager close those paths; an
-        # automatic advance here would discard the Planner's unfinished work.
-        if not portfolio_required(state_root):
-            return False
-        definition = load_vertical("research", project_root=state_root)
+            return ""
+        vertical = str(pipeline.get("vertical") or "").strip()
+        current = str(pipeline.get("current_stage") or "").strip()
+        if not vertical or not current:
+            return ""
+        definition = load_vertical(vertical, project_root=state_root)
         order = tuple(vertical_checklist_stage_order(definition))
-        if (
-            len(order) < 2
-            or str(pipeline.get("current_stage") or "").strip() != order[0]
-        ):
-            return False
-        return not vertical_stage_completion_issues(
+        if current not in order or order.index(current) + 1 >= len(order):
+            return ""
+        if not vertical_automatic_stage_completion_ready(
             definition,
-            stage=order[0],
+            stage=current,
             project_root=evidence_root,
             state_root=state_root,
-        )
+        ):
+            return ""
+        return order[order.index(current) + 1]
     except Exception:  # noqa: BLE001 - automatic closing is fail-open to normal planning
-        return False
+        return ""
 
 
 def _apply_planner_stage_request(
@@ -492,37 +486,25 @@ class PlanningCycleEnqueueMixin:
                     return PLAN_ERROR
                 self._reset_idle_backoff()
                 return PLAN_RETRY
-        auto_close_research = (
-            _research_stage_ready_for_close(
-                state_root=Path(state_root),
-                evidence_root=Path(context_root).resolve(),
-            )
+        automatic_stage_target = _automatic_stage_target(
+            state_root=Path(state_root),
+            evidence_root=Path(context_root).resolve(),
         )
-        if auto_close_research:
+        if automatic_stage_target:
             try:
                 from ...skills.stage_machine import advance_stage
-                from ...verticals._base import (
-                    load_vertical,
-                    vertical_checklist_stage_order,
-                )
-
-                order = tuple(
-                    vertical_checklist_stage_order(
-                        load_vertical("research", project_root=state_root)
-                    )
-                )
 
                 advance_stage(
                     state_root,
-                    target_stage=order[1],
-                    reason="the research vertical's first stage is complete",
+                    target_stage=automatic_stage_target,
+                    reason="the active vertical certified automatic stage completion",
                     advanced_by="manager:auto_completion",
                     evidence_root=Path(context_root).resolve(),
                 )
                 # Tasks were authored under the prior stage context.
                 return PLAN_RETRY
             except Exception:  # noqa: BLE001 - normal Manager planning remains available
-                log.debug("automatic research stage advance failed", exc_info=True)
+                log.debug("automatic stage advance failed", exc_info=True)
         for task_index, task in enumerate(planned_tasks):
             task = replace(task, context_refs=[], execution_workdir="")
             sanitized_title = _sanitize_planner_task_text(task.title)

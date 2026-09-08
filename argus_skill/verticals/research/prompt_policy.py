@@ -425,7 +425,15 @@ def paper_writing_standard() -> str:
     return (
         "The standard is a strong accepted paper at the selected venue, the kind the "
         "exemplar skill has you read; there is no house quota for sentences, words, "
-        "numbers, or caption format. Let the claim decide the form. The abstract is as "
+        "numbers, or caption format. Let the claim decide the form. "
+        "Apply 'Plan the manuscript length' in research-paper-playbook.md: "
+        "for a full-length paper, target nearly all permitted body space under "
+        "the exact track's official counting rules, not total PDF pages. "
+        "Respect explicit short-paper and partial-edit requests. Actively develop "
+        "principle-level analysis toward that target: mechanisms, assumptions, "
+        "derivations, and design tradeoffs. Experiments support the argument; do not write "
+        "an experiment report. Record the target and actual body extent "
+        "in existing research notes. The abstract is as "
         "long and as numerical as the venue's norm and the claim require: a large "
         "speedup is stated as a speedup, a narrow margin is stated with its "
         "uncertainty, and a mechanism finding may need no number at all. In prose, "
@@ -461,7 +469,15 @@ def paper_reviewer_standard() -> str:
         "prose recites a result matrix instead of arguing, when hedging or limitation "
         "lists stand in for a clear statement, or when internal workflow vocabulary "
         "appears. Do not ask for more hedging than the evidence requires, and do not "
-        "ask for a number where a plain statement is clearer."
+        "ask for a number where a plain statement is clearer. "
+        "Apply the manuscript-length policy in research-paper-playbook.md: "
+        "compare counted body extent with the full-paper writing target, "
+        "not total PDF pages. Judge the depth of principle-level analysis and "
+        "request expansion of terse mechanisms, derivations, and design tradeoffs. "
+        "Experiments should support the argument, "
+        "not turn it into an experiment report. Put actionable expansion requests "
+        "in the existing paper/REVIEW.md, "
+        "respecting explicit short-paper and partial-edit requests."
     )
 
 
@@ -487,6 +503,27 @@ def _planner_fragment(stage: str, project_root: Path | None) -> str:
             _stage_playbook_block(stage),
             active_research_context(stage, project_root),
             _hardware_block_for_stage(stage, project_root),
+            (
+                "## Post-result experiment scale assessment\n"
+                "After Reviewer accepts the current experiment, apply the "
+                "'Planner scale assessment after a passing experiment' section of "
+                "research-experiment-playbook.md before leaving Experiment. "
+                "Assess actual training and evaluation coverage against the operator "
+                "objective, not just the run's acceptance checks. If insufficient, "
+                "keep the stage and assign an incremental scale-up, preferring "
+                "existing benchmarks and reusing valid code, configurations, and results. "
+                "Apply the playbook's cost-aware benchmark policy: small custom "
+                "benchmarks are allowed with no API calls or only a small amount "
+                "within the authorized budget; reassess total cost when expanding. "
+                "Respect stricter project-specific restrictions. "
+                "If sufficient, explain why in the existing plan and REASON, "
+                "then return ADVANCE_TO_STAGE=paper with the paper task. "
+                "Do not schedule a separate inspection mission or repeat an "
+                "unchanged assessment; perform this judgment in your normal "
+                "planning turn."
+                if stage == "experiment"
+                else ""
+            ),
             (
                 "## Planner responsibility\n"
                 f"Plan only the highest-value unresolved work in `{stage or '(unknown)'}` "

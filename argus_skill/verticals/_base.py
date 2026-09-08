@@ -257,6 +257,25 @@ def vertical_stage_completion_issues(
     )
 
 
+def vertical_automatic_stage_completion_ready(
+    mod: VerticalDefinition,
+    *,
+    stage: str,
+    project_root: Path,
+    state_root: Path,
+) -> bool:
+    hook = _contract(mod).automatic_stage_completion
+    if hook is None:
+        return False
+    return bool(
+        hook(
+            stage=stage,
+            project_root=project_root,
+            state_root=state_root,
+        )
+    )
+
+
 def vertical_iteration_assessment(
     mod: VerticalDefinition,
     *,
@@ -315,6 +334,7 @@ __all__ = [
     "vertical_planner_task_issues",
     "vertical_workflow_mode",
     "vertical_search_altitude",
+    "vertical_automatic_stage_completion_ready",
     "vertical_stage_completion_issues",
     "vertical_stage_primary_deliverables",
 ]
