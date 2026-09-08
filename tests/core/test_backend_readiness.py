@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import inspect
 import subprocess
+from types import SimpleNamespace
 
+import pytest
+
+from argus_skill.apps.cli import _core, build_parser
 from argus_skill.core import backend_readiness as readiness
+from argus_skill.maintenance.doctor import DoctorContext
+from argus_skill.webapi import diagnostics
 
 
 def _completed(
@@ -678,3 +685,78 @@ def test_pi_readiness_warns_once_per_distinct_model(monkeypatch, tmp_path) -> No
     report = readiness.check_backend_readiness("pi", "subscription_cli")
 
     assert len(report.warnings) == 1, report.warnings
+
+
+def fake_cli(monkeypatch):
+    monkeypatch.setattr(readiness, "resolve_runner_bin", lambda *_: "/bin/codex")
+    monkeypatch.setattr(readiness, "_run_text", lambda *a, **k: subprocess.CompletedProcess(a, 0, "codex-cli 0.154.0-alpha.3\n", ""))
+    monkeypatch.setenv("ARGUS_SKILL_ALLOW_BACKEND_PRERELEASE", "1")
+
+
+def test_unspecified_cli_flag_is_not_an_explicit_refusal():
+    assert build_parser().parse_args([]).allow_prerelease is None
+    assert build_parser().parse_args(["--allow-prerelease"]).allow_prerelease is True
+
+
+def test_cli_context_preserves_unspecified_value(tmp_path):
+    args=SimpleNamespace(life_dir=str(tmp_path), resume="", allow_prerelease=None)
+    assert _core._maintenance_context(args).allow_prerelease is None
+
+
+def test_doctor_default_inherits_documented_environment(monkeypatch, tmp_path):
+    fake_cli(monkeypatch)
+    ctx=DoctorContext(global_root=tmp_path,project_root=tmp_path)
+    report=readiness.check_backend_readiness("codex","subscription_cli",probe_auth=False,allow_prerelease=ctx.allow_prerelease)
+    assert report.ok, report.problems
+
+
+def test_web_default_does_not_shadow_environment():
+    assert inspect.signature(diagnostics.run_diagnostics).parameters["allow_prerelease"].default is None
+    assert inspect.signature(diagnostics._check_backend_preflight).parameters["allow_prerelease"].default is None
+
+
+def test_explicit_api_refusal_still_overrides_environment(monkeypatch):
+    fake_cli(monkeypatch)
+    report=readiness.check_backend_readiness("codex","subscription_cli",probe_auth=False,allow_prerelease=False)
+    assert not report.ok
+    assert "prerelease" in report.problems[0].detail
+
+
+@pytest.mark.parametrize("env_value", [None, "0", "1"])
+@pytest.mark.parametrize("explicit", [None, False, True])
+def test_web_preflight_preserves_policy_precedence(monkeypatch, env_value, explicit):
+    fake_cli(monkeypatch)
+    if env_value is None:
+        monkeypatch.delenv("ARGUS_SKILL_ALLOW_BACKEND_PRERELEASE")
+    else:
+        monkeypatch.setenv("ARGUS_SKILL_ALLOW_BACKEND_PRERELEASE", env_value)
+    result = diagnostics._check_backend_preflight(
+        backend="codex", auth_mode="subscription_cli", probe_auth=False,
+        allow_prerelease=explicit,
+    )
+    expected = explicit if explicit is not None else env_value == "1"
+    assert result.ok is expected
+
+
+@pytest.mark.parametrize("non_interactive", [False, True])
+@pytest.mark.parametrize("explicit", ["omitted", False, True])
+def test_setup_passes_unspecified_and_explicit_policy(monkeypatch, non_interactive, explicit):
+    from argus_skill.tools import setup
+
+    monkeypatch.setattr(setup, "_banner", lambda: None)
+    monkeypatch.setattr(setup, "_configure_runner_backend", lambda value: value)
+    monkeypatch.setattr(setup, "_configure_auth_mode", lambda *args: "subscription_cli")
+    monkeypatch.setattr(setup, "default_model_for_backend", lambda *args: None)
+    monkeypatch.setattr(setup, "_resolve_setup_runner_bin", lambda *args, **kwargs: "fixture")
+    monkeypatch.setattr(setup, "format_backend_readiness", lambda report: "fixture")
+    seen = []
+
+    def check(*args, **kwargs):
+        seen.append(kwargs["allow_prerelease"])
+        return SimpleNamespace(ok=False)
+
+    monkeypatch.setattr(setup, "check_backend_readiness", check)
+    options = {} if explicit == "omitted" else {"allow_prerelease": explicit}
+    assert setup.run_setup(backend="codex", non_interactive=non_interactive, **options) == setup.SETUP_EXIT_NOT_READY
+    assert seen == [None if explicit == "omitted" else explicit]
+
