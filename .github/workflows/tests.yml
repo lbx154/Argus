@@ -4,17 +4,21 @@ on:
 jobs:
   windows-reproduction:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: ${{ matrix.python }}
       - name: Install test dependencies
         run: python -m pip install -e . pytest
-      - name: Reproduce owned descendant leak before the fix
-        run: python -m pytest -q tests/agent_cli/test_windows_turn_ownership.py --junitxml=windows-reproduction.xml
+      - name: Verify owned descendants and independent durable work
+        run: python -m pytest -q tests/agent_cli/test_windows_turn_ownership.py tests/agent_cli/test_prompt_stdin_backpressure.py tests/agent_cli/test_output_pipe_lifecycle.py tests/roles/test_native_shell_contract.py tests/tools/test_subagent_durable_owner.py tests/test_run_exec_stream_callback.py tests/test_opencode_backend.py tests/agent_cli/test_provider_turn_cap.py --junitxml=windows-reproduction.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: windows-reproduction
+          name: windows-reproduction-${{ matrix.python }}
           path: windows-reproduction.xml
