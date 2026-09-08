@@ -85,6 +85,7 @@ const STATES: Record<string, [string, string]> = {
   superseded: ["已替代", "Superseded"],
   question: ["待答复", "Needs input"],
   paused: ["已暂停", "Paused"],
+  paused_external_work: ["等待后台任务", "Waiting on background work"],
   missing: ["引用缺失", "Missing"],
   unknown: ["状态未知", "Unknown"],
   continue: ["需修订", "Revise"],
@@ -155,6 +156,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     : task.status === "missing"
       ? "missing"
       : data.paused && ACTIVE.has(task.status) ? "paused" : statusKey(task);
+  const displayedState = state === 'paused' && task.status === 'paused_external_work'
+    ? task.status : state;
   const summaryScale = Math.min(
     data.frame.width / 288,
     data.frame.height / 218,
@@ -266,7 +269,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   }, [screenWidth, screenHeight]);
   const stateLabel = (s: string) =>
     (STATES[
-      s.startsWith("paused_") ? "paused" : ACTIVE.has(s) ? "running" : s
+      s === 'paused_external_work' ? s : s.startsWith("paused_") ? "paused" : ACTIVE.has(s) ? "running" : s
     ] ?? STATES.unknown)[zh ? 0 : 1];
   return (
     <article
@@ -335,7 +338,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               ) : (
                 <span className="map-state-dot" />
               )}
-              {stateLabel(state)}
+              {stateLabel(displayedState)}
             </span>
           </div>
           <h3><MarkdownExcerpt>{title}</MarkdownExcerpt></h3>
@@ -398,7 +401,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </small>
             <h2><MarkdownExcerpt>{title}</MarkdownExcerpt></h2>
           </div>
-          <span className="macro-state">{stateLabel(state)}</span>
+          <span className="macro-state">{stateLabel(displayedState)}</span>
         </header>
         <div className="macro-stage-key">
           {STEP_KINDS.map((kind) => (
