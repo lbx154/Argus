@@ -105,8 +105,11 @@ def test_natural_final_feedback_survives_parse_handoff_and_engineer_reentry(pape
     saved = json.loads(handoff.read_text())
     assert saved["review"]["next_action"] == FEEDBACK
     assert str(handoff) in render_mission_brief(mission)
-    assert FEEDBACK in (paper / "paper/REVIEW.md").read_text()
-    assert "## Reject-level issues\nNone." in (paper / "paper/REVIEW.md").read_text()
+    saved_review = (paper / "paper/REVIEW.md").read_text()
+    assert saved_review.count(FEEDBACK) == 1
+    assert "Final venue acceptance is pending" not in saved_review
+    assert "## Strongest accept case" not in saved_review
+    assert "## Reject-level issues" not in saved_review
 
 
 def test_clear_natural_acceptance_with_only_optional_future_work_can_finish(paper):
@@ -128,6 +131,7 @@ def test_natural_rejection_cannot_pass_an_adapter_done(paper):
     assert review.status == "continue"
     assert not review.final_submission_certified
     assert not review.backend_unavailable
+    assert review.reason == quote
 
 
 def test_scientific_replan_feedback_goes_directly_back_to_engineer_in_review(paper):

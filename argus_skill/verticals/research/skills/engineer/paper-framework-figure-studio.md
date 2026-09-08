@@ -27,8 +27,15 @@ editable reconstruction -> native PPTX through PPT Master -> paper export.**
    A prose-only edit, compile, or new Review round does not justify regeneration.
    Ground labels and connections in the current manuscript and executed method.
    Inspect suitable published reference figures before generating a new
-   blueprint; learn their composition without copying artwork. Keep source
-   pointers in the existing research notes, not an exemplar collection.
+   blueprint; open the actual diagrams in two or three relevant accepted papers
+   from the selected venue or comparable conferences. Choose references for
+   the mechanism and composition, not just a famous paper's name. Study reading
+   order, visual representations, information density, type, spacing, and color
+   semantics without copying artwork. Keep the paper URL, figure number, and
+   the useful design observation in the existing research notes, not an
+   exemplar collection. An operator-rejected figure is not suitable for reuse
+   merely because it compiles, has no overlaps, or uses the suggested colors.
+   Redesign its composition before making local repairs.
 2. Check the configured image route, disclosure authorization, available budget,
    and installed PPT Master via `engineer/presentation-master.md`. This default
    does not authorize spending beyond the task budget, uploading confidential
@@ -55,6 +62,14 @@ editable reconstruction -> native PPTX through PPT Master -> paper export.**
    and export files, and include a publication-ready vector PDF in the paper.
 6. Inspect the rendered figure at the actual publication width, repair the
    editable source, and rerender. Check native PPTX text and object editability.
+   Compare it visually with the references: the mechanism must be apparent
+   from the drawing, with deliberate hierarchy and restrained, coherent color.
+   A grid of prose/formula boxes is not a finished academic illustration.
+   Use small token streams, bit fields, sets, matrices, trajectories, or other
+   scientifically meaningful objects where they reveal what changes and what
+   stays fixed. Keep only essential equations on canvas and move derivations
+   and narrative into the caption. Make this comparison during the existing
+   render inspection; do not create another report or review stage.
    If PDF/PNG previews come from SVG rather than a PowerPoint render, say so;
    do not claim an Office rendering was inspected when it was not.
 

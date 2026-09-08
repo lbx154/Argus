@@ -121,6 +121,11 @@ def test_svg_workflow_is_removed_and_paper_uses_method_d_with_b_fallback() -> No
             role="engineer", operation="", stage=stage, scope="", project_root=None,
         )
         assert "pipeline_figure" not in prompt
+        if stage == "review":
+            assert "Method D is the default" in prompt
+            assert "Method B is the fallback" in prompt
+            assert "engineer/paper-framework-figure-studio.md" in prompt
+            assert "operator-rejected figure needs a fresh composition" in prompt
     for stage in ("paper", "review"):
         prompt = render_role_prompt_fragment(
             role="engineer", operation="narrative_edit", stage=stage, scope="",

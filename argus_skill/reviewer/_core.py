@@ -497,38 +497,39 @@ def _persist_research_review(
     accept_case = str(
         report.get("accept_case")
         or report.get("strongest_accept_case")
-        or decision.reason
         or ""
     ).strip()
     challenge = str(
         report.get("challenge")
         or report.get("plan_challenge")
-        or ("" if decision.status == "done" else decision.reason)
         or ""
     ).strip()
     if decision.venue_review is not None:
         challenge = "\n".join(f"- {issue}" for issue in decision.venue_review["blocking_issues"])
     text = (
         "# Authoritative review\n\n"
-        f"**Judgment:** {decision.status}\n\n"
         + (
             "## Selected-venue assessment\n"
             f"Venue: {decision.venue_review['venue']}\n\n"
             f"Recommendation: {decision.venue_review['recommendation']}\n\n"
-            f"Clear acceptance: {decision.venue_review['acceptance_clear']}\n\n"
-            f"{decision.venue_review['rationale']}\n\n"
-            if decision.venue_review is not None else ""
+            if decision.venue_review is not None else f"**Judgment:** {decision.status}\n\n"
         )
         +
         "## Scientific, visual, and language assessment\n"
         f"{decision.reason or 'Not assessed.'}\n\n"
-        "## Strongest accept case\n"
-        f"{accept_case or 'No accept case was established.'}\n\n"
-        "## Reject-level issues\n"
-        f"{challenge or 'None.'}\n\n"
-        "## Next action\n"
-        f"{decision.next_action or 'None.'}\n"
     )
+    # Natural reviews already carry strengths, concerns, and revision guidance.
+    # Preserve the complete review once; add only distinct legacy details.
+    for heading, content in (
+        ("Strongest accept case", accept_case),
+        ("Reject-level issues", challenge),
+        ("Next action", str(decision.next_action or "").strip()),
+    ):
+        if content and not all(
+            line.strip().removeprefix("- ") in text
+            for line in content.splitlines() if line.strip()
+        ):
+            text += f"## {heading}\n{content}\n\n"
     path = artifact_root / "paper" / "REVIEW.md"
     from ..manager.source_writeback import atomic_write
 

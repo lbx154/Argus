@@ -617,12 +617,16 @@ def _engineer_fragment(
                 "Reuse an existing suitable figure; do not invoke the component every "
                 "round or for prose-only edits. The current Engineer grounds the "
                 "drawing in code and manuscript and inspects the rendered composition "
-                "at publication size. Include "
+                "at publication size. An operator-rejected figure needs a fresh composition; "
+                "a successful export or a palette change does not make it suitable for reuse. "
+                "Inspect actual figures from relevant accepted papers, borrow their visual "
+                "grammar, and show the mechanism with meaningful objects instead of a wall "
+                "of formula-filled boxes. Include "
                 "the vector PDF after the Introduction, targeting page 2 or 3 in the "
                 "compiled paper, and keep the canonical editable drawing source. "
                 "Use restrained academic typography and thin strokes; oversized "
                 "headings and a wall of colored cards do not establish visual quality."
-                if stage == "paper" and not narrative_edit else ""
+                if (stage == "paper" and not narrative_edit) or scientific_revision else ""
             ),
             _narrative_editor_block() if narrative_edit else "",
             (

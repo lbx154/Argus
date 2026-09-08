@@ -50,7 +50,9 @@ def test_rejection_cannot_pass_even_with_done(paper, rating):
     assert review.status == "continue"
     assert not review.final_submission_certified
     assert not review.backend_unavailable
-    assert rating in review.reason
+    assert review.venue_review["recommendation"] == rating
+    assert review.reason == "The local edit is fixed."
+    assert review.next_action
 
 
 @pytest.mark.parametrize("rating", ["weak_accept", "accept", "strong_accept", "best_paper"])

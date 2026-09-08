@@ -214,7 +214,10 @@ def test_review_persistence_uses_the_explicit_artifact_root(tmp_path: Path) -> N
     assert "## Scientific, visual, and language assessment" in review.read_text(
         encoding="utf-8"
     )
-    assert "## Strongest accept case" in review.read_text(encoding="utf-8")
+    saved = review.read_text(encoding="utf-8")
+    assert saved.count("Scientific: fail because the strongest published baseline is missing.") == 1
+    assert "Run the baseline through the real evaluator." in saved
+    assert "## Strongest accept case" not in saved
     assert not (maintenance / "paper" / "REVIEW.md").exists()
 
 

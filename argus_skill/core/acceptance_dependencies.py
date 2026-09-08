@@ -8,7 +8,7 @@ import re
 from pathlib import PurePosixPath
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 CACHE_KEY = "acceptance_dependency_assessment"
 
 # A candidate only triggers a read-only Planner interpretation, never a cycle
@@ -17,6 +17,12 @@ _EMBED = re.compile(r"\b(?:embed|include|contain|append|insert)\w*\b|嵌入|内�
 _ARTIFACT = re.compile(r"\b(?:report|document|artifact|readme)\b|报告|文档|交付物|\.md\b", re.I)
 _CURRENT = re.compile(r"\b(?:current|latest|this\s+(?:review|round)|own)\b|本轮|本次|当前|最新|自身", re.I)
 _RECEIPT = re.compile(r"\b(?:reviewer|review\s+(?:receipt|evidence)|closeout)\b|复核|审查|验收回执|交付状态", re.I)
+_NEGATED_EMBED = re.compile(
+    r"(?:\b(?:do|does|must|should|shall|can|may)\s+not\s+|"
+    r"\b(?:never|without|don['’]t|doesn['’]t)\s+|"
+    r"(?:不得|不要|不应|不允许|禁止)\s*)$",
+    re.I,
+)
 
 
 def mission_acceptance_contract(item: Any) -> dict[str, Any]:
@@ -52,10 +58,20 @@ def needs_dependency_assessment(contract: dict[str, Any]) -> bool:
                 lines = [line for line in following.splitlines() if line.strip()]
                 if lines and all(re.match(r"\s*(?:[-*+]\s+|\d+[.)]\s+)", line) for line in lines):
                     paragraph += "\n" + following
-            if all(pattern.search(paragraph) for pattern in (
-                _EMBED, _ARTIFACT, _CURRENT, _RECEIPT,
-            )):
-                return True
+            if not _ARTIFACT.search(paragraph) or not _CURRENT.search(paragraph):
+                continue
+            # An instruction to include a figure and an unrelated instruction
+            # to obtain peer review do not imply an embedded review receipt.
+            # Keep explicit colon/list clauses together, but never join separate
+            # sentences from a Manager-compacted task into a new obligation.
+            for sentence in re.split(r"[。！？!?]|\.(?=\s|$)", paragraph):
+                if not _RECEIPT.search(sentence):
+                    continue
+                if any(
+                    not _NEGATED_EMBED.search(sentence[:match.start()])
+                    for match in _EMBED.finditer(sentence)
+                ):
+                    return True
     return False
 
 
@@ -231,7 +247,14 @@ def assessment_prompt(contract: dict[str, Any]) -> str:
         "is produced only after judging the exact current bytes of subject. If the "
         "report only summarizes a review status or links an external receipt, do "
         "not turn that into an embedded generation-bound receipt requirement. "
-        "When the contract does not establish such a binding, clarify it. If the "
+        "Ordinary peer review, acceptance ratings, responding to reviewer feedback, "
+        "and CHECKPOINT progress notes do not require a receipt artifact or stable "
+        "receipt ID. Those are normal workflow activities; the host owns their "
+        "storage and version binding. Do not invent a file/ID requirement or ask "
+        "the operator to specify internal bookkeeping. When there is no explicit "
+        "requirement to include a review receipt in a deliverable, return assessed "
+        "with an empty dependency list and explain that normal review is external. "
+        "Only an explicit receipt-inclusion requirement can need clarification. If its "
         "paths, freshness, placement, or applicability cannot be determined, return "
         "status='needs_clarification' and explain the missing distinction. Do not "
         "invent paths, relations, permissions, or declare task success. The host "

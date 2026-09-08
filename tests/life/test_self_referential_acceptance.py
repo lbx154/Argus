@@ -158,10 +158,9 @@ def test_cached_cycle_survives_restart_without_another_assessment(tmp_path: Path
 @pytest.mark.parametrize("payload", [
     {"status": "assessed", "dependencies": [{**_dependency(), "source_quote": "invented condition"}]},
     {"status": "needs_clarification", "dependencies": [], "reason": "No report path is specified."},
-    {"status": "needs_clarification", "dependencies": [_dependency()], "reason": "Embedding may mean a link; this relation is tentative."},
     {"status": "confirmed", "cycle": ["REPORT.md", "receipt"]},
 ])
-def test_unknown_or_unquoted_relation_pauses_for_clarification_not_failure(
+def test_invalid_interpretation_retries_without_asking_the_operator(
     tmp_path: Path, payload, monkeypatch,
 ):
     monkeypatch.setenv("ARGUS_SKILL_AUTONOMY_MODE", "autonomous")
@@ -172,13 +171,55 @@ def test_unknown_or_unquoted_relation_pauses_for_clarification_not_failure(
     assert runner.executed == []
     assert result["success"] is False
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
+    assert stored.status == "infra_blocked"
+    assert stored.pending_question == ""
+    assert "acceptance_dependency_assessment" not in stored.manager_decision
+    assert stored.acceptance_check == CLAUSE
+    assert len(runner.planner_backend.calls) == 2
+
+
+def test_grounded_ambiguity_still_asks_a_readable_question(tmp_path: Path):
+    supervisor, runner, item = _supervisor(tmp_path, {
+        "status": "needs_clarification", "dependencies": [_dependency()],
+        "reason": "Embedding may mean a link; this relation is tentative.",
+    })
+
+    supervisor.tick()
+
+    assert runner.executed == []
+    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.status == "paused_operator"
+    assert stored.pending_question == "Should the report include this review's result or refer to an earlier completed review?"
     assessment = stored.manager_decision["acceptance_dependency_assessment"]
     assert assessment["result"] == "unresolved"
     assert assessment["cycle"] == []
     assert stored.acceptance_check == CLAUSE
     supervisor.tick()
     assert len(runner.planner_backend.calls) == 1
+
+
+@pytest.mark.parametrize("payload,expected_status", [
+    ({"status": "assessed", "dependencies": [_dependency(placement="external")]}, "done"),
+    ({"status": "assessed", "dependencies": [], "reason": "Normal peer review requires no embedded receipt."}, "done"),
+    ({"status": "assessed", "dependencies": [_dependency()]}, "paused_operator"),
+])
+def test_internal_retry_recovers_and_still_checks_real_cycles(tmp_path: Path, payload, expected_status):
+    supervisor, runner, item = _supervisor(tmp_path, None)
+    responses = iter(["Malformed internal response", json.dumps(payload)])
+    calls = []
+
+    def respond(**kwargs):
+        calls.append(kwargs)
+        return RunnerResult(exit_code=0, agent_messages=[next(responses)])
+
+    runner.planner_backend.run_exec = respond
+    supervisor.tick()
+
+    stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
+    assert stored.status == expected_status
+    assert len(calls) == 2
+    assert len(runner.executed) == (1 if expected_status == "done" else 0)
+    assert bool(stored.pending_question) == (expected_status == "paused_operator")
 
 
 def test_contract_revision_reassesses_but_real_content_edits_do_not_invalidate_structure(
@@ -217,9 +258,17 @@ def test_contract_revision_reassesses_but_real_content_edits_do_not_invalidate_s
     assert len(runner.executed) == 2
 
 
-def test_non_candidate_never_makes_a_dependency_model_call(tmp_path: Path):
+@pytest.mark.parametrize("clause", [
+    "Review the report and check current numerical results.",
+    "Include the new figure in REPORT.md. The current Reviewer should assess scientific quality. Record changes in CHECKPOINT.md.",
+    "The report must not include current Reviewer receipts; keep the review separate.",
+    "Don't embed the current Reviewer receipt in the report.",
+    "正文不得写入内部工作流、Reviewer 复核结论或当前交付状态。CHECKPOINT.md 记录修改。",
+    "当前论文必须包含真实实验结果。Reviewer 按 ICLR 审稿，拒稿后 Engineer 在 Review 内补实验。CHECKPOINT.md 记录进展。",
+])
+def test_non_candidate_never_makes_a_dependency_model_call(tmp_path: Path, clause: str):
     supervisor, runner, _item = _supervisor(
-        tmp_path, None, clause="Review the report and check current numerical results.",
+        tmp_path, None, clause=clause,
     )
     assert supervisor.tick()["success"] is True
     assert runner.planner_backend.calls == []
@@ -243,6 +292,8 @@ def test_chinese_legacy_task_and_named_planner_reply_use_the_production_guard(tm
     assert runner.executed == []
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.status == "paused_operator"
+    assert "单独保存" in stored.pending_question
+    assert "acceptance" not in stored.pending_question
     assert stored.manager_decision["acceptance_dependency_assessment"]["result"] == "cyclic"
     assert stored.acceptance_check == clause
 
@@ -287,8 +338,9 @@ def test_orphan_receipt_fields_cannot_be_discarded_as_an_empty_acyclic_assessmen
 
     assert runner.executed == []
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.status == "paused_operator"
-    assert stored.manager_decision["acceptance_dependency_assessment"]["result"] == "unresolved"
+    assert stored.status == "infra_blocked"
+    assert stored.pending_question == ""
+    assert "acceptance_dependency_assessment" not in stored.manager_decision
 
 
 def test_markdown_report_requirements_use_the_dependency_guard(tmp_path: Path):
@@ -323,7 +375,9 @@ def test_receipt_field_overwrite_cannot_erase_a_preceding_cycle(tmp_path: Path):
 
     assert runner.executed == []
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
-    assert stored.manager_decision["acceptance_dependency_assessment"]["result"] == "unresolved"
+    assert stored.status == "infra_blocked"
+    assert stored.pending_question == ""
+    assert "acceptance_dependency_assessment" not in stored.manager_decision
 
 
 def test_contract_changed_during_assessment_never_receives_the_stale_result(tmp_path: Path):
@@ -367,7 +421,7 @@ def test_assessment_merges_concurrent_manager_metadata_without_overwriting_it(tm
     assert stored.manager_decision["acceptance_dependency_assessment"]["result"] == "well_founded"
 
 
-def test_invented_artifact_binding_is_unresolved_even_with_a_real_source_quote(tmp_path: Path):
+def test_invented_artifact_binding_is_an_internal_failure_even_with_a_real_source_quote(tmp_path: Path):
     supervisor, runner, item = _supervisor(tmp_path, {
         "status": "assessed", "dependencies": [{
             **_dependency(), "artifact": "invented.md", "subject": "invented.md",
@@ -378,8 +432,9 @@ def test_invented_artifact_binding_is_unresolved_even_with_a_real_source_quote(t
 
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert runner.executed == []
-    assert stored.status == "paused_operator"
-    assert stored.manager_decision["acceptance_dependency_assessment"]["result"] == "unresolved"
+    assert stored.status == "infra_blocked"
+    assert stored.pending_question == ""
+    assert "acceptance_dependency_assessment" not in stored.manager_decision
 
 
 def test_superseded_external_contract_is_automatically_reassessed_before_execution(tmp_path: Path):

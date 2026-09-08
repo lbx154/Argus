@@ -186,7 +186,20 @@ def enforce_venue_acceptance(
         return
     if decision.status == "done" or (decision.status == "blocked" and not decision.operator_question and not decision.backend_unavailable):
         decision.status = "continue"
-    decision.reason = f"Final venue acceptance is pending: {issue}.\n\n{decision.reason}"
+    # The review already explains its scientific judgment in the user's
+    # language. Do not prepend an internal protocol explanation to every
+    # rejection, or turn that duplicate text into the Engineer's feedback.
+    if not before or not current or before != current:
+        from .operator_messages import uses_cjk
+
+        message = (
+            "论文和图件需要生成完整的最新 PDF，再按这个版本复审。"
+            if uses_cjk(decision.reason)
+            else "Render the complete current paper and figures, then review that version."
+        )
+        decision.reason = f"{message}\n\n{decision.reason}"
+    elif not decision.reason.strip():
+        decision.reason = assessment["rationale"]
     if not decision.next_action.strip():
         repairs = "; ".join(assessment["blocking_issues"]) or assessment["rationale"]
         decision.next_action = "Revise the current paper against the selected venue's standard: " + repairs
