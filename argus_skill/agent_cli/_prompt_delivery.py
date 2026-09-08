@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, TextIO
@@ -119,23 +120,42 @@ class PromptDeliveryMixin:
     @staticmethod
     @contextmanager
     def _prompt_stdin(prompt: str | None) -> Iterator[TextIO | int]:
-        """Provide finite stdin without writing into a live child's pipe.
+        """Provide finite stdin through a real pipe without pre-spawn writes.
 
         CLIs may emit startup output before reading their prompt. A synchronous
         pipe write before starting stdout/stderr readers deadlocks under that
-        backpressure. A temporary file preserves stdin delivery and EOF without
-        a writer thread, prompt argv exposure, or a pipe-capacity dependency.
-        The child inherits its own handle; the parent closes its copy at spawn.
+        backpressure, so a daemon thread feeds the pipe instead. It must be a
+        pipe rather than a temporary file: deployed CLI shims (the VS Code
+        copilot launcher) accept a prompt only from FIFO stdin and answer
+        "No prompt provided" to a regular file. The child inherits the read
+        end; the parent closes its copy at spawn, so a child that exits
+        without draining leaves the writer a broken pipe, not a hang.
         """
         if prompt is None:
             yield subprocess.DEVNULL
             return
-        with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as stream:
-            stream.write(prompt)
-            if not prompt.endswith("\n"):
-                stream.write("\n")
-            stream.seek(0)
-            yield stream
+        payload = prompt if prompt.endswith("\n") else prompt + "\n"
+        read_fd, write_fd = os.pipe()
+
+        def feed() -> None:
+            try:
+                with os.fdopen(
+                    write_fd, "w", encoding="utf-8", errors="replace"
+                ) as sink:
+                    sink.write(payload)
+            except OSError:
+                # Every read end is closed: the child exited without draining
+                # its prompt, or the spawn failed. Nothing left to deliver.
+                pass
+
+        reader = os.fdopen(read_fd, "r", encoding="utf-8", errors="replace")
+        threading.Thread(
+            target=feed, name="argus-prompt-stdin", daemon=True
+        ).start()
+        try:
+            yield reader
+        finally:
+            reader.close()
 
 
     @staticmethod

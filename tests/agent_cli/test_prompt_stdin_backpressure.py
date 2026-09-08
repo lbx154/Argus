@@ -67,6 +67,25 @@ def test_large_prompt_and_startup_output_cannot_deadlock(monkeypatch, tmp_path, 
     assert all(p.stdin is None for p in processes)
 
 
+def test_prompt_reaches_a_cli_that_requires_piped_stdin(monkeypatch, tmp_path):
+    """The deployed copilot shim reads a prompt only from FIFO stdin.
+
+    The VS Code copilotCLIShim answers "No prompt provided" when stdin is a
+    regular file, which took down every one-shot copilot turn fleet-wide on
+    2026-09-08. Delivery must present the prompt through a real pipe.
+    """
+    received = tmp_path / "received.txt"
+    body = (
+        "import os,stat,sys,json;from pathlib import Path;"
+        "assert stat.S_ISFIFO(os.fstat(0).st_mode), 'stdin must be a pipe';"
+        f"Path({str(received)!r}).write_text(sys.stdin.read());"
+        "print(json.dumps({'type':'turn.completed'}),flush=True)"
+    )
+    result, elapsed, _processes = run_fixture(monkeypatch, tmp_path, body, "hello shim")
+    assert received.read_text() == "hello shim\n"
+    assert result.turn_completed and result.exit_code == 0 and elapsed < 3
+
+
 @pytest.mark.parametrize("reason", ["stop", "hard_idle"])
 def test_child_not_reading_input_can_be_stopped(monkeypatch, tmp_path, reason):
     start = time.monotonic()
