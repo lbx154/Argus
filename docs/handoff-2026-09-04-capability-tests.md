@@ -1209,3 +1209,88 @@ webapi 并发请求)不在委托链,照旧等 flock——"Manager 提交与任�
   需要专门的反向测试(独立线程必须等、委托线程必须能进),这次已补。
 - 罕见路径(认证恢复 reconcile)第一次被真实状态触发时才暴露;上游
   行为修复可能点燃底层潜伏 bug,滚动后头一两个规划周期值得盯梢。
+
+## 二十、追加(2026-09-08):补完中断的滚动,并让后端看见自己的并行拓扑
+
+### 接手现场
+
+前一个会话(常规 claude 账号)在 05:54 把三个守护进程(s-0ebfd18c
+papermaker2、s-d9c7aeb2 restaurant-sensory、s-09d42a6f
+agent-communication)停机,准备滚到新 checkout
+`argus-runtime-20260908-f9d8a02bf`,05:55 撞上周度用量上限中断。本会话
+(claude-yijia)接手:按其既定的 env 覆盖模式(runtime-latest 的解释器
++ `PYTHONPATH`/`ARGUS_SKILL_SOURCE_ROOT` 指向新 checkout)于 06:04 把
+三个守护进程拉回,均恢复 continuous 模式并核实 environ。另核实:
+runtime-latest 里那 603 行未提交改动与 main 上的 662a95acd 逐字节一致
+——不是丢失的工作,清理时可放心丢弃。
+
+前会话留下四份调查笔记(调度、Planner 契约、地图后端、地图前端,在其
+scratchpad),本节两个提交即按笔记实施。原始诉求(其会话首条消息):
+后端执行天然线性,要多开 engineer/reviewer loop、Planner 规划 DAG、
+后端自感知研究架构;前端 Atlas 卡。
+
+### 提交一:aa1e770a3("Show the Planner the mission slots it was starving")
+
+诊断:width=2 的机器早就存在(primary + parallel-1 辅助 supervisor,
+各带独立 Engineer/Reviewer 循环),但辅助槽只接"co-running 全体都声明
+parallel_safe + 互不重叠 owns_paths"的任务,而 Planner 从不知道槽位
+存在、不知道解锁规则、也不知道自己的 TASK_PARALLEL_SAFE 何时被静默
+剥掉——于是实际宽度永远是 1。
+
+- 现实摘要新增槽位拓扑(总数/占用/空闲)、每条活动任务的
+  parallel_safe/owns_paths,以及"空闲槽被无归属任务卡住"的直白提示
+  (paused_external_work 无 owns_paths 同样卡闸,一并覆盖);
+- enqueue 规范化:glob 路径直接剔除(闸门本来就拒收,存下来只会让
+  摘要撒谎)、framework_maintenance 任务剥 parallel_safe(闸门必拒);
+  凡剥都在下一个 Planner 回合一次性反馈(PARALLEL FLAGS DROPPED 注记
+  + 新事件 life.planner.parallel_dropped,提交时按实际入队任务去重
+  发射,dedup 跳过的重复提案不再刷journal);
+- 连续 Planner prompt 契约一条:什么组合才解锁槽位。落在字节稳定的
+  静态段内,且收在数学 scope 的字符预算下(第一版超预算 111 字符,
+  被 tests/test_planner_prompt_budget.py 拦下后压缩)。
+
+对抗评审四条 should-fix(glob 漏洞、事件先于 dedup 发射、
+framework_maintenance 无反馈、paused 卡闸不入摘要)全部修入;评审
+还指出 bounded-DAG prompt 未同步该契约——bounded 节点本无
+parallel_safe 字段,留作后续。
+
+### 提交二:ad760573e("Stop the Atlas map from paying every session's bill")
+
+服务端:MapFeed 全局锁改按缓存项持锁(注册锁只管查找/LRU),慢会话
+不再拖住所有会话;Team 目录遍历每次失效读跑两遍改为一遍复用(绑定
+证据变了才重扫,map_view 179 行的 dict 拷贝保证判等语义成立);
+`/map?since=` 的双份 feed.read 改单读 + 内部 task_index 过滤(索引
+不出接口)。前端:常驻 3 秒轮询降为 15 秒兜底(SSE 650ms 失效仍是
+主通道,分页加载期 400ms 不变);边 lane 计算去掉二次方前缀扫描
+(等价性由含随机图的 vitest 用例钉死);artifacts 从每个节点的 data
+迁到 context,composer/actions 对象稳定身份。未动 CSS/视觉,未动
+snapshot/projects/costs 轮询。
+
+### 测试与纪律
+
+- 两批新测试均先证红后转绿(红态输出留在各自实施记录);
+- 全量 tests/:exit 0,零 FAILED(仅既有 warnings);前一轮全量唯二
+  红灯是 prompt 预算两条,压缩 prompt 后复绿;
+- frontend/web:tsc 干净,vitest 57 文件 382 用例全绿;
+- 语音防回潮、event 目录/schema/双端 parity、fixtures 生成器全绿
+  (新事件同步进 event_payload_schemas.json、eventCatalog.ts、
+  eventRender、生成物)。
+
+### 部署(见下一节的落位核对)
+
+计划:fetch+rebase 推 main → runtime-latest 丢弃与 662a95acd 等价的
+本地改动、detach 到新 rev → `frontend/web` 重建 dist → 重启三个守护
+进程(回到 config knob 指向的 runtime-latest,不再需要 env 覆盖)→
+重启 8799/8801 两个 webapi。上线后值得盯:life.planner.
+parallel_dropped 的出现频率(应当很快归零——Planner 学会声明
+owns_paths)、辅助槽的实际并发占用、Atlas 网络面板里 /map 请求频度
+(活跃期应从 3s 降到 SSE 驱动 + 15s 兜底)。
+
+### 遗留(诚实)
+
+- map-history 路由每页仍两次 feed.read(形态同 /map 修前),未列入
+  本批;canvasSize 变化仍重渲染全部节点;MapPanel 的 updateKey 逐
+  事件重算——三者都是既有行为,笔记 D 里有定位。
+- 一次性反馈注记在"prompt 已组装、模型调用前中止"的路径上会白耗
+  (与 dropped_dependency 同一取舍,评审确认为既有模式)。
+- 17 张决策卡仍压在 ~/.argus-skill/maintenance/pending/ 等操作者。
