@@ -53,6 +53,13 @@ not a complete-looking experiment matrix.
    depends on many of these (nvcc, Triton, CUTLASS, Nsight and friends), and a
    missing or mismatched one quietly invalidates every measurement built on
    top of it.
+   GPU inventory indices are physical, while `cuda:0` means the first device
+   exposed to the launched process. Honor any allocation or inherited
+   `CUDA_VISIBLE_DEVICES` mask. When choosing an authorized free GPU yourself,
+   include the intended mask in the actual launch command and match the
+   configuration's logical index to it. Merely writing that environment prefix
+   in a saved command or example does not apply it. Confirm and retain the
+   actual device mapping with the run command before a long execution.
 4. Implement the method and baseline through real entry points under comparable
    data, compute, information, and evaluator access. Build the strongest
    faithful version of the idea, not the easiest version that can pass a local

@@ -292,7 +292,14 @@ def local_hardware_block() -> str:
         "these GPUs are expected, several GPUs can be used at once when a run "
         "benefits, and batch sizes, model scale, and evaluation sets should "
         "use the memory that is actually free. Prefer the GPUs with the most "
-        "free memory and leave others' running jobs undisturbed."
+        "free memory and leave others' running jobs undisturbed. The inventory "
+        "uses physical GPU indices; a configuration's cuda:0 names the first "
+        "device visible to that process. Keep any assigned CUDA_VISIBLE_DEVICES "
+        "mask. When selecting an authorized free physical GPU yourself, include "
+        "the corresponding mask in the command you actually launch and use its "
+        "logical device index in the configuration. A mask written only in a "
+        "reproduction example does not configure the running process. Confirm "
+        "the actual mapping before a long run and retain it with the run command."
     )
     _hardware_cache = (now, block)
     return block

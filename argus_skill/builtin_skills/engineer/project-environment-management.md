@@ -73,7 +73,20 @@ python -m argus_skill.tools.subagent submit \
 
 ## Environment variables
 
-The project venv inherits `CUDA_VISIBLE_DEVICES` from the daemon process (set via `gpu_resources.json`).
+The launched process inherits `CUDA_VISIBLE_DEVICES` only when its parent or
+resource launcher actually set it; activating a venv does not select a GPU.
+Honor an assigned visibility mask without widening it. Inventory tools normally
+show physical GPU indices, while a configuration's `cuda:0` means the first
+device in that process's mask. For example, if physical GPU 3 is allocated to
+this run and free, use logical `cuda:0` in the configuration and launch:
+
+```bash
+CUDA_VISIBLE_DEVICES=3 .venv/bin/python code/train.py --config config.yaml
+```
+
+Include that prefix in the executed command, not only in a saved reproduction example. Check
+the actual mapping before a long run and retain it with the existing run record.
+
 Point all model/data caches at the project-local store under `./models/` (pre-created by the
 launcher and gitignored) so each project owns its weights — see the
 training-infrastructure-guide skill, which is the source of truth for this contract:

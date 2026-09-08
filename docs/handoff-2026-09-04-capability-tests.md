@@ -1785,3 +1785,24 @@ The audit receipts are `current-task-contract-cleanup.json`,
 `strong-accept-rollout` audit directory. Running task identities/statuses were
 preserved. Upgrade workers only at an actually recoverable point; never restart
 their scientific work because an observation window expired.
+
+## 33. Execute the recorded GPU mapping (2026-09-08 UTC)
+
+During S43's same-information stratified experiment, Engineer launched a config
+using logical `cuda:0` without the `CUDA_VISIBLE_DEVICES` prefix present in its
+saved example. Qwen reached the occupied physical GPU 0 and failed. Argus itself
+diagnosed the omission and restarted only Qwen with `CUDA_VISIBLE_DEVICES=1`;
+the new process was directly verified on GPU 1. Phi's completed work was retained.
+
+The hardware prompt and experiment guide now distinguish physical inventory
+indices from framework-local indices, honor any assigned mask, and require the
+actual launch to include the intended mapping. The project-environment guide
+no longer claims that activating a venv sets the mask from a resource JSON file:
+only an actual parent/launcher environment or explicit command does that. Keep
+the mapping with the existing run command; no new report or operator question.
+
+The 40-test inventory, research protocol, resumed-reviewer and voice group
+passed, along with ruff and whitespace checks. Log:
+`/tmp/argus-device-mapping-guidance-tests-20260908.log`.
+All three original paper daemons were still alive; S43 was doing real new
+experiments, so its observation window expiring did not trigger a restart.
