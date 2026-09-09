@@ -26,6 +26,18 @@ LETTERS_FILENAME = "LETTERS.md"
 _EVENT_TAIL_BYTES = 4_000_000
 
 
+def _read_letter_excerpt(path: Path, *, limit: int) -> str:
+    """Read a bounded excerpt without creating or changing an agent's file."""
+    try:
+        with path.open(encoding="utf-8") as handle:
+            text = handle.read(limit + 1).strip()
+    except (OSError, UnicodeError):
+        return ""
+    if len(text) > limit:
+        return text[:limit].rstrip() + "\n[Excerpt; the saved file continues.]"
+    return text
+
+
 def _letter_interval_seconds() -> float:
     from ...core.knobs import resolve_knob
 
@@ -225,7 +237,6 @@ class LettersMixin:
 
         missions: list[str] = []
         cost = 0.0
-        latest_review = ""
         try:
             for entry in self.memory.journal.tail_settlements(80):
                 try:
@@ -244,10 +255,17 @@ class LettersMixin:
                 if summary:
                     line += f": {summary[:500]}"
                 missions.append(line)
-                if summary:
-                    latest_review = summary[:800]
         except Exception:  # noqa: BLE001
             pass
+
+        # A settlement can be an old infrastructure pause or plan challenge;
+        # it is not the latest scientific review. The saved report belongs to
+        # Reviewer, and can precede the current unreviewed revision below.
+        latest_review = (
+            _read_letter_excerpt(workdir / "paper" / "REVIEW.md", limit=16_000)
+            if workdir is not None
+            else ""
+        )
 
         decisions: list[str] = []
         for row in _read_events_tail(
@@ -280,17 +298,39 @@ class LettersMixin:
         running: list[str] = []
         planned: list[str] = []
         questions: list[str] = []
+        current_work: list[str] = []
         try:
-            for item in self.memory.backlog.history():
+            for item in self.memory.backlog.active():
                 status = str(getattr(item, "status", "") or "")
                 title = str(getattr(item, "title", "") or "")
-                if status in {"running", "paused_external_work"}:
-                    running.append(f"- {title} ({status.replace('_', ' ')})")
+                if status == "paused_external_work":
+                    running.append(
+                        f"- {title} (waiting for background results; "
+                        "Argus resumes automatically when they are ready)"
+                    )
+                elif status == "running":
+                    running.append(f"- {title} (running)")
                 elif status == "pending":
                     planned.append(f"- {title}")
                 question = str(getattr(item, "pending_question", "") or "").strip()
                 if question:
                     questions.append(f"- {question}")
+                if len(current_work) < 6:
+                    task_goal = str(getattr(item, "objective", "") or "").strip()
+                    acceptance = str(getattr(item, "acceptance_check", "") or "").strip()
+                    checkpoint = _read_letter_excerpt(
+                        life_dir / "handoffs" / str(item.id) / "CHECKPOINT.md",
+                        limit=5000,
+                    )
+                    current_work.append("\n".join(
+                        part for part in (
+                            f"Task: {title}",
+                            f"Current goal: {task_goal[:1200]}" if task_goal else "",
+                            f"Completion requirement: {acceptance[:800]}" if acceptance else "",
+                            f"Current checkpoint (not a review verdict):\n{checkpoint}"
+                            if checkpoint else "",
+                        ) if part
+                    ))
         except Exception:  # noqa: BLE001
             pass
         try:
@@ -317,6 +357,7 @@ class LettersMixin:
             "stage": stage,
             "stage_line": stage_line,
             "notes_head": notes_head,
+            "current_work": "\n\n".join(current_work),
             "missions": "\n".join(missions[:24]),
             "latest_review": latest_review,
             "decisions": "\n".join(decisions[:16]),

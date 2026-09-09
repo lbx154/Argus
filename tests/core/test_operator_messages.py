@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from argus_skill.core.operator_messages import (
     budget_refusal_reply,
     humanize_runtime_reason,
@@ -117,6 +119,33 @@ def test_operator_abort_is_not_rendered_as_a_failure_or_retry() -> None:
     assert "未能完成" not in text
     assert "原因" not in text
     assert "下一步" not in text
+
+
+@pytest.mark.parametrize(
+    ("title", "hint", "waiting", "continuation"),
+    [
+        ("通信论文", "继续修订论文", "正在等待后台任务完成", "自动继续"),
+        ("communication paper", "Continue revising", "Waiting for background work", "automatically"),
+    ],
+)
+def test_healthy_background_wait_does_not_request_failure_recovery(
+    title: str, hint: str, waiting: str, continuation: str,
+) -> None:
+    text = render_operator_update(
+        title=title,
+        status="paused_external_work",
+        reason="healthy subagent job-1 is still running; released the mission slot",
+        language_hint=hint,
+    )
+
+    assert title in text
+    assert waiting in text
+    assert continuation in text
+    assert "未能完成" not in text
+    assert "Could not complete" not in text
+    assert "diagnose" not in text
+    assert "job-1" not in text
+    assert "mission slot" not in text
 
 
 def test_operator_update_leads_with_result() -> None:

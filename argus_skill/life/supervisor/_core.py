@@ -1748,7 +1748,9 @@ class LifeSupervisor(
                 "",
             )
             chinese = any("\u3400" <= char <= "\u9fff" for char in language_hint)
-            title = str(event.get("title") or "Team mission").strip()
+            title = str(
+                event.get("title") or ("当前任务" if chinese else "the current task")
+            ).strip()
             success = bool(event.get("success"))
             summary = str(event.get("summary") or "").strip()
             from ...core.role_reply import strip_control_footer
@@ -1765,6 +1767,28 @@ class LifeSupervisor(
             )
             outcome = event.get("outcome")
             outcome = outcome if isinstance(outcome, dict) else {}
+            status = str(event.get("status") or event.get("outcome_class") or "ended")
+            if status == "paused_external_work" and not success:
+                wait = event.get("external_wait") or outcome.get("external_wait")
+                wait = wait if isinstance(wait, dict) else {}
+                work_id = str(wait.get("work_id") or "background")
+                publish_operator_message(
+                    life_dir,
+                    text=render_operator_update(
+                        title=title,
+                        status=status,
+                        language_hint=language_hint,
+                    ),
+                    message_id=f"mission-wait-{item_id}-{work_id}",
+                    event_fields={
+                        "mission_result": False,
+                        "item_id": item_id,
+                        "status": status,
+                        "external_wait": wait,
+                        "user_action_required": False,
+                    },
+                )
+                return
             review = str(outcome.get("review_status") or "").strip()
             independent_review_required = bool(
                 event.get("independent_review_required")
@@ -1890,7 +1914,6 @@ class LifeSupervisor(
                 ):
                     result += f" · review={review}"
             else:
-                status = str(event.get("status") or event.get("outcome_class") or "ended")
                 reason = str(
                     event.get("stop_reason")
                     or event.get("failure_reason")

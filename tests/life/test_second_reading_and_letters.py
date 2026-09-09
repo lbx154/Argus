@@ -161,6 +161,12 @@ class _Backlog:
     def history(self) -> list[_Item]:
         return list(self._items)
 
+    def active(self) -> list[_Item]:
+        return [
+            item for item in self._items
+            if item.status not in {"done", "failed", "aborted", "skipped", "superseded"}
+        ]
+
 
 class _Journal:
     def __init__(self, entries: list[_Entry]) -> None:
@@ -335,3 +341,61 @@ def test_letters_can_be_switched_off(tmp_path: Path, monkeypatch) -> None:
     assert stub._maybe_write_letter() is False
     assert stub._maybe_write_letter() is False
     assert manager.prompts == []
+
+
+def test_letter_uses_current_review_and_work_instead_of_archived_blockers(tmp_path: Path) -> None:
+    from argus_skill.life.event_log import JsonlEventSink
+    from argus_skill.life.memory import BacklogItem, LifeMemory
+
+    manager = _Manager("unused")
+    stub, life_dir, workdir = _supervisor_stub(tmp_path, manager, stage="review")
+    stub.memory = LifeMemory.open(life_dir)
+    old = BacklogItem.new(title="Old contract check", objective="Review the prior task")
+    old.status = "failed"
+    old.pending_question = "Confirm the old receipt location."
+    stub.memory.backlog.add(old)
+    JsonlEventSink(None, life_dir=life_dir).append({
+        "type": "life.mission.completed",
+        "item_id": old.id,
+        "title": old.title,
+        "status": "failed",
+        "success": False,
+        "summary": "The former acceptance contract could not be resolved.",
+        "ts": time.time() - 30,
+    })
+    live = BacklogItem.new(title="Improve the paper", objective="Complete the causal experiment")
+    live.status = "paused_external_work"
+    live.acceptance_check = "Independent ICLR strong accept on the actual revised paper."
+    stub.memory.backlog.add(live)
+    checkpoint = life_dir / "handoffs" / live.id / "CHECKPOINT.md"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_text(
+        "The eight-family job is running. Its full results are not reviewed yet.",
+        encoding="utf-8",
+    )
+    review_path = workdir / "paper" / "REVIEW.md"
+    review_path.parent.mkdir()
+    current_review = "The positive control is valid; finish the full comparison. Weak reject."
+    review_path.write_text(current_review, encoding="utf-8")
+
+    facts = stub._letter_facts(since=time.time() - 60, now=time.time())
+
+    assert facts["latest_review"] == current_review
+    assert "eight-family job is running" in facts["current_work"]
+    assert live.acceptance_check in facts["current_work"]
+    assert "automatically" in facts["running"]
+    assert facts["questions"] == ""
+    assert "former acceptance contract" in facts["missions"]
+    assert "former acceptance contract" not in facts["latest_review"]
+    assert manager.prompts == []
+
+    # Missing current feedback is not permission to relabel an old runtime
+    # failure as a review. A real unanswered live question still appears.
+    review_path.unlink()
+    stub.memory.backlog.update(
+        live.id, status="paused_operator", pending_question="Which licensed dataset may I use?",
+    )
+    updated = stub._letter_facts(since=time.time() - 60, now=time.time())
+    assert updated["latest_review"] == ""
+    assert "Which licensed dataset" in updated["questions"]
+    assert "old receipt" not in updated["questions"]

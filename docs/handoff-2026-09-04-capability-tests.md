@@ -2009,3 +2009,46 @@ not edited the paper or figures. This is a local text repair, not a design searc
 The 40-test chart/visual-routing group passed, including pale green, reversed
 colormaps and transparent cells/backgrounds, plus ruff and whitespace checks.
 Log: `/tmp/argus-heatmap-text-contrast-tests-20260908.log`.
+
+## 41. Describe healthy background waits and current scientific work (2026-09-09 UTC)
+
+CBC's cooperative runtime upgrade completed at 00:37:24 UTC. The ten-second stop
+request had returned rc=2, but its original daemon finished naturally; no force
+or repeated stop followed. The original eight-family scientific producer retained
+its PID, start ticks and increasing CPU throughout. Paper, review, checkpoint
+and scientific source/configuration hashes were unchanged. New daemon 2468274
+loaded clean main 38a36e07ff68, resumed the same task and adopted that same durable
+job. The other two paper workers and their work were preserved.
+
+After the ordinary wait cadence, the task correctly became paused_external_work
+and released its mission slot. Its conversation notification incorrectly said
+"Could not complete Team mission", and the periodic letter treated an old
+settlement about an acceptance-contract problem as the latest Reviewer feedback.
+No question was actually pending; the computation was still healthy.
+
+Healthy waits now publish an idempotent progress message with the actual task
+title and automatic-continuation explanation, without a failed/completed result
+or an operator decision request. The existing scheduler still waits for the
+external condition to change before resuming. Periodic letters now use active
+tasks, their current completion requirements and central checkpoints, plus the
+saved paper review. Historical settlements are labelled as history, and archived
+questions no longer reappear as current questions. The prompt distinguishes the
+last reviewed version from newer unreviewed work and does not invent a request
+for permission when the current question list is empty.
+
+The 113-test notification, mission-outcome, letter, durable-wait and background
+continuation group passed, plus ruff and whitespace checks. The lifecycle test
+verifies one durable notification, no failed/completed classification, no wake
+while the job remains healthy, and automatic resumption on its terminal record.
+Log: `/tmp/argus-healthy-wait-notification-tests-20260909.log`. A read-only
+projection against the live CBC state selected the actual current review and
+durable checkpoint with no model call (`coherent-science-rollout/healthy-wait-projection.json`).
+
+Diamond has completed its three-process cached intervention and is under formal
+review. S43's independent confirmation is now verified by its Reviewer, who
+identified a real greedy-lookahead state bug and again requested the complete
+dependency panel and certificate cost. Engineer is repairing that science and
+running both missing model panels. Its heatmap contrast is fixed; the Reviewer
+also identified a small formula-label overlap, which Engineer is moving locally
+without redesigning the figure. All three papers retain three figures. No
+strong acceptance or completed scientific objective is claimed.

@@ -38,6 +38,16 @@ def build_letter_prompt(*, facts: Mapping[str, Any]) -> str:
         "to look at or answer, only if it truly needs them. Close with what will "
         "happen next if they say nothing.\n\n"
         "Use only the facts below; do not invent results, numbers, or file names. "
+        "Current tasks, checkpoints and waiting states take precedence over "
+        "historical settlements. A healthy background wait continues automatically; "
+        "it is not a failed experiment or a request for operator permission. "
+        "The saved review describes the version reviewed, not acceptance of newer "
+        "unreviewed work. Treat old failure and plan-change summaries as history, "
+        "not as current Reviewer feedback. Ask the operator to answer only a "
+        "question explicitly listed as currently waiting on them; when that "
+        "section is empty, do not invent a clarification or say work needs their "
+        "reply. Lead with the scientific progress and actual next work, not "
+        "mission counters or internal control records. "
         "Where a number matters, give it; where it does not, leave it out. Speak "
         "plainly and warmly, in complete sentences, three to six short paragraphs, "
         "with no headings and no lists except when naming files to open. Do not "
@@ -46,13 +56,14 @@ def build_letter_prompt(*, facts: Mapping[str, Any]) -> str:
         f"## Facts from {window}\n"
         + section("The objective", "objective")
         + section("Where the work stands", "stage_line")
-        + section("The research notes, as they begin", "notes_head")
-        + section("Missions that finished in this window", "missions")
-        + section("What the Reviewer concluded most recently", "latest_review")
-        + section("Decisions taken", "decisions")
+        + section("Current tasks and saved progress", "current_work")
         + section("Running now, and waiting on", "running")
+        + section("Questions currently waiting on the operator", "questions")
+        + section("The research notes, as they begin", "notes_head")
+        + section("Latest saved review of the reviewed version", "latest_review")
+        + section("Historical mission settlements in this window", "missions")
+        + section("Historical decisions taken", "decisions")
         + section("Planned next", "planned")
-        + section("Questions waiting on the operator", "questions")
         + section("Cost and time in this window", "cost")
         + section("The machine", "machine")
         + "\nWrite the letter now."

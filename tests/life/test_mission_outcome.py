@@ -720,12 +720,44 @@ def test_external_work_wait_releases_and_auto_resumes_the_mission(tmp_path) -> N
     stored = next(row for row in supervisor.memory.backlog.all() if row.id == item.id)
     assert stored.status == "paused_external_work"
     assert stored.outcome["external_wait"]["work_id"] == "job-1"
-    assert _completed_event(sink)["external_wait"]["work_id"] == "job-1"
+    waiting_event = _completed_event(sink)
+    assert waiting_event["external_wait"]["work_id"] == "job-1"
+    assert waiting_event["title"] == "benchmark"
+
+    from argus_skill.core.transcript import read_turns
+
+    # The lifecycle releases a slot, but the conversation must not declare the
+    # still-running work failed or complete. Redelivery remains idempotent.
+    supervisor._publish_mission_completion_message(waiting_event)
+    supervisor._publish_mission_completion_message(waiting_event)
+    messages = [
+        row for row in read_turns(supervisor.memory.root)
+        if str(row.get("message_id") or "").startswith("mission-wait-")
+    ]
+    assert len(messages) == 1
+    message = messages[0]
+    assert message["mission_result"] is False
+    assert "success" not in message
+    assert "benchmark" in message["text"]
+    assert "automatically" in message["text"]
+    assert "Could not complete" not in message["text"]
+    live_message = next(
+        row for line in (supervisor.memory.root / "events.jsonl").read_text().splitlines()
+        if (row := json.loads(line)).get("message_id") == message["message_id"]
+    )
+    assert live_message["status"] == "paused_external_work"
+    assert live_message["user_action_required"] is False
+    assert live_message["external_wait"]["work_id"] == "job-1"
+    assert supervisor._resume_automatic_pauses() == []
+    assert next(row for row in supervisor.memory.backlog.all() if row.id == item.id).status == (
+        "paused_external_work"
+    )
 
     status_path.write_text(json.dumps({
         "version": 1,
         "work_id": "job-1",
-        "state": "completed",
+        "state": "terminal",
+        "outcome": "done",
         "heartbeat_at": time.time(),
         "stale_after_seconds": 300,
         "poll_after_seconds": 30,

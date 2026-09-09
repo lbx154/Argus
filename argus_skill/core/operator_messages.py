@@ -129,6 +129,21 @@ def render_operator_update(
     # Reviewer/Manager next_action is already the actionable instruction. Do
     # not replace it with the generic explanation used for a raw error reason.
     action = str(next_action or "").strip()
+    if state == "paused_external_work":
+        # This is a healthy dependency wait, not a failed mission or a request
+        # for the operator to restart a job. Keep runner IDs and slot details
+        # in the event rather than presenting them as a failure reason.
+        first = (
+            f"正在等待后台任务完成：{subject}。"
+            if chinese
+            else f"Waiting for background work to finish: {subject}."
+        )
+        continuation = action or (
+            "结果就绪后，Argus 会自动继续。"
+            if chinese
+            else "Argus will continue automatically when the results are ready."
+        )
+        return "\n".join((first, continuation))
     if state in {"done", "completed", "success"}:
         first = f"已完成：{subject}。" if chinese else f"Completed: {subject}."
     elif state in {"aborted", "cancelled", "canceled"}:

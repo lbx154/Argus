@@ -1015,6 +1015,7 @@ class MissionExecutionRuntimeMixin:
             self._emit({
                 "type": EventType.LIFE_MISSION_COMPLETED,
                 "item_id": item.id,
+                "title": item.title,
                 "success": False,
                 "status": state.status,
                 "outcome_class": mission_outcome_class(
