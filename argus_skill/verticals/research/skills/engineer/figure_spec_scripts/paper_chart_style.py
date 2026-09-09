@@ -128,6 +128,49 @@ def figure_size(
     return (width, round(width * aspect, 2))
 
 
+def contrast_text_color(
+    facecolor: str | Sequence[float],
+    *,
+    alpha: float | None = None,
+    background: str | Sequence[float] = "white",
+    canvas: str | Sequence[float] = "white",
+) -> str:
+    """Choose black or white text by contrast with the displayed cell color.
+
+    ``facecolor`` is an actual Matplotlib color/RGBA, such as
+    ``im.cmap(im.norm(value))``. ``alpha`` is an additional opacity factor
+    (e.g. an imshow artist's scalar or per-cell alpha); omit it when already
+    included in ``facecolor``. RGBA layers are composited in order: canvas,
+    axes background, and cell, over the white paper surface. Pass the actual
+    axes/figure colors for transparent plots. Text itself should stay opaque.
+
+    This changes only annotation color, never the data, normalization, or
+    palette. The higher sRGB relative-luminance contrast wins; raw data values
+    or an arbitrary data threshold are not used.
+    """
+    from matplotlib.colors import to_rgba
+
+    opacity = 1.0 if alpha is None else float(alpha)
+    if not 0.0 <= opacity <= 1.0:
+        raise ValueError("alpha must be a finite opacity between 0 and 1")
+    rgb = (1.0, 1.0, 1.0)
+    for color, factor in ((canvas, 1.0), (background, 1.0), (facecolor, opacity)):
+        red, green, blue, layer_alpha = to_rgba(color)
+        layer_alpha *= factor
+        rgb = tuple(
+            layer_alpha * component + (1.0 - layer_alpha) * under
+            for component, under in zip((red, green, blue), rgb)
+        )
+    linear = [
+        channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+        for channel in rgb
+    ]
+    luminance = sum(weight * channel for weight, channel in zip((0.2126, 0.7152, 0.0722), linear))
+    black_contrast = (luminance + 0.05) / 0.05
+    white_contrast = 1.05 / (luminance + 0.05)
+    return "black" if black_contrast >= white_contrast else "white"
+
+
 def _apply_scienceplots_style() -> None:
     """Register and apply the required publication style."""
     import matplotlib.pyplot as plt

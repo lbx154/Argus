@@ -119,6 +119,39 @@ figures (teaser/pipeline/architecture) are not covered here — route those thro
     grayscale discrimination, and whether labels remain readable at the actual
     single- or double-column width.
 
+## Readable heatmap annotations
+
+Choose annotation text from the actual displayed cell color, including its
+transparency, rather than a rule such as `value >= 3`. A value of 3 can occupy a
+pale green cell or a dark cell depending on the colormap and normalization.
+Keep the paper's colormap and use `contrast_text_color` from the shared helper:
+
+```python
+import numpy as np
+from paper_chart_style import contrast_text_color
+
+# Inside the existing annotation loop; im is the AxesImage returned by imshow.
+rgba = im.cmap(im.norm(value))
+opacity = im.get_alpha()
+if opacity is not None and np.ndim(opacity):
+    opacity = opacity[row, col]
+text_color = contrast_text_color(
+    rgba,
+    alpha=opacity,
+    background=ax.get_facecolor(),
+    canvas=ax.figure.get_facecolor(),
+)
+ax.text(col, row, f"{value:g}", ha="center", va="center",
+        color=text_color, alpha=1.0)
+```
+
+The helper composites the RGBA layers over the white paper surface and chooses
+the higher-contrast black or white text using sRGB relative luminance. If an
+artist's facecolor already contains its applied opacity, omit the extra
+`alpha` argument to avoid applying it twice. Keep existing handling of missing
+or masked values. Check annotation legibility during the existing export
+inspection; a local text-color repair does not reopen the figure's composition.
+
 ## Notes
 - The helper is dependency-light and self-contained; the copy in `paper/analysis/`
   is what your scripts import. Re-copy it if you upgrade.

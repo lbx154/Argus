@@ -1992,3 +1992,20 @@ The 178-test parser/runner, continuation, role-stop, streaming, report-ownership
 and natural-review group passed, with one platform-specific test skipped, plus
 ruff and whitespace checks. Log:
 `/tmp/argus-provider-background-wait-integration-tests-20260908.log`.
+
+## 40. Heatmap text follows its displayed background (2026-09-09 UTC)
+
+S43's latest Reviewer found one concrete readability defect in its otherwise
+accepted third figure: a value-based white-text rule makes several pale-green
+cells unreadable at paper size. The delegated figure-workflow task added
+`contrast_text_color` to the shared chart helper and a direct `imshow` example
+to its guide. It chooses black or white annotation text from the actual cell
+color and alpha, composited with the axes/figure background over white paper,
+using sRGB relative luminance. The data, normalization and palette stay intact.
+Callers supply the actual non-white background and avoid applying opacity twice.
+Existing project scripts need Engineer to adopt the helper; the paper team has
+not edited the paper or figures. This is a local text repair, not a design search.
+
+The 40-test chart/visual-routing group passed, including pale green, reversed
+colormaps and transparent cells/backgrounds, plus ruff and whitespace checks.
+Log: `/tmp/argus-heatmap-text-contrast-tests-20260908.log`.

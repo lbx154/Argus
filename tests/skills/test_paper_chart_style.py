@@ -86,6 +86,44 @@ def test_column_layout_requires_template_choice_without_valid_profile(
 
 # ---- matplotlib-backed behaviour ------------------------------------------
 
+@pytest.mark.parametrize("facecolor, expected", [
+    ("#CBE9D3", "black"),  # Pale green: white digits disappear at paper size.
+    ("#243D4E", "white"),
+    ("#808080", "black"),  # Black exceeds 5:1; white is below 4:1 here.
+    ("#00FF00", "black"),  # Green's luminance must not use an RGB mean.
+])
+def test_annotation_text_uses_visible_color_contrast(facecolor, expected) -> None:
+    pytest.importorskip("matplotlib")
+    assert pcs.contrast_text_color(facecolor) == expected
+
+
+def test_same_heatmap_value_needs_different_text_after_colormap_reversal() -> None:
+    colors = pytest.importorskip("matplotlib.colors")
+    cmap = colors.ListedColormap(["#CBE9D3", "#243D4E"])
+    norm = colors.Normalize(vmin=0, vmax=10)
+    assert pcs.contrast_text_color(cmap(norm(3))) == "black"
+    assert pcs.contrast_text_color(cmap.reversed()(norm(3))) == "white"
+
+
+def test_annotation_text_accounts_for_rgba_and_artist_opacity() -> None:
+    pytest.importorskip("matplotlib")
+    assert pcs.contrast_text_color("#243D4E", alpha=1.0) == "white"
+    assert pcs.contrast_text_color("#243D4E", alpha=0.2) == "black"
+    # Intrinsic 0.5 alpha and additional 0.9 artist opacity combine to 0.45;
+    # replacing intrinsic alpha with 0.9 would incorrectly choose white text.
+    assert pcs.contrast_text_color((0, 0, 0, 0.5), alpha=0.9) == "black"
+
+
+def test_annotation_text_composites_axes_and_canvas_backgrounds() -> None:
+    pytest.importorskip("matplotlib")
+    assert pcs.contrast_text_color((1, 1, 1, 0.25), background="black") == "white"
+    assert pcs.contrast_text_color((1, 1, 1, 0.25), background="white") == "black"
+    # Transparent cell and axes expose the actual dark figure background.
+    assert pcs.contrast_text_color("none", background="none", canvas="#243D4E") == "white"
+    assert pcs.contrast_text_color("none", background=(1, 1, 1, 0.25), canvas="black") == "white"
+    assert pcs.contrast_text_color("black", alpha=0.0, background="white") == "black"
+
+
 def test_set_pub_style_applies_and_returns_palette() -> None:
     pytest.importorskip("matplotlib")
     import matplotlib
