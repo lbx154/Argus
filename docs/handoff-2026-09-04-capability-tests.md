@@ -2340,3 +2340,41 @@ a substantive screen-arithmetic intervention. S43's corrected Phi panel finished
 at 05:11:38 UTC; Qwen continues. Preserve those results and live computations.
 The overall strong-accept objective remains unfulfilled, and paper/scientific
 source, results, figures and ratings remain Argus-owned.
+
+## 50. Give direct paper revisions the right handoff guidance (2026-09-09 UTC)
+
+All three active paper tasks deliberately use workflow_mode=direct in final
+Review. That keeps an existing revision finite and avoids reopening an idea
+campaign. It also makes the supervisor's paper_mission campaign flag false.
+The host research-profile setting is absent, so the previous runtime context
+was empty for all three. An old profile-only paragraph additionally told
+Engineer not to verify its own output; that paragraph was dormant in these
+three runs and is not claimed to have caused their scientific defects.
+
+Explicitly selected paper/review stages now receive concise team guidance even
+in direct mode without a host profile. Engineer owns focused validation of its
+changed claims, connects numerical guarantees to every executed variant, and
+rebuilds and inspects affected PDF pages when manuscript or scientific figure
+inputs change. Clear figure compositions and current renders are retained.
+Independent Reviewer judgment remains authoritative and constructive. The
+change does not enable a continuous campaign, alter pipeline state, introduce
+a review schema, or inject the optional host profile's environment setup into
+unconfigured projects. Non-paper and early direct research tasks keep their
+existing scope.
+
+The current Diamond review identified both a precomputed underflow-contract
+gap and a source/PDF mismatch. Its v7 pilot also fails its declared component
+coverage criterion; the small local speedup cannot be promoted to a full-path
+result. Those are Engineer-owned scientific repairs. CBC's completed causal
+replay adds exact inbox and parsed-action checks, while its task-level rate
+and identity-held-out analyses remain adverse. S43's Qwen panel continues;
+its completed Phi panel has no early-stop or net-byte win. No strong-accept
+judgment is claimed.
+
+The 114-test daemon/context and bounded-stage group passes, including a direct
+paper/review regression that keeps the selected stage and campaign flags
+unchanged. A read-only construction probe against all three actual task states
+shows the new guidance with their finite/direct flags preserved. Tests and the
+release are prepared in the existing plain build directory while live main
+stays coherent; lifecycle command locks protect publication from a concurrent
+scheduled restart. All changes and built artifacts are published on main.

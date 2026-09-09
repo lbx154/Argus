@@ -83,6 +83,24 @@ def _runner_namespace(cfg: LifeWorkerConfig) -> Any:
     return ns
 
 
+def _selected_paper_revision(project_root: Path) -> bool:
+    """Recognize paper work without enabling a long-horizon campaign."""
+    from ..core.pipeline_state import read_pipeline_state
+    from ..skills.vertical_select import resolve_vertical_if_decided
+    from ..verticals._base import load_vertical, vertical_is_paper_mission
+
+    try:
+        state = read_pipeline_state(project_root)
+        if state.get("current_stage") not in {"paper", "review"}:
+            return False
+        vertical = resolve_vertical_if_decided(project_root)
+        return vertical is not None and vertical_is_paper_mission(
+            load_vertical(vertical, project_root=project_root)
+        )
+    except Exception:  # noqa: BLE001 - optional context never infers paper work
+        return False
+
+
 def _worker_runtime_context(
     cfg: LifeWorkerConfig,
     *,
@@ -103,27 +121,40 @@ def _worker_runtime_context(
     # rules; they lead the runtime context so the agent sees them first.
     special_context = render_special_prompts_context(paper_mission=paper_mission)
     research_context = render_research_profile_context() if paper_mission is not False else ""
-    if not research_context:
+    paper_work = paper_mission is True or _selected_paper_revision(cfg.life_dir)
+    if not research_context and not paper_work:
         return special_context
-    argus_python = os.environ.get("ARGUS_SKILL_PYTHON") or sys.executable
-    gpu_context = format_gpu_context()
-    runtime_context = (
-        "## Agent Architecture (3-layer)\n"
-        "Planner → Engineer → Reviewer. No Critic, no Scientist.\n"
+    team_context = (
+        "## Research team\n"
+        "Planner coordinates the work. Engineer develops and validates it.\n"
+        "Reviewer independently evaluates the evidence.\n"
         "\n"
         "### Engineer (you)\n"
-        "- Do ALL work: code, experiments, LaTeX, figures, compilation.\n"
-        "- Read the **stage checklist** the Reviewer will evaluate (injected\n"
-        "  near the top of every round's prompt) and produce the artifacts\n"
-        "  each unchecked item names. There is no `validate-*` CLI any more —\n"
-        "  read files directly when you need to confirm state.\n"
-        "- Focus on producing artifacts. Do not verify your own output; the\n"
-        "  Reviewer is responsible for that.\n"
+        "- Own the method, implementation, experiments, and manuscript.\n"
+        "  Delegate independent jobs and figure work while advancing the science.\n"
+        "- Use the current stage criteria and latest Reviewer feedback to choose\n"
+        "  the most useful method, experiment, or explanation to improve next.\n"
+        "- Before handing off a completed scientific batch, run focused\n"
+        "  implementation checks and verify changed claims against actual results.\n"
+        "  For numerical guarantees, connect the derivation to every executed\n"
+        "  variant and test the relevant boundary regimes directly.\n"
+        "- If manuscript inputs or scientific figure content changed, rebuild the\n"
+        "  PDF and inspect the affected pages. Reuse a current PDF and accepted\n"
+        "  figure compositions when they still fit the evidence.\n"
         "\n"
         "### Reviewer (automatic after each round)\n"
-        "- Runs stage-aware checklist (only checks relevant to current pipeline stage)\n"
-        "- Decides done/continue/blocked based on evidence\n"
-        "- If continue: gives you a specific next_action\n"
+        "- Evaluate the current science and presentation against the selected venue\n"
+        "  and stage criteria, recognizing progress and closing resolved concerns.\n"
+        "- Decide done/continue/blocked from the evidence.\n"
+        "- Give constructive feedback that identifies the most useful next improvement.\n"
+    )
+    if not research_context:
+        # A bounded paper revision still needs team guidance. It does not
+        # enable an open-ended campaign or require a host-wide profile.
+        return "\n\n".join(part for part in (special_context, team_context) if part)
+    argus_python = os.environ.get("ARGUS_SKILL_PYTHON") or sys.executable
+    gpu_context = format_gpu_context()
+    runtime_context = team_context + (
         "\n"
         "## Runtime info\n"
         f"- Engineer model: {cfg.engineer_model}\n"
