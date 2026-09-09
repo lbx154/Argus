@@ -1,8 +1,8 @@
 """Concurrency and single-traversal guarantees for the live map feed."""
 
 import json
-import time
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 

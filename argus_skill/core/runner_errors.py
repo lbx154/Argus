@@ -24,6 +24,7 @@ _PRE_PROVIDER_REFUSALS = (
 _MODEL_CATALOG_FAILURES = (
     "error: failed to load models",
     "copilot could not retrieve the list of available models",
+    "model is not supported when using codex with a chatgpt account",
 )
 _EXECUTION_HOST_STARTUP_PREFIX = (
     "code mode is unavailable because failed to spawn code-mode host "

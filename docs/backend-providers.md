@@ -201,13 +201,14 @@ is common), in which case the old hardcoded default was already wrong.
 
 Four routes deliberately use a smaller model than the role's own: Manager
 front-door classification, bounded-DAG decomposition, `/plan` preview, and
-interactive prompt rewrite. They pick an OpenAI id only on backends that serve
-the OpenAI catalog (`codex`, `copilot`); on every other backend they fall back
-to the role's configured model.
+interactive prompt rewrite. Copilot uses an OpenAI catalog default; Codex and
+provider-agnostic backends fall back to the role's configured model. Codex may
+authenticate through a ChatGPT account whose catalog does not include Argus's
+historical cheap model ids.
 
-`pi` used to be counted in that OpenAI group, so these four routes asked for
-`gpt-5.4-mini` regardless of how the operator had configured Argus. Override
-any of them individually if you want a cheaper model on your own provider:
+`pi` and Codex used to select `gpt-5.4-mini` regardless of how the operator had
+configured Argus. Override any route individually if you want a cheaper model
+that your provider supports:
 
 | Route | Knob |
 |---|---|

@@ -307,7 +307,7 @@ def _global_records(root: Path, day_start: float) -> list[UsageRecord]:
     # unsettled references so a later reconciliation releases the global gate.
     # This reader must always run before acquiring the global state lock.
     try:
-        state = _read_state(root, day_start)
+        state = _read_state(root, day_start + 12 * 60 * 60)
         known = {path.resolve() for path in project_roots}
         references = [*state["unresolved"], *state["reservations"],
                       *({"project_root": path} for path in state["project_roots"])]

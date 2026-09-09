@@ -197,7 +197,7 @@ def review_and_append_fact(
     full_record_path = _write_full_record(digest, research_result)
     pointer_block = (
         "The full research result is in this file; read it if the summary "
-        f"is not enough: {full_record_path}\n"
+        f"is not enough: {full_record_path.as_posix()}\n"
         if full_record_path is not None
         else ""
     )

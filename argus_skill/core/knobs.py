@@ -119,10 +119,10 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_REVIEWER_MODEL", "auto", "model for the L2 reviewer; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_SUPERVISOR_MODEL", "auto", "model for supervised subagent health decisions; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_PLAN_MODEL", "auto", "model for the L4 planner; auto uses the selected backend's default", "models", cockpit=True),
-    Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-5.4-mini on codex/copilot, planner model otherwise; set an id to override", "models"),
-    Knob("ARGUS_SKILL_REWRITE_MODEL", "auto", "interactive prompt rewrite model: gpt-5.5 on codex/copilot, Manager model otherwise; set an id to override", "models"),
+    Knob("ARGUS_SKILL_PLAN_PREVIEW_MODEL", "auto", "interactive /plan model: gpt-5.4-mini on copilot, planner model otherwise; set an id to override", "models"),
+    Knob("ARGUS_SKILL_REWRITE_MODEL", "auto", "interactive prompt rewrite model: gpt-5.5 on copilot, Manager model otherwise; set an id to override", "models"),
     Knob("ARGUS_SKILL_MANAGER_REPLY_MODEL", "inherit", "operator-facing Manager SELF model; inherit uses the configured Manager/shared route model", "models", cockpit=True),
-    Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "cheap front-door classification model: gpt-5.4-mini on codex/copilot, Manager model otherwise", "models"),
+    Knob("ARGUS_SKILL_FRONTDOOR_MODEL", "auto", "cheap front-door classification model: gpt-5.4-mini on copilot, Manager model otherwise", "models"),
     Knob("ARGUS_SKILL_FRONTDOOR_CLASSIFY_EFFORT", "low", "reasoning effort for the LLM-only front-door and STEER confirmation", "models"),
     # --- reasoning effort ---
     Knob("ARGUS_SKILL_MANAGER_REASONING_EFFORT", "high", "manager reasoning effort", "reasoning", cockpit=True),
@@ -160,7 +160,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_MAX_ROUNDS", "0", "optional engineer-round cap per mission; disabled by default", "mission"),
     Knob("ARGUS_SKILL_ROUND_CHECKPOINT", "off", "record private git refs for Reviewer-recommended round checkpoints", "mission"),
     Knob("ARGUS_SKILL_REQUIRE_POST_TASK_LEARNING", "1", "enable selective project-layer Skill maintenance for all four roles (default ON)", "mission"),
-    Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes: gpt-5.4-mini on codex/copilot, planner model otherwise", "mission"),
+    Knob("ARGUS_SKILL_BOUNDED_DAG_MODEL", "auto", "compact model for decomposing Manager bounded tasks into backlog DAG nodes: gpt-5.4-mini on copilot, planner model otherwise", "mission"),
     Knob("ARGUS_SKILL_BOUNDED_DAG_REASONING_EFFORT", "low", "reasoning effort for bounded DAG decomposition", "mission"),
     Knob("ARGUS_SKILL_ENGINEER_TURN_MAX_SECONDS", "0", "optional wall-clock cap for one Engineer turn; disabled by default", "mission"),
     Knob("ARGUS_SKILL_PROVIDER_TURN_CAP", "0", "optional per-call interaction allowance for Engineer/Reviewer; disabled by default (0). If explicitly enabled, save a checkpoint and continue in a fresh session", "mission"),
@@ -896,13 +896,13 @@ def resolve_cheap_route_model(
     for ``gpt-5.4-mini`` and all four routes hard-failed, no matter how
     carefully the operator had configured Argus's documented model knobs.
 
-    Precedence: an explicit knob value wins; an OpenAI-catalog backend gets
-    ``catalog_default`` (each route passes its own historical id, so codex and
-    copilot behaviour is unchanged); every other backend falls back to the
-    role's own model — the only id an arbitrary provider is known to carry.
+    Precedence: an explicit knob value wins; Copilot gets ``catalog_default``;
+    Codex and provider-agnostic backends fall back to the role's own model.
+    Codex may authenticate through a ChatGPT account whose catalog does not
+    include Argus's historical cheap model ids.
 
-    中文：四条「廉价路由」原先各自硬编码 ``gpt-5.4-mini``，并把 ``pi`` 误当作
-    OpenAI 目录后端；此处统一规则，非 OpenAI 目录的后端回落到角色 model。
+    中文：四条「廉价路由」不再为 Codex 强制指定 OpenAI model id，因为 ChatGPT
+    账户的 Codex 目录可能不包含该模型；Codex 与非 OpenAI 目录后端均回落到角色 model。
     """
     env_map = env if env is not None else os.environ
     resolved = resolve_knob(knob, "auto", env=env_map)
@@ -935,7 +935,9 @@ def resolve_cheap_route_model(
         if str(requested).strip().lower() == BACKEND_MEMORY
         else normalize_runner_backend(requested)
     )
-    if backend_uses_openai_catalog(backend_name, env=env_map):
+    if backend_name != "codex" and backend_uses_openai_catalog(
+        backend_name, env=env_map,
+    ):
         return catalog_default
     return resolve_role_model(
         role,

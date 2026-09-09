@@ -360,19 +360,24 @@ def test_stale_resume_error_with_observed_premium_usage_stays_partial() -> None:
     assert record.cost_usd is None
 
 
-@pytest.mark.parametrize("error", [
-    "Error: Access denied by policy settings. Your Copilot CLI policy is disabled.",
-    "Your Copilot subscription does not include this feature",
-    "Required policies have not been enabled for Copilot CLI",
-    "Error: Failed to load models (Request ID: request-1)",
-    "Copilot could not retrieve the list of available models.",
+@pytest.mark.parametrize(("provider", "error"), [
+    ("copilot", "Error: Access denied by policy settings. Your Copilot CLI policy is disabled."),
+    ("copilot", "Your Copilot subscription does not include this feature"),
+    ("copilot", "Required policies have not been enabled for Copilot CLI"),
+    ("copilot", "Error: Failed to load models (Request ID: request-1)"),
+    ("copilot", "Copilot could not retrieve the list of available models."),
+    ("codex",
+        '{"type":"error","status":400,"error":{"type":"invalid_request_error",'
+        '"message":"The \'gpt-5.4-mini\' model is not supported when using Codex '
+        'with a ChatGPT account."}}',
+    ),
 ])
-def test_copilot_startup_policy_refusal_is_unbilled_for_new_and_existing_records(
-    tmp_path: Path, error: str
+def test_startup_policy_refusal_is_unbilled_for_new_and_existing_records(
+    tmp_path: Path, provider: str, error: str,
 ) -> None:
     record = build_usage_record(
         call_id="policy-startup", project_root=tmp_path / "p1", mission_id=None,
-        provider="copilot", model="gpt-5.6-sol", run_label="reviewer",
+        provider=provider, model="gpt-5.6-sol", run_label="reviewer",
         started_at=1, completed_at=2, status="error", error=error,
         copilot_token_billing_expected=True,
     )
