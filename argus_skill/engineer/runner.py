@@ -251,6 +251,9 @@ class SupervisedEngineer(
                 role_session=state.engineer_session,
                 on_event=on_event,
             )
+            if state.pending_external_work_followup:
+                engineer_prompt += "\n\n" + state.pending_external_work_followup
+                state.pending_external_work_followup = ""
 
             outcome = self._run_engineer_turn(
                 round_index=round_index,

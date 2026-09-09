@@ -11,7 +11,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ..core import process_stop
-from .external_work import inspect_external_work, parse_external_wait_request
+from .external_work import (
+    ExternalWorkStatus,
+    inspect_external_work,
+    parse_external_wait_request,
+)
 from .round_signals import _pause_decision_clock
 from .round_state import (
     RoundControl,
@@ -27,6 +31,31 @@ if TYPE_CHECKING:
 
 class RoundWaitsMixin:
     """Mixin providing ``SupervisedEngineer``'s agent-driven wait phase."""
+
+    @staticmethod
+    def _external_work_resume_key(work: ExternalWorkStatus) -> tuple[str, str, str]:
+        return (
+            work.source, work.work_id,
+            work.run_id or str(work.started_at or work.heartbeat_at),
+        )
+
+    def _prepare_external_work_followup(
+        self, state: RoundLoopState, work: ExternalWorkStatus,
+    ) -> None:
+        state.backend_failure_streak = 0
+        state.backend_failure_signature = ""
+        state.backend_failure_same_cause_streak = 0
+        if not work.waitable:
+            state.external_work_resumptions.add(self._external_work_resume_key(work))
+        run = f" (run `{work.run_id}`)" if work.run_id else ""
+        state.pending_external_work_followup = (
+            "## External work follow-up\n"
+            f"You requested a wait for `{work.work_id}`{run}. "
+            f"Its last observed runtime state is `{work.state.value}`.\n"
+            "Inspect the existing job record and outputs. Use its results or "
+            "failure evidence to continue the work you deferred, update the "
+            "relevant artifacts and checkpoint, and then return for review."
+        )
 
     def _handle_agent_driven_wait(
         self,
@@ -54,6 +83,31 @@ class RoundWaitsMixin:
                 )
             )
         )
+        if source_matches and not external_work.waitable:
+            if process_stop.stop_requested():
+                session = state.engineer_session
+                return control_return((
+                    "paused_daemon_shutdown", state.rounds, raw_engineer_message,
+                    "daemon shutdown requested during external-work wait",
+                    str(getattr(session, "thread_id", "") or "") or None,
+                ))
+            key = self._external_work_resume_key(external_work)
+            if key not in state.external_work_resumptions:
+                self._prepare_external_work_followup(state, external_work)
+                if on_event:
+                    on_event({
+                        "type": "round.external_work_wait.completed",
+                        "round_index": round_index,
+                        "round_max": supervised_config.max_rounds,
+                        "work_id": external_work.work_id,
+                        "reason": "work_already_changed",
+                        "waited_total_s": 0.0,
+                        "text": (
+                            "The requested background work changed before the wait; "
+                            "Engineer will handle its current result before review."
+                        ),
+                    })
+                return control_continue_loop()
         if source_matches and external_work.waitable:
             from . import runner as _runner_module
 
@@ -98,8 +152,8 @@ class RoundWaitsMixin:
             # signature ever returns. Without this reset, a rate limit after
             # the wait would read as the continuation of an outage that ended
             # rounds ago and open the hold on an isolated accident.
-            state.backend_failure_streak = 0
-            state.backend_failure_signature = ""
-            state.backend_failure_same_cause_streak = 0
+            self._prepare_external_work_followup(
+                state, inspect_external_work(workdir, external_work_id) or external_work,
+            )
             return control_continue_loop()
         return control_proceed()

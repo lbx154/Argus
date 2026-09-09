@@ -2404,3 +2404,29 @@ automatically continued as attempt 12. Paper, result and review contents were
 left to Argus. The active CBC task was also snapshotted in case its old process
 reaches the same legacy path before adopting the fix. Recovery receipts are in
 coherent-science-rollout/diamond-empty-backlog-upgrade/.
+
+## 52. Consume requested background results before reviewing (2026-09-09 UTC)
+
+S43 requested a wait for its complete-grid aggregation at 06:39:38 UTC. The
+job finished at 06:40:06, while the host was still checking the Engineer's
+changed files. At 06:43:45 the host saw the job was already terminal and fell
+through directly to review. The Engineer had not received the requested
+continuation to incorporate the aggregate, so Reviewer correctly found the
+main result absent from the current manuscript. This was a real handoff race.
+
+A known requested job that has already changed out of its healthy running
+state now returns control to Engineer before review. A separate runtime
+follow-up identifies the existing run and asks it to process results or
+failure evidence and update the deliverable/checkpoint. It is not attributed
+to Reviewer. The same follow-up is supplied when a job finishes during an
+observed wait. Each observed run gets one automatic continuation, so repeating
+an unchanged finished wait cannot create an empty loop; a new run under the
+same task ID remains eligible. Shutdown retains priority and the recoverable
+pause behavior from section 51. No experimental job is stopped or relaunched.
+
+Six regression cases fail with the previous wait implementation. The updated
+137-test wait/stop/outcome/resumption group passes, including completed and
+failed subagents and generic external work, full Engineer-to-Reviewer order,
+duplicate wait requests, new runs, monitored completion, and shutdown. The
+tests check that Reviewer sees the handled result rather than the old artifact.
+The change introduces no review schema, quality-round limit or acceptance shortcut.

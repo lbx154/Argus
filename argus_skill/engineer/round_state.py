@@ -56,6 +56,10 @@ class RoundLoopState:
     # forever. Reset by any Engineer call that ends any other way.
     provider_turn_cap_streak: int = 0
     pending_secret_guard_notes: list[str] = field(default_factory=list)
+    # A completed requested job gets one result-consumption turn per run,
+    # including when it finished before the harness could enter its wait.
+    external_work_resumptions: set[tuple[str, str, str]] = field(default_factory=set)
+    pending_external_work_followup: str = ""
     secret_scan_cache: SecretScanCache = field(default_factory=SecretScanCache)
     engineer_session: RoleSessionCapsule | None = None
     reviewer_session: RoleSessionCapsule | None = None

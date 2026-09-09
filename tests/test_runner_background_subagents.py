@@ -5,7 +5,9 @@ import os
 import time
 from pathlib import Path
 
-from argus_skill.core.models import RunnerResult
+import pytest
+
+from argus_skill.core.models import ReviewDecision, RunnerResult
 from argus_skill.engineer.external_work import parse_external_wait_request
 from argus_skill.engineer.round_config import EngineerConfig, SupervisedConfig
 from argus_skill.engineer.round_state import RoundLoopState
@@ -193,6 +195,152 @@ def test_job_launched_after_prompt_assembly_can_yield_without_a_paper_review(
     assert not rounds
     assert "measurements are pending" in message
     assert json.loads(record_path.read_text())["state"] == "running"
+
+
+@pytest.mark.parametrize("job_state", ["done", "error"])
+@pytest.mark.parametrize("source", ["subagent", "external_work"])
+def test_job_finished_before_wait_handoff_returns_to_engineer_before_review(
+    tmp_path: Path, job_state: str, source: str,
+) -> None:
+    registry = tmp_path / (".argus_subagents" if source == "subagent" else ".argus_external_work")
+    registry.mkdir()
+    record = {
+        "task_id": "analysis", "run_id": "analysis-run-1",
+        "state": job_state, "mode": "direct", "pid": os.getpid(),
+    } if source == "subagent" else {
+        "version": 1, "work_id": "analysis", "state": "terminal",
+        "outcome": job_state, "heartbeat_at": time.time(),
+    }
+    (registry / "analysis.json").write_text(json.dumps(record))
+    manuscript = tmp_path / "manuscript.txt"
+    manuscript.write_text("results have not been processed")
+    reviewed: list[str] = []
+
+    class Engineer:
+        backend = "test"
+        calls = 0
+
+        def run_exec(self, *, prompt, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return RunnerResult(exit_code=0, agent_messages=[
+                    'The analysis must be handled before review.\n'
+                    + json.dumps({"wait_for": source, "wait_id": "analysis"})
+                ])
+            assert "External work follow-up" in prompt
+            assert "`analysis`" in prompt
+            if source == "subagent":
+                assert "analysis-run-1" in prompt
+            manuscript.write_text(f"handled existing {job_state} result")
+            return RunnerResult(exit_code=0, agent_messages=["Existing result handled."])
+
+    class Reviewer:
+        def evaluate(self, **_kwargs):
+            reviewed.append(manuscript.read_text())
+            return ReviewDecision(
+                status="done", reason="current result was handled", next_action=None,
+            )
+
+    engineer = Engineer()
+    engine = SupervisedEngineer(
+        engineer_runner=engineer, reviewer=Reviewer(),
+        engineer_config=EngineerConfig(model="test"),
+        reviewer_config=ReviewerConfig(model="test"),
+    )
+    status, _rounds, _message, _reason, _thread = engine.run(
+        objective="handle the requested calculation before review",
+        engineer_prompt_builder=lambda _next, _static=True: "work",
+        supervised_config=SupervisedConfig(max_rounds=3), workdir=tmp_path,
+    )
+
+    assert status == "done"
+    assert engineer.calls == 2
+    assert reviewed == [f"handled existing {job_state} result"]
+
+
+def test_finished_wait_continuation_is_once_per_run_not_an_empty_loop(tmp_path: Path) -> None:
+    registry = tmp_path / ".argus_subagents"
+    registry.mkdir()
+    path = registry / "analysis.json"
+    record = {"task_id": "analysis", "run_id": "run-1", "state": "done", "mode": "direct"}
+    path.write_text(json.dumps(record))
+    state = RoundLoopState(
+        backend_failure_streak=2, backend_failure_signature="old provider failure",
+        backend_failure_same_cause_streak=2,
+    )
+    holder = RoundWaitsMixin()
+
+    def observe():
+        return holder._handle_agent_driven_wait(
+            round_index=1, supervised_config=SupervisedConfig(),
+            raw_engineer_message='{"wait_for":"subagent","wait_id":"analysis"}',
+            workdir=tmp_path, state=state, on_event=None,
+        )
+
+    assert observe().action == "continue_loop"
+    assert state.backend_failure_streak == 0
+    assert state.backend_failure_signature == ""
+    assert state.backend_failure_same_cause_streak == 0
+    assert observe().action == "proceed"
+    record["run_id"] = "run-2"
+    path.write_text(json.dumps(record))
+    assert observe().action == "continue_loop"
+
+
+def test_finished_wait_honors_shutdown_before_starting_another_turn(tmp_path: Path) -> None:
+    from argus_skill.core import process_stop
+
+    registry = tmp_path / ".argus_subagents"
+    registry.mkdir()
+    (registry / "analysis.json").write_text(json.dumps({
+        "task_id": "analysis", "run_id": "run-1", "state": "done", "mode": "direct",
+    }))
+    process_stop.request_stop()
+    try:
+        result = RoundWaitsMixin()._handle_agent_driven_wait(
+            round_index=1, supervised_config=SupervisedConfig(),
+            raw_engineer_message='{"wait_for":"subagent","wait_id":"analysis"}',
+            workdir=tmp_path, state=RoundLoopState(), on_event=None,
+        )
+    finally:
+        process_stop.clear_stop()
+
+    assert result.action == "return"
+    assert result.terminal[0] == "paused_daemon_shutdown"
+
+
+def test_job_observed_finishing_during_wait_is_not_consumed_twice(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from argus_skill.engineer import runner
+
+    registry = tmp_path / ".argus_subagents"
+    registry.mkdir()
+    path = registry / "analysis.json"
+    record = {"task_id": "analysis", "run_id": "run-1", "state": "running",
+              "mode": "direct", "pid": os.getpid()}
+    path.write_text(json.dumps(record))
+
+    def finish(**_kwargs):
+        record["state"] = "done"
+        path.write_text(json.dumps(record))
+        return "state_changed", 1.0
+
+    monkeypatch.setattr(runner, "_run_external_work_wait", finish)
+    holder, state = RoundWaitsMixin(), RoundLoopState()
+
+    def observe():
+        return holder._handle_agent_driven_wait(
+            round_index=1, supervised_config=SupervisedConfig(),
+            raw_engineer_message='{"wait_for":"subagent","wait_id":"analysis"}',
+            workdir=tmp_path, state=state, on_event=None,
+        )
+
+    assert observe().action == "continue_loop"
+    assert "External work follow-up" in state.pending_external_work_followup
+    state.pending_external_work_followup = ""
+    assert observe().action == "proceed"
+    assert state.pending_external_work_followup == ""
 
 
 def test_a_direct_job_that_writes_nothing_is_not_healthy(tmp_path) -> None:
