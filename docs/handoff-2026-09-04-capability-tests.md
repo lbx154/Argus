@@ -2086,3 +2086,31 @@ interval, five null-reproducing folds, and zero observation/action/symbol
 mismatches. These are current experiment outputs awaiting Engineer's manuscript
 update and the independent Reviewer, not a strong-accept result. Existing paper,
 review and scientific files were not edited by the paper team.
+
+## 43. Coordinate GPU experiments and measure the actual load (2026-09-09 UTC)
+
+Diamond r9 described three A6000s as free and launched three cached timing
+processes. Its GPU-0 attempt failed with a CUDA OOM alongside an existing
+service using about 29 GiB. Meanwhile, an S43 Phi panel and Diamond's process2
+were both resident on physical GPU 3. The two paper daemons used native shells
+without shared resource grants. This is a real scheduling and measurement
+condition; a device inventory or available-memory snapshot did not reserve a
+card or establish isolated timing.
+
+Engineer prompts now name the existing durable-submit accelerator, count,
+peak-memory, expected-duration and intent flags, preserve the allocator's
+visibility mask, and describe waiting_resource as a normal queue. The shared
+ledger coordinates cooperating tasks; it does not control unrelated native
+processes. Experiment and final-review guides distinguish a shared-device
+correctness smoke test from latency evidence. The latter needs an uncontended
+device or an explicitly defined and matched concurrent load. Independent
+process repetitions may run sequentially, and observed overlap calls for
+targeted verification while preserving all original results.
+
+One operational nudge was queued for each affected Engineer with the observed
+process/device identities, the actual OOM, and the supported resource path.
+Receipts are in `coherent-science-rollout/shared-gpu-experiment-guidance.json`.
+No root process kill, scientific edit or review-rating change was made. The
+29-test role-prompt, scientific-protocol and natural-review group passed; four
+native Windows integration tests were skipped on Linux, plus ruff and whitespace
+checks. Log: `/tmp/argus-shared-gpu-guidance-tests-20260909.log`.

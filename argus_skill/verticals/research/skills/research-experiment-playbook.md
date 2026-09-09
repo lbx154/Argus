@@ -93,6 +93,12 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    configuration's logical index to it. Merely writing that environment prefix
    in a saved command or example does not apply it. Confirm and retain the
    actual device mapping with the run command before a long execution.
+   A prompt's machine inventory is a snapshot, not a reservation. Launch long
+   GPU jobs through the durable runner with its accelerator/count/peak-memory/
+   duration/intent flags so other cooperating projects share the same resource
+   queue. Honor the assigned visibility mask inside the command. Inspect
+   unmanaged device processes too: available memory and momentary zero GPU
+   utilization do not establish an uncontended measurement window.
 4. Implement the method and baseline through real entry points under comparable
    data, compute, information, and evaluator access. Build the strongest
    faithful version of the idea, not the easiest version that can pass a local
@@ -131,6 +137,18 @@ Choose sample counts from coverage of independent items and the precision
 needed for the claim; explain the choice in the research notes. Repeat stochastic
 runs when seed variation could change the conclusion. Rerunning deterministic
 comparisons adds no independent evidence.
+
+For latency, throughput or bottleneck claims, preserve the actual device
+identity, process occupancy and relevant load over the measurement window.
+Run on an uncontended accelerator, or explicitly define and match the competing
+load when sharing is the experiment. A shared-device smoke test can establish
+correctness without establishing isolated performance. Independent repetitions
+may run sequentially on the same released device; three processes do not
+require three simultaneously available cards. If another workload overlaps a
+timing run, keep the observations and overlap record, investigate the affected
+comparisons, and repeat only the measurements whose interpretation needs it.
+Do not silently pool uncontrolled shared-device and isolated timings, or stop
+another project's work to obtain a preferred result.
 
 On resume, check the actual recorded observations and the code/configuration
 that produced them before deciding whether work is complete. A copied

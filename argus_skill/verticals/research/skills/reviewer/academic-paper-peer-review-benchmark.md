@@ -39,6 +39,13 @@ integrated judgment is written only to `paper/REVIEW.md`.
    same-information published baseline receives a fair comparison. Match relevant
    implementation maturity, batching, precision and resource accounting; a slower
    implementation of a competitor is not evidence against its scientific idea.
+   For performance claims, inspect the actual device mapping and competing work
+   during the timing window. A free-memory or utilization snapshot does not prove
+   an uncontended run. Shared-device correctness checks can still be useful;
+   timing claims need an uncontended measurement or an explicitly matched load.
+   If overlap could explain a comparison, ask for targeted controlled timing
+   while preserving the original observations. Independent process repeats can
+   run sequentially; they need not occupy several cards simultaneously.
    A superiority
    claim needs convincing gains. A negative or boundary result needs a
    nontrivial, important finding established with decisive matched controls;

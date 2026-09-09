@@ -28,13 +28,25 @@ _POSIX_LONG_EXPERIMENT_RULE = (
     "semantic monitoring. Never `task(mode=\"background\")` or a session-owned "
     "background shell. Keep the `state=submitted`, `task_id`, `run_id` and "
     "`check_with` response; on `state=discussing` answer with `reply_with` "
-    "and do not poll in the foreground. For accelerators, "
-    "declare count, memory, duration, checkpointability and intent; never put "
-    "nvidia-smi/GPU polling in the command. `waiting_resource` is healthy."
+    "and do not poll in the foreground."
 )
 _PERFORMANCE_DIAGNOSTIC_RULE = (
     "Performance root-cause/bottleneck/replacement claims need hot-path/live-resource "
-    "evidence plus timing/profiling or controlled A/B."
+    "evidence plus timing/profiling or controlled A/B. Correctness smoke tests can "
+    "share hardware, but latency evidence needs an uncontended device or an "
+    "explicitly matched concurrent load. Check actual device identity and other "
+    "processes; free memory or a zero-utilization snapshot does not prove isolation. "
+    "Independent process repetitions can run sequentially on a released device."
+)
+_ACCELERATOR_ADMISSION_RULE = (
+    "For GPU jobs, add `--accelerator cuda` (or `rocm`), `--gpu-count <count>`, "
+    "`--gpu-mem-mib <peak-MiB>`, `--expected-duration <duration>` and "
+    "`--intent '<purpose>'` to submit; add `--checkpointable` only when supported. "
+    "Use the allocator's visibility mask and logical device indices; do not "
+    "override CUDA_VISIBLE_DEVICES/ROCR_VISIBLE_DEVICES inside the command. "
+    "The shared ledger coordinates cooperating tasks, not unmanaged external "
+    "processes. `waiting_resource` is a healthy queue; continue independent "
+    "work while it waits. Never put nvidia-smi/GPU polling in the command."
 )
 
 _WINDOWS_LONG_EXPERIMENT_RULE = (
@@ -45,10 +57,7 @@ _WINDOWS_LONG_EXPERIMENT_RULE = (
     "Use `--mode supervised` only for semantic monitoring. Do not use "
     "`task(mode=\"background\")` or a session-owned background shell. Keep the "
     "`state=submitted`, `task_id`, `run_id`, and `check_with` response. On "
-    "`state=discussing`, answer with `reply_with`; do not poll in the foreground. For "
-    "accelerators, declare count, memory, duration, checkpointability "
-    "and intent; never put nvidia-smi/GPU polling in the command. "
-    "`waiting_resource` is healthy."
+    "`state=discussing`, answer with `reply_with`; do not poll in the foreground."
 )
 
 def _long_experiment_rule() -> str:
@@ -57,7 +66,7 @@ def _long_experiment_rule() -> str:
         if native_shell_contract()
         else _POSIX_LONG_EXPERIMENT_RULE
     )
-    return shell_rule
+    return shell_rule + " " + _ACCELERATOR_ADMISSION_RULE
 
 
 def append_live_guidance(prompt: str, guidance: list[str]) -> str:
