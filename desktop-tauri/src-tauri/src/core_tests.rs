@@ -7,6 +7,8 @@
 mod identity;
 #[path = "models.rs"]
 mod models;
+#[path = "probe.rs"]
+mod probe;
 #[path = "redaction.rs"]
 mod redaction;
 #[path = "release.rs"]

@@ -3,8 +3,15 @@ import { COMMANDS } from '../../../core/src/commands';
 import { translate } from '../i18n';
 import { commandDescription, commandGroup } from '../lib/commandI18n';
 import { renderEvent } from '../lib/eventRender';
+import { roleLabel } from '../research-workbench/enumLabels';
 
 describe('web localization', () => {
+  test.each(['Manager', 'Planner', 'Engineer', 'Reviewer'])('keeps the %s role name in both languages', (role) => {
+    for (const locale of ['zh-CN', 'en'] as const) {
+      expect(translate(`label.role.${role.toLowerCase()}` as Parameters<typeof translate>[0], {}, locale)).toBe(role);
+      expect(roleLabel(role.toLowerCase(), (zh, en) => locale === 'zh-CN' ? zh : en)).toBe(role);
+    }
+  });
   test('translates interface messages with interpolation', () => {
     expect(translate('sidebar.manage', { name: 'demo' }, 'en')).toBe('Manage demo');
     expect(translate('sidebar.manage', { name: 'demo' }, 'zh-CN')).toBe('管理 demo');

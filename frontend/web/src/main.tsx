@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import { adoptTokenFromUrl } from './api';
 import { BootSplash } from './components/BootSplash';
-import { I18nProvider } from './i18n';
+import { I18nProvider, useI18n } from './i18n';
+import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
 import { queryRetryPolicy } from './hooks';
 import { installStaleChunkRecovery } from './lib/preloadRecovery';
 import '@fontsource-variable/geist';
@@ -30,13 +31,14 @@ const queryClient = new QueryClient({
 });
 
 function WebApp() {
+  const { locale } = useI18n();
   // Tauri already keeps its native launcher visible until this document has
   // loaded. Avoid a second full-screen splash in the embedded cockpit; direct
   // browser/PWA launches retain the remote UI's normal branded transition.
   const [booting, setBooting] = useState(!embeddedDesktop);
   return (
     <>
-      <App />
+      <WorkspaceErrorBoundary locale={locale}><App /></WorkspaceErrorBoundary>
       {booting ? <BootSplash onDone={() => setBooting(false)} /> : null}
     </>
   );

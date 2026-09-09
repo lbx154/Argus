@@ -3,11 +3,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { workspaceApi } from './workspaceApi';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 
-export function useWorkspaceProfile(sid: string, storageScope: string) {
+export function useWorkspaceProfile(sid: string, storageScope: string, enabled = true) {
   const profiles = useQuery({
     queryKey: ['workspace-profiles', sid],
     queryFn: ({ signal }) => workspaceApi.profiles(sid, signal),
     staleTime: 10_000,
+    enabled: Boolean(sid) && enabled,
   });
   const storageKey = `argus-v2-workspace-profile:${storageScope}:${sid}`;
   const [workspaceId, setWorkspaceIdState] = useState(() => readLocalStorage(storageKey) || '');

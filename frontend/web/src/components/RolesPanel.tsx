@@ -35,8 +35,10 @@ export function RolesPanel({ roles }: { roles: Role[] }) {
             <div key={r.role} className="grid grid-cols-[84px_minmax(0,1fr)_auto] items-center gap-2 border-b border-line/60 px-3 py-2 last:border-b-0">
               <div className="flex items-center gap-1.5">
                 <span
-                  className="inline-block h-1.5 w-1.5 rounded-full"
-                  style={{ background: r.active ? hue : 'rgb(var(--ink-faint))' }}
+                  data-role-dot={r.role}
+                  aria-hidden="true"
+                  className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ background: hue }}
                 />
                 <span
                   className="text-[11px] font-medium capitalize"

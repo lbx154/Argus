@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
-import { basename } from 'node:path';
 
 import {
   type ApiMeta,
@@ -17,6 +16,7 @@ import {
   ensureApi,
   probeApi,
   repoBackendPath,
+  resolveBin,
   scheduleOutdatedDaemonUpgrades,
   uniqueWarningReporter,
   type ApiProbeResult,
@@ -455,10 +455,8 @@ test('replaces a proven owned stale API with SIGTERM only', async () => {
   assert.equal(rec.rootPid, 9876);
   assert.equal(rec.host, '127.0.0.1');
   assert.equal(rec.port, 8899);
-  assert.equal(
-    basename(rec.backendBin),
-    process.platform === 'win32' ? 'argus-skill.exe' : 'argus-skill',
-  );
+  // A clean checkout may resolve via PATH instead of a repository virtualenv.
+  assert.equal(rec.backendBin, resolveBin());
   assert.equal(typeof rec.startedAt, 'string');
 });
 
@@ -726,10 +724,7 @@ test('normal autostart records listener and launcher PIDs after the runtime hand
   assert.equal(rec.rootPid, 7777);
   assert.equal(rec.host, '127.0.0.1');
   assert.equal(rec.port, 8899);
-  assert.equal(
-    basename(rec.backendBin),
-    process.platform === 'win32' ? 'argus-skill.exe' : 'argus-skill',
-  );
+  assert.equal(rec.backendBin, resolveBin());
   assert.equal(typeof rec.startedAt, 'string');
   assert.deepEqual(result.spawnedApi, {
     ownerFile: '/tmp/argus-normal-owner.json',

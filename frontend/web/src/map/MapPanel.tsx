@@ -430,10 +430,10 @@ function MapCanvas({
             <i />
             {(
               {
-                planner: zh ? "规划中" : "Planning",
-                manager: zh ? "统筹中" : "Coordinating",
-                engineer: zh ? "执行中" : "Running",
-                reviewer: zh ? "审查中" : "Reviewing",
+                planner: "Planner",
+                manager: "Manager",
+                engineer: "Engineer",
+                reviewer: "Reviewer",
               } as Record<string, string>
             )[activePhase] || activePhase}
           </span>
@@ -716,6 +716,8 @@ export function MapPanel({
   draft,
   onDraftChange,
   onSend,
+  attachments,
+  onAttachmentsChange,
   pending,
   onCancel,
   focusSignal,
@@ -727,6 +729,8 @@ export function MapPanel({
   draft: string;
   onDraftChange: (text: string) => void;
   onSend: (text: string, attachments?: File[]) => Promise<boolean>;
+  attachments: File[];
+  onAttachmentsChange: (files: File[]) => void;
   pending: boolean;
   onCancel: () => void;
   focusSignal: number;
@@ -735,26 +739,7 @@ export function MapPanel({
 }) {
   const { locale } = useI18n();
   const zh = locale === "zh-CN";
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const currentDraft = useRef(draft);
-  currentDraft.current = draft;
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  const send = async (text: string, files: File[] = []) => {
-    const accepted = await onSend(text, files);
-    if (accepted && mounted.current) {
-      if (currentDraft.current === text) onDraftChange("");
-      setAttachments((current) =>
-        current.filter((file) => !files.includes(file)),
-      );
-    }
-    return accepted;
-  };
+  const send = onSend;
   const [source, setSource] = useState(
     () =>
       new URLSearchParams(window.location.search).get("dataset") ||
@@ -989,7 +974,7 @@ export function MapPanel({
               onChange: onDraftChange,
               onSend: send,
               attachments,
-              onAttachmentsChange: setAttachments,
+              onAttachmentsChange,
               pending,
               onCancel,
               focusSignal,

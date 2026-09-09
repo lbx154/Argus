@@ -101,14 +101,4 @@ export interface CounterexampleDashboard {
   candidates: CounterexampleCandidate[];
 }
 
-export type PageId =
-  | 'overview'
-  | 'counterexamples'
-  | 'experiments'
-  | 'copilot'
-  | 'literature'
-  | 'inbox'
-  | 'ide'
-  | 'paper'
-  | 'reviewer'
-  | 'release';
+export type PageId = 'overview' | 'experiments' | 'ide';

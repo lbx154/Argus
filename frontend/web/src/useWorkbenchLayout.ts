@@ -8,10 +8,10 @@ import {
 } from 'react';
 import { type ThemeMode } from './components/TopBar';
 import { readLocalStorage, writeLocalStorage } from './lib/storage';
+import { preferredPreviewWidth, PREVIEW_DEFAULT_WIDTH, PREVIEW_MAX_WIDTH } from './lib/previewLayout';
 import {
   readThemeStyle,
-  THEME_STYLE_STORAGE_KEY,
-  type ThemeStyle,
+  normalizeThemeStyle,
 } from './lib/themePreference';
 
 function storedBoolean(key: string, fallback: boolean): boolean {
@@ -38,6 +38,7 @@ export function useWorkbenchLayout() {
     () => {
       if (params.get('view') === 'workbench') return 'workbench';
       if (params.get('view') === 'map') return 'map';
+      if (params.get('view') === 'activity') return 'activity';
       const stored = readLocalStorage('argus.workspace.view');
       return stored === 'mission' || stored === 'workbench' || stored === 'map' ? stored : 'activity';
     },
@@ -49,16 +50,18 @@ export function useWorkbenchLayout() {
     return Number.isFinite(value) ? Math.max(220, Math.min(400, value)) : 256;
   });
   const [rightWidth, setRightWidth] = useState(() => {
-    const value = Number(readLocalStorage('argus.preview.width.v2') || 440);
-    return Number.isFinite(value) ? Math.max(320, Math.min(600, value)) : 440;
+    const value = Number(readLocalStorage('argus.preview.width.v2') || PREVIEW_DEFAULT_WIDTH);
+    return Number.isFinite(value) ? Math.max(320, Math.min(PREVIEW_MAX_WIDTH, value)) : PREVIEW_DEFAULT_WIDTH;
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => storedBoolean('argus.sidebar.expanded.v4', true));
   const [manualTheme, setManualTheme] = useState<ThemeMode | null>(() => {
+    const desktop = params.get('desktopTheme');
+    if (desktop === 'light' || desktop === 'dark') return desktop;
     const stored = readLocalStorage('argus.theme');
     return stored === 'light' || stored === 'dark' ? stored : null;
   });
-  const [themeStyle, setThemeStyleState] = useState<ThemeStyle>(readThemeStyle);
+  const themeStyle = readThemeStyle();
   const [systemDark, setSystemDark] = useState(
     () => window.matchMedia('(prefers-color-scheme: dark)').matches,
   );
@@ -97,20 +100,39 @@ export function useWorkbenchLayout() {
 
   useEffect(() => {
     document.documentElement.dataset.themeStyle = themeStyle;
+    normalizeThemeStyle();
   }, [themeStyle]);
+
+  useEffect(() => {
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: 'argus:theme-preference', payload: manualTheme || 'system' }, '*');
+    }
+  }, [manualTheme]);
 
   const cycleTheme = useCallback(() => {
     const next = themeModeRef.current === 'light' ? 'dark' : 'light';
     themeModeRef.current = next;
     publishThemeMode(next);
     writeLocalStorage('argus.theme', next);
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('desktopTheme')) {
+      url.searchParams.set('desktopTheme', next);
+      window.history.replaceState(window.history.state, '', url.toString());
+    }
     startTransition(() => setManualTheme(next));
   }, []);
 
-  const setThemeStyle = useCallback((next: ThemeStyle) => {
-    setThemeStyleState(next);
-    writeLocalStorage(THEME_STYLE_STORAGE_KEY, next);
-  }, []);
+  const openPreview = useCallback(() => {
+    setRightPanelOpen(true);
+    setMobileView('preview');
+    const width = shellRef.current?.clientWidth ?? window.innerWidth;
+    // Mobile already dedicates a full screen to reading. Desktop grows only
+    // on an explicit open action, never on a background query refresh.
+    if (width >= 1024) {
+      const preferred = preferredPreviewWidth(width, leftWidth, leftPanelOpen);
+      setRightWidth((current) => Math.max(current, preferred));
+    }
+  }, [leftPanelOpen, leftWidth]);
 
   const resizeSidebar = useCallback((
     side: 'left' | 'right',
@@ -131,7 +153,7 @@ export function useWorkbenchLayout() {
         pendingWidth = Math.max(220, Math.min(max, pointer.clientX - rect.left));
       } else {
         const occupiedLeft = leftPanelOpen ? leftWidth + 8 : 56;
-        const max = Math.max(320, Math.min(600, rect.width - occupiedLeft - 360 - 8));
+        const max = Math.max(320, Math.min(PREVIEW_MAX_WIDTH, rect.width - occupiedLeft - 360 - 8));
         pendingWidth = Math.max(320, Math.min(max, rect.right - pointer.clientX));
       }
       if (resizeFrameRef.current != null) return;
@@ -196,6 +218,7 @@ export function useWorkbenchLayout() {
     leftPanelOpen,
     leftWidth,
     mobileView,
+    openPreview,
     resizeSidebar,
     rightPanelOpen,
     rightWidth,
@@ -207,7 +230,6 @@ export function useWorkbenchLayout() {
     setRightWidth,
     setShowReasoning,
     setSidebarOpen,
-    setThemeStyle,
     setWorkspaceView,
     shellRef,
     showReasoning,

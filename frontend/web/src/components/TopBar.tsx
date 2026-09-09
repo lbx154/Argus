@@ -93,8 +93,9 @@ export function TopBar({
       <span className="hidden h-4 w-px shrink-0 bg-line/40 sm:block" />
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <span
+          data-role-dot={roleName}
           aria-label={roleActive ? t('topbar.roleActive', { role: roleName }) : t('topbar.roleIdle', { role: roleName })}
-          className={`h-2 w-2 shrink-0 rounded-full ${roleActive ? 'animate-pulse' : ''}`}
+          className={`h-2 w-2 shrink-0 rounded-full ${roleActive ? 'animate-pulse motion-reduce:animate-none' : ''}`}
           style={{ background: theme.role[roleName] || 'rgb(var(--ink-faint))' }}
         />
         <span className="hidden shrink-0 text-xs font-semibold capitalize text-ink-dim sm:inline">{roleName}</span>

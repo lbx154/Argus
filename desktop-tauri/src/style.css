@@ -15,7 +15,7 @@
   --warm: #075fe4;
   --brand-mid: #075fe4;
   --brand-violet: #075fe4;
-  --danger: #14161c;
+  --danger: #b42318;
   --success: #075fe4;
   --shadow: rgba(24, 30, 44, 0.16);
   --brand-body: #000000;
@@ -23,6 +23,7 @@
   --brand-pupil: #000000;
   --brand-highlight: #ffffff;
   --desktop-menu-height: 34px;
+  --desktop-notice-height: 0px;
 }
 
 :root[data-theme='dark'] {
@@ -41,7 +42,7 @@
   --warm: #6ea8ff;
   --brand-mid: #6ea8ff;
   --brand-violet: #6ea8ff;
-  --danger: #f2f5fa;
+  --danger: #fda29b;
   --success: #6ea8ff;
   --shadow: rgba(0, 0, 0, 0.42);
   --brand-body: #d7d9dc;
@@ -54,6 +55,20 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 html,
 body {
   margin: 0;
@@ -63,7 +78,7 @@ body {
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   transition: background-color 240ms ease;
@@ -123,6 +138,27 @@ body {
   transition: background 180ms ease, border-color 180ms ease, opacity 120ms ease;
 }
 
+.runtime-notice {
+  position: fixed;
+  top: var(--desktop-menu-height);
+  left: 0;
+  right: 0;
+  z-index: 25;
+  display: flex;
+  gap: 12px;
+  max-height: 110px;
+  overflow: auto;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--tile);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.runtime-notice strong { flex-shrink: 0; color: var(--accent); }
+.runtime-notice span { overflow-wrap: anywhere; }
+body[data-state='error'] .argus-splash-eye { animation-play-state: paused; }
+
 .desktop-menu-nav {
   height: 100%;
   display: flex;
@@ -156,6 +192,10 @@ body {
 }
 
 .desktop-menu-context {
+  max-width: 65%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 10px;
   letter-spacing: 0.08em;
   color: color-mix(in srgb, var(--muted) 82%, transparent);
@@ -287,7 +327,11 @@ body {
 }
 
 .splash.has-wizard .stage {
-  opacity: 0.5;
+  visibility: hidden;
+}
+
+.splash.has-wizard .stage * {
+  animation-play-state: paused;
 }
 
 .emblem-shell {
@@ -312,7 +356,10 @@ body {
 }
 
 .steps {
-  display: none;
+  display: flex;
+  padding: 0;
+  margin: 22px 0 0;
+  list-style: none;
 }
 
 .step {
@@ -389,15 +436,10 @@ body {
 }
 
 .status {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+  margin: 22px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 body[data-state='error'] .status {
@@ -414,7 +456,12 @@ body[data-state='error'] .status {
 }
 
 .progress {
-  display: none;
+  display: block;
+  width: 220px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--line);
 }
 
 #bar {
@@ -567,7 +614,7 @@ button {
   box-shadow: 0 30px 90px var(--shadow);
 }
 
-/* Workbench settings use a full-window WebContentsView while the live
+/* Workbench settings use a full-window trusted shell while the live
  * workbench remains mounted underneath. The surface follows a desktop settings
  * pattern: contextual rail on the left, focused controls on the right. */
 :root[data-settings-mode='true'] .wizard {
@@ -836,6 +883,11 @@ button {
   width: min(540px, 100%);
 }
 
+.segmented.runner-segmented {
+  grid-template-columns: repeat(3, 1fr);
+  width: 100%;
+}
+
 .runner-status {
   display: inline-flex;
   align-items: center;
@@ -1056,6 +1108,19 @@ button {
   font-size: 12px;
 }
 
+.wizard-error {
+  margin: 0;
+  padding: 12px 22px;
+  max-height: 140px;
+  overflow: auto;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--tile));
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .wizard-foot {
   display: flex;
   align-items: center;
@@ -1203,7 +1268,7 @@ button {
  * filesystem, shell, or updater permissions. */
 .cockpit {
   position: fixed;
-  inset: var(--desktop-menu-height) 0 0;
+  inset: calc(var(--desktop-menu-height) + var(--desktop-notice-height)) 0 0;
   z-index: 20;
   overflow: hidden;
   background: var(--bg);

@@ -387,7 +387,7 @@ export function MissionControl({
 
       <Achievement view={view} />
 
-      <section className="border-b border-line/60 px-5 py-4">
+      <section className="border-b border-line/60 px-5 py-4" aria-label={t('mission.team')}>
         <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">{t('mission.team')}</div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {ROLE_ORDER.map((name) => {
@@ -400,11 +400,15 @@ export function MissionControl({
                 key={name}
                 type="button"
                 onClick={() => setSelectedRole(name)}
-                className={`min-w-0 border-l-2 pl-3 text-left ${selectedRole === name ? 'bg-white/[0.03]' : ''}`}
-                style={{ borderColor: active || role?.status === 'done' ? color : 'rgb(var(--line))' }}
+                aria-pressed={selectedRole === name}
+                className="min-w-0 rounded-r-md border-l-2 py-2 pl-3 text-left transition-colors hover:bg-bg/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
+                style={{
+                  borderColor: selectedRole === name || active || role?.status === 'done' ? color : 'rgb(var(--line))',
+                  backgroundColor: selectedRole === name ? `color-mix(in srgb, ${color} 8%, transparent)` : undefined,
+                }}
               >
                 <div className="flex items-center gap-2">
-                  <span className={`h-2 w-2 rounded-full ${active ? 'animate-pulse motion-reduce:animate-none' : ''}`} style={{ background: rejected ? theme.error : active || role?.status === 'done' ? color : theme.inkFaint }} />
+                  <span data-role-dot={name} aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${active ? 'animate-pulse motion-reduce:animate-none' : ''}`} style={{ background: color }} />
                   <span className="text-xs font-semibold" style={{ color }}>{roleLabel(name, t)}</span>
                 </div>
                 <div className={`mt-1 truncate text-xs ${rejected ? 'text-err' : 'text-ink-dim'}`}>{role?.label || t('mission.waitingShort')}</div>
@@ -417,7 +421,7 @@ export function MissionControl({
       <section className="border-b border-line/60 px-5 py-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
-            {t('mission.roleWork')} · <span className="text-blue-sky">{roleLabel(selectedRole, t)}</span>
+            {t('mission.roleWork')} · <span style={{ color: theme.role[selectedRole] ?? theme.inkDim }}>{roleLabel(selectedRole, t)}</span>
           </div>
           {selectedTask ? (
             <button type="button" onClick={() => setSelectedTaskId('')} className="text-[10px] text-ink-faint hover:text-ink">

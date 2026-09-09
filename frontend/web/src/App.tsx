@@ -59,6 +59,7 @@ import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
 import { usePendingReplySession } from './usePendingReplySession';
 import { useProjectSelection } from './useProjectSelection';
 import { useWorkbenchLayout } from './useWorkbenchLayout';
+import { PREVIEW_DEFAULT_WIDTH, PREVIEW_MAX_WIDTH } from './lib/previewLayout';
 import { useI18n } from './i18n';
 import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
 import { DeliveryNotice } from './components/DeliveryNotice';
@@ -117,6 +118,7 @@ export default function App() {
     leftPanelOpen,
     leftWidth,
     mobileView,
+    openPreview: expandPreview,
     resizeSidebar,
     rightPanelOpen,
     rightWidth,
@@ -128,13 +130,11 @@ export default function App() {
     setRightWidth,
     setShowReasoning,
     setSidebarOpen,
-    setThemeStyle,
     setWorkspaceView,
     shellRef,
     showReasoning,
     sidebarOpen,
     themeMode,
-    themeStyle,
     workspaceView,
   } = useWorkbenchLayout();
   const [standardWorkspaceView, setStandardWorkspaceView] = useState<'mission' | 'activity'>(
@@ -153,6 +153,9 @@ export default function App() {
   useVisualViewport();
   const [composerFocus, setComposerFocus] = useState(0);
   const [composerDraft, setComposerDraft] = useState('');
+  const [composerAttachments, setComposerAttachments] = useState<File[]>([]);
+  const composerDraftRef = useRef(composerDraft);
+  composerDraftRef.current = composerDraft;
   const [rewriting, setRewriting] = useState(false);
   const [slashSelection, setSlashSelection] = useState(0);
   const [routeOverride, setRouteOverride] = useState<MessageRouteOverride>(initialMessageRoute);
@@ -364,16 +367,22 @@ export default function App() {
     view: missionView,
     artifacts: artifactsQ.data ?? [],
   };
-  const focusDeliveryPath = useCallback((path: string) => {
+  const openPreview = useCallback(() => {
+    // Opening the reader acknowledges the delivery prompt. Do not leave its
+    // floating card over the PDF toolbar the user is about to interact with.
+    const current = deliveryRef.current;
+    if (current) setDismissedDeliveryId(current.delivery_id);
+    expandPreview();
+  }, [expandPreview]);
+  const focusDeliveryPath = useCallback((path: string, userInitiated = true) => {
     const target = path.trim();
     if (!target) {
-      setWorkspaceView('mission');
+      if (userInitiated) setWorkspaceView('mission');
       return;
     }
-    setRightPanelOpen(true);
-    setMobileView('preview');
+    if (userInitiated) openPreview();
     setPreviewPathRequest((current) => ({ path: target, token: current.token + 1 }));
-  }, [setMobileView, setRightPanelOpen, setWorkspaceView]);
+  }, [openPreview, setWorkspaceView]);
   const openDelivery = useCallback((receipt: DeliveryReceipt) => {
     focusDeliveryPath(receipt.primary_target?.path ?? '');
   }, [focusDeliveryPath]);
@@ -383,7 +392,7 @@ export default function App() {
     const previous = observedDeliveryRef.current;
     if (previous === undefined) {
       observedDeliveryRef.current = id;
-      if (delivery) openDelivery(delivery);
+      if (delivery) focusDeliveryPath(delivery.primary_target?.path ?? '', false);
       return;
     }
     if (previous === id) return;
@@ -393,9 +402,9 @@ export default function App() {
       void queryClient.invalidateQueries({
         queryKey: ['artifacts', loadedSid],
         exact: true,
-      }).then(() => openDelivery(delivery));
+      }).then(() => focusDeliveryPath(delivery.primary_target?.path ?? '', false));
     }
-  }, [delivery, loadedSid, openDelivery, queryClient, snap]);
+  }, [delivery, focusDeliveryPath, loadedSid, queryClient, snap]);
   useEffect(() => {
     if (!loadedSid) return;
     const previous = observedCompletionRef.current;
@@ -520,13 +529,14 @@ export default function App() {
     onSetEventQuery: setEventQuery,
     onSetTaskItemId: setTaskItemId,
     onSetWorkspaceView: setWorkspaceView,
-    onShowArtifacts: () => setRightPanelOpen(true),
+    onShowArtifacts: openPreview,
     onStopIteration: requestStopIteration,
     onStopWaiting: stopWaiting,
     refetchSnapshot: snapQ.refetch,
   }), [
     activeSid,
     notify,
+    openPreview,
     renameCurrentProject,
     requestDispose,
     requestStopIteration,
@@ -737,6 +747,17 @@ export default function App() {
   const sendMessageRef = useRef(sendMessage);
   sendMessageRef.current = sendMessage;
 
+  const sendComposerMessage = async (text: string, files: File[] = []): Promise<boolean> => {
+    const draft = composerDraftRef.current;
+    const sid = sidRef.current;
+    const accepted = await sendMessage(text, files);
+    if (accepted && sidRef.current === sid) {
+      setComposerDraft((current) => current === draft ? '' : current);
+      setComposerAttachments((current) => current.filter((file) => !files.includes(file)));
+    }
+    return accepted;
+  };
+
   const paletteItems: PaletteItem[] = useMemo(() => {
     const commandRows = commandPaletteRows(
       COMMANDS,
@@ -897,7 +918,7 @@ export default function App() {
                 {workspaceView === 'mission' ? <span className="ml-auto hidden max-w-72 truncate text-[10px] text-ink-faint sm:block">{missionView?.active_role ? t('mission.roleActive', { role: missionView.active_role }) : t('mission.overview')}</span> : <span className="ml-auto" />}
                 {!kiosk && workspaceView !== 'map' ? <button type="button" onClick={() => setOverlay('operations')} className="rounded border border-line/60 px-2 py-1 text-[10px] text-ink-faint hover:border-blue/50 hover:text-blue">{t('mission.operations')}</button> : null}
               </div>
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={events} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')} /></Suspense>}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={events} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={setComposerAttachments} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')} /></Suspense>}
               <div className={`${workspaceView === 'workbench' || workspaceView === 'map' ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`}>
                 <GuardianBanner alert={guardianAlert} />
                 {standardWorkspaceView === 'mission' && missionView ? (
@@ -937,8 +958,10 @@ export default function App() {
                     <ChatBox
                       key={activeSid || 'no-session'}
                       value={composerDraft}
+                      attachments={composerAttachments}
+                      onAttachmentsChange={setComposerAttachments}
                       onChange={setComposerDraft}
-                      onSend={sendMessage}
+                      onSend={sendComposerMessage}
                       onCancel={stopWaiting}
                       disabled={!activeSid}
                       pending={chatPending}
@@ -969,10 +992,10 @@ export default function App() {
                 label={t('common.resizePreview')}
                 value={rightWidth}
                 min={320}
-                max={600}
+                max={PREVIEW_MAX_WIDTH}
                 onPointerDown={(event) => resizeSidebar('right', event)}
-                onReset={() => setRightWidth(440)}
-                onNudge={(delta) => setRightWidth((value) => Math.max(320, Math.min(600, value - delta)))}
+                onReset={() => setRightWidth(PREVIEW_DEFAULT_WIDTH)}
+                onNudge={(delta) => setRightWidth((value) => Math.max(320, Math.min(PREVIEW_MAX_WIDTH, value - delta)))}
               />
             ) : null}
 
@@ -999,6 +1022,7 @@ export default function App() {
                 artifacts={artifactsQ.data}
                 error={artifactsQ.isError}
                 onExpand={setArtifactPath}
+                onOpenFile={openPreview}
                 className={`min-h-0 flex-1 mobile-scroll-region ${rightPanelOpen ? 'lg:flex' : 'lg:hidden'}`}
                 embedded
                 onCollapse={() => setRightPanelOpen(false)}
@@ -1009,7 +1033,7 @@ export default function App() {
               />
               {!rightPanelOpen ? (
                 <div className="hidden h-12 items-center justify-center border-b border-line/50 text-ink-faint lg:flex">
-                  <button type="button" onClick={() => setRightPanelOpen(true)} aria-label={t('common.expandPreview')} title={t('common.expandPreview')} className="flex h-8 w-8 items-center justify-center rounded-md border border-line/50 bg-bg/40 hover:border-blue/50 hover:text-ink">
+                  <button type="button" onClick={openPreview} aria-label={t('common.expandPreview')} title={t('common.expandPreview')} className="flex h-8 w-8 items-center justify-center rounded-md border border-line/50 bg-bg/40 hover:border-blue/50 hover:text-ink">
                     <FontAwesomeIcon icon={faAnglesLeft} className="h-3.5 w-3.5" />
                   </button>
                 </div>
@@ -1047,8 +1071,6 @@ export default function App() {
           sid={activeSid}
           open={overlay === 'config'}
           onClose={() => setOverlay('none')}
-          themeStyle={themeStyle}
-          onThemeStyleChange={setThemeStyle}
         />
       )}
       {activeSid && <IdentityModal sid={activeSid} open={overlay === 'identity'} onClose={() => setOverlay('none')} />}

@@ -63,36 +63,6 @@ export function useArgusData(sid: string | null, active = true) {
     enabled,
     refetchInterval: 6_000,
   });
-  const transcript = useQuery({
-    queryKey: ['v2-transcript', sid],
-    queryFn: ({ signal }) => api.transcript(sid!, 120, signal),
-    enabled,
-    refetchInterval: 8_000,
-  });
-  const artifacts = useQuery({
-    queryKey: ['v2-artifacts', sid],
-    queryFn: ({ signal }) => api.artifacts(sid!, signal),
-    enabled,
-    refetchInterval: 8_000,
-  });
-  const counterexamples = useQuery({
-    queryKey: ['v2-counterexamples', sid],
-    queryFn: ({ signal }) => api.counterexamples(sid!, signal),
-    enabled,
-    refetchInterval: 3_000,
-  });
-  const gitDiff = useQuery({
-    queryKey: ['v2-git-diff', sid],
-    queryFn: ({ signal }) => api.gitDiff(sid!, signal),
-    enabled,
-    refetchInterval: 8_000,
-  });
-  const journal = useQuery({
-    queryKey: ['v2-journal', sid],
-    queryFn: ({ signal }) => api.journal(sid!, 80, signal),
-    enabled,
-    refetchInterval: 10_000,
-  });
   const eventSeed = useQuery({
     queryKey: ['v2-events', sid],
     queryFn: ({ signal }) => api.events(sid!, 220, signal),
@@ -124,14 +94,6 @@ export function useArgusData(sid: string | null, active = true) {
             refreshTimer.current = null;
             void client.invalidateQueries({ queryKey: ['v2-snapshot', sid] });
             void client.invalidateQueries({ queryKey: ['v2-status', sid] });
-            const type = String(event.type ?? '');
-            if (/artifact|review.completed|mission.completed|live_view/.test(type)) {
-              void client.invalidateQueries({ queryKey: ['v2-artifacts', sid] });
-              void client.invalidateQueries({ queryKey: ['v2-counterexamples', sid] });
-            }
-            if (/ui\.|manager/.test(type)) {
-              void client.invalidateQueries({ queryKey: ['v2-transcript', sid] });
-            }
           }, 900);
         }
       },
@@ -152,11 +114,6 @@ export function useArgusData(sid: string | null, active = true) {
     await Promise.all([
       client.invalidateQueries({ queryKey: ['v2-snapshot', sid] }),
       client.invalidateQueries({ queryKey: ['v2-status', sid] }),
-      client.invalidateQueries({ queryKey: ['v2-transcript', sid] }),
-      client.invalidateQueries({ queryKey: ['v2-artifacts', sid] }),
-      client.invalidateQueries({ queryKey: ['v2-counterexamples', sid] }),
-      client.invalidateQueries({ queryKey: ['v2-git-diff', sid] }),
-      client.invalidateQueries({ queryKey: ['v2-journal', sid] }),
       client.invalidateQueries({ queryKey: ['v2-events', sid] }),
     ]);
   };
@@ -172,19 +129,14 @@ export function useArgusData(sid: string | null, active = true) {
   });
 
   const error = useMemo(() => {
-    const failed = [snapshot, status, transcript, artifacts, counterexamples, gitDiff, journal, eventSeed]
+    const failed = [snapshot, status, eventSeed]
       .find((query) => query.error);
     return failed?.error instanceof Error ? failed.error : null;
-  }, [artifacts, counterexamples, eventSeed, gitDiff, journal, snapshot, status, transcript]);
+  }, [eventSeed, snapshot, status]);
 
   return {
     snapshot,
     status,
-    transcript,
-    artifacts,
-    counterexamples,
-    gitDiff,
-    journal,
     events,
     connected,
     refresh,

@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Square, X } from "lucide-react";
-import { ArgusMark } from "../components/Wordmark";
-import { referenceText, splitDraft } from "./presentation";
+import { ComposerSurface } from "../components/ComposerSurface";
+import { splitDraft } from "./presentation";
 import { useI18n } from "../i18n";
 import {
   addComposerFiles,
   extractFilesFromDataTransfer,
-  MESSAGE_ATTACHMENT_ACCEPT,
 } from "../lib/attachments";
 import { formatBytes } from "../lib/format";
 import { ComposerAttachmentChip } from "../components/ComposerAttachmentChip";
@@ -58,7 +56,7 @@ export function MapComposer({
     !pending &&
     !attachmentNotice &&
     !sent;
-  const { refs, text } = splitDraft(value);
+  const { text } = splitDraft(value);
   useEffect(() => {
     mounted.current = true;
     // Removing a focused chip can skip its blur event; the next document focus
@@ -85,12 +83,6 @@ export function MapComposer({
   useEffect(() => {
     if (focusSignal) input.current?.focus();
   }, [focusSignal]);
-  useEffect(() => {
-    if (input.current) {
-      input.current.style.height = "0px";
-      input.current.style.height = `${Math.min(132, Math.max(28, input.current.scrollHeight))}px`;
-    }
-  }, [text]);
   const submit = async () => {
     if (!text.trim() || pending || submitting.current) return;
     submitting.current = true;
@@ -130,33 +122,6 @@ export function MapComposer({
   };
   return (
     <div ref={dock} className="map-composer-dock" data-compact={compact}>
-      {refs.length > 0 && (
-        <div className="map-reference-chips">
-          {refs.map((ref, i) => (
-            <span
-              key={`${ref.task_id}:${ref.step_id}:${i}`}
-              title={`${ref.source} · ${ref.task_id} ${ref.step_id || ""}`}
-            >
-              <span>
-                {zh ? "引用" : "Reference"} · {ref.step_title || ref.task_title}
-              </span>
-              <button
-                aria-label={zh ? "移除引用" : "Remove reference"}
-                onClick={() =>
-                  onChange(
-                    refs
-                      .filter((_, n) => i !== n)
-                      .map(referenceText)
-                      .join("") + text,
-                  )
-                }
-              >
-                <X size={12} />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
       {!!attachments.length && (
         <div
           className="map-attachment-tray nowheel"
@@ -182,87 +147,21 @@ export function MapComposer({
           {attachmentNotice}
         </div>
       )}
-      <form
-        className="map-composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-      >
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          accept={MESSAGE_ATTACHMENT_ACCEPT}
-          hidden
-          disabled={pending}
-          onChange={(event) => {
-            addFiles(Array.from(event.target.files || []));
-            event.target.value = "";
-          }}
-        />
-        <button
-          type="button"
-          className="map-composer-brand map-attach"
-          aria-label={t("chat.attach")}
-          title={t("chat.attach")}
-          disabled={pending}
-          onClick={() => fileInput.current?.click()}
-        >
-          <ArgusMark size={24} />
-        </button>
-        <textarea
-          ref={input}
-          rows={1}
-          value={text}
-          aria-label={zh ? "给 Argus 发送消息" : "Message Argus"}
-          placeholder={
-            compact
-              ? zh
-                ? "发送消息…"
-                : "Message Argus…"
-              : zh
-                ? "告诉 Argus 下一步怎么做…"
-                : "Tell Argus what to do next…"
-          }
-          onChange={(e) =>
-            onChange(refs.map(referenceText).join("") + e.target.value)
-          }
-          onPaste={(event) => {
+      <ComposerSurface value={value} onChange={onChange} inputRef={input} fileInputRef={fileInput}
+        onFiles={(event) => { addFiles(Array.from(event.target.files || [])); event.target.value = ''; }}
+        pending={pending} onSend={() => void submit()} onCancel={onCancel}
+        inputProps={{
+          'aria-label': zh ? '给 Argus 发送消息' : 'Message Argus',
+          placeholder: compact ? (zh ? '发送消息…' : 'Message Argus…') : (zh ? '告诉 Argus 下一步怎么做…' : 'Tell Argus what to do next…'),
+          onPaste: (event) => {
             const files = extractFilesFromDataTransfer(event.clipboardData);
-            if (files.length) {
-              event.preventDefault();
-              addFiles(files);
-            }
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape" && !value.trim()) input.current?.blur();
-            if (e.key === "Enter" && !e.shiftKey && !isImeComposing(e)) {
-              e.preventDefault();
-              void submit();
-            }
-          }}
-        />
-        {pending ? (
-          <button
-            type="button"
-            onClick={onCancel}
-            aria-label={zh ? "停止等待" : "Stop waiting"}
-            className="map-send is-pending"
-          >
-            <Square size={15} />
-          </button>
-        ) : (
-          <button
-            type="submit"
-            disabled={!text.trim()}
-            aria-label={zh ? "发送消息" : "Send message"}
-            className="map-send"
-          >
-            <ArrowUp size={20} />
-          </button>
-        )}
-      </form>
+            if (files.length) { event.preventDefault(); addFiles(files); }
+          },
+          onKeyDown: (event) => {
+            if (isImeComposing(event)) return;
+            if (event.key === 'Escape' && !value.trim()) input.current?.blur();
+          },
+        }} />
       <span className="map-composer-caption" role="status">
         {pending
           ? zh

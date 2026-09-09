@@ -98,16 +98,20 @@ impl UpdateManager {
         release: &ReleaseContext,
         logger: DesktopLogger,
     ) -> Arc<Self> {
-        let cached = read_cache(&data_dir);
-        let status = cached_available_status(&release.app_version, &cached).unwrap_or_default();
         let update_checks_disabled =
             std::env::var("ARGUS_DESKTOP_DISABLE_UPDATE_CHECK").as_deref() == Ok("1");
+        let enabled = !release.development && !crate::release::preview_mode() && !update_checks_disabled;
+        let status = enabled.then(|| cached_available_status(&release.app_version, &read_cache(&data_dir)))
+            .flatten().unwrap_or_else(|| UpdateStatus {
+                current_version: release.app_version.clone(),
+                ..UpdateStatus::default()
+            });
         Arc::new(Self {
             inner: Arc::new(UpdateManagerInner {
                 app,
                 data_dir,
                 logger,
-                enabled: !release.development && !update_checks_disabled,
+                enabled,
                 status: Mutex::new(status),
                 operation: AsyncMutex::new(()),
             }),
@@ -185,7 +189,7 @@ impl UpdateManager {
                 None,
                 None,
                 None,
-                Some("开发构建不检查发布更新。".to_owned()),
+                Some("当前为预览／开发构建，已禁用发布更新；不会下载或安装正式版本。".to_owned()),
                 manual,
             );
             if manual {
@@ -400,7 +404,7 @@ impl UpdateManager {
     pub async fn install(self: &Arc<Self>) -> Result<(), String> {
         let _operation = self.inner.operation.lock().await;
         if !self.inner.enabled {
-            return Err("开发构建不安装发布更新。".to_owned());
+            return Err("预览／开发构建不安装发布更新。".to_owned());
         }
         let current = self.status().current_version;
         self.set_status(make_status(
@@ -541,11 +545,13 @@ impl UpdateManager {
 
     pub fn dismiss(&self) {
         let status = self.status();
-        let mut cache = self.cache();
-        if let Some(version) = status.available_version.as_ref() {
-            cache.dismissed_version = Some(version.clone());
+        if self.inner.enabled {
+            let mut cache = self.cache();
+            if let Some(version) = status.available_version.as_ref() {
+                cache.dismissed_version = Some(version.clone());
+            }
+            self.save_cache(&cache);
         }
-        self.save_cache(&cache);
         self.set_status(make_status(
             UpdateState::Idle,
             status.current_version,

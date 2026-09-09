@@ -19,6 +19,7 @@ impl Default for BackendResilienceOptions {
 pub enum HealthDecision {
     Fail { failure_count: u32 },
     Recover { failure_count: u32 },
+    Wait { failure_count: u32 },
     Retry { failure_count: u32, delay_ms: u64 },
 }
 
@@ -75,11 +76,17 @@ impl BackendResiliencePolicy {
                 failure_count: self.consecutive_health_failures + 1,
             };
         }
-        self.consecutive_health_failures += 1;
+        self.consecutive_health_failures = (self.consecutive_health_failures + 1)
+            .min(self.options.transient_failure_threshold);
         let failure_count = self.consecutive_health_failures;
-        if !process_alive || failure_count >= self.options.transient_failure_threshold {
+        if !process_alive {
             self.consecutive_health_failures = 0;
             return HealthDecision::Recover { failure_count };
+        }
+        if failure_count >= self.options.transient_failure_threshold {
+            // A busy/resuming process is not a dead process. Keep a slow health
+            // watch instead of terminating working tasks after network delays.
+            return HealthDecision::Wait { failure_count };
         }
         let index = (failure_count.saturating_sub(1) as usize)
             .min(self.options.health_retry_delays_ms.len().saturating_sub(1));
@@ -154,12 +161,23 @@ mod tests {
         );
         assert_eq!(
             policy.record_health_failure(false, true),
-            HealthDecision::Recover { failure_count: 3 }
+            HealthDecision::Wait { failure_count: 3 }
         );
         assert_eq!(
             policy.record_health_failure(true, true),
-            HealthDecision::Fail { failure_count: 1 }
+            HealthDecision::Fail { failure_count: 4 }
         );
+        assert_eq!(policy.record_health_failure(false, false), HealthDecision::Recover { failure_count: 3 });
+    }
+
+    #[test]
+    fn a_living_process_is_not_restarted_for_a_long_network_interruption() {
+        let mut policy = BackendResiliencePolicy::default();
+        for _ in 0..100 { policy.record_health_failure(false, true); }
+        assert_eq!(policy.record_health_failure(false, true), HealthDecision::Wait { failure_count: 3 });
+        assert_eq!(policy.restart_attempt_count(), 0);
+        policy.record_health_success();
+        assert!(matches!(policy.record_health_failure(false, true), HealthDecision::Retry { .. }));
     }
 
     #[test]

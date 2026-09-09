@@ -44,8 +44,30 @@ pub fn normalized_windows_path(value: &str) -> String {
     }
 }
 
+/// A path suitable for CLI environment variables and command shims. cmd.exe
+/// does not support the verbatim spelling returned by Rust canonicalization.
+pub fn shell_command_path(path: &std::path::Path) -> String {
+    let value = path.to_string_lossy();
+    if cfg!(windows) {
+        normalized_windows_path(&value)
+    } else {
+        value.into_owned()
+    }
+}
+
 pub fn same_path(left: &str, right: &str) -> bool {
     normalized_windows_path(left).eq_ignore_ascii_case(&normalized_windows_path(right))
+}
+
+pub fn save_ownership(path: &std::path::Path, ownership: &BackendOwnership) -> anyhow::Result<()> {
+    use std::io::Write;
+    let parent = path.parent().ok_or_else(|| anyhow::anyhow!("ownership directory unavailable"))?;
+    std::fs::create_dir_all(parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(&serde_json::to_vec_pretty(ownership)?)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path)?;
+    Ok(())
 }
 
 pub fn backend_launch_claim_matches(
@@ -76,7 +98,8 @@ pub fn backend_ownership_matches(
     probe: &ProbeIdentity,
     expected: &ExpectedBackendIdentity,
 ) -> bool {
-    ownership.schema == 3
+    probe.authenticated
+        && ownership.schema == 3
         && ownership.pid == probe.pid.unwrap_or_default()
         && ownership.root_pid > 0
         && ownership.host == expected.host
@@ -156,6 +179,13 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
+    fn command_shims_use_normal_unicode_windows_paths() {
+        let path = std::path::Path::new(r"\\?\D:\体验 preview\argus-backend.exe");
+        assert_eq!(shell_command_path(path), r"D:\体验 preview\argus-backend.exe");
+    }
+
+    #[test]
     fn exact_owned_backend_matches() {
         let ownership = BackendOwnership {
             schema: 3,
@@ -176,6 +206,17 @@ mod tests {
             token_sha256: ownership.token_sha256.clone(),
         };
         assert!(backend_ownership_matches(&ownership, &probe(), &expected));
+        let mut unauthenticated = probe();
+        unauthenticated.authenticated = false;
+        assert!(!backend_ownership_matches(&ownership, &unauthenticated, &expected));
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("runtime/backend.json");
+        save_ownership(&path, &ownership).unwrap();
+        let stored: BackendOwnership = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(stored.pid, ownership.pid);
+        assert_eq!(stored.started_at, ownership.started_at);
+        save_ownership(&path, &ownership).unwrap();
+        assert!(serde_json::from_slice::<BackendOwnership>(&std::fs::read(&path).unwrap()).is_ok());
         assert!(!backend_ownership_matches(
             &BackendOwnership {
                 pid: 1,

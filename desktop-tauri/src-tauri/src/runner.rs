@@ -16,6 +16,11 @@ fn home_dir() -> PathBuf {
 }
 
 pub fn argus_home_dir() -> PathBuf {
+    // Preview always has its own project/configuration store, even if launched
+    // from a terminal that exports the operator's production ARGUS_SKILL_HOME.
+    if crate::release::preview_mode() {
+        return crate::settings::desktop_data_dir().join("argus-home");
+    }
     env::var_os("ARGUS_SKILL_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
@@ -143,10 +148,11 @@ pub fn desktop_setup_complete(
     settings: &DesktopSettings,
     configured: Option<&RunnerConfiguration>,
 ) -> bool {
-    configured
-        .and_then(|runner| runner.executable.as_deref())
-        .is_some_and(|executable| Path::new(executable).is_file())
-        && (settings.setup_complete || !settings.runner_configured)
+    settings.runner_configured
+        && settings.setup_complete
+        && configured
+            .and_then(|runner| runner.executable.as_deref())
+            .is_some_and(|executable| Path::new(executable).is_file())
 }
 
 fn app_data_dir() -> PathBuf {
@@ -549,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn inherited_backend_skips_onboarding_only_when_its_binary_exists() {
+    fn first_launch_requires_confirmation_even_with_an_inherited_cli() {
         let directory = tempfile::tempdir().unwrap();
         let executable = directory.path().join("claude.cmd");
         let configured = RunnerConfiguration {
@@ -558,13 +564,17 @@ mod tests {
         };
         let settings = DesktopSettings::default();
         assert!(!desktop_setup_complete(&settings, Some(&configured)));
-        fs::write(executable, b"test-cli").unwrap();
-        assert!(desktop_setup_complete(&settings, Some(&configured)));
-        let unfinished = DesktopSettings {
+        fs::write(&executable, b"test-cli").unwrap();
+        assert!(!desktop_setup_complete(&settings, Some(&configured)));
+        let mut saved = DesktopSettings {
             runner_configured: true,
             ..settings
         };
-        assert!(!desktop_setup_complete(&unfinished, Some(&configured)));
+        assert!(!desktop_setup_complete(&saved, Some(&configured)));
+        saved.setup_complete = true;
+        assert!(desktop_setup_complete(&saved, Some(&configured)));
+        fs::remove_file(executable).unwrap();
+        assert!(!desktop_setup_complete(&saved, Some(&configured)));
     }
 
     #[test]

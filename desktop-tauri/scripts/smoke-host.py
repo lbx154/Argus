@@ -13,6 +13,7 @@ import json
 import os
 import secrets
 import shutil
+import socket
 import subprocess
 import tempfile
 import time
@@ -26,6 +27,7 @@ def main() -> int:
         type=Path,
         default=Path(__file__).resolve().parents[1] / "src-tauri" / "target" / "release" / "Argus.exe",
     )
+    parser.add_argument("--preview", action="store_true")
     parser.add_argument("--timeout", type=float, default=55.0)
     parser.add_argument(
         "--health-window",
@@ -55,10 +57,12 @@ def main() -> int:
 
     sandbox = Path(tempfile.mkdtemp(prefix="argus-tauri-host-smoke-"))
     app_data = sandbox / "appdata"
-    desktop_data = app_data / "argus-desktop"
+    desktop_data = app_data / ("argus-desktop-preview" if args.preview else "argus-desktop")
     desktop_data.mkdir(parents=True)
     token = secrets.token_urlsafe(32)
-    port = 18_884
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
     (desktop_data / "settings.json").write_text(
         json.dumps(
             {
@@ -67,8 +71,10 @@ def main() -> int:
                 "token": token,
                 "runnerKind": "codex",
                 "runnerBins": {"codex": str(Path(codex_runner).resolve())},
-                # Deliberately omit legacy onboarding flags: first launch must
-                # still open the cockpit instead of forcing a setup wizard.
+                # This is the returning-user scenario. A fresh installation
+                # must explicitly confirm its CLI before the backend can start.
+                "runnerConfigured": True,
+                "setupComplete": True,
                 "appearanceTheme": "light",
             }
         ),

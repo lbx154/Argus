@@ -85,7 +85,7 @@ fn default_host() -> String {
 }
 
 const fn default_port() -> u16 {
-    8799
+    if crate::release::preview_mode() { 18799 } else { 8799 }
 }
 
 impl Default for DesktopSettings {
@@ -118,6 +118,8 @@ pub enum BackendState {
 #[serde(rename_all = "camelCase")]
 pub struct BackendStatus {
     pub state: BackendState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -132,6 +134,7 @@ impl Default for BackendStatus {
         Self {
             state: BackendState::Idle,
             message: "尚未启动".to_owned(),
+            warning: None,
             detail: None,
             pid: None,
             url: None,
