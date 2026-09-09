@@ -2378,3 +2378,29 @@ shows the new guidance with their finite/direct flags preserved. Tests and the
 release are prepared in the existing plain build directory while live main
 stays coherent; lifecycle command locks protect publication from a concurrent
 scheduled restart. All changes and built artifacts are published on main.
+
+## 51. Preserve a task when shutdown interrupts an experiment wait (2026-09-09 UTC)
+
+Diamond's scheduled drain reached an Engineer return waiting on the healthy
+v13 confirmation. That harness-only wait returned paused_daemon_shutdown, but
+there was no interrupted backend call to supply stop_kind. Settlement treated
+the result as non-resumable, archived the original task as failed, and the
+successor daemon exited on an empty finite queue. The GPU experiment remained
+alive. This was an orchestration error, not a scientific completion.
+
+Basic outcome derivation now recognizes the trusted paused_daemon_shutdown
+status when stop metadata is absent and supplies daemon_shutdown. The normal
+recoverable-pause path keeps the task active and allows a successor to resume
+it. Explicit stop kinds retain precedence. A regression drives the actual
+round-wait return through supervisor settlement and resumption; a second case
+covers legacy adapters with no stop_kind/recoverable metadata. Both failed
+against the old code, and the 220-test wait/stop/outcome/supervisor group now
+passes. No interaction ceiling or scientific acceptance rule changed.
+
+The wrongly archived a6bcc91d59ec was restored as the same authorized task and
+attempt, keeping its archived failure for the operational audit, then resumed
+under daemon 3169305. Its existing v13 run completed normally and the task
+automatically continued as attempt 12. Paper, result and review contents were
+left to Argus. The active CBC task was also snapshotted in case its old process
+reaches the same legacy path before adopting the fix. Recovery receipts are in
+coherent-science-rollout/diamond-empty-backlog-upgrade/.

@@ -889,8 +889,14 @@ class MissionExecutionRuntimeMixin:
         state.rounds = int(getattr(outcome, "rounds", 0) or 0)
         state.stop_reason = str(getattr(outcome, "stop_reason", "") or "")
         state.stop_kind = normalize_stop_kind(getattr(outcome, "stop_kind", None))
-        if state.status == "budget_exhausted" and state.stop_kind is None:
-            state.stop_kind = "budget_exhausted"
+        if state.stop_kind is None:
+            if state.status == "budget_exhausted":
+                state.stop_kind = "budget_exhausted"
+            elif state.status == "paused_daemon_shutdown":
+                # The harness can stop while awaiting an external experiment
+                # after Engineer has returned. There is no interrupted backend
+                # call to attach a stop kind; the typed pause remains resumable.
+                state.stop_kind = "daemon_shutdown"
         usage_summary = state.cost_sink.usage_summary()
         state.usage_summary = usage_summary
         state.usd = usage_summary.cost_usd

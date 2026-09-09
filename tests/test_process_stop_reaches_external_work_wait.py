@@ -137,6 +137,51 @@ def test_round_wait_loop_cannot_spin_past_a_stop(tmp_path, monkeypatch) -> None:
         "daemon shutdown requested during external-work wait"
     )
 
+    # This wait ended in the harness after a successful Engineer return. No
+    # backend call failed, so its five-field return has no backend stop_kind.
+    # The supervisor must keep the original task out of the terminal archive.
+    from types import SimpleNamespace
+
+    from argus_skill.life.memory import BacklogItem, LifeMemory
+    from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+
+    status, rounds, message, reason, _thread = control.terminal
+
+    class PausedRunner:
+        def execute(self, **_kwargs):
+            return SimpleNamespace(
+                success=False, status=status, rounds=rounds,
+                final_message=message, stop_reason=reason,
+                stop_kind=None, recoverable=False,
+            )
+
+    class Sink:
+        def handle_event(self, _event):
+            pass
+
+    memory = LifeMemory.open(tmp_path / "session")
+    item = memory.backlog.add(BacklogItem.new(
+        title="finish the paper", objective="continue after the existing experiment",
+    ))
+    supervisor = LifeSupervisor(
+        memory=memory, runner=PausedRunner(), sink=Sink(),
+        config=LifeSupervisorConfig(project_worktree=tmp_path),
+    )
+    result = supervisor.tick()
+
+    assert result["status"] == "paused_daemon_shutdown"
+    assert result["recoverable"] is True
+    active = LifeMemory.open(tmp_path / "session").backlog.active()
+    assert len(active) == 1 and active[0].id == item.id
+    assert active[0].status == "paused_daemon_shutdown"
+    assert active[0].outcome["resumable"] is True
+
+    process_stop.clear_stop()  # the successor process starts with a fresh flag
+    resumed = supervisor._resume_automatic_pauses()
+    assert len(resumed) == 1 and resumed[0].id == item.id
+    assert resumed[0].attempt == 2
+    assert resumed[0].status == "pending"
+
 
 def test_a_long_wait_says_how_long_it_has_been_waiting(monkeypatch, tmp_path) -> None:
     """Every cadence tick emitted the same two lines, so an eighteen-hour wait
