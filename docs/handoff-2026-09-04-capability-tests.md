@@ -1960,3 +1960,35 @@ venue's actual completion judgment, and scientific revision stays in the current
 stage. The 51-test research-protocol, adapted-skill, paper-policy, natural-review
 and voice group passed, plus whitespace checks; log:
 `/tmp/argus-independent-confirmation-guidance-tests-20260908.log`.
+
+## 39. Resume an empty answer from a native command wait (2026-09-09 UTC)
+
+CBC Engineer r8 received Copilot's native shell-2 still-running notification at
+23:38:43, then emitted an empty `final_answer`. After about 600 seconds the CLI
+returned `result` with exit code zero. Argus marked the call complete and reused
+the earlier progress message as its final answer, starting another whole-paper
+review at 23:48:54 while the scientific batch and manuscript were unfinished.
+The original producer had exited by the next process inspection. The paper team
+did not terminate it, edit the science or change the review recommendation.
+
+The Copilot stream consumer now preserves an explicit empty final answer and
+keeps parent completion separate from native delegate events. When the last
+parent tool explicitly reported an active native command and the CLI ends with
+that empty answer, the runner emits an incomplete-wait receipt. Engineer resumes
+the current task with prior Reviewer feedback, checks actual producer/output
+state and uses durable Argus jobs for remaining long work. This continuation
+does not purchase a scientific review or count toward backend-failure ceilings.
+Normal final answers, report-write-only completion, optional parallel drawings,
+real backend failures and operator/budget stops retain their own behavior.
+
+The exact 7,632-event CBC stream was replayed through the repaired parser and
+finalizer without calling a model or altering live work. It now returns no stale
+final message and correctly identifies the incomplete background wait. The
+receipt is `coherent-science-rollout/cbc-provider-background-wait-replay.json`;
+one operational continuation message is recorded in the adjacent
+`cbc-provider-background-wait-guidance.json`.
+
+The 178-test parser/runner, continuation, role-stop, streaming, report-ownership
+and natural-review group passed, with one platform-specific test skipped, plus
+ruff and whitespace checks. Log:
+`/tmp/argus-provider-background-wait-integration-tests-20260908.log`.

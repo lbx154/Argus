@@ -21,7 +21,10 @@ from ...core.runner_errors import (
     is_execution_host_startup_error,
     is_model_catalog_startup_error,
 )
-from ...core.runner_receipts import is_provider_turn_cap_receipt
+from ...core.runner_receipts import (
+    is_provider_background_wait_receipt,
+    is_provider_turn_cap_receipt,
+)
 from ...core.stop_kinds import (
     StopKind,
     normalize_stop_kind,
@@ -97,7 +100,11 @@ def _raw_backend_stop_kind(
     if not fatal and int(exit_code or 0) == 0:
         return None
     low = fatal.casefold()
-    if is_provider_turn_cap_receipt(fatal) or is_execution_host_startup_error(fatal):
+    if (
+        is_provider_turn_cap_receipt(fatal)
+        or is_provider_background_wait_receipt(fatal)
+        or is_execution_host_startup_error(fatal)
+    ):
         # Local terminal receipts outrank recovered failures in captured stderr.
         # Keep the existing compatibility category for the dedicated cap handler.
         return "backend_unavailable"
@@ -135,7 +142,11 @@ def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
     for raw in stderr_lines:
         if not raw:
             continue
-        if is_provider_turn_cap_receipt(raw) or is_execution_host_startup_error(raw):
+        if (
+            is_provider_turn_cap_receipt(raw)
+            or is_provider_background_wait_receipt(raw)
+            or is_execution_host_startup_error(raw)
+        ):
             continue
         low = str(raw).lower()
         if has_http_status(low, {401, 403}):
@@ -375,6 +386,7 @@ def translate_result(
     failure_diagnostic = raw_fatal_error
     authoritative_local_stop = (
         is_provider_turn_cap_receipt(raw_fatal_error)
+        or is_provider_background_wait_receipt(raw_fatal_error)
         or is_execution_host_startup_error(raw_fatal_error)
     )
     if not authoritative_local_stop and (

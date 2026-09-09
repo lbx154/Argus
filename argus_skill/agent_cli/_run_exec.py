@@ -18,6 +18,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..core.runner_receipts import PROVIDER_BACKGROUND_WAIT_RECEIPT
 from ..core.windows_job import spawn_owned_process, terminate_owned_process
 from ._env import (
     _CAPTURE_JSON_EVENTS_ENV,
@@ -34,7 +35,7 @@ from ._env import (
     _provider_turn_cap,
     _turn_wall_clock_seconds,
 )
-from ._event_consumers import _OpenCodeWriteState
+from ._event_consumers import _CopilotWriteState, _OpenCodeWriteState
 from ._idle_watchdog import (
     STALLED_STAGE,
     TERMINATE_STAGE,
@@ -43,7 +44,7 @@ from ._idle_watchdog import (
 )
 from ._process_control import background_subprocess_kwargs
 from .models import AgentRunResult, InactivitySnapshot
-from .runner_backend import BACKEND_DSH, BACKEND_OPENCODE
+from .runner_backend import BACKEND_COPILOT, BACKEND_DSH, BACKEND_OPENCODE
 
 _POST_EXIT_PIPE_DRAIN_QUIET_SECONDS = 0.1
 # Post-exit drain bounds retained pipe resources after the provider has exited.
@@ -71,6 +72,7 @@ class _StreamState:
     json_event_count: int = 0
     agent_messages: list[str] = field(default_factory=list)
     opencode_write: _OpenCodeWriteState = field(default_factory=_OpenCodeWriteState)
+    copilot_write: _CopilotWriteState = field(default_factory=_CopilotWriteState)
     turn_completed: bool = False
     turn_failed: bool = False
     fatal_error: str | None = None
@@ -635,6 +637,7 @@ class RunExecMixin:
                         turn_failed=state.turn_failed,
                         fatal_error=state.fatal_error,
                         write_state=state.opencode_write,
+                        copilot_write_state=state.copilot_write,
                         disable_tools=options.disable_tools,
                     )
                     # Stream each NEW assistant block to the opt-in callback the
@@ -649,6 +652,8 @@ class RunExecMixin:
                         _new_count = len(state.agent_messages)
                         if _new_count > _msgs_before:
                             for _blk in state.agent_messages[_msgs_before:]:
+                                if not _blk:
+                                    continue
                                 try:
                                     _cb(_blk)
                                 except Exception:  # noqa: BLE001 — UI callback must not break the turn
@@ -784,6 +789,23 @@ class RunExecMixin:
                     f"dsh exited with code {process.returncode}: "
                     + _incomplete_turn_error(state.stderr_lines)
                 )
+
+        if (
+            self.backend == BACKEND_COPILOT
+            and process.returncode == 0
+            and not state.watchdog_terminated
+            and state.turn_completed
+            and not state.turn_failed
+            and state.fatal_error is None
+            and state.copilot_write.empty_final_answer
+            and state.copilot_write.last_tool_waiting
+        ):
+            # Copilot may exit zero after its native background-notification
+            # wait expires. Its empty final answer is not the earlier progress
+            # message, and the unfinished work must return to Engineer.
+            state.turn_completed = False
+            state.turn_failed = True
+            state.fatal_error = PROVIDER_BACKGROUND_WAIT_RECEIPT
 
         if state.watchdog_terminated:
             state.turn_failed = True

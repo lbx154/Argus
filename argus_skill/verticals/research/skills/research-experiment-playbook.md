@@ -142,6 +142,15 @@ confirm that every producer for its output has exited; use a separate attempt
 directory and preserve the old observations. Low GPU utilization while the CPU
 is working, or output buffered until completion, does not establish failure.
 Let healthy attempts finish before applying optional performance optimizations.
+Launch long CPU analyses as well as GPU experiments through the available Argus
+durable job interface, with an actual task record, project environment, explicit
+command and separate attempt output. A provider's native background shell can
+be owned by that CLI invocation; its promise of a completion notification does
+not ensure survival after the model call ends. While the durable job runs,
+continue independent scientific work and preserve its task identity in the
+existing checkpoint. Check the real producer and completed outputs at the next
+decision point. A wait response or an empty model answer does not make the
+scientific batch ready for review.
 When promoting a new result, validate the whole attempt first and switch the
 canonical reference together, rather than mixing raw rows, summaries, and
 completion records from different attempts. Use the existing run records and

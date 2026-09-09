@@ -21,6 +21,14 @@ from .runner_backend import (
 
 
 @dataclass
+class _CopilotWriteState:
+    """Parent reply and native-command wait state, independent of capture limits."""
+
+    empty_final_answer: bool = False
+    last_tool_waiting: bool = False
+
+
+@dataclass
 class _OpenCodeWriteState:
     """Per-run write-side accumulator for the OpenCode event consumer.
 
@@ -232,6 +240,7 @@ class EventConsumerMixin:
         turn_failed: bool,
         fatal_error: str | None,
         write_state: _OpenCodeWriteState | None = None,
+        copilot_write_state: _CopilotWriteState | None = None,
         disable_tools: bool = False,
     ) -> tuple[str | None, bool, bool, str | None]:
         if self.backend in CLAUDE_FAMILY:
@@ -273,6 +282,7 @@ class EventConsumerMixin:
                 turn_completed=turn_completed,
                 turn_failed=turn_failed,
                 fatal_error=fatal_error,
+                write_state=copilot_write_state,
             )
         if self.backend == BACKEND_OPENCODE:
             if write_state is None:
@@ -445,11 +455,37 @@ class EventConsumerMixin:
         turn_completed: bool,
         turn_failed: bool,
         fatal_error: str | None,
+        write_state: _CopilotWriteState | None = None,
     ) -> tuple[str | None, bool, bool, str | None]:
+        # Native delegates share stdout but cannot finish the parent response.
+        if str(event.get("agentId") or "").strip():
+            return thread_id, turn_completed, turn_failed, fatal_error
         event_type = str(event.get("type") or "").strip()
         data = event.get("data")
+        if event_type == "tool.execution_complete" and isinstance(data, dict):
+            telemetry = data.get("toolTelemetry")
+            properties = telemetry.get("properties") if isinstance(telemetry, dict) else {}
+            properties = properties if isinstance(properties, dict) else {}
+            if write_state is not None:
+                write_state.last_tool_waiting = (
+                    str(properties.get("read_target_state") or "").casefold() == "active"
+                    or (
+                        str(properties.get("shell_error_category") or "").casefold()
+                        == "command_timeout"
+                        and str(properties.get("is_timeout") or "").casefold() == "true"
+                    )
+                )
+            return thread_id, turn_completed, turn_failed, fatal_error
         if event_type == "assistant.message" and isinstance(data, dict):
             content = data.get("content")
+            if str(data.get("phase") or "").casefold() == "final_answer":
+                empty = not isinstance(content, str) or not content.strip()
+                if write_state is not None:
+                    write_state.empty_final_answer = empty
+                if empty:
+                    # An explicit empty final answer must not expose an older
+                    # progress message as the completed response.
+                    agent_messages.append("")
             if isinstance(content, str) and content.strip():
                 agent_messages.append(content.strip())
             return thread_id, turn_completed, turn_failed, fatal_error

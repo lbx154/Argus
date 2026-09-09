@@ -21,9 +21,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from ..core.event_catalog import EventType
-from ..core.models import RoundRecord
+from ..core.models import ReviewDecision, RoundRecord
 from ..core.role_decision import latest_role_decision
 from ..core.runner_errors import is_execution_host_startup_error
+from ..core.runner_receipts import is_provider_background_wait_receipt
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 from ..core.stop_kinds import (
     NON_FAILURE_STOP_KINDS,
@@ -466,6 +467,53 @@ class RoundExecutionMixin:
                 review.reason,
                 round_thread_id,
             ))
+
+        if is_provider_background_wait_receipt(fatal_error):
+            engineer_session.rotate("provider_background_wait")
+            state.no_progress_streak = 0
+            state.backend_failure_streak = 0
+            state.backend_failure_signature = ""
+            state.backend_failure_same_cause_streak = 0
+            guidance = (
+                "The provider returned while waiting for a native background command. "
+                "Continue this unfinished task. Inspect the actual producer "
+                "processes, saved command, partial outputs and checkpoint before deciding "
+                "what remains; do not assume the command completed or rerun valid evidence. "
+                "Preserve the interrupted attempt. For remaining long computations, use "
+                "the available Argus durable job interface with its own task record and "
+                "output directory, so the computation survives a model-call boundary. "
+                "A native shell notification wait can expire when the CLI exits. Continue "
+                "independent work while durable jobs run, then complete the "
+                "related changes and validation before returning for review."
+            )
+            previous = state.reviewer_next_action or ""
+            if guidance not in previous:
+                state.reviewer_next_action = "\n\n".join(
+                    part for part in (previous, guidance) if part
+                )
+            review = ReviewDecision(
+                status="continue",
+                reason="The model call ended during a background wait; Engineer will continue the unfinished work.",
+                next_action=state.reviewer_next_action or guidance,
+                review_source="provider_background_wait",
+            )
+            state.rounds.append(RoundRecord(
+                round_index=round_index,
+                engineer_message=engineer_message,
+                engineer_exit_code=engineer_result.exit_code,
+                review=review,
+                fatal_error=fatal_error,
+                stop_kind=stop_kind,
+            ))
+            if on_event:
+                on_event(_review_event_payload(
+                    review,
+                    round_index=round_index,
+                    round_max=supervised_config.max_rounds,
+                    text="Engineer is continuing the unfinished background work before review.",
+                    review_skipped=True,
+                ))
+            return control_continue_loop()
 
         if stop_kind == "permanent_error":
             engineer_session.rotate("permanent_error")
