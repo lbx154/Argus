@@ -5,10 +5,11 @@ import pytest
 from argus_skill.roles.prompts import engineer
 
 
-@pytest.mark.parametrize("include_static", [True, False])
+@pytest.mark.parametrize("include_static,compact_team", [(True, False), (False, False), (True, True)])
 def test_long_task_rule_requires_argus_durable_receipt(
     monkeypatch: pytest.MonkeyPatch,
     include_static: bool,
+    compact_team: bool,
 ) -> None:
     monkeypatch.setattr(engineer, "native_shell_contract", lambda: "")
     monkeypatch.setattr(engineer, "native_shell_summary", lambda: "")
@@ -18,6 +19,7 @@ def test_long_task_rule_requires_argus_durable_receipt(
         skill_text="",
         next_action=None,
         include_static=include_static,
+        compact_team=compact_team,
     )
 
     assert '"${ARGUS_SKILL_PYTHON:-python3}" -m argus_skill.tools.subagent submit' in prompt
@@ -28,12 +30,16 @@ def test_long_task_rule_requires_argus_durable_receipt(
     assert "state=discussing" in prompt
     assert "reply_with" in prompt
     assert "launch a supervised subagent" not in prompt
+    assert '{"wait_for":"subagent","wait_id":"<task-id>"}' in prompt
+    assert "submitted during this same turn" in prompt
+    assert "Do not append the normal decision" in prompt
 
 
-@pytest.mark.parametrize("include_static", [True, False])
+@pytest.mark.parametrize("include_static,compact_team", [(True, False), (False, False), (True, True)])
 def test_native_windows_rule_uses_powershell_durable_runner(
     monkeypatch: pytest.MonkeyPatch,
     include_static: bool,
+    compact_team: bool,
 ) -> None:
     monkeypatch.setattr(engineer, "native_shell_contract", lambda: "native Windows")
     monkeypatch.setattr(engineer, "native_shell_summary", lambda: "Win PS5.1")
@@ -43,9 +49,12 @@ def test_native_windows_rule_uses_powershell_durable_runner(
         skill_text="",
         next_action=None,
         include_static=include_static,
+        compact_team=compact_team,
     )
 
     assert "Native Windows preview cannot detach Argus subagents" not in prompt
+    assert '{"wait_for":"subagent","wait_id":"<task-id>"}' in prompt
+    assert "submitted during this same turn" in prompt
     assert "Windows PowerShell 5.1 syntax" in prompt
     assert (
         "& '.\\.venv\\Scripts\\python.exe' -m argus_skill.tools.subagent submit"

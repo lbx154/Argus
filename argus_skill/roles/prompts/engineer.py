@@ -48,6 +48,18 @@ _ACCELERATOR_ADMISSION_RULE = (
     "processes. `waiting_resource` is a healthy queue; continue independent "
     "work while it waits. Never put nvidia-smi/GPU polling in the command."
 )
+_DURABLE_WAIT_RULE = (
+    "After submitting a durable job, continue useful work that does not depend on "
+    "its result. If all remaining work needs a healthy running or resource-queued "
+    "job, save the current checkpoint and give a brief progress update whose final "
+    'line is `{"wait_for":"subagent","wait_id":"<task-id>"}`. '
+    "Use the existing task ID, including for a job submitted during this same turn. "
+    "This yields to Argus's background monitor; it is not a completed milestone "
+    "or a handoff for another paper review. Do not append the normal decision "
+    "footer after that wait line, sleep in a foreground polling loop, or relaunch "
+    "the existing job. Argus resumes this Engineer task when the job changes "
+    "state; inspect and validate its outputs before claiming completion."
+)
 
 _WINDOWS_LONG_EXPERIMENT_RULE = (
     "For commands over two minutes on native Windows, use Windows PowerShell 5.1 syntax "
@@ -66,7 +78,7 @@ def _long_experiment_rule() -> str:
         if native_shell_contract()
         else _POSIX_LONG_EXPERIMENT_RULE
     )
-    return shell_rule + " " + _ACCELERATOR_ADMISSION_RULE
+    return " ".join((shell_rule, _ACCELERATOR_ADMISSION_RULE, _DURABLE_WAIT_RULE))
 
 
 def append_live_guidance(prompt: str, guidance: list[str]) -> str:
@@ -199,6 +211,7 @@ def build_mission_prompt(
             sections.append(skill_text)
         sections.append(task)
         sections.append(_PERFORMANCE_DIAGNOSTIC_RULE)
+        sections.append(_long_experiment_rule())
         sections.append(
             "## Engineer service\n"
             "Manager set the scope and Planner assigned this task. Inspect only what "

@@ -324,13 +324,15 @@ def test_research_final_review_uses_only_review_stage_checklist(
     assert context.scope == "final_submission"
     assert context.paper_mission is True
     assert "## Integrated final paper review" in context.role_banner
-    assert "Scientific:" in context.role_banner
-    assert "Visual:" in context.role_banner
-    assert "Language:" in context.role_banner
+    assert "Perform full conference peer review of contribution, novelty, methodology" in context.role_banner
+    assert "Use the host's current independent page-by-page and cold-read" in context.role_banner
+    assert "do not launch duplicate passes" in context.role_banner
     assert "inspect every rendered page" in context.role_banner
-    assert "Do not load the research notes" in context.role_banner
+    assert "do not load the research notes" in context.role_banner
     assert "`research-review-playbook.md`" in context.role_banner
-    assert "Do not edit files or change stage state" in context.role_banner
+    assert "Update your own paper/REVIEW.md" in context.role_banner
+    assert "do not edit the manuscript, code, figures" in context.role_banner
+    assert "no fixed fields or review template is required" in context.role_banner
     assert "single workflow playbook" in context.role_banner
     assert context.stage_checklist == format_stage_checklist(
         "review",

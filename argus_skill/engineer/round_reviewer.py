@@ -123,13 +123,10 @@ class RoundReviewerMixin:
         )
         from ..core.operator_context import operator_context_revision_from_text
 
-        operator_context_revision = operator_context_revision_from_text(
-            "\n".join(operator_messages)
-        )
-        reviewer_background_context = ""
+        external_work_context = ""
         if supervised_config.background_subagent_advisory:
             try:
-                reviewer_background_context = render_external_work_advisory(
+                external_work_context = render_external_work_advisory(
                     workdir,
                     include_subagents=True,
                 )
@@ -163,17 +160,15 @@ class RoundReviewerMixin:
         mission_brief = render_mission_brief(
             supervised_config.context_packet_path, include_engineer_account=False,
         )
+        shared_context_parts = (
+            mission_brief,
+            capsule_block,
+            rotation_block,
+            *state.pending_secret_guard_notes,
+            process_ownership_note,
+        )
         reviewer_background_context = "\n\n".join(
-            part
-            for part in (
-                mission_brief,
-                capsule_block,
-                rotation_block,
-                reviewer_background_context,
-                *state.pending_secret_guard_notes,
-                process_ownership_note,
-            )
-            if part
+            part for part in (*shared_context_parts, external_work_context) if part
         )
         from ..reviewer._core import _parallel_final_review_passes
 
@@ -190,11 +185,32 @@ class RoundReviewerMixin:
                     (objective, original_objective or objective, scope, *operator_messages)
                 ),
             ),
+            current_work="\n\n".join(
+                part for part in (
+                    "## Engineer's account of this round\n"
+                    + (engineer_message or "(no message)"),
+                    reviewer_background_context,
+                    _previous_review_summary(state),
+                ) if part
+            ),
         )
         if preliminary_review is not None:
             enforcement = supervised_config.narrative_review_enforcement
             if preliminary_review.backend_unavailable and enforcement == "blocking":
                 return preliminary_review
+            # Specialist passes can take minutes. The integrated Reviewer must
+            # receive instructions and job states that changed during that work.
+            operator_messages = _active_manager_directive_for_reviewer(supervised_config)
+            if supervised_config.background_subagent_advisory:
+                try:
+                    external_work_context = render_external_work_advisory(
+                        workdir, include_subagents=True,
+                    )
+                except Exception:  # noqa: BLE001 — retain the prior observation
+                    log.debug("post-pass external-work refresh failed", exc_info=True)
+            reviewer_background_context = "\n\n".join(
+                part for part in (*shared_context_parts, external_work_context) if part
+            )
             authority_note = (
                 "Shadow calibration only: these new semantic-loss and cold-read signals "
                 "cannot be the sole reason to rule that the work does not hold. "
@@ -220,13 +236,18 @@ class RoundReviewerMixin:
                     "input and policy match. Do not launch duplicate specialist passes "
                     "or repeat a complete PDF inspection; use targeted checks for a "
                     "concrete contradiction. Always independently check material "
-                    "changes to code, raw evidence, and claims. "
+                    "changes to code, raw evidence, and claims. Apply any newer "
+                    "operator directive that arrived during these passes and "
+                    "independently check the findings it affects. "
                     + authority_note
                     + "\n"
                     + preliminary_review.reason,
                 )
                 if part
             )
+        operator_context_revision = operator_context_revision_from_text(
+            "\n".join(operator_messages)
+        )
         started_at = time.monotonic()
         try:
             review = self.reviewer.evaluate(

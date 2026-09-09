@@ -139,6 +139,62 @@ def test_wait_uses_the_real_last_message_when_a_process_decision_exists(
     assert '"wait_id":"job-1"' in message
 
 
+def test_job_launched_after_prompt_assembly_can_yield_without_a_paper_review(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from argus_skill.engineer import runner
+    from argus_skill.roles.prompts.engineer import build_mission_prompt
+
+    registry = tmp_path / ".argus_subagents"
+    record_path = registry / "new-panel.json"
+
+    class Engineer:
+        backend = "test"
+
+        def run_exec(self, *, prompt, **_kwargs):
+            # No live-job advisory existed when this first prompt was built.
+            assert not registry.exists()
+            assert '{"wait_for":"subagent","wait_id":"<task-id>"}' in prompt
+            assert "## External work status" not in prompt
+            registry.mkdir()
+            record_path.write_text(json.dumps({
+                "task_id": "new-panel", "state": "running", "mode": "direct",
+                "pid": os.getpid(),
+            }), encoding="utf-8")
+            return RunnerResult(exit_code=0, agent_messages=[
+                'The repaired panel is running; its measurements are pending.\n'
+                '{"wait_for":"subagent","wait_id":"new-panel"}'
+            ])
+
+    class ReviewerMustNotRun:
+        def evaluate(self, **_kwargs):
+            raise AssertionError("a pending panel must yield before paper review")
+
+    monkeypatch.setattr(
+        runner, "_run_external_work_wait",
+        lambda **_kwargs: ("cadence_elapsed", 30.0),
+    )
+    engine = SupervisedEngineer(
+        engineer_runner=Engineer(), reviewer=ReviewerMustNotRun(),
+        engineer_config=EngineerConfig(model="test"),
+        reviewer_config=ReviewerConfig(model="test"),
+    )
+    status, rounds, message, _reason, _thread = engine.run(
+        objective="validate a repaired panel before reviewing the paper",
+        engineer_prompt_builder=lambda next_action, include_static=True: build_mission_prompt(
+            task="Validate the repaired panel.", skill_text="", next_action=next_action,
+            include_static=include_static,
+        ),
+        supervised_config=SupervisedConfig(max_rounds=2),
+        workdir=tmp_path,
+    )
+    assert status == "paused_external_work"
+    assert not rounds
+    assert "measurements are pending" in message
+    assert json.loads(record_path.read_text())["state"] == "running"
+
+
 def test_a_direct_job_that_writes_nothing_is_not_healthy(tmp_path) -> None:
     """A direct job's health was decided by pid liveness alone. One loaded its
     model and then span for eleven hours and thirty-five minutes at 95% of a

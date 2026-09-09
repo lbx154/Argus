@@ -178,6 +178,129 @@ def test_source_change_is_reviewed_even_when_rendered_bytes_match(paper_review):
     assert runner.shared.calls.count("reviewer-scientificloss") == 2
 
 
+@pytest.mark.parametrize("comparison_mode", [False, True])
+def test_current_science_context_reaches_source_passes_without_reopening_pdf_passes(
+    paper_review, monkeypatch, comparison_mode,
+):
+    from argus_skill.reviewer import _core
+
+    project, config = paper_review
+    if comparison_mode:
+        (project / "paper" / "main.tex").write_text("a revised scientific claim")
+        (project / "paper" / "main.pdf").write_bytes(b"%PDF-current")
+        source_labels = {"reviewer-scientificloss"}
+    else:
+        config = replace(config, narrative_snapshot_root=None)
+        source_labels = {"reviewer-scientific", "reviewer-language"}
+    prompts = []
+    original = _core.gateway_run_exec
+
+    def capture(*args, **kwargs):
+        prompts.append((kwargs["run_label"], kwargs["prompt"]))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(_core, "gateway_run_exec", capture)
+    runner = PaperRunner()
+    first_context = "The old completed panel failed; the replacement is running."
+    second_context = "The replacement panel finished; its raw results need verification."
+    _parallel_final_review_passes(runner, config, current_work=first_context)
+    first_count = len(prompts)
+    second = _parallel_final_review_passes(runner, config, current_work=second_context)
+
+    for label, prompt in prompts[:first_count]:
+        if label in source_labels:
+            assert first_context in prompt
+            assert "account is unreviewed" in prompt
+        else:
+            assert first_context not in prompt
+            assert "## Current revision context" not in prompt
+    assert {label for label, _ in prompts[first_count:]} == source_labels
+    assert all(second_context in prompt for _, prompt in prompts[first_count:])
+    assert runner.shared.calls.count("reviewer-visual") == 1
+    assert second.status == "continue"
+    assert second.input_tokens == 10 * len(source_labels)
+
+
+def test_round_delivers_current_account_and_live_jobs_to_source_reviewers(
+    paper_review, monkeypatch,
+):
+    import json
+    import os
+
+    from argus_skill.core.models import ReviewDecision
+    from argus_skill.engineer import round_reviewer
+    from argus_skill.engineer.round_config import SupervisedConfig
+    from argus_skill.engineer.round_reviewer import RoundReviewerMixin
+    from argus_skill.engineer.round_state import RoundLoopState
+    from argus_skill.reviewer import _core
+
+    project, config = paper_review
+    registry = project / ".argus_subagents"
+    registry.mkdir()
+    (registry / "replacement-panel.json").write_text(json.dumps({
+        "task_id": "replacement-panel", "state": "running", "mode": "direct",
+        "pid": os.getpid(),
+    }))
+    account = "The real counterexample is repaired; the full replacement is pending."
+    prompts = {}
+    original = _core.gateway_run_exec
+    live_directive = ["Initial operator guidance."]
+    monkeypatch.setattr(
+        round_reviewer, "_active_manager_directive_for_reviewer",
+        lambda _config: list(live_directive),
+    )
+
+    def capture(*args, **kwargs):
+        prompts[kwargs["run_label"]] = kwargs["prompt"]
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(_core, "gateway_run_exec", capture)
+    original_passes = _core._parallel_final_review_passes
+
+    def finish_passes(*args, **kwargs):
+        findings = original_passes(*args, **kwargs)
+        record = registry / "replacement-panel.json"
+        payload = json.loads(record.read_text())
+        payload["state"] = "completed"
+        record.write_text(json.dumps(payload))
+        live_directive[:] = ["New observation: distinguish old failed outputs from the replacement."]
+        return findings
+
+    monkeypatch.setattr(_core, "_parallel_final_review_passes", finish_passes)
+
+    class IntegratedReviewer:
+        runner = PaperRunner()
+
+        def evaluate(self, **kwargs):
+            assert kwargs["main_summary"] == account
+            assert "Independent final-paper passes" in kwargs["background_context"]
+            assert "## External work status" not in kwargs["background_context"]
+            assert kwargs["operator_messages"] == live_directive
+            assert "New observation" in kwargs["operator_messages"][0]
+            return ReviewDecision(
+                status="continue", reason="Verify the pending evidence.",
+                next_action="Inspect the completed replacement before updating the paper.",
+            )
+
+    owner = SimpleNamespace(reviewer=IntegratedReviewer(), reviewer_config=config)
+    decision = RoundReviewerMixin._call_reviewer_once(
+        owner, objective="Bring the paper to ICLR strong accept", original_objective=None,
+        round_index=1, supervised_config=SupervisedConfig(), workdir=project,
+        scope="mission", checkpoint_path=None, reviewer_skill_block=None,
+        escalate_hint="", engineer_result=RunnerResult(exit_code=0),
+        engineer_message=account, safe_fatal_error=None, process_ownership_note="",
+        state=RoundLoopState(), on_event=None,
+    )
+    for label in ("reviewer-scientific", "reviewer-language"):
+        assert account in prompts[label]
+        assert "replacement-panel" in prompts[label]
+        assert "RUNNING_HEALTHY" in prompts[label]
+        assert "ICLR strong accept" in prompts[label]
+    assert account not in prompts["reviewer-visual"]
+    assert "replacement-panel" not in prompts["reviewer-visual"]
+    assert decision.status == "continue"
+
+
 @pytest.mark.parametrize("change", ["pdf", "policy", "model", "venue"])
 def test_changed_pdf_or_policy_invalidates_assessments(paper_review, change):
     project, config = paper_review

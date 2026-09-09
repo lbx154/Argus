@@ -2178,3 +2178,58 @@ the retained real counterexample and representative numerical regimes.
 
 The 21-test research-protocol and natural-review group passed, plus whitespace
 checks. Log: `/tmp/argus-refinement-endpoint-guidance-tests-20260909.log`.
+
+## 46. Carry current science into review and yield newly launched jobs (2026-09-09 UTC)
+
+S43's replacement panel was running when Engineer r1 returned its verified
+real-counterexample repair and a normal Reviewer handoff. The first-turn
+prompt had been assembled before the new jobs existed, so it contained no
+live-registry wait instruction. Meanwhile, the preliminary Scientific and
+Language reviewers received only their generic paper-reading instructions,
+without that current Engineer account or the live job states. One preliminary
+pass treated completed archived outputs as potential current evidence even
+though those attempts contained thousands of actual-error failures. The
+integrated Reviewer subsequently distinguished them correctly and continued
+the scientific work; its formal 03:21 UTC review remains weak reject.
+
+All Engineer prompt modes now describe the existing durable wait handoff even
+before the first job is submitted. Engineer continues independent work first;
+when the remaining work depends on a healthy existing job, it can save its
+checkpoint and yield to the monitor without a foreground sleep loop or another
+whole-paper review. This does not infer completion, impose an interaction
+ceiling, or prevent an actual scientific handoff when review is useful.
+
+Source-aware preliminary passes now receive the current task/operator
+guidance, Engineer account, recent feedback and external-work observation.
+They independently verify that account against the executed version and raw
+results. PDF-only visual/cold-read passes retain their isolated input and
+unchanged-input reuse; changing experiment progress alone does not rerun them.
+After preliminary passes finish, the host refreshes operator instructions and
+external-job state before the integrated Reviewer is called. Only the latter
+judges and updates paper/REVIEW.md in natural prose.
+
+The 128-test prompt, new-job wait, pass reuse, real round handoff, narrative,
+stop-kind and natural-review group passed, with four native Windows integration
+tests skipped on Linux, plus ruff and whitespace checks. The new regressions
+exercise a job created after prompt assembly, current context reaching the
+source-aware passes, PDF reuse across science progress, and a job/instruction
+change during preliminary review reaching the integrated Reviewer. An older
+catalog test was updated to the already-existing natural review and editable
+review-file contract, instead of retired specialist labels and a blanket file
+write prohibition. Log:
+`/tmp/argus-current-revision-handoff-tests-20260909.log`.
+
+Integrated the other main update `e88b09bb2` (Codex control-plane routing).
+The combined 220-test group passed with four native Windows skips; log:
+`/tmp/argus-current-revision-handoff-merged-tests-20260909.log`.
+That upstream build removed previously published hashed browser assets.
+The release retains their exact prior bytes alongside the current bundle so
+already-open browser sessions can still load their deferred chunks; no frontend
+source behavior was changed by the paper team.
+
+S43's current partial panel now has verified numerical accuracy; full coverage,
+matched certificate costs, replay updates and a stronger value-mean baseline
+still need completion. Diamond's three uncontended 7B processes are complete
+and its 3B processes continue. CBC awaits its existing external learned-policy
+source. No paper, experiment source, result, figure or review was edited by the
+paper team, and no strong acceptance is claimed.

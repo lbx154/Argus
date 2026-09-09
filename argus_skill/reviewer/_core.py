@@ -32,6 +32,8 @@ log = logging.getLogger(__name__)
 def _parallel_final_review_passes(
     runner: RunnerBackend,
     config: "ReviewerConfig",
+    *,
+    current_work: str = "",
 ) -> ReviewDecision | None:
     """Obtain current specialist evidence; the integrated review still runs."""
     workdir = Path(config.artifact_root or config.working_dir or ".").resolve()
@@ -231,6 +233,30 @@ def _parallel_final_review_passes(
             "and rendered pages to read the paper; the file viewer may expose the "
             "PDF itself only as compressed binary bytes."
         )
+    if current_work.strip() or config.review_policy_context.strip():
+        from ..core.model_visible_text import sanitize_model_visible_text
+
+        source_context = sanitize_model_visible_text("\n\n".join(
+            block for block in (
+                config.review_policy_context.strip(),
+                current_work.strip(),
+            ) if block
+        ))
+        for label in ("Scientific", "Language", "ScientificLoss"):
+            if label in prompts:
+                prompts[label] += (
+                    "\n\n## Current revision context\n"
+                    "Use this current handoff to locate the changed work and distinguish "
+                    "retained failed attempts from their replacements. The Engineer's "
+                    "account is unreviewed; task liveness and completed manifests do not "
+                    "establish scientific validity. Verify claim-critical results against "
+                    "their actual inputs, executed version and raw outputs. Credit "
+                    "verified repairs and identify evidence still pending without "
+                    "presenting it as a completed experiment. Do not request a duplicate "
+                    "run of a healthy job or restore obsolete results merely because "
+                    "their files are complete.\n\n"
+                    + source_context
+                )
     prompts = {
         label: prompt
         + "\n\nPut the complete assessment and all required repairs in your final response. "
