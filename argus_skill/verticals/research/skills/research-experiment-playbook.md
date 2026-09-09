@@ -106,6 +106,19 @@ from full-loop performance. Start with a meaningful pilot of that interface.
 5. Run only the smallest engineering checks needed to establish imports,
    shapes, branches, numerical behavior, and end-to-end wiring, then run a
    known detectable positive control through the same evaluator path.
+   Exercise the actual selected method and configuration, including its full
+   update sequence, before a large panel. For an iterative bound, cache, or
+   refinement algorithm, check the terminal limit the method promises as well
+   as intermediate validity: for example, full materialization should recover
+   the declared dense result or accuracy within the numerical contract. An
+   interval can contain the reference while becoming uselessly wide; zero
+   containment misses alone do not establish the requested accuracy. Include
+   removal/replacement updates when those occur in the real path, and ensure
+   the positive control executes this variant rather than a legacy default.
+   Retain a failing real input as the first regression for a repair; a toy
+   convergence check does not establish behavior at the real input's scale or
+   conditioning. Confirm that case and representative affected regimes before
+   launching the replacement panel.
 6. Develop the method with real models or systems and the strongest
    same-information baselines required by the claim. Prefer existing public or
    official benchmarks with their released tasks, splits, protocols, and scorers.

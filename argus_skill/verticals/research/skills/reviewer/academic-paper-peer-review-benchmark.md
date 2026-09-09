@@ -35,6 +35,15 @@ integrated judgment is written only to `paper/REVIEW.md`.
    Block sizes, framing, delay and setup amortization must describe the same
    deployment. A component microbenchmark cannot establish a whole-loop claim;
    propose the smallest real-interface experiment that can test that claim.
+   For iterative bounds or cached refinement, inspect the promised terminal
+   limit as well as containment. A conservative enclosure is insufficient if
+   it fails the declared accuracy after all required information is available.
+   Check actual removal/replacement trajectories and the selected variant's
+   positive control; a passing control on an older default does not validate
+   the changed algorithm. Request a small decisive check before scaling a
+   corrected implementation, without imposing unrelated convergence rules.
+   Include the actual failed input when evaluating a repair, rather than
+   accepting only a synthetic example with easier scale or conditioning.
 3. **Evidence** — results establish the stated contribution, and the strongest
    same-information published baseline receives a fair comparison. Match relevant
    implementation maturity, batching, precision and resource accounting; a slower

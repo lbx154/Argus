@@ -2147,3 +2147,34 @@ minimum correctly keeps the same final-Review task running. The current
 Engineer is completing common activity-mask accounting and preparing an
 external learned-policy comparison; the other two papers are still revising.
 No strong acceptance is claimed.
+
+## 45. Check the promised endpoint before scaling refinement (2026-09-09 UTC)
+
+Both S43 dependency panels completed with 864 unique configurations each and
+zero recorded enclosure misses. Its own aggregate then found that many fully
+materialized endpoints still failed the requested tolerance: interval
+subtraction in the incremental cache accumulated dependency widening. Enclosure
+alone had not established usable accuracy. Engineer retained the failed attempts
+and is repairing the update arithmetic and its error envelope before another
+large run. The paper team has not changed its numerical code or data.
+
+The experiment and final-review guides now call for a small full-trajectory test
+of the actual selected variant before a large panel, including real removal or
+replacement updates and the terminal guarantee the method claims. Positive
+controls must exercise that same variant. This adds no generic convergence
+requirement or fixed review schema: the scientific contract determines the
+necessary endpoint, accuracy and evidence.
+
+The replacement compensated implementation subsequently passed its synthetic
+test, but its current first Phi configuration still failed at full materialization:
+RULER seed 100, layer 1, group 0, page size 32, tolerance 0.05. Actual errors
+were about 450.994 for coordinate-64 and 6777.185 for Key-PCA, with zero enclosure
+misses and explicit false tolerance flags. This is a real input regression to
+close before scaling, not an outlier to remove. The exact observed row and one
+Engineer/Reviewer steering record are in
+`coherent-science-rollout/s43-real-endpoint-counterexample.json`. No scientific
+file or process was changed by the paper team. The guides explicitly require
+the retained real counterexample and representative numerical regimes.
+
+The 21-test research-protocol and natural-review group passed, plus whitespace
+checks. Log: `/tmp/argus-refinement-endpoint-guidance-tests-20260909.log`.
