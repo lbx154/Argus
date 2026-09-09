@@ -2114,3 +2114,36 @@ No root process kill, scientific edit or review-rating change was made. The
 29-test role-prompt, scientific-protocol and natural-review group passed; four
 native Windows integration tests were skipped on Linux, plus ruff and whitespace
 checks. Log: `/tmp/argus-shared-gpu-guidance-tests-20260909.log`.
+
+## 44. Return parallel-task results to the submitting session (2026-09-09 UTC)
+
+CBC's completed eight-family job had written its completion report into
+`projects/452357180587/inbox.jsonl`, while its actual parent was session
+`s-cbc15c0e`. The report destination was recomputed from the command cwd's
+legacy project fingerprint. Named sessions do not use that fingerprint, and
+several sessions may share a repository, so a successful report write could
+still leave the parent Engineer uninformed. The observation is recorded in
+`coherent-science-rollout/subagent-session-routing-observation.json`.
+
+New submissions now persist the host's assigned session root before the worker
+starts. That owner survives updates and terminal records for the same run;
+reusing a task ID for a new run cannot inherit the previous owner. Report
+delivery uses the recorded owner, independent of command cwd, worker cwd or
+the caller's current environment. Unbound reports from an old run cannot borrow
+a newer run's recipient; they retain a visible undelivered-report copy. Ordinary
+standalone CLI records without session ownership keep their legacy route.
+
+The 123-test report delivery, submission, status and durable owner-loss group
+passed, with two native Windows tests skipped on Linux, plus ruff and whitespace
+checks. A real detached CLI smoke test executed in a different directory and
+delivered only to the named submitting session, with no model calls or live
+paper changes. Receipts: `subagent-session-routing-smoke.json`; log:
+`/tmp/argus-subagent-session-routing-tests-20260909.log`.
+This applies to newly submitted scientific and isolated figure tasks without
+restarting healthy computations.
+
+CBC's latest complete formal review is now 6/10 weak accept. Its strong_accept
+minimum correctly keeps the same final-Review task running. The current
+Engineer is completing common activity-mask accounting and preparing an
+external learned-policy comparison; the other two papers are still revising.
+No strong acceptance is claimed.

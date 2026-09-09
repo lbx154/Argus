@@ -150,6 +150,72 @@ def test_alert_engineer_recovers_the_cwd_from_the_persisted_record(
     assert calls[0][0] == session_state_root(project_fingerprint(run_cwd).fingerprint)
 
 
+def test_reports_return_to_distinct_submitting_sessions_for_one_workdir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    run_cwd = tmp_path / "shared-project"
+    run_cwd.mkdir()
+    calls = _capture_delivery(monkeypatch)
+    owners = [tmp_path / "projects" / "s-first", tmp_path / "projects" / "s-second"]
+    for index, owner in enumerate(owners):
+        tid = f"drawing-{index}"
+        _write_task(tid, {
+            "task_id": tid, "run_id": f"run-{index}", "state": "running",
+            "cwd": str(run_cwd), "owner_session_root": str(owner),
+        })
+        # Terminal writers need not repeat every submission field.
+        _write_task(tid, {"task_id": tid, "run_id": f"run-{index}", "state": "done"})
+    monkeypatch.setenv("ARGUS_SKILL_SESSION_ROOT", str(tmp_path / "wrong-session"))
+
+    def must_not_infer(*_args, **_kwargs):
+        raise AssertionError("the recorded session owns this report")
+
+    monkeypatch.setattr("argus_skill.core.project.project_fingerprint", must_not_infer)
+    for index, owner in enumerate(owners):
+        tid = f"drawing-{index}"
+        _reporting._alert_engineer(tid, "COMPLETED", {
+            "task_id": tid, "run_id": f"run-{index}", "mode": "direct",
+        })
+        assert _read_task(tid)["owner_session_root"] == str(owner)
+    assert [call[0] for call in calls] == owners
+
+
+def test_session_owner_does_not_leak_into_a_new_run_or_an_old_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    tid = "reused-task"
+    first = tmp_path / "s-first"
+    second = tmp_path / "s-second"
+    _write_task(tid, {
+        "task_id": tid, "run_id": "old", "state": "done",
+        "owner_session_root": str(first), "cwd": str(tmp_path),
+    })
+    _write_task(tid, {"task_id": tid, "run_id": "new", "state": "starting"})
+    assert "owner_session_root" not in _read_task(tid)
+    _write_task(tid, {
+        "task_id": tid, "run_id": "new", "state": "running",
+        "owner_session_root": str(second),
+    })
+    calls = _capture_delivery(monkeypatch)
+
+    # An unbound late report cannot borrow the recipient of the newer run.
+    _reporting._alert_engineer(tid, "COMPLETED", {
+        "task_id": tid, "run_id": "old", "mode": "direct", "cwd": str(tmp_path),
+    })
+    assert calls == []
+    assert (REGISTRY_DIR / f"{tid}_ALERT.md").exists()
+    assert "report_delivery" not in _read_task(tid)
+
+    # A retained owner on that same late report still identifies its recipient.
+    _reporting._alert_engineer(tid, "COMPLETED", {
+        "task_id": tid, "run_id": "old", "mode": "direct",
+        "owner_session_root": str(first),
+    })
+    assert calls[0][0] == first
+    assert _read_task(tid)["owner_session_root"] == str(second)
+
+
 def test_alert_engineer_records_a_failed_delivery_on_the_task_record(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

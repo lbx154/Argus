@@ -1581,6 +1581,8 @@ def test_cmd_submit_spawns_windows_worker(monkeypatch, tmp_path, capsys) -> None
     monkeypatch.chdir(tmp_path)
     workload = tmp_path / "workload"
     workload.mkdir()
+    owner = tmp_path / "projects" / "s-windows"
+    monkeypatch.setenv("ARGUS_SKILL_SESSION_ROOT", str(owner))
     spawned: list[dict] = []
 
     class _Worker:
@@ -1613,6 +1615,31 @@ def test_cmd_submit_spawns_windows_worker(monkeypatch, tmp_path, capsys) -> None
     assert record["state"] == "starting"
     assert record["cwd"] == str(workload)
     assert record["worker_pid"] == 9876
+    assert record["owner_session_root"] == str(owner)
+
+
+@requires_fork
+def test_submit_binds_the_session_even_when_command_cwd_differs(
+    monkeypatch, tmp_path, capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    workload = tmp_path / "workload"
+    workload.mkdir()
+    owner = tmp_path / "projects" / "s-origin"
+    monkeypatch.setenv("ARGUS_SKILL_SESSION_ROOT", str(owner))
+    monkeypatch.setattr(_sub._cli.os, "fork", lambda: 4242)
+
+    assert _sub.cmd_submit(_submit_args(task_id="bound", cwd=str(workload))) == 0
+    capsys.readouterr()
+    record = _sub._read_task("bound")
+    assert record["owner_session_root"] == str(owner)
+    assert record["cwd"] == str(workload)
+
+    # Ordinary standalone CLI use stays on the legacy cwd-derived route.
+    monkeypatch.delenv("ARGUS_SKILL_SESSION_ROOT")
+    assert _sub.cmd_submit(_submit_args(task_id="standalone")) == 0
+    capsys.readouterr()
+    assert "owner_session_root" not in _sub._read_task("standalone")
 
 
 @requires_fork

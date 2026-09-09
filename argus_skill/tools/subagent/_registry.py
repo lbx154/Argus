@@ -282,6 +282,7 @@ def _write_task(
         ]
         if str(existing.get("run_id") or "") == str(data.get("run_id") or ""):
             preserved_keys.extend([
+                "owner_session_root",
                 "resource_demand",
                 "resource_grant_id",
                 "resource_grant",

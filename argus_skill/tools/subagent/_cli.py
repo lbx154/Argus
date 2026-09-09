@@ -428,6 +428,13 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 "timeout_seconds": timeout_seconds,
                 "timeout_defaulted": timeout_defaulted,
             }
+            owner_session_root = os.environ.get("ARGUS_SKILL_SESSION_ROOT", "").strip()
+            if owner_session_root:
+                from ...core.paths import resolve_runtime_path
+
+                initial_task["owner_session_root"] = str(resolve_runtime_path(
+                    owner_session_root, context="ARGUS_SKILL_SESSION_ROOT",
+                ).resolve())
             if resource_demand is not None:
                 initial_task["resource_demand"] = resource_demand
             if selected_cpu_ids:

@@ -395,16 +395,34 @@ def _life_dir_for_cwd(cwd: str | Path) -> Path:
 
 
 def _task_life_dir(task_id: str, task_data: dict[str, Any]) -> Path | None:
-    """Resolve the engineer inbox root from the task record's own cwd.
+    """Return the submitting session's inbox, falling back for legacy records.
 
-    Returns ``None`` only when no cwd can be found on either the in-memory task
-    data or the persisted record, which leaves ``_queue_to_inbox`` to infer one
-    from this process — see the warning it logs when that happens.
+    The command's cwd and the worker's current environment can both differ
+    from the session that submitted it. Only use persisted ownership from the
+    same run; a newer run must never become the recipient of an old report.
     """
+    owner = str(task_data.get("owner_session_root") or "").strip()
+    persisted = _read_task(task_id) if not owner else None
+    same_run = bool(persisted) and (
+        str(persisted.get("run_id") or "") == str(task_data.get("run_id") or "")
+    )
+    if not owner and persisted and persisted.get("owner_session_root"):
+        if not same_run:
+            raise InboxDeliveryError(
+                f"subagent {task_id}: the saved inbox belongs to another run; "
+                "the old report has no submitting session"
+            )
+        owner = str(persisted["owner_session_root"]).strip()
+    if owner:
+        path = Path(owner).expanduser()
+        if not path.is_absolute():
+            raise InboxDeliveryError(
+                f"subagent {task_id}: submitting session root must be absolute"
+            )
+        return path
     cwd = str(task_data.get("cwd") or "").strip()
     if not cwd:
-        persisted = _read_task(task_id)
-        cwd = str((persisted or {}).get("cwd") or "").strip()
+        cwd = str((persisted or {}).get("cwd") or "").strip() if same_run else ""
     if not cwd:
         log.warning(
             "subagent %s: task record carries no cwd, so the engineer inbox will "
@@ -549,6 +567,14 @@ def _alert_engineer(task_id: str, event: str, task_data: dict[str, Any]) -> str:
             life_dir=_task_life_dir(task_id, task_data),
         )
     except InboxDeliveryError as exc:
+        # Routing can fail before the inbox writer is called. Preserve that
+        # report too, rather than relying only on the writer's failure copy.
+        alert_path = REGISTRY_DIR / f"{task_id}_ALERT.md"
+        try:
+            alert_path.parent.mkdir(parents=True, exist_ok=True)
+            alert_path.write_text(report + "\n", encoding="utf-8")
+        except OSError:
+            log.exception("subagent %s: could not preserve its unrouted report", task_id)
         _record_report_delivery_failure(task_id, event, task_data, exc)
     else:
         task_data["report_delivery"] = "delivered"
