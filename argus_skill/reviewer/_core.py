@@ -246,7 +246,7 @@ def _parallel_final_review_passes(
             if label in prompts:
                 prompts[label] += (
                     "\n\n## Current revision context\n"
-                    "Use this current handoff to locate the changed work and distinguish "
+                    "Use this current revision context to locate the changed work and distinguish "
                     "retained failed attempts from their replacements. The Engineer's "
                     "account is unreviewed; task liveness and completed manifests do not "
                     "establish scientific validity. Verify claim-critical results against "
