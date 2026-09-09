@@ -119,6 +119,12 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    convergence check does not establish behavior at the real input's scale or
    conditioning. Confirm that case and representative affected regimes before
    launching the replacement panel.
+   When changing measured fields or output metadata, exercise the public
+   consumer and final export on a small complete case as well: result
+   serialization, aggregation, and any consumed table or LaTeX-macro output.
+   Check native runtime types, not only hand-written JSON fixtures. Convert
+   opaque identifiers to suitable scalar metadata at the boundary; do not
+   silently stringify scientific arrays or numbers to suppress a write error.
 6. Develop the method with real models or systems and the strongest
    same-information baselines required by the claim. Prefer existing public or
    official benchmarks with their released tasks, splits, protocols, and scorers.
@@ -138,6 +144,9 @@ from full-loop performance. Start with a meaningful pilot of that interface.
    A failed process may already have emitted useful diagnostics or timing rows.
    Retain those rows and the failure context before retrying in a fresh attempt;
    incompleteness prevents promotion but is not a reason to erase observations.
+   Persist raw measurements as cases finish, independently of final summary
+   assembly. A metadata or exporter failure should be repairable from saved
+   measurements rather than forcing the scientific computation to run again.
 8. Treat weak results as optimization signals. Change the method,
    implementation, benchmark, baseline, controls, or scale when development
    evidence identifies a concrete reason — the design and the runs live

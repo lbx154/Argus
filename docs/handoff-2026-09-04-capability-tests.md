@@ -2233,3 +2233,60 @@ still need completion. Diamond's three uncontended 7B processes are complete
 and its 3B processes continue. CBC awaits its existing external learned-policy
 source. No paper, experiment source, result, figure or review was edited by the
 paper team, and no strong acceptance is claimed.
+
+## 47. Review the current PDF and retain measurements through export failures (2026-09-09 UTC)
+
+S43's language specialist opened all sixteen files under paper/preview during
+its 03:53 pass. Those images were still from 00:35, while the actual PDF had
+been rebuilt at 03:49. Its report said the current PDF still claimed “We
+derive” and omitted the updated prior art. Direct pdftotext inspection of the
+actual PDF finds “We adapt the known threshold optimizer”, Vertex-Softmax and
+vAttention; OCR of the old first-page PNG still finds “We derive”. This was a
+stale reviewer input, not evidence that the current PDF needed another rebuild.
+The source/PDF fingerprints and exact observation are recorded in
+`coherent-science-rollout/s43-stale-review-preview-observation.json`.
+
+All preliminary passes that need the rendered paper now share one immutable
+host copy and its freshly derived text/pages. Scientific and Language keep
+their project workdir for code, source and raw evidence, and receive explicit
+paths to that current PDF bundle. They are told to compare those inputs before
+alleging a source/render mismatch. Visual and ColdRead retain their PDF-only
+isolation and unchanged-input reuse. Sharing the bundle also avoids generating
+the same PDF pages independently for concurrent readers.
+
+The 121-test pass-reuse, actual round handoff, narrative, stop-kind,
+natural-review and research-protocol group passed, plus ruff and whitespace
+checks. The new regression leaves stale project previews in place, verifies
+that both source-aware readers receive the current host-derived files while
+retaining source access, and checks reuse on the next review. It also verifies
+one shared render for Visual/ColdRead. Log:
+`/tmp/argus-current-render-review-tests-20260909.log`.
+
+Both S43 cost jobs reached final output but failed because PyTorch's device
+UUID object was not JSON serializable. Their errors and original records were
+preserved; the healthy full panels were not restarted. The experiment guide
+now calls for a small check through final serialization and the actual public
+consumer/export branches when those fields change, using native runtime types
+as well as fixtures. Raw cases should be saved independently of final summary
+assembly so an exporter defect does not lose measurements. This adds no
+Reviewer schema or blanket string conversion of scientific values. Engineer
+owns the concrete cost-script repair. See `s43-cost-export-failure.json`.
+
+Diamond's six v5 timing processes finished. All six original process censuses
+match their recorded hashes and counts, with no foreign process or query
+error. Both public aggregate commands were independently rerun into the audit
+directory and match the original 7B/3B summaries exactly. Receipts:
+`diamond-v5-resource-census.json` and `diamond-v5-reproduction/receipt.json`.
+Its old daemon then exited cooperatively, without force or another stop after
+the API's ten-second wait. Forty-seven key files and eighteen other processes
+were unchanged. Daemon 2872492 resumed the same final-Review task as attempt 5
+on main 0c5592f1f; that head only adds tests to the published 7556899da source.
+Engineer is integrating v5 and preparing an isolated mechanism-figure candidate.
+
+CBC's fixed external run finished with 180 unique task/condition cases, thirty
+per condition, exit zero and three retained model-limit failures. Its existing
+observer completed and the same daemon 2830843 automatically resumed task
+c7331e978da6 as attempt 10. Engineer is validating its own complete record
+analysis before formal review. The latest complete formal rating is still
+weak accept; the other two papers remain below strong acceptance. No paper,
+scientific code/result, figure or review was edited by the paper team.

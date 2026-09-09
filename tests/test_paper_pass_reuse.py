@@ -93,13 +93,24 @@ def test_unavailable_page_rendering_never_launches_or_caches_a_visual_pass(
     assert not config.paper_pass_cache
 
 
-def test_unchanged_paper_skips_loss_and_reuses_pdf_assessments(paper_review):
+def test_unchanged_paper_skips_loss_and_reuses_pdf_assessments(paper_review, monkeypatch):
+    from argus_skill.core import manuscript_narrative_runtime
+
+    renders = []
+    original = manuscript_narrative_runtime._prepare_readable_pdf
+
+    def render_once(paper):
+        renders.append(paper)
+        original(paper)
+
+    monkeypatch.setattr(manuscript_narrative_runtime, "_prepare_readable_pdf", render_once)
     project, config = paper_review
     runner = PaperRunner()
     first = _parallel_final_review_passes(runner, config)
     assert sorted(runner.shared.calls) == ["reviewer-coldread", "reviewer-visual"]
     assert first.input_tokens == 20
     assert "not scientific correctness" in first.reason
+    assert len(renders) == 1  # Both read-only passes share one immutable render.
     (project / "paper" / "REVIEW.md").write_text("new integrated verdict")
     second = _parallel_final_review_passes(runner, config)
     assert len(runner.shared.calls) == 2
@@ -107,6 +118,60 @@ def test_unchanged_paper_skips_loss_and_reuses_pdf_assessments(paper_review):
     assert second.status == "continue"  # Cached passes never certify the mission.
     assert "reviewer-visual: pass" in second.reason
     assert "reviewer-coldread: pass" in second.reason
+    assert len(renders) == 1
+
+
+def test_source_reviewers_get_current_pdf_derivatives_despite_stale_project_previews(
+    paper_review, monkeypatch,
+):
+    from argus_skill.core import manuscript_narrative_runtime
+
+    project, config = paper_review
+    config = replace(config, narrative_snapshot_root=None)
+    stale = project / "paper/preview/page-01.png"
+    stale.parent.mkdir()
+    stale.write_bytes(b"Old preview: We derive a new optimizer.")
+    renders = []
+    original = manuscript_narrative_runtime._prepare_readable_pdf
+
+    def render_current(paper):
+        renders.append(paper.parent)
+        original(paper)
+        (paper / "main.txt").write_text("Current PDF: We adapt the known optimizer.")
+
+    monkeypatch.setattr(manuscript_narrative_runtime, "_prepare_readable_pdf", render_current)
+
+    class CurrentPaperRunner(PaperRunner):
+        def fork(self):
+            return CurrentPaperRunner(self.shared)
+
+        def run_exec(self, **kwargs):
+            label, prompt, options = kwargs["run_label"], kwargs["prompt"], kwargs["options"]
+            bundle = renders[-1]
+            assert (bundle / "paper/main.pdf").read_bytes() == b"%PDF-current"
+            if label in {"reviewer-scientific", "reviewer-language"}:
+                # Keep code/raw-evidence access, but supply the actual PDF text
+                # and images rather than asking the model to find a preview.
+                assert Path(options.working_dir) == project
+                assert str(bundle / "paper/main.txt") in prompt
+                assert str(bundle / "paper/pages") in prompt
+                assert "do not substitute project preview directories" in prompt
+                assert (bundle / "paper/main.txt").read_text().startswith("Current PDF")
+                assert (bundle / "paper/pages/page-001.png").is_file()
+            else:
+                assert Path(options.working_dir) == bundle
+            return super().run_exec(**kwargs)
+
+    runner = CurrentPaperRunner()
+    _parallel_final_review_passes(runner, config)
+    assert len(renders) == 1
+    _parallel_final_review_passes(runner, config, current_work="New raw data need review.")
+    assert len(renders) == 2
+    assert runner.shared.calls.count("reviewer-visual") == 1
+    assert runner.shared.calls.count("reviewer-scientific") == 2
+    assert runner.shared.calls.count("reviewer-language") == 2
+    assert stale.read_bytes() == b"Old preview: We derive a new optimizer."
+    assert all(not bundle.exists() for bundle in renders)
 
 
 def test_only_complete_final_assessments_are_forwarded_and_cached(paper_review, monkeypatch):

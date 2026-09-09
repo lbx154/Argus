@@ -338,17 +338,45 @@ def _parallel_final_review_passes(
 
     workspace_stack = ExitStack()
     working_dirs = {label: workdir for label in prompts}
-    if pdf_only_visual or comparison is not None:
+    pdf_only_passes = [
+        label for label in ("Visual", "ColdRead")
+        if label in prompts and (label == "ColdRead" or pdf_only_visual)
+    ]
+    source_pdf_passes = [
+        label for label in ("Scientific", "Language")
+        if label in prompts and pdf_only_visual
+    ]
+    if pdf_only_passes or source_pdf_passes:
         from ..core.manuscript_narrative_runtime import isolated_pdf_workspace
 
         try:
-            for label in ("Visual", "ColdRead"):
-                if label in prompts and (label == "ColdRead" or pdf_only_visual):
-                    working_dirs[label] = workspace_stack.enter_context(
-                        isolated_pdf_workspace(workdir, readable=True)
-                    )
-                    if pdf_sha256(working_dirs[label]) != pdf_digest:
-                        pass_keys.pop(label, None)
+            # Every pass must see the same current PDF, including source-aware
+            # readers whose native viewer cannot render a PDF. Project preview
+            # directories may still contain pages from a much earlier draft.
+            pdf_workspace = workspace_stack.enter_context(
+                isolated_pdf_workspace(workdir, readable=True)
+            )
+            rendered_digest = pdf_sha256(pdf_workspace)
+            identity_note = f"Its SHA-256 is {rendered_digest}. " if rendered_digest else ""
+            for label in pdf_only_passes:
+                working_dirs[label] = pdf_workspace
+                if rendered_digest != pdf_digest:
+                    pass_keys.pop(label, None)
+            for label in source_pdf_passes:
+                prompts[label] += (
+                    "\n\n## Current rendered paper supplied by the host\n"
+                    "The host copied the current PDF for this review. "
+                    f"{identity_note}"
+                    f"Read its extracted text at `{pdf_workspace / 'paper/main.txt'}` "
+                    f"and page images at `{pdf_workspace / 'paper/pages'}/page-*.png`. "
+                    "These derivatives were generated from that same current PDF. "
+                    "Use them for rendered-paper claims; do not substitute project "
+                    "preview directories or images left by an earlier build. Keep "
+                    "reading current source, code and raw evidence in the project "
+                    "for this pass. Compare the current source with these PDF-derived "
+                    "inputs before alleging a stale PDF or requesting a rebuild. "
+                    "Old preview images alone establish no defect in the current paper."
+                )
         except (OSError, RuntimeError) as exc:
             workspace_stack.close()
             for backend in pass_runners.values():
