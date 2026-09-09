@@ -385,13 +385,15 @@ def _park_missions_with_dependents(supervisor: LifeSupervisor) -> list[BacklogIt
 
 
 @pytest.mark.parametrize("terminal_state", ["done", "failed"])
+@pytest.mark.parametrize("continuous", [True, False])
 def test_parked_missions_wait_without_planner_and_resume_on_job_completion(
-    tmp_path: Path, monkeypatch, terminal_state: str
+    tmp_path: Path, monkeypatch, terminal_state: str, continuous: bool,
 ) -> None:
     project = tmp_path / "project"
     project.mkdir()
     life = tmp_path / "life"
     supervisor = _supervisor(project, life)
+    supervisor.config.continuous = continuous
     missions = _park_missions_with_dependents(supervisor)
     calls = []
 
@@ -419,9 +421,11 @@ def test_parked_missions_wait_without_planner_and_resume_on_job_completion(
     events = [json.loads(line) for line in (life / "events.jsonl").read_text().splitlines()]
     assert not any(event["type"] == "life.planner.start" for event in events)
     waits = [event for event in events if event["type"] == "life.planner.waiting"]
-    assert all(item.id in waits[-1]["reason"] for item in missions)
+    if continuous:
+        assert all(item.id in waits[-1]["reason"] for item in missions)
 
     restarted = _supervisor(project, life)
+    restarted.config.continuous = continuous
     restarted.config.coordinate_parallel_claims = True
     assert restarted.run()["stopped_by"] == PLAN_AWAITING
     assert calls == []

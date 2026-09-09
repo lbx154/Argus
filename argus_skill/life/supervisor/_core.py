@@ -882,6 +882,20 @@ class LifeSupervisor(
                     else self.memory.backlog.next_pending()
                 )
                 if next_item is None:
+                    # A finite queue can be temporarily unclaimable while a
+                    # durable job owns its next step. The daemon exits on
+                    # backlog_empty, so preserve its wake loop until that
+                    # external condition settles, even without continuous mode.
+                    if any(
+                        item.status == "paused_external_work"
+                        for item in self.memory.backlog.active()
+                    ):
+                        self._enter_pause_backoff()
+                        self._emit_status(
+                            "waiting for background results; the task will resume automatically"
+                        )
+                        stopped_by = _PLAN_AWAITING
+                        break
                     self._emit_status("backlog empty; exiting")
                     stopped_by = "backlog_empty"
                     break

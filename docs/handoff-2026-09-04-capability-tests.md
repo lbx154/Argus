@@ -2052,3 +2052,37 @@ running both missing model panels. Its heatmap contrast is fixed; the Reviewer
 also identified a small formula-label overlap, which Engineer is moving locally
 without redesigning the figure. All three papers retain three figures. No
 strong acceptance or completed scientific objective is claimed.
+
+## 42. Keep finite-task daemons alive for their background results (2026-09-09 UTC)
+
+After CBC entered its healthy external wait, daemon 2468274 exited at 00:40:18
+with "bounded work completed". Its supervisor had no immediately claimable task
+and returned backlog_empty even though the same task was paused_external_work.
+The automatic resumption function existed, but no daemon remained to call it.
+The scientific producer was independent and continued normally; it completed
+at 00:53:48, exit code zero, with its original run identity after 2,158.9 seconds.
+This exit preceded the later web-service restart and was not a process kill.
+
+The non-continuous supervisor now rechecks the active backlog before declaring
+it empty. A task awaiting external results returns awaiting_external with a
+wakeable backoff, preserving the daemon's next check. This does not enable a
+finished continuous campaign, create new work, impose a science timeout, or turn
+an external job's completion into acceptance. Successful and failed jobs both
+resume the existing task for its owner to inspect; genuinely drained finite
+queues still exit normally.
+
+The 203-test daemon lifecycle, continuous-resume, mission-outcome and durable-wait
+group passed, plus ruff and whitespace checks. An integration regression drives
+the actual supervisor through the bounded daemon loop: it remains resident
+across two healthy checks, resumes the same task only after the job becomes
+terminal, and exits after that task is handled. It keeps the former continuous
+campaign disabled throughout. Both successful and failed external-job endings
+are also covered across supervisor restarts.
+Log: `/tmp/argus-bounded-background-resume-tests-20260909.log`.
+
+CBC's completed output has 176 model rows across all eight families, 176 compact
+candidate rows and 880 compact refit rows. Its validation reports no roster
+interval, five null-reproducing folds, and zero observation/action/symbol
+mismatches. These are current experiment outputs awaiting Engineer's manuscript
+update and the independent Reviewer, not a strong-accept result. Existing paper,
+review and scientific files were not edited by the paper team.

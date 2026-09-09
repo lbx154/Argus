@@ -3072,6 +3072,89 @@ def test_bounded_daemon_exits_after_plain_backlog_is_drained(
     assert calls == 1
 
 
+def test_bounded_daemon_waits_for_background_work_then_finishes_same_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus_skill.life.event_log import JsonlEventSink
+    from argus_skill.life.supervisor import LifeBudget, LifeSupervisor, LifeSupervisorConfig
+    from argus_skill.skills.vertical_select import persist_vertical
+
+    life = tmp_path / "life"
+    project = tmp_path / "project"
+    project.mkdir()
+    memory = LifeMemory.open(life)
+    persist_vertical(project, "software", workflow_mode="direct")
+    write_continuous_config(
+        life, enabled=False, objective="an earlier completed campaign",
+        open_ended=False, done_reason="planner declared project done",
+    )
+    worker = LifeWorker(LifeWorkerConfig(
+        life_dir=life, backend="memory", project_workdir=project,
+        poll_interval=0.0, continuous_open_ended=False,
+    ))
+    worker._curator = None
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=SimpleNamespace(),
+        sink=JsonlEventSink(None, life_dir=life, verbosity="full"),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(), poll_interval_seconds=0.0,
+            continuous=False, open_ended=False, final_certification_gate=False,
+            project_worktree=project, artifact_root=life, stop_event=worker._stop,
+        ),
+    )
+    supervisor._vertical_resolved = True
+    job_path = project / ".argus_subagents" / "data-build.json"
+    job_path.parent.mkdir()
+    job = {
+        "task_id": "data-build", "run_id": "data-build-run-1",
+        "mode": "direct", "state": "running", "pid": os.getpid(),
+        "worker_pid": os.getpid(), "started_at": time.time(),
+    }
+    job_path.write_text(json.dumps(job), encoding="utf-8")
+    item = memory.backlog.add(BacklogItem.new(
+        title="Assess the existing build", objective="Check the completed build",
+    ))
+    memory.backlog.update(
+        item.id, status="paused_external_work",
+        outcome={"external_wait": {"work_id": "data-build", "workdir": str(project)}},
+    )
+    executed: list[str] = []
+
+    def run_one(current):
+        executed.append(current.id)
+        memory.backlog.mark_done(current.id)
+        return {"item_id": current.id, "status": "done", "success": True}
+
+    monkeypatch.setattr(supervisor, "_run_one", run_one)
+    sleeps: list[float] = []
+
+    def background_work_progresses(seconds, _poll, _root):
+        sleeps.append(seconds)
+        assert not executed
+        assert next(row for row in memory.backlog.active() if row.id == item.id).status == (
+            "paused_external_work"
+        )
+        if len(sleeps) == 2:
+            job_path.write_text(json.dumps({**job, "state": "done"}), encoding="utf-8")
+        elif len(sleeps) > 2:
+            worker._stop.set()
+
+    monkeypatch.setattr(worker, "_wakeable_sleep", background_work_progresses)
+    worker._rf_main_loop(SimpleNamespace(
+        runtime_root=life, cfg=worker.config,
+        runner=SimpleNamespace(manager=None), sup=supervisor,
+    ))
+
+    assert len(sleeps) == 2
+    assert all(delay > 0 for delay in sleeps)
+    assert executed == [item.id]
+    stored = next(row for row in memory.backlog.history() if row.id == item.id)
+    assert stored.status == "done"
+    assert stored.attempt == 2
+    assert read_continuous_state(life).enabled is False
+
+
 def test_open_ended_daemon_stays_resident_after_project_done(
     tmp_path: Path,
 ) -> None:
