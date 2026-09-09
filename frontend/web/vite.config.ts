@@ -17,6 +17,9 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    // Open tabs can still request chunks from a previous release. Vite replaces
+    // index.html and emits new fingerprinted assets without deleting those chunks.
+    emptyOutDir: false,
     sourcemap: false,
     rollupOptions: {
       output: {

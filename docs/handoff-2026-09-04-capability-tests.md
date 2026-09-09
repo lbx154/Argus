@@ -2290,3 +2290,19 @@ c7331e978da6 as attempt 10. Engineer is validating its own complete record
 analysis before formal review. The latest complete formal rating is still
 weak accept; the other two papers remain below strong acceptance. No paper,
 scientific code/result, figure or review was edited by the paper team.
+
+## 48. Keep published chunks through ordinary frontend builds (2026-09-09 UTC)
+
+The public release check reproduced a 404 for the previous release's
+index-BSc5suOI.js and MapPanel-B6aHWtLt.js. Main update 777fe73e2 had rebuilt
+the frontend and removed those already-published files, just as e88b09bb2 had
+removed earlier versions. The paper team's outer build helper could preserve
+files still in the source checkout, but could not retain files another ordinary
+build had already deleted. The missing files were first restored byte-for-byte
+from 7556899da; the old public entry URL returned 200 again.
+
+Vite now builds with emptyOutDir=false. Normal npm and Python release builds
+replace the current HTML and emit new fingerprinted files while retaining old
+chunks needed by open tabs. This fixes the build behavior instead of depending
+on one operator's wrapper to restore prior files. The change is confined to
+build retention; the product UI and paper artifacts are not edited here.
