@@ -488,7 +488,7 @@ class LifeWorkerRunMixin:
         poll_interval: float,
         runtime_root: Path,
     ) -> None:
-        """Sleep up to ``total_seconds``, waking early on stop or new inbox input.
+        """Sleep until stop, inbox input, or an operator configuration change.
 
         The sleep is chunked into ``poll_interval`` slices so a stop request or
         a freshly ``/add``'d / ``/nudge``'d message (which appends to the
@@ -499,6 +499,16 @@ class LifeWorkerRunMixin:
         chunk = max(0.5, float(poll_interval))
         inbox = Path(runtime_root) / "inbox.jsonl"
         offset_file = Path(runtime_root) / "inbox.offset"
+        from ..core.paths import config_path
+
+        operator_config = config_path(self.config.global_root)
+
+        def _config_version() -> tuple[int, int, int] | None:
+            try:
+                stat = operator_config.stat()
+                return stat.st_ino, stat.st_mtime_ns, stat.st_size
+            except OSError:
+                return None
 
         def _inbox_size() -> int:
             try:
@@ -516,6 +526,7 @@ class LifeWorkerRunMixin:
                 return 0
 
         baseline = _inbox_size()
+        config_baseline = _config_version()
         if _inbox_offset() < baseline:
             return
         remaining = float(total_seconds)
@@ -525,4 +536,6 @@ class LifeWorkerRunMixin:
                 return
             if _inbox_size() != baseline:
                 return  # new user input — re-drain immediately
+            if _config_version() != config_baseline:
+                return  # a budget increase/removal must wake paused work
             remaining -= chunk

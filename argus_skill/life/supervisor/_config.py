@@ -1,17 +1,12 @@
 from __future__ import annotations
 
 import threading
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 from ...core.ports import EventSink
-from ...core.usage import (
-    UsageLedger,
-    UsageSummary,
-    summarize_usage,
-)
+from ...core.usage import UsageSummary
 
 
 class _MemoryView(Protocol):
@@ -26,42 +21,15 @@ class _MemoryView(Protocol):
 
     def render_prelude(self, *, objective: str = "") -> str: ...
 
-def _local_day_start(now: float) -> float:
-    local = time.localtime(now)
-    return time.mktime((local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, 0, 0, -1))
-
-
 def global_daily_usage_summary(
     *,
     global_root: Path | None = None,
     now: float | None = None,
 ) -> UsageSummary:
-    """Call-ledger usage across all projects since local midnight."""
-    now = time.time() if now is None else float(now)
-    day_start = _local_day_start(now)
-    if global_root is None:
-        from ...core.paths import global_root as resolve_global_root
+    """Use the call gateway's complete, deduplicated daily ledger view."""
+    from ...core.cost_control import global_daily_usage_summary as admission_usage
 
-        root = resolve_global_root()
-    else:
-        root = Path(global_root).expanduser()
-    from ...core.paths import session_states_root
-
-    projects_dir = session_states_root(root)
-    try:
-        project_dirs = sorted(p for p in projects_dir.iterdir() if p.is_dir())
-    except OSError:
-        return summarize_usage([])
-
-    records = []
-    for project_dir in project_dirs:
-        try:
-            records.extend(
-                UsageLedger(project_dir, migrate_legacy=False).records(since=day_start)
-            )
-        except Exception:  # noqa: BLE001 — one corrupt project must not hide others
-            continue
-    return summarize_usage(records)
+    return admission_usage(global_root=global_root, now=now)
 
 
 def global_daily_spend(*, global_root: Path | None = None, now: float | None = None) -> float:
@@ -78,6 +46,9 @@ class LifeBudget:
 
     global_daily_cap_usd: float = 0.0
     max_missions: int = 0
+    # Long-lived hosts follow changes to the operator's budget without a
+    # restart. Explicit standalone LifeBudget values remain supported.
+    follow_operator_config: bool = False
 
     def can_start(
         self,
@@ -85,7 +56,13 @@ class LifeBudget:
         now: float | None = None,
         global_root: Path | None = None,
     ) -> tuple[bool, str]:
-        """Cheap preflight; call admission rechecks settled global spend."""
+        """Preflight current settings; call admission rechecks concurrent spend."""
+        if self.follow_operator_config:
+            from ...core.knobs import resolve_budget_caps
+
+            self.global_daily_cap_usd = resolve_budget_caps(
+                global_root=global_root,
+            ).global_daily_cap_usd
         global_cap = float(self.global_daily_cap_usd or 0.0)
         if global_cap > 0:
             spent = global_daily_spend(global_root=global_root, now=now)

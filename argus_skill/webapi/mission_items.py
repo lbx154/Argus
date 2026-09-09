@@ -490,6 +490,7 @@ def set_operator_config(
         "name": env_name, "value": val,
         "restart_required": env_name not in {
             "ARGUS_SKILL_MAP_MODEL", "ARGUS_SKILL_MAP_REASONING_EFFORT",
+            "ARGUS_SKILL_GLOBAL_DAILY_CAP_USD",
         },
     }
 

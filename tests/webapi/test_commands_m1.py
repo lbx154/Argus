@@ -1765,6 +1765,7 @@ def test_config_set_validates_and_normalizes_typed_values(ctx, monkeypatch) -> N
     )
     assert ok.status_code == 200
     assert ok.json()["value"] == "12.5"
+    assert ok.json()["restart_required"] is False
     assert (
         json.loads((root / "config.json").read_text())["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"] == "12.5"
     )

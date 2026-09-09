@@ -1114,6 +1114,46 @@ def test_global_daily_spend_observes_new_cost_without_ttl_staleness(tmp_path) ->
     assert global_daily_spend(global_root=root, now=now) == pytest.approx(3.0)
 
 
+def test_budget_preflight_includes_registered_external_ledgers_once(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from argus_skill.core.cost_control import reserve_call_budget
+    from argus_skill.core.usage import UsageLedger
+
+    root = tmp_path / "runtime"
+    external = tmp_path / "earlier-project-ledger"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    monkeypatch.delenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", raising=False)
+    now = time.time()
+    _append_usage(external, "earlier-call", now, 1.25)
+    reservation, reason = reserve_call_budget(
+        call_id="register-external-project",
+        project_root=external,
+        mission_id=None,
+        provider="test",
+        model="",
+        run_label="test",
+        global_root=root,
+        global_daily_cap_usd=10.0,
+        now=now,
+    )
+    assert reservation is not None and reason == ""
+    reservation.release(reason="not started")
+
+    assert global_daily_spend(global_root=root, now=now) == pytest.approx(1.25)
+    allowed, reason = LifeBudget(global_daily_cap_usd=1.0).can_start(
+        global_root=root, now=now,
+    )
+    assert allowed is False
+    assert "global daily budget exhausted" in reason
+
+    # A copied/migrated call must not be billed again through another path.
+    record = UsageLedger(external, migrate_legacy=False).records()[0]
+    UsageLedger(root / "projects" / "current-session").append(record)
+    assert global_daily_spend(global_root=root, now=now) == pytest.approx(1.25)
+
+
 def test_can_start_blocks_on_global_daily_cap(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

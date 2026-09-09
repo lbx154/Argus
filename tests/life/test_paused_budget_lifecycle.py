@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -170,3 +171,71 @@ def test_supervisor_does_not_auto_resume_operator_pause(tmp_path) -> None:
     assert stored.status == "paused_operator"
     assert runner.calls == 0
     assert summary["missions_run"] == 0
+
+
+@pytest.mark.parametrize("new_cap", ["0", "5"])
+def test_budget_change_resumes_original_task_without_rebuilding_supervisor(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    new_cap: str,
+) -> None:
+    from argus_skill.core.knob_store import write_persisted_knob
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.delenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", raising=False)
+    monkeypatch.setattr(
+        "argus_skill.life.supervisor._config.global_daily_spend",
+        lambda **_kwargs: 2.0,
+    )
+    assert write_persisted_knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1")
+    memory = LifeMemory.open(tmp_path / "projects" / "paper")
+    item = BacklogItem.new(title="continue paper", objective="revise current evidence")
+    item.status = "paused_budget"
+    memory.backlog.add(item)
+    runner = _CompleteRunner()
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=_Sink(),
+        config=LifeSupervisorConfig(
+            budget=LifeBudget(
+                global_daily_cap_usd=1.0,
+                max_missions=1,
+                follow_operator_config=True,
+            ),
+            poll_interval_seconds=0.0,
+        ),
+    )
+
+    assert supervisor._resume_automatic_pauses() == []
+    assert runner.calls == 0
+    assert write_persisted_knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", new_cap)
+
+    summary = supervisor.run()
+
+    stored = memory.backlog.all()
+    assert len(stored) == 1
+    assert stored[0].id == item.id
+    assert stored[0].status == "done"
+    assert stored[0].attempt == 2
+    assert runner.calls == 1
+    assert summary["missions_run"] == 1
+    assert supervisor.config.budget.global_daily_cap_usd == float(new_cap)
+
+
+def test_live_budget_keeps_explicit_environment_override(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"ARGUS_SKILL_GLOBAL_DAILY_CAP_USD": "0"}),
+    )
+    monkeypatch.setattr(
+        "argus_skill.life.supervisor._config.global_daily_spend",
+        lambda **_kwargs: 2.0,
+    )
+    budget = LifeBudget(global_daily_cap_usd=0.0, follow_operator_config=True)
+
+    allowed, reason = budget.can_start(global_root=tmp_path)
+
+    assert allowed is False
+    assert "global daily budget exhausted" in reason

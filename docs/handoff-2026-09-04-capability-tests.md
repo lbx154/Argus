@@ -2306,3 +2306,37 @@ replace the current HTML and emit new fingerprinted files while retaining old
 chunks needed by open tabs. This fixes the build behavior instead of depending
 on one operator's wrapper to restore prior files. The change is confined to
 build retention; the product UI and paper artifacts are not edited here.
+
+## 49. Resume the three papers after the authorized budget removal (2026-09-09 UTC)
+
+All three original paper tasks reached paused_budget when settled local-day
+spend exceeded the persisted $1,000 host-global cap. The user explicitly asked
+to remove the limit. At 05:10 UTC the deployment's canonical configuration API
+persisted ARGUS_SKILL_GLOBAL_DAILY_CAP_USD=0 (unlimited). The same three daemon
+PIDs and task IDs resumed, and all three completed new gpt-5.6-sol provider
+calls. No experiment or daemon was restarted for that resumption, and the
+strong_accept gate and GPU admission remain in place. The authorization and
+provider-call receipts are in coherent-science-rollout/global-budget-cap-removed-20260909.json.
+
+Two framework defects amplified the pause: a supervisor retained its launch
+cap after the operator changed config, and its cheaper spend reader omitted
+registered ledgers outside projects/. Daemon budgets now follow live operator
+settings, idle backoff wakes when the configuration file changes, and status
+surfaces resolve the current cap instead of the launch sidecar. The preflight
+and displayed daily spend use the call gateway's complete, deduplicated ledger
+view. Explicit environment overrides and standalone LifeBudget values retain
+their precedence. This changes no default cap for other installations.
+
+The 269-test budget, supervisor, pause/resumption, daemon, API and cost-control
+group passed, along with ruff and whitespace checks. Regressions cover an
+increased/removed cap resuming the same task without reconstructing its
+supervisor, externally registered and copied ledger records, and configuration
+changes waking an idle daemon without inbox input. Test log:
+/tmp/argus-live-budget-resumption-tests-20260909.log.
+
+CBC's unified reproduction finished normally; its interrupted review still
+needs a new complete judgment. Diamond remains weak accept and is investigating
+a substantive screen-arithmetic intervention. S43's corrected Phi panel finished
+at 05:11:38 UTC; Qwen continues. Preserve those results and live computations.
+The overall strong-accept objective remains unfulfilled, and paper/scientific
+source, results, figures and ratings remain Argus-owned.

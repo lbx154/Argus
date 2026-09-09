@@ -40,6 +40,7 @@ def test_worker_bounded_disables_final_certification_gate(tmp_path: Path):
 
     assert cfg.open_ended is False
     assert cfg.final_certification_gate is False
+    assert cfg.budget.follow_operator_config is True
 
 
 def test_worker_unresolved_unbounded_project_does_not_assume_emnlp(tmp_path: Path):

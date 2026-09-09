@@ -848,19 +848,10 @@ def _daemon_budget_from_project(
 def resolve_effective_budget(status: Any | None = None) -> LifeBudget:
     """Return the live budget caps for operator surfaces.
 
-    When the daemon has published caps in its status sidecar, use those
-    exact values. Otherwise read the project and global budget files so a
-    stopped-daemon status command shows what the next launch will enforce.
+    The sidecar records launch-time settings. Both the supervisor and call
+    gateway now reload operator settings, so a live daemon's old sidecar must
+    not make a removed cap appear active on the status surface.
     """
-    alive = bool(getattr(status, "alive", False))
-    global_daily = getattr(status, "global_daily_cap_usd", None)
-    try:
-        if alive and global_daily is not None:
-            return LifeBudget(
-                global_daily_cap_usd=float(global_daily or 0.0),
-            )
-    except (TypeError, ValueError):
-        pass
     return _daemon_budget_from_project(
         getattr(status, "life_dir", None),
         _status_global_root(status),

@@ -28,7 +28,7 @@ from .daemon_lock import is_pid_running
 from .event_catalog import EventType, new_event
 from .knobs import resolve_budget_caps, resolve_knob
 from .paths import session_states_root
-from .usage import UsageLedger, UsageRecord, summarize_usage, usage_pricing_reason
+from .usage import UsageLedger, UsageRecord, UsageSummary, summarize_usage, usage_pricing_reason
 
 COST_CONTROL_STATE_FILE = "cost-control.json"
 COST_CONTROL_LOCK_FILE = "cost-control.lock"
@@ -328,6 +328,23 @@ def _global_records(root: Path, day_start: float) -> list[UsageRecord]:
         except Exception:  # noqa: BLE001 - one project cannot hide all spend
             continue
     return records
+
+
+def global_daily_usage_summary(
+    *,
+    global_root: Path | str | None = None,
+    now: float | None = None,
+) -> UsageSummary:
+    """Settled daily usage from the same ledgers that enforce call admission.
+
+    Registered ledgers may live outside ``projects/``. Include those references
+    and deduplicate calls just as admission does, so a paused supervisor does
+    not repeatedly resume against an incomplete spend total.
+    """
+    timestamp = time.time() if now is None else float(now)
+    records = _global_records(_global_root(global_root), _local_day_start(timestamp))
+    unique = {(record.project_id, record.call_id): record for record in records}
+    return summarize_usage(unique.values())
 
 
 def _resolved_unpriced(
@@ -813,5 +830,6 @@ __all__ = [
     "CostControlStateError",
     "cost_control_enabled",
     "cost_control_snapshot",
+    "global_daily_usage_summary",
     "reserve_call_budget",
 ]

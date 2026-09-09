@@ -333,9 +333,11 @@ def test_read_daemon_status_rejects_sidecar_from_different_pid(
     assert "does not match lock pid" in status.status_read_error
 
 
-def test_resolve_effective_budget_reads_global_config_when_daemon_is_down(
+@pytest.mark.parametrize("alive", [False, True])
+def test_resolve_effective_budget_reads_current_global_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    alive: bool,
 ) -> None:
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path / "global"))
     monkeypatch.delenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", raising=False)
@@ -345,7 +347,7 @@ def test_resolve_effective_budget_reads_global_config_when_daemon_is_down(
         encoding="utf-8",
     )
     status = DaemonStatus(
-        alive=False,
+        alive=alive,
         pid=1234,
         started_at_iso=None,
         uptime_seconds=None,
