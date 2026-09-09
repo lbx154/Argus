@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from argus_skill.core import cost_control
 from argus_skill.core.cost_control import (
     COST_CONTROL_AUDIT_FILE,
     COST_CONTROL_STATE_FILE,
@@ -142,6 +143,7 @@ def test_admission_does_not_wait_for_busy_housekeeping_lock(tmp_path: Path) -> N
 
 def test_settlement_does_not_delay_result_behind_busy_housekeeping_lock(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = tmp_path / "projects" / "p1"
     project.mkdir(parents=True)
@@ -162,10 +164,20 @@ def test_settlement_does_not_delay_result_behind_busy_housekeeping_lock(
     holder = threading.Thread(target=hold_lock)
     holder.start()
     assert entered.wait(timeout=1)
+    observed_timeouts: list[float | None] = []
+
+    def observed_lock(root: Path, *, timeout_seconds: float | None = None):
+        if root == tmp_path:
+            observed_timeouts.append(timeout_seconds)
+        return _locked(root, timeout_seconds=timeout_seconds)
+
+    monkeypatch.setattr(cost_control, "_locked", observed_lock)
     try:
-        started = time.monotonic()
         assert reservation.settle(record) is True
-        assert time.monotonic() - started < 0.6
+        # Keep the real contention, but do not include unrelated Windows I/O
+        # and scheduling overhead in a sub-second wall-clock assertion.
+        assert observed_timeouts == [0.25]
+        assert holder.is_alive(), "settlement must finish before housekeeping unlocks"
     finally:
         release.set()
         holder.join(timeout=1)
