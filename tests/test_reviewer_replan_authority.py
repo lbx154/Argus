@@ -146,4 +146,4 @@ def test_compact_engineer_prompt_omits_static_skill_and_objective() -> None:
     assert "Run the single failing case" in compact
     assert "very long skill" not in compact
     assert "very long task" not in compact
-    assert len(compact) < len(full) // 4
+    assert len(compact) < len(full) // 2

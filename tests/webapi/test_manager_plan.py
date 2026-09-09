@@ -49,7 +49,7 @@ def test_plan_preview_uses_lightweight_role_config_and_caches_exact_repeat(
     assert first == second
     assert len(calls) == 1
     assert calls[0]["runner"] is backend
-    assert calls[0]["model"] == "gpt-5.4-mini"
+    assert calls[0]["model"] == "planner-deep-model"
     assert calls[0]["reasoning_effort"] == "low"
 
 

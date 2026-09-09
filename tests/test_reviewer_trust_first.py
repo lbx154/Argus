@@ -64,8 +64,8 @@ def test_paper_review_requires_idea_and_built_artifact_quality():
     assert "positive controls" in block
     assert "follows the venue's rules" in block
     assert "rendered layout" in block
-    assert "inside the `reason=` value of your closing lines" in block
-    assert "never reopen selection or move backward" in block
+    assert "no fixed fields or review template is required" in block
+    assert "reopen selection, or move backward" in block
 
 
 def _persist_review_stage(tmp_path, vertical: str) -> None:
