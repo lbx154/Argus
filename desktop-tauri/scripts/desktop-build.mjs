@@ -14,7 +14,7 @@ if (operation === 'backend') {
   run(python, ['scripts/build-backend.py', '--prepare-only']);
 } else if (operation === 'build' || operation === 'unsigned') {
   run(python, ['scripts/build-backend.py', '--prepare-only']);
-  const bundles = process.platform === 'darwin' ? 'app,dmg' : 'nsis';
+  const bundles = process.platform === 'darwin' ? 'app,dmg' : process.platform === 'linux' ? 'appimage,deb' : 'nsis';
   const args = ['build', '--bundles', bundles];
   if (operation === 'unsigned') {
     args.push('--config', JSON.stringify({ bundle: { createUpdaterArtifacts: false } }));

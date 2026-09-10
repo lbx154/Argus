@@ -1,4 +1,4 @@
-# Mac / Windows 内部试用版
+# Windows / Mac / Linux 内部试用版
 
 首次启动或 **文件 → 设置** 中可打开 **输入内部测试 Key**。
 启动恢复页也提供 **使用内部测试 Key** 按钮。界面提示：
@@ -39,6 +39,10 @@ Mac/Linux 的试用配置文件权限为 0600；Windows 使用用户目录的继
 试用配置和 Copilot 路径会保留，重启后复用。验证失败恢复原试用配置。
 每个 Key 累计 100 万 input + output tokens，可跨设备共享余额。
 服务端统一限制 10 路活跃请求、1000 万 TPM，详见 [转发服务](trial-gateway.md)。
+
+Linux 桌面试用包支持 x86_64，构建和原生验收使用 Ubuntu 22.04。可通过系统软件
+安装器安装 `.deb`，或在文件属性中允许 AppImage 执行后双击打开；无需安装 Python、
+Node.js 或自行配置 CLI。运行需要图形桌面环境。
 
 ## 构建
 

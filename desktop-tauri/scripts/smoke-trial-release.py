@@ -25,8 +25,20 @@ def install(package: Path, directory: Path) -> tuple[Path, Path]:
     if sys.platform == "win32":
         subprocess.run([str(package), "/S", f"/D={directory}"], check=True, timeout=180)
         return directory / "Argus.exe", directory / "argus-backend/argus-backend.exe"
+    if sys.platform == "linux":
+        directory.mkdir(parents=True)
+        appimage = directory / "Argus.AppImage"
+        shutil.copy2(package, appimage)
+        appimage.chmod(0o755)
+        subprocess.run([str(appimage), "--appimage-extract"], cwd=directory,
+                       check=True, stdout=subprocess.DEVNULL, timeout=180)
+        backends = [path for path in (directory / "squashfs-root").rglob("argus-backend")
+                    if path.is_file()]
+        if len(backends) != 1:
+            raise RuntimeError("AppImage must contain exactly one frozen backend")
+        return appimage, backends[0]
     if sys.platform != "darwin":
-        raise RuntimeError("Native release smoke requires macOS or Windows")
+        raise RuntimeError("Unsupported native release platform")
     mount = directory.parent / "mounted-dmg"
     mount.mkdir()
     subprocess.run(["hdiutil", "attach", str(package), "-nobrowse", "-mountpoint", str(mount)],
@@ -42,7 +54,37 @@ def install(package: Path, directory: Path) -> tuple[Path, Path]:
     return app / "MacOS/Argus", app / "Resources/argus-backend/argus-backend"
 
 
-def host_roundtrip(binary: Path, directory: Path, env: dict[str, str], key: str, token: str):
+def executor_roundtrip(env: dict[str, str], key: str, token: str, port: int):
+    """Exercise the same authenticated API as the workbench Run button."""
+    with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=210, trust_env=False,
+                      headers={"Authorization": "Bearer " + token}) as client:
+        created = client.post("/api/daemons", json={"name": "Native executor startup check"})
+        created.raise_for_status()
+        sid = created.json()["sid"]
+        life = Path(env["ARGUS_SKILL_HOME"]) / "projects" / sid
+        try:
+            started = client.post(f"/api/projects/{sid}/daemon/start", json={})
+            started.raise_for_status()
+            result = started.json()
+            assert result.get("rc") == 0, json.dumps(result).replace(key, "[hidden]").replace(token, "[hidden]")
+            deadline = time.monotonic() + 90
+            logs = ""
+            while time.monotonic() < deadline:
+                logs = "\n".join(path.read_text(encoding="utf-8", errors="replace")
+                                 for path in (life / "daemons").glob("boot-*.log"))
+                assert key not in logs, "Trial key appeared in executor logs"
+                if "daemon: ready (" in logs and "backend=copilot" in logs:
+                    print("Workbench Run API started the installed Copilot executor and reached worker readiness.", flush=True)
+                    return
+                if "daemon refused" in logs or "daemon: fatal error" in logs:
+                    break
+                time.sleep(0.5)
+            raise RuntimeError("Installed executor did not reach readiness: " + logs[-5000:].replace(key, "[hidden]").replace(token, "[hidden]"))
+        finally:
+            client.post(f"/api/projects/{sid}/daemon/stop", json={"force": True})
+
+
+def host_roundtrip(binary: Path, directory: Path, env: dict[str, str], key: str, token: str, *, verify_executor: bool = False):
     log = directory / "logs/desktop.log"
     offset = len(log.read_text(encoding="utf-8")) if log.exists() else 0
     process = subprocess.Popen([str(binary)], cwd=binary.parent, env=env,
@@ -68,6 +110,8 @@ def host_roundtrip(binary: Path, directory: Path, env: dict[str, str], key: str,
                         response = client.get(f"http://127.0.0.1:{settings['port']}/api/projects")
                         response.raise_for_status()
                     print("Installed native GUI opened its authenticated cockpit and stayed ready.", flush=True)
+                    if verify_executor:
+                        executor_roundtrip(env, key, token, settings["port"])
                     return settings["port"]
             if process.poll() is not None:
                 raise RuntimeError(f"Desktop exited before ready: {process.returncode}")
@@ -117,9 +161,13 @@ def main():
                 env.update(APPDATA=str(root / "appdata"), LOCALAPPDATA=str(root / "localappdata"))
                 env["PATH"] = str(Path(env.get("SystemRoot", r"C:\Windows")) / "System32")
                 desktop = root / "appdata/argus-desktop"
-            else:
+            elif sys.platform == "darwin":
                 env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
                 desktop = Path.home() / "Library/Application Support/argus-desktop"
+            else:
+                env.update(HOME=str(root / "home"), APPIMAGE_EXTRACT_AND_RUN="1")
+                env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+                desktop = root / "home/.local/share/argus-desktop"
             if desktop.exists():
                 raise RuntimeError("Refusing to overwrite existing desktop state; use a clean release runner")
             try:
@@ -147,7 +195,9 @@ def main():
                         "runnerKind": "copilot", "runnerBins": {"copilot": runner},
                         "runnerConfigured": True, "setupComplete": True, "trialMode": True,
                     }), encoding="utf-8")
-                    selected_port = host_roundtrip(binary, desktop, env, key, token)
+                    selected_port = host_roundtrip(
+                        binary, desktop, env, key, token, verify_executor=True,
+                    )
                     assert selected_port != occupied_port, "Trial did not avoid the occupied port"
                     assert host_roundtrip(binary, desktop, env, key, token) == selected_port
                     with socket.create_connection(existing_service.getsockname(), timeout=5):

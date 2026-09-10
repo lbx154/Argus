@@ -102,6 +102,8 @@ jobs:
             platform: darwin-aarch64
           - os: macos-15-intel
             platform: darwin-x86_64
+          - os: ubuntu-22.04
+            platform: linux-x86_64
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -115,6 +117,11 @@ jobs:
         with:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux desktop build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf xvfb xauth dbus-x11 libfuse2
       - name: Install build dependencies
         run: |
           python -m pip install -e ".[trial]" pytest ruff "httpx2>=2.9,<3" "pyinstaller>=6.11,<7" tzdata
@@ -125,6 +132,10 @@ jobs:
         if: runner.os == 'macOS'
         working-directory: desktop-tauri
         run: npx playwright install webkit
+      - name: Install Chromium for Linux workbench checks
+        if: runner.os == 'Linux'
+        working-directory: desktop-tauri
+        run: npx playwright install --with-deps chromium
       - name: Build release sources
         run: python -m argus_skill.release_tools.build_release
       - name: Verify embedded workbench and trial setup UI
@@ -150,6 +161,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPIMAGE_EXTRACT_AND_RUN: '1'
         run: |
           test -n "$TAURI_SIGNING_PRIVATE_KEY"
           npm --prefix desktop-tauri run build
@@ -160,16 +172,22 @@ jobs:
       - name: Stage Mac installer and updater
         if: runner.os == 'macOS'
         run: python desktop-tauri/scripts/stage-macos-release.py
+      - name: Stage Linux installer and updater
+        if: runner.os == 'Linux'
+        run: python desktop-tauri/scripts/stage-linux-release.py
       - name: Verify installed trial and native GUI restart
         env:
           ARGUS_TRIAL_SMOKE_KEY: ${{ secrets.ARGUS_TRIAL_SMOKE_KEY }}
         run: |
           python - <<'PYSMOKE'
           import pathlib, subprocess, sys
-          suffix = '*.exe' if sys.platform == 'win32' else '*.dmg'
+          suffix = '*.exe' if sys.platform == 'win32' else '*.dmg' if sys.platform == 'darwin' else '*.AppImage'
           packages = list(pathlib.Path('desktop-tauri/release').glob(suffix))
           assert len(packages) == 1, packages
-          subprocess.run([sys.executable, 'desktop-tauri/scripts/smoke-trial-release.py', str(packages[0])], check=True)
+          command = [sys.executable, 'desktop-tauri/scripts/smoke-trial-release.py', str(packages[0])]
+          if sys.platform == 'linux':
+              command = ['dbus-run-session', '--', 'xvfb-run', '-a', *command]
+          subprocess.run(command, check=True)
           PYSMOKE
       - uses: actions/upload-artifact@v4
         with:
@@ -227,3 +245,4 @@ jobs:
         with:
           files: release-assets/**/*
           body_path: release-body.md
+          draft: ${{ github.ref == 'refs/tags/v0.1.5' }}

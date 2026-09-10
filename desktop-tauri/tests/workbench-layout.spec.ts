@@ -121,6 +121,16 @@ test('real embedded workbench retains typography and fits the pane between both 
     await expect.poll(() => frame.locator('.ros-content[aria-hidden="false"]').evaluate((content) => (
       content.scrollWidth <= content.clientWidth + 1
     ))).toBe(true);
+    if (module === 'experiments') {
+      // Inject the server's HTTP 200 failure contract, without starting an agent.
+      await page.route(`${origin}/api/projects/s-layout/daemon/start`, (route) => route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ rc: 2, command_status: 'failed', error: 'Executor startup diagnostic' }),
+      }));
+      await frame.locator('.experiment-header-actions').getByRole('button', { name: /继续运行|Resume/ }).click();
+      await expect(frame.locator('.inline-error')).toContainText('Executor startup diagnostic');
+    }
   }
   await frame.locator('.workspace-tab').nth(1).click();
   await expect(composer).toBeVisible();

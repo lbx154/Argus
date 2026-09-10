@@ -418,8 +418,9 @@ def spawn_detached_daemon_clean(
     A short-lived exec helper starts from a clean interpreter and performs the
     existing admission-checked double-fork there.
     """
-    if getattr(sys, "frozen", False):
-        return spawn_detached_daemon(config, quiet=quiet)
+    # The packaged backend implements -m too. Keep the exec boundary on
+    # desktop: forking the WebAPI request thread inherits its locks and loses
+    # the helper diagnostics when quiet=True.
     config.last_spawn_error = ""
     preflight_rc, preflight_error = _clean_spawn_preflight(config)
     if preflight_error:

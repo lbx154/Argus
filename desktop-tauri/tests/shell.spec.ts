@@ -123,8 +123,9 @@ test('prototype hardening applies only to the trusted shell, not the drawing ifr
   await launch(page, true);
   await expect(page.locator('#cockpit')).toBeVisible();
   expect(await page.evaluate(() => Object.isFrozen(Object.prototype))).toBe(true);
-  const frame = page.frames().find((item) => item.url().startsWith('http://127.0.0.1:18880/'))!;
-  expect(await frame.evaluate(() => {
+  // The shell becomes visible before WebKit commits the iframe navigation.
+  const draft = page.frameLocator('#cockpitFrame').locator('#draft');
+  expect(await draft.evaluate(() => {
     const prototype = Object.create(Object.prototype);
     prototype.constructor = function GraphNode() {};
     return Object.isFrozen(Object.prototype);

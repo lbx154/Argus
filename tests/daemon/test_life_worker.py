@@ -477,10 +477,18 @@ def test_explicit_stop_cancels_pending_daemon_upgrade(tmp_path: Path) -> None:
     assert not request.exists()
 
 
+@pytest.mark.parametrize("frozen", [False, True])
 def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
+    frozen: bool,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import argus_skill.daemon._life_worker_admission as admission
+
+    monkeypatch.setattr(admission.sys, "frozen", frozen, raising=False)
+    monkeypatch.setattr(admission, "spawn_detached_daemon", lambda *a, **kw: pytest.fail(
+        "Frozen WebAPI must exec its helper instead of forking the request thread"
+    ))
     workdir = tmp_path / "workdir"
     workdir.mkdir()
     shadow = workdir / "argus_skill"
@@ -554,11 +562,17 @@ def test_clean_spawn_execs_helper_without_inheriting_parent_fds(
     assert str(shadow) not in stdout
 
 
+@pytest.mark.parametrize("frozen", [False, True])
 def test_clean_spawn_preserves_helper_stderr_for_webapi(
+    frozen: bool,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    import argus_skill.daemon._life_worker_admission as admission
+
+    monkeypatch.setattr(admission.sys, "frozen", frozen, raising=False)
+    monkeypatch.setattr(admission, "spawn_detached_daemon", lambda *a, **kw: 2)
     workdir = tmp_path / "workdir"
     workdir.mkdir()
     config = LifeWorkerConfig(

@@ -91,6 +91,32 @@ describe('research workbench API resilience', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    { rc: 2, command_status: 'failed' },
+    { rc: 0, command_status: 'rejected' },
+    { rc: 2 },
+  ])('surfaces HTTP 200 executor failures ($command_status, rc=$rc)', async (result) => {
+    const error = 'background executor failed to start: launcher diagnostic';
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => Response.json(
+      path === '/api/meta' ? currentMeta : { ...result, error },
+    )));
+    const { api } = await import('../research-workbench/api');
+
+    await expect(api.startDaemon('s-failed')).rejects.toThrow(error);
+    await expect(api.stopDaemon('s-failed', false)).rejects.toThrow(error);
+  });
+
+  it('preserves successful executor command responses', async () => {
+    const result = { rc: 0, command_status: 'succeeded' };
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => Response.json(
+      path === '/api/meta' ? currentMeta : result,
+    )));
+    const { api } = await import('../research-workbench/api');
+
+    await expect(api.startDaemon('s-ready')).resolves.toEqual(result);
+    await expect(api.stopDaemon('s-ready', false)).resolves.toEqual(result);
+  });
+
   it('times out a stalled snapshot and permits the next poll to recover', async () => {
     vi.useFakeTimers();
     const snapshotPath = '/api/projects/s-stalled/snapshot?events_limit=40&compact=false';

@@ -11,7 +11,7 @@ import type {
   StatusView,
   Turn,
 } from './types';
-import { authHeaders, authToken, compatibleApiMeta, requestWithTimeout } from '../api';
+import { authHeaders, authToken, compatibleApiMeta, requestWithTimeout, requireDaemonCommand } from '../api';
 
 const LOCAL_READ_TIMEOUT_MS = 12_000;
 
@@ -201,7 +201,7 @@ export const api = {
     request<Record<string, unknown>>(projectPath(sid, '/daemon/start'), {
       method: 'POST',
       body: JSON.stringify({ command_id: commandId(), expected_revision: expectedRevision }),
-    }),
+    }).then(requireDaemonCommand),
 
   stopDaemon: (sid: string, drain: boolean, expectedRevision?: number) =>
     request<Record<string, unknown>>(projectPath(sid, '/daemon/stop'), {
@@ -211,7 +211,7 @@ export const api = {
         command_id: commandId(),
         expected_revision: expectedRevision,
       }),
-    }),
+    }).then(requireDaemonCommand),
 
   async messageStream(
     sid: string,

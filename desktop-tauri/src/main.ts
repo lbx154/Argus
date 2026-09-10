@@ -609,7 +609,7 @@ function updateMessage(status: UpdateStatus): {
     return {
       kicker: '正在准备更新',
       title: `正在下载${progress}`,
-      detail: '下载完成后将校验签名，并交给 Windows 安装器完成更新。',
+      detail: '下载完成后将校验签名，并交给系统安装程序完成更新。',
       showInstall: false,
       showSecurity: true,
     };

@@ -414,7 +414,7 @@ async function postMultipart<T>(
   return (await r.json()) as T;
 }
 
-function requireDaemonCommand<T>(result: T): T {
+export function requireDaemonCommand<T>(result: T): T {
   const row = result && typeof result === 'object'
     ? result as Record<string, unknown>
     : {};
