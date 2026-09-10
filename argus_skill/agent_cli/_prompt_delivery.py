@@ -347,6 +347,13 @@ class PromptDeliveryMixin:
             env["GH_CONFIG_DIR"] = str(
                 Path(tempfile.gettempdir()) / "argus-no-gh-auth"
             )
+        plugin_env = getattr(options, "extension_env", None)
+        if plugin_env and not options.disable_tools:
+            env = dict(os.environ) if env is None else env
+            for key, value in plugin_env.items():
+                if not key.startswith("ARGUS_PLUGIN_"):
+                    raise ValueError("invalid plugin environment key")
+                env[key] = str(value)
         repaired = runner_child_environment(
             executable or getattr(self, "agent_bin", ""),
             env=env,

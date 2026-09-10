@@ -93,6 +93,21 @@ def test_release_manifest_matches_current_shipped_source() -> None:
     assert identity["runtime_source_digest"] == manifest["source_digest"]
 
 
+def test_bundled_workbench_identity_tracks_source_not_dependencies(tmp_path):
+    vertical = tmp_path / "argus_skill" / "verticals" / "sample"
+    vertical.mkdir(parents=True)
+    source = vertical / "tools.mjs"
+    source.write_text("export const version = 1;")
+    first = compute_source_digest(tmp_path)
+    for directory in ("node_modules/pkg", "dist", "__pycache__"):
+        generated = vertical / directory / "metadata.json"
+        generated.parent.mkdir(parents=True, exist_ok=True)
+        generated.write_text('{"local": true}')
+    assert compute_source_digest(tmp_path) == first
+    source.write_text("export const version = 2;")
+    assert compute_source_digest(tmp_path) != first
+
+
 def test_checked_in_frontend_contract_matches_current_release() -> None:
     root = Path(__file__).parents[2]
     manifest = release_manifest()

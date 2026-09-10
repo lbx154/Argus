@@ -4,6 +4,7 @@
 human-readable timeline, but are never summed for spend because one call can be
 represented by several overlapping events.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,8 +28,8 @@ from ..provider_integrations.copilot_usage import (
 from .event_catalog import CALL_SCOPED_EVENT_TYPES, EventType, canonical_event_type
 from .pricing import PricingQuote, PricingStatus, quote_copilot_usage, quote_token_usage
 from .runner_errors import (
-    is_copilot_context_parser_error,
-    is_copilot_context_parser_refusal,
+    is_local_startup_parser_error,
+    is_local_startup_refusal,
     is_pre_provider_refusal_error,
 )
 from .token_usage import TokenUsage, extract_token_usage
@@ -48,9 +49,7 @@ _COPILOT_RECONCILE_VERSION = 5
 UsageSource = Literal["run_exec", "legacy.events"]
 CallStatus = Literal["completed", "error", "denied"]
 
-_THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
-    weakref.WeakValueDictionary()
-)
+_THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = weakref.WeakValueDictionary()
 _THREAD_LOCKS_GUARD = threading.Lock()
 _CALL_ID_CACHE: dict[str, tuple[tuple[int, int, int] | None, set[str]]] = {}
 _CALL_ID_CACHE_LOCK = threading.Lock()
@@ -95,32 +94,38 @@ class UsageRecord:
 
     @classmethod
     def from_jsonable(
-        cls, row: dict[str, Any], *, startup_receipt: dict[str, Any] | None = None,
+        cls,
+        row: dict[str, Any],
+        *,
+        startup_receipt: dict[str, Any] | None = None,
     ) -> "UsageRecord":
         cost = _optional_float(row.get("cost_usd"))
         pricing_status = _pricing_status(row.get("pricing_status"))
         pricing_tier = str(row.get("pricing_tier") or "unknown")
         error = str(row.get("error") or "")
         if (
-            (is_pre_provider_refusal_error(error) or (
-                is_copilot_context_parser_refusal(
-                    error, provider=str(row.get("provider") or ""),
-                    call_id=str(row.get("call_id") or ""),
-                    run_label=str(row.get("run_label") or ""),
-                    status=str(row.get("status") or ""),
-                    thread_id=row.get("thread_id"),
-                    source=str(row.get("source") or ""), receipt=startup_receipt,
+            (
+                is_pre_provider_refusal_error(error)
+                or (
+                    is_local_startup_refusal(
+                        error,
+                        provider=str(row.get("provider") or ""),
+                        call_id=str(row.get("call_id") or ""),
+                        run_label=str(row.get("run_label") or ""),
+                        status=str(row.get("status") or ""),
+                        thread_id=row.get("thread_id"),
+                        source=str(row.get("source") or ""),
+                        receipt=startup_receipt,
+                    )
+                    and row.get("premium_requests") is None
+                    and row.get("premium_request_cost_usd") is None
                 )
-                and row.get("premium_requests") is None
-                and row.get("premium_request_cost_usd") is None
-            ))
+            )
             and cost is None
             and row.get("total_nano_aiu") is None
             and not row.get("model_usage")
             and not (_optional_float(row.get("premium_requests")) or 0.0)
-            and not (
-                _optional_float(row.get("premium_request_cost_usd")) or 0.0
-            )
+            and not (_optional_float(row.get("premium_request_cost_usd")) or 0.0)
             and all(
                 row.get(field) is None
                 for field in (
@@ -157,9 +162,7 @@ class UsageRecord:
             cached_input_tokens=_optional_int(row.get("cached_input_tokens")),
             cache_write_tokens=_optional_int(row.get("cache_write_tokens")),
             output_tokens=_optional_int(row.get("output_tokens")),
-            reasoning_output_tokens=_optional_int(
-                row.get("reasoning_output_tokens")
-            ),
+            reasoning_output_tokens=_optional_int(row.get("reasoning_output_tokens")),
             premium_requests=_optional_float(row.get("premium_requests")),
             pricing_status=pricing_status,
             pricing_tier=pricing_tier,
@@ -173,15 +176,9 @@ class UsageRecord:
             ),
             model_usage=_normalize_model_usage(row.get("model_usage")),
             total_nano_aiu=_optional_int(row.get("total_nano_aiu")),
-            premium_request_cost_usd=_optional_float(
-                row.get("premium_request_cost_usd")
-            ),
+            premium_request_cost_usd=_optional_float(row.get("premium_request_cost_usd")),
             error=error,
-            source=(
-                "legacy.events"
-                if row.get("source") == "legacy.events"
-                else "run_exec"
-            ),
+            source=("legacy.events" if row.get("source") == "legacy.events" else "run_exec"),
             schema_version=max(1, _optional_int(row.get("schema_version")) or 1),
         )
 
@@ -229,10 +226,7 @@ def _reconciled_token_quote(record: UsageRecord) -> PricingQuote | None:
         or record.cost_basis != "token"
         or record.status == "denied"
         or record.pricing_status == "not_billed"
-        or (
-            record.cost_usd is not None
-            and record.pricing_status not in {"partial", "unpriced"}
-        )
+        or (record.cost_usd is not None and record.pricing_status not in {"partial", "unpriced"})
     ):
         return None
     quote = quote_token_usage(
@@ -297,13 +291,22 @@ def build_usage_record(
     normalized_provider = str(provider or "").strip().lower()
     premium_quote = quote_copilot_usage(premium_requests)
     pre_provider_refusal = (
-        (is_pre_provider_refusal_error(error) or (
-            is_copilot_context_parser_refusal(
-                error, provider=normalized_provider, call_id=call_id,
-                run_label=run_label, status=status, thread_id=thread_id,
-                source=source, receipt=startup_receipt,
-            ) and premium_requests is None
-        ))
+        (
+            is_pre_provider_refusal_error(error)
+            or (
+                is_local_startup_refusal(
+                    error,
+                    provider=normalized_provider,
+                    call_id=call_id,
+                    run_label=run_label,
+                    status=status,
+                    thread_id=thread_id,
+                    source=source,
+                    receipt=startup_receipt,
+                )
+                and premium_requests is None
+            )
+        )
         and total_nano_aiu is None
         and provider_cost_usd is None
         and not normalized_model_usage
@@ -338,9 +341,7 @@ def build_usage_record(
         pricing_status = premium_quote.status
         pricing_tier = premium_quote.tier
         cost_usd = premium_quote.cost_usd
-        cost_basis = (
-            "premium_request" if premium_quote.cost_usd is not None else "none"
-        )
+        cost_basis = "premium_request" if premium_quote.cost_usd is not None else "none"
     elif provider_cost_usd is not None:
         pricing_status = "priced"
         pricing_tier = "provider_reported"
@@ -351,20 +352,14 @@ def build_usage_record(
             model,
             input_tokens=usage.input_tokens if usage.input_tokens_present else None,
             cached_input_tokens=(
-                usage.cached_input_tokens
-                if usage.cached_input_tokens_present
-                else None
+                usage.cached_input_tokens if usage.cached_input_tokens_present else None
             ),
             cache_write_tokens=(
-                usage.cache_write_tokens
-                if usage.cache_write_tokens_present
-                else None
+                usage.cache_write_tokens if usage.cache_write_tokens_present else None
             ),
             output_tokens=usage.output_tokens if usage.output_tokens_present else None,
             reasoning_output_tokens=(
-                usage.reasoning_output_tokens
-                if usage.reasoning_output_tokens_present
-                else None
+                usage.reasoning_output_tokens if usage.reasoning_output_tokens_present else None
             ),
         )
         pricing_status = quote.status
@@ -385,14 +380,10 @@ def build_usage_record(
         cached_input_tokens=(
             usage.cached_input_tokens if usage.cached_input_tokens_present else None
         ),
-        cache_write_tokens=(
-            usage.cache_write_tokens if usage.cache_write_tokens_present else None
-        ),
+        cache_write_tokens=(usage.cache_write_tokens if usage.cache_write_tokens_present else None),
         output_tokens=usage.output_tokens if usage.output_tokens_present else None,
         reasoning_output_tokens=(
-            usage.reasoning_output_tokens
-            if usage.reasoning_output_tokens_present
-            else None
+            usage.reasoning_output_tokens if usage.reasoning_output_tokens_present else None
         ),
         premium_requests=premium_requests,
         pricing_status=pricing_status,
@@ -473,9 +464,7 @@ class UsageLedger:
         self.path = self.project_root / USAGE_FILE
         self.lock_path = self.project_root / USAGE_LOCK_FILE
         self.migration_path = self.project_root / USAGE_MIGRATION_FILE
-        self.copilot_reconcile_path = (
-            self.project_root / USAGE_COPILOT_RECONCILE_FILE
-        )
+        self.copilot_reconcile_path = self.project_root / USAGE_COPILOT_RECONCILE_FILE
         self._migrate_legacy = bool(migrate_legacy)
 
     def append(self, record: UsageRecord) -> bool:
@@ -537,7 +526,7 @@ class UsageLedger:
                 if not isinstance(row, dict):
                     continue
                 receipt = None
-                if is_copilot_context_parser_error(row.get("error")):
+                if is_local_startup_parser_error(row.get("error")):
                     if startup_receipts is None:
                         startup_receipts = _startup_completion_receipts(self.project_root)
                     receipt = startup_receipts.get(str(row.get("call_id") or ""))
@@ -556,9 +545,7 @@ class UsageLedger:
 
     def _reconcile_token_pricing(self, records: Iterable[UsageRecord]) -> int:
         pending = {
-            record.call_id
-            for record in records
-            if _reconciled_token_quote(record) is not None
+            record.call_id for record in records if _reconciled_token_quote(record) is not None
         }
         if not pending:
             return 0
@@ -581,9 +568,7 @@ class UsageLedger:
                 updated += 1
             if updated:
                 _rewrite_usage_rows(self.path, rows)
-                self._cache_call_ids({
-                    str(row["call_id"]) for row in rows if row.get("call_id")
-                })
+                self._cache_call_ids({str(row["call_id"]) for row in rows if row.get("call_id")})
         return updated
 
     def summary(
@@ -600,14 +585,8 @@ class UsageLedger:
             records = [
                 record
                 for record in records
-                if (
-                    run_labels is None
-                    or record.run_label in run_labels
-                )
-                and (
-                    not run_label_prefixes
-                    or record.run_label.startswith(run_label_prefixes)
-                )
+                if (run_labels is None or record.run_label in run_labels)
+                and (not run_label_prefixes or record.run_label.startswith(run_label_prefixes))
                 and (cost_basis is None or record.cost_basis == cost_basis)
             ]
         return summarize_usage(records)
@@ -640,9 +619,12 @@ class UsageLedger:
         store_signature = copilot_usage_store_signature()
         if signature is None and self.copilot_reconcile_path.exists():
             return 0
-        if _reconcile_marker_signature(
-            self.copilot_reconcile_path, store_signature=store_signature
-        ) == signature:
+        if (
+            _reconcile_marker_signature(
+                self.copilot_reconcile_path, store_signature=store_signature
+            )
+            == signature
+        ):
             return 0
         if signature is None:
             _write_json_atomic(
@@ -662,8 +644,7 @@ class UsageLedger:
             call_threads = (
                 _legacy_call_threads(self.project_root)
                 if any(
-                    _copilot_usage_needs_reconciliation(row)
-                    and not row.get("thread_id")
+                    _copilot_usage_needs_reconciliation(row) and not row.get("thread_id")
                     for row in rows
                 )
                 else {}
@@ -759,9 +740,7 @@ class UsageLedger:
                                 "priced" if usage.cost_usd is not None else "partial"
                             ),
                             "pricing_tier": "copilot_token",
-                            "schema_version": max(
-                                2, _optional_int(row.get("schema_version")) or 1
-                            ),
+                            "schema_version": max(2, _optional_int(row.get("schema_version")) or 1),
                         }
                     )
                     updated += 1
@@ -791,19 +770,11 @@ class UsageLedger:
                 # a definitive charge.  Settle that billing unit rather than
                 # leaving the call permanently partial.  Missing premium usage
                 # remains fail-closed.
-                premium_quote = quote_copilot_usage(
-                    _optional_float(row.get("premium_requests"))
-                )
-                existing_pricing_status = str(
-                    row.get("pricing_status") or ""
-                ).lower()
+                premium_quote = quote_copilot_usage(_optional_float(row.get("premium_requests")))
+                existing_pricing_status = str(row.get("pricing_status") or "").lower()
                 existing_cost = _optional_float(row.get("cost_usd"))
-                if (
-                    premium_quote.cost_usd is not None
-                    and (
-                        existing_cost is None
-                        or existing_pricing_status in {"partial", "unpriced"}
-                    )
+                if premium_quote.cost_usd is not None and (
+                    existing_cost is None or existing_pricing_status in {"partial", "unpriced"}
                 ):
                     row.update(
                         {
@@ -812,26 +783,17 @@ class UsageLedger:
                             "cost_basis": "premium_request",
                             "pricing_status": premium_quote.status,
                             "pricing_tier": premium_quote.tier,
-                            "schema_version": max(
-                                2, _optional_int(row.get("schema_version")) or 1
-                            ),
+                            "schema_version": max(2, _optional_int(row.get("schema_version")) or 1),
                         }
                     )
                     updated += 1
             if updated:
                 _rewrite_usage_rows(self.path, rows)
                 self._cache_call_ids(
-                    {
-                        str(row.get("call_id"))
-                        for row in rows
-                        if row.get("call_id")
-                    }
+                    {str(row.get("call_id")) for row in rows if row.get("call_id")}
                 )
             reconciled_signature = _path_signature(self.path)
-            pending_token_usage = any(
-                _copilot_usage_needs_reconciliation(row)
-                for row in rows
-            )
+            pending_token_usage = any(_copilot_usage_needs_reconciliation(row) for row in rows)
         _write_json_atomic(
             self.copilot_reconcile_path,
             {
@@ -941,9 +903,7 @@ def summarize_usage(records: Iterable[UsageRecord]) -> UsageSummary:
     not_billed = sum(record.pricing_status == "not_billed" for record in rows)
     contributions = _deduplicated_usage_contributions(rows)
     known_costs = [
-        float(item["cost_usd"])
-        for item in contributions
-        if item.get("cost_usd") is not None
+        float(item["cost_usd"]) for item in contributions if item.get("cost_usd") is not None
     ]
     known_cost = sum(known_costs)
     if partial:
@@ -962,34 +922,22 @@ def summarize_usage(records: Iterable[UsageRecord]) -> UsageSummary:
     return UsageSummary(
         call_count=len(rows),
         known_cost_usd=known_cost,
-        cost_usd=(
-            known_cost
-            if known_costs and not incomplete_without_positive_cost
-            else None
-        ),
+        cost_usd=(known_cost if known_costs and not incomplete_without_positive_cost else None),
         pricing_status=aggregate_status,
         priced_calls=priced,
         partial_calls=partial,
         unpriced_calls=unpriced,
         not_billed_calls=not_billed,
         input_tokens=sum(item.get("input_tokens") or 0 for item in contributions),
-        cached_input_tokens=sum(
-            item.get("cached_input_tokens") or 0 for item in contributions
-        ),
+        cached_input_tokens=sum(item.get("cached_input_tokens") or 0 for item in contributions),
         output_tokens=sum(item.get("output_tokens") or 0 for item in contributions),
         reasoning_output_tokens=sum(
             item.get("reasoning_output_tokens") or 0 for item in contributions
         ),
         premium_requests=sum(record.premium_requests or 0.0 for record in rows),
-        cache_write_tokens=sum(
-            item.get("cache_write_tokens") or 0 for item in contributions
-        ),
-        total_nano_aiu=sum(
-            item.get("total_nano_aiu") or 0 for item in contributions
-        ),
-        premium_request_cost_usd=sum(
-            record.premium_request_cost_usd or 0.0 for record in rows
-        ),
+        cache_write_tokens=sum(item.get("cache_write_tokens") or 0 for item in contributions),
+        total_nano_aiu=sum(item.get("total_nano_aiu") or 0 for item in contributions),
+        premium_request_cost_usd=sum(record.premium_request_cost_usd or 0.0 for record in rows),
     )
 
 
@@ -1000,15 +948,17 @@ def _deduplicated_usage_contributions(
     seen_copilot_events: set[tuple[str, int]] = set()
     for record in records:
         if not record.model_usage:
-            contributions.append({
-                "input_tokens": record.input_tokens,
-                "cached_input_tokens": record.cached_input_tokens,
-                "cache_write_tokens": record.cache_write_tokens,
-                "output_tokens": record.output_tokens,
-                "reasoning_output_tokens": record.reasoning_output_tokens,
-                "total_nano_aiu": record.total_nano_aiu,
-                "cost_usd": record.cost_usd,
-            })
+            contributions.append(
+                {
+                    "input_tokens": record.input_tokens,
+                    "cached_input_tokens": record.cached_input_tokens,
+                    "cache_write_tokens": record.cache_write_tokens,
+                    "output_tokens": record.output_tokens,
+                    "reasoning_output_tokens": record.reasoning_output_tokens,
+                    "total_nano_aiu": record.total_nano_aiu,
+                    "cost_usd": record.cost_usd,
+                }
+            )
             continue
         for item in record.model_usage:
             session_id = _optional_text(item.get("session_id"))
@@ -1154,9 +1104,7 @@ def _legacy_event_records(
                     continue
                 if not isinstance(row, dict):
                     continue
-                kind = canonical_event_type(
-                    row.get("canonical_type") or row.get("type")
-                )
+                kind = canonical_event_type(row.get("canonical_type") or row.get("type"))
                 if kind == EventType.LIFE_MISSION_STARTED:
                     current_mission = _optional_text(row.get("item_id"))
                     continue
@@ -1164,12 +1112,14 @@ def _legacy_event_records(
                     item_id = _optional_text(row.get("item_id"))
                     cost = _optional_float(row.get("cost_usd"))
                     if cost is not None:
-                        legacy_missions.append({
-                            "item_id": item_id,
-                            "ts": _float(row.get("ts"), 0.0),
-                            "cost_usd": cost,
-                            "status": str(row.get("pricing_status") or "priced"),
-                        })
+                        legacy_missions.append(
+                            {
+                                "item_id": item_id,
+                                "ts": _float(row.get("ts"), 0.0),
+                                "cost_usd": cost,
+                                "status": str(row.get("pricing_status") or "priced"),
+                            }
+                        )
                     if item_id is None or item_id == current_mission:
                         current_mission = None
                     continue
@@ -1194,17 +1144,9 @@ def _legacy_event_records(
                         call_id=call_id,
                         project_root=project_root,
                         mission_id=mission_id,
-                        provider=str(
-                            row.get("backend")
-                            or started.get("backend")
-                            or ""
-                        ),
+                        provider=str(row.get("backend") or started.get("backend") or ""),
                         model=str(row.get("model") or started.get("model") or ""),
-                        run_label=str(
-                            row.get("run_label")
-                            or started.get("run_label")
-                            or ""
-                        ),
+                        run_label=str(row.get("run_label") or started.get("run_label") or ""),
                         started_at=_float(
                             started.get("ts"),
                             _float(row.get("ts"), 0.0),
@@ -1229,17 +1171,9 @@ def _legacy_event_records(
                         call_id=call_id,
                         project_root=project_root,
                         mission_id=mission_id,
-                        provider=str(
-                            row.get("backend")
-                            or started.get("backend")
-                            or ""
-                        ),
+                        provider=str(row.get("backend") or started.get("backend") or ""),
                         model=str(started.get("model") or ""),
-                        run_label=str(
-                            row.get("run_label")
-                            or started.get("run_label")
-                            or ""
-                        ),
+                        run_label=str(row.get("run_label") or started.get("run_label") or ""),
                         started_at=_float(
                             started.get("ts"),
                             _float(row.get("ts"), 0.0),
@@ -1327,27 +1261,15 @@ def _legacy_token_usage(row: dict[str, Any]) -> TokenUsage:
         if extracted.observed:
             return TokenUsage(
                 input_tokens=_optional_int(row.get("input_tokens")) or 0,
-                cached_input_tokens=(
-                    _optional_int(row.get("cached_input_tokens")) or 0
-                ),
-                cache_write_tokens=(
-                    _optional_int(row.get("cache_write_tokens")) or 0
-                ),
+                cached_input_tokens=(_optional_int(row.get("cached_input_tokens")) or 0),
+                cache_write_tokens=(_optional_int(row.get("cache_write_tokens")) or 0),
                 output_tokens=_optional_int(row.get("output_tokens")) or 0,
-                reasoning_output_tokens=(
-                    _optional_int(row.get("reasoning_output_tokens")) or 0
-                ),
+                reasoning_output_tokens=(_optional_int(row.get("reasoning_output_tokens")) or 0),
                 input_tokens_present=extracted.input_tokens_present,
-                cached_input_tokens_present=(
-                    extracted.cached_input_tokens_present
-                ),
-                cache_write_tokens_present=(
-                    extracted.cache_write_tokens_present
-                ),
+                cached_input_tokens_present=(extracted.cached_input_tokens_present),
+                cache_write_tokens_present=(extracted.cache_write_tokens_present),
                 output_tokens_present=extracted.output_tokens_present,
-                reasoning_output_tokens_present=(
-                    extracted.reasoning_output_tokens_present
-                ),
+                reasoning_output_tokens_present=(extracted.reasoning_output_tokens_present),
                 source="recorded_delta",
             )
     names = (
@@ -1491,10 +1413,7 @@ def _legacy_call_threads(project_root: Path) -> dict[str, str]:
                         row = json.loads(raw)
                     except (json.JSONDecodeError, ValueError):
                         continue
-                    if (
-                        not isinstance(row, dict)
-                        or row.get("type") != EventType.AGENT_IO_COMPLETE
-                    ):
+                    if not isinstance(row, dict) or row.get("type") != EventType.AGENT_IO_COMPLETE:
                         continue
                     call_id = str(row.get("call_id") or "")
                     thread_id = str(row.get("thread_id") or "")
@@ -1566,10 +1485,7 @@ def _reconcile_marker_signature(
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
         return None
-    if (
-        not isinstance(payload, dict)
-        or payload.get("version") != _COPILOT_RECONCILE_VERSION
-    ):
+    if not isinstance(payload, dict) or payload.get("version") != _COPILOT_RECONCILE_VERSION:
         return None
     if payload.get("pending_token_usage") and payload.get("store_signature") != store_signature:
         return None
@@ -1647,25 +1563,23 @@ def _normalize_model_usage(value: Any) -> tuple[dict[str, Any], ...]:
         cost_usd = _optional_float(raw.get("cost_usd"))
         if cost_usd is None and total_nano_aiu is not None:
             cost_usd = total_nano_aiu / NANO_AIU_PER_USD
-        items.append({
-            "usage_event_id": usage_event_id,
-            "session_id": session_id,
-            "model": str(raw.get("model") or ""),
-            "turn_index": _optional_int(raw.get("turn_index")),
-            "input_tokens": _optional_int(raw.get("input_tokens")),
-            "cached_input_tokens": _optional_int(
-                raw.get("cached_input_tokens")
-            ),
-            "cache_write_tokens": _optional_int(raw.get("cache_write_tokens")),
-            "output_tokens": _optional_int(raw.get("output_tokens")),
-            "reasoning_output_tokens": _optional_int(
-                raw.get("reasoning_output_tokens")
-            ),
-            "total_nano_aiu": total_nano_aiu,
-            "cost_usd": cost_usd,
-            "request_multiplier": _optional_float(raw.get("request_multiplier")),
-            "created_at": str(raw.get("created_at") or ""),
-        })
+        items.append(
+            {
+                "usage_event_id": usage_event_id,
+                "session_id": session_id,
+                "model": str(raw.get("model") or ""),
+                "turn_index": _optional_int(raw.get("turn_index")),
+                "input_tokens": _optional_int(raw.get("input_tokens")),
+                "cached_input_tokens": _optional_int(raw.get("cached_input_tokens")),
+                "cache_write_tokens": _optional_int(raw.get("cache_write_tokens")),
+                "output_tokens": _optional_int(raw.get("output_tokens")),
+                "reasoning_output_tokens": _optional_int(raw.get("reasoning_output_tokens")),
+                "total_nano_aiu": total_nano_aiu,
+                "cost_usd": cost_usd,
+                "request_multiplier": _optional_float(raw.get("request_multiplier")),
+                "created_at": str(raw.get("created_at") or ""),
+            }
+        )
     return tuple(items)
 
 

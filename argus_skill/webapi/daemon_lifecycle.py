@@ -523,7 +523,7 @@ def replace_project_daemon(
 
 
 def create_daemon(
-    objective: str = "", *, name: str = "",
+    objective: str = "", *, name: str = "", session_namespace: str = "",
     launch_cwd: str = "",
     workdir: str = "",
     global_root: Path | str | None = None,
@@ -549,7 +549,7 @@ def create_daemon(
     from ..core.session import new_session_id
 
     root = _global_root(global_root)
-    sid = new_session_id()
+    sid = new_session_id(session_namespace) if session_namespace else new_session_id()
     now = _time.time()
     requested_objective = (objective or "").strip()
     life_dir = core_paths.session_state_root(sid, root=root)
@@ -760,6 +760,8 @@ def stop_project_daemon(
 ) -> dict[str, Any] | None:
     """Stop this project's daemon. Blocking (waits up to the drain timeout) —
     call from a threadpool in the async endpoint."""
+    from ..core.workbench_plugins import cancel_plugin_operations
+    cancel_plugin_operations(sid)
     life_dir = project_life_dir(sid, global_root=global_root)
     if life_dir is None:
         return None

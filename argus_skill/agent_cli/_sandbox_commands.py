@@ -368,6 +368,9 @@ class CommandBuilderMixin:
         # modified, and later explicit extra args may still opt back in.
         command.extend(["-c", "notify=[]"])
         if options.disable_tools:
+            import dataclasses
+            options = dataclasses.replace(options, sandbox_mode="read-only", dangerous_yolo=False,
+                                          full_auto=False, skip_git_repo_check=True)
             # Stateless Manager/Planner control calls need the operator's model
             # provider and auth, but not interactive plugins, MCP servers, JS
             # REPL startup or project exec-policy rules. Keeping the base config
@@ -382,6 +385,11 @@ class CommandBuilderMixin:
                 "plugins={}",
                 "-c",
                 "features.js_repl=false",
+                "-c", "features.shell_tool=false",
+                "-c", "features.apply_patch_freeform=false",
+                "-c", "features.multi_agent=false",
+                "-c", "tools.view_image=false",
+                "-c", "project_doc_max_bytes=0",
                 "-c",
                 'web_search="disabled"',
             ])
@@ -551,13 +559,19 @@ class CommandBuilderMixin:
         if options.disable_tools:
             command.append(f"--available-tools={_COPILOT_NO_TOOLS_SENTINEL}")
         elif options.sandbox_mode == "read-only":
-            tools = "view,rg,glob"
+            tools = ",".join(["view", "rg", "glob", *(getattr(options, "trusted_tool_names", None) or [])])
             if review_output:
                 tools += ",argus_review-read_review,argus_review-write_review"
             command.extend([
                 "--available-tools", tools,
                 "--allow-tool", "view,rg,glob",
             ])
+            if getattr(options, "trusted_tool_names", None):
+                permissions = []
+                for name in options.trusted_tool_names:
+                    server, separator, tool = name.partition("-")
+                    permissions.append(f"{server}({tool})" if separator else name)
+                command.extend(["--allow-tool", ",".join(permissions)])
             if review_output:
                 command.extend(["--allow-tool", "argus_review"])
         elif options.dangerous_yolo:
@@ -702,6 +716,9 @@ class CommandBuilderMixin:
         ])
         for path in options.skill_paths or []:
             command.extend(["--skill", path])
+        if not options.disable_tools:
+            for path in getattr(options, "trusted_extensions", None) or []:
+                command.extend(["--extension", path])
         if options.model:
             command.extend(["--model", _pi_model(options.model)])
         if options.reasoning_effort:
@@ -709,7 +726,7 @@ class CommandBuilderMixin:
         if options.disable_tools:
             command.append("--no-tools")
         elif options.sandbox_mode == "read-only":
-            command.extend(["--tools", "read,grep,find,ls"])
+            command.extend(["--tools", ",".join(["read", "grep", "find", "ls", *(getattr(options, "trusted_tool_names", None) or [])])])
         merged_extra_args = [*self.default_extra_args]
         if options.extra_args:
             merged_extra_args.extend(options.extra_args)
@@ -720,6 +737,18 @@ class CommandBuilderMixin:
             )
         if merged_extra_args:
             command.extend(merged_extra_args)
+        # SELF/other role profiles can append their own --tools allowlist.
+        # Preserve that builtin policy while retaining the explicitly bound
+        # plugin tools; otherwise the later flag silently hides the extension.
+        if not options.disable_tools:
+            trusted = getattr(options, "trusted_tool_names", None) or []
+            for index, argument in enumerate(command):
+                if argument == "--tools" and index + 1 < len(command):
+                    names = command[index + 1].split(",")
+                    command[index + 1] = ",".join(dict.fromkeys([*names, *trusted]))
+                elif argument.startswith("--tools="):
+                    names = argument.split("=", 1)[1].split(",")
+                    command[index] = "--tools=" + ",".join(dict.fromkeys([*names, *trusted]))
         if resume_thread_id:
             command.extend(["--session", resume_thread_id])
         # Pi reads non-TTY stdin into the initial message in JSON mode. Keeping

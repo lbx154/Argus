@@ -420,6 +420,14 @@ class AgentCliBackend:
         self._io_logger.close(call_id)
 
     def _stream_event_callback(self, stream: str, line: str) -> None:
+        options = getattr(self, "_plugin_execution_options", None)
+        if options is not None and getattr(options, "extension_env", None):
+            from ...core.workbench_plugins import observe_plugin_stream
+            try:
+                from ...core.secret_guard import redact_secrets_text
+                observe_plugin_stream(options, stream, redact_secrets_text(line, known_values=self._known_secret_values))
+            except Exception:
+                log.exception("Plugin stream projection failed")
         self._repeated_tool_call_guard.observe(stream, line)
         self._io_logger.stream_event_callback(
             stream,
@@ -488,6 +496,9 @@ class AgentCliBackend:
             watchdog_soft_idle_seconds=soft_idle,
             watchdog_hard_idle_seconds=hard_idle,
         )
+        for plugin_field in ("trusted_extensions", "trusted_tool_names", "extension_env"):
+            if plugin_field in option_fields:
+                kwargs[plugin_field] = getattr(options, plugin_field, None)
         if "watchdog_stalled_idle_seconds" in option_fields:
             kwargs["watchdog_stalled_idle_seconds"] = stalled_idle
         # Forward live_search ONLY when the target RunnerOptions supports it —
@@ -565,7 +576,7 @@ class AgentCliBackend:
 # --- Convenience factory ---------------------------------------------------
 
 
-def build_agent_cli_backend_from_env() -> AgentCliBackend:
+def build_agent_cli_backend_from_env(*, role: str | None = None) -> AgentCliBackend:
     """Build a AgentCliBackend from environment variables.
 
     Honours:
@@ -587,9 +598,12 @@ def build_agent_cli_backend_from_env() -> AgentCliBackend:
     import shlex
 
     backend = os.environ.get("ARGUS_SKILL_RUNNER_BACKEND", "").strip() or "codex"
+    if role:
+        from ...core.role_config import resolve_role_config
+        backend = resolve_role_config(role).backend
     from ...core.knobs import resolve_runner_bin_setting
 
-    runner_bin = resolve_runner_bin_setting(backend=backend) or None
+    runner_bin = resolve_runner_bin_setting(role=role, backend=backend) or None
     raw_extra = os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", "").strip()
     extra = _strip_legacy_codex_profile_args(shlex.split(raw_extra) if raw_extra else None)
     return AgentCliBackend(
