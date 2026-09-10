@@ -8,6 +8,8 @@ import { attentionReason, splitDraft } from './presentation';
 import { useMapGrowth } from './useMapGrowth';
 import { stepIdentity } from './growth';
 import './motion.css';
+import './alive.css';
+import { ARRIVAL_WINDOW_MS, arrivalEdgeDelay, attention as spotlight, useSettledPositions } from './alive';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { replaceEqualDeep, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -31,6 +33,7 @@ import {
   Clock3,
   Compass,
   GitBranch,
+  History,
   LocateFixed,
   Maximize2,
   Pause,
@@ -38,6 +41,7 @@ import {
   RotateCcw,
   Search,
   Settings2,
+  X,
 } from "lucide-react";
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
@@ -248,6 +252,15 @@ export function MapCanvas({
     atlasCache.current = { structure, positions };
     return { links: atlasLinks, positions, frames, structure, branches, branchAnchor };
   }, [scene, promoted]);
+  // Cards glide to a re-laid-out place; relations follow through the store.
+  const positions = useSettledPositions(atlas.positions, camera.reducedMotion);
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const lit = useMemo(() => spotlight(atlas.links, hoverId), [atlas.links, hoverId]);
+  // A first opening composes the map in reading order; a replay walks a live
+  // session's history the way the datasets already can.
+  const [arriving, setArriving] = useState(false);
+  const [replaying, setReplaying] = useState(false);
+  const ordinalOf = useMemo(() => new Map(scene.cards.map((card) => [card.id, card.ordinal])), [scene.cards]);
   const growth = useMapGrowth(scene, !!data.history_loading);
   const plannedWidths = useMemo(() => formationWidths(data.events), [data.events]);
   const submitFromMap: MapSend = async (text, files = []) => {
@@ -297,6 +310,37 @@ export function MapCanvas({
     });
     return () => cancelAnimationFrame(frame);
   }, [nodesReady, camera.fit, camera.enter, camera.restore, data.kind, data.tasks, scene.cards, data.history_loading, copyReady]);
+  // The ambient light leans a little toward the pointer. A direct style
+  // write on the wrapper keeps this off React's render path entirely.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || camera.reducedMotion) return;
+    let frame: number | null = null;
+    const lean = (event: PointerEvent) => {
+      if (frame != null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        const rect = el.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        el.style.setProperty("--lean-x", ((event.clientX - rect.left) / rect.width - 0.5).toFixed(3));
+        el.style.setProperty("--lean-y", ((event.clientY - rect.top) / rect.height - 0.5).toFixed(3));
+      });
+    };
+    const rest = () => { el.style.setProperty("--lean-x", "0"); el.style.setProperty("--lean-y", "0"); };
+    el.addEventListener("pointermove", lean);
+    el.addEventListener("pointerleave", rest);
+    return () => {
+      if (frame != null) cancelAnimationFrame(frame);
+      el.removeEventListener("pointermove", lean);
+      el.removeEventListener("pointerleave", rest);
+    };
+  }, [camera.reducedMotion]);
+  useEffect(() => {
+    if (!fitted || savedView.current?.camera || camera.reducedMotion) return;
+    setArriving(true);
+    const timer = window.setTimeout(() => setArriving(false), ARRIVAL_WINDOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [fitted, camera.reducedMotion]);
   useEffect(() => {
     const save = () => {
       if (initialFit.current) rememberView(viewKey, { scene: sceneCache.current, camera: camera.capture() });
@@ -457,7 +501,7 @@ export function MapCanvas({
       return replaceEqualDeep(previous, scene.cards.map((card) => ({
         id: card.id,
         type: "task",
-        position: atlas.positions[card.id] ?? scene.positions[card.id],
+        position: positions[card.id] ?? scene.positions[card.id],
         width: scene.frames[card.id].width,
         height: scene.frames[card.id].height,
         style: {
@@ -489,6 +533,7 @@ export function MapCanvas({
     graph,
     scene,
     atlas,
+    positions,
     zh,
     setNodes,
     openCard,
@@ -520,12 +565,19 @@ export function MapCanvas({
     );
     return () => window.clearInterval(timer);
   }, [playing, graph.tasks.length, camera.detailed]);
+  // A live replay returns to the present on its own once the last card has
+  // had time to take its place.
+  useEffect(() => {
+    if (!replaying || playing || visibleCount < graph.tasks.length) return;
+    const timer = window.setTimeout(() => setReplaying(false), 1400);
+    return () => window.clearTimeout(timer);
+  }, [replaying, playing, visibleCount, graph.tasks.length]);
   const visibleIds = useMemo(
     () => {
       const visible = new Set(
         scene.cards
           .filter(
-            (card) => data.kind === "live" || card.ordinal <= visibleCount,
+            (card) => (data.kind === "live" && !replaying) || card.ordinal <= visibleCount,
           )
           .map((card) => card.id),
       );
@@ -534,7 +586,7 @@ export function MapCanvas({
         if (visible.has(card)) visible.add(id);
       return visible;
     },
-    [scene.cards, visibleCount, data.kind, atlas.branchAnchor],
+    [scene.cards, visibleCount, data.kind, replaying, atlas.branchAnchor],
   );
   const previousDisplay = useRef<MacroNode[]>([]);
   const displayNodes = useMemo(
@@ -551,6 +603,11 @@ export function MapCanvas({
           focused: n.id === camera.focusId,
           detailed: camera.detailed && n.id === camera.focusId,
           canvasSize: camera.canvasSize,
+          lit: lit.nodes.has(n.id),
+          hovered: n.id === hoverId,
+          arriving,
+          revealing: replaying,
+          phase: activePhase && ACTIVE.has(n.data.task.status) ? activePhase : undefined,
           growthDelay: growth.cards[n.id],
           dispatchState: flight?.result?.type === 'task' && flight.result.taskId === n.data.task.id && !composer.historical
             ? flight.landed ? 'landed' : 'receiving'
@@ -590,6 +647,11 @@ export function MapCanvas({
       flight,
       composer.historical,
       traceTasks,
+      lit,
+      hoverId,
+      arriving,
+      replaying,
+      activePhase,
     ],
   );
   // Branch pills are display/navigation only; structural sharing keeps their
@@ -611,7 +673,7 @@ export function MapCanvas({
         return {
           id: task.id,
           type: "branch",
-          position: atlas.positions[task.id] ?? { x: 0, y: 0 },
+          position: positions[task.id] ?? { x: 0, y: 0 },
           width: BRANCH_FRAME.width,
           height: BRANCH_FRAME.height,
           style: {
@@ -635,7 +697,7 @@ export function MapCanvas({
       previousBranchNodes.current = replaceEqualDeep(previousBranchNodes.current, next);
       return previousBranchNodes.current;
     },
-    [atlas, visibleIds, zh, openCard, traceTasks],
+    [atlas, positions, visibleIds, zh, openCard, traceTasks],
   );
   const flowNodes = useMemo<AtlasNode[]>(
     () => (branchNodes.length ? [...displayNodes, ...branchNodes] : displayNodes),
@@ -673,17 +735,27 @@ export function MapCanvas({
           source: e.source,
           target: e.target,
           ...relationPorts(
-            { ...atlas.positions[e.source], ...atlas.frames[e.source] },
-            { ...atlas.positions[e.target], ...atlas.frames[e.target] },
+            { ...positions[e.source], ...atlas.frames[e.source] },
+            { ...positions[e.target], ...atlas.frames[e.target] },
           ),
           type: "relation",
           data: {
-            growthDelay: growth.links[e.id],
+            // New evidence draws its own link; otherwise a first opening
+            // draws every relation once its source card stands, and a replay
+            // draws the links into the card just revealed.
+            growthDelay:
+              growth.links[e.id] ??
+              (arriving
+                ? arrivalEdgeDelay(ordinalOf.get(e.source) ?? 1)
+                : replaying && ordinalOf.get(e.target) === visibleCount
+                  ? 120
+                  : undefined),
             active: activeTargets.has(e.target),
+            lit: lit.edges.has(e.id),
             lane: lanes[index],
             muted,
           },
-          className: `map-edge-${e.kind}`,
+          className: `map-edge-${e.kind}${lit.edges.has(e.id) ? " is-lit" : ""}`,
           // Fan edges carry no label: the pill itself names the branch.
           label: fan
             ? undefined
@@ -753,6 +825,12 @@ export function MapCanvas({
       paused,
       scene.cards,
       tracedTask,
+      positions,
+      lit,
+      arriving,
+      replaying,
+      visibleCount,
+      ordinalOf,
     ],
   );
   const replacementCount = graph.links.filter(
@@ -833,6 +911,71 @@ export function MapCanvas({
   const artifactScope = useMemo(
     () => ({ artifacts: actions.artifacts, onOpenArtifact: actions.onOpenArtifact }),
     [actions.artifacts, actions.onOpenArtifact],
+  );
+  // One reveal strip, rendered in the layout for datasets and floating over
+  // the canvas during a live replay, so the canvas never resizes and the
+  // overview camera stays where the reader left it.
+  const playbackStrip = (
+    <div className="map-playback" data-floating={data.kind === "live"}>
+      <button
+        aria-label={playing ? "Pause reveal" : "Play reveal"}
+        onClick={() => {
+          if (visibleCount >= graph.tasks.length) setVisibleCount(1);
+          setPlaying((v) => !v);
+        }}
+      >
+        {playing ? <Pause size={14} /> : <Play size={14} />}
+      </button>
+      <button
+        aria-label="Restart reveal"
+        onClick={() => {
+          setPlaying(false);
+          setVisibleCount(1);
+          if (data.kind !== "live") camera.back();
+        }}
+      >
+        <RotateCcw size={13} />
+      </button>
+      <span>{zh ? "逐卡展开" : "Reveal cards"}</span>
+      <input
+        aria-label="Visible task count"
+        type="range"
+        min={Math.min(1, graph.tasks.length)}
+        max={graph.tasks.length}
+        value={visibleCount}
+        onChange={(e) => {
+          setPlaying(false);
+          setVisibleCount(Number(e.target.value));
+        }}
+      />
+      <span className="map-count">
+        {visibleCount} / {graph.tasks.length}
+      </span>
+      <button
+        aria-label="Reveal next card"
+        disabled={visibleCount >= graph.tasks.length}
+        onClick={() =>
+          setVisibleCount((c) => Math.min(graph.tasks.length, c + 1))
+        }
+      >
+        <ChevronRight size={14} />
+      </button>
+      <small>{zh ? "时间顺序" : "Chronological order"}</small>
+      {data.kind === "live" && (
+        <button
+          className="map-replay-exit"
+          aria-label={zh ? "回到当前" : "Back to the present"}
+          title={zh ? "回到当前" : "Back to the present"}
+          onClick={() => {
+            setPlaying(false);
+            setReplaying(false);
+            setVisibleCount(graph.tasks.length);
+          }}
+        >
+          <X size={14} />
+        </button>
+      )}
+    </div>
   );
   return (
     <MapNotesContext.Provider value={notesScope}>
@@ -964,7 +1107,9 @@ export function MapCanvas({
           data-focused={!!camera.focusId}
           data-detailed={camera.detailed}
           data-fitted={fitted}
+          data-hovering={!!hoverId && !camera.detailed}
         >
+          <div className="map-ambient" aria-hidden="true"><i /><i /><i /></div>
           {conversationOpen && <MapConversation events={actions.conversationEvents} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
           {agentsOpen && data.kind === 'live' && <aside className="map-agent-drawer nowheel nodrag nopan">
             <AgentActivity view={snapshot.mission_view} roles={snapshot.roles} events={events}
@@ -1028,6 +1173,21 @@ export function MapCanvas({
             >
               <GitBranch size={15} /><span>{zh ? "来路 / 去向" : "Dependencies"}</span>
             </button>
+            {data.kind === "live" && graph.tasks.length > 1 && !camera.detailed && !replaying && (
+              <button
+                onClick={() => {
+                  // The overview stays where it is; the map fills back in.
+                  setReplaying(true);
+                  setVisibleCount(1);
+                  setPlaying(true);
+                }}
+                title={zh ? "回放这项研究是如何展开的" : "Replay how this research unfolded"}
+                aria-label="Replay"
+              >
+                <History size={15} />
+                <span>{zh ? "回放" : "Replay"}</span>
+              </button>
+            )}
             {camera.detailed && (
               <button
                 onClick={camera.back}
@@ -1104,6 +1264,8 @@ export function MapCanvas({
               nodeTypes={NODE_TYPES}
               edgeTypes={EDGE_TYPES}
               onNodesChange={onNodesChange as OnNodesChange<AtlasNode>}
+              onNodeMouseEnter={(_, node) => setHoverId(node.id)}
+              onNodeMouseLeave={() => setHoverId(null)}
               onMove={camera.onMove}
               defaultViewport={INITIAL_VIEWPORT}
               minZoom={0.035}
@@ -1154,6 +1316,7 @@ export function MapCanvas({
               />
             </ReactFlow>
           )}
+          {data.kind === "live" && replaying && playbackStrip}
           <div className="map-legend nowheel">
             <span
               title={
@@ -1283,54 +1446,7 @@ export function MapCanvas({
           )}
         </div>
       </div>
-      {data.kind !== "live" && (
-        <div className="map-playback">
-          <button
-            aria-label={playing ? "Pause reveal" : "Play reveal"}
-            onClick={() => {
-              if (visibleCount >= graph.tasks.length) setVisibleCount(1);
-              setPlaying((v) => !v);
-            }}
-          >
-            {playing ? <Pause size={14} /> : <Play size={14} />}
-          </button>
-          <button
-            aria-label="Restart reveal"
-            onClick={() => {
-              setPlaying(false);
-              setVisibleCount(1);
-              camera.back();
-            }}
-          >
-            <RotateCcw size={13} />
-          </button>
-          <span>{zh ? "逐卡展开" : "Reveal cards"}</span>
-          <input
-            aria-label="Visible task count"
-            type="range"
-            min={Math.min(1, graph.tasks.length)}
-            max={graph.tasks.length}
-            value={visibleCount}
-            onChange={(e) => {
-              setPlaying(false);
-              setVisibleCount(Number(e.target.value));
-            }}
-          />
-          <span className="map-count">
-            {visibleCount} / {graph.tasks.length}
-          </span>
-          <button
-            aria-label="Reveal next card"
-            disabled={visibleCount >= graph.tasks.length}
-            onClick={() =>
-              setVisibleCount((c) => Math.min(graph.tasks.length, c + 1))
-            }
-          >
-            <ChevronRight size={14} />
-          </button>
-          <small>{zh ? "时间顺序" : "Chronological order"}</small>
-        </div>
-      )}
+      {data.kind !== "live" && playbackStrip}
     </MapArtifactContext.Provider>
     </MapNotesContext.Provider>
   );

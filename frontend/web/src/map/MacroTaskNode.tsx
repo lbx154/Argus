@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useEffect, useRef, useState } from "react";
+import { createContext, memo, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Handle, Position, useStore, type Node, type NodeProps } from "@xyflow/react";
 import {
   Check,
@@ -28,6 +28,8 @@ import {
   type MapCard,
 } from "./submap";
 import { SubmapEdges } from "./SubmapEdges";
+import { LiveLine } from "./LiveLine";
+import { arrivalDelay } from "./alive";
 
 export type MacroData = MapCard & {
   zh: boolean;
@@ -48,6 +50,15 @@ export type MacroData = MapCard & {
   plannedWidth?: number;
   seenCards?: Set<string>;
   restoring?: boolean;
+  /** The pointer is on this card, or on one it is related to. */
+  lit?: boolean;
+  hovered?: boolean;
+  /** The map is composing itself after a first opening. */
+  arriving?: boolean;
+  /** A replay is revealing cards in order. */
+  revealing?: boolean;
+  /** The role at work on this card right now, when the session is live. */
+  phase?: string;
   readOnly: boolean;
   source: string;
   quote: (ref: CardReference) => void;
@@ -138,7 +149,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     const width = state.transform[2] * data.frame.width;
     return width < 140 ? 'micro' : width < 230 ? 'compact' : 'full';
   });
-  const [arrive] = useState(() => !data.restoring && !data.seenCards?.has(id));
+  const [arrive] = useState(() => !!data.revealing || (!data.restoring && !data.seenCards?.has(id)));
   useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
   const [readingLayout, setReadingLayout] = useState<SubmapLayout | null>(null);
   const layout = readingLayout || currentLayout;
@@ -299,10 +310,17 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       data-task-id={task.id}
       data-card-id={id}
       data-part={data.part}
-      data-arrive={arrive}
+      // A first opening lets every card take the stage, whether or not the
+      // viewport had already rendered it once; a replay only animates cards
+      // that are being revealed.
+      data-arrive={!!data.arriving || (arrive && !!data.revealing)}
+      data-lit={!!data.lit}
+      data-hovered={!!data.hovered}
       data-growing={data.growthDelay != null}
       data-dispatch={data.dispatchState}
-      style={{ animationDelay: `${data.growthDelay ?? 0}ms` }}
+      style={{
+        animationDelay: `${data.growthDelay ?? (data.arriving ? arrivalDelay(ordinal) : 0)}ms`,
+      } as CSSProperties}
       data-focused={focused}
       data-detailed={detailed}
       aria-label={title}
@@ -404,6 +422,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               />
             </span>
           )}
+          {isLastPart && data.live && !data.paused && ACTIVE.has(task.status) && (
+            <LiveLine role={data.phase ?? task.role} since={task.started_ts} zh={zh} />
+          )}
           <div className="map-card-bottom">
             <span className={teamSteps.length ? 'map-card-team-summary' : undefined} title={range}>
               {teamSteps.length
@@ -482,7 +503,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             {col.title}
           </div>
         ))}
-        {layout.steps.map((recorded) => {
+        {layout.steps.map((recorded, stepIndex) => {
           const step = currentStep(recorded);
           const Icon = ICONS[step.kind];
           return (
@@ -504,9 +525,10 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               }}
               style={{
                 animationDelay: `${data.growingSteps?.[step.id] ?? 0}ms`,
+                "--step-index": stepIndex,
                 left: layout.positions[step.id].x,
                 top: layout.positions[step.id].y,
-              }}
+              } as CSSProperties}
               tabIndex={detailed ? 0 : -1}
               onClick={() => read(step)}
               aria-expanded={detailId === step.id}
