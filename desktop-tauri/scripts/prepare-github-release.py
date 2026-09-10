@@ -39,7 +39,7 @@ def main():
                   assets / f"Argus-{version}-macos-aarch64.dmg",
                   assets / f"Argus-{version}-macos-x86_64.dmg"]
     assert all(path.is_file() for path in installers)
-    manifest["notes"] = "Private-key trial on Windows and Mac: automatic Copilot setup and built-in workbench."
+    manifest["notes"] = "修复工作台布局和样式；Copilot 首次下载增加实际进度与网络停滞提示。"
     (assets / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     hashes = []
     for path in sorted(assets.iterdir()):
@@ -48,20 +48,19 @@ def main():
     (assets / "SHA256SUMS").write_text("\n".join(hashes) + "\n")
     args.notes.write_text(f"""## Argus {version} · Windows & Mac
 
-- Enter an internal trial Key on startup to install Copilot automatically and open the built-in workbench.
-- No terminal, Python, Node.js, or personal Coding-account login is needed for the trial.
-- All hosted model requests require a valid Key. Upstream credentials stay on the server.
-- Each Key shares a lifetime allowance of 1,000,000 tokens across devices; the service enforces 10 active requests and 10,000,000 TPM.
-- Trial configuration survives restarts. Existing own-account setup remains available.
-- Retains the 0.1.2 desktop startup, window and runtime-integrity fixes alongside current main.
+- 修复 Windows / Mac 工作台布局：按中间区域实际可用宽度调整分栏，避免两侧栏展开时挤压标题和卡片。
+- 修复全局样式覆盖工作台的问题，恢复标题字号、按钮和内容间距。
+- Copilot 首次下载显示实际进度；连续 30 秒没有进展时提示检查网络或开启系统代理 / TUN。
+- 保留内部测试 Key 入口、自动安装 Copilot 和内置工作台，无需命令行或个人 Coding 账号。
+- 同一 Key 可跨设备使用，累计额度 100 万 token；上游账号凭据保留在服务器。
 
 ### Downloads
 
 | System | Installer |
 |---|---|
-| Windows x64 | `{installers[0].name}` |
-| Mac Apple Silicon (macOS 13+) | `{installers[1].name}` |
-| Mac Intel (macOS 13+) | `{installers[2].name}` |
+| Windows x64 | [{installers[0].name}](https://github.com/lbx154/Argus/releases/download/v{version}/{installers[0].name}) |
+| Mac Apple Silicon (macOS 13+) | [{installers[1].name}](https://github.com/lbx154/Argus/releases/download/v{version}/{installers[1].name}) |
+| Mac Intel (macOS 13+) | [{installers[2].name}](https://github.com/lbx154/Argus/releases/download/v{version}/{installers[2].name}) |
 
 Windows: run the installer. Mac: open the DMG and drag Argus to Applications.
 Then choose **使用内部测试 Key**, paste your invitation Key and select **开始试用**.

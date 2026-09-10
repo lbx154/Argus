@@ -8,7 +8,7 @@ export default defineConfig({
   outputDir: './build/ui-test-results',
   use: {
     baseURL: 'http://127.0.0.1:1428',
-    browserName: 'chromium',
+    browserName: process.platform === 'darwin' ? 'webkit' : 'chromium',
     channel: process.platform === 'win32' ? 'msedge' : undefined,
     viewport: { width: 1280, height: 820 },
     screenshot: 'only-on-failure',
