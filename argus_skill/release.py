@@ -90,6 +90,7 @@ def _source_files(root: Path) -> Iterable[Path]:
         "desktop-tauri/scripts/*.mjs",
         "desktop-tauri/scripts/*.ps1",
         "desktop-tauri/scripts/*.py",
+        "desktop-tauri/scripts/*.rs",
         "desktop-tauri/package.json",
         "desktop-tauri/package-lock.json",
         "desktop-tauri/tsconfig.json",

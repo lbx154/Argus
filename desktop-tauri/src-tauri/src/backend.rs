@@ -967,7 +967,8 @@ impl BackendSupervisor {
             .env("ARGUS_SKILL_PYTHON", &shell_command)
             .env("ARGUS_SKILL_WEB_TOKEN", &settings.token)
             .env("ARGUS_DESKTOP_LAUNCH_NONCE", &launch_nonce)
-            .env("ARGUS_SKILL_HOME", argus_home)
+            .env("ARGUS_SKILL_HOME", &argus_home)
+            .env("ARGUS_WORKBENCH_HOST_ROOT", &argus_home)
             .env(
                 "PYTHONUTF8",
                 env::var("PYTHONUTF8").unwrap_or_else(|_| "1".to_owned()),

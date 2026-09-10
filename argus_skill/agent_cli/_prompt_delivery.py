@@ -347,6 +347,12 @@ class PromptDeliveryMixin:
             env["GH_CONFIG_DIR"] = str(
                 Path(tempfile.gettempdir()) / "argus-no-gh-auth"
             )
+        if self.backend == BACKEND_COPILOT and env is not None and options.isolate_workdir:
+            # Isolation intentionally strips ambient credentials. Reapply only
+            # the selected hosted provider afterwards, never other account keys.
+            from ..trial.client import apply_trial_provider
+
+            apply_trial_provider(env)
         plugin_env = getattr(options, "extension_env", None)
         if plugin_env and not options.disable_tools:
             env = dict(os.environ) if env is None else env

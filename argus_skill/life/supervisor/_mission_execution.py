@@ -80,13 +80,35 @@ class MissionExecutionMixin(
             if getattr(self, "manager", None) is not None
             else None
         )
-        item = ensure_manager_decision(
-            self.memory,
-            item,
-            getattr(self, "chat_state", None),
-            manager=manager,
-            vertical_root=vertical_root,
-        )
+        from ...core.plugin_manager import PluginUnavailableError
+
+        try:
+            item = ensure_manager_decision(
+                self.memory,
+                item,
+                getattr(self, "chat_state", None),
+                manager=manager,
+                vertical_root=vertical_root,
+            )
+        except PluginUnavailableError as exc:
+            # No mission was started. Seal this attempt visibly so the plugin
+            # monitor can leave "thinking" without paying for a fallback run.
+            reason = str(exc)
+            # "blocked" is an outcome, not a valid backlog status (unknown
+            # statuses normalize to pending and would immediately retry).
+            self.memory.backlog.update(item.id, status="failed", last_error=reason)
+            self._emit({
+                "type": "life.mission.completed", "item_id": item.id,
+                "title": item.title, "success": False, "status": "failed",
+                "outcome_class": "blocked", "stop_kind": "permanent_error",
+                "stop_reason": reason, "failure_reason": reason, "summary": reason,
+                "resumable": False, "recoverable": False,
+            })
+            return {
+                "status": "failed", "item_id": item.id, "success": False,
+                "outcome_class": "blocked", "stop_kind": "permanent_error",
+                "stop_reason": reason,
+            }
 
         prelude = self._build_mission_prelude(item)
         state = self._prepare_mission_context(

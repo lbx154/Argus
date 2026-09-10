@@ -105,6 +105,12 @@ def clean_env():
         "LANG",
         "LC_ALL",
         "SYSTEMDRIVE",
+        # platform.machine() on Windows reads these non-sensitive OS values.
+        # Dropping them makes the installer incorrectly detect "windows/".
+        "PROCESSOR_ARCHITECTURE",
+        "PROCESSOR_ARCHITEW6432",
+        "NUMBER_OF_PROCESSORS",
+        "OS",
         "HTTP_PROXY",
         "HTTPS_PROXY",
         "NO_PROXY",

@@ -21,10 +21,15 @@ from . import CLIENT_MODEL, MAX_OUTPUT_TOKENS, MODEL
 TRIAL_ENV = "ARGUS_SKILL_COPILOT_TRIAL"
 
 
-def profile_path() -> Path:
+def trial_home() -> Path:
+    """Account configuration belongs to the host, not a plugin task namespace."""
     from ..core.paths import global_root
 
-    return global_root() / "copilot-trial.json"
+    return Path(os.environ.get("ARGUS_WORKBENCH_HOST_ROOT") or global_root()).resolve()
+
+
+def profile_path() -> Path:
+    return trial_home() / "copilot-trial.json"
 
 
 def trial_enabled(env: dict[str, str] | None = None) -> bool:
