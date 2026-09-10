@@ -830,8 +830,8 @@ def resolve_manager_reply_model(
 
 #: Backends whose model catalog IS the OpenAI catalog, so Argus may name a
 #: specific OpenAI id for its cheap control-plane routes without asking the
-#: operator. ``copilot`` qualifies by construction.  Codex normally does too,
-#: except when its own config selects a non-OpenAI custom provider such as
+#: operator. Personal ``copilot`` qualifies; hosted trial has its own selector.
+#: Codex normally qualifies too, except when its config selects a provider such as
 #: DeepSeek; :func:`backend_uses_openai_catalog` handles that exception.
 _OPENAI_CATALOG_BACKENDS = frozenset({"codex", "copilot"})
 
@@ -854,8 +854,12 @@ def backend_uses_openai_catalog(
     normalized = str(backend or "").strip().casefold()
     if normalized not in _OPENAI_CATALOG_BACKENDS:
         return False
-    if normalized != "codex":
-        return True
+    if normalized == "copilot":
+        from ..trial.client import trial_enabled
+
+        # Normalize control-plane defaults before accounting and execution,
+        # rather than relying on the later CLI worker model override.
+        return not trial_enabled(env)
     try:
         from ..tools.capability_vault import read_codex_provider_config
 
