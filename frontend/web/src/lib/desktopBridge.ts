@@ -137,8 +137,10 @@ export function installDesktopExternalLinkBridge(): () => void {
   const parent = embeddedDesktopParent();
   if (!parent) return () => undefined;
   const listener = (event: MouseEvent): void => {
-    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
-    const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>('a[href]');
+    if (event.defaultPrevented || (event.button !== 0 && event.button !== 1)) return;
+    const anchor = event.target instanceof Element
+      ? event.target.closest<HTMLAnchorElement>('a[href]')
+      : null;
     if (!anchor) return;
     let target: URL;
     try {
@@ -150,6 +152,25 @@ export function installDesktopExternalLinkBridge(): () => void {
     event.preventDefault();
     parent.postMessage({ type: 'argus:open-external', payload: target.toString() }, '*');
   };
+  // Keyboard events inside an iframe do not bubble to the desktop shell.
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey
+      || !(event.ctrlKey || event.metaKey)) return;
+    const type = event.key === ',' ? 'argus:show-setup'
+      : event.key.toLowerCase() === 'n' ? 'argus:request-new-chat' : null;
+    if (!type) return;
+    event.preventDefault();
+    parent.postMessage({ type }, '*');
+  };
+  const onPointer = (): void => parent.postMessage({ type: 'argus:cockpit-interaction' }, '*');
   document.addEventListener('click', listener, true);
-  return () => document.removeEventListener('click', listener, true);
+  document.addEventListener('auxclick', listener, true);
+  window.addEventListener('keydown', onKey);
+  document.addEventListener('pointerdown', onPointer, { passive: true });
+  return () => {
+    document.removeEventListener('click', listener, true);
+    document.removeEventListener('auxclick', listener, true);
+    window.removeEventListener('keydown', onKey);
+    document.removeEventListener('pointerdown', onPointer);
+  };
 }

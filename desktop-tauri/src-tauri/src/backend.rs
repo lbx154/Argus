@@ -2,7 +2,7 @@ use crate::{
     identity::{
         authenticated_bundled_backend_matches, backend_launch_claim_matches,
         backend_ownership_matches, prior_backend_ownership_matches,
-        same_path, ExpectedBackendIdentity, ExpectedBackendLaunch, ExpectedPriorBackendOwnership,
+        same_path, shell_command_path, ExpectedBackendIdentity, ExpectedBackendLaunch, ExpectedPriorBackendOwnership,
     },
     logger::DesktopLogger,
     models::{
@@ -10,11 +10,13 @@ use crate::{
         ProbeIdentity,
     },
     process::{is_process_alive, terminate_windows_process_tree},
+    probe::response_bytes,
     redaction::redact_sensitive_text,
     release::ReleaseContext,
     resilience::{AutomaticRecoveryDecision, BackendResiliencePolicy, HealthDecision},
     runner::{
-        argus_home_dir, detect_runners, resolve_runner_configuration, runner_runtime_path_entries,
+        argus_home_dir, desktop_setup_complete, detect_runners, resolve_runner_configuration,
+        runner_runtime_path_entries,
     },
     settings::SettingsStore,
 };
@@ -77,6 +79,8 @@ struct Runtime {
     lifecycle_generation: u64,
     reached_ready: bool,
     recovery_scheduled: bool,
+    ownership: Option<BackendOwnership>,
+    launch_nonce: Option<String>,
     resilience: BackendResiliencePolicy,
     log_tail: VecDeque<String>,
 }
@@ -141,6 +145,8 @@ impl BackendSupervisor {
                     lifecycle_generation: 0,
                     reached_ready: false,
                     recovery_scheduled: false,
+                    ownership: None,
+                    launch_nonce: None,
                     resilience: BackendResiliencePolicy::default(),
                     log_tail: VecDeque::with_capacity(200),
                 }),
@@ -176,6 +182,7 @@ impl BackendSupervisor {
                 state: state.clone(),
                 message: message.clone(),
                 detail: detail.clone(),
+                warning: None,
                 pid: None,
                 url: None,
             };
@@ -230,6 +237,17 @@ impl BackendSupervisor {
             runtime.lifecycle_generation
         };
         let settings = self.inner.settings.snapshot();
+        let configured = match resolve_runner_configuration(&settings) {
+            Ok(configured) => configured,
+            Err(error) => {
+                self.set_status(BackendState::Error, "无法读取 Agent CLI 配置", Some(error.to_string()));
+                return;
+            }
+        };
+        if !desktop_setup_complete(&settings, configured.as_ref()) {
+            self.set_status(BackendState::Idle, "请选择并确认 Agent CLI 后开始使用", None);
+            return;
+        }
         let command = match self.resolve_command(&settings) {
             Ok(command) => command,
             Err(error) => {
@@ -241,27 +259,11 @@ impl BackendSupervisor {
                 return;
             }
         };
-        if !self.inner.release.development {
-            if !command.command.is_file() {
-                self.set_status(
-                    BackendState::Error,
-                    "内置 Argus 后端缺失",
-                    Some(format!(
-                        "未找到 {}；请重新安装完整桌面包。",
-                        command.command.display()
-                    )),
-                );
-                return;
-            }
-            if self.expected_manifest_digest().is_none() {
-                self.set_status(
-                    BackendState::Error,
-                    "无法验证内置 Argus 后端",
-                    Some("发布清单缺失或损坏；桌面端不会启动身份不明的后端。".to_owned()),
-                );
-                return;
-            }
+        if let Err(error) = self.inner.release.validate_payload() {
+            self.set_status(BackendState::Error, "运行包文件需要修复", Some(error));
+            return;
         }
+        self.inner.logger.info(format!("starting verified release {} from {}", self.inner.release.identity().release_id, command.command.display()));
 
         self.set_status(BackendState::Starting, "正在检查本地服务", None);
         let probe = self.probe_for_startup(&settings).await;
@@ -283,9 +285,12 @@ impl BackendSupervisor {
                 );
                 return;
             }
+            let ownership = self.read_ownership();
             {
                 let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
                 runtime.runtime_pid = probe.pid;
+                runtime.ownership = ownership;
+                runtime.launch_nonce = probe.launch_nonce.clone();
             }
             self.mark_backend_ready(generation, "本地服务已就绪");
             return;
@@ -330,9 +335,11 @@ impl BackendSupervisor {
         }
     }
 
-    pub async fn restart(self: &Arc<Self>) {
+    pub async fn restart(self: &Arc<Self>) -> Result<(), String> {
+        self.inner.release.validate_payload()?;
         self.stop().await;
         self.start().await;
+        Ok(())
     }
 
     pub async fn stop(self: &Arc<Self>) {
@@ -421,6 +428,7 @@ impl BackendSupervisor {
                     .runtime
                     .lock()
                     .expect("runtime mutex poisoned");
+                runtime.lifecycle_generation = runtime.lifecycle_generation.wrapping_add(1);
                 runtime.status.state = BackendState::Idle;
                 runtime.status.message = "自动恢复正在重新启动".to_owned();
                 runtime.status.detail = None;
@@ -503,6 +511,7 @@ impl BackendSupervisor {
                             .expect("runtime mutex poisoned");
                         runtime.resilience.record_health_success();
                     }
+                    supervisor.report_runtime_warning(supervisor.inner.release.validate_payload().err());
                     delay = HEALTH_INTERVAL;
                     continue;
                 }
@@ -528,7 +537,11 @@ impl BackendSupervisor {
                         .record_health_failure(identity_conflict, pid.is_some_and(is_process_alive))
                 };
                 let detail = probe.detail.unwrap_or_else(|| {
-                    format!("127.0.0.1:{} 暂时未响应当前桌面构建", settings.port)
+                    if identity_conflict {
+                        format!("认证响应与本次启动记录不一致（预期 PID {:?}，响应 PID {:?}）；将拒绝不一致的启动时间、路径、构建或启动证明。", pid, probe.pid)
+                    } else {
+                        format!("127.0.0.1:{} 暂时未响应", settings.port)
+                    }
                 });
                 match decision {
                     HealthDecision::Retry { delay_ms, .. } => {
@@ -537,6 +550,10 @@ impl BackendSupervisor {
                             .logger
                             .warn(format!("backend health probe transient failure: {detail}"));
                         delay = Duration::from_millis(delay_ms);
+                    }
+                    HealthDecision::Wait { .. } => {
+                        supervisor.report_runtime_warning(Some("本地连接暂时中断，任务进程仍在运行；正在重新连接，未自动终止任务。".into()));
+                        delay = HEALTH_INTERVAL;
                     }
                     HealthDecision::Fail { .. } => {
                         supervisor.set_status(
@@ -555,6 +572,21 @@ impl BackendSupervisor {
                 }
             }
         });
+    }
+
+    fn report_runtime_warning(&self, warning: Option<String>) {
+        let changed = {
+            let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
+            if runtime.status.warning == warning { false } else {
+                runtime.status.warning = warning.clone();
+                true
+            }
+        };
+        if changed {
+            if let Some(detail) = warning { self.inner.logger.warn(format!("runtime warning (live backend identity unchanged): {detail}")); }
+            else { self.inner.logger.info("runtime warnings cleared"); }
+            self.emit_status();
+        }
     }
 
     async fn probe_for_startup(&self, settings: &DesktopSettings) -> ProbeIdentity {
@@ -629,7 +661,15 @@ impl BackendSupervisor {
                 failure_kind: Some(ProbeFailureKind::Http),
             };
         }
-        let body = match response.json::<MetaResponse>().await {
+        let bytes = match response_bytes(response).await {
+            Ok(bytes) => bytes,
+            Err(kind) => return ProbeIdentity {
+                failure_kind: Some(kind),
+                detail: Some("本地服务响应体暂时未读取完成，将按连接故障重试。".into()),
+                ..identity_probe("", false, None)
+            },
+        };
+        let body = match serde_json::from_slice::<MetaResponse>(&bytes) {
             Ok(body) => body,
             Err(_) => {
                 return ProbeIdentity {
@@ -710,7 +750,7 @@ impl BackendSupervisor {
                     ..probe
                 };
             }
-            if probe.manifest_source_digest.as_deref() != self.expected_manifest_digest().as_deref()
+            if probe.manifest_source_digest.as_deref() != Some(self.expected_manifest_digest().as_str())
             {
                 return ProbeIdentity {
                     detail: Some("端口上的 Argus 后端不是当前桌面构建".to_owned()),
@@ -771,7 +811,7 @@ impl BackendSupervisor {
         })
     }
 
-    fn expected_manifest_digest(&self) -> Option<String> {
+    fn expected_manifest_digest(&self) -> String {
         self.inner.release.manifest_digest()
     }
 
@@ -788,9 +828,15 @@ impl BackendSupervisor {
     }
 
     fn read_ownership(&self) -> Option<BackendOwnership> {
-        fs::read_to_string(self.ownership_path())
-            .ok()
-            .and_then(|raw| serde_json::from_str(&raw).ok())
+        let path = self.ownership_path();
+        match fs::read_to_string(&path) {
+            Ok(raw) => match serde_json::from_str(&raw) {
+                Ok(record) => Some(record),
+                Err(error) => { self.inner.logger.warn(format!("ownership record invalid at {}: {error}", path.display())); None }
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => { self.inner.logger.warn(format!("ownership record unavailable at {}: {error}", path.display())); None }
+        }
     }
 
     fn ownership_matches(
@@ -799,12 +845,15 @@ impl BackendSupervisor {
         settings: &DesktopSettings,
         command: &BackendCommand,
     ) -> bool {
-        let Some(ownership) = self.read_ownership() else {
-            return false;
+        let (cached, nonce) = {
+            let runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
+            (runtime.ownership.clone(), runtime.launch_nonce.clone())
         };
-        let Some(digest) = self.expected_manifest_digest() else {
+        if nonce.as_deref().is_some_and(|expected| probe.launch_nonce.as_deref() != Some(expected)) {
             return false;
-        };
+        }
+        let Some(ownership) = cached.or_else(|| self.read_ownership()) else { return false; };
+        let digest = self.expected_manifest_digest();
         let executable = if self.inner.release.development {
             probe.executable.clone().unwrap_or_default()
         } else {
@@ -883,11 +932,10 @@ impl BackendSupervisor {
         settings: DesktopSettings,
         generation: u64,
     ) -> anyhow::Result<()> {
-        let manifest_source_digest = self.expected_manifest_digest().ok_or_else(|| {
-            anyhow::anyhow!("Argus backend release manifest is missing or invalid")
-        })?;
+        let manifest_source_digest = self.expected_manifest_digest();
         self.ensure_special_prompts()?;
         let runtime_bin = self.ensure_runtime_command_shims(&command.command)?;
+        let shell_command = shell_command_path(&command.command);
         let launch_nonce = random_nonce();
         let configured_runner = resolve_runner_configuration(&settings)?;
         let runner = configured_runner
@@ -915,8 +963,8 @@ impl BackendSupervisor {
             .kill_on_drop(false)
             .env("ARGUS_BINARY_DISTRIBUTION", "1")
             .env("ARGUS_BINARY_MODE", "cli")
-            .env("ARGUS_SKILL_BIN", &command.command)
-            .env("ARGUS_SKILL_PYTHON", &command.command)
+            .env("ARGUS_SKILL_BIN", &shell_command)
+            .env("ARGUS_SKILL_PYTHON", &shell_command)
             .env("ARGUS_SKILL_WEB_TOKEN", &settings.token)
             .env("ARGUS_DESKTOP_LAUNCH_NONCE", &launch_nonce)
             .env("ARGUS_SKILL_HOME", argus_home)
@@ -1006,7 +1054,7 @@ impl BackendSupervisor {
         if let Some(runner) = runner {
             let supervisor = Arc::clone(self);
             tokio::spawn(async move {
-                supervisor.verify_runner_launch(runner, runner_path).await;
+                let _ = supervisor.verify_runner_launch(runner, runner_path).await;
             });
         }
         let supervisor = Arc::clone(self);
@@ -1039,7 +1087,15 @@ impl BackendSupervisor {
     /// frozen backend.  This intentionally checks only `--version`: startup
     /// stays non-blocking and never spends a model turn, but a stale GUI PATH
     /// can no longer remain invisible until every Manager message fails.
-    async fn verify_runner_launch(&self, runner: String, path: Option<OsString>) {
+    pub async fn validate_runner(&self, runner: String) -> Result<(), String> {
+        let current = env::var_os("PATH").unwrap_or_default();
+        let path = env::join_paths(
+            runner_runtime_path_entries(&runner).into_iter().chain(env::split_paths(&current)),
+        ).map_err(|error| error.to_string())?;
+        self.verify_runner_launch(runner, Some(path)).await
+    }
+
+    async fn verify_runner_launch(&self, runner: String, path: Option<OsString>) -> Result<(), String> {
         let mut command = Command::new(&runner);
         #[cfg(windows)]
         command.creation_flags(CREATE_NO_WINDOW);
@@ -1052,17 +1108,18 @@ impl BackendSupervisor {
         if let Some(path) = path {
             command.env("PATH", path);
         }
-        match timeout(RUNNER_PREFLIGHT_TIMEOUT, command.output()).await {
+        let result = match timeout(RUNNER_PREFLIGHT_TIMEOUT, command.output()).await {
             Ok(Ok(output)) if output.status.success() => {
                 self.inner
                     .logger
                     .info(format!("runner preflight passed: {runner}"));
+                Ok(())
             }
             Ok(Ok(output)) => {
                 let stderr = redact_sensitive_text(&String::from_utf8_lossy(&output.stderr));
                 let detail = stderr.trim();
-                self.inner.logger.warn(format!(
-                    "runner preflight failed for {runner} (exit {}): {}",
+                Err(format!(
+                    "Agent CLI 无法运行（runner preflight failed, exit {}）：{}",
                     output
                         .status
                         .code()
@@ -1072,16 +1129,15 @@ impl BackendSupervisor {
                     } else {
                         detail
                     }
-                ));
+                ))
             }
-            Ok(Err(error)) => self.inner.logger.warn(format!(
-                "runner preflight could not start {runner}: {error}"
-            )),
-            Err(_) => self.inner.logger.warn(format!(
-                "runner preflight timed out after {}ms: {runner}",
-                RUNNER_PREFLIGHT_TIMEOUT.as_millis()
-            )),
+            Ok(Err(error)) => Err(format!("无法启动 Agent CLI（runner preflight could not start）：{error}")),
+            Err(_) => Err(format!("Agent CLI 启动检查超时（{}ms），请在终端确认 CLI 可运行后重试。", RUNNER_PREFLIGHT_TIMEOUT.as_millis())),
+        };
+        if let Err(error) = &result {
+            self.inner.logger.warn(error);
         }
+        result
     }
 
     fn spawn_log_reader(
@@ -1158,7 +1214,12 @@ impl BackendSupervisor {
                     let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
                     runtime.runtime_pid = Some(runtime_pid);
                 }
-                self.write_ownership(runtime_pid, root_pid, &executable, &started_at);
+                if let Err(error) = self.write_ownership(runtime_pid, root_pid, &executable, &started_at) {
+                    self.cleanup_timed_out_backend(root_pid).await;
+                    self.set_status(BackendState::Error, "无法保存后端运行记录", Some(error.to_string()));
+                    return;
+                }
+                self.inner.runtime.lock().expect("runtime mutex poisoned").launch_nonce = probe.launch_nonce.clone();
                 if self.ownership_matches(&probe, &settings, &command) {
                     self.mark_backend_ready(generation, "Argus 桌面端已就绪");
                     return;
@@ -1264,6 +1325,8 @@ impl BackendSupervisor {
     async fn terminate_owned_backend(&self) {
         let (root_pid, runtime_pid) = {
             let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
+            runtime.ownership = None;
+            runtime.launch_nonce = None;
             (runtime.root_pid.take(), runtime.runtime_pid.take())
         };
         let mut terminated = true;
@@ -1286,13 +1349,9 @@ impl BackendSupervisor {
         }
     }
 
-    fn write_ownership(&self, pid: u32, root_pid: u32, executable: &str, started_at: &str) {
-        if pid == 0 || root_pid == 0 {
-            return;
-        }
-        let Some(manifest_source_digest) = self.expected_manifest_digest() else {
-            return;
-        };
+    fn write_ownership(&self, pid: u32, root_pid: u32, executable: &str, started_at: &str) -> anyhow::Result<()> {
+        anyhow::ensure!(pid > 0 && root_pid > 0, "invalid backend process identity");
+        let manifest_source_digest = self.expected_manifest_digest();
         let settings = self.inner.settings.snapshot();
         let token_sha256 = Self::token_sha256(&settings);
         let ownership = BackendOwnership {
@@ -1306,13 +1365,9 @@ impl BackendSupervisor {
             token_sha256,
             started_at: started_at.to_owned(),
         };
-        let path = self.ownership_path();
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        if let Ok(payload) = serde_json::to_vec_pretty(&ownership) {
-            let _ = fs::write(path, payload);
-        }
+        crate::identity::save_ownership(&self.ownership_path(), &ownership)?;
+        self.inner.runtime.lock().expect("runtime mutex poisoned").ownership = Some(ownership);
+        Ok(())
     }
 
     fn clear_ownership(&self, expected_pid: Option<u32>) {
@@ -1364,13 +1419,14 @@ impl BackendSupervisor {
         }
         let runtime_bin = self.inner.settings.data_dir().join("runtime").join("bin");
         fs::create_dir_all(&runtime_bin)?;
-        let escaped = command.to_string_lossy().replace('%', "%%");
-        let cmd_body = format!("@echo off\r\n\"{escaped}\" %*\r\n");
+        // cmd.exe cannot execute Rust's verbatim \\?\ paths and decodes batch
+        // files using the user's OEM code page. Keep the batch file ASCII and
+        // expand the Unicode-safe environment value supplied to the backend.
+        let cmd_body = "@echo off\r\nif not defined ARGUS_SKILL_PYTHON exit /b 1\r\n\"%ARGUS_SKILL_PYTHON%\" %*\r\n";
         for name in ["python.cmd", "python3.cmd"] {
             fs::write(runtime_bin.join(name), &cmd_body)?;
         }
-        let shell = command
-            .to_string_lossy()
+        let shell = shell_command_path(command)
             .replace('\\', "/")
             .replace('\'', "'\"'\"'");
         let shell_body = format!("#!/bin/sh\nexec '{shell}' \"$@\"\n");

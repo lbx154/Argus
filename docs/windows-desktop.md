@@ -22,17 +22,17 @@ pip 安装方式，不要把贡献者构建目录当作发布物。
 预览 EXE 可能落后于源码 `main`。源码修复提交或两仓同步不会重新发布安装包；
 需要某个修复时，先确认安装包的 release notes，或使用 README 的源码安装方式。
 
-首次启动会复用 Argus setup 已保存的 backend 或当前环境中的 backend 配置，不会默默
-改为 Codex。已有配置且能找到对应 CLI 时，后端就绪后直接打开 cockpit；
-尚未配置或找不到可执行文件时，会显示设置向导，要求选择已安装并登录的 Agent CLI。
-本分支新增 **使用内部测试 Key** 入口：持有邀请 Key 的用户可直接粘贴并点击
+首次启动必须在设置向导中明确选择并确认已安装、已登录的 Agent CLI，确认前不会启动
+本地后端。共享配置仅提供候选，不会跳过首次确认，也不会默默选择 Codex。桌面保存过
+选择且仍能找到对应 CLI 时，后续启动直接打开 cockpit；CLI 已被卸载或路径失效时，
+重新显示向导。检测到可执行文件不代表已经完成鉴权；桌面中明确保存的选择优先于共享配置。
+试用版另提供 **使用内部测试 Key** 入口：持有邀请 Key 的用户可直接粘贴并点击
 **开始试用**。客户端会验证 Key、下载官方独立版 Copilot、校验安装包，并完成一次真实
 连接验证后进入工作台。此路径不需要终端、Python、Node.js 或用户自己的 Coding 账号。
 试用配置会保留，重启后直接进入工作台；每个 Key 累计额度为 100 万 token。
 这个入口需要重新构建的试用安装包，既有 Release 中的 EXE 不会自动获得尚未发布的代码。
 Mac 构建与当前验证范围见 [桌面内部试用版](desktop-trial.md)。
-检测到可执行文件不代表已经完成鉴权；桌面中明确保存的选择优先于共享配置。
-需要修改 Agent CLI、可执行文件、端口或桌面外观时，使用 **文件 → 设置**。普通关闭和
+需要修改 Agent CLI、可执行文件或端口时，使用 **文件 → 设置**。浅／深色使用工作台的全局切换，启动页和原生标题栏同步该选择。普通关闭和
 菜单中的 **隐藏窗口并在后台继续** 是同一个行为：隐藏到系统托盘并保留正在进行的工作；
 只有 **停止本地后端并退出** 会终止已验证的后端。
 
@@ -62,9 +62,9 @@ Desktop 不改变 Manager、Planner、Engineer、Reviewer、Workbench 或 Vertic
 独立源码工作区中完成并经过审查，再通过唯一的 reviewed deployment boundary 进入新的
 Desktop release，不能直接修改安装目录中的冻结文件。
 
-已配置的安装不强制重复显示向导：Argus 会在后台无控制台窗口地启动本地后端，并在就绪后
-直接打开 cockpit。缺少 backend 或可执行文件时先完成首次设置；之后从 **文件 → 设置**
-修改 Agent CLI、端口和外观。cockpit 左下角设置
+已完成桌面首次确认的安装不重复显示向导：Argus 会在后台无控制台窗口地启动本地后端，并在就绪后
+直接打开 cockpit。缺少 CLI 或可执行文件时先完成设置；之后从 **文件 → 设置**
+修改 Agent CLI 和端口。cockpit 左下角设置
 按钮保留为当前项目的预算、角色与模型等运行时配置入口。文件/帮助菜单由可信 Tauri shell
 渲染为随浅色/深色主题变化的渐变栏，不再使用与上下内容割裂的 Windows 原生菜单色块。
 
@@ -84,6 +84,13 @@ Windows native non-client frame
 只可通过 `postMessage` 发送长度受限的交付通知数据。父窗口同时验证消息来源必须是
 当前 iframe，且 origin 必须等于配置的 `http://127.0.0.1:<port>`。因此 loopback
 cockpit 不会获得文件系统、Shell、更新器或任意 Tauri command 的权限。
+
+原型冻结仅在可信顶层 shell 的初始化脚本中执行。Windows WebView2 会把 Tauri 初始化
+脚本也注入 iframe；全局 `freezePrototype` 会破坏 d3／React Flow 的正常原型继承，
+因此不能用于整棵 WebView。iframe 保持普通浏览器语义，但原生命令仍受 capability/origin
+限制：真实宿主测试同时验证 shell 已冻结、iframe 未冻结以及 iframe 原生调用被拒绝。
+Web 懒加载失败最多在同一 tab 的一分钟内自动刷新一次；代码执行错误直接显示恢复页，
+不会把所有错误误认为旧资源而反复刷新。
 
 Windows 包会把 Microsoft 的 `WebView2Loader.dll` 显式放在 `Argus.exe` 同目录；这和
 WebView2 Runtime 是两件事。安装器仍会按 Tauri 的 `downloadBootstrapper` 策略处理
@@ -148,8 +155,17 @@ cockpit，并在存在目标时定位到对应成果。没有可展示文件时�
 当前 token 认证且路径精确等于 bundled backend 的兼容旧版 listener。其他端口占用、
 远程地址、身份缺字段或 digest 不一致均 fail closed。
 
-健康检测每 5 秒一次；短暂网络故障最多重试两次，确认失效后按 0.5 s、1.5 s、4 s
-最多自动恢复三次，稳定 60 秒才重置熔断计数。
+健康检测每 5 秒一次。当前宿主的预期版本指纹编译进 EXE，已认证的 PID、启动时间、路径和
+启动证明保存在当前会话中；不再因磁盘清单／ownership 记录暂时不可读而变成“陌生后端”。
+ownership 记录使用同目录临时文件与原子替换写入，写入失败会明确拒绝完成启动。
+
+磁盘包完整性与活跃进程身份分别检查。清单缺失、无效或与当前 EXE 不匹配时，保持已验证
+的运行连接并显示非阻断提示，但拒绝从损坏／混版目录重启。真正的认证、PID、启动时间、
+路径、构建身份或启动证明冲突仍 fail closed，不会接管或终止未知进程。
+
+短暂网络故障快速重试两次；进程仍存活时转为低频健康观察并提示重连，不因忙碌或响应体
+超时强杀任务。确认进程退出后按 0.5 s、1.5 s、4 s 最多自动恢复三次；每次恢复有独立
+生命周期代次，稳定 60 秒才重置熔断计数。响应体超时／连接截断不再误分类为身份冲突。
 
 ## 自动更新与签名信任
 
@@ -207,6 +223,64 @@ Cloudflare Worker 模板：它仅代理 `lbx154/Argus` 的允许 release 资产�
 并保留 GitHub 作为回退。每次发布都应比对 OSS 与 GitHub 的 SHA-256。
 
 这些脚本不会在本地 build、测试或应用启动时写入任何远程服务。
+
+## 内部体验预览（不安装、不发布）
+
+`npm --prefix desktop-tauri run build:preview` 是独立的本地验收路径，不调用 `dist`、
+NSIS、签名或上传脚本。它刷新仓库已有的运行身份清单和 Web/TUI 静态资源，冻结当前
+Python 后端，以 Tauri `--no-bundle --no-sign --features preview` 编译宿主，再对实际
+暂存目录执行 WebView2 端到端检查。仅检查通过后生成 `desktop-tauri/build/previews/`
+下的独立 ZIP；不生成安装器、签名文件或 `latest.json`。内置 `release_manifest.json`
+仍是后端身份校验的必要数据，不是更新发布清单。
+
+完整解压后运行 `Argus.exe`。预览使用单独标识 `cn.argusbot.desktop.preview`，
+桌面设置、日志与 WebView 缓存位于 `%APPDATA%/argus-desktop-preview/`，项目与运行时
+配置位于其 `argus-home/` 子目录，默认端口 18799。即使从设置过 `ARGUS_SKILL_HOME`
+的终端启动，也不读取该生产数据根；不会迁移正式版设置。CLI 自身的登录仍由原 CLI
+管理。不要让两个版本同时写同一个项目工作目录。
+
+预览在编译期禁用发布检查和安装，手动“检查更新”会解释原因。它不是新增的正式便携
+发布渠道，也不会创建 Start Menu 安装记录。需要 Windows 10/11 x64、WebView2 Runtime
+及一个已安装并登录的 Agent CLI；没有 WebView2 时请安装 Microsoft 官方 Evergreen Runtime。
+
+桌面设置提供端口校验和重新检测 CLI，不再提供独立外观选项。界面固定统一配色，旧渐变
+偏好归一到标准；工作台全局浅／深色同步并持久化到宿主，主题变动不重载工作台。保存失败保留编辑内容
+并就地显示原因，已占用的新端口不会中断当前后端；后端恢复时保留同 URL 的 Web 文档和
+未发送输入。`Ctrl+,` 与 `Ctrl+N` 在工作台 iframe 内同样有效。中文和英文界面的角色名
+均为 Manager、Planner、Engineer、Reviewer，普通操作（例如管理会话）不误改为角色。
+四种角色标记分别使用蓝、紫、青绿和琥珀色，空闲或失败时也保留角色颜色，状态另以文字表达。
+
+主动打开右侧文件时，预览扩到窗口宽度约 45%（上限 840px，并保留至少 360px 对话区）；
+仍支持手动拖拽，后台刷新不主动改宽度。PDF 的放大页面使用可扩展的滚动内容区域，四边均可
+滚动到达；“适合页面”恢复整页，缩放保留阅读中心，先在离屏 canvas 完成绘制再替换可见画面。
+
+工作台只显示项目概览、运行进程和 AI IDE，概览卡片与标签共享同一份入口定义。
+其他页面的源码／后端能力和项目数据没有删除，但不再加载其 UI 或专用轮询。
+AI IDE 的编辑区、文件树、Git 区域、终端和状态栏统一跟随全局浅色／深色主题；切换主题不
+重新打开文件；已访问模块切换时保留文件选择、目录展开状态及阅读位置。隐藏工作台或切到其他
+模块时暂停 IDE 文件／目录／Git 轮询，已停止的进程视图不再每秒刷新，
+并尊重系统减少动态效果设置。
+
+主对话与地图使用同一 `ComposerSurface` 和样式；主对话保留模式选择、斜杠命令、改写、
+附件及停止等待。主页输入框宽度固定为可用空间的 100%（最大 680px），不随空白、悬停、
+聚焦、输入或清空伸缩；多行高度自适应与地图的 compact／hover 行为保持不变。
+草稿／附件由 App 统一管理，视图切换或上传期间输入新内容不会被旧提交
+清空。眼睛动效只在启动／处理消息时出现，故障和空闲不持续转动，并尊重减少动态效果。
+
+`build:preview` 默认还要求 1800 秒连续运行及故障注入检查通过，再生成 ZIP。开发者可通过
+`ARGUS_PREVIEW_SOAK_SECONDS` 缩短本地诊断，但交付验收不得把短检查当成长稳测试。
+测试会在自有临时运行包中模拟清单缺失、替换和 ownership 记录损坏，恢复原始字节后继续
+观测同一认证 PID；不会修改用户安装。正式版本不能被 `ARGUS_DESKTOP_DEV` 环境变量切换
+到源码运行，开发调试使用 `tauri dev` 的 debug 构建。
+
+浏览器交互回归：`npm --prefix desktop-tauri run test:ui`（Windows 使用已安装的 Edge）。
+已暂存的真实预览可以再次执行 `npm --prefix desktop-tauri run smoke:preview -- <Argus.exe>`。
+测试创建独立 fixture，不读取实际用户配置、不发送付费模型任务；研究地图以 kiosk
+只读模式验证。宿主验证还覆盖 CLI 预检、再次启动、单实例恢复、退出和独立数据目录。
+
+正式发布仍要求 MSVC。仅本地预览可使用已安装的 `stable-x86_64-pc-windows-gnu` 和现代
+SEH/UCRT MinGW，通过当前进程的 `RUSTUP_TOOLCHAIN` 与 PATH 选择；不要使用旧的 SJLJ
+编译器。预览会在无编译器 PATH 的环境中测试 DLL 布局。
 
 ## 开发要求
 
@@ -283,6 +357,7 @@ ownership、PID/start identity 和 daemon 控制协议 fail closed，不应以 T
 .\.venv\Scripts\python.exe -m pytest -q tests/desktop
 npm --prefix frontend/web test
 npm --prefix desktop-tauri run ui:typecheck
+npm --prefix desktop-tauri run test:ui
 npm --prefix desktop-tauri run test:rust
 # 在已完成 Tauri build 后，以临时 AppData/端口验证真实宿主启动；不会触碰用户数据
 npm --prefix desktop-tauri run smoke:host
@@ -299,8 +374,9 @@ npm --prefix desktop-tauri run dist
 ```
 
 `dist` 只产生 NSIS installer、其 detached signature 和 `latest.json`（有 signing key 时），
-均位于 `desktop-tauri/release/`。本地 build 不会发布 GitHub Release、上传 OSS、创建 PR
-或推送 Git。
+均位于 `desktop-tauri/release/`。`.exe.sig` 是供 Tauri updater 验证下载字节的 minisign 签名，
+不是 Windows Authenticode 证书签名；未配置证书时 Windows 仍可能显示信誉提示。
+本地 build 不会发布 GitHub Release、上传 OSS、创建 PR 或推送 Git。
 
 ## 本地数据与诊断
 

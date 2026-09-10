@@ -18,6 +18,7 @@ export interface DesktopStatus {
   state: LaunchState;
   message: string;
   detail?: string;
+  warning?: string;
   pid?: number;
   url?: string;
 }
@@ -33,7 +34,7 @@ export interface DesktopReleaseIdentity {
   packageVersion: string;
   releaseId: string;
   sourceDigest: string;
-  distribution: 'development' | 'packaged';
+  distribution: 'development' | 'packaged' | 'preview';
 }
 
 export interface DesktopRuntimeIdentity {
@@ -121,7 +122,7 @@ export const desktopBridge = {
   onTrialProgress: (callback: (message: string) => void): (() => void) =>
     eventSubscription('argus:trial-progress', callback),
   getAppearance: (): Promise<DesktopAppearance> => invoke('get_appearance'),
-  setAppearance: (appearance: { theme: 'light' | 'dark' }): Promise<DesktopAppearance> =>
+  setAppearance: (appearance: { theme: AppearanceTheme }): Promise<DesktopAppearance> =>
     invoke('set_appearance', { input: appearance }),
   setWindowTheme: (theme: AppearanceTheme): Promise<void> =>
     invoke('set_window_theme', { theme }),
@@ -139,7 +140,7 @@ export const desktopBridge = {
   showAbout: (): Promise<void> => invoke('show_about'),
   openLogs: (): Promise<string> => invoke('open_logs'),
   openData: (): Promise<string> => invoke('open_data'),
-  restartBackend: (): Promise<boolean> => invoke('restart_backend'),
+  restartBackend: (): Promise<void> => invoke('restart_backend'),
   exportDiagnostics: (): Promise<string | null> => invoke('export_diagnostics'),
   openCockpit: (): Promise<string> => invoke('open_cockpit'),
   openExternal: (url: string): Promise<void> => invoke('open_external', { url }),

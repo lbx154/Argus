@@ -860,10 +860,10 @@ function MapCanvas({
             <i />
             {(
               {
-                planner: zh ? "规划中" : "Planning",
-                manager: zh ? "统筹中" : "Coordinating",
-                engineer: zh ? "执行中" : "Running",
-                reviewer: zh ? "审查中" : "Reviewing",
+                planner: "Planner",
+                manager: "Manager",
+                engineer: "Engineer",
+                reviewer: "Reviewer",
               } as Record<string, string>
             )[activePhase] || activePhase}
           </span>

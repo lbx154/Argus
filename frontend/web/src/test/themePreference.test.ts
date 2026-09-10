@@ -5,12 +5,12 @@ import { readThemeStyle, THEME_STYLE_STORAGE_KEY } from '../lib/themePreference'
 describe('theme style preference', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('restores the gradient preference', () => {
+  it('retires the gradient preference', () => {
     vi.stubGlobal('localStorage', {
       getItem: (key: string) => key === THEME_STYLE_STORAGE_KEY ? 'gradient' : null,
     });
 
-    expect(readThemeStyle()).toBe('gradient');
+    expect(readThemeStyle()).toBe('standard');
   });
 
   it('defaults unknown and unavailable preferences to standard', () => {

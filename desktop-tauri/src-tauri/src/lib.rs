@@ -4,6 +4,7 @@ mod identity;
 mod logger;
 mod models;
 mod process;
+mod probe;
 mod redaction;
 mod release;
 mod resilience;
@@ -55,7 +56,7 @@ pub struct AppState {
     delivered: Mutex<DeliveryDedupe>,
     preview_restore_maximized: Mutex<Option<bool>>,
     tray: Mutex<Option<TrayIcon>>,
-    setup_lock: tokio::sync::Mutex<()>,
+    configuration_operation: tokio::sync::Mutex<()>,
 }
 
 struct DeliveryDedupe {
@@ -120,15 +121,15 @@ fn apply_windows_caption_palette(window: &tauri::WebviewWindow, theme: &Appearan
 
     let (caption, text, border, immersive_dark) = match theme {
         AppearanceTheme::Light => (
-            colorref(234, 242, 255),
+            colorref(245, 245, 247),
             colorref(17, 24, 39),
-            colorref(234, 242, 255),
+            colorref(245, 245, 247),
             0_i32,
         ),
         AppearanceTheme::Dark => (
-            colorref(17, 29, 48),
+            colorref(22, 22, 24),
             colorref(249, 250, 251),
-            colorref(17, 29, 48),
+            colorref(22, 22, 24),
             1_i32,
         ),
         AppearanceTheme::System => (
@@ -217,7 +218,19 @@ fn handle_menu(app: &AppHandle, id: &str) {
     match id {
         "show" => reveal_window(app),
         "hide" => hide_window(app),
-        "stop-quit" => request_stop_and_quit(app),
+        "stop-quit" => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let answer = rfd::AsyncMessageDialog::new()
+                    .set_title("停止 Argus 并退出")
+                    .set_description("停止本地后端会中断正在运行的工作。确定停止并退出吗？")
+                    .set_buttons(rfd::MessageButtons::YesNo)
+                    .show().await;
+                if answer == rfd::MessageDialogResult::Yes {
+                    request_stop_and_quit(&app);
+                }
+            });
+        },
         _ => {}
     }
 }
@@ -266,6 +279,9 @@ fn make_release_context(app: &AppHandle) -> ReleaseContext {
 }
 
 fn initialize(app: &AppHandle) -> tauri::Result<()> {
+    if release::preview_mode() && app.config().identifier != "cn.argusbot.desktop.preview" {
+        return Err(tauri::Error::Anyhow(anyhow::anyhow!("预览构建必须使用独立应用标识；请运行 build:preview。")));
+    }
     let settings = Arc::new(SettingsStore::open().map_err(tauri::Error::Anyhow)?);
     let logger = DesktopLogger::new(settings.data_dir()).map_err(tauri::Error::Anyhow)?;
     let release = make_release_context(app);
@@ -295,7 +311,7 @@ fn initialize(app: &AppHandle) -> tauri::Result<()> {
         }),
         preview_restore_maximized: Mutex::new(None),
         tray: Mutex::new(None),
-        setup_lock: tokio::sync::Mutex::new(()),
+        configuration_operation: tokio::sync::Mutex::new(()),
     });
     // Keep the native non-client frame, but render the small File/Help strip in
     // the trusted local shell so its gradient follows the cockpit theme. The
@@ -340,7 +356,7 @@ fn get_setup(app: AppHandle) -> Result<DesktopSetup, String> {
         port: settings.port,
         runner_kind,
         runner_bins,
-        runner_configured: configured.is_some(),
+        runner_configured: settings.runner_configured,
         detected_runners: app_state.supervisor.detected_runners(),
         pi_configuration: detect_pi_configuration(),
         release_identity: app_state.supervisor.release().identity(),
@@ -408,7 +424,7 @@ async fn choose_runner(kind: models::RunnerKind) -> Result<Option<String>, Strin
 #[tauri::command]
 async fn complete_setup(app: AppHandle, input: CompleteSetupInput) -> SetupResult {
     let app_state = state(&app);
-    let Ok(_guard) = app_state.setup_lock.try_lock() else {
+    let Ok(_guard) = app_state.configuration_operation.try_lock() else {
         return SetupResult::error("正在应用设置，请稍候。");
     };
     apply_setup(&app, input, false).await
@@ -417,7 +433,7 @@ async fn complete_setup(app: AppHandle, input: CompleteSetupInput) -> SetupResul
 #[tauri::command]
 async fn complete_trial_setup(app: AppHandle, input: trial::TrialSetupInput) -> SetupResult {
     let app_state = state(&app);
-    let Ok(_guard) = app_state.setup_lock.try_lock() else {
+    let Ok(_guard) = app_state.configuration_operation.try_lock() else {
         return SetupResult::error("正在准备试用，请稍候。");
     };
     let release = make_release_context(&app);
@@ -457,29 +473,50 @@ async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: boo
         Ok(configured) => configured,
         Err(error) => return SetupResult::error(error.to_string()),
     };
-    if !configured
-        .and_then(|runner| runner.executable)
-        .is_some_and(|executable| Path::new(&executable).is_file())
-    {
+    let executable = configured.and_then(|runner| runner.executable).unwrap_or_default();
+    if !Path::new(&executable).is_file() {
         return SetupResult::error(
             "未找到所选 Agent CLI。请先安装并登录，或选择有效的可执行文件。",
         );
     }
-    // A new key must also replace ACP workers holding the prior provider env.
-    let runtime_changed = trial_mode
-        || previous.port != next.port
-        || previous.trial_mode != next.trial_mode
+    let runner_changed = previous.runner_kind != next.runner_kind
+        || previous.runner_configured != next.runner_configured
+        || previous.runner_bins != next.runner_bins;
+    if runner_changed {
+        if let Err(error) = app_state.supervisor.validate_runner(executable).await {
+            return SetupResult::error(error);
+        }
+    }
+    // Replacing a key must also replace ACP workers carrying the old provider environment.
+    let runtime_changed = trial_mode || previous.trial_mode != next.trial_mode || previous.port != next.port
         || previous.runner_kind != next.runner_kind
         || previous.runner_configured != next.runner_configured
         || previous.runner_bins != next.runner_bins;
+    // Reject an occupied new port before saving or stopping the current backend.
+    if (previous.port != next.port || app_state.supervisor.current_status().state != BackendState::Ready)
+        && tokio::net::TcpListener::bind(("127.0.0.1", next.port)).await.is_err()
+    {
+        return SetupResult::error(format!("端口 {} 已被占用或不可用，请选择其他端口。现有设置未更改。", next.port));
+    }
+    if let Err(error) = app_state.supervisor.release().validate_payload() {
+        return SetupResult::error(error);
+    }
+    next.appearance_theme = app_state.settings.snapshot().appearance_theme;
+    let theme = next.appearance_theme.clone();
     if let Err(error) = app_state.settings.replace(next) {
         return SetupResult::error(error.to_string());
     }
-    if !runtime_changed {
+    apply_window_appearance(&app, &theme);
+    if !runtime_changed && app_state.supervisor.current_status().state == BackendState::Ready {
         return SetupResult::ok();
     }
     let supervisor = Arc::clone(&app_state.supervisor);
-    supervisor.restart().await;
+    if let Err(error) = supervisor.restart().await {
+        if let Err(rollback) = app_state.settings.replace(previous) {
+            return SetupResult::error(format!("{error}\n恢复原设置失败：{rollback}"));
+        }
+        return SetupResult::error(error);
+    }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         let status = supervisor.current_status();
@@ -494,9 +531,11 @@ async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: boo
 }
 
 #[tauri::command]
-async fn restart_backend(app: AppHandle) -> bool {
-    state(&app).supervisor.restart().await;
-    true
+async fn restart_backend(app: AppHandle) -> Result<(), String> {
+    let app_state = state(&app);
+    let _operation = app_state.configuration_operation.try_lock()
+        .map_err(|_| "正在更新本地服务，请稍候再试。".to_owned())?;
+    app_state.supervisor.restart().await
 }
 
 #[tauri::command]
@@ -526,7 +565,10 @@ fn show_about(app: AppHandle) {
     let _ = rfd::MessageDialog::new()
         .set_title("关于 Argus")
         .set_description(format!(
-            "Argus {version}\nTauri / Rust\nWindows desktop host"
+            "Argus {version}{}\nTauri / Rust · Windows x64\n运行身份：{}\n桌面数据：{}\n关闭窗口后任务继续；停止本地后端并退出才会结束任务。",
+            if release::preview_mode() { " · Preview（不安装发布更新）" } else { "" },
+            state(&app).supervisor.release().identity().release_id,
+            state(&app).settings.data_dir().display(),
         ))
         .set_buttons(rfd::MessageButtons::Ok)
         .show();
@@ -681,7 +723,20 @@ pub fn run() {
     }
     .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
-    .setup(|app| Ok(initialize(app.handle())?))
+    .setup(|app| {
+        let config = &app.config().app.windows[0];
+        let mut window = tauri::WebviewWindowBuilder::from_config(app, config)?
+            .initialization_script(include_str!("shell-init.js"));
+        if release::preview_mode()
+            || std::env::var("ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE").as_deref() == Ok("1")
+        {
+            // WebView cookies/localStorage must be isolated as well as Python
+            // state. Windows known-folder APIs do not follow a test APPDATA.
+            window = window.data_directory(settings::desktop_data_dir().join("webview"));
+        }
+        window.build()?;
+        Ok(initialize(app.handle())?)
+    })
     .on_menu_event(|app, event| handle_menu(app, event.id().as_ref()))
     .on_window_event(|window, event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
@@ -720,9 +775,17 @@ pub fn run() {
         install_update,
         dismiss_update,
     ]);
-    let app = builder
-        .build(tauri::generate_context!())
-        .expect("error while building Argus Tauri application");
+    let app = match builder.build(tauri::generate_context!()) {
+        Ok(app) => app,
+        Err(error) => {
+            rfd::MessageDialog::new()
+                .set_title("Argus 无法启动")
+                .set_description(format!("无法初始化桌面环境，已有数据不会被清空。\n{error}"))
+                .set_level(rfd::MessageLevel::Error)
+                .show();
+            return;
+        }
+    };
     app.run(|app, event| {
         if let RunEvent::ExitRequested { .. } = event {
             app.state::<AppState>()

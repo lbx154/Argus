@@ -1,28 +1,15 @@
-import { ArrowRight, BookOpen, Code2, FileText, FlaskConical, Inbox, Megaphone, MessagesSquare, Radar, ShieldCheck, TimerReset } from 'lucide-react';
+import { ArrowRight, TimerReset } from 'lucide-react';
 import { Badge, EventTimeline, Panel } from '../components/Common';
 import { certificationLabel, roleLabel, stageLabel, statusLabel } from '../enumLabels';
 import { formatDuration, statusTone } from '../utils';
 import { useWorkbenchText } from '../useWorkbenchText';
-import type { WorkspacePageProps } from './pageTypes';
+import type { ActiveWorkbenchPageProps } from './pageTypes';
+import { WORKSPACE_DESTINATIONS } from '../modules';
 
-const MODULES = [
-  { id: 'counterexamples', zh: '反例实验室', en: 'Counterexample Lab', zhDesc: '切换查看每个猜想的实时阶段、反例构造、证据和复核状态。', enDesc: 'Switch between conjectures and track construction, evidence, and review live.', icon: Radar, color: 'violet', researchOnly: false },
-  { id: 'experiments', zh: '运行进程', en: 'Execution', zhDesc: '实时查看 Argus 运行位置、任务路线、角色交接和停止原因。', enDesc: 'Track Argus execution, task progress, role handoffs, and stop reasons.', icon: FlaskConical, color: 'blue', researchOnly: false },
-  { id: 'copilot', zh: 'Argus Copilot', en: 'Argus Copilot', zhDesc: '查看 Argus 对话、Prompt 优化和工具轨迹。', enDesc: 'Chat with Argus, refine prompts, and inspect tool activity.', icon: MessagesSquare, color: 'violet', researchOnly: false },
-  { id: 'literature', zh: '文献中心', en: 'Literature', zhDesc: '汇总已读论文、最近工作、检索记录和文献证据。', enDesc: 'Review papers, related work, retrieval history, and evidence.', icon: BookOpen, color: 'indigo', researchOnly: true },
-  { id: 'inbox', zh: '科研收信箱', en: 'Research Inbox', zhDesc: '从零散输入抽取知识点并形成第一版 Argus Prompt。', enDesc: 'Turn rough notes into structured knowledge and an Argus prompt.', icon: Inbox, color: 'rose', researchOnly: true },
-  { id: 'ide', zh: 'AI IDE', en: 'AI IDE', zhDesc: '连接真实服务器目录，查看代码、Git 和 Argus 活动。', enDesc: 'Browse server files, Git state, and Argus activity.', icon: Code2, color: 'emerald', researchOnly: false },
-  { id: 'paper', zh: '论文工作区', en: 'Paper Workspace', zhDesc: '自动发现 Argus 新写入的文稿、BibTeX、图表和 PDF。', enDesc: 'Discover manuscripts, BibTeX, figures, and PDFs from the workspace.', icon: FileText, color: 'amber', researchOnly: true },
-  { id: 'reviewer', zh: '模拟审稿', en: 'Reviewer', zhDesc: '区分每轮过程审稿与项目完成后的最终投稿前审稿。', enDesc: 'Separate round-level review from final pre-submission review.', icon: ShieldCheck, color: 'slate', researchOnly: true },
-  { id: 'release', zh: '成果发布', en: 'Release', zhDesc: '规划 GitHub 仓库、学术海报和项目宣传页。', enDesc: 'Plan a GitHub repository, academic poster, and project page.', icon: Megaphone, color: 'rose', researchOnly: true },
-] as const;
-
-export function ProjectOverviewPage(props: WorkspacePageProps) {
+export function ProjectOverviewPage(props: ActiveWorkbenchPageProps) {
   const { text } = useWorkbenchText();
   const view = props.snapshot.mission_view;
   const research = view?.routing.vertical === 'research';
-  const modules = (research ? MODULES : MODULES.filter((module) => !module.researchOnly))
-    .filter((module) => module.id !== 'counterexamples' || Boolean(props.counterexamples?.total));
   const activeRole = view?.active_role || props.status?.active_role || 'idle';
   const stageStatus = [
     statusLabel(view?.mission.status || 'idle', text),
@@ -48,7 +35,7 @@ export function ProjectOverviewPage(props: WorkspacePageProps) {
 
       <div className="overview-section-heading"><div><h2>{text('项目工作区', 'Project workspace')}</h2><p>{text('所有模块共享同一个 Argus 项目、项目文件和实时动态。', 'All modules share the same Argus project, project files, and live activity.')}</p></div></div>
       <section className="module-grid">
-        {modules.map((module) => {
+        {WORKSPACE_DESTINATIONS.map((module) => {
           const Icon = module.icon;
           return (
             <button className="module-card" type="button" key={module.id} onClick={() => props.navigate(module.id)}>

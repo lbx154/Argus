@@ -36,8 +36,9 @@ def test_dual_manifests_share_identity_version_and_skills() -> None:
     codex = _json(PLUGIN / ".codex-plugin" / "plugin.json")
     claude = _json(PLUGIN / ".claude-plugin" / "plugin.json")
 
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
     assert codex["name"] == claude["name"] == "argus"
-    assert codex["version"] == claude["version"] == "0.1.1"
+    assert codex["version"] == claude["version"] == version
     assert codex["skills"] == claude["skills"] == "./skills/"
     assert codex["mcpServers"] == "./.mcp.json"
     assert claude["mcpServers"] == "./mcp/claude.json"

@@ -53,6 +53,15 @@ const diagnosticsEl = document.getElementById('diagnostics') as HTMLButtonElemen
 const stepsEl = document.getElementById('steps') as HTMLOListElement;
 
 const wizardEl = document.getElementById('wizard') as HTMLElement;
+const wizardError = document.getElementById('wizardError') as HTMLParagraphElement;
+const wizardBody = document.querySelector('.wizard-body') as HTMLElement;
+const refreshRunners = document.getElementById('refreshRunners') as HTMLButtonElement;
+const runtimeNotice = document.getElementById('runtimeNotice') as HTMLElement;
+const runtimeNoticeDetail = document.getElementById('runtimeNoticeDetail') as HTMLElement;
+new ResizeObserver(() => {
+  document.documentElement.style.setProperty('--desktop-notice-height', `${runtimeNotice.hidden ? 0 : runtimeNotice.offsetHeight}px`);
+}).observe(runtimeNotice);
+const desktopContext = document.getElementById('desktopContext') as HTMLElement;
 const wizardCaption = document.getElementById('wizardCaption') as HTMLParagraphElement;
 const stepperEl = document.getElementById('stepper') as HTMLOListElement;
 const panels = Array.from(document.querySelectorAll<HTMLElement>('.panel'));
@@ -128,6 +137,7 @@ let appearanceTheme: AppearanceTheme = 'system';
 let cockpitTheme: 'light' | 'dark' | null = null;
 let updateStatus: UpdateStatus | null = null;
 let splashHideTimer: number | undefined;
+let returnFocus: HTMLElement | null = null;
 
 function resolvedSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -202,16 +212,18 @@ function updateSteps(status: DesktopStatus): void {
   }
 }
 
-function showLauncher(): void {
+function showLauncher(preserveCockpit = false): void {
   if (splashHideTimer !== undefined) {
     window.clearTimeout(splashHideTimer);
     splashHideTimer = undefined;
   }
   splashEl.hidden = false;
-  cockpitMounted = false;
+  if (!preserveCockpit) {
+    cockpitMounted = false;
+    cockpitFrame.removeAttribute('src');
+  }
   cockpitOpening = false;
   cockpitEl.hidden = true;
-  cockpitFrame.removeAttribute('src');
   splashEl.classList.remove('is-ready');
   cockpitTheme = null;
   if (appearanceTheme === 'system') applyTheme(resolvedSystemTheme());
@@ -234,6 +246,15 @@ function postToCockpit(type: string, payload?: unknown): void {
   cockpitFrame.contentWindow.postMessage({ type, payload }, origin);
 }
 
+function sameCockpitConnection(left: string, right: string): boolean {
+  const normalize = (value: string) => {
+    const url = new URL(value);
+    url.searchParams.delete('desktopTheme');
+    return url.toString();
+  };
+  return normalize(left) === normalize(right);
+}
+
 function mountCockpit(url: string): void {
   if (splashHideTimer !== undefined) {
     window.clearTimeout(splashHideTimer);
@@ -248,7 +269,7 @@ function mountCockpit(url: string): void {
   // A runner-only settings change restarts the backend at the same URL. Keep
   // the already-mounted React cockpit alive so it can reconnect through its
   // normal WebSocket/query recovery instead of paying for a full WebView reload.
-  if (cockpitMounted && cockpitFrame.src === url) {
+  if (cockpitMounted && sameCockpitConnection(cockpitFrame.src, url)) {
     hideSplashAfterCockpitLoad();
     return;
   }
@@ -269,6 +290,8 @@ function hideSplashAfterCockpitLoad(): void {
 function render(status: DesktopStatus): void {
   if (trialBusy) return;
   document.body.dataset.state = status.state;
+  runtimeNotice.hidden = !status.warning;
+  runtimeNoticeDetail.textContent = status.warning || '';
   statusEl.textContent = status.message;
   detailEl.hidden = !(status.state === 'error' && status.detail);
   if (status.detail) detailEl.textContent = status.detail;
@@ -282,15 +305,19 @@ function render(status: DesktopStatus): void {
   else if (status.state === 'starting') width = status.message.includes('启动') ? 68 : 38;
   barEl.style.width = `${width}%`;
 
-  if (status.state === 'error' && cockpitMounted) showLauncher();
-  if (status.state === 'ready') void handleReady();
+  const channel = releaseIdentity.distribution === 'preview' ? 'Preview · 独立数据' : '本地工作台';
+  desktopContext.textContent = status.state === 'ready' ? channel : `${channel} · ${status.message}`;
+  desktopContext.title = status.message;
+  if (status.state === 'error' && !applying && !wizardOpen) showLauncher(true);
+  if (status.state === 'ready' || status.state === 'idle') void handleReady();
 }
 
 function renderIpcFailure(message: string, detail: string): void {
   wizardPending = false;
   cockpitOpening = false;
   applying = false;
-  showLauncher();
+  setupRequested = false;
+  showLauncher(true);
   render({ state: 'error', message, detail });
 }
 
@@ -303,10 +330,11 @@ function applySetup(setup: DesktopSetup): void {
   piConfiguration = { ...(setup.piConfiguration || { configDir: '' }) };
   releaseIdentity = setup.releaseIdentity;
   runtimeIdentity = setup.runtimeIdentity;
+  if (releaseIdentity.distribution === 'preview') desktopContext.textContent = 'Preview · 独立数据';
 }
 
 async function handleReady(): Promise<void> {
-  if (cockpitOpening || cockpitMounted || wizardOpen || applying || wizardPending) return;
+  if (cockpitOpening || (cockpitMounted && !cockpitEl.hidden) || wizardOpen || applying || wizardPending) return;
   if (setupRequested) return;
   cockpitOpening = true;
   const setup = await capture(() => desktopBridge.getSetup());
@@ -318,9 +346,19 @@ async function handleReady(): Promise<void> {
     cockpitOpening = false;
     return;
   }
+  applySetup(setup.value);
   if (!setup.value.complete) {
     cockpitOpening = false;
     showWizard(setup.value);
+    return;
+  }
+  const status = await capture(() => desktopBridge.getStatus());
+  if (!status.ok) {
+    renderIpcFailure('无法读取本地服务状态', status.detail);
+    return;
+  }
+  if (status.value.state !== 'ready') {
+    cockpitOpening = false;
     return;
   }
   void capture(() => desktopBridge.openCockpit()).then((result) => {
@@ -375,7 +413,9 @@ function renderRunner(): void {
 
 function renderRunnerKind(): void {
   for (const button of runnerKindButtons) {
-    button.classList.toggle('is-selected', runnerSelected && button.dataset.kind === runnerKind);
+    const selected = runnerSelected && button.dataset.kind === runnerKind;
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
   }
 }
 
@@ -392,7 +432,7 @@ function renderSummary(): void {
   summaryRunner.textContent = path
     ? `${RUNNER_LABELS[runnerKind]} · ${path}${model}`
     : `${RUNNER_LABELS[runnerKind]}（未配置）`;
-  summaryUrl.textContent = `127.0.0.1:${port}`;
+  summaryUrl.textContent = `127.0.0.1:${Number(portInput.value)}`;
   summaryRelease.textContent = `${releaseIdentity.packageVersion} · ${releaseIdentity.distribution}`;
   summaryRuntime.textContent = runtimeIdentity.pid
     ? `${runtimeIdentity.state} · PID ${runtimeIdentity.pid}${runtimeIdentity.url ? ` · ${runtimeIdentity.url}` : ''}`
@@ -417,12 +457,20 @@ function goToStep(step: number): void {
   );
   wizardCaption.textContent = STEP_LABELS[step] || '';
   if (step === 2) renderSummary();
+  panels.find((panel) => !panel.hidden)?.querySelector<HTMLElement>('input, button, h3')?.focus();
 }
 
 function showWizard(setup: DesktopSetup): void {
+  if (!wizardOpen) returnFocus = document.activeElement as HTMLElement | null;
   wizardOpen = true;
   wizardFinish.disabled = false;
+  wizardFinish.textContent = cockpitMounted ? '保存设置' : '开始使用';
+  wizardError.hidden = true;
+  portError.hidden = true;
   wizardEl.hidden = false;
+  cockpitEl.inert = true;
+  splashEl.inert = true;
+  desktopMenuBar.inert = true;
   splashEl.classList.add('has-wizard');
   document.documentElement.dataset.settingsMode = cockpitMounted ? 'true' : 'false';
   wizardCancel.hidden = !cockpitMounted;
@@ -442,13 +490,15 @@ function showWizard(setup: DesktopSetup): void {
 }
 
 async function reopenWizard(): Promise<void> {
-  if (applying) return;
+  if (applying || wizardOpen || wizardPending) return;
   setupRequested = true;
+  wizardPending = true;
   const result = await capture(() => desktopBridge.getSetup());
   if (!result.ok) {
     renderIpcFailure('无法读取桌面设置', result.detail);
     return;
   }
+  wizardPending = false;
   showWizard(result.value);
 }
 
@@ -456,10 +506,14 @@ function closeWizard(): void {
   if (applying) return;
   wizardOpen = false;
   wizardEl.hidden = true;
+  cockpitEl.inert = false;
+  splashEl.inert = false;
+  desktopMenuBar.inert = false;
   splashEl.classList.remove('has-wizard');
   document.documentElement.dataset.settingsMode = 'false';
   setupRequested = false;
   trialKey.value = '';
+  returnFocus?.focus();
 }
 
 function closeDesktopMenus(): void {
@@ -502,6 +556,7 @@ async function runDesktopMenuAction(action: string): Promise<void> {
     return;
   }
   if (action === 'restart') {
+    if (!window.confirm('重启本地后端会中断当前连接及正在进行的工作。确定重启吗？')) return;
     await desktopBridge.restartBackend();
     return;
   }
@@ -579,6 +634,15 @@ function updateMessage(status: UpdateStatus): {
       showSecurity: false,
     };
   }
+  if (status.state === 'idle' && status.detail) {
+    return {
+      kicker: '预览构建',
+      title: '发布更新已禁用',
+      detail: status.detail,
+      showInstall: false,
+      showSecurity: false,
+    };
+  }
   return {
     kicker: '手动检查更新',
     title: '正在检查更新',
@@ -593,7 +657,7 @@ function renderUpdate(status: UpdateStatus): void {
   const message = updateMessage(status);
   const installing = ['downloading', 'installing'].includes(status.state);
   const manualFeedback = status.userInitiated
-    && ['checking', 'up-to-date', 'error'].includes(status.state);
+    && ['idle', 'checking', 'up-to-date', 'error'].includes(status.state);
   // A background check is deliberately invisible unless it found a real newer
   // package. Manual checks retain visible feedback because the user asked for it.
   const visible = status.state === 'available' || installing || manualFeedback;
@@ -703,8 +767,9 @@ diagnosticsEl.addEventListener('click', () => {
 });
 
 chooseRunnerEl.addEventListener('click', async () => {
+  const selectedKind = runnerKind;
   chooseRunnerEl.disabled = true;
-  const result = await capture(() => desktopBridge.chooseRunner(runnerKind));
+  const result = await capture(() => desktopBridge.chooseRunner(selectedKind));
   chooseRunnerEl.disabled = false;
   if (!result.ok) {
     runnerStatus.dataset.state = 'warn';
@@ -713,7 +778,7 @@ chooseRunnerEl.addEventListener('click', async () => {
     return;
   }
   if (result.value) {
-    runnerBins[runnerKind] = result.value;
+    runnerBins[selectedKind] = result.value;
     renderRunner();
   }
 });
@@ -737,6 +802,21 @@ for (const button of runnerKindButtons) {
 
 portInput.addEventListener('input', () => {
   portError.hidden = isPortValid();
+  portInput.setAttribute('aria-invalid', String(!isPortValid()));
+});
+
+refreshRunners.addEventListener('click', async () => {
+  refreshRunners.disabled = true;
+  const result = await capture(() => desktopBridge.getSetup());
+  refreshRunners.disabled = false;
+  if (result.ok) {
+    detectedRunners = { ...result.value.detectedRunners };
+    piConfiguration = result.value.piConfiguration;
+    renderRunner();
+  } else {
+    wizardError.textContent = `检测失败：${result.detail}`;
+    wizardError.hidden = false;
+  }
 });
 
 wizardCancel.addEventListener('click', closeWizard);
@@ -772,50 +852,45 @@ wizardFinish.addEventListener('click', async () => {
     return;
   }
   port = Number(portInput.value);
-  wizardFinish.disabled = true;
   applying = true;
-  setupRequested = false;
-  wizardOpen = false;
-  wizardEl.hidden = true;
-  splashEl.classList.remove('has-wizard');
-  document.documentElement.dataset.settingsMode = 'false';
-  document.body.dataset.state = 'starting';
-  statusEl.textContent = '正在应用设置';
-  detailEl.hidden = true;
-  retryEl.hidden = true;
-  setupEl.hidden = true;
-  diagnosticsEl.hidden = true;
-  barEl.style.width = '72%';
+  wizardError.hidden = true;
+  wizardBody.inert = true;
+  wizardFinish.disabled = true;
+  wizardBack.disabled = true;
+  wizardCancel.disabled = true;
+  wizardFinish.textContent = '正在保存并连接…';
+  wizardEl.setAttribute('aria-busy', 'true');
 
   const invocation = await capture(() => desktopBridge.completeSetup({
     port,
     runnerKind,
     runnerBins,
   }));
+  applying = false;
+  wizardBody.inert = false;
+  wizardFinish.disabled = false;
+  wizardBack.disabled = false;
+  wizardCancel.disabled = false;
+  wizardEl.setAttribute('aria-busy', 'false');
+  wizardFinish.textContent = cockpitMounted ? '保存设置' : '开始使用';
   if (!invocation.ok || !invocation.value.ok) {
-    applying = false;
-    document.body.dataset.state = 'error';
-    statusEl.textContent = '设置保存失败';
-    detailEl.textContent = invocation.ok
-      ? (invocation.value.error || '未知错误')
-      : invocation.detail;
-    detailEl.hidden = false;
-    retryEl.hidden = false;
-    setupEl.hidden = false;
-    diagnosticsEl.hidden = false;
+    // Keep both the draft settings and the mounted cockpit. Validation/IPC
+    // failures must stay visible without destroying an unsent conversation.
+    wizardError.textContent = invocation.ok
+      ? (invocation.value.error || '设置保存失败，请重试。')
+      : `设置保存失败：${invocation.detail}`;
+    wizardError.hidden = false;
+    wizardError.focus();
     return;
   }
-  applying = false;
-  if (cockpitMounted) {
-    const url = await capture(() => desktopBridge.openCockpit());
-    if (url.ok) mountCockpit(url.value);
+  closeWizard();
+  const url = await capture(() => desktopBridge.openCockpit());
+  if (!url.ok) {
+    renderIpcFailure('设置已保存，但工作台尚未连接', url.detail);
+    return;
   }
-  window.setTimeout(() => {
-    void capture(() => desktopBridge.getStatus()).then((status) => {
-      if (status.ok) render(status.value);
-      else renderIpcFailure('无法读取本地服务状态', status.detail);
-    });
-  }, 260);
+  mountCockpit(url.value);
+  cockpitFrame.focus();
 });
 
 updateInstallEl.addEventListener('click', () => {
@@ -867,13 +942,26 @@ document.addEventListener('pointerdown', (event) => {
 });
 
 window.addEventListener('keydown', (event) => {
+  if (wizardOpen && event.key === 'Tab') {
+    const focusable = Array.from(wizardEl.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]'))
+      .filter((element) => element.getClientRects().length > 0 && !element.closest('[inert]'));
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && (document.activeElement === first || !wizardEl.contains(document.activeElement))) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !wizardEl.contains(document.activeElement))) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
   if (event.key === 'Escape') closeDesktopMenus();
   if (event.ctrlKey && event.key === ',') {
     event.preventDefault();
     closeDesktopMenus();
     void reopenWizard();
   }
-  if (event.ctrlKey && event.key.toLowerCase() === 'n') {
+  if (!wizardOpen && event.ctrlKey && event.key.toLowerCase() === 'n') {
     event.preventDefault();
     closeDesktopMenus();
     postToCockpit('argus:new-chat');
@@ -892,6 +980,9 @@ window.addEventListener('message', (event) => {
   if (!data || typeof data !== 'object') return;
   const type = (data as { type?: unknown }).type;
   const payload = (data as { payload?: unknown }).payload;
+  if (type === 'argus:show-setup') void reopenWizard();
+  if (type === 'argus:request-new-chat' && !wizardOpen) postToCockpit('argus:new-chat');
+  if (type === 'argus:cockpit-interaction') closeDesktopMenus();
   if (type === 'argus:notify-delivery' || type === 'argus:notify-completion') {
     void desktopBridge.notifyDelivery(payload as Parameters<typeof desktopBridge.notifyDelivery>[0]);
   }
@@ -900,6 +991,14 @@ window.addEventListener('message', (event) => {
   }
   if (type === 'argus:large-preview' && typeof payload === 'boolean') {
     void desktopBridge.setLargePreview(payload);
+  }
+  if (type === 'argus:theme-preference' && (payload === 'light' || payload === 'dark' || payload === 'system')) {
+    if (appearanceTheme !== payload) {
+      appearanceTheme = payload;
+      void capture(() => desktopBridge.setAppearance({ theme: payload })).then((result) => {
+        if (!result.ok) window.alert('主题已应用，但未能保存。请检查桌面数据目录权限。');
+      });
+    }
   }
   if (type === 'argus:theme-changed' && (payload === 'light' || payload === 'dark')) {
     // The authenticated cockpit owns the visible theme. Keep both trusted
@@ -916,8 +1015,7 @@ desktopBridge.onShowSetup(() => void reopenWizard());
 desktopBridge.onUpdateStatus(renderUpdate);
 desktopBridge.onStatus(render);
 
-void loadAppearance();
-void capture(() => desktopBridge.getStatus()).then((status) => {
+void loadAppearance().then(() => capture(() => desktopBridge.getStatus())).then((status) => {
   if (status.ok) render(status.value);
   else renderIpcFailure('无法读取本地服务状态', status.detail);
 });

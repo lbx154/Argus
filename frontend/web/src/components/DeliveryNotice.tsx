@@ -32,13 +32,13 @@ export function DeliveryNotice({
           {delivery.summary ? <p className="mt-1 line-clamp-3 text-xs leading-5 text-ink-dim">{delivery.summary}</p> : null}
           {delivery.review_status && delivery.review_status !== 'not_assessed' ? (
             <div className="mt-2 font-mono text-[10px] text-ink-faint">
-              {zh ? '审核' : 'Review'} · {delivery.review_status}
+              Reviewer · {delivery.review_status}
             </div>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => onOpen(delivery)}
+              onClick={() => { onOpen(delivery); onDismiss(delivery.delivery_id); }}
               className="rounded-md border border-ok/45 bg-ok/10 px-2.5 py-1.5 text-xs font-medium text-ok hover:border-ok hover:bg-ok/15"
             >
               {target ? (zh ? '打开成果' : 'Open result') : (zh ? '查看任务' : 'View task')}

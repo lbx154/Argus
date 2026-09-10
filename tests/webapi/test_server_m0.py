@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from argus_skill import __version__
 from argus_skill.core.cost_control import CostControlLockBusyError
 from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.core.transcript import append_turn
@@ -548,7 +549,7 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout(
     assert meta["runtime"]["pid"] > 0
     assert meta["runtime"]["desktop_launch_nonce"] == "desktop-launch-test"
     runtime = meta["runtime"]
-    assert runtime["release_id"].startswith("0.1.1+")
+    assert runtime["release_id"].startswith(f"{__version__}+")
     assert runtime["release_matches_source"] is (
         runtime["manifest_source_digest"] == runtime["runtime_source_digest"]
     )
@@ -960,7 +961,7 @@ def test_get_meta_is_public_versioned_and_uncached(
     assert r.headers["x-argus-protocol"] == (
         f"argus.webapi/{API_PROTOCOL_MAJOR}.{API_PROTOCOL_MINOR}"
     )
-    assert r.headers["x-argus-release"].startswith("0.1.1+")
+    assert r.headers["x-argus-release"].startswith(f"{__version__}+")
     assert r.json()["protocol"]["major"] == API_PROTOCOL_MAJOR
     assert r.json()["authentication"] == {
         "required": True,

@@ -14,6 +14,7 @@ import { displayObjective, formatMissionElapsed } from '../../../core/src/missio
 import { useI18n } from '../i18n';
 import { PdfPreview } from './PdfPreview';
 import { isMarkdownArtifact } from '../lib/artifactPresentation';
+import { theme } from '../lib/theme';
 
 export const LIVE_PROGRESS_PATH = '__argus_live_progress__';
 
@@ -283,6 +284,7 @@ export function ResearchCanvas({
   artifacts,
   error = false,
   onExpand,
+  onOpenFile,
   className = '',
   embedded = false,
   onCollapse,
@@ -295,6 +297,7 @@ export function ResearchCanvas({
   artifacts?: ArtifactInfo[];
   error?: boolean;
   onExpand: (path: string) => void;
+  onOpenFile?: () => void;
   className?: string;
   embedded?: boolean;
   onCollapse?: () => void;
@@ -331,6 +334,10 @@ export function ResearchCanvas({
     if (target) setManualPath(target.path);
   }, [previewArtifacts, requestedPath, requestedPathToken]);
 
+  const selectPreviewPath = (path: string) => {
+    setManualPath(path);
+    if (path !== LIVE_PROGRESS_PATH) onOpenFile?.();
+  };
   const effectivePath = manualPath ?? defaultPreviewPath(missionView, artifacts);
   const showLiveProgress = effectivePath === LIVE_PROGRESS_PATH;
   const selected = showLiveProgress
@@ -424,7 +431,7 @@ export function ResearchCanvas({
             <span className="sr-only">{t('research.previewArtifact')}</span>
             <select
               value={showLiveProgress ? LIVE_PROGRESS_PATH : selected?.path ?? ''}
-              onChange={(event) => setManualPath(event.target.value)}
+              onChange={(event) => selectPreviewPath(event.target.value)}
               title={showLiveProgress ? t('research.liveProgress') : selected?.storage_path || selected?.path}
               className="h-8 w-full min-w-0 max-w-64 truncate rounded-md border border-line/50 bg-bg px-2 font-mono text-xs text-ink-dim outline-none focus:border-blue/60"
             >
@@ -476,7 +483,7 @@ export function ResearchCanvas({
       {liveStatus ? (
         <div className="shrink-0 border-b border-line/50 bg-blue-deep/10 px-4 py-3">
           <div className="flex items-center gap-2 text-xs">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-blue" />
+            <span data-role-dot={liveStatus.role} className="h-2 w-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none" style={{ background: theme.role[liveStatus.role] ?? theme.inkFaint }} aria-hidden="true" />
             <span className="font-semibold text-ink">{liveStatus.roleLabel}</span>
             <span className="text-blue-sky">{t('mission.active')}</span>
             <span className="truncate text-ink-faint">· {liveStatus.label}</span>
@@ -489,7 +496,7 @@ export function ResearchCanvas({
 
       <div className="relative flex min-h-0 flex-1 flex-col bg-bg">
         {showLiveProgress && missionView ? (
-          <LiveProgressPreview view={missionView} liveStatus={liveStatus} artifacts={artifacts} onOpenArtifact={setManualPath} />
+          <LiveProgressPreview view={missionView} liveStatus={liveStatus} artifacts={artifacts} onOpenArtifact={selectPreviewPath} />
         ) : null}
         {!showLiveProgress && error ? (
           <div className="m-auto max-w-sm px-6 text-center text-sm text-warn">
@@ -528,7 +535,7 @@ export function ResearchCanvas({
         ) : null}
         {info && markdownPreview ? (
           <div className="min-h-0 flex-1 overflow-auto p-5 text-sm text-ink-dim scroll-thin">
-            <MarkdownContent artifacts={artifacts} onOpenArtifact={setManualPath}>{info.preview || '(empty file)'}</MarkdownContent>
+            <MarkdownContent artifacts={artifacts} onOpenArtifact={selectPreviewPath}>{info.preview || '(empty file)'}</MarkdownContent>
           </div>
         ) : null}
         {info?.kind === 'json' ? <JsonPreview value={info.preview || ''} /> : null}

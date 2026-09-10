@@ -6,7 +6,7 @@ import { deriveProgressEstimate } from '../progressEstimate';
 import type { MissionDagNode } from '../types';
 import { formatDuration, statusTone } from '../utils';
 import { useWorkbenchText } from '../useWorkbenchText';
-import type { WorkspacePageProps } from './pageTypes';
+import type { ActiveWorkbenchPageProps } from './pageTypes';
 
 const DONE = new Set(['done', 'completed', 'accepted', 'success']);
 const ACTIVE = new Set(['running', 'in_progress', 'claimed', 'active', 'working']);
@@ -30,11 +30,16 @@ function clockRange(now: number, min: number, max: number, locale: string) {
   return `${format(min)}–${format(max)}`;
 }
 
-export function ExperimentsPage(props: WorkspacePageProps) {
+export function ExperimentsPage(props: ActiveWorkbenchPageProps) {
   const { locale, text } = useWorkbenchText();
   const [now, setNow] = useState(() => Date.now() / 1_000);
   const [selectedTask, setSelectedTask] = useState('');
-  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now() / 1_000), 1_000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    if (!props.active || !props.snapshot.daemon.alive) return;
+    setNow(Date.now() / 1_000);
+    const timer = window.setInterval(() => setNow(Date.now() / 1_000), 1_000);
+    return () => clearInterval(timer);
+  }, [props.active, props.snapshot.daemon.alive]);
   const estimate = useMemo(() => deriveProgressEstimate(props.snapshot, props.events, now, locale), [locale, now, props.events, props.snapshot]);
   const view = props.snapshot.mission_view;
   const dag: MissionDagNode[] = view?.dag?.length ? view.dag : props.snapshot.backlog.map((item) => ({ id: item.id, title: item.title, objective: item.objective, status: item.status, deps: item.deps ?? [], branch_id: item.id, parent_branch_id: '' }));
@@ -95,7 +100,7 @@ export function ExperimentsPage(props: WorkspacePageProps) {
         </main>
 
         <aside className="experiment-v3-side">
-          <section className="ros-card experiment-team"><header><div><span>ARGUS TEAM</span><h2>{text('角色交接', 'Role handoffs')}</h2></div></header><div>{ROLE_ORDER.map((name) => { const role = props.snapshot.roles.find((item) => item.role === name); return <article className={role?.active ? 'is-active' : ''} key={name}><span className={`role-dot role-dot--${name}`} /><div><strong>{roleLabel(name, text)}</strong><p>{role?.label || statusLabel('waiting', text)}</p><small>{statusLabel(role?.status || 'idle', text)}</small></div>{role?.active ? <Badge tone="live" dot>{statusLabel('active', text)}</Badge> : <Badge tone={statusTone(role?.status)}>{statusLabel(role?.status || 'idle', text)}</Badge>}</article>; })}</div></section>
+          <section className="ros-card experiment-team"><header><div><span>ARGUS TEAM</span><h2>{text('角色交接', 'Role handoffs')}</h2></div></header><div>{ROLE_ORDER.map((name) => { const role = props.snapshot.roles.find((item) => item.role === name); return <article className={role?.active ? 'is-active' : ''} key={name}><span data-role-dot={name} className={`role-dot role-dot--${name}`} aria-hidden="true" /><div><strong>{roleLabel(name, text)}</strong><p>{role?.label || statusLabel('waiting', text)}</p><small>{statusLabel(role?.status || 'idle', text)}</small></div>{role?.active ? <Badge tone="live" dot>{statusLabel('active', text)}</Badge> : <Badge tone={statusTone(role?.status)}>{statusLabel(role?.status || 'idle', text)}</Badge>}</article>; })}</div></section>
           <section className="ros-card estimate-note"><header><div><span>ESTIMATE HEALTH</span><h2>{text('估算与风险', 'Estimate and risk')}</h2></div></header><div><p><strong>{text('估算说明', 'Estimate note')}</strong>{text('当前百分比根据任务状态和事件里程碑估算，可能随新进展调整。', 'The percentage is estimated from task state and event milestones and may change as work progresses.')}</p>{reviewRisk ? <div className="estimate-risk"><AlertTriangle size={15} /><span><strong>{roleLabel('reviewer', text)} · {statusLabel(reviewRisk.status, text)}</strong>{reviewRisk.reason || text('任务范围可能变化，预计完成时间已暂停更新。', 'Scope may change, so the expected finish time is paused.')}</span></div> : <div className="estimate-ok"><ShieldCheck size={15} /><span><strong>{text('当前估算可用', 'Estimate available')}</strong>{statusLabel(health, text)} · {text('最近进度', 'last progress')} {formatDuration(props.snapshot.daemon.health?.seconds_since_progress)}</span></div>}{props.controls.error ? <div className="inline-error">{props.controls.error}</div> : null}</div></section>
         </aside>
       </div>

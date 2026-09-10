@@ -384,16 +384,16 @@
   background: currentColor;
 }
 .map-role-engineer {
-  color: #5689ac;
+  color: rgb(var(--role-engineer));
 }
 .map-role-reviewer {
-  color: #8b77a2;
+  color: rgb(var(--role-reviewer));
 }
 .map-role-manager {
-  color: #568274;
+  color: rgb(var(--role-manager));
 }
 .map-role-planner {
-  color: #9e895e;
+  color: rgb(var(--role-planner));
 }
 .argus-map .react-flow__handle {
   width: 7px;

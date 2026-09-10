@@ -32,8 +32,12 @@
           </div>
         </div>
       </nav>
-      <span class="desktop-menu-context">本地工作台</span>
+      <span class="desktop-menu-context" id="desktopContext" role="status">本地工作台</span>
     </header>
+
+    <aside id="runtimeNotice" class="runtime-notice" role="status" hidden>
+      <strong>本地运行提示</strong><span id="runtimeNoticeDetail"></span>
+    </aside>
 
     <div class="window-titlebar" aria-hidden="true">
       <svg class="window-titlebar-mark" viewBox="0 0 512 512">
@@ -125,7 +129,7 @@
         <span class="update-notice-kicker" id="updateKicker">软件更新</span>
         <strong id="updateTitle">正在检查更新</strong>
         <p id="updateDetail">只从已配置的 HTTPS 更新源读取签名清单。</p>
-        <p class="update-notice-security" id="updateSecurity">下载前会验证更新包签名</p>
+        <p class="update-notice-security" id="updateSecurity">安装前会验证更新包签名</p>
       </div>
       <div class="update-notice-actions">
         <button class="secondary small" id="updateCheck" type="button">检查更新</button>
@@ -177,13 +181,13 @@
             <div class="panel-intro">
               <span class="panel-eyebrow">步骤 1</span>
               <h3>选择 Agent CLI</h3>
-              <p>选择 Argus 调用的本地智能代理。登录信息仍由对应 CLI 自己安全管理。</p>
+              <p>首次使用请选择已安装并登录的 Agent CLI。确认后自动记住，下次直接进入工作台；需要切换时打开“文件 → 设置”。登录仍由 CLI 自己安全管理。</p>
             </div>
             <div class="panel-content panel-content-env">
               <fieldset class="runner-kind">
                 <legend>可用代理</legend>
                 <div class="segmented runner-segmented" id="runnerKindSegmented">
-                  <button class="is-selected" type="button" data-kind="codex">Codex CLI</button>
+                  <button type="button" data-kind="codex">Codex CLI</button>
                   <button type="button" data-kind="claude">Claude Code</button>
                   <button type="button" data-kind="copilot">Copilot CLI</button>
                   <button type="button" data-kind="cursor">Cursor CLI</button>
@@ -202,6 +206,7 @@
                     <svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg>
                     <span id="chooseRunnerLabel">选择 Codex CLI</span>
                   </button>
+                  <button class="ghost small" id="refreshRunners" type="button">重新检测</button>
                   <button class="ghost small" id="clearRunner" type="button" hidden>清除手动选择</button>
                 </div>
               </div>
@@ -219,7 +224,7 @@
                 <label for="portInput">本地端口</label>
                 <div class="port-input">
                   <span>127.0.0.1:</span>
-                  <input id="portInput" type="number" min="1024" max="65535" inputmode="numeric" value="8799" />
+                  <input id="portInput" type="number" min="1024" max="65535" inputmode="numeric" value="8799" aria-describedby="portError" />
                 </div>
                 <p class="field-hint">仅供当前电脑上的 Argus 工作台访问。</p>
                 <p class="field-error" id="portError" hidden>端口需在 1024 - 65535 之间</p>
@@ -241,7 +246,7 @@
             <div class="panel-intro">
               <span class="panel-eyebrow">步骤 3</span>
               <h3>确认设置</h3>
-              <p>保存后，Argus 会在需要时安全重启本地服务。</p>
+              <p>保存 CLI 或端口更改后会重启本地服务，可能中断当前工作。请在合适的任务边界操作。</p>
             </div>
             <div class="panel-content panel-content-summary">
               <dl class="summary">
@@ -266,12 +271,13 @@
                 <span class="runtime-icon" aria-hidden="true">
                   <svg class="icon"><use href="#i-check"></use></svg>
                 </span>
-                <span>Argus 内置后端已准备就绪</span>
+                <span>无需另装 Python。检测到 CLI 不代表已经登录，首次任务前请确认 CLI 鉴权。</span>
               </div>
             </div>
           </section>
         </div>
 
+        <p class="wizard-error" id="wizardError" role="alert" tabindex="-1" hidden></p>
         <footer class="wizard-foot">
           <button class="ghost" id="wizardCancel" type="button" hidden>取消并返回工作台</button>
           <button class="ghost" id="wizardBack" type="button" hidden>上一步</button>

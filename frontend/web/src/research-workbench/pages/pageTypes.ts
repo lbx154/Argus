@@ -10,6 +10,10 @@ import type {
   Turn,
 } from '../types';
 
+export type ActiveWorkbenchPageProps = Omit<WorkspacePageProps,
+  'transcript' | 'artifacts' | 'counterexamples' | 'gitDiff' | 'journal'
+> & { active: boolean };
+
 export interface WorkspacePageProps {
   sid: string;
   project: ProjectRow;

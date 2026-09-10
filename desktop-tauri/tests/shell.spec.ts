@@ -1,0 +1,232 @@
+import { expect, test, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+
+async function launch(page: Page, complete = false) {
+  await page.route('**/bridge.ts', (route) => route.fulfill({
+    contentType: 'application/javascript',
+    body: 'export const desktopBridge = window.desktopTest.bridge;',
+  }));
+  await page.route('http://127.0.0.1:18880/**', (route) => route.fulfill({
+    contentType: 'text/html',
+    body: '<!doctype html><title>Test cockpit</title><input id="draft" aria-label="Draft"><p>Manager · Engineer</p>',
+  }));
+  await page.addInitScript((configured) => {
+    const callbacks: Record<string, (value: unknown) => void> = {};
+    const state = {
+      status: { state: configured ? 'ready' : 'idle', message: configured ? '已就绪' : '请选择 Agent CLI' },
+      complete: configured,
+      failure: '',
+      saveCount: 0,
+      saved: null as unknown,
+      delaySave: false,
+      url: 'http://127.0.0.1:18880/',
+      savedAppearance: null as unknown,
+      releaseSave: null as (() => void) | null,
+      emit: (value: { state: string; message: string }) => {
+        state.status = value;
+        callbacks.status?.(value);
+      },
+      bridge: {} as Record<string, unknown>,
+    };
+    state.bridge = {
+      getStatus: async () => state.status,
+      getAppearance: async () => ({ theme: 'system', resolvedTheme: 'light' }),
+      setWindowTheme: async () => undefined,
+      setAppearance: async (appearance: unknown) => { state.savedAppearance = appearance; return appearance; },
+      getSetup: async () => ({
+        complete: state.complete, host: '127.0.0.1', port: 18880,
+        runnerKind: 'codex', runnerConfigured: state.complete,
+        runnerBins: {}, detectedRunners: { codex: 'C:/agents/codex.cmd', pi: 'C:/agents/pi.cmd' },
+        piConfiguration: { configDir: '' },
+        releaseIdentity: { packageVersion: '0.1.1', releaseId: 'test', sourceDigest: 'test', distribution: 'preview' },
+        runtimeIdentity: { state: state.status.state },
+      }),
+      openCockpit: async () => state.url,
+      completeSetup: async (input: unknown) => {
+        state.saveCount++;
+        state.saved = input;
+        if (state.delaySave) await new Promise<void>((resolve) => { state.releaseSave = resolve; });
+        if (state.failure) return { ok: false, error: state.failure };
+        state.complete = true;
+        state.emit({ state: 'ready', message: '已就绪' });
+        return { ok: true };
+      },
+      restartBackend: async () => state.emit({ state: 'ready', message: '已就绪' }),
+      chooseRunner: async () => 'C:/custom/codex.cmd',
+      getUpdateStatus: async () => ({ state: 'idle', currentVersion: '0.1.1', userInitiated: false }),
+      checkForUpdate: async () => ({ state: 'idle', currentVersion: '0.1.1', userInitiated: true, detail: '预览构建不安装发布更新。' }),
+      dismissUpdate: async () => undefined,
+      onTrialProgress: () => undefined,
+      onStatus: (callback: (value: unknown) => void) => { callbacks.status = callback; },
+      onUpdateStatus: () => undefined,
+      onShowSetup: () => undefined,
+      onNewChat: () => undefined,
+      onOpenDelivery: () => undefined,
+    };
+    (window as unknown as { desktopTest: typeof state }).desktopTest = state;
+  }, complete);
+  await page.goto('/');
+}
+
+async function finishSteps(page: Page) {
+  await page.locator('#wizardNext').click();
+  await page.locator('#wizardNext').click();
+}
+
+async function openSettings(page: Page) {
+  await page.locator('#fileMenuTrigger').click();
+  await page.locator('[data-menu-action="settings"]').click();
+  await expect(page.locator('#wizard')).toBeVisible();
+}
+
+// Only the test harness owns this object; production ships no test IPC or globals.
+async function configure(page: Page, changes: Record<string, unknown>) {
+  await page.evaluate((values) => Object.assign((window as any).desktopTest, values), changes);
+}
+
+test('first launch requires an explicit CLI selection and saves the selected port', async ({ page }) => {
+  await launch(page);
+  await expect(page.locator('#wizard')).toBeVisible();
+  await expect(page.locator('#cockpit')).toBeHidden();
+  await expect(page.locator('#wizardNext')).toBeDisabled();
+  await page.locator('[data-kind="pi"]').click();
+  await page.locator('#wizardNext').click();
+  await page.locator('#portInput').fill('18901');
+  await expect(page.locator('[data-appearance]')).toHaveCount(0);
+  await page.locator('#wizardNext').click();
+  await expect(page.locator('#summaryUrl')).toHaveText('127.0.0.1:18901');
+  await page.locator('#wizardFinish').click();
+  await expect(page.locator('#wizard')).toBeHidden();
+  await expect(page.locator('#cockpit')).toBeVisible();
+  await expect(page.locator('#splash')).toBeHidden();
+  const saved = await page.evaluate(() => (window as any).desktopTest.saved);
+  expect(saved).toMatchObject({ port: 18901, runnerKind: 'pi' });
+});
+
+test('prototype hardening applies only to the trusted shell, not the drawing iframe', async ({ page }) => {
+  await page.addInitScript(readFileSync(new URL('../src-tauri/src/shell-init.js', import.meta.url), 'utf8'));
+  await launch(page, true);
+  await expect(page.locator('#cockpit')).toBeVisible();
+  expect(await page.evaluate(() => Object.isFrozen(Object.prototype))).toBe(true);
+  const frame = page.frames().find((item) => item.url().startsWith('http://127.0.0.1:18880/'))!;
+  expect(await frame.evaluate(() => {
+    const prototype = Object.create(Object.prototype);
+    prototype.constructor = function GraphNode() {};
+    return Object.isFrozen(Object.prototype);
+  })).toBe(false);
+});
+
+test('returning user enters the cockpit without repeating setup', async ({ page }) => {
+  await launch(page, true);
+  await expect(page.locator('#cockpit')).toBeVisible();
+  await expect(page.locator('#wizard')).toBeHidden();
+  await expect(page.locator('#splash')).toBeHidden();
+  await expect(page.locator('#desktopContext')).toContainText('Preview');
+});
+
+test('invalid port is explained before saving', async ({ page }) => {
+  await launch(page);
+  await page.locator('[data-kind="codex"]').click();
+  await page.locator('#wizardNext').click();
+  await page.locator('#portInput').fill('65536');
+  await page.locator('#wizardNext').click();
+  await expect(page.locator('#portError')).toBeVisible();
+  await expect(page.locator('#portInput')).toBeFocused();
+  expect(await page.evaluate(() => (window as any).desktopTest.saveCount)).toBe(0);
+});
+
+test('save failure stays visible and preserves both settings and the cockpit draft', async ({ page }) => {
+  await launch(page, true);
+  await page.frameLocator('#cockpitFrame').locator('#draft').fill('unsent research question');
+  await openSettings(page);
+  await page.locator('[data-kind="pi"]').click();
+  await finishSteps(page);
+  await configure(page, { failure: '端口已被占用，现有设置未更改。' });
+  await page.locator('#wizardFinish').click();
+  await expect(page.locator('#wizardError')).toBeVisible();
+  await expect(page.locator('#wizardError')).toContainText('端口已被占用');
+  await expect(page.locator('#summaryRunner')).toContainText('Pi');
+  await page.locator('#wizardCancel').click();
+  await expect(page.frameLocator('#cockpitFrame').locator('#draft')).toHaveValue('unsent research question');
+});
+
+test('a pending save cannot be double-submitted or cancelled', async ({ page }) => {
+  await launch(page, true);
+  await openSettings(page);
+  await finishSteps(page);
+  await configure(page, { delaySave: true });
+  await page.locator('#wizardFinish').click();
+  await expect(page.locator('#wizardFinish')).toBeDisabled();
+  await expect(page.locator('#wizardCancel')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#wizard')).toBeVisible();
+  expect(await page.evaluate(() => (window as any).desktopTest.saveCount)).toBe(1);
+  await page.evaluate(() => (window as any).desktopTest.releaseSave());
+  await expect(page.locator('#wizard')).toBeHidden();
+});
+
+test('recovery at the same URL retains the React document and unsent draft', async ({ page }) => {
+  await launch(page, true);
+  await page.frameLocator('#cockpitFrame').locator('#draft').fill('preserve me');
+  await page.evaluate(() => (window as any).desktopTest.emit({ state: 'error', message: '暂时无法连接' }));
+  await expect(page.locator('#retry')).toBeVisible();
+  await page.locator('#retry').click();
+  await expect(page.frameLocator('#cockpitFrame').locator('#draft')).toHaveValue('preserve me');
+  await expect(page.locator('#splash')).toBeHidden();
+});
+
+test('only the authenticated cockpit can request desktop settings', async ({ page }) => {
+  await launch(page, true);
+  await expect(page.locator('#cockpit')).toBeVisible();
+  await page.evaluate(() => window.postMessage({ type: 'argus:show-setup' }, '*'));
+  await expect(page.locator('#wizard')).toBeHidden();
+  const cockpit = page.frames().find((frame) => frame.url().startsWith('http://127.0.0.1:18880/'))!;
+  await cockpit.evaluate(() => window.parent.postMessage({ type: 'argus:show-setup' }, '*'));
+  await expect(page.locator('#wizard')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#wizard')).toBeHidden();
+});
+
+test('runtime file warnings keep the working document and draft accessible', async ({ page }) => {
+  await launch(page, true);
+  await page.frameLocator('#cockpitFrame').locator('#draft').fill('keep this work');
+  await page.evaluate(() => (window as any).desktopTest.emit({ state: 'ready', message: '已就绪', warning: '运行包文件暂时无法读取' }));
+  await expect(page.locator('#runtimeNotice')).toBeVisible();
+  await expect(page.locator('#cockpit')).toBeVisible();
+  await expect(page.frameLocator('#cockpitFrame').locator('#draft')).toHaveValue('keep this work');
+  await page.evaluate(() => (window as any).desktopTest.emit({ state: 'ready', message: '已就绪' }));
+  await expect(page.locator('#runtimeNotice')).toBeHidden();
+});
+
+test('a theme-only URL change does not remount the conversation', async ({ page }) => {
+  await launch(page, true);
+  await page.frameLocator('#cockpitFrame').locator('#draft').fill('unsent after theme switch');
+  await configure(page, { url: 'http://127.0.0.1:18880/?desktopTheme=dark' });
+  await openSettings(page);
+  await expect(page.locator('[data-appearance]')).toHaveCount(0);
+  await finishSteps(page);
+  await page.locator('#wizardFinish').click();
+  await expect(page.locator('#wizard')).toBeHidden();
+  await expect(page.frameLocator('#cockpitFrame').locator('#draft')).toHaveValue('unsent after theme switch');
+});
+
+test('manual update check explains why preview does not install releases', async ({ page }) => {
+  await launch(page, true);
+  await page.locator('#helpMenuTrigger').click();
+  await page.locator('[data-menu-action="check-update"]').click();
+  await expect(page.locator('#updateNotice')).toBeVisible();
+  await expect(page.locator('#updateTitle')).toHaveText('发布更新已禁用');
+  await expect(page.locator('#updateInstall')).toBeHidden();
+});
+
+test('CLI grid and settings stay usable at the minimum supported window size', async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 640 });
+  await launch(page);
+  for (const kind of ['codex', 'claude', 'copilot', 'cursor', 'pi', 'opencode', 'grok', 'qoder', 'dsh']) {
+    await expect(page.locator(`[data-kind="${kind}"]`)).toBeInViewport();
+  }
+  await page.locator('[data-kind="pi"]').click();
+  await expect(page.locator('#wizardNext')).toBeInViewport();
+  await finishSteps(page);
+  await expect(page.locator('#wizardFinish')).toBeInViewport();
+});

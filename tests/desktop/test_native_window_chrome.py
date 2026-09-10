@@ -24,7 +24,15 @@ def test_windows_caption_buttons_use_a_native_non_client_frame() -> None:
     assert window["theme"] == "Light"
     assert window["backgroundColor"] == "#f9fafb"
     assert "frame-src http://127.0.0.1:*" in security["csp"]
-    assert security["freezePrototype"] is True
+    # Tauri's global flag also freezes remote iframe prototypes on WebView2,
+    # breaking d3/React Flow. The privileged main frame remains frozen via the
+    # guarded initialization script; remote commands remain capability-denied.
+    assert security["freezePrototype"] is False
+    host = (TAURI_ROOT / "src-tauri/src/lib.rs").read_text(encoding="utf-8")
+    init = (TAURI_ROOT / "src-tauri/src/shell-init.js").read_text(encoding="utf-8")
+    assert '.initialization_script(include_str!("shell-init.js"))' in host
+    assert "window === window.top" in init
+    assert "Object.freeze(Object.prototype)" in init
     windows = json.loads((TAURI_ROOT / "src-tauri/tauri.windows.conf.json").read_text())
     assert windows["bundle"]["resources"]["../resources/WebView2Loader.dll"] == "WebView2Loader.dll"
 
@@ -61,6 +69,15 @@ def test_desktop_launches_backend_without_a_console_or_forced_backend() -> None:
     assert "showWizard(setup.value)" in shell
 
 
+def test_frozen_command_shims_do_not_embed_unicode_or_verbatim_paths_in_batch_files() -> None:
+    backend = (TAURI_ROOT / "src-tauri/src/backend.rs").read_text(encoding="utf-8")
+    assert '.env("ARGUS_SKILL_PYTHON", &shell_command)' in backend
+    assert "shell_command_path(&command.command)" in backend
+    assert "shell_command_path(command)" in backend
+    assert "%ARGUS_SKILL_PYTHON%" in backend
+    assert "if not defined ARGUS_SKILL_PYTHON exit /b 1" in backend
+
+
 def test_ready_cockpit_checks_initial_setup_without_duplicate_reload() -> None:
     shell = (TAURI_ROOT / "src" / "main.ts").read_text(encoding="utf-8")
     ready_path = shell.split("async function handleReady", 1)[1].split(
@@ -70,7 +87,8 @@ def test_ready_cockpit_checks_initial_setup_without_duplicate_reload() -> None:
     assert "desktopBridge.openCockpit()" in ready_path
     assert ready_path.index("desktopBridge.getSetup()") < ready_path.index("desktopBridge.openCockpit()")
     assert "if (!setup.value.complete)" in ready_path
-    assert "cockpitMounted && cockpitFrame.src === url" in shell
+    assert "cockpitMounted && sameCockpitConnection(cockpitFrame.src, url)" in shell
+    assert "url.searchParams.delete('desktopTheme')" in shell
     assert "}, 180);" in shell
 
 
@@ -206,7 +224,7 @@ def test_trusted_shell_menu_merges_background_close_actions_and_matches_theme() 
     assert "--chrome-bg: #161618" in styles
     assert "background: var(--chrome-bg)" in styles
     assert "border-bottom: 0" in styles
-    assert "inset: var(--desktop-menu-height) 0 0" in styles
+    assert "inset: calc(var(--desktop-menu-height) + var(--desktop-notice-height)) 0 0" in styles
 
 
 def test_native_brand_keeps_the_sclera_and_highlight_white_in_dark_mode() -> None:

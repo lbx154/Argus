@@ -76,9 +76,9 @@ export const MapArtifactContext = createContext<{
   onOpenArtifact?: (path: string) => void;
 }>({});
 const KINDS: Record<StepKind, [string, string]> = {
-  plan: ["规划", "Plan"],
-  execution: ["执行尝试", "Execute"],
-  review: ["审查", "Review"],
+  plan: ["Planner", "Planner"],
+  execution: ["Engineer", "Engineer"],
+  review: ["Reviewer", "Reviewer"],
   revision: ["修订", "Revise"],
   result: ["结果", "Result"],
 };

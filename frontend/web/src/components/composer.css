@@ -1,0 +1,33 @@
+.conversation-composer { width: 100%; max-width: 680px; margin: 0 auto; }
+.composer-surface { min-width: 0; }
+.map-composer {
+  display: flex; align-items: center; gap: 15px;
+  border: 1px solid rgb(var(--line) / .8); border-radius: 29px;
+  background: rgb(var(--surface)); padding: 14px 15px 14px 22px;
+  box-shadow: 0 9px 28px #233b5510, 0 2px 5px #233b5509;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.map-composer:focus-within { border-color: rgb(var(--blue) / .5); box-shadow: 0 4px 22px rgb(var(--blue) / .08); }
+.map-composer-brand { color: rgb(var(--ink)); flex-shrink: 0; }
+.map-attach { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; transition: background 140ms ease; }
+.map-attach:hover, .map-attach:focus-visible { background: rgb(var(--line) / .6); outline: 2px solid rgb(var(--blue) / .4); outline-offset: 2px; }
+.map-attach:disabled { opacity: .55; cursor: default; }
+.map-composer textarea { min-width: 0; flex: 1; background: transparent; border: 0; outline: none; resize: none; font-size: 15px; line-height: 28px; color: rgb(var(--ink)); max-height: 132px; }
+.map-composer textarea::placeholder { color: rgb(var(--ink-faint)); }
+.map-send { width: 33px; height: 33px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; background: rgb(var(--blue-deep)); color: white; transition: width 220ms ease, opacity 150ms ease, background-color 140ms ease; }
+.map-send:disabled { background: rgb(var(--line) / .7); color: rgb(var(--ink-faint)); cursor: default; }
+.map-send:not(:disabled):hover { background: rgb(var(--blue)); }
+.composer-controls { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; min-height: 30px; padding: 5px 12px 0; color: rgb(var(--ink-faint)); font-size: 11px; }
+.composer-controls :is(button, select) { min-height: 28px; border-radius: 8px; padding: 4px 8px; background: transparent; }
+.composer-controls :is(button, select):hover { background: rgb(var(--panel)); color: rgb(var(--ink)); }
+.map-attachment-tray { display: flex; flex-wrap: wrap; gap: 8px; max-height: 140px; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 9px; }
+.map-attachment-tray > div { flex: 1 1 200px; max-width: 100%; }
+.map-attachment-notice { padding: 7px 12px; margin-bottom: 6px; border-radius: 10px; background: rgb(var(--surface)); color: rgb(var(--err)); font-size: 12px; max-height: 72px; overflow-y: auto; }
+.map-composer-caption { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; text-align: center; font-size: 10px; color: rgb(var(--ink-faint)); min-height: 15px; padding-top: 5px; }
+.map-reference-chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 7px; }
+.map-reference-chips > span { display: flex; align-items: center; max-width: 100%; gap: 9px; border: 1px solid rgb(var(--blue) / .25); background: rgb(var(--surface)); color: rgb(var(--blue)); padding: 5px 9px; border-radius: 9px; font-size: 11px; }
+.map-reference-chips > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-surface[data-pending='true'] .argus-mark-eye { transform-box: fill-box; transform-origin: center; animation: composer-eye-working 1800ms ease-in-out infinite; }
+@keyframes composer-eye-working { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(16deg); } }
+@media (max-width: 640px) { .map-composer { padding: 10px 12px; gap: 10px; border-radius: 24px; } .map-composer textarea { font-size: 14px; } }
+@media (prefers-reduced-motion: reduce) { .conversation-composer, .map-composer, .map-send { transition: none; } .composer-surface .argus-mark-eye { animation: none !important; } }

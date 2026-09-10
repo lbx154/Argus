@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from argus_skill import __version__
 from argus_skill.apps.cli import build_parser, main
 
 
@@ -36,7 +37,7 @@ def test_version_reports_package_version(capsys) -> None:
     with pytest.raises(SystemExit, match="0"):
         build_parser().parse_args(["--version"])
     rendered = capsys.readouterr().out
-    assert rendered == "argus-skill 0.1.1\n"
+    assert rendered == f"argus-skill {__version__}\n"
 
 
 def test_main_pins_pip_user_off_before_any_child_shell(

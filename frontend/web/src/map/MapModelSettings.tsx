@@ -37,7 +37,7 @@ export function MapModelSettings({
     <section className="map-model-settings rounded-lg border border-line glass-card p-3" aria-label={zh ? "地图模型" : "Map model"}>
       <div className="text-xs font-semibold text-ink">{zh ? "地图模型" : "Map model"}</div>
       <p className="mt-1 text-xs text-ink-dim">
-        {zh ? "沿用科研执行的接入与账号。留空即可跟随科研模型。" : "Uses the research runner and account. Leave the model blank to follow research settings."}
+        {zh ? "沿用科研 Engineer 的接入与账号。留空即可跟随 Engineer 模型。" : "Uses the research Engineer's runner and account. Leave the model blank to follow Engineer settings."}
       </p>
       <p className="mt-1 text-xs text-ink-faint">
         {research?.backend_label} · {research?.model || (zh ? "接入默认模型" : "Runner default model")}

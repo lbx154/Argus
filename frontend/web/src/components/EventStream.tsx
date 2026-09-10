@@ -186,7 +186,9 @@ function RoleLogGroup({
         className="group flex h-11 w-full items-center gap-2 px-4 text-left transition-colors hover:bg-bg/60"
       >
         <span
-          className={`h-2 w-2 rounded-full ${active ? 'animate-pulse' : 'opacity-55'}`}
+          data-role-dot={role}
+          aria-hidden="true"
+          className={`h-2 w-2 shrink-0 rounded-full ${active ? 'animate-pulse motion-reduce:animate-none' : ''}`}
           style={{ background: color }}
         />
         <span className="text-xs font-semibold text-ink-dim">{roleLabel(role, t)}</span>

@@ -43,7 +43,7 @@ describe('slash completion menu', () => {
 
   it('links the textarea to the stable slash listbox and selected option', () => {
     const html = renderToStaticMarkup(
-      <ChatBox
+      <ChatBox attachments={[]} onAttachmentsChange={() => {}}
         value="/"
         onChange={() => undefined}
         onSend={() => false}
@@ -65,7 +65,7 @@ describe('slash completion menu', () => {
 
   it('shows the operator-owned Task/Auto/Chat category selector', () => {
     const html = renderToStaticMarkup(
-      <ChatBox
+      <ChatBox attachments={[]} onAttachmentsChange={() => {}}
         value="ship it"
         onChange={() => undefined}
         onSend={() => false}
@@ -86,7 +86,7 @@ describe('slash completion menu', () => {
 
   it('keeps stop control but omits the synthetic quiet-progress row', () => {
     const html = renderToStaticMarkup(
-      <ChatBox
+      <ChatBox attachments={[]} onAttachmentsChange={() => {}}
         value=""
         onChange={() => undefined}
         onSend={() => false}
