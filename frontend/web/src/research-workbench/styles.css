@@ -2,20 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer reset, base, components, pages, responsive;
+/* Use Tailwind layers consistently: native CSS layers lose to the host
+ * stylesheet's unlayered preflight, even for more specific component rules. */
 
 @keyframes prompt-optimizer-enter {
   from { opacity: 0; transform: translateY(8px) scale(.992); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-@layer reset {
-  .integrated-workbench, .integrated-workbench *, .integrated-workbench *::before, .integrated-workbench *::after { box-sizing: border-box; }
-  .integrated-workbench button, .integrated-workbench input, .integrated-workbench textarea, .integrated-workbench select { font: inherit; color: inherit; }
-  .integrated-workbench button { border: 0; }
-  .integrated-workbench button:not(:disabled), .integrated-workbench select:not(:disabled) { cursor: pointer; }
-  .integrated-workbench button:disabled { cursor: not-allowed; opacity: .48; }
-  .integrated-workbench a { color: inherit; }
+@layer base {
+  :where(.integrated-workbench), :where(.integrated-workbench) *, :where(.integrated-workbench) *::before, :where(.integrated-workbench) *::after { box-sizing: border-box; }
+  :where(.integrated-workbench) button, :where(.integrated-workbench) input, :where(.integrated-workbench) textarea, :where(.integrated-workbench) select { font: inherit; color: inherit; }
+  :where(.integrated-workbench) button { border: 0; }
+  :where(.integrated-workbench) button:not(:disabled), :where(.integrated-workbench) select:not(:disabled) { cursor: pointer; }
+  :where(.integrated-workbench) button:disabled { cursor: not-allowed; opacity: .48; }
+  :where(.integrated-workbench) a { color: inherit; }
 }
 
 @layer base {
@@ -160,7 +161,7 @@
   .event-list--dense .event-row { padding-block: 7px; }
 }
 
-@layer pages {
+@layer components {
   /* ResearchOS shell */
   .ros-app { width: 100vw; height: 100dvh; overflow: hidden; background: rgb(var(--bg)); }
   .ros-topbar { position: relative; z-index: 40; height: var(--topbar); display: flex; align-items: center; gap: 11px; border-bottom: 1px solid rgb(var(--border)); background: rgb(var(--surface) / .96); padding: 0 18px; backdrop-filter: blur(12px); }
@@ -287,7 +288,7 @@
   .diagnosis-list { display: grid; gap: 7px; }.diagnosis { display: flex; gap: 7px; border: 1px solid rgb(var(--border)); border-radius: 10px; padding: 9px; color: rgb(var(--muted)); }.diagnosis strong { display: block; color: rgb(var(--text)); font-size: 9.5px; }.diagnosis p { margin: 3px 0 0; font-size: 8.5px; }.diagnosis--success { border-color: rgb(var(--green) / .2); background: rgb(var(--green-bg)); color: rgb(var(--green)); }.diagnosis--danger { border-color: rgb(var(--red) / .2); background: rgb(var(--red-bg)); color: rgb(var(--red)); }.diagnosis--warn { border-color: rgb(var(--amber) / .2); background: rgb(var(--amber-bg)); color: rgb(var(--amber)); }
 }
 
-@layer responsive {
+@layer components {
   @media (max-width: 1450px) {
     .metric-grid { grid-template-columns: repeat(3, 1fr); }
     .literature-v2__layout { grid-template-columns: 210px minmax(380px, 1fr) 310px; }
@@ -301,6 +302,25 @@
   }
 
   @container (max-width: 1100px) {
+    .integrated-workbench .overview-hero {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .integrated-workbench .overview-hero__copy {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .integrated-workbench .overview-hero__badges {
+      flex-wrap: wrap;
+    }
+    .integrated-workbench .overview-hero__stats {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .integrated-workbench .overview-hero__stats > div {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
     .integrated-workbench .experiment-v3-grid {
       grid-template-columns: 220px minmax(0, 1fr);
     }
@@ -361,7 +381,19 @@
     }
   }
 
+  @container (max-width: 480px) {
+    .integrated-workbench .overview-hero__stats {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
   @container (max-width: 700px) {
+    .integrated-workbench .overview-hero {
+      padding: 18px;
+    }
+    .integrated-workbench .overview-lower {
+      grid-template-columns: minmax(0, 1fr);
+    }
     .integrated-workbench .ros-page,
     .integrated-workbench .overview-page,
     .integrated-workbench .page {
@@ -588,7 +620,7 @@
 @keyframes blink { 50% { opacity: .35; } }
 @keyframes skeleton { to { background-position: -120% 0; } }
 
-@layer pages {
+@layer components {
   /* Second visual refinement: larger typography outside the conversation thread. */
   :root { --font: 'Inter Variable', 'Noto Sans SC Variable', 'Geist Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif; }
   .ros-page:not(.copilot-v2), .overview-page, .page--experiments { font-size: 15px; }
@@ -666,7 +698,7 @@
   .process-review-layout, .final-review-layout { min-height: 650px; }.review-rounds strong { font-size: 10.5px; }.review-rounds small { font-size: 9px; }.process-report .markdown, .final-review-report .markdown { font-size: 12.5px; line-height: 1.72; }.final-review-form .field > span { font-size: 11.5px; }.final-review-form select, .final-review-form textarea { font-size: 12px; }
 }
 
-@layer responsive {
+@layer components {
   @media (max-width: 1450px) {
     .literature-v2__layout { grid-template-columns: 220px minmax(440px, 1fr) 340px; }
     .inbox-v2__layout { grid-template-columns: 210px minmax(390px, 1fr) 350px; }
@@ -695,7 +727,7 @@
   }
 }
 
-@layer pages {
+@layer components {
   .pdf-canvas-viewer { height: calc(100% - 34px); display: flex; flex-direction: column; overflow: hidden; background: rgb(82 82 86); }
   .pdf-canvas-toolbar { min-height: 37px; flex: 0 0 37px; display: flex; align-items: center; gap: 6px; background: rgb(var(--surface)); padding: 0 8px; }
   .pdf-canvas-toolbar strong { min-width: 0; flex: 1; overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
@@ -706,7 +738,7 @@
   .pdf-canvas-viewer > .inline-error { margin: 10px; }
 }
 
-@layer pages {
+@layer components {
   /* ResearchOS-style custom project switcher, replacing the native select. */
   .custom-project-switcher { position: relative; min-width: 280px; max-width: 430px; }
   .project-switcher-trigger { width: 100%; min-height: 38px; display: grid; grid-template-columns: 8px minmax(0, 1fr) 16px; align-items: center; gap: 9px; border: 1px solid transparent; border-radius: 10px; background: transparent; padding: 0 9px; text-align: left; transition: background .15s, border-color .15s; }
@@ -732,7 +764,7 @@
   .estimate-note > div { padding: 13px; }.estimate-note p { margin: 0 0 11px; color: rgb(var(--muted)); font-size: 9.5px; line-height: 1.55; }.estimate-note p strong { display: block; margin-bottom: 3px; color: rgb(var(--text)); }.estimate-risk, .estimate-ok { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 7px; border: 1px solid rgb(var(--border)); border-radius: 10px; padding: 9px; }.estimate-risk { border-color: rgb(var(--amber) / .22); background: rgb(var(--amber-bg)); color: rgb(var(--amber)); }.estimate-ok { border-color: rgb(var(--green) / .22); background: rgb(var(--green-bg)); color: rgb(var(--green)); }.estimate-risk span, .estimate-ok span { display: flex; flex-direction: column; font-size: 8.5px; }.estimate-risk strong, .estimate-ok strong { margin-bottom: 2px; font-size: 9.5px; }
 }
 
-@layer responsive {
+@layer components {
   @media (max-width: 1450px) {
     .experiment-v3-grid { grid-template-columns: 225px minmax(420px, 1fr) 290px; }
   }
@@ -749,7 +781,7 @@
 
 @keyframes popoverIn { from { opacity: 0; transform: translateY(-5px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
-@layer pages {
+@layer components {
   .ide-context-strip { min-height: 40px; display: grid; grid-template-columns: 18px minmax(150px, 240px) minmax(0, 1fr) auto auto 28px; align-items: center; gap: 8px; border: 1px solid rgb(var(--border)); border-radius: 10px 10px 0 0; background: rgb(var(--surface)); margin-bottom: -1px; padding: 5px 8px 5px 11px; }.ide-context-strip > svg { color: rgb(var(--muted)); }.ide-context-strip select { width: 100%; border: 0; background: transparent; outline: 0; font-size: 10.5px; font-weight: 620; }.ide-context-strip code { overflow: hidden; color: rgb(var(--faint)); font-size: 8.5px; text-overflow: ellipsis; white-space: nowrap; }.ide-context-strip small { color: rgb(var(--faint)); font-family: var(--mono); font-size: 8px; }.ide-context-strip > button { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 7px; background: rgb(var(--surface-2)); color: rgb(var(--muted)); }
   .ide-context-strip + .vscode-shell { border-radius: 0 0 12px 12px; }
   .repository-readiness { padding: 11px; }.repository-readiness h3 { margin: 0 0 9px; color: rgb(var(--vscode-text)); font-size: 11px; }.repository-readiness dl { display: grid; gap: 5px; margin: 0; }.repository-readiness dl > div { display: grid; grid-template-columns: 110px minmax(0, 1fr) 18px; align-items: center; gap: 5px; border: 1px solid rgb(var(--vscode-line)); border-radius: 6px; background: rgb(var(--vscode-bg)); padding: 7px; }.repository-readiness dt { display: flex; align-items: center; gap: 5px; color: rgb(var(--vscode-muted)); font-size: 8.5px; }.repository-readiness dd { overflow: hidden; margin: 0; color: rgb(var(--vscode-text)); font-family: var(--mono); font-size: 7.8px; line-height: 1.4; text-overflow: ellipsis; white-space: pre-wrap; }.repository-readiness i { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; font-style: normal; }.repository-readiness i.ok { background: rgb(var(--role-engineer) / .12); color: rgb(var(--role-engineer)); }.repository-readiness i.missing { background: rgb(var(--role-reviewer) / .12); color: rgb(var(--role-reviewer)); }.repository-readiness > p { border-top: 1px solid rgb(var(--vscode-line)); margin: 10px 0 0; padding-top: 9px; color: rgb(var(--vscode-muted)); font-size: 8.5px; line-height: 1.5; }
@@ -765,12 +797,12 @@
   .release-module-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 14px 0; }.release-module { min-height: 290px; border: 1px solid rgb(var(--border)); border-radius: 15px; background: rgb(var(--surface)); padding: 17px; box-shadow: var(--shadow-1); }.release-module > header { display: flex; align-items: center; justify-content: space-between; }.release-module header > span { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 11px; background: rgb(var(--surface-2)); color: rgb(var(--muted)); }.release-module h3 { margin: 16px 0 6px; font-size: 15px; }.release-module > p { min-height: 52px; margin: 0; color: rgb(var(--muted)); font-size: 10.5px; line-height: 1.55; }.release-module ul { display: grid; gap: 7px; border-top: 1px solid rgb(var(--border)); margin: 13px 0 0; padding: 13px 0 0; list-style: none; }.release-module li { display: flex; align-items: center; gap: 6px; color: rgb(var(--muted)); font-size: 9.5px; }.release-module li svg { color: rgb(var(--green)); }
   .release-flow { display: grid; grid-template-columns: 1fr 20px 1fr 20px 1fr 20px 1fr; align-items: center; border: 1px solid rgb(var(--border)); border-radius: 14px; background: rgb(var(--surface)); padding: 12px; }.release-flow > div { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 7px; border-radius: 10px; padding: 9px; }.release-flow > div > svg { grid-row: 1 / 3; align-self: center; color: rgb(var(--blue)); }.release-flow strong { font-size: 10px; }.release-flow small { color: rgb(var(--faint)); font-size: 8px; }.release-flow > b { color: rgb(var(--faint)); font-weight: 400; text-align: center; }.release-boundary { display: flex; gap: 9px; border: 1px solid rgb(var(--amber) / .22); border-radius: 12px; background: rgb(var(--amber-bg)); margin-top: 12px; padding: 12px; color: rgb(var(--amber)); }.release-boundary strong { font-size: 10.5px; }.release-boundary p { margin: 3px 0 0; font-size: 9px; line-height: 1.5; }
 }
-@layer responsive {
+@layer components {
   @media (max-width: 900px) { .release-module-grid { grid-template-columns: 1fr; }.release-flow { grid-template-columns: 1fr; gap: 5px; }.release-flow > b { transform: rotate(90deg); }.project-intake-start { align-items: stretch; flex-direction: column; }.project-intake-start select { max-width: none; } }
   @media (max-width: 640px) { .ide-context-strip { grid-template-columns: 18px minmax(0, 1fr) auto 28px; }.ide-context-strip code, .ide-context-strip small { display: none; }.review-form-row, .review-emphasis { grid-template-columns: 1fr; }.release-hero { grid-template-columns: 1fr; } }
 }
 
-@layer responsive {
+@layer components {
   @media (max-width: 1180px) {
     .vscode-shell { grid-template-rows: minmax(0, 1fr) 180px 340px 22px; }
     .vscode-source-control { display: flex; grid-column: 2 / 4; grid-row: 3; border-top: 1px solid rgb(var(--vscode-line)); border-left: 0; }
@@ -788,18 +820,13 @@
   }
 }
 
-@layer responsive {
+@layer components {
   @media (max-width: 900px) {
     .copilot-v2 { height: auto; min-height: 100%; overflow: visible; }
     .copilot-v2__layout { display: flex; flex-direction: column; }
     .copilot-v2__thread { min-height: 720px; }
     .copilot-v2__aside { display: block; min-height: 540px; }
   }
-}
-
-/* Restore component-specific spacing after the host Tailwind reset clears button padding. */
-.integrated-workbench button {
-  padding: revert-layer;
 }
 
 /* These controls are buttons, so keep their spacing above the host app's unlayered reset. */
