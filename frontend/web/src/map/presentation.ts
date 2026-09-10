@@ -1,5 +1,14 @@
-import type { Dataset } from "./model";
+import type { Dataset, MapEvent, MapTask } from "./model";
 import type { SubmapStep } from "./submap";
+
+export function attentionReason(task: MapTask, events: MapEvent[], zh: boolean): string {
+  if (task.pending_question) return task.pending_question;
+  const failure = events.filter((event) => event.item_id === task.id &&
+    (event.status === "failed" || event.success === false || event.type.endsWith(".failed")))
+    .sort((a, b) => b.ts - a.ts)[0];
+  return failure?.reason || failure?.text ||
+    (zh ? "暂无失败原因记录，请查看任务详情。" : "No failure reason was recorded. Open the task details.");
+}
 
 export interface CardCopy {
   copy_revision?: number;
