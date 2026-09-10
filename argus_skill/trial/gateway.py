@@ -240,6 +240,8 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                     # Do not return upstream bodies, cookies, headers, or auth errors.
                     if response.status_code in {400, 401, 403, 404, 422, 429}:
                         actual = 0
+                    if response.status_code in {400, 422}:
+                        raise TrialError(400, "provider_rejected_request", "Trial provider rejected the request format; retrying unchanged will not help.")
                     raise TrialError(503 if response.status_code == 429 else 502, "provider_unavailable", "Trial provider could not complete the request.")
                 if payload["stream"]:
                     handed_off = True

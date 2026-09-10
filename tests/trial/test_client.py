@@ -174,6 +174,8 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
         elif local_tool == "apply_patch":
             tool = next(t for t in payload["tools"] if t["name"] == "apply_patch")
             assert tool["type"] == "custom" and tool["format"]["type"] == "grammar"
+            assert tool["format"]["syntax"] == "lark" and tool["format"]["definition"]
+            assert "grammar" not in tool["format"]
             delta = {"role": "assistant", "tool_calls": [{
                 "id": "call_patch", "type": "custom", "custom": {
                     "name": "apply_patch",

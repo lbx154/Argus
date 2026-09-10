@@ -280,14 +280,16 @@ def test_stream_usage_and_incomplete_streams(settings, usage, done, charge):
         assert ("error" in result.text) == (charge is None)
 
 
-@pytest.mark.parametrize("status,charged", [(401, False), (429, False), (500, True), (302, True)])
+@pytest.mark.parametrize("status,charged", [(400, False), (401, False), (422, False), (429, False), (500, True), (302, True)])
 def test_upstream_errors_do_not_leak_credentials_or_follow_redirects(settings, status, charged):
     def handler(request):
         return httpx.Response(status, text=GITHUB_SECRET + ACCESS_SECRET, headers={"Location": "https://attacker.invalid", "Set-Cookie": ACCESS_SECRET})
     with TestClient(create_app(settings, transport=httpx.MockTransport(handler))) as client:
         auth = issued_auth(client)
         result = client.post("/v1/chat/completions", headers=auth, json=PAYLOAD)
-        assert result.status_code in (502, 503)
+        assert result.status_code == (400 if status in (400, 422) else 503 if status == 429 else 502)
+        if status in (400, 422):
+            assert result.json()["error"]["code"] == "provider_rejected_request"
         assert GITHUB_SECRET not in result.text and ACCESS_SECRET not in result.text
         assert "set-cookie" not in result.headers and "location" not in result.headers
         status = client.get("/trial/status", headers=auth).json()
@@ -379,7 +381,8 @@ def test_custom_patch_tool_round_trip_preserves_raw_input_and_billing(settings, 
         requests.append(payload)
         assert payload["tools"] == [
             {"type": "function", "name": "view", "parameters": {"type": "object"}},
-            {"type": "custom", "name": "apply_patch", "description": "Edit local files.", "format": grammar},
+            {"type": "custom", "name": "apply_patch", "description": "Edit local files.",
+             "format": {"type": "grammar", "syntax": "lark", "definition": 'start: "patch"'}},
         ]
         assert payload["tool_choice"] == {"type": "custom", "name": "apply_patch"}
         data = response_data()

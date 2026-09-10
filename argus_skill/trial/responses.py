@@ -35,6 +35,9 @@ def request_payload(chat: dict) -> dict:
     }
     if chat.get("tools"):
         payload["tools"] = [{**tool[tool["type"]], "type": tool["type"]} for tool in chat["tools"]]
+        for tool in payload["tools"]:
+            if tool["type"] == "custom" and tool.get("format", {}).get("type") == "grammar":
+                tool["format"] = {**tool["format"]["grammar"], "type": "grammar"}
     if "tool_choice" in chat:
         choice = chat["tool_choice"]
         payload["tool_choice"] = (
