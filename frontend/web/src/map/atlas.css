@@ -57,6 +57,11 @@
 .map-canvas-wrap[data-reading=true] .map-legend,
 .map-canvas-wrap[data-reading=true] .react-flow__minimap,
 .map-canvas-wrap[data-reading=true] .react-flow__controls { opacity: 0; pointer-events: none; }
+@media (max-width: 640px) {
+  .map-canvas-wrap[data-detailed=true] .map-legend,
+  .map-canvas-wrap[data-detailed=true] .react-flow__minimap,
+  .map-canvas-wrap[data-detailed=true] .react-flow__controls { visibility: hidden; pointer-events: none; }
+}
 .macro-reader-body { scrollbar-gutter: stable; overscroll-behavior: contain; }
 
 /* Detail-plane typography on dark paper: the ink-mixed accents adapt on their own;

@@ -267,6 +267,7 @@ jobs:
           python -m pytest --collect-only -q ${{ env.WINDOWS_COLLECTION_TESTS }}
           python -m pytest -q ${{ env.WINDOWS_CORE_TESTS }}
           npm --prefix desktop-tauri run ui:typecheck
+          npm --prefix desktop-tauri run test:ui
           cargo check --manifest-path desktop-tauri/src-tauri/Cargo.toml
           cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --test core_tests
       - name: Build frozen backend and unsigned Tauri package layout

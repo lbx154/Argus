@@ -11,6 +11,7 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from argus_skill.trial.gateway import Settings, create_app, prepare, usage_total
+from argus_skill.trial.responses import completion
 from argus_skill.trial.secrets import Vault, write_private
 from argus_skill.trial.store import Store, TrialError
 
@@ -33,18 +34,20 @@ def settings(tmp_path):
 
 def response_data():
     return {
-        "id": "completion-test", "object": "chat.completion", "created": 1,
-        "choices": [{"index": 0, "message": {"role": "assistant", "content": "hello"}, "finish_reason": "stop"}],
-        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        "id": "completion-test", "object": "response", "created_at": 1, "status": "completed",
+        "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "hello"}]}],
+        "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
     }
 
 
 def upstream(request):
-    assert str(request.url) == "https://api.githubcopilot.com/chat/completions"
+    assert str(request.url) == "https://api.githubcopilot.com/responses"
     assert request.headers["authorization"] == f"Bearer {GITHUB_SECRET}"
     assert request.headers["copilot-integration-id"] == "copilot-developer-cli"
     body = json.loads(request.content)
-    assert body["model"] == "gpt-4.1"
+    assert body["model"] == "gpt-5.5"
+    assert body["reasoning"] == {"effort": "high"}
+    assert body["max_output_tokens"] == 100 and body["store"] is False
     return httpx.Response(200, json=response_data(), headers={"X-Secret": ACCESS_SECRET})
 
 
@@ -188,7 +191,7 @@ def test_disconnect_keeps_charge_and_releases_slot(settings):
 
         class WaitingStream(httpx.AsyncByteStream):
             async def __aiter__(self):
-                yield b'data: {"choices":[{"index":0,"delta":{"content":"hello"}}]}\n\n'
+                yield b'data: {"type":"response.output_text.delta","delta":"hello"}\n\n'
                 await asyncio.Event().wait()
 
             async def aclose(self):
@@ -252,16 +255,13 @@ def test_provider_timeout_cannot_hold_slot_or_refund_unknown_work(settings):
 def sse_transport(*, usage=True, done=True, status=200):
     def handler(request):
         payload = json.loads(request.content)
-        assert payload["stream_options"] == {"include_usage": True}
-        chunk = {
-            "id": "stream-1", "object": "chat.completion.chunk", "created": 1,
-            "choices": [{"index": 0, "delta": {"role": "assistant", "content": "hello"}, "finish_reason": "stop"}],
-        }
-        content = "data: " + json.dumps(chunk) + "\n\n"
-        if usage:
-            content += "data: " + json.dumps({"choices": [], "usage": response_data()["usage"]}) + "\n\n"
+        assert payload["stream"] is True and "stream_options" not in payload
+        content = 'data: {"type":"response.output_text.delta","delta":"hello"}\n\n'
         if done:
-            content += "data: [DONE]\n\n"
+            data = response_data()
+            if not usage:
+                data.pop("usage")
+            content += "data: " + json.dumps({"type": "response.completed", "response": data}) + "\n\n"
         return httpx.Response(status, text=content, headers={"content-type": "text/event-stream"})
     return httpx.MockTransport(handler)
 
@@ -308,7 +308,7 @@ def test_provider_metadata_cannot_redirect_credentials(settings):
         for _ in range(2):
             response = client.post("/v1/chat/completions", headers=auth, json=PAYLOAD)
             assert response.status_code == 200 and "endpoints" not in response.json()
-        assert visited == ["https://api.githubcopilot.com/chat/completions"] * 2
+        assert visited == ["https://api.githubcopilot.com/responses"] * 2
 
 
 def test_single_process_lock(settings):
@@ -338,3 +338,76 @@ def test_vault_tampering_and_file_permissions(settings):
     settings.key_file.chmod(0o644)
     with pytest.raises(ValueError, match="0600"):
         Vault(settings.key_file, vault.token_path)
+
+
+def test_trial_enforces_high_and_preserves_parallel_local_tool_history():
+    data = {**PAYLOAD, "reasoning_effort": "low", "temperature": 0.2, "messages": [
+        {"role": "system", "content": "Use local tools."},
+        {"role": "user", "content": [{"type": "text", "text": "Read both files."}]},
+        {"role": "assistant", "content": None, "tool_calls": [
+            {"id": call, "type": "function", "function": {"name": "view", "arguments": '{"path":"file"}'}}
+            for call in ("call_a", "call_b")
+        ]},
+        {"role": "tool", "tool_call_id": "call_a", "content": "File A"},
+        {"role": "tool", "tool_call_id": "call_b", "content": "File B"},
+    ], "tools": [{"type": "function", "function": {"name": "view", "parameters": {"type": "object"}}}],
+       "tool_choice": {"type": "function", "function": {"name": "view"}}}
+    payload, _ = prepare(data, "gpt-5.5")
+    assert payload["reasoning"] == {"effort": "high"} and payload["model"] == "gpt-5.5"
+    assert payload["max_output_tokens"] == 100 and payload["store"] is False
+    assert "temperature" not in payload
+    assert payload["input"][-2:] == [
+        {"type": "function_call_output", "call_id": "call_a", "output": "File A"},
+        {"type": "function_call_output", "call_id": "call_b", "output": "File B"},
+    ]
+    assert payload["input"][2]["call_id"] == "call_a"
+    assert payload["tool_choice"] == {"type": "function", "name": "view"}
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_tool_calls_and_reasoning_usage_reach_client_without_provider_metadata(settings, stream):
+    data = response_data()
+    data["output"] = [
+        {"type": "reasoning", "encrypted_content": "private-provider-state"},
+        *[{"type": "function_call", "call_id": call, "name": "view", "arguments": '{}'}
+          for call in ("call_a", "call_b")],
+    ]
+    data["usage"] = {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120,
+                     "input_tokens_details": {"cached_tokens": 80},
+                     "output_tokens_details": {"reasoning_tokens": 10}}
+
+    def upstream(request):
+        assert json.loads(request.content)["reasoning"] == {"effort": "high"}
+        return (httpx.Response(200, text="data: " + json.dumps({"type": "response.completed", "response": data}) + "\n\n")
+                if stream else httpx.Response(200, json=data))
+
+    with TestClient(create_app(settings, transport=httpx.MockTransport(upstream))) as client:
+        auth = issued_auth(client)
+        result = client.post("/v1/chat/completions", headers=auth, json={**PAYLOAD, "stream": stream})
+        assert result.status_code == 200 and "private-provider-state" not in result.text
+        body = json.loads(result.text.splitlines()[0][6:]) if stream else result.json()
+        choice = body["choices"][0]
+        assert choice["finish_reason"] == "tool_calls"
+        assert [call["id"] for call in choice["delta" if stream else "message"]["tool_calls"]] == ["call_a", "call_b"]
+        assert client.get("/trial/status", headers=auth).json()["tokens_used"] == 120
+        assert usage_total(body) == 120
+
+
+def test_output_cap_is_reported_as_length_and_usage_is_preserved():
+    data = {**response_data(), "status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}}
+    result = completion(data)
+    assert result["choices"][0]["finish_reason"] == "length"
+    assert usage_total(result) == 15
+
+
+@pytest.mark.parametrize("mutation", [
+    {"reasoning_effort": "arbitrary"},
+    {"messages": [{"role": "tool", "content": "missing call id"}]},
+    {"tool_choice": {"type": "function"}},
+])
+def test_invalid_client_parameters_fail_before_spending(settings, mutation):
+    with TestClient(create_app(settings)) as client:
+        auth = issued_auth(client)
+        result = client.post("/v1/chat/completions", headers=auth, json={**PAYLOAD, **mutation})
+        assert result.status_code == 400
+        assert client.get("/trial/status", headers=auth).json()["tokens_used"] == 0

@@ -11,6 +11,7 @@ import os
 import secrets
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -59,8 +60,15 @@ def host_roundtrip(binary: Path, directory: Path, env: dict[str, str], key: str,
             if "backend Ready:" in content and "authenticated cockpit URL issued" in content:
                 stable_since = stable_since or time.monotonic()
                 if time.monotonic() - stable_since > 8:
+                    settings = json.loads((directory / "settings.json").read_text())
+                    with httpx.Client(
+                        headers={"Authorization": "Bearer " + token},
+                        timeout=10, trust_env=False,
+                    ) as client:
+                        response = client.get(f"http://127.0.0.1:{settings['port']}/api/projects")
+                        response.raise_for_status()
                     print("Installed native GUI opened its authenticated cockpit and stayed ready.", flush=True)
-                    return
+                    return settings["port"]
             if process.poll() is not None:
                 raise RuntimeError(f"Desktop exited before ready: {process.returncode}")
             time.sleep(0.5)
@@ -130,22 +138,32 @@ def main():
                 print("Installed frozen runtime automatically downloaded Copilot and verified the public trial.", flush=True)
                 desktop.mkdir(parents=True)
                 token = secrets.token_urlsafe(32)
-                (desktop / "settings.json").write_text(json.dumps({
-                    "host": "127.0.0.1", "port": 18884, "token": token,
-                    "runnerKind": "copilot", "runnerBins": {"copilot": runner},
-                    "runnerConfigured": True, "setupComplete": True, "trialMode": True,
-                }), encoding="utf-8")
-                host_roundtrip(binary, desktop, env, key, token)
-                host_roundtrip(binary, desktop, env, key, token)
+                with socket.socket() as existing_service:
+                    existing_service.bind(("127.0.0.1", 0))
+                    existing_service.listen(8)
+                    occupied_port = existing_service.getsockname()[1]
+                    (desktop / "settings.json").write_text(json.dumps({
+                        "host": "127.0.0.1", "port": occupied_port, "token": token,
+                        "runnerKind": "copilot", "runnerBins": {"copilot": runner},
+                        "runnerConfigured": True, "setupComplete": True, "trialMode": True,
+                    }), encoding="utf-8")
+                    selected_port = host_roundtrip(binary, desktop, env, key, token)
+                    assert selected_port != occupied_port, "Trial did not avoid the occupied port"
+                    assert host_roundtrip(binary, desktop, env, key, token) == selected_port
+                    with socket.create_connection(existing_service.getsockname(), timeout=5):
+                        pass
+                    print("Trial preserved the existing service and reused its saved port on restart.", flush=True)
                 evidence = root / "evidence.txt"
                 evidence.write_text("native-installed-trial-evidence")
                 prompt = f"Read {evidence} and return its exact content followed by NATIVE_TRIAL_OK."
                 script = (
                     "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
                     "from argus_skill.core.knob_store import read_persisted_knobs; "
+                    "from argus_skill.trial import CLIENT_MODEL; "
                     "k=read_persisted_knobs(); assert k['ARGUS_SKILL_COPILOT_TRIAL']=='1'; "
+                    "assert k['ARGUS_SKILL_MODEL']=='gpt-5.5' and k['ARGUS_SKILL_ENGINEER_REASONING_EFFORT']=='high'; "
                     "r=run_read_only_agent_prompt(backend='copilot',executable=k['ARGUS_SKILL_RUNNER_BIN'],"
-                    f"model='gpt-4.1',run_label='native-release-smoke',prompt={prompt!r}); "
+                    f"model=CLIENT_MODEL,run_label='native-release-smoke',prompt={prompt!r}); "
                     "assert r.ok and 'native-installed-trial-evidence' in r.output and 'NATIVE_TRIAL_OK' in r.output; "
                     "print('Persisted native local-tool round trip passed.')"
                 )

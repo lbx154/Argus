@@ -53,9 +53,13 @@ Explicit project/role overrides retain precedence; remove them when converting
 an existing project. Trial usage counts tokens but has zero user dollar cost;
 it does not wait for personal Copilot billing reconciliation.
 
-The current provider is `gpt-4.1`, exposed as `argus-trial`, using text/tool
-Chat Completions. Images, embeddings, Responses-only models and Anthropic wire
-requests are unsupported. Argus sends `User-Agent: Argus/0.1.1` for status and
+The trial provider is **`gpt-5.5` with reasoning effort `high`**, exposed as
+`argus-trial`. Clients retain the text/tool Chat Completions contract. The gateway
+translates requests, streamed text and local function calls to Copilot `/responses`
+(the model rejects `/chat/completions`). Model and high effort are enforced on
+the server for existing clients too; there is no fallback to GPT-4.1. New desktop
+setup persists GPT-5.5 and high role efforts. Images, embeddings and Anthropic
+wire requests remain unsupported. Argus sends `User-Agent: Argus/0.1.1` for status and
 Copilot BYOK requests: the existing Cloudflare site rejects the CLI's default
 agent header with HTTP 403. No browser challenge is needed with the Argus header.
 
@@ -89,7 +93,8 @@ are absent from the gateway even if an old static page remains on disk.
 Idle apps do not use slots. Limits are checked in one SQLite transaction before
 forwarding. Admission reserves conservative UTF-8 input bytes plus protocol/tool
 framing and the enforced output maximum (at most 16,384 tokens). Actual upstream
-`prompt_tokens + completion_tokens` settles lifetime usage. Cached input is
+`input_tokens + output_tokens` (mapped to chat usage fields) settles lifetime usage.
+Output includes reasoning tokens; they are not counted twice. Cached input is
 counted once. Unknown usage from disconnects, timeouts or process failure keeps
 the reservation. No prompt is truncated. The byte reservation is conservative,
 not an exact tokenizer; enforcement assumes the provider honors the output cap

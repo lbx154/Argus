@@ -236,7 +236,7 @@ impl BackendSupervisor {
             runtime.stopping = false;
             runtime.lifecycle_generation
         };
-        let settings = self.inner.settings.snapshot();
+        let mut settings = self.inner.settings.snapshot();
         let configured = match resolve_runner_configuration(&settings) {
             Ok(configured) => configured,
             Err(error) => {
@@ -248,7 +248,7 @@ impl BackendSupervisor {
             self.set_status(BackendState::Idle, "请选择并确认 Agent CLI 后开始使用", None);
             return;
         }
-        let command = match self.resolve_command(&settings) {
+        let mut command = match self.resolve_command(&settings) {
             Ok(command) => command,
             Err(error) => {
                 self.set_status(
@@ -271,7 +271,18 @@ impl BackendSupervisor {
             return;
         }
         if probe.compatible {
-            if !self.ownership_matches(&probe, &settings, &command) {
+            if self.ownership_matches(&probe, &settings, &command) {
+                let ownership = self.read_ownership();
+                {
+                    let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
+                    runtime.runtime_pid = probe.pid;
+                    runtime.ownership = ownership;
+                    runtime.launch_nonce = probe.launch_nonce.clone();
+                }
+                self.mark_backend_ready(generation, "本地服务已就绪");
+                return;
+            }
+            if !settings.trial_mode {
                 self.set_status(
                     BackendState::Error,
                     format!(
@@ -285,21 +296,12 @@ impl BackendSupervisor {
                 );
                 return;
             }
-            let ownership = self.read_ownership();
-            {
-                let mut runtime = self.inner.runtime.lock().expect("runtime mutex poisoned");
-                runtime.runtime_pid = probe.pid;
-                runtime.ownership = ownership;
-                runtime.launch_nonce = probe.launch_nonce.clone();
-            }
-            self.mark_backend_ready(generation, "本地服务已就绪");
-            return;
         }
 
         if probe.occupied {
             let may_replace = self.prior_ownership_matches(&probe, &settings)
                 || self.legacy_bundled_backend_matches(&probe, &command);
-            if !may_replace {
+            if !may_replace && !settings.trial_mode {
                 self.set_status(
                     BackendState::Error,
                     format!("端口 {} 已被其他程序占用", settings.port),
@@ -307,24 +309,51 @@ impl BackendSupervisor {
                 );
                 return;
             }
-            self.set_status(
-                BackendState::Starting,
-                "正在升级受管理的 Argus 本地后端",
-                probe.detail.clone(),
-            );
-            if !self
-                .stop_prior_owned_backend(&probe, &settings, &command)
-                .await
-            {
+            if may_replace {
                 self.set_status(
-                    BackendState::Error,
-                    "无法安全替换上一版本的 Argus 本地后端",
-                    Some("旧后端的身份已验证，但其监听进程未能在限定时间内退出；请从旧版 Argus 正常退出后重试。".to_owned()),
+                    BackendState::Starting,
+                    "正在升级受管理的 Argus 本地后端",
+                    probe.detail.clone(),
                 );
-                return;
+                if !self
+                    .stop_prior_owned_backend(&probe, &settings, &command)
+                    .await
+                {
+                    self.set_status(
+                        BackendState::Error,
+                        "无法安全替换上一版本的 Argus 本地后端",
+                        Some("旧后端的身份已验证，但其监听进程未能在限定时间内退出；请从旧版 Argus 正常退出后重试。".to_owned()),
+                    );
+                    return;
+                }
             }
             if !self.is_current_generation(generation) {
                 return;
+            }
+        }
+
+        if settings.trial_mode {
+            let prepared = self
+                .inner
+                .settings
+                .prepare_backend_port()
+                .and_then(|settings| {
+                    self.resolve_command(&settings)
+                        .map(|command| (settings, command))
+                });
+            match prepared {
+                Ok((selected_settings, selected_command)) => {
+                    settings = selected_settings;
+                    command = selected_command;
+                }
+                Err(error) => {
+                    self.set_status(
+                        BackendState::Error,
+                        "无法准备本地服务端口",
+                        Some(format!("{error:#}")),
+                    );
+                    return;
+                }
             }
         }
 

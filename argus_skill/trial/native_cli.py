@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import os
 import platform
 import shutil
@@ -9,13 +10,17 @@ import ssl
 import subprocess
 import tarfile
 import tempfile
+import time
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import Callable
 
 import certifi
 
 VERSION = "1.0.83"
+DOWNLOAD_HELP = "请检查网络，或开启代理（梯子）的系统代理 / TUN 模式后重试。"
 # GitHub's release asset SHA-256 values for this pinned CLI release.
 ASSETS = {
     ("Darwin", "arm64"): ("copilot-darwin-arm64.tar.gz", "80a5ded6f1db484b4661af676ea914605ecfbcaf49f6b4bed81e6df16cbd56bd"),
@@ -59,7 +64,8 @@ def verify_cli(executable: Path):
         raise ValueError("Copilot 未能启动，请重试或检查系统是否阻止了此程序。")
 
 
-def install_native_copilot() -> str:
+def install_native_copilot(*, progress=print,
+                          download_progress: Callable[[int, int | None], None] | None = None) -> str:
     from ..core.paths import global_root
 
     system = platform.system()
@@ -69,6 +75,7 @@ def install_native_copilot() -> str:
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     executable = root / executable_name
     if executable.is_file():
+        progress("正在检查已安装的 Copilot…")
         verify_cli(executable)
         return str(executable)
     # A failed or interrupted download leaves no partly installed executable.
@@ -80,17 +87,42 @@ def install_native_copilot() -> str:
         )
         digest = hashlib.sha256()
         context = ssl.create_default_context(cafile=certifi.where())
-        with urllib.request.urlopen(request, timeout=90, context=context) as response, archive.open("wb") as target:
-            while chunk := response.read(1024 * 1024):
-                digest.update(chunk)
-                target.write(chunk)
+        progress("正在下载 Copilot…")
+        if download_progress:
+            download_progress(0, None)
+        downloaded, last_report = 0, time.monotonic()
+        try:
+            with urllib.request.urlopen(request, timeout=90, context=context) as response, archive.open("wb") as target:
+                length = response.headers.get("Content-Length", "")
+                total = int(length) if length.isdigit() and int(length) > 0 else None
+                if download_progress:
+                    download_progress(0, total)
+                # read1 reports available bytes without waiting for a large
+                # buffer to fill on slow networks.
+                while chunk := response.read1(64 * 1024):
+                    digest.update(chunk)
+                    target.write(chunk)
+                    downloaded += len(chunk)
+                    now = time.monotonic()
+                    if download_progress and now - last_report >= 0.2:
+                        download_progress(downloaded, total)
+                        last_report = now
+                if total is not None and downloaded != total:
+                    raise ValueError("Copilot 下载中断，安装包不完整。" + DOWNLOAD_HELP)
+                if download_progress:
+                    download_progress(downloaded, total)
+        except (urllib.error.URLError, TimeoutError, ConnectionError, ssl.SSLError, http.client.HTTPException):
+            raise ValueError("Copilot 下载失败或连接超时。" + DOWNLOAD_HELP) from None
+        progress("下载完成，正在校验 Copilot 安装包…")
         if digest.hexdigest() != expected:
             raise ValueError("Copilot 下载校验失败，请重试。")
+        progress("正在安装 Copilot…")
         staged = Path(temporary) / executable_name
         extract_binary(archive, staged, executable_name)
         # Publish the checksum-verified bytes before launching: on Windows the
         # CLI's background processes can keep its executable locked after help
         # exits, preventing a rename or temporary-directory cleanup.
         os.replace(staged, executable)
+    progress("正在检查 Copilot 运行环境…")
     verify_cli(executable)
     return str(executable)

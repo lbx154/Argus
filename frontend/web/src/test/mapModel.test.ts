@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMap, replayTasks, statusKey, type MapTask } from "../map/model";
+import { attentionTasks, buildMap, currentTask, replayTasks, statusKey, taskDependencies, type MapTask } from "../map/model";
 
 const task = (
   id: string,
@@ -8,6 +8,34 @@ const task = (
   ts = 0,
 ): MapTask => ({ id, title: id, objective: "", deps, status, ts });
 describe("progress map data semantics", () => {
+  it("orders actionable questions before failures without duplicating or mutating tasks", () => {
+    const rows = [
+      task("failed", [], "failed"),
+      { ...task("question", [], "failed"), pending_question: "Choose a route" },
+      { ...task("finished", [], "done"), pending_question: "Old question" },
+      task("running", [], "running"),
+    ];
+    expect(attentionTasks(rows).map((row) => row.id)).toEqual(["question", "failed"]);
+    expect(rows.map((row) => row.id)).toEqual(["failed", "question", "finished", "running"]);
+    expect(currentTask(rows)?.id).toBe("running");
+    expect(currentTask(rows.slice(0, 3))?.id).toBe("question");
+    expect(currentTask([rows[0], task("planned")])?.id).toBe("failed");
+    expect(currentTask([task("finished", [], "done"), task("planned")])?.id).toBe("planned");
+    expect(currentTask([])).toBeUndefined();
+  });
+  it("traces only direct recorded dependencies, retaining missing references", () => {
+    const graph = buildMap([
+      task("ancestor"), task("parent", ["ancestor"]),
+      task("selected", ["parent", "outside"]), task("child", ["selected"]),
+      task("grandchild", ["child"]), task("unrelated"),
+    ]);
+    graph.links.push({ id: "semantic", source: "unrelated", target: "selected", kind: "semantic" });
+    const dependencies = taskDependencies(graph, "selected");
+    expect(dependencies.upstream.map((row) => row.id).sort()).toEqual(["outside", "parent"]);
+    expect(dependencies.downstream.map((row) => row.id)).toEqual(["child"]);
+    expect(dependencies.upstream.find((row) => row.id === "outside")?.status).toBe("missing");
+    expect(taskDependencies(graph, "unrelated")).toEqual({ upstream: [], downstream: [] });
+  });
   it("keeps both fan-in edges, independent of parent_branch_id simplification", () => {
     const graph = buildMap([task("a"), task("b"), task("join", ["a", "b"])]);
     expect(

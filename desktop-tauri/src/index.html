@@ -176,6 +176,11 @@
                 </div>
                 <p id="trialHelp">自动准备运行环境，无需登录其他 Coding 账号。每个 Key 提供累计 100 万 token，同一 Key 可跨设备使用。</p>
                 <p id="trialProgress" role="status" aria-live="polite"></p>
+                <div id="trialDownload" hidden>
+                  <progress id="trialDownloadBar" max="100" aria-label="Copilot 下载进度"></progress>
+                  <p id="trialDownloadDetails"></p>
+                </div>
+                <p id="trialNetworkHint" role="status" hidden>下载暂时没有进展。请检查网络，或开启代理（梯子）的系统代理 / TUN 模式；下载失败后可重试。</p>
               </form>
             </section>
             <div class="panel-intro">

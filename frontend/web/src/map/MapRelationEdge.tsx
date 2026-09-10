@@ -12,7 +12,7 @@ import { pointAlong } from "./relationGeometry";
 import { relationLabelText, relationLayout } from "./relationLabels";
 import "./edges.css";
 
-type RelationEdge = Edge<{ lane: number; growthDelay?: number; active?: boolean }, "relation">;
+type RelationEdge = Edge<{ lane: number; growthDelay?: number; active?: boolean; muted?: boolean }, "relation">;
 
 /** MapPanel paints a cyclic reference directly on the stroke; that warning
  * outranks the kind hues resolved from edges.css. */
@@ -87,12 +87,12 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
           cx={joint.x}
           cy={joint.y}
           r={3.2 / zoom}
-          style={{ fill: stroke }}
+          style={{ fill: stroke, opacity: style?.opacity }}
           aria-hidden="true"
         />
       )}
       </GrowthReveal>
-      {data?.active && (
+      {data?.active && !data.muted && (
         <EdgeLabelRenderer>
           {/* A spark drifting along the route replaces the old dash-offset
            * stroke animation: offset-distance runs on the compositor, while
@@ -118,6 +118,7 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
             data-kind={kind}
             title={text}
             style={{
+              opacity: style?.opacity,
               transform: `translate(-50%, -50%) translate(${point.x}px, ${point.y}px) scale(${1 / zoom})`,
             }}
           >

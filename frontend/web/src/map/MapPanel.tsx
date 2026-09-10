@@ -4,7 +4,7 @@ import { PackageCheck, MessageCircle } from 'lucide-react';
 import { AgentActivity } from '../components/AgentActivity';
 import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
 import type { MapSend, DispatchObserver } from './submission';
-import { splitDraft } from './presentation';
+import { attentionReason, splitDraft } from './presentation';
 import { useMapGrowth } from './useMapGrowth';
 import { stepIdentity } from './growth';
 import './motion.css';
@@ -42,7 +42,7 @@ import {
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
-import { ACTIVE, buildMap, connectMap, formationWidths, promoteTeamBranches, statusKey, type Dataset } from "./model";
+import { ACTIVE, attentionTasks, buildMap, connectMap, currentTask, formationWidths, promoteTeamBranches, statusKey, taskDependencies, type Dataset } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, layoutGraph, relationPorts } from "./graphLayout";
 import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroData, type MacroNode } from "./MacroTaskNode";
@@ -106,7 +106,7 @@ export function MapTeamProgress({ events, zh }: { events: Dataset['events']; zh:
   </div>;
 }
 
-function MapCanvas({
+export function MapCanvas({
   data,
   zh,
   composer,
@@ -152,6 +152,18 @@ function MapCanvas({
   if (!savedView.current) savedView.current = recalledView(viewKey);
   const [seenCards] = useState(() => new Set(savedView.current?.scene?.cards.map((card) => card.id)));
   const focusedNode = nodes.find((n) => n.id === camera.focusId);
+  const attention = useMemo(() => attentionTasks(data.tasks), [data.tasks]);
+  const attentionIndex = attention.findIndex((task) => task.id === focusedNode?.data.task.id);
+  const [traceId, setTraceId] = useState<string | null>(null);
+  const tracedTask = graph.tasks.find((task) => task.id === traceId);
+  const dependencies = useMemo(
+    () => tracedTask ? taskDependencies(graph, tracedTask.id) : null,
+    [graph, tracedTask],
+  );
+  const traceTasks = useMemo(() => tracedTask && dependencies ? new Set([
+    tracedTask.id, ...dependencies.upstream.map((task) => task.id),
+    ...dependencies.downstream.map((task) => task.id),
+  ]) : null, [tracedTask, dependencies]);
   const { copy, ready: copyReady } = useMapCopy(
     data,
     focusedNode?.data.task.id || null,
@@ -273,11 +285,18 @@ function MapCanvas({
     const frame = requestAnimationFrame(() => {
       initialFit.current = true;
       if (savedView.current?.camera) camera.restore(savedView.current.camera);
-      else camera.fit();
+      else {
+        camera.fit();
+        if (data.kind === "live" && canvasRef.current!.clientWidth < 640) {
+          const task = currentTask(data.tasks);
+          const card = scene.cards.filter((card) => card.task.id === task?.id).at(-1);
+          if (card) camera.enter(card.id);
+        }
+      }
       setFitted(true);
     });
     return () => cancelAnimationFrame(frame);
-  }, [nodesReady, camera.fit, camera.restore, data.history_loading, copyReady]);
+  }, [nodesReady, camera.fit, camera.enter, camera.restore, data.kind, data.tasks, scene.cards, data.history_loading, copyReady]);
   useEffect(() => {
     const save = () => {
       if (initialFit.current) rememberView(viewKey, { scene: sceneCache.current, camera: camera.capture() });
@@ -409,12 +428,30 @@ function MapCanvas({
         : [],
     [query, scene.cards, cardSearchText],
   );
-  const [matchCursor, setMatchCursor] = useState(0);
-  useEffect(() => setMatchCursor(0), [query]);
+  const matchIndex = matches.findIndex((card) => card.id === camera.focusId);
   const [visibleCount, setVisibleCount] = useState(graph.tasks.length);
   const [playing, setPlaying] = useState(false);
   const [showReplacements, setShowReplacements] = useState(false);
   const [focusFeedback, setFocusFeedback] = useState("");
+  const traceTask = useCallback((id: string | null) => {
+    setTraceId(id);
+    setQuery("");
+    setFocusFeedback("");
+    if (id) {
+      const { upstream, downstream } = taskDependencies(graph, id);
+      camera.fit(new Set([id, ...upstream.map((task) => task.id), ...downstream.map((task) => task.id)]));
+    } else camera.fit();
+  }, [camera.fit, graph]);
+  const openCard = useCallback((id: string) => {
+    const card = sceneCache.current?.cards.find((card) => card.id === id);
+    if (tracedTask && card) traceTask(card.task.id === tracedTask.id ? null : card.task.id);
+    else camera.enter(id);
+  }, [camera.enter, tracedTask, traceTask]);
+  const showOverview = useCallback(() => {
+    setTraceId(null);
+    setFocusFeedback("");
+    camera.fit();
+  }, [camera.fit]);
   useEffect(() => {
     setNodes((previous) => {
       return replaceEqualDeep(previous, scene.cards.map((card) => ({
@@ -430,7 +467,7 @@ function MapCanvas({
         data: {
           ...card,
           zh,
-          open: camera.enter,
+          open: openCard,
           readStep: camera.readStep,
           menu: showMenu,
           quote,
@@ -454,7 +491,7 @@ function MapCanvas({
     atlas,
     zh,
     setNodes,
-    camera.enter,
+    openCard,
     camera.readStep,
     showMenu,
     quote,
@@ -530,7 +567,8 @@ function MapCanvas({
         style: {
           ...n.style,
           opacity:
-            query && !cardSearchText(n.data).includes(query.toLowerCase())
+            (traceTasks && !traceTasks.has(n.data.task.id)) ||
+            (query && !cardSearchText(n.data).includes(query.toLowerCase()))
               ? 0.22
               : 1,
         },
@@ -551,6 +589,7 @@ function MapCanvas({
       growth,
       flight,
       composer.historical,
+      traceTasks,
     ],
   );
   // Branch pills are display/navigation only; structural sharing keeps their
@@ -575,7 +614,10 @@ function MapCanvas({
           position: atlas.positions[task.id] ?? { x: 0, y: 0 },
           width: BRANCH_FRAME.width,
           height: BRANCH_FRAME.height,
-          style: { width: BRANCH_FRAME.width, height: BRANCH_FRAME.height },
+          style: {
+            width: BRANCH_FRAME.width, height: BRANCH_FRAME.height,
+            opacity: traceTasks && !traceTasks.has(owner) ? 0.22 : 1,
+          },
           hidden: !visibleIds.has(task.id),
           draggable: false,
           selectable: false,
@@ -584,7 +626,7 @@ function MapCanvas({
             task,
             zh,
             parentCardId: atlas.branchAnchor.get(task.id)!,
-            open: camera.enter,
+            open: openCard,
             fanIndex: ordinal,
             fanCount: fanTotal.get(owner)!,
           },
@@ -593,7 +635,7 @@ function MapCanvas({
       previousBranchNodes.current = replaceEqualDeep(previousBranchNodes.current, next);
       return previousBranchNodes.current;
     },
-    [atlas, visibleIds, zh, camera.enter],
+    [atlas, visibleIds, zh, openCard, traceTasks],
   );
   const flowNodes = useMemo<AtlasNode[]>(
     () => (branchNodes.length ? [...displayNodes, ...branchNodes] : displayNodes),
@@ -620,6 +662,12 @@ function MapCanvas({
       }
       return visibleLinks.map((e, index) => {
         const fan = e.kind === "fanout" || e.kind === "fanin";
+        const sourceTask = taskByCard.get(e.source)?.id;
+        const targetTask = taskByCard.get(e.target)?.id;
+        const highlighted = !!tracedTask && e.kind === "dependency" &&
+          (sourceTask === tracedTask.id || targetTask === tracedTask.id);
+        const muted = !!tracedTask && !highlighted &&
+          !(e.kind === "continuation" && sourceTask === tracedTask.id);
         return {
           id: e.id,
           source: e.source,
@@ -633,6 +681,7 @@ function MapCanvas({
             growthDelay: growth.links[e.id],
             active: activeTargets.has(e.target),
             lane: lanes[index],
+            muted,
           },
           className: `map-edge-${e.kind}`,
           // Fan edges carry no label: the pill itself names the branch.
@@ -659,6 +708,7 @@ function MapCanvas({
           labelBgBorderRadius: 12,
           labelBgStyle: { fill: "var(--map-paper)", fillOpacity: 0.96 },
           style: {
+            opacity: muted ? 0.12 : 1,
             stroke: e.cycle
               ? "#dc6648"
               : e.kind === "replacement"
@@ -668,7 +718,7 @@ function MapCanvas({
                   : "#7594ad",
             // Dependencies stay the strongest line; fan edges are thinner and
             // translucent (branch.css), context is a fainter, sparser dash.
-            strokeWidth: e.kind === "dependency" ? 1.55 : fan ? 0.95 : 1.3,
+            strokeWidth: highlighted ? 2.4 : e.kind === "dependency" ? 1.55 : fan ? 0.95 : 1.3,
             vectorEffect: "non-scaling-stroke",
             strokeDasharray:
               e.kind === "dependency" || fan
@@ -702,6 +752,7 @@ function MapCanvas({
       data.kind,
       paused,
       scene.cards,
+      tracedTask,
     ],
   );
   const replacementCount = graph.links.filter(
@@ -721,19 +772,16 @@ function MapCanvas({
     return buckets;
   }, [data.tasks]);
   const complete = tally.done;
-  const attention = tally.question + tally.failed;
   const focus = (id: string) => {
+    setTraceId(null);
+    setFocusFeedback("");
     setVisibleCount((c) =>
       Math.max(c, scene.cards.find((card) => card.id === id)?.ordinal || 1),
     );
     camera.enter(id);
   };
   const locateCurrent = () => {
-    const target =
-      data.tasks.find((t) => ACTIVE.has(t.status)) ??
-      data.tasks.find((t) => t.pending_question) ??
-      data.tasks.find((t) => t.status === "pending") ??
-      data.tasks.at(-1);
+    const target = currentTask(data.tasks);
     if (target) {
       focus(
         scene.cards.filter((card) => card.task.id === target.id).at(-1)!.id,
@@ -745,9 +793,7 @@ function MapCanvas({
       );
   };
   const locateAttention = () => {
-    const target =
-      data.tasks.find((t) => t.pending_question) ??
-      data.tasks.find((t) => t.status === "failed");
+    const target = attention[(attentionIndex + 1) % attention.length];
     if (target)
       focus(
         scene.cards.filter((card) => card.task.id === target.id).at(-1)!.id,
@@ -765,7 +811,7 @@ function MapCanvas({
           ?.querySelector<HTMLInputElement>(".map-search input")
           ?.focus();
       } else if (e.key === "f" || e.key === "F") {
-        camera.fit();
+        showOverview();
       } else if (
         (e.key === "ArrowRight" || e.key === "ArrowLeft") &&
         camera.detailed &&
@@ -783,7 +829,7 @@ function MapCanvas({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [camera.fit, camera.enter, camera.detailed, camera.focusId, scene.cards, visibleIds]);
+  }, [showOverview, camera.enter, camera.detailed, camera.focusId, scene.cards, visibleIds]);
   const artifactScope = useMemo(
     () => ({ artifacts: actions.artifacts, onOpenArtifact: actions.onOpenArtifact }),
     [actions.artifacts, actions.onOpenArtifact],
@@ -811,8 +857,8 @@ function MapCanvas({
               role="img"
               aria-label={
                 zh
-                  ? `已完成 ${tally.done}，进行中 ${tally.running}，值得关注 ${attention}`
-                  : `${tally.done} completed, ${tally.running} running, ${attention} need attention`
+                  ? `已完成 ${tally.done}，进行中 ${tally.running}，值得关注 ${attention.length}`
+                  : `${tally.done} completed, ${tally.running} running, ${attention.length} need attention`
               }
             >
               {(["done", "running", "question", "failed", "other"] as const).map(
@@ -838,15 +884,16 @@ function MapCanvas({
               <span>{zh ? "进行中" : "running"}</span>
             </span>
           )}
-          {attention > 0 && (
+          {attention.length > 0 && (
             <button
               type="button"
               className="map-count-chip map-attention-jump"
               onClick={locateAttention}
               title={zh ? "跳到需要你处理的任务" : "Jump to the task waiting on you"}
+              aria-label={zh ? `逐个查看 ${attention.length} 项待处理任务` : `Cycle through ${attention.length} tasks needing attention`}
             >
               <span className="map-attention-dot" />
-              <strong>{attention}</strong>
+              <strong>{attention.length}</strong>
               <span>{zh ? "值得关注" : "need attention"}</span>
             </button>
           )}
@@ -881,6 +928,35 @@ function MapCanvas({
         <button type="button" className="map-delivery-toggle" disabled={!actions.deliveryCount} onClick={actions.onOpenDelivery}><PackageCheck size={15} />{zh ? '交付成果' : 'Deliveries'}{actions.deliveryCount > 0 && <span>{actions.deliveryCount}</span>}</button>
       </div>}
       {data.kind === 'live' && !readOnly && <PendingBanner questions={snapshot.pending_questions ?? []} backlog={snapshot.backlog} onAnswer={actions.onAnswer} onLocate={locateAttention} />}
+      {camera.detailed && attentionIndex >= 0 && (
+        <div className="map-attention-detail" role="status">
+          <strong>{zh ? "待处理" : "Needs attention"} {attentionIndex + 1} / {attention.length}</strong>
+          <p tabIndex={0}>{attentionReason(attention[attentionIndex], data.events, zh)}</p>
+        </div>
+      )}
+      {tracedTask && dependencies && (
+        <nav className="map-dependencies" aria-label={zh ? "任务来路与去向" : "Task dependencies"}>
+          <div>
+            <strong>{zh ? "来路" : "Depends on"}</strong>
+            {dependencies.upstream.length ? dependencies.upstream.map((task) => (
+              <button key={task.id} title={task.title} onClick={() => traceTask(task.id)}>{task.title}</button>
+            )) : <span>{zh ? "无已记录的前置依赖" : "No recorded prerequisites"}</span>}
+          </div>
+          <div>
+            <strong>{zh ? "当前" : "Selected"}</strong>
+            <button className="map-trace-task" title={tracedTask.title}
+              onClick={() => focus(scene.cards.find((card) => card.task.id === tracedTask.id)!.id)}>
+              {tracedTask.title} · {zh ? "查看任务" : "Open task"}
+            </button>
+          </div>
+          <div>
+            <strong>{zh ? "去向" : "Enables"}</strong>
+            {dependencies.downstream.length ? dependencies.downstream.map((task) => (
+              <button key={task.id} title={task.title} onClick={() => traceTask(task.id)}>{task.title}</button>
+            )) : <span>{zh ? "无已记录的后续依赖" : "No recorded dependents"}</span>}
+          </div>
+        </nav>
+      )}
       <div className="map-workspace">
         <div
           ref={canvasRef}
@@ -910,8 +986,7 @@ function MapCanvas({
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && matches.length) {
-                    focus(matches[matchCursor % matches.length].id);
-                    setMatchCursor((cursor) => cursor + 1);
+                    focus(matches[(matchIndex + 1) % matches.length].id);
                   } else if (e.key === "Escape" && query) {
                     // Clear the search without also backing the camera out.
                     e.stopPropagation();
@@ -922,7 +997,7 @@ function MapCanvas({
               {query && (
                 <span className="map-search-count" aria-live="polite">
                   {matches.length
-                    ? `${(matchCursor % matches.length) + 1}/${matches.length}`
+                    ? matchIndex >= 0 ? `${matchIndex + 1}/${matches.length}` : `${matches.length} ${zh ? "项" : "found"}`
                     : zh
                       ? "无匹配"
                       : "0 found"}
@@ -937,11 +1012,21 @@ function MapCanvas({
               <span>{zh ? "定位当前" : "Locate current"}</span>
             </button>
             <button
-              onClick={camera.fit}
+              onClick={showOverview}
               title={zh ? "适配全图" : "Fit map"}
               aria-label="Fit map"
             >
               <Maximize2 size={15} />
+            </button>
+            <button
+              type="button"
+              aria-label={zh ? "来路 / 去向" : "Trace dependencies"}
+              title={zh ? "突出显示任务的直接前后依赖；点击卡片切换，再次点击退出" : "Highlight direct dependencies; click a card to switch, click it again to exit"}
+              aria-pressed={!!tracedTask}
+              disabled={!graph.tasks.length}
+              onClick={() => traceTask(tracedTask ? null : focusedNode?.data.task.id ?? currentTask(data.tasks)?.id ?? null)}
+            >
+              <GitBranch size={15} /><span>{zh ? "来路 / 去向" : "Dependencies"}</span>
             </button>
             {camera.detailed && (
               <button
@@ -1044,7 +1129,7 @@ function MapCanvas({
               <Controls
                 orientation="horizontal"
                 showInteractive={false}
-                onFitView={camera.fit}
+                onFitView={showOverview}
                 fitViewOptions={{
                   padding: 0.16,
                   maxZoom: 0.27,
@@ -1498,7 +1583,7 @@ export const MapPanel = memo(function MapPanel({
             {zh ? "加载范围" : "History range"}
           </button>
         )}
-        <span className="map-source-badge">
+        <span className="map-source-badge" data-live={source === "live"}>
           <span />
           {source === "live"
             ? zh
@@ -1517,7 +1602,6 @@ export const MapPanel = memo(function MapPanel({
                   : "Historical records"}
         </span>
         </div>
-      </header>
       <div className="map-dataset-bar">
         <Compass size={15} />
         <select
@@ -1545,6 +1629,7 @@ export const MapPanel = memo(function MapPanel({
           </span>
         )}
       </div>
+      </header>
       {source === "live" && info.data && (
         <MapHistoryChoice open={chooseHistory || !choice && info.data.requires_choice}
           info={info.data} zh={zh} readOnly={readOnly} onChoose={selectHistory} />

@@ -22,7 +22,7 @@ const clamp = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, n));
 type ReaderRect = Parameters<MacroNode["data"]["readStep"]>[1];
 
-function viewingArea(el: HTMLElement) {
+function viewingArea(el: HTMLElement, detailed = false) {
   const bounds = el.getBoundingClientRect();
   const toolbar = el
     .querySelector(".map-canvas-toolbar")
@@ -37,16 +37,16 @@ function viewingArea(el: HTMLElement) {
   const controls = el
     .querySelector(".react-flow__controls")
     ?.getBoundingClientRect();
-  const reading = el.dataset.reading === "true";
+  const hideChrome = el.dataset.reading === "true" || detailed && el.clientWidth < 640;
   const left = el.clientWidth < 640 ? 20 : 50;
   const top = Math.max(
     toolbar ? toolbar.bottom - bounds.top + 20 : 85,
-    !reading && el.clientWidth < 640 && legend ? legend.bottom - bounds.top + 16 : 0,
-    !reading && el.clientWidth < 640 && controls ? controls.bottom - bounds.top + 16 : 0,
+    !hideChrome && el.clientWidth < 640 && legend ? legend.bottom - bounds.top + 16 : 0,
+    !hideChrome && el.clientWidth < 640 && controls ? controls.bottom - bounds.top + 16 : 0,
   );
   const bottom = Math.max(
     composer ? bounds.bottom - composer.top + 24 : 100,
-    !reading && minimap ? bounds.bottom - minimap.top + 20 : 0,
+    !hideChrome && minimap ? bounds.bottom - minimap.top + 20 : 0,
   );
   return {
     x: left,
@@ -150,6 +150,7 @@ export function useSemanticCamera(
   const reading = useRef(false);
   const allowRefit = useRef(false);
   const fitOnResize = useRef(false);
+  const overviewTasks = useRef<ReadonlySet<string>>();
   const refitOverview = useRef<() => void>(() => {});
   const readerOwner = useRef<string | null>(null);
   const readerTarget = useRef<{ id: string; rect: ReaderRect } | null>(null);
@@ -247,7 +248,7 @@ export function useSemanticCamera(
       delete el.dataset.reading;
       allowRefit.current = true;
       // Keep a readable scale for long tasks; the same canvas pans to the remaining steps.
-      const area = viewingArea(el);
+      const area = viewingArea(el, true);
       const width = node.width || 1440,
         height = node.height || 1080;
       const zoom = clamp(
@@ -355,8 +356,9 @@ export function useSemanticCamera(
     },
     [cancelWheel, flow, reducedMotion],
   );
-  const fit = useCallback(() => {
+  const fit = useCallback((taskIds?: ReadonlySet<string>) => {
     fitOnResize.current = true;
+    overviewTasks.current = taskIds;
     cancelWheel();
     lockedFocus.current = null;
     reading.current = false;
@@ -364,7 +366,9 @@ export function useSemanticCamera(
     fittedDetail.current = null;
     pointer.current = null;
     const el = root.current;
-    const nodes = flow.getNodes().filter((n) => !n.hidden);
+    if (el) delete el.dataset.reading;
+    const nodes = flow.getNodes().filter((n) =>
+      !n.hidden && (!taskIds || taskIds.has(n.data.task.id)));
     if (!el || !nodes.length) return;
     void flow.setViewport(
       overviewViewport(
@@ -375,7 +379,7 @@ export function useSemanticCamera(
       { duration: motionDuration(reducedMotion, 320) },
     );
   }, [cancelWheel, flow, reducedMotion, root]);
-  refitOverview.current = fit;
+  refitOverview.current = () => fit(overviewTasks.current);
   const fitUpdatedScene = useCallback(() => {
     if (fitOnResize.current) refitOverview.current();
     else if (allowRefit.current && reading.current && readerTarget.current)

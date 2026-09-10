@@ -1,5 +1,5 @@
 use crate::{release::ReleaseContext, runner::argus_home_dir};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{env, path::PathBuf, process::Stdio, time::Duration};
 use tauri::{AppHandle, Emitter};
 use tokio::{
@@ -14,10 +14,20 @@ pub struct TrialSetupInput {
     pub api_key: String,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+struct DownloadProgress {
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "event", rename_all = "lowercase")]
 enum Event {
     Progress { message: String },
+    Download {
+        #[serde(flatten)]
+        progress: DownloadProgress,
+    },
     Complete { runner_bin: String },
     Error { message: String },
 }
@@ -87,6 +97,9 @@ pub async fn configure(
                 Event::Progress { message } => {
                     let _ = app.emit("argus:trial-progress", message.replace(api_key, "[隐藏]"));
                 }
+                Event::Download { progress } => {
+                    let _ = app.emit("argus:trial-download", progress);
+                }
                 Event::Complete { runner_bin } => executable = Some(runner_bin),
                 Event::Error { message } => return Err(message.replace(api_key, "[隐藏]")),
             }
@@ -106,6 +119,18 @@ pub async fn configure(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn forwards_download_bytes_with_optional_total() {
+        for total in [serde_json::json!(null), serde_json::json!(2048)] {
+            let event = serde_json::json!({"event": "download", "downloaded_bytes": 1024, "total_bytes": total});
+            let super::Event::Download { progress } = serde_json::from_value(event).unwrap() else {
+                panic!("expected a download event");
+            };
+            assert_eq!(serde_json::to_value(progress).unwrap(),
+                serde_json::json!({"downloaded_bytes": 1024, "total_bytes": total}));
+        }
+    }
+
     #[test]
     fn validates_only_trial_keys_without_reflecting_input() {
         assert!(super::valid_key(&format!("argus_trial_{}", "a".repeat(64))));

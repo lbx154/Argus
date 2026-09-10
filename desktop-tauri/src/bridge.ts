@@ -112,6 +112,11 @@ function eventSubscription<T>(
   };
 }
 
+export interface TrialDownloadProgress {
+  downloaded_bytes: number;
+  total_bytes: number | null;
+}
+
 export const desktopBridge = {
   getStatus: (): Promise<DesktopStatus> => invoke('get_status'),
   onStatus: (callback: (status: DesktopStatus) => void): (() => void) =>
@@ -121,6 +126,8 @@ export const desktopBridge = {
     invoke('complete_trial_setup', { input: { apiKey } }),
   onTrialProgress: (callback: (message: string) => void): (() => void) =>
     eventSubscription('argus:trial-progress', callback),
+  onTrialDownload: (callback: (progress: TrialDownloadProgress) => void): (() => void) =>
+    eventSubscription('argus:trial-download', callback),
   getAppearance: (): Promise<DesktopAppearance> => invoke('get_appearance'),
   setAppearance: (appearance: { theme: AppearanceTheme }): Promise<DesktopAppearance> =>
     invoke('set_appearance', { input: appearance }),

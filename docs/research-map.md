@@ -2,6 +2,12 @@
 
 The Web UI's Map tab shows tasks and their recorded execution steps on one canvas. Click a task or zoom in to reveal its submap; click a step to read its details. The minimap supports navigation, and the toolbar can locate the current task or fit the whole map.
 
+The attention button cycles through tasks needing input, then failed tasks. Opening one shows its position in that list and the recorded question or latest explicit failure reason. Search reports the total matches until one is focused; Enter advances through them and the counter identifies the displayed result.
+
+**Trace dependencies** frames the selected task and its direct recorded prerequisites and dependents, dimming unrelated cards and links without changing their positions. The strip above the canvas names those tasks. Click a card or a neighboring task in the strip to trace it; click the selected card again, toggle the button off, or use **Fit map** / **F** to return to the normal overview. **Open task** in the strip opens the selected task's details. Content relationships and plan replacements are not treated as scheduling dependencies, and tracing does not call a model.
+
+On phones, the header combines the title and data source. Opening a live map without a saved view starts at running work, otherwise a task needing attention, planned work, or the latest task. Saved views still take precedence. The legend, minimap and zoom controls step aside while a task is open; the toolbar retains navigation back to the overview. Step readers continue to fit above the message composer.
+
 Task frames fit their content. Longer tasks continue in linked cards. Solid lines represent recorded dependencies; dashed lines represent content relationships or plan replacements. Generated relationships do not change scheduling dependencies.
 
 Time advances across columns in the outer map. The layout chooses column boundaries using card dimensions and displayed relationships, then lets vertical positions follow connected cards. Ordered compaction preserves task order and a minimum gap while producing staggered branches. Card positions are independent of zoom and changes to generated wording. The initial overview and Fit map account for the toolbar, composer and minimap, and adapt to window resizing until the user navigates manually.

@@ -110,6 +110,34 @@ export interface MapGraph {
 }
 
 export const ACTIVE = new Set(["running", "in_progress", "claimed"]);
+export function attentionTasks(tasks: MapTask[]): MapTask[] {
+  return tasks
+    .filter((task) => task.status !== "done" && !ACTIVE.has(task.status) &&
+      (task.pending_question || task.status === "failed"))
+    .sort((a, b) => Number(!!b.pending_question) - Number(!!a.pending_question));
+}
+
+export function currentTask(tasks: MapTask[]): MapTask | undefined {
+  return tasks.find((task) => ACTIVE.has(task.status)) ??
+    attentionTasks(tasks)[0] ??
+    tasks.find((task) => task.status === "pending") ??
+    tasks.at(-1);
+}
+
+export function taskDependencies(graph: MapGraph, taskId: string) {
+  const upstream = new Set<string>();
+  const downstream = new Set<string>();
+  for (const link of graph.links) {
+    if (link.kind !== "dependency") continue;
+    if (link.target === taskId) upstream.add(link.source);
+    if (link.source === taskId) downstream.add(link.target);
+  }
+  return {
+    upstream: graph.tasks.filter((task) => upstream.has(task.id)),
+    downstream: graph.tasks.filter((task) => downstream.has(task.id)),
+  };
+}
+
 export function statusKey(task: MapTask): string {
   if (task.pending_question) return "question";
   if (ACTIVE.has(task.status)) return "running";

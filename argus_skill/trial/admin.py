@@ -12,6 +12,7 @@ from pathlib import Path
 
 import httpx
 
+from . import CLIENT_MODEL
 from .secrets import Vault, write_private
 from .store import TrialError
 
@@ -110,7 +111,7 @@ def main() -> int:
     parser.add_argument("--state-dir", type=Path, default=Path.home() / ".local/share/argus-trial-gateway")
     parser.add_argument("--key-file", type=Path, default=Path.home() / ".config/argus-trial-gateway/master.key")
     parser.add_argument("--copilot-home", type=Path, default=Path(os.environ.get("COPILOT_HOME") or Path.home() / ".copilot"))
-    parser.add_argument("--model", default="gpt-4.1", help="Copilot model supporting text/tool Chat Completions")
+    parser.add_argument("--model", default=CLIENT_MODEL, help="Copilot model supporting Responses with high reasoning")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=18765)
     parser.add_argument("--keys-output", type=Path, help="Private operator export for issue-keys")

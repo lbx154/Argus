@@ -23,7 +23,7 @@ use models::{
 };
 use release::{development_mode, repo_root, runtime_identity, ReleaseContext};
 use runner::{desktop_setup_complete, detect_pi_configuration, resolve_runner_configuration};
-use settings::{normalized_runner_bins, SettingsStore};
+use settings::{available_backend_port, normalized_runner_bins, SettingsStore};
 use std::{
     collections::{HashSet, VecDeque},
     fs,
@@ -492,11 +492,14 @@ async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: boo
         || previous.runner_kind != next.runner_kind
         || previous.runner_configured != next.runner_configured
         || previous.runner_bins != next.runner_bins;
-    // Reject an occupied new port before saving or stopping the current backend.
-    if (previous.port != next.port || app_state.supervisor.current_status().state != BackendState::Ready)
-        && tokio::net::TcpListener::bind(("127.0.0.1", next.port)).await.is_err()
+    // Trial startup selects a free port after checking for an owned backend.
+    // Manual choices must still fail before saving or stopping anything.
+    if !trial_mode
+        && (previous.port != next.port || app_state.supervisor.current_status().state != BackendState::Ready)
     {
-        return SetupResult::error(format!("端口 {} 已被占用或不可用，请选择其他端口。现有设置未更改。", next.port));
+        if let Err(error) = available_backend_port(&next) {
+            return SetupResult::error(format!("端口 {} 已被占用或不可用，请选择其他端口。现有设置未更改。{error}", next.port));
+        }
     }
     if let Err(error) = app_state.supervisor.release().validate_payload() {
         return SetupResult::error(error);

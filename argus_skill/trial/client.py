@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 import certifi
 
-from . import CLIENT_MODEL, MAX_OUTPUT_TOKENS, MODEL
+from . import CLIENT_MODEL, MAX_OUTPUT_TOKENS, MODEL, REASONING_EFFORT
 
 TRIAL_ENV = "ARGUS_SKILL_COPILOT_TRIAL"
 
@@ -35,6 +35,11 @@ def trial_enabled(env: dict[str, str] | None = None) -> bool:
     if enabled is None:
         enabled = read_persisted_knobs().get(TRIAL_ENV, "0")
     return enabled == "1"
+
+
+def trial_model_options(model: str | None, effort: str | None) -> tuple[str | None, str | None]:
+    """Old saved role models must not override the trial's custom provider ID."""
+    return (CLIENT_MODEL, REASONING_EFFORT) if trial_enabled() else (model, effort)
 
 
 def apply_trial_provider(env: dict[str, str]) -> dict[str, str]:
@@ -104,7 +109,7 @@ def ensure_copilot() -> str:
 
 
 def setup_trial(url: str, *, non_interactive: bool = False, api_key: str | None = None,
-                desktop: bool = False, progress=print) -> int:
+                desktop: bool = False, progress=print, download_progress=None) -> int:
     from ..core.backend_readiness import check_backend_readiness, format_backend_readiness
     from ..core.knob_store import write_persisted_knobs
     from ..tools.setup import _verify_setup_smoke
@@ -115,8 +120,7 @@ def setup_trial(url: str, *, non_interactive: bool = False, api_key: str | None 
     if desktop:
         from .native_cli import install_native_copilot
 
-        progress("正在下载并准备 Copilot，首次使用可能需要几分钟…")
-        executable = install_native_copilot()
+        executable = install_native_copilot(progress=progress, download_progress=download_progress)
     else:
         executable = ensure_copilot()
     path = profile_path()
@@ -126,6 +130,11 @@ def setup_trial(url: str, *, non_interactive: bool = False, api_key: str | None 
         TRIAL_ENV: "1", "ARGUS_SKILL_MODEL": CLIENT_MODEL,
         "ARGUS_SKILL_RUNNER_BACKEND": "copilot", "ARGUS_SKILL_RUNNER_BIN": executable,
     }
+    from ..core.knobs import KNOBS
+
+    # Seed the trial's visible role settings as well as enforcing high upstream.
+    overrides.update({knob.name: REASONING_EFFORT for knob in KNOBS
+                      if knob.name.endswith("_REASONING_EFFORT")})
     saved_env = {k: os.environ.get(k) for k in overrides}
     succeeded = False
     try:

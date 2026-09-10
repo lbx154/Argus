@@ -10,7 +10,7 @@
 
 Long-running agent work that can plan, execute, verify, pause, and continue beyond a single model turn.
 
-**Argus v0.1.3 · Source updates and packaged desktop previews are separate channels.**
+**Argus v0.1.5 · Source updates and packaged desktop previews are separate channels.**
 
 [![GitHub Stars](https://img.shields.io/github/stars/lbx154/Argus?style=flat-square)](https://github.com/lbx154/Argus/stargazers)
 [![License](https://img.shields.io/github/license/lbx154/Argus?style=flat-square)](LICENSE)

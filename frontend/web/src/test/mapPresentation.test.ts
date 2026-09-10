@@ -1,8 +1,23 @@
 import { describe, it, expect } from "vitest";
 import { buildMap, connectMap, type MapTask } from "../map/model";
-import { mergeMapCopy, referenceText, requestsFor, splitDraft } from "../map/presentation";
+import { attentionReason, mergeMapCopy, referenceText, requestsFor, splitDraft } from "../map/presentation";
 import { buildSubmap } from "../map/submap";
 import type { Dataset, MapEvent } from "../map/model";
+
+it("shows the recorded question or most recent explicit failure, never an unrelated summary", () => {
+  const task: MapTask = { id: "a", title: "Routing", objective: "", status: "failed", deps: [] };
+  const event: MapEvent = { id: "old", item_id: "a", ts: 1, type: "life.mission.failed", text: "Old failure" };
+  const events = [
+    { ...event, id: "new", ts: 3, reason: "Route cost differs from the baseline" },
+    event,
+    { ...event, id: "other", ts: 4, item_id: "b", reason: "Another task" },
+    { ...event, id: "progress", ts: 5, type: "round.start", text: "Inspecting files" },
+  ];
+  expect(attentionReason(task, events, false)).toBe("Route cost differs from the baseline");
+  expect(attentionReason({ ...task, pending_question: "Choose a route" }, events, false)).toBe("Choose a route");
+  expect(attentionReason(task, [event], false)).toBe("Old failure");
+  expect(attentionReason(task, [], false)).toBe("No failure reason was recorded. Open the task details.");
+});
 
 it("keeps new model settings when an earlier generation finishes", () => {
   const previous = { cards: {}, relations: [], model_revision: "new-model", available: false };
