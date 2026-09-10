@@ -15,6 +15,7 @@ import pytest
 
 from argus_skill.core.knobs import (
     KNOBS,
+    cockpit_editable_names,
     format_config_help,
     normalize_cockpit_knob_value,
     resolve_budget_caps,
@@ -93,6 +94,13 @@ def test_manager_planner_and_self_reasoning_defaults_are_high() -> None:
 def test_config_help_does_not_advertise_formal_vertical_override() -> None:
     assert all(k.name != "ARGUS_SKILL_VERTICAL" for k in KNOBS)
     assert "ARGUS_SKILL_VERTICAL" not in format_config_help(env={})
+
+
+def test_unpriced_cost_policy_is_not_a_configurable_knob() -> None:
+    name = "ARGUS_SKILL_UNPRICED_COST_POLICY"
+    assert name not in {knob.name for knob in KNOBS}
+    assert name not in cockpit_editable_names()
+    assert name not in format_config_help(env={name: "block"})
 
 
 def test_registry_covers_the_active_team_knobs() -> None:

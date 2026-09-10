@@ -138,7 +138,6 @@ KNOBS: tuple[Knob, ...] = (
     # --- budget ---
     Knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", BUDGET_KNOB_DEFAULTS["ARGUS_SKILL_GLOBAL_DAILY_CAP_USD"], "host-global daily USD cap across all projects", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COST_CONTROL", "on", "host-global settled-cost admission and reconciliation", "budget"),
-    Knob("ARGUS_SKILL_UNPRICED_COST_POLICY", "block", "handling for unresolved call cost: block | allow", "budget", cockpit=True),
     Knob("ARGUS_SKILL_COPILOT_GUARD", "on", "cross-project Copilot premium/call/concurrency circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_GUARD", "on", "cross-project Codex daily-call circuit breaker", "budget"),
     Knob("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "300", "host-wide Codex provider-call cap per local day", "budget", cockpit=True),
@@ -472,11 +471,6 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         if effort not in {"auto", "low", "medium", "high", "xhigh", "max"}:
             raise ValueError(f"{name} must be auto, low, medium, high, xhigh, or max")
         return effort
-    if name == "ARGUS_SKILL_UNPRICED_COST_POLICY":
-        policy = raw.lower()
-        if policy not in {"block", "allow"}:
-            raise ValueError(f"{name} must be block or allow")
-        return policy
     if name == "ARGUS_SKILL_AUTONOMY_MODE":
         mode = raw.lower()
         if mode not in {"cautious", "pragmatic", "autonomous"}:

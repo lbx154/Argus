@@ -169,7 +169,7 @@ def test_nonblocking_unpriced_calls_remain_visible_without_degrading_slo(
             "active_reservations": 0,
             "unresolved_calls": 47,
             "blocking_unresolved_calls": 0,
-            "policy": "block",
+            "policy": "allow",
         },
     )
 
@@ -191,7 +191,7 @@ def test_metrics_reuses_projected_cost_state_without_taking_the_lock(
         "active_reservations": 1,
         "unresolved_calls": 3,
         "blocking_unresolved_calls": 0,
-        "policy": "block",
+        "policy": "allow",
     }
 
     snapshot = metrics_snapshot(root=tmp_path, cost_control=projected)
@@ -215,7 +215,7 @@ def test_transient_cost_lock_contention_does_not_degrade_slo(
     assert snapshot["slo"] == {"status": "healthy", "violations": []}
 
 
-def test_blocking_unpriced_calls_and_unavailable_snapshot_degrade_slo(
+def test_legacy_unpriced_flags_are_informational_but_unavailable_snapshot_degrades_slo(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -229,10 +229,9 @@ def test_blocking_unpriced_calls_and_unavailable_snapshot_degrade_slo(
             "policy": "block",
         },
     )
-    blocked = metrics_snapshot(root=tmp_path)
-    assert blocked["slo"]["violations"] == [
-        "blocking unresolved cost calls: 2"
-    ]
+    snapshot = metrics_snapshot(root=tmp_path)
+    assert snapshot["cost_control"]["unresolved_calls"] == 2
+    assert snapshot["slo"] == {"status": "healthy", "violations": []}
 
     def unavailable(**_kwargs):
         raise OSError("ledger unavailable")

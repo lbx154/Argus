@@ -827,7 +827,7 @@ def test_settled_call_cost_blocks_the_next_call_at_global_cap(
     assert "global daily budget exhausted" in str(denied.fatal_error)
 
 
-def test_unpriced_call_blocks_next_provider_spawn_when_policy_is_block(
+def test_unpriced_call_does_not_block_next_provider_spawn(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -835,7 +835,6 @@ def test_unpriced_call_blocks_next_provider_spawn_when_policy_is_block(
     project = root / "projects" / "p1"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
     backend = AgentCliBackend(backend="codex")
     backend.set_usage_context(project_root=project, mission_id="mission-1")
@@ -851,7 +850,7 @@ def test_unpriced_call_blocks_next_provider_spawn_when_policy_is_block(
                     "output_tokens": 20,
                 }
             ],
-            thread_id="unknown-thread",
+            thread_id=kwargs["run_label"],
         )
 
     monkeypatch.setattr(
@@ -874,12 +873,23 @@ def test_unpriced_call_blocks_next_provider_spawn_when_policy_is_block(
 
     assert first.pricing_status == "unpriced"
     assert first.cost_usd is None
-    assert calls == ["engineer-r1"]
-    assert "unresolved provider cost" in second.fatal_error
-    assert second.stop_kind == "budget_exhausted"
-    assert second.pricing_status == "not_billed"
+    assert calls == ["engineer-r1", "reviewer"]
+    assert not second.fatal_error
+    assert second.exit_code == 0
+    assert second.pricing_status == "priced"
+    assert second.cost_usd is not None and second.cost_usd > 0
     state = json.loads((root / "cost-control.json").read_text())
     assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", str(second.cost_usd))
+    denied = backend.run_exec(
+        prompt="known cap reached",
+        options=RunnerOptions(model="gpt-5.6-sol"),
+        run_label="engineer-r2",
+    )
+    assert calls == ["engineer-r1", "reviewer"]
+    assert denied.stop_kind == "budget_exhausted"
+    assert denied.pricing_status == "not_billed"
+    assert "global daily budget exhausted" in denied.fatal_error
 
 
 def test_missing_copilot_resume_target_does_not_poison_cost_control(
@@ -890,7 +900,6 @@ def test_missing_copilot_resume_target_does_not_poison_cost_control(
     project = root / "projects" / "p1"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     monkeypatch.setattr(
         "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",
@@ -2442,7 +2451,6 @@ def test_context_parser_failure_uses_trusted_completion_receipt(tmp_path, monkey
     project = root / "projects" / "p1"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     monkeypatch.setenv("ARGUS_SKILL_COPILOT_GUARD", "0")
     monkeypatch.setattr(
         "argus_skill.adapters.agent_cli_backend._exec_spawn.capture_copilot_usage_cursor",

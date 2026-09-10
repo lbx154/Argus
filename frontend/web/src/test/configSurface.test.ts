@@ -32,14 +32,12 @@ describe('conciseConfigKnobs', () => {
 
     expect(result.map((item) => item.name)).toEqual([
       'ARGUS_SKILL_MAX_ACTIVE_DAEMONS',
-      'ARGUS_SKILL_UNPRICED_COST_POLICY',
       'ARGUS_SKILL_SAFE_MODE',
       'ARGUS_SKILL_ENABLE_TELEGRAM',
       'ARGUS_SKILL_SHOW_REASONING',
     ]);
     expect(result.map((item) => item.group)).toEqual([
       'Limits',
-      'Safety',
       'Safety',
       'Interface',
       'Interface',

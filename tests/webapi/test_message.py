@@ -878,7 +878,7 @@ def test_frontdoor_classifier_failure_never_dispatches_unclassified_message(
     assert LifeMemory.open(life).backlog.all() == []
 
 
-def test_unresolved_cost_is_reported_without_claiming_manager_backend_is_unavailable(
+def test_known_budget_limit_is_reported_without_claiming_manager_backend_is_unavailable(
     tmp_path: Path, monkeypatch,
 ) -> None:
     sid = "s-accounting-block"
@@ -887,8 +887,7 @@ def test_unresolved_cost_is_reported_without_claiming_manager_backend_is_unavail
 
     def failed_classify(mem, text, chat_state, **kwargs):
         chat_state["_frontdoor_failure"] = (
-            "refused before start: unresolved provider cost: 1 call(s) "
-            "awaiting usage reconciliation (provider=codex, model=test-model)"
+            "refused before start: global daily budget exhausted ($0.000000 available)"
         )
         return None, None, "complex"
 
@@ -902,8 +901,8 @@ def test_unresolved_cost_is_reported_without_claiming_manager_backend_is_unavail
 
     assert result["kind"] == "chat"
     assert result["reply"].startswith("[not dispatched]")
-    assert "费用尚未核对完整" in result["reply"]
-    assert "provider=codex" in result["reply"]
+    assert "已达到全局日预算上限" in result["reply"]
+    assert "$0.000000 available" in result["reply"]
     assert "backend is unavailable" not in result["reply"]
     assert "argus doctor --deep" not in result["reply"]
     assert LifeMemory.open(life).backlog.all() == []

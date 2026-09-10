@@ -27,7 +27,7 @@ class _PreProviderRefusalRunner:
 
     def chat_reply_if_conversational(self, **kwargs: Any) -> bool:
         raise RuntimeError(
-            "refused before start: unresolved provider cost blocks new calls"
+            "refused before start: global daily budget exhausted"
         )
 
 

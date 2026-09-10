@@ -24,23 +24,7 @@ def budget_refusal_reply(reason: str, *, language_hint: str = "") -> str | None:
     raw = str(reason or "").strip()
     lowered = raw.casefold()
     zh = uses_cjk(language_hint)
-    if "unresolved provider cost" in lowered:
-        explanation = (
-            "暂未执行：先前调用的费用尚未核对完整，预算保护在调用 Manager 之前阻止了请求。"
-            "这不表示 CLI 未登录或余额不足。已有用量会在下次请求时重新核对；"
-            "若仍阻塞，请检查 Argus 数据目录的 cost-control.json 和对应项目的 usage.jsonl，"
-            "核对下方的 provider、model 和原因。不要删除账本或把未知费用当作零。"
-            "诊断命令请在终端运行，而不是直接发到聊天框。"
-            if zh else
-            "The request was not started: a previous call's cost is unresolved, so budget "
-            "protection stopped this request before the Manager was called. This is not "
-            "an authentication or insufficient-balance diagnosis. Existing usage is "
-            "reconciled on the next request. If still blocked, inspect cost-control.json "
-            "in the Argus data directory and the project's usage.jsonl for the provider, "
-            "model and reason below. Do not delete the ledger or treat unknown cost as zero. "
-            "Run diagnostic commands in a terminal, not as chat messages."
-        )
-    elif "global daily budget exhausted" in lowered:
+    if "global daily budget exhausted" in lowered:
         explanation = (
             "暂未执行：已达到全局日预算上限，任务没有入队。"
             "请等待下一个预算日，或由你明确调整预算；这不是 Agent CLI 登录故障。"

@@ -465,13 +465,13 @@ def test_backend_failure_preserves_actionable_reason(tmp_path, monkeypatch):
             result = _FakeResult("")
             result.exit_code = -1
             result.fatal_error = (
-                "refused before start: unresolved provider cost blocks new calls"
+                "refused before start: global daily budget exhausted"
             )
             return result
 
     with pytest.raises(
         VerticalDecisionError,
-        match="unresolved provider cost blocks new calls",
+        match="global daily budget exhausted",
     ):
         Manager(project_root=tmp_path, runner=_FailedRunner()).divide(_NOVEL_TASK)
 

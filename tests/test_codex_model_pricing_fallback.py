@@ -13,7 +13,7 @@ model (``resolve_pricing_model`` + ``AgentCliBackend._configured_pricing_model``
 while a genuinely unknown *pinned* model remains honestly ``unpriced``.
 
 We never spawn a real codex CLI: ``AgentCliRunner.run_exec`` is monkeypatched to
-return a synthetic result, mirroring ``test_unpriced_call_blocks_next_provider_spawn``.
+return a synthetic result, mirroring ``test_unpriced_call_does_not_block_next_provider_spawn``.
 """
 from __future__ import annotations
 
@@ -61,8 +61,7 @@ def test_resolve_pricing_model_falls_back_to_configured_default() -> None:
 
 
 def test_resolve_pricing_model_empty_when_nothing_usable() -> None:
-    # No reliable fallback -> stay empty so pricing HONESTLY blocks (never fake
-    # a priced model).
+    # No reliable fallback -> stay empty rather than invent a priced model.
     assert resolve_pricing_model("", "", "") == ("", "none")
     assert resolve_pricing_model(None, None, None) == ("", "none")
 
@@ -216,7 +215,6 @@ def _codex_backend(tmp_path, monkeypatch, *, model_env: str = "gpt-5.5"):
     project = root / "projects" / "p1"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setenv("ARGUS_SKILL_COST_CONTROL", "1")
-    monkeypatch.setenv("ARGUS_SKILL_UNPRICED_COST_POLICY", "block")
     monkeypatch.setenv("ARGUS_SKILL_CODEX_GUARD", "0")
     monkeypatch.setenv("ARGUS_SKILL_MODEL", model_env)
     codex_home = tmp_path / "codex"
@@ -271,9 +269,7 @@ def test_codex_call_without_pinned_model_is_priced_not_blocked(
         run_label="manager-route",
     )
     assert second.pricing_status == "priced"
-    assert "unresolved provider cost blocks new calls" not in str(
-        second.fatal_error or ""
-    )
+    assert not second.fatal_error
 
     state = json.loads((root / "cost-control.json").read_text())
     assert state["unresolved"] == []
@@ -285,12 +281,10 @@ def test_codex_call_without_pinned_model_is_priced_not_blocked(
     assert {row["model"] for row in usage_rows} == {"gpt-5.5"}
 
 
-def test_codex_unknown_pinned_model_remains_unpriced_and_obeys_budget_gate(
+def test_codex_unknown_pinned_model_remains_unpriced_without_blocking(
     tmp_path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # An unknown pinned model must remain unpriced; the configured block
-    # policy prevents further spending until that usage can be reconciled.
-    backend, root, _seen_models = _codex_backend(tmp_path, monkeypatch)
+    backend, root, seen_models = _codex_backend(tmp_path, monkeypatch)
 
     first = backend.run_exec(
         prompt="unknown price",
@@ -305,6 +299,9 @@ def test_codex_unknown_pinned_model_remains_unpriced_and_obeys_budget_gate(
 
     assert first.pricing_status == "unpriced"
     assert first.cost_usd is None
-    assert "unresolved provider cost" in second.fatal_error
-    assert second.stop_kind == "budget_exhausted"
-    assert second.pricing_status == "not_billed"
+    assert not second.fatal_error
+    assert second.exit_code == 0
+    assert second.pricing_status == "priced"
+    assert seen_models == ["future-model", "gpt-5.6-sol"]
+    state = json.loads((root / "cost-control.json").read_text())
+    assert [row["call_id"] for row in state["unresolved"]] == [first.call_id]

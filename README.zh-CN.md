@@ -515,11 +515,11 @@ Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout
 
 ## 安装排障
 
-- `unresolved provider cost` 表示费用尚未核对完整，不代表登录失败或余额不足。
-  Argus 会在新调用前重新核对 Copilot 迟到或部分上报的费用，包括旧版对账缓存留下的记录；
-  其他 token 记录中的模型已有定价且 token 数量完整时，
-  会补齐待定费用。未知价格或缺失用量仍会阻止调用，不会被当作免费。
-  请查看报错中的 provider、model 和原因，以及 Argus 数据目录的 `cost-control.json`
+- 未知价格或缺失用量会保留展示并继续对账，不会单独阻止新调用或中断运行中的调用，
+  也不会被当作免费。Argus 会重新核对 Copilot 迟到或部分上报的费用；
+  其他 token 记录中的模型已有定价且 token 数量完整时，会补齐待定费用。
+  已知结算费用与运行中观测到的费用仍受全局日预算限制，后端速率限额和试用密钥的服务端额度仍有效。
+  请查看待对账记录中的 provider、model 和原因，以及 Argus 数据目录的 `cost-control.json`
   和对应项目的 `usage.jsonl`，不要删除账本。诊断命令应在终端运行，不要直接发到 Web 聊天框。
 
 - PowerShell 用 `Get-Command argus -All`，macOS/Linux 用 `type -a argus`

@@ -13,18 +13,12 @@ from argus_skill.core.operator_messages import (
 from argus_skill.core.transcript import read_turns
 
 
-def test_unresolved_cost_reply_explains_accounting_without_claiming_backend_failure() -> None:
-    reason = (
-        "refused before start: unresolved provider cost: 1 call(s) awaiting "
-        "usage reconciliation (provider=codex, model=test-model)"
-    )
+def test_budget_reply_explains_known_limit_without_claiming_backend_failure() -> None:
+    reason = "refused before start: global daily budget exhausted ($0.000000 available)"
     reply = budget_refusal_reply(reason, language_hint="继续推进任务")
     assert reply is not None
-    assert "费用尚未核对完整" in reply
-    assert "cost-control.json" in reply
-    assert "终端" in reply
-    assert "不要删除账本" in reply
-    assert "provider=codex" in reply
+    assert "已达到全局日预算上限" in reply
+    assert reason in reply
     assert "backend is unavailable" not in reply
     assert "argus doctor --deep" not in reply
 

@@ -489,18 +489,8 @@ def metrics_snapshot(
         violations.append(f"WebAPI 5xx rate {web_5xx_rate:.1%} > 1%")
     if validation_failures > 0:
         violations.append(f"event validation failures: {validation_failures}")
-    # Partial/unpriced calls remain visible in cost telemetry, but the current
-    # admission policy explicitly treats them as non-blocking. Only a blocking
-    # unresolved call (or an unreadable cost-control snapshot) is an SLO breach.
-    blocking_unresolved = int(
-        cost.get("blocking_unresolved_calls", cost.get("unresolved_calls", 0)) or 0
-    )
-    if blocking_unresolved < 0:
+    if cost.get("error") and not cost.get("snapshot_stale"):
         violations.append("cost control snapshot unavailable")
-    elif blocking_unresolved > 0:
-        violations.append(
-            f"blocking unresolved cost calls: {blocking_unresolved}"
-        )
 
     return {
         "schema_version": METRICS_SCHEMA_VERSION,

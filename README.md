@@ -564,12 +564,13 @@ logs.
 
 ## Installation troubleshooting
 
-- `unresolved provider cost` is an accounting hold, not a login or balance
-  diagnosis. Argus rechecks late or partial Copilot billing, including pending
-  records left behind by older reconciliation caches, before new calls. It settles pending
-  token records when their recorded model and complete token counts can be
-  priced. Unknown prices or missing usage remain blocked rather than being
-  treated as free. Check the reported provider, model and reason in
+- Unknown prices or missing usage remain visible for reconciliation; they do
+  not block new calls or interrupt running calls, and are not treated as free.
+  Argus rechecks late or partial Copilot billing and prices pending token
+  records when their recorded model and complete token counts can be priced.
+  Known settled and observed in-flight spend still enforce the global daily
+  budget; provider rate limits and the trial key's server quota still apply.
+  Check the provider, model and reason in
   `cost-control.json` under the Argus data directory and the project's
   `usage.jsonl`; do not delete the ledger. Run diagnostic commands in a terminal,
   not in the Web chat box.

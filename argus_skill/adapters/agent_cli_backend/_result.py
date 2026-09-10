@@ -84,8 +84,6 @@ _TRANSIENT_ERROR_PATTERNS = (
 
 def _reservation_denial_stop_kind(reason: str) -> StopKind:
     low = str(reason or "").casefold()
-    if "unresolved provider cost" in low:
-        return "budget_exhausted"
     if "cost control unavailable" in low:
         return "backend_unavailable"
     return "budget_exhausted"

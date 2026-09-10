@@ -33,7 +33,6 @@ const BUDGET_FIELDS = [
 
 const KNOB_TEXT: Record<string, { label: string; doc: string }> = {
   ARGUS_SKILL_MAX_ACTIVE_DAEMONS: { label: 'settings.knob.activeDaemons', doc: 'settings.knob.activeDaemonsDoc' },
-  ARGUS_SKILL_UNPRICED_COST_POLICY: { label: 'settings.knob.unpricedCalls', doc: 'settings.knob.unpricedCallsDoc' },
   ARGUS_SKILL_SAFE_MODE: { label: 'settings.knob.safeMode', doc: 'settings.knob.safeModeDoc' },
   ARGUS_SKILL_ENABLE_TELEGRAM: { label: 'settings.knob.telegram', doc: 'settings.knob.telegramDoc' },
   ARGUS_SKILL_SHOW_REASONING: { label: 'settings.knob.showReasoning', doc: 'settings.knob.showReasoningDoc' },
@@ -68,10 +67,6 @@ function configSourceLabel(source: string, t: Translate): string {
 
 function configValueLabel(knob: DisplayConfigKnob, t: Translate): string {
   const value = knob.value.trim().toLowerCase();
-  if (knob.name === 'ARGUS_SKILL_UNPRICED_COST_POLICY') {
-    if (value === 'block') return t('settings.value.block');
-    if (value === 'allow') return t('settings.value.allow');
-  }
   if (['ARGUS_SKILL_SAFE_MODE', 'ARGUS_SKILL_ENABLE_TELEGRAM', 'ARGUS_SKILL_SHOW_REASONING'].includes(knob.name)) {
     return t(['1', 'true', 'on', 'yes'].includes(value) ? 'settings.value.enabled' : 'settings.value.disabled');
   }

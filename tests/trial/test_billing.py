@@ -46,8 +46,5 @@ def test_trial_preserves_tokens_without_waiting_for_a_user_copilot_bill(tmp_path
         call_id="next", project_root=project, mission_id=None, provider="copilot",
         model="argus-trial", run_label="next", global_root=tmp_path / "argus",
     )
-    if hosted_trial:
-        assert reservation is not None and not reason
-        reservation.release(reason="test_complete")
-    else:
-        assert reservation is None and "unresolved provider cost" in reason
+    assert reservation is not None and not reason
+    reservation.release(reason="test_complete")
