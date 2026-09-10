@@ -55,7 +55,7 @@ it does not wait for personal Copilot billing reconciliation.
 
 The trial provider is **`gpt-5.5` with reasoning effort `high`**, exposed as
 `argus-trial`. Clients retain the text/tool Chat Completions contract. The gateway
-translates requests, streamed text and local function calls to Copilot `/responses`
+translates requests, streamed text and local function/custom calls to Copilot `/responses`
 (the model rejects `/chat/completions`). Model and high effort are enforced on
 the server for existing clients too; there is no fallback to GPT-4.1. New desktop
 setup persists GPT-5.5 and high role efforts. Images, embeddings and Anthropic

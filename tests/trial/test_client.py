@@ -129,7 +129,8 @@ def test_old_trial_models_resolve_to_the_current_provider_without_changing_perso
 
 @pytest.mark.e2e
 @pytest.mark.skipif(shutil.which("copilot") is None, reason="Copilot CLI required for real client smoke test")
-def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch):
+@pytest.mark.parametrize("local_tool", ["view", "apply_patch"])
+def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, local_tool):
     """Real Argus -> real Copilot CLI -> HTTP gateway -> simulated upstream."""
     key = tmp_path / "key"
     state = tmp_path / "server"
@@ -163,9 +164,23 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch):
         messages = payload["input"]
         if any("ARGUS_SETUP_OK" in str(m.get("content")) for m in messages):
             delta, finish = {"role": "assistant", "content": "ARGUS_SETUP_OK"}, "stop"
-        elif any(m.get("type") == "function_call_output" for m in messages):
-            assert any("trial-local-file-evidence" in str(m.get("output")) for m in messages if m.get("type") == "function_call_output")
+        elif any(m.get("type") in {"function_call_output", "custom_tool_call_output"} for m in messages):
+            if local_tool == "view":
+                assert any("trial-local-file-evidence" in str(m.get("output")) for m in messages if m.get("type") == "function_call_output")
+            else:
+                assert any(m.get("type") == "custom_tool_call_output" for m in messages)
+                assert (tmp_path / "result.txt").read_text() == "trial-local-patch-evidence\n"
             delta, finish = {"role": "assistant", "content": "TRIAL_TOOL_OK"}, "stop"
+        elif local_tool == "apply_patch":
+            tool = next(t for t in payload["tools"] if t["name"] == "apply_patch")
+            assert tool["type"] == "custom" and tool["format"]["type"] == "grammar"
+            delta = {"role": "assistant", "tool_calls": [{
+                "id": "call_patch", "type": "custom", "custom": {
+                    "name": "apply_patch",
+                    "input": "*** Begin Patch\n*** Add File: result.txt\n+trial-local-patch-evidence\n*** End Patch",
+                },
+            }]}
+            finish = "tool_calls"
         else:
             assert any(t["name"] == "view" for t in payload["tools"])
             delta = {"role": "assistant", "tool_calls": [{
@@ -175,7 +190,8 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch):
             finish = "tool_calls"
         if finish == "tool_calls":
             call = delta["tool_calls"][0]
-            output = [{"type": "function_call", "call_id": call["id"], **call["function"]}]
+            kind = "custom_tool_call" if call["type"] == "custom" else "function_call"
+            output = [{"type": kind, "call_id": call["id"], **call[call["type"]]}]
         else:
             output = [{"type": "message", "role": "assistant",
                        "content": [{"type": "output_text", "text": delta["content"]}]}]
@@ -223,13 +239,22 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch):
         env.pop("ARGUS_TRIAL_KEY")
         # A fresh Python process proves persisted trial routing; this goes
         # through Argus's actual worker launch, not a manually configured CLI.
+        probe = (
+            "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
+            "r=run_read_only_agent_prompt(backend='copilot', executable=shutil.which('copilot'), "
+            "model='gpt-4.1', run_label='trial-tool-smoke', prompt='Read "
+            + str(tmp_path / "evidence.txt") + " and report TRIAL_TOOL_OK.'); "
+            if local_tool == "view" else
+            "from argus_skill.core.agent_probe import run_agent_repair_prompt; "
+            "r=run_agent_repair_prompt(backend='copilot', executable=shutil.which('copilot'), "
+            f"working_dir={str(tmp_path)!r}, model='gpt-4.1', run_label='trial-tool-smoke', "
+            "prompt='Create result.txt with trial-local-patch-evidence using apply_patch, then report TRIAL_TOOL_OK.'); "
+        )
         result = subprocess.run(
-            [sys.executable, "-c", "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
-             "from argus_skill.core.knob_store import read_persisted_knobs; "
+            [sys.executable, "-c", "from argus_skill.core.knob_store import read_persisted_knobs; "
              "k=read_persisted_knobs(); assert k['ARGUS_SKILL_MODEL']=='gpt-5.5'; "
              "assert k['ARGUS_SKILL_ENGINEER_REASONING_EFFORT']=='high'; "
-             "import shutil; r=run_read_only_agent_prompt(backend='copilot', executable=shutil.which('copilot'), "
-             "model='gpt-4.1', run_label='trial-tool-smoke', prompt='Read " + str(tmp_path / "evidence.txt") + " and report TRIAL_TOOL_OK.'); "
+             "import shutil; " + probe +
              "print(r.output); print(r.error); raise SystemExit(0 if r.ok else 1)"],
             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60,
         )

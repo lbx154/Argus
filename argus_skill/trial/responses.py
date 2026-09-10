@@ -9,29 +9,36 @@ from .store import TrialError
 
 def request_payload(chat: dict) -> dict:
     items = []
+    custom_calls = set()
     for message in chat["messages"]:
         role, content = message["role"], message.get("content")
         if isinstance(content, list):
             content = "\n".join(part["text"] for part in content)
         if role == "tool":
-            items.append({"type": "function_call_output", "call_id": message["tool_call_id"],
+            call_id = message["tool_call_id"]
+            kind = "custom_tool_call_output" if call_id in custom_calls else "function_call_output"
+            items.append({"type": kind, "call_id": call_id,
                           "output": content or ""})
             continue
         if content:
             items.append({"role": role, "content": content})
         for tool in message.get("tool_calls", []):
-            items.append({"type": "function_call", "call_id": tool["id"], **tool["function"]})
+            if tool["type"] == "custom":
+                custom_calls.add(tool["id"])
+                items.append({"type": "custom_tool_call", "call_id": tool["id"], **tool["custom"]})
+            else:
+                items.append({"type": "function_call", "call_id": tool["id"], **tool["function"]})
     payload = {
         "model": chat["model"], "input": items, "stream": chat["stream"],
         "max_output_tokens": chat["max_tokens"], "store": False,
         "reasoning": {"effort": REASONING_EFFORT},
     }
     if chat.get("tools"):
-        payload["tools"] = [{"type": "function", **tool["function"]} for tool in chat["tools"]]
+        payload["tools"] = [{**tool[tool["type"]], "type": tool["type"]} for tool in chat["tools"]]
     if "tool_choice" in chat:
         choice = chat["tool_choice"]
         payload["tool_choice"] = (
-            {"type": "function", "name": choice["function"]["name"]}
+            {"type": choice["type"], "name": choice[choice["type"]]["name"]}
             if isinstance(choice, dict) else choice
         )
     if "parallel_tool_calls" in chat:
@@ -57,6 +64,9 @@ def completion(data: dict) -> dict:
         elif item.get("type") == "function_call":
             calls.append({"id": item["call_id"], "type": "function",
                           "function": {"name": item["name"], "arguments": item["arguments"]}})
+        elif item.get("type") == "custom_tool_call":
+            calls.append({"id": item["call_id"], "type": "custom",
+                          "custom": {"name": item["name"], "input": item["input"]}})
     message = {"role": "assistant", "content": "".join(text) or None}
     if calls:
         message["tool_calls"] = calls

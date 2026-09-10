@@ -61,6 +61,19 @@ class ToolCall(BaseModel):
     function: FunctionCall
 
 
+class CustomCall(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str
+    input: str
+
+
+class CustomToolCall(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    id: str
+    type: Literal["custom"]
+    custom: CustomCall
+
+
 class Message(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     role: Literal["system", "developer", "user", "assistant", "tool"]
@@ -68,7 +81,7 @@ class Message(BaseModel):
     refusal: str | None = None
     name: str | None = None
     tool_call_id: str | None = None
-    tool_calls: list[ToolCall] | None = None
+    tool_calls: list[ToolCall | CustomToolCall] | None = None
 
 
 class Snippy(BaseModel):
@@ -123,8 +136,11 @@ def prepare(data: dict, model: str) -> tuple[dict, int]:
     if parsed.max_tokens is not None and parsed.max_completion_tokens is not None:
         raise TrialError(400, "invalid_request", "Specify only one output token limit.")
     for tool in parsed.tools or []:
-        if tool.get("type") != "function" or not isinstance(tool.get("function"), dict):
-            raise TrialError(400, "invalid_tools", "Only local function tools are supported.")
+        kind = tool.get("type")
+        if kind not in ("function", "custom") or not isinstance(tool.get(kind), dict):
+            raise TrialError(400, "invalid_tools", "Only local function and custom tools are supported.")
+    if isinstance(parsed.tool_choice, dict) and parsed.tool_choice.get("type") not in ("function", "custom"):
+        raise TrialError(400, "invalid_tools", "Only local function and custom tool choices are supported.")
     payload = parsed.model_dump(exclude_none=True)
     output = payload.pop("max_completion_tokens", None) or payload.pop("max_tokens", None) or MAX_OUTPUT_TOKENS
     payload.update(model=model, max_tokens=output)

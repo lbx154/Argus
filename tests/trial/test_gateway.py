@@ -365,6 +365,66 @@ def test_trial_enforces_high_and_preserves_parallel_local_tool_history():
 
 
 @pytest.mark.parametrize("stream", [False, True])
+def test_custom_patch_tool_round_trip_preserves_raw_input_and_billing(settings, stream):
+    patch = "*** Begin Patch\n*** Add File: result.txt\n+verified\n*** End Patch\n"
+    grammar = {"type": "grammar", "grammar": {"syntax": "lark", "definition": 'start: "patch"'}}
+    tools = [
+        {"type": "function", "function": {"name": "view", "parameters": {"type": "object"}}},
+        {"type": "custom", "custom": {"name": "apply_patch", "description": "Edit local files.", "format": grammar}},
+    ]
+    requests = []
+
+    def upstream(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        assert payload["tools"] == [
+            {"type": "function", "name": "view", "parameters": {"type": "object"}},
+            {"type": "custom", "name": "apply_patch", "description": "Edit local files.", "format": grammar},
+        ]
+        assert payload["tool_choice"] == {"type": "custom", "name": "apply_patch"}
+        data = response_data()
+        if len(requests) == 1:
+            data["output"] = [
+                {"type": "function_call", "call_id": "call_view", "name": "view", "arguments": "{}"},
+                {"type": "custom_tool_call", "call_id": "call_patch", "name": "apply_patch", "input": patch},
+            ]
+        else:
+            assert payload["input"][-4:] == [
+                {"type": "function_call", "call_id": "call_view", "name": "view", "arguments": "{}"},
+                {"type": "custom_tool_call", "call_id": "call_patch", "name": "apply_patch", "input": patch},
+                {"type": "function_call_output", "call_id": "call_view", "output": "empty"},
+                {"type": "custom_tool_call_output", "call_id": "call_patch", "output": "File created"},
+            ]
+        if stream:
+            return httpx.Response(200, text="data: " + json.dumps({"type": "response.completed", "response": data}) + "\n\n")
+        return httpx.Response(200, json=data)
+
+    with TestClient(create_app(settings, transport=httpx.MockTransport(upstream))) as client:
+        auth = issued_auth(client)
+        request = {**PAYLOAD, "stream": stream, "tools": tools,
+                   "tool_choice": {"type": "custom", "custom": {"name": "apply_patch"}}}
+        result = client.post("/v1/chat/completions", headers=auth, json=request)
+        assert result.status_code == 200, result.text
+        body = json.loads(result.text.splitlines()[0][6:]) if stream else result.json()
+        choice = body["choices"][0]
+        message = choice["delta" if stream else "message"]
+        calls = [{key: value for key, value in tool.items() if key != "index"}
+                 for tool in message["tool_calls"]]
+        assert calls[1] == {"id": "call_patch", "type": "custom",
+                            "custom": {"name": "apply_patch", "input": patch}}
+        assert choice["finish_reason"] == "tool_calls"
+        request["messages"] = [
+            *PAYLOAD["messages"],
+            {"role": "assistant", "content": None, "tool_calls": calls},
+            {"role": "tool", "tool_call_id": "call_view", "content": "empty"},
+            {"role": "tool", "tool_call_id": "call_patch", "content": "File created"},
+        ]
+        assert client.post("/v1/chat/completions", headers=auth, json=request).status_code == 200
+        assert len(requests) == 2
+        assert client.get("/trial/status", headers=auth).json()["tokens_used"] == 30
+
+
+@pytest.mark.parametrize("stream", [False, True])
 def test_tool_calls_and_reasoning_usage_reach_client_without_provider_metadata(settings, stream):
     data = response_data()
     data["output"] = [
@@ -404,6 +464,13 @@ def test_output_cap_is_reported_as_length_and_usage_is_preserved():
     {"reasoning_effort": "arbitrary"},
     {"messages": [{"role": "tool", "content": "missing call id"}]},
     {"tool_choice": {"type": "function"}},
+    {"tools": [{"type": "custom", "custom": "invalid"}]},
+    {"tools": [{"type": "custom"}]},
+    {"tool_choice": {"type": "custom"}},
+    {"tool_choice": {"type": "web_search"}},
+    {"messages": [{"role": "assistant", "tool_calls": [
+        {"id": "call_patch", "type": "custom", "custom": {"name": "apply_patch", "input": {}}},
+    ]}]},
 ])
 def test_invalid_client_parameters_fail_before_spending(settings, mutation):
     with TestClient(create_app(settings)) as client:
