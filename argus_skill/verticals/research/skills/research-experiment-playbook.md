@@ -240,9 +240,13 @@ authorize a large API-backed synthetic campaign. Existing project-specific
 restrictions, including a ban on paid APIs or custom tasks, still apply.
 
 Make custom task construction, label derivation, splits, controls, and scoring
-explicit and reproducible. Execute the experiments and preserve their actual
-results. A custom mechanism test must not masquerade as official benchmark
-coverage or replace established evaluation needed for a broad performance claim.
+explicit and reproducible. Before scoring any model on a custom benchmark,
+check a constant-answer baseline and verify that the intended targets are
+separable on its items. Resolve a trivial shortcut or indistinguishable labels
+in the task before interpreting model scores. Execute the experiments and
+preserve their actual results. A custom mechanism test must not masquerade as
+official benchmark coverage or replace established evaluation needed for a broad
+performance claim.
 
 ### Planner scale assessment after a passing experiment
 

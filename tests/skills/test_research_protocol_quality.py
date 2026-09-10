@@ -54,6 +54,16 @@ def test_experiment_requires_fidelity_positive_control_and_real_baselines() -> N
     assert "real evaluator" in experiment
 
 
+def test_custom_benchmarks_are_checked_before_model_scoring() -> None:
+    experiment = _playbook("experiment")
+
+    assert "before scoring any model" in experiment
+    assert "constant-answer baseline" in experiment
+    assert "intended targets are separable on its items" in experiment
+    assert "no api calls or only a small amount within the existing authorized budget" in experiment
+    assert "existing project-specific restrictions" in experiment
+
+
 def test_idea_is_source_only_and_never_reselects_after_implementation_failure() -> None:
     idea = _stage("idea")
     playbook = _playbook("idea")
