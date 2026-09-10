@@ -252,6 +252,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: x86_64-pc-windows-msvc
+      # Same key as the release workflow, so every push to main leaves a warm
+      # dependency cache for the next tagged desktop build.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-tauri/src-tauri
+          shared-key: desktop-windows-x86_64
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install
         run: |
           python -m pip install --upgrade pip

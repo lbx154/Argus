@@ -35,9 +35,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22.12.0"
+          cache: npm
+          cache-dependency-path: |
+            frontend/web/package-lock.json
+            frontend/tui/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
@@ -103,10 +109,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.12.0'
+          cache: npm
+          cache-dependency-path: |
+            frontend/web/package-lock.json
+            frontend/tui/package-lock.json
+            desktop-tauri/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - uses: dtolnay/rust-toolchain@stable
+      # The Tauri shell pulls in several hundred crates; compiling them cold is
+      # the single longest step on every platform (10 min on the Intel Mac
+      # runner). Keep the compiled dependencies between runs. Only main saves,
+      # so tag builds restore main's cache instead of leaving one-off copies.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-tauri/src-tauri
+          shared-key: desktop-${{ matrix.platform }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux desktop build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -196,4 +218,3 @@ jobs:
         with:
           files: release-assets/**/*
           body_path: release-body.md
-          draft: ${{ github.ref == 'refs/tags/v0.1.5' }}
