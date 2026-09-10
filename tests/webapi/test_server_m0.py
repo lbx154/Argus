@@ -548,21 +548,6 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout(
     assert Path(meta["runtime"]["source_root"]) == Path(__file__).parents[2]
     assert meta["runtime"]["pid"] > 0
     assert meta["runtime"]["desktop_launch_nonce"] == "desktop-launch-test"
-    runtime = meta["runtime"]
-    assert runtime["release_id"].startswith(f"{__version__}+")
-    assert runtime["release_matches_source"] is (
-        runtime["manifest_source_digest"] == runtime["runtime_source_digest"]
-    )
-
-
-def test_web_serve_refuses_strict_release_mismatch(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "argus_skill.core.runtime_identity.release_match_preflight_error",
-        lambda: "release mismatch",
-    )
-
-    with pytest.raises(RuntimeError, match="webapi refused inconsistent release"):
-        server.serve()
 
 
 def test_web_serve_refuses_a_mismatched_source_root(monkeypatch) -> None:
@@ -961,7 +946,6 @@ def test_get_meta_is_public_versioned_and_uncached(
     assert r.headers["x-argus-protocol"] == (
         f"argus.webapi/{API_PROTOCOL_MAJOR}.{API_PROTOCOL_MINOR}"
     )
-    assert r.headers["x-argus-release"].startswith(f"{__version__}+")
     assert r.json()["protocol"]["major"] == API_PROTOCOL_MAJOR
     assert r.json()["authentication"] == {
         "required": True,

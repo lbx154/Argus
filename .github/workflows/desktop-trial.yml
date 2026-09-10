@@ -48,8 +48,8 @@ jobs:
         env:
           ARGUS_TEST_NATIVE_COPILOT: '1'
         run: |
-          python -m argus_skill.release_tools.build_release
           npm --prefix frontend/web run build
+          npm --prefix frontend/tui run build
           npm --prefix desktop-tauri run build:backend
           npm --prefix desktop-tauri run build:unsigned
       - uses: actions/upload-artifact@v4

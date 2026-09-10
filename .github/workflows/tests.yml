@@ -224,10 +224,6 @@ jobs:
           npm --prefix frontend/tui ci
       - name: Typecheck web
         run: npm --prefix frontend/web run typecheck
-      - name: Validate checked-in release artifacts
-        run: |
-          python -m argus_skill.release_tools.generate_manifest --check
-          python -m argus_skill.release_tools.check_artifacts
       - name: Test web
         run: npm --prefix frontend/web test
       - name: Test cockpit

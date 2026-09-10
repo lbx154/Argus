@@ -152,14 +152,13 @@ def _checkout_finding(context: DoctorContext) -> list[DoctorFinding]:
     if not valid:
         return findings
 
-    manifest = root / "argus_skill" / "release_manifest.json"
     web = root / "frontend" / "web" / "dist" / "index.html"
     tui = root / "frontend" / "tui" / "bundle" / "argus.mjs"
-    missing = [str(path.relative_to(root)) for path in (manifest, web, tui) if not path.is_file()]
+    missing = [str(path.relative_to(root)) for path in (web, tui) if not path.is_file()]
     findings.append(_finding(
         "ARGUS-ASSET-001", "install", not missing,
         "assets_ready" if not missing else "assets_missing",
-        "release manifest and Web/TUI assets are present" if not missing else f"missing: {', '.join(missing)}",
+        "Web/TUI assets are present" if not missing else f"missing: {', '.join(missing)}",
         severity="error", actions=("rebuild_release_assets",),
         recommendation="rebuild release assets with the checkout interpreter",
         evidence={"missing": missing},

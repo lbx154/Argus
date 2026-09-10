@@ -34,9 +34,8 @@ def _checkpoint_error(mission_id: str) -> FileNotFoundError:
 
 def _identity(release: str = "release-a", source: str = "source-a") -> dict:
     return {
-        "release_id": release,
-        "manifest_source_digest": source,
-        "runtime_source_digest": source,
+        "package_version": release,
+        "source_revision": source,
         "relevant_source_digest": source,
         "checkpoint_contract_version": 2,
     }

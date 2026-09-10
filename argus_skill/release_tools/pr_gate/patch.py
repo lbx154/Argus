@@ -57,7 +57,6 @@ CONFIG_BASENAMES = {
     "pnpm-lock.yaml",
     "pom.xml",
     "pyproject.toml",
-    "release_manifest.json",
     "requirements.txt",
     "ruff.toml",
     "setup.cfg",

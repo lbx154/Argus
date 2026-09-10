@@ -108,21 +108,6 @@ def test_runner_namespace_has_no_round_default_with_env_override(
     assert _runner_namespace(config).max_rounds == 7
 
 
-def test_daemon_strict_release_preflight_fails_before_backend_probe(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
-    monkeypatch.setattr(
-        "argus_skill.core.runtime_identity.release_match_preflight_error",
-        lambda: "release mismatch",
-    )
-
-    result = worker._rf_vault_preflight(SimpleNamespace(cfg=worker.config))
-
-    assert result == 2
-
-
 def test_daemon_source_root_preflight_fails_before_backend_probe(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

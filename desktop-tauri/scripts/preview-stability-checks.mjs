@@ -7,8 +7,6 @@ import { expect } from '@playwright/test';
 
 export async function verifyRuntimeStability({ page, frame, stage, dataDir, native, request, reveal, seconds, record }) {
   const initial = await native('get_status');
-  const manifest = join(stage, 'argus-backend', '_internal', 'argus_skill', 'release_manifest.json');
-  const bytes = readFileSync(manifest);
   const ownershipPath = join(dataDir, 'runtime', 'backend.json');
   const ownership = readFileSync(ownershipPath);
   const assertLive = async () => {
@@ -19,29 +17,6 @@ export async function verifyRuntimeStability({ page, frame, stage, dataDir, nati
   };
   // Fault injection is confined to this disposable staged package and fixture
   // AppData. Never modify the operator's installation or credentials.
-  const moved = `${manifest}.stability-check`;
-  renameSync(manifest, moved);
-  try {
-    await expect.poll(async () => (await assertLive()).warning || '', { timeout: 15_000 }).toContain('无法读取');
-    await expect(page.locator('#runtimeNotice')).toBeVisible();
-    await expect(page.locator('#cockpit')).toBeVisible();
-    await assert.rejects(() => native('restart_backend'));
-    await assertLive();
-  } finally { renameSync(moved, manifest); }
-  await expect.poll(async () => (await assertLive()).warning || '', { timeout: 15_000 }).toBe('');
-  record('Missing manifest is a visible package warning, not a foreign backend; unsafe restart is rejected');
-
-  try {
-    const changed = JSON.parse(bytes.toString('utf8'));
-    changed.source_digest = '0'.repeat(64);
-    writeFileSync(manifest, JSON.stringify(changed));
-    await expect.poll(async () => (await assertLive()).warning || '', { timeout: 15_000 }).toContain('不配套');
-    const setup = await native('get_setup');
-    assert.notEqual(setup.releaseIdentity.sourceDigest, changed.source_digest);
-    await assert.rejects(() => native('restart_backend'));
-  } finally { writeFileSync(manifest, bytes); }
-  await expect.poll(async () => (await assertLive()).warning || '', { timeout: 15_000 }).toBe('');
-  record('Replacing the disk fingerprint cannot alter the host identity or authorize a mismatched restart');
 
   try {
     writeFileSync(ownershipPath, '{partial write');

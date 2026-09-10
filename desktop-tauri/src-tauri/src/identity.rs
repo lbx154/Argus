@@ -6,14 +6,12 @@ pub struct ExpectedBackendIdentity {
     pub host: String,
     pub port: u16,
     pub executable: String,
-    pub manifest_source_digest: String,
     pub token_sha256: String,
 }
 
 #[derive(Clone, Debug)]
 pub struct ExpectedBackendLaunch {
     pub launch_nonce: String,
-    pub manifest_source_digest: String,
     pub spawned_at_ms: i64,
     pub now_ms: i64,
 }
@@ -98,7 +96,6 @@ pub fn backend_launch_claim_matches(
             .as_deref()
             .is_some_and(|value| !value.is_empty())
         && probe.launch_nonce.as_deref() == Some(expected.launch_nonce.as_str())
-        && probe.manifest_source_digest.as_deref() == Some(expected.manifest_source_digest.as_str())
         && started_at_ms.is_some_and(|value| {
             value >= expected.spawned_at_ms - 5_000 && value <= expected.now_ms + 5_000
         })
@@ -120,8 +117,6 @@ pub fn backend_ownership_matches(
             .executable
             .as_deref()
             .is_some_and(|value| same_path(value, &expected.executable))
-        && ownership.manifest_source_digest == expected.manifest_source_digest
-        && probe.manifest_source_digest.as_deref() == Some(expected.manifest_source_digest.as_str())
         && ownership.token_sha256 == expected.token_sha256
         && !ownership.started_at.is_empty()
         && probe.started_at.as_deref() == Some(ownership.started_at.as_str())
@@ -143,9 +138,6 @@ pub fn prior_backend_ownership_matches(
             .executable
             .as_deref()
             .is_some_and(|value| same_path(value, &ownership.executable))
-        && !ownership.manifest_source_digest.is_empty()
-        && probe.manifest_source_digest.as_deref()
-            == Some(ownership.manifest_source_digest.as_str())
         && ownership.token_sha256 == expected.token_sha256
         && !ownership.started_at.is_empty()
         && probe.started_at.as_deref() == Some(ownership.started_at.as_str())
@@ -159,10 +151,6 @@ pub fn authenticated_bundled_backend_matches(probe: &ProbeIdentity, executable: 
             .executable
             .as_deref()
             .is_some_and(|value| same_path(value, executable))
-        && probe
-            .manifest_source_digest
-            .as_deref()
-            .is_some_and(|value| !value.is_empty())
         && probe
             .started_at
             .as_deref()
@@ -182,7 +170,6 @@ mod tests {
             detail: None,
             pid: Some(4242),
             executable: Some("D:\\Argus\\argus-backend.exe".into()),
-            manifest_source_digest: Some("a".repeat(64)),
             started_at: Some("2026-08-09T13:00:00Z".into()),
             launch_nonce: Some("nonce".into()),
             failure_kind: None,
@@ -205,7 +192,6 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 8799,
             executable: "D:\\Argus\\argus-backend.exe".into(),
-            manifest_source_digest: "a".repeat(64),
             token_sha256: "b".repeat(64),
             started_at: "2026-08-09T13:00:00Z".into(),
         };
@@ -213,7 +199,6 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 8799,
             executable: ownership.executable.clone(),
-            manifest_source_digest: ownership.manifest_source_digest.clone(),
             token_sha256: ownership.token_sha256.clone(),
         };
         assert!(backend_ownership_matches(&ownership, &probe(), &expected));
@@ -256,7 +241,6 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 8799,
             executable: r"\\?\D:\Argus\argus-backend.exe".into(),
-            manifest_source_digest: "a".repeat(64),
             token_sha256: "b".repeat(64),
             started_at: "2026-08-09T13:00:00Z".into(),
         };
@@ -264,7 +248,6 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 8799,
             executable: r"D:\Argus\argus-backend.exe".into(),
-            manifest_source_digest: ownership.manifest_source_digest.clone(),
             token_sha256: ownership.token_sha256.clone(),
         };
         assert!(backend_ownership_matches(&ownership, &probe(), &expected));
@@ -279,10 +262,9 @@ mod tests {
     }
 
     #[test]
-    fn launch_claim_binds_nonce_digest_and_start_time() {
+    fn launch_claim_binds_nonce_and_start_time() {
         let expected = ExpectedBackendLaunch {
             launch_nonce: "nonce".into(),
-            manifest_source_digest: "a".repeat(64),
             spawned_at_ms: DateTime::parse_from_rfc3339("2026-08-09T12:59:59Z")
                 .unwrap()
                 .timestamp_millis(),

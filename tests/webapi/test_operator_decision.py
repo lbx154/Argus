@@ -245,7 +245,6 @@ def test_repeated_decision_is_idempotent_across_reopened_memory(
             "baseline_failures": [],
             "candidate_failures": [],
             "acceptance_passed": True,
-            "release_matches_source": True,
             "both_publication_routes_complete": False,
             "partial_publication": True,
             "daemon_roll_permitted": False,

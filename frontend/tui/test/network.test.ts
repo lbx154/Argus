@@ -6,7 +6,6 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../core/src/protocol.js';
-import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../core/src/release.generated.js';
 import { ApiClient } from '../src/api.js';
 import { describeFetchFailure, fetchWithTimeout } from '../src/network.js';
 
@@ -26,10 +25,6 @@ function compatibleMeta(): Record<string, unknown> {
       python_version: '3.13.0',
       executable: 'G:\\code\\argus\\.venv\\Scripts\\python.exe',
       started_at: '2026-08-13T00:00:00Z',
-      release_id: RELEASE_ID,
-      manifest_source_digest: RELEASE_SOURCE_DIGEST,
-      runtime_source_digest: RELEASE_SOURCE_DIGEST,
-      release_matches_source: true,
     },
   };
 }

@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../../core/src/release.generated';
 import {
   API_PROTOCOL,
   REQUIRED_API_CAPABILITIES,
@@ -21,10 +20,6 @@ const currentMeta = {
     python_version: '3.13.0',
     executable: '/venv/bin/python',
     started_at: '2026-07-11T00:00:00Z',
-    release_id: RELEASE_ID,
-    manifest_source_digest: RELEASE_SOURCE_DIGEST,
-    runtime_source_digest: RELEASE_SOURCE_DIGEST,
-    release_matches_source: true,
   },
 };
 
@@ -342,32 +337,6 @@ describe('web API protocol handshake', () => {
     expect(projectAttempts).toBe(2);
   });
 
-  it('allows source drift, warns, and still requests projects', async () => {
-    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const driftedMeta = {
-      ...currentMeta,
-      runtime: {
-        ...currentMeta.runtime,
-        release_matches_source: false,
-        runtime_source_digest: 'deadbeef',
-      },
-    };
-    const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
-      const body = path === '/api/meta' ? driftedMeta : { projects: [] };
-      return Response.json(body);
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const { api } = await import('../api');
-
-    await expect(api.listProjects()).resolves.toEqual([]);
-    expect(warning).toHaveBeenCalledWith(
-      'Argus API compatibility warning: python -m argus_skill.release_tools.build_release',
-    );
-    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
-      '/api/meta',
-      '/api/projects',
-    ]);
-  });
 
   it('passes cancellation signals to project reads', async () => {
     let receivedSignal: AbortSignal | undefined;

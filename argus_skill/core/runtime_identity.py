@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__
-from ..release import release_identity
 
 _PROCESS_STARTED_AT = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -107,29 +106,8 @@ def runtime_identity() -> dict[str, Any]:
         "python_version": platform.python_version(),
         "executable": sys.executable,
         "started_at": _PROCESS_STARTED_AT,
-        **release_identity(loaded_root),
     }
 
-
-def release_match_preflight_error() -> str:
-    """Return a strict-startup error for a half-upgraded source release.
-
-    Editable development remains permissive by default. Supervised production
-    services opt in with ``ARGUS_SKILL_REQUIRE_RELEASE_MATCH=1`` so backend and
-    frontend artifacts cannot start from different source identities.
-    """
-    required = str(
-        os.environ.get("ARGUS_SKILL_REQUIRE_RELEASE_MATCH", "")
-    ).strip().lower()
-    if required not in {"1", "true", "yes", "on"}:
-        return ""
-    identity = runtime_identity()
-    if identity.get("release_matches_source") is False:
-        return (
-            "loaded source does not match the prebuilt release artifacts; "
-            "pull a complete published revision and reinstall with `pip install -e .`"
-        )
-    return ""
 
 
 def source_root_preflight_error() -> str:
@@ -158,7 +136,6 @@ def source_root_preflight_error() -> str:
 
 __all__ = [
     "configured_source_root",
-    "release_match_preflight_error",
     "runtime_identity",
     "source_revision",
     "source_root",

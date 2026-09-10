@@ -279,22 +279,26 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
                 "assert r.turn_failed and not r.turn_completed and r.exit_code != 0, r; "
                 "print('TRIAL_TOOL_OK: resume and rejection verified'); "
             )
-        summary = (
-            "" if transport_mode == "acp" else
-            "print(r.output); print(r.error); raise SystemExit(0 if r.ok else 1)"
-        )
+        else:
+            probe += (
+                "assert r.ok and 'TRIAL_TOOL_OK' in r.output, r; "
+                "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
+                "r=run_read_only_agent_prompt(backend='copilot',executable=shutil.which('copilot'),"
+                "model='gpt-5.5',run_label='trial-reject-smoke',prompt='TRIAL_REJECT_REQUEST'); "
+                "assert not r.ok and r.error, r; print('TRIAL_TOOL_OK: one-shot rejection verified'); "
+            )
         result = subprocess.run(
             [sys.executable, "-c", "from argus_skill.core.knob_store import read_persisted_knobs; "
              "k=read_persisted_knobs(); assert k['ARGUS_SKILL_MODEL']=='gpt-5.5'; "
              "assert k['ARGUS_SKILL_ENGINEER_REASONING_EFFORT']=='high'; "
-             "import shutil; " + probe + summary],
+             "import shutil; " + probe],
             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60,
         )
         assert result.returncode == 0 and "TRIAL_TOOL_OK" in result.stdout, result.stdout + result.stderr + str(rejected)
         assert len(requests) >= 3
         # Setup consumed one call; the local tool round trip consumed two.
         response = httpx.get(f"http://127.0.0.1:{port}/trial/status", headers={"Authorization": "Bearer " + config["api_key"]})
-        paid_requests = len(requests) - (1 if transport_mode == "acp" else 0)
+        paid_requests = len(requests) - 1
         assert response.json()["tokens_used"] == 120 * paid_requests
     finally:
         server.should_exit = True

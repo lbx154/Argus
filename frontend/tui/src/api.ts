@@ -129,7 +129,6 @@ export interface ApiOptions {
   port: number;
   project: string;
   token?: string;
-  onCompatibilityWarning?: (warning: string) => void;
   /** Short handshake bound so startup cannot stay on "connecting" forever. */
   metaTimeoutMs?: number;
   /** Bound for polling and inspect reads; Manager mutations retain their own lifecycle. */
@@ -270,7 +269,6 @@ export class ApiClient {
   readonly wsBase: string;
   readonly project: string;
   private readonly token?: string;
-  private readonly onCompatibilityWarning?: (warning: string) => void;
   private readonly metaTimeoutMs: number;
   private readonly readTimeoutMs: number;
   private metaPromise?: Promise<ApiMeta>;
@@ -280,7 +278,6 @@ export class ApiClient {
     this.wsBase = `ws://${opts.host}:${opts.port}`;
     this.project = opts.project;
     this.token = opts.token;
-    this.onCompatibilityWarning = opts.onCompatibilityWarning;
     this.metaTimeoutMs = opts.metaTimeoutMs ?? DEFAULT_META_TIMEOUT_MS;
     this.readTimeoutMs = opts.readTimeoutMs ?? DEFAULT_READ_TIMEOUT_MS;
   }
@@ -305,10 +302,7 @@ export class ApiClient {
             throw new Error('incompatible Argus API: service does not expose /api/meta');
           }
           await ensureResponseOk(r, 'GET', path);
-          return requireCompatibleApiMeta(
-            await r.json(),
-            this.onCompatibilityWarning,
-          );
+          return requireCompatibleApiMeta(await r.json());
         },
       );
       this.metaPromise = request;

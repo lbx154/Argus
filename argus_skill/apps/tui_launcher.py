@@ -212,27 +212,6 @@ def _uses_python_admin(argv: list[str]) -> bool:
     return False
 
 
-def _tui_local_identity() -> dict[str, object]:
-    from ..core.runtime_identity import source_root
-    from ..release import release_identity
-
-    return release_identity(source_root())
-
-
-def _export_tui_local_identity() -> None:
-    identity = _tui_local_identity()
-    values = {
-        "ARGUS_TUI_LOCAL_RELEASE_ID": identity.get("release_id"),
-        "ARGUS_TUI_LOCAL_SOURCE_DIGEST": identity.get("runtime_source_digest"),
-    }
-    for name, value in values.items():
-        text = str(value or "").strip()
-        if text:
-            os.environ[name] = text
-        else:
-            os.environ.pop(name, None)
-
-
 def _configure_tui_backend_bin() -> None:
     if os.environ.get("ARGUS_BINARY_DISTRIBUTION", "").strip() == "1":
         os.environ.setdefault("ARGUS_SKILL_BIN", sys.executable)
@@ -309,7 +288,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
     _configure_tui_backend_bin()
-    _export_tui_local_identity()
     if os.environ.get("ARGUS_BINARY_DISTRIBUTION", "").strip() == "1":
         # The TUI must own the real frozen backend process, not an npm wrapper
         # that would leave argus-core orphaned when the ownership PID is stopped.

@@ -35,8 +35,13 @@ def main():
     wheels = list(assets.glob("*.whl"))
     assert len(wheels) == 1
     with zipfile.ZipFile(wheels[0]) as wheel:
-        identity = json.loads(wheel.read("argus_skill/release_manifest.json"))
-    assert identity["package_version"] == version
+        metadata = next(name for name in wheel.namelist() if name.endswith(".dist-info/METADATA"))
+        wheel_version = next(
+            line.split(":", 1)[1].strip()
+            for line in wheel.read(metadata).decode("utf-8").splitlines()
+            if line.startswith("Version:")
+        )
+    assert wheel_version == version
     installers = [assets / f"Argus-{version}-setup.exe",
                   assets / f"Argus-{version}-macos-aarch64.dmg",
                   assets / f"Argus-{version}-macos-x86_64.dmg",
@@ -84,7 +89,7 @@ If macOS blocks first launch, use **System Settings → Privacy & Security → O
 Desktop updater packages for all four architecture targets carry the existing Argus updater signature.
 `SHA256SUMS` lists the downloadable artifact checksums.
 
-Release identity: `{identity['release_id']}`.
+Package version: `{wheel_version}`.
 """, encoding="utf-8")
     print(f"Prepared {version} with Windows, both Mac architectures and Linux updater targets")
 

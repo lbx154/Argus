@@ -57,7 +57,6 @@ def test_registry_covers_the_key_operator_knobs() -> None:
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
         "ARGUS_SKILL_ENGINEER_FULL_ROUND_POLICY",
         "ARGUS_SKILL_PROVIDER_TURN_CAP",
-        "ARGUS_SKILL_REQUIRE_RELEASE_MATCH",
         "ARGUS_SKILL_SOURCE_ROOT",
         "ARGUS_SKILL_LETTER_INTERVAL_HOURS",
     ):

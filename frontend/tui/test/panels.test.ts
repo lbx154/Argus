@@ -26,7 +26,6 @@ import { CostGauge } from '../src/components/CostGauge.js';
 import { MissionCockpit } from '../src/components/MissionCockpit.js';
 import { PendingDecisionPrompt } from '../src/components/PendingDecisionPrompt.js';
 import { emptyMissionView } from '../../core/src/missionView.js';
-import { RELEASE_ARTIFACT_DRIFT_WARNING } from '../../core/src/protocol.js';
 import type { EventMsg, ResourceStatus, Snapshot, StatusView } from '../src/api.js';
 import { SLASH_COMMANDS } from '../src/input/slash.js';
 
@@ -160,12 +159,12 @@ test('connection health remains visible without overflowing a 60-column terminal
 
   const warning = await renderNode(
     React.createElement(Footer, {
-      notice: `warning: ${RELEASE_ARTIFACT_DRIFT_WARNING}`,
+      notice: 'warning: backend code and installed artifacts differ',
       width: 60,
     }),
     60,
   );
-  assert.match(warning, /build_release/);
+  assert.match(warning, /installed artifacts differ/);
 });
 
 test('header uses a neutral lab identity outside research missions', async () => {

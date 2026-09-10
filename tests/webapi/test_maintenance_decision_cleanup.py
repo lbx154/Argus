@@ -189,7 +189,7 @@ def test_partial_publication_reports_that_the_sidecar_is_retained(
     monkeypatch.setattr(deploy_boundary, "approve_reviewed_change", lambda *args: object())
     monkeypatch.setattr(deploy_boundary, "deploy_reviewed_change", lambda *args: {
         "verdict": "REJECT", "baseline_failures": [], "candidate_failures": [],
-        "acceptance_passed": True, "release_matches_source": True,
+        "acceptance_passed": True,
         "both_publication_routes_complete": False, "partial_publication": True,
         "daemon_roll_permitted": False,
     })

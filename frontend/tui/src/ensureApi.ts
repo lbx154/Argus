@@ -6,11 +6,8 @@ import { debuglog } from 'node:util';
 import {
   describeApiRuntime,
   inspectApiMeta,
-  RELEASE_ARTIFACT_DRIFT_WARNING,
-  type ApiRuntimeExpectation,
   type ApiMeta,
 } from '../../core/src/protocol.js';
-import { RELEASE_ID } from '../../core/src/release.generated.js';
 import type { ProjectRow } from '../../core/src/types.js';
 import {
   claimApiOwnership as claimApiOwnershipImpl,
@@ -104,16 +101,6 @@ async function waitForStartupPoll(
   ]);
 }
 
-function localRuntimeExpectation(
-  env: NodeJS.ProcessEnv = process.env,
-): ApiRuntimeExpectation {
-  const sourceDigest = env.ARGUS_TUI_LOCAL_SOURCE_DIGEST?.trim();
-  return {
-    releaseId: env.ARGUS_TUI_LOCAL_RELEASE_ID?.trim() || RELEASE_ID,
-    sourceDigest: sourceDigest || undefined,
-  };
-}
-
 export async function probeApi(
   host: string,
   port: number,
@@ -139,8 +126,7 @@ export async function probeApi(
           if (!(error instanceof SyntaxError)) throw error;
           return { state: 'incompatible', message: 'backend returned malformed /api/meta JSON' };
         }
-        const expectation = localRuntimeExpectation();
-        const compatibility = inspectApiMeta(body, expectation);
+        const compatibility = inspectApiMeta(body);
         if (!compatibility.compatible || !compatibility.meta) {
           return {
             state: 'incompatible',
@@ -148,15 +134,9 @@ export async function probeApi(
             meta: compatibility.meta,
           };
         }
-        let warning = compatibility.warning;
-        if (warning === RELEASE_ARTIFACT_DRIFT_WARNING && expectation.sourceDigest) {
-          debugArgus('local source checkout has release artifact drift: %s', warning);
-          warning = undefined;
-        }
         return {
           state: 'compatible',
           message: describeApiRuntime(compatibility.meta),
-          warning,
           meta: compatibility.meta,
         };
       },

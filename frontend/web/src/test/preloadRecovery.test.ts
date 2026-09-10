@@ -19,7 +19,7 @@ describe('stale frontend chunk recovery', () => {
   it('lets PDF loading and evaluation errors reach the local preview', () => {
     const target = new EventTarget();
     const reload = vi.fn();
-    installStaleChunkRecovery(target, reload, { releaseId: 'release-1', storage: persistence });
+    installStaleChunkRecovery(target, reload, { buildId: 'release-1', storage: persistence });
     for (const message of [
       'Failed to fetch dynamically imported module: https://example.test/assets/pdf-abc123.js',
       'Failed to fetch dynamically imported module: https://example.test/assets/pdf.worker.min-abc123.mjs',
@@ -32,7 +32,7 @@ describe('stale frontend chunk recovery', () => {
 
   it('reloads a missing app chunk at most once, including after navigation', () => {
     const storage = persistence();
-    const options = { releaseId: 'release-1', storage: () => storage };
+    const options = { buildId: 'release-1', storage: () => storage };
     const reload = vi.fn();
     const target = new EventTarget();
     installStaleChunkRecovery(target, reload, options);
@@ -50,7 +50,7 @@ describe('stale frontend chunk recovery', () => {
     const target = new EventTarget();
     const reload = vi.fn();
     installStaleChunkRecovery(target, reload, {
-      releaseId: 'release-1', storage: () => { throw new Error('storage unavailable'); },
+      buildId: 'release-1', storage: () => { throw new Error('storage unavailable'); },
     });
     expect(target.dispatchEvent(failure('Failed to fetch dynamically imported module: /assets/MapPanel-old.js'))).toBe(true);
     expect(reload).not.toHaveBeenCalled();

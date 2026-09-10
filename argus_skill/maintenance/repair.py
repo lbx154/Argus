@@ -358,8 +358,16 @@ def _apply_registered_action(
                 "status": "failed",
                 "detail": "checkout must be clean before a repository repair action",
             }
+        npm = shutil_which("npm.cmd") or shutil_which("npm")
+        if not npm:
+            return {"status": "failed", "detail": "npm is required to rebuild the Web/TUI assets"}
         result = _run_registered_command(
-            [str(context.python_executable), "-m", "argus_skill.release_tools.build_release"],
+            [
+                str(context.python_executable), "-c",
+                "import subprocess, sys; [subprocess.run([sys.argv[1], '--prefix', p, 'run', 'build'], check=True) "
+                "for p in ('frontend/web', 'frontend/tui')]",
+                npm,
+            ],
             cwd=checkout,
             timeout=None,
         )

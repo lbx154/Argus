@@ -134,15 +134,7 @@ class LifeWorkerRunMixin:
 
     def _rf_vault_preflight(self, rf_state: _RunForeverState) -> int | None:
         """Validate backend/auth before constructing providers or mutating state."""
-        from ..core.runtime_identity import (
-            release_match_preflight_error,
-            source_root_preflight_error,
-        )
-
-        release_error = release_match_preflight_error()
-        if release_error:
-            log.error("daemon refused inconsistent release: %s", release_error)
-            return 2
+        from ..core.runtime_identity import source_root_preflight_error
 
         # An unreadable knob file is checked HERE, before anything resolves a
         # role. Every resolver reads that file, so without this the first
