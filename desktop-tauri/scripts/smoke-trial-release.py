@@ -41,7 +41,37 @@ def install(package: Path, directory: Path) -> tuple[Path, Path]:
     return app / "MacOS/Argus", app / "Resources/argus-backend/argus-backend"
 
 
-def host_roundtrip(binary: Path, directory: Path, env: dict[str, str], key: str, token: str):
+def executor_roundtrip(env: dict[str, str], key: str, token: str):
+    """Exercise the same authenticated API as the workbench Run button."""
+    with httpx.Client(base_url="http://127.0.0.1:18884", timeout=210, trust_env=False,
+                      headers={"Authorization": "Bearer " + token}) as client:
+        created = client.post("/api/daemons", json={"name": "Native executor startup check"})
+        created.raise_for_status()
+        sid = created.json()["sid"]
+        life = Path(env["ARGUS_SKILL_HOME"]) / "projects" / sid
+        try:
+            started = client.post(f"/api/projects/{sid}/daemon/start", json={})
+            started.raise_for_status()
+            result = started.json()
+            assert result.get("rc") == 0, json.dumps(result).replace(key, "[hidden]").replace(token, "[hidden]")
+            deadline = time.monotonic() + 90
+            logs = ""
+            while time.monotonic() < deadline:
+                logs = "\n".join(path.read_text(encoding="utf-8", errors="replace")
+                                 for path in (life / "daemons").glob("boot-*.log"))
+                assert key not in logs, "Trial key appeared in executor logs"
+                if "daemon: ready (" in logs and "backend=copilot" in logs:
+                    print("Workbench Run API started the installed Copilot executor and reached worker readiness.", flush=True)
+                    return
+                if "daemon refused" in logs or "daemon: fatal error" in logs:
+                    break
+                time.sleep(0.5)
+            raise RuntimeError("Installed executor did not reach readiness: " + logs[-5000:].replace(key, "[hidden]").replace(token, "[hidden]"))
+        finally:
+            client.post(f"/api/projects/{sid}/daemon/stop", json={"force": True})
+
+
+def host_roundtrip(binary: Path, directory: Path, env: dict[str, str], key: str, token: str, *, verify_executor: bool = False):
     log = directory / "logs/desktop.log"
     offset = len(log.read_text(encoding="utf-8")) if log.exists() else 0
     process = subprocess.Popen([str(binary)], cwd=binary.parent, env=env,
@@ -60,6 +90,8 @@ def host_roundtrip(binary: Path, directory: Path, env: dict[str, str], key: str,
                 stable_since = stable_since or time.monotonic()
                 if time.monotonic() - stable_since > 8:
                     print("Installed native GUI opened its authenticated cockpit and stayed ready.", flush=True)
+                    if verify_executor:
+                        executor_roundtrip(env, key, token)
                     return
             if process.poll() is not None:
                 raise RuntimeError(f"Desktop exited before ready: {process.returncode}")
@@ -135,7 +167,7 @@ def main():
                     "runnerKind": "copilot", "runnerBins": {"copilot": runner},
                     "runnerConfigured": True, "setupComplete": True, "trialMode": True,
                 }), encoding="utf-8")
-                host_roundtrip(binary, desktop, env, key, token)
+                host_roundtrip(binary, desktop, env, key, token, verify_executor=True)
                 host_roundtrip(binary, desktop, env, key, token)
                 evidence = root / "evidence.txt"
                 evidence.write_text("native-installed-trial-evidence")
