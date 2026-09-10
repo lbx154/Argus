@@ -56,7 +56,15 @@ test('real embedded workbench retains typography and fits the pane between both 
   await page.goto('/');
   const frame = page.frameLocator('#cockpitFrame');
   const composer = frame.locator('.conversation-composer');
-  await expect(composer).toBeVisible();
+  try {
+    await expect(composer).toBeVisible();
+  } catch (error) {
+    console.error('Workbench startup errors:', errors);
+    for (const document of page.frames()) {
+      console.error('Rendered frame:', document.url(), await document.locator('body').innerText());
+    }
+    throw error;
+  }
   const composerStyle = () => composer.evaluate((el) => {
     const style = getComputedStyle(el);
     return { width: el.clientWidth, fontSize: style.fontSize, padding: style.padding };

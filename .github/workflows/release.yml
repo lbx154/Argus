@@ -98,7 +98,7 @@ jobs:
         include:
           - os: windows-latest
             platform: windows-x86_64
-          - os: macos-14
+          - os: macos-15
             platform: darwin-aarch64
           - os: macos-15-intel
             platform: darwin-x86_64
@@ -125,6 +125,17 @@ jobs:
         if: runner.os == 'macOS'
         working-directory: desktop-tauri
         run: npx playwright install webkit
+      - name: Build release sources
+        run: python -m argus_skill.release_tools.build_release
+      - name: Verify embedded workbench and trial setup UI
+        id: desktop-ui
+        run: npm --prefix desktop-tauri run test:ui -- --workers=2
+      - name: Preserve failed UI diagnostics
+        if: failure() && steps.desktop-ui.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-ui-failure-${{ matrix.platform }}
+          path: desktop-tauri/build/ui-test-results
       - name: Validate native desktop and trial components
         env:
           ARGUS_TEST_NATIVE_COPILOT: '1'
@@ -133,10 +144,6 @@ jobs:
           python -m pytest tests/trial/test_desktop.py tests/trial/test_client.py tests/desktop --tb=short
           npm --prefix desktop-tauri run ui:typecheck
           cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --lib --test core_tests
-      - name: Build release sources
-        run: python -m argus_skill.release_tools.build_release
-      - name: Verify embedded workbench and trial setup UI
-        run: npm --prefix desktop-tauri run test:ui -- --workers=2
       - name: Build frozen backend
         run: npm --prefix desktop-tauri run build:backend
       - name: Build signed desktop updates
