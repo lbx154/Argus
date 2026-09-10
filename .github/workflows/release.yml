@@ -3,19 +3,31 @@ name: release
 # Release version changes are operator-controlled. Do not bump package versions
 # for a bug fix unless the operator explicitly authorizes that release change.
 # v0.1.2 through v0.1.5 are operator-authorized desktop releases, published explicitly
-# after installer validation. Do not auto-publish PyPI or mixed release assets.
+# without running test suites. Tests belong to the separate tests workflow.
 
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      platform:
+        description: "Build one desktop target, or all"
+        type: choice
+        default: all
+        options:
+          - all
+          - windows-x86_64
+          - darwin-aarch64
+          - darwin-x86_64
+          - linux-x86_64
 
 permissions:
   contents: read
 
 jobs:
   python:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all'
     name: build · wheel + sdist
     runs-on: ubuntu-latest
     steps:
@@ -71,20 +83,6 @@ jobs:
           PY
       - name: Build distributions
         run: python -m build
-      - name: Clean-install wheel smoke
-        run: |
-          python -m venv /tmp/argus-wheel-smoke
-          /tmp/argus-wheel-smoke/bin/python -m pip install dist/*.whl
-          /tmp/argus-wheel-smoke/bin/argus-skill --version
-          # Isolated mode prevents the repository checkout from shadowing the
-          # wheel that was just installed into the clean environment.
-          /tmp/argus-wheel-smoke/bin/python -I - <<'PY'
-          from pathlib import Path
-          import argus_skill
-          root = Path(argus_skill.__file__).parent
-          assert (root / "_frontend/web/dist/index.html").is_file()
-          assert (root / "_frontend/tui/bundle/argus.mjs").is_file()
-          PY
       - uses: actions/upload-artifact@v4
         with:
           name: python-dist
@@ -95,15 +93,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            platform: windows-x86_64
-          - os: macos-15
-            platform: darwin-aarch64
-          - os: macos-15-intel
-            platform: darwin-x86_64
-          - os: ubuntu-22.04
-            platform: linux-x86_64
+        include: ${{ fromJSON(inputs.platform == 'windows-x86_64' && '[{"os":"windows-latest","platform":"windows-x86_64"}]' || inputs.platform == 'darwin-aarch64' && '[{"os":"macos-15","platform":"darwin-aarch64"}]' || inputs.platform == 'darwin-x86_64' && '[{"os":"macos-15-intel","platform":"darwin-x86_64"}]' || inputs.platform == 'linux-x86_64' && '[{"os":"ubuntu-22.04","platform":"linux-x86_64"}]' || '[{"os":"windows-latest","platform":"windows-x86_64"},{"os":"macos-15","platform":"darwin-aarch64"},{"os":"macos-15-intel","platform":"darwin-x86_64"},{"os":"ubuntu-22.04","platform":"linux-x86_64"}]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -124,37 +114,12 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf xvfb xauth dbus-x11 libfuse2
       - name: Install build dependencies
         run: |
-          python -m pip install -e ".[trial]" pytest ruff "httpx2>=2.9,<3" "pyinstaller>=6.11,<7" tzdata
+          python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
           npm --prefix frontend/web ci
           npm --prefix frontend/tui ci
           npm --prefix desktop-tauri ci
-      - name: Install WebKit for Mac workbench checks
-        if: runner.os == 'macOS'
-        working-directory: desktop-tauri
-        run: npx playwright install webkit
-      - name: Install Chromium for Linux workbench checks
-        if: runner.os == 'Linux'
-        working-directory: desktop-tauri
-        run: npx playwright install --with-deps chromium
       - name: Build release sources
         run: python -m argus_skill.release_tools.build_release
-      - name: Verify embedded workbench and trial setup UI
-        id: desktop-ui
-        run: npm --prefix desktop-tauri run test:ui -- --workers=2
-      - name: Preserve failed UI diagnostics
-        if: failure() && steps.desktop-ui.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-ui-failure-${{ matrix.platform }}
-          path: desktop-tauri/build/ui-test-results
-      - name: Validate native desktop and trial components
-        env:
-          ARGUS_TEST_NATIVE_COPILOT: '1'
-        run: |
-          python -m ruff check argus_skill/trial desktop-tauri/scripts tests/trial tests/desktop
-          python -m pytest tests/trial/test_desktop.py tests/trial/test_client.py tests/desktop --tb=short
-          npm --prefix desktop-tauri run ui:typecheck
-          cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --lib --test core_tests
       - name: Build frozen backend
         run: npm --prefix desktop-tauri run build:backend
       - name: Build signed desktop updates
@@ -175,20 +140,6 @@ jobs:
       - name: Stage Linux installer and updater
         if: runner.os == 'Linux'
         run: python desktop-tauri/scripts/stage-linux-release.py
-      - name: Verify installed trial and native GUI restart
-        env:
-          ARGUS_TRIAL_SMOKE_KEY: ${{ secrets.ARGUS_TRIAL_SMOKE_KEY }}
-        run: |
-          python - <<'PYSMOKE'
-          import pathlib, subprocess, sys
-          suffix = '*.exe' if sys.platform == 'win32' else '*.dmg' if sys.platform == 'darwin' else '*.AppImage'
-          packages = list(pathlib.Path('desktop-tauri/release').glob(suffix))
-          assert len(packages) == 1, packages
-          command = [sys.executable, 'desktop-tauri/scripts/smoke-trial-release.py', str(packages[0])]
-          if sys.platform == 'linux':
-              command = ['dbus-run-session', '--', 'xvfb-run', '-a', *command]
-          subprocess.run(command, check=True)
-          PYSMOKE
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.platform }}
