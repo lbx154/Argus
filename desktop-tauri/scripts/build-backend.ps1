@@ -60,6 +60,8 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+& (Join-Path $PSScriptRoot "build-native-tools.ps1")
+
 Push-Location $repo
 try {
     & $backendPython -m PyInstaller `

@@ -113,6 +113,11 @@ class LifeWorkerBootMixin:
         # Argus was launched through a Windows console script without activating
         # its virtual environment first.
         configure_framework_python_env(prepend_python_path=True)
+        from ..core.plugin_manager import host_root
+
+        # Direct CLI daemons retain their launching host too. Never replace a
+        # root explicitly propagated by the desktop/clean-spawn helper.
+        os.environ.setdefault("ARGUS_WORKBENCH_HOST_ROOT", str(host_root()))
         if self.config.global_root is not None:
             os.environ["ARGUS_SKILL_HOME"] = str(self.config.global_root.resolve())
 

@@ -33,10 +33,51 @@ _NAME = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 _loaded: dict[tuple[str, str, str], object] = {}
 _jobs: dict[tuple[str, str], threading.Thread] = {}
 _lock = threading.RLock()
+_state_io_lock = threading.RLock()
 
 
 class PluginError(ValueError):
     pass
+
+
+class PluginUnavailableError(PluginError):
+    """An explicitly selected plugin cannot execute; never reroute its work."""
+
+
+def require_plugin(plugin_id, root=None):
+    try:
+        plugin = load_plugin(plugin_id, root)
+    except Exception as exc:
+        raise PluginUnavailableError(
+            f"插件 {plugin_id} 加载失败，任务未执行；请检查插件安装和宿主目录。"
+        ) from exc
+    if plugin is None:
+        raise PluginUnavailableError(
+            f"插件 {plugin_id} 未安装、未启用或无法从宿主目录加载，任务未执行。"
+            "请在插件中心检查；不会切换为 research 执行。"
+        )
+    return plugin
+
+
+def session_plugin_name(life_dir):
+    """Resolve a reserved session namespace, never classify an objective."""
+    sid = Path(life_dir).name
+    return next((name for name in catalog() if sid.startswith("s-" + name + "-")), None)
+
+
+def require_session_plugin(life_dir, *, vertical=None, working_dir=None, check_binding=False):
+    name = session_plugin_name(life_dir)
+    if name is None:
+        return None  # Native sessions may add tools without changing vertical.
+    plugin = require_plugin(name)
+    if vertical is not None and vertical != name:
+        raise PluginUnavailableError(
+            f"插件 {name} 工作台记录曾路由到其他流程，已阻止继续执行。"
+            "原记录保持不变，请新建会话验收；不会自动改写旧任务。"
+        )
+    if check_binding and not plugin.owns_workdir(working_dir):
+        raise PluginUnavailableError(f"插件 {name} 的任务目录绑定缺失，任务未执行；请新建工作台会话。")
+    return plugin
 
 
 def host_root(root=None):
@@ -47,18 +88,64 @@ def install_root(root=None):
     return host_root(root) / "extensions"
 
 
+def _read_state_bytes(path):
+    if os.name != "nt":
+        return Path(path).read_bytes()
+    # Python's ordinary Windows open does not share DELETE access. The plugin
+    # center polls while the installer atomically replaces this same file;
+    # readers must permit replacement and finish reading their old snapshot.
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                  ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel.CreateFileW(str(path), 0x80000000, 0x7, None, 3, 0x80, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+    except BaseException:
+        kernel.CloseHandle(handle)
+        raise
+    with os.fdopen(descriptor, "rb") as stream:
+        return stream.read()
+
+
 def read_json(path, default=None):
-    if not Path(path).exists():
-        return {} if default is None else default
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    with _state_io_lock:
+        try:
+            return json.loads(_read_state_bytes(path))
+        except FileNotFoundError:
+            return {} if default is None else default
 
 
 def write_json(path, value):
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
-    temp.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(temp, path)
+    with _state_io_lock:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+        try:
+            with temp.open("x", encoding="utf-8") as output:
+                json.dump(value, output, ensure_ascii=False, indent=2)
+                output.write("\n")
+                output.flush()
+                os.fsync(output.fileno())
+            for attempt in range(20):
+                try:
+                    os.replace(temp, path)
+                    break
+                except PermissionError:
+                    if os.name != "nt" or attempt == 19:
+                        raise
+                    # Bounded retry for antivirus/external readers, not a
+                    # permission bypass. Persistent denial remains an error.
+                    time.sleep(0.05)
+        finally:
+            temp.unlink(missing_ok=True)
 
 
 def catalog():
@@ -217,6 +304,24 @@ def plugin_rows(root=None):
             )
             write_json(install_root(root) / name / "operation.json", operation)
         c = compatibility(spec)
+        setup = dict(spec.get("setup") or {})
+        health = read_json(install_root(root) / name / "resources" / "health.json")
+        if name == "crystalpilot" and os.name == "nt":
+            from .platon_windows import LICENSE_NOTICE, OFFICIAL_PAGE
+
+            setup["windows_runtime"] = {
+                "action": "platon_runtime", "name": "PLATON",
+                "url": OFFICIAL_PAGE, "notice": LICENSE_NOTICE,
+            }
+            for component in health.get("components", []):
+                if component.get("id") == "platon" and any(
+                    code in str(component.get("detail", ""))
+                    for code in ("3221225781", "0xC0000135")
+                ):
+                    component["detail"] = (
+                        "PLATON 缺少 Windows Salford 运行库（0xC0000135）。"
+                        "请使用“准备 PLATON 官方环境”，不必重复下载当前程序包。"
+                    )
         rows.append(
             {
                 **{
@@ -236,7 +341,8 @@ def plugin_rows(root=None):
                     )
                 ),
                 "operation": operation,
-                "health": read_json(install_root(root) / name / "resources" / "health.json"),
+                "setup": setup,
+                "health": health,
                 "available": c["supported"] and bool(state.get("enabled")),
                 "url": f"/plugins/{name}/",
             }
@@ -253,7 +359,9 @@ def _job_alive(root, name, operation):
 
     thread = _jobs.get((str(root), name))
     if operation.get("pid") == os.getpid():
-        return bool(thread and thread.is_alive())
+        # A polling request can arrive between publishing the operation and
+        # Thread.start(); that is not an interrupted installer.
+        return bool(thread and (thread.is_alive() or thread.ident is None))
     return process_identity_is_running(operation.get("pid", 0), operation.get("identity"))
 
 
@@ -524,7 +632,32 @@ def _setup_job(name, spec, root, action, payload):
             if plugin:
                 _busy(name, root)
                 plugin.shutdown_workers()
-        _run_setup(name, spec, root, row["python"], action, payload)
+        if action == "platon_runtime":
+            from .platon_windows import prepare
+            from .process_identity import capture_process_identity
+
+            def progress(message):
+                write_json(install_root(root) / name / "progress.json", {
+                    "progress": message, "updated": time.time(),
+                })
+
+            def started(pid):
+                current = read_json(path)
+                current.update(installer_pid=pid, installer_identity=capture_process_identity(pid))
+                write_json(path, current)
+
+            executable = prepare(
+                install_root(root) / name / "resources",
+                accept_license=payload.get("accept_software_license") is True,
+                progress=progress, on_start=started,
+            )
+            # Use the published plugin's supported external-install contract;
+            # never patch its dependencies module or forge a wheel version.
+            _run_setup(name, spec, root, row["python"], "configure", {
+                "paths": {"platon": str(executable)},
+            })
+        else:
+            _run_setup(name, spec, root, row["python"], action, payload)
         operation.update(status="completed", progress="环境检查完成", completed=time.time())
     except Exception as exc:
         error = str(exc)
@@ -553,7 +686,14 @@ def _start_job(root, name, action, target, args):
             "identity": capture_process_identity(os.getpid()),
         },
     )
-    job.start()
+    try:
+        job.start()
+    except RuntimeError as exc:
+        _jobs.pop((str(root), name), None)
+        write_json(install_root(root) / name / "operation.json", {
+            "status": "failed", "action": action, "error": "无法启动安装线程，请稍后重试。",
+        })
+        raise PluginError("无法启动安装线程，请稍后重试。") from exc
     return {"status": "running"}
 
 
@@ -584,6 +724,16 @@ def mutate(name, action, root=None, *, payload=None):
             ).get("sha256"):
                 raise PluginError("此版本已安装，可启用插件。")
             return _start_job(root, name, action, _install, (name, spec, root, action))
+        if action == "platon_runtime":
+            if name != "crystalpilot" or os.name != "nt":
+                raise PluginError("此官方运行环境准备操作仅适用于 Windows CrystalPilot。")
+            if not row.get("release"):
+                raise PluginError("请先安装插件")
+            if (payload or {}).get("accept_software_license") is not True:
+                raise PluginError("请先确认 PLATON 使用许可；商业用途需自行取得授权。")
+            installed_spec = read_json(_package_path(row, root) / "plugin.json")
+            return _start_job(root, name, action, _setup_job,
+                              (name, installed_spec, root, action, dict(payload or {})))
         if action in spec.get("setup", {}).get("actions", []):
             if not row.get("release"):
                 raise PluginError("请先安装插件")

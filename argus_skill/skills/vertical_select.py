@@ -206,6 +206,16 @@ def _known_vertical(value: object, project_root: object = None) -> str | None:
     if not isinstance(value, str):
         return None
     cleaned = _strip_needed(value)
+    if cleaned in VERTICALS:
+        return cleaned
+    from ..core import plugin_manager
+
+    if cleaned in plugin_manager.catalog():
+        # Catalog names belong to an explicit plugin, not a missing learned
+        # domain. Loss of its registration must never turn a crystal task into
+        # ordinary research (or silently skip its tools/accounting hooks).
+        plugin_manager.require_plugin(cleaned)
+        return cleaned
     if cleaned in available_verticals():
         return cleaned
     if project_root is not None and cleaned:

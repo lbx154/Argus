@@ -418,16 +418,31 @@ def spawn_detached_daemon_clean(
     A short-lived exec helper starts from a clean interpreter and performs the
     existing admission-checked double-fork there.
     """
-    if getattr(sys, "frozen", False):
-        return spawn_detached_daemon(config, quiet=quiet)
+    # Upstream 4b9bd93f: the frozen backend supports -m too. Keep the
+    # independent helper and its diagnostics on every packaged execution path.
     config.last_spawn_error = ""
     preflight_rc, preflight_error = _clean_spawn_preflight(config)
+    if not preflight_error:
+        from ..core.plugin_manager import PluginUnavailableError, require_session_plugin
+        from ..skills.vertical_select import resolve_vertical_if_decided
+
+        try:
+            vertical = resolve_vertical_if_decided(config.life_dir)
+            require_session_plugin(config.life_dir, vertical=vertical,
+                                   working_dir=config.project_workdir, check_binding=True)
+        except PluginUnavailableError as exc:
+            preflight_rc, preflight_error = 2, str(exc)
     if preflight_error:
         detail = _record_spawn_error(config, preflight_error)
         if not quiet:
             sys.stderr.write(f"argus-skill: {detail}.\n")
         return preflight_rc
     env = os.environ.copy()
+    from ..core.plugin_manager import host_root
+
+    # Pin the installation root while still in the submitting host. The
+    # daemon's global_root is a task namespace and may change ARGUS_SKILL_HOME.
+    env["ARGUS_WORKBENCH_HOST_ROOT"] = str(host_root())
     env["ARGUS_BINARY_MODE"] = "cli"
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"

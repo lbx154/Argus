@@ -3,6 +3,7 @@
 """PyInstaller specification for the Tauri desktop's frozen backend."""
 
 from pathlib import Path
+import sys
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
@@ -28,6 +29,11 @@ datas = [(source, target) for source, target in collect_data_files("argus_skill"
 # Windows does not ship an IANA timezone database. Keep named ZoneInfo keys
 # available to the frozen Python-compatible runtime and extension tools.
 datas += collect_data_files("tzdata")
+if sys.platform == "win32":
+    platon_runner = ROOT / "argus_skill" / "_native" / "platon-headless.exe"
+    if not platon_runner.is_file():
+        raise RuntimeError("Build the first-party Windows adapter with scripts/build-native-tools.ps1 first")
+    datas.append((str(platon_runner), "argus_skill/_native"))
 web_dist = ROOT / "frontend" / "web" / "dist"
 if web_dist.is_dir():
     datas.append((str(web_dist), "argus_skill/_frontend/web/dist"))
@@ -87,7 +93,7 @@ domain_overlay_modules = collect_provider_modules(
 )
 
 hiddenimports = (
-    ["tzdata", "argus_skill.trial.desktop", "certifi"]
+    ["tzdata"]
     + collect_submodules("uvicorn")
     + collect_submodules("fastapi")
     + collect_submodules("websockets")

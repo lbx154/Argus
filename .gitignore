@@ -131,6 +131,8 @@ docs/Argus_BP*
 # proprietary binary/npm release staging
 /dist-binary/
 /.pyinstaller/
+# Reproducibly built first-party Windows adapters; source lives in desktop scripts.
+/argus_skill/_native/*.exe
 
 # Optional plugin release assets are published separately.
 /dist-plugins/
