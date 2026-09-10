@@ -1,6 +1,6 @@
 {
   "name": "argus",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Persistent reviewed research and engineering runtime",
   "author": {
     "name": "Argus contributors"
