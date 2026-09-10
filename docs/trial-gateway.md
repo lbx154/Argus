@@ -110,6 +110,41 @@ Authenticated `GET /trial/status` returns lifetime usage/remaining tokens, activ
 requests and global TPM counters. In-flight reservations count as used. A smaller
 prompt/output request may still fit near the allowance limit.
 
+## Client compatibility
+
+### Pi custom-provider use
+
+The desktop trial setup configures Copilot. Pi can independently use the same
+gateway through its existing custom-provider configuration; this is not an
+additional one-click desktop backend.
+
+In Pi's `models.json`, configure:
+
+```json
+{
+  "providers": {
+    "argus-trial": {
+      "baseUrl": "https://argusbot.cn/v1",
+      "api": "openai-completions",
+      "apiKey": "$ARGUS_TRIAL_KEY",
+      "headers": {"User-Agent": "Argus/0.1.1"},
+      "models": [{"id": "argus-trial", "reasoning": true}]
+    }
+  }
+}
+```
+
+Supply the invitation key privately in `ARGUS_TRIAL_KEY`, then select
+`pi --provider argus-trial --model argus-trial --thinking high`.
+The public gateway accepts Chat Completions and translates to Responses itself;
+do not point Pi's `openai-responses` adapter at this endpoint. Model and effort
+remain server-controlled. Pi JSON mode can exit zero on a provider error, so
+consumers must inspect `stopReason` / `errorMessage`; Argus already does.
+
+Copilot ACP can similarly report a query error as assistant text followed by
+`end_turn`. Argus verifies that against the current Copilot `session.error`
+receipt rather than counting the error as a completed answer or premium request.
+
 ## Deployment on 111 and Cloudflare
 
 Deployment: `~/argus-trial-gateway-20260909`, isolated `.venv`, user service

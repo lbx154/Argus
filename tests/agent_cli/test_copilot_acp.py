@@ -337,6 +337,55 @@ def test_content_filter_notice_is_a_permanent_failure_not_agent_output(
     assert blocks == []
 
 
+@pytest.mark.parametrize("receipt_kind", ["current", "stale", "assistant"])
+@pytest.mark.parametrize("preamble", ["", "I will inspect the file first.\n"])
+def test_query_error_requires_current_structured_receipt(tmp_path, monkeypatch, receipt_kind, preamble):
+    message = "400 Trial provider rejected the request format; retrying unchanged will not help."
+    text = preamble + "Error: " + message
+    events = tmp_path / "session-state/sess-1/events.jsonl"
+    events.parent.mkdir(parents=True)
+    user = {"type": "user.message", "data": {"content": "current question"}}
+    error = {"type": "session.error", "data": {
+        "errorType": "query", "message": message, "statusCode": 400,
+    }}
+    rows = [user, error] if receipt_kind == "current" else (
+        [error, user] if receipt_kind == "stale" else
+        [user, {"type": "assistant.message", "data": {"content": text}}]
+    )
+    events.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+
+    def script(req, proc):
+        if req["method"] == "session/prompt":
+            return [
+                {"jsonrpc": "2.0", "method": "session/update", "params": {
+                    "sessionId": "sess-1", "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": text},
+                    },
+                }},
+                {"jsonrpc": "2.0", "id": req["id"], "result": {"stopReason": "end_turn"}},
+            ]
+        return _happy_script(req, proc)
+
+    proc = _FakeAcpProc(script)
+    monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)
+    client = CopilotAcpClient("copilot-bin")
+    try:
+        result = client.run_prompt(
+            prompt="current question", resume_thread_id=None,
+            options=_Opt(), run_label="simple-1",
+        )
+        assert result.turn_failed is (receipt_kind == "current")
+        assert result.turn_completed is (receipt_kind != "current")
+        if receipt_kind == "current":
+            assert result.exit_code != 0 and result.stop_kind == "permanent_error"
+            assert result.json_events == []
+            assert result.fatal_error == error["data"]["message"]
+    finally:
+        client.close()
+
+
 def test_acp_warm_reuse_skips_new_handshake(monkeypatch) -> None:
     proc = _FakeAcpProc(_happy_script)
     monkeypatch.setattr(copilot_acp.subprocess, "Popen", lambda *a, **k: proc)

@@ -21,10 +21,12 @@ from __future__ import annotations
 import atexit
 import itertools
 import json
+import logging
 import os
 import subprocess
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 from ._idle_watchdog import (
@@ -36,6 +38,8 @@ from ._idle_watchdog import (
 from ._process_control import background_subprocess_kwargs
 from .models import AgentRunResult, InactivitySnapshot
 from .runner_backend import runner_child_environment
+
+log = logging.getLogger(__name__)
 
 # Prompt inactivity caps are opt-in; a live role turn may think indefinitely.
 _DEFAULT_TIMEOUT_S = 0.0
@@ -208,6 +212,7 @@ class CopilotAcpClient:
         self._session_premium_totals: dict[str, float] = {}
         self._session_premium_multipliers: dict[str, float] = {}
         self._session_models: dict[str, str] = {}
+        self._session_events_root: Path | None = None
         self._agent_caps: dict[str, Any] = {}
         self._active_turn: _Turn | None = None
 
@@ -276,6 +281,10 @@ class CopilotAcpClient:
         from ..trial.client import apply_trial_provider
 
         child_env = apply_trial_provider(dict(os.environ))
+        child_env = runner_child_environment(self._agent_bin, env=child_env) or child_env
+        self._session_events_root = Path(
+            child_env.get("COPILOT_HOME") or Path.home() / ".copilot"
+        ).expanduser() / "session-state"
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -287,7 +296,7 @@ class CopilotAcpClient:
             encoding="utf-8",
             errors="replace",
             bufsize=1,
-            env=runner_child_environment(self._agent_bin, env=child_env) or child_env,
+            env=child_env,
             **background_subprocess_kwargs(),
         )
         self._alive = True
@@ -456,6 +465,27 @@ class CopilotAcpClient:
                 "error": {"code": -32601, "message": f"unsupported request: {method}"},
             }
         )
+
+    def _query_error_receipt(self, sid: str, text: str) -> dict[str, Any] | None:
+        root = self._session_events_root
+        if root is None or "Error: " not in text:
+            return None
+        error = None
+        try:
+            with (root / sid / "events.jsonl").open(encoding="utf-8") as events:
+                for line in events:
+                    event = json.loads(line)
+                    if event.get("type") in {"user.message", "assistant.message"}:
+                        error = None
+                    elif event.get("type") == "session.error":
+                        error = event.get("data")
+        except (OSError, ValueError) as exc:
+            log.warning("Cannot read Copilot query error receipt: %s", exc)
+            return None
+        if isinstance(error, dict) and error.get("errorType") == "query":
+            if text.endswith(f"Error: {error.get('message')}"):
+                return error
+        return None
 
     def _handle_notification(self, method: str, params: dict[str, Any]) -> None:
         if method != "session/update":
@@ -956,6 +986,18 @@ class CopilotAcpClient:
                 )
             stop_reason = str((resp.get("result") or {}).get("stopReason") or "")
             completed = (stop_reason == "end_turn") and not cancelled["v"]
+            # Copilot 1.0.83 reports query errors as assistant text + end_turn.
+            # Only its current structured receipt can distinguish these from prose.
+            query_error = self._query_error_receipt(sid, text) if completed else None
+            if query_error is not None:
+                self._invalidate_session(sid)
+                return self._fail_result(
+                    str(query_error["message"]),
+                    sid=sid,
+                    text=text,
+                    stop_kind="permanent_error" if query_error.get("statusCode") in {400, 422} else None,
+                    tool_activity_observed=turn.tool_activity_observed,
+                )
             if completed and _looks_like_content_filter_notice(turn.raw_text):
                 self._invalidate_session(sid)
                 self.close()
