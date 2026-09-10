@@ -38,7 +38,9 @@ test.afterAll(() => { server?.kill(); });
 
 test('real embedded workbench retains typography and fits the pane between both sidebars', async ({ page }) => {
   const errors: string[] = [];
+  const consoleErrors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
   // Only native IPC is simulated. The iframe loads the actual production web
   // bundle, project API and styles; a placeholder cockpit cannot test layout.
   await page.route('**/bridge.ts', (route) => route.fulfill({
@@ -59,7 +61,7 @@ test('real embedded workbench retains typography and fits the pane between both 
   try {
     await expect(composer).toBeVisible();
   } catch (error) {
-    console.error('Workbench startup errors:', errors);
+    console.error('Workbench startup errors:', errors, consoleErrors);
     for (const document of page.frames()) {
       console.error('Rendered frame:', document.url(), await document.locator('body').innerText());
     }
