@@ -44,6 +44,19 @@ def run(*argv: str, cwd: Path = ROOT) -> None:
 
 def main() -> int:
     try:
+        # Bundled verticals may ship independent workbench frontends. Build each
+        # before the release digest, keeping domain code out of the host UI.
+        for manifest_path in sorted((ROOT / "argus_skill" / "verticals").glob("*/workbench.json")):
+            spec = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if not spec.get("frontend"):
+                continue
+            frontend = (manifest_path.parent / spec["frontend"]).resolve()
+            if manifest_path.parent.resolve() not in frontend.parents:
+                raise ValueError("vertical frontend must remain inside its package")
+            if not (frontend / "node_modules").is_dir():
+                run(NPM_COMMAND, "ci", cwd=frontend)
+            run(NPM_COMMAND, "run", "build", cwd=frontend)
+        run(sys.executable, "-m", "argus_skill.release_tools.build_plugins")
         # Generated protocol source participates in the release digest, so it
         # must be refreshed before computing the manifest. Reversing these two
         # steps makes a schema change require two builds: the first build updates

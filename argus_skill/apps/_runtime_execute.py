@@ -15,6 +15,7 @@ import logging
 import os
 import shutil
 import stat
+import tempfile
 import time
 from pathlib import Path
 
@@ -111,6 +112,44 @@ class SkillLoopExecuteMixin:
             return False
 
     @classmethod
+    def _detach_packaged_skill_hardlink(cls, path: Path) -> None:
+        """Give an installed Skill its own inode before establishing the guard.
+
+        uv legitimately hardlinks wheel resources from its cache. Replacing our
+        directory entry preserves those cached bytes and other environments;
+        in-place writes or weakening the execution-time alias check would not.
+        Symlinks, junctions and redirected ancestors remain disallowed.
+        """
+        if cls._is_link_or_reparse_point(path) or cls._has_linked_ancestor(path):
+            return
+        before = path.stat()
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink <= 1:
+            return
+        content = path.read_bytes()
+        fd, filename = tempfile.mkstemp(prefix=".argus-skill-", dir=path.parent)
+        temporary = Path(filename)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            temporary.chmod(stat.S_IMODE(before.st_mode))
+            if cls._is_link_or_reparse_point(path) or cls._has_linked_ancestor(path):
+                raise OSError(f"protected Skill path changed while preparing: {path}")
+            current = path.stat()
+            identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
+            if identity(current) != identity(before) or path.read_bytes() != content:
+                # Another startup may already have detached exactly these bytes.
+                if cls._is_unaliased_regular_file(path) and path.read_bytes() == content:
+                    return
+                raise OSError(f"protected Skill changed while preparing: {path}")
+            os.replace(temporary, path)
+            if not cls._is_unaliased_regular_file(path) or path.read_bytes() != content:
+                raise OSError(f"protected Skill private copy did not verify: {path}")
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    @classmethod
     def _remove_pipeline_state_replacement(cls, path: Path) -> None:
         if path.is_symlink():
             path.unlink()
@@ -161,6 +200,11 @@ class SkillLoopExecuteMixin:
         if snapshot_error:
             return True, snapshot_error, False
         try:
+            # A fresh mission may have neither a pipeline file nor its parent.
+            # Restoration must not create that parent and then accuse the
+            # mission of creating formal state that never existed.
+            if not existed and not os.path.lexists(path.parent):
+                return False, "", True
             if cls._has_linked_ancestor(path.parent):
                 raise OSError(
                     f"formal pipeline state ancestor was replaced: {path.parent}"
@@ -246,9 +290,14 @@ class SkillLoopExecuteMixin:
             protected_paths = list(canonical_paths)
             for parent in dict.fromkeys(path.parent for path in canonical_paths):
                 for sibling in sorted(parent.iterdir()):
+                    # Another mission may be detaching a cache hardlink now;
+                    # its short-lived private copy is not a packaged Skill.
+                    if sibling.name.startswith(".argus-skill-"):
+                        continue
                     if sibling not in protected_paths and sibling.is_file():
                         protected_paths.append(sibling)
             for path in protected_paths:
+                cls._detach_packaged_skill_hardlink(path)
                 if (
                     cls._is_link_or_reparse_point(path.parent)
                     or not path.parent.is_dir()
@@ -944,6 +993,7 @@ class SkillLoopExecuteMixin:
         expected_playground_path = self._canonical_playground_skill_path(
             skill_snapshots
         )
+        execution_started = False
         try:
             if pipeline_state_snapshot[3]:
                 raise RuntimeError(
@@ -962,6 +1012,7 @@ class SkillLoopExecuteMixin:
                         or "canonical Playground Engineer digest is unavailable"
                     )
                 )
+            execution_started = True
             self._run_bounded_planning(
                 ex_state,
                 sink=sink,
@@ -1087,6 +1138,10 @@ class SkillLoopExecuteMixin:
                     if hasattr(ex_state.outcome, "final_message"):
                         ex_state.outcome.final_message = isolation_reason
         except BaseException as execution_error:
+            if not execution_started:
+                # Preflight never ran the planner/engineer. Retain its actual
+                # error; a failed snapshot is not an execution-time mutation.
+                raise
             changed, isolation_reason, restoration_ok = self._restore_playground_boundaries(
                 pipeline_state_snapshot,
                 skill_snapshots,

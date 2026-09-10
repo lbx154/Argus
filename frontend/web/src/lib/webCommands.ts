@@ -9,7 +9,7 @@ export type WebCommandHandler = (rest: string) => void | Promise<void>;
 /** `/ask` is deliberately absent: it is answered by the Manager, so the web
  * layer passes the line through untouched rather than handling it locally. */
 export type WebCommandHandlers = Record<
-  Exclude<CommandId, 'ask'>,
+  Exclude<CommandId, 'ask' | 'crystalpilot'>,
   WebCommandHandler
 >;
 export type WebCommandResult =
@@ -32,7 +32,7 @@ export async function dispatchWebCommand(
         : `Unknown command ${parsed.name}. Use /help for the full list.`,
     };
   }
-  if (parsed.cmd.id === 'ask') {
+  if (parsed.cmd.id === 'ask' || parsed.cmd.id === 'crystalpilot') {
     // Send it as an ordinary message: the Manager front door recognises the
     // prefix and answers inline without queuing anything. Handling it here
     // would need a second path to the same reply.

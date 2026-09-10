@@ -26,9 +26,7 @@ _MODEL_CATALOG_FAILURES = (
     "copilot could not retrieve the list of available models",
     "model is not supported when using codex with a chatgpt account",
 )
-_EXECUTION_HOST_STARTUP_PREFIX = (
-    "code mode is unavailable because failed to spawn code-mode host "
-)
+_EXECUTION_HOST_STARTUP_PREFIX = "code mode is unavailable because failed to spawn code-mode host "
 
 
 def is_execution_host_startup_error(value: object) -> bool:
@@ -40,7 +38,7 @@ def is_execution_host_startup_error(value: object) -> bool:
     """
     lowered = str(value or "").strip().casefold()
     return lowered.startswith(_EXECUTION_HOST_STARTUP_PREFIX) and any(
-        marker in lowered[len(_EXECUTION_HOST_STARTUP_PREFIX):]
+        marker in lowered[len(_EXECUTION_HOST_STARTUP_PREFIX) :]
         for marker in (
             "host executable was not found",
             "startup failure",
@@ -132,8 +130,7 @@ __all__ = [
 def is_copilot_context_parser_error(value: object) -> bool:
     """Exact runner-wrapped parser diagnostic; text alone is not authority."""
     prefix = (
-        "Process exited with code 1 before turn completion.\n"
-        "error: unknown option '--context'\n"
+        "Process exited with code 1 before turn completion.\nerror: unknown option '--context'\n"
     )
     suffix = "Try 'copilot --help' for more information."
     return str(value or "").strip() in (
@@ -143,8 +140,14 @@ def is_copilot_context_parser_error(value: object) -> bool:
 
 
 def is_copilot_context_parser_refusal(
-    error: object, *, provider: str, call_id: str, run_label: str,
-    status: str, thread_id: object, source: str,
+    error: object,
+    *,
+    provider: str,
+    call_id: str,
+    run_label: str,
+    status: str,
+    thread_id: object,
+    source: str,
     receipt: dict[str, Any] | None,
 ) -> bool:
     """Use only host-generated agent.io.complete, never model/tool JSON.
@@ -157,8 +160,11 @@ def is_copilot_context_parser_refusal(
         return False
     command = receipt.get("command")
     return bool(
-        provider == "copilot" and status == "error" and source == "run_exec"
-        and not thread_id and call_id
+        provider == "copilot"
+        and status == "error"
+        and source == "run_exec"
+        and not thread_id
+        and call_id
         and receipt.get("type") == "agent.io.complete"
         and receipt.get("backend") == provider
         and receipt.get("call_id") == call_id
@@ -169,20 +175,98 @@ def is_copilot_context_parser_refusal(
         and receipt.get("thread_id") is None
         and receipt.get("fatal_error") == "Process exited with code 1 before turn completion."
         and receipt.get("tool_activity_observed") is False
-        and all(receipt.get(key) == 0 for key in (
-            "agent_message_count", "stdout_line_count", "json_event_count"))
+        and all(
+            receipt.get(key) == 0
+            for key in ("agent_message_count", "stdout_line_count", "json_event_count")
+        )
         # Older receipts store zero token placeholders without presence bits.
         # Nonzero receipt usage still contradicts a missing-usage ledger row;
         # explicit premium/billing values (including zero) are always evidence.
-        and all(receipt.get(key) in (None, 0) for key in (
-            "input_tokens", "cached_input_tokens", "cache_write_tokens",
-            "output_tokens", "reasoning_output_tokens"))
+        and all(
+            receipt.get(key) in (None, 0)
+            for key in (
+                "input_tokens",
+                "cached_input_tokens",
+                "cache_write_tokens",
+                "output_tokens",
+                "reasoning_output_tokens",
+            )
+        )
         and not receipt.get("premium_requests_present")
-        and all(receipt.get(key) is None for key in (
-            "premium_requests", "total_nano_aiu", "cost_usd",
-            "provider_cost_usd", "premium_request_cost_usd"))
+        and all(
+            receipt.get(key) is None
+            for key in (
+                "premium_requests",
+                "total_nano_aiu",
+                "cost_usd",
+                "provider_cost_usd",
+                "premium_request_cost_usd",
+            )
+        )
         and not receipt.get("model_usage")
         and isinstance(command, list)
-        and any(command[i:i+2] == ["--context", "default"]
-                for i in range(1, len(command)-1))
+        and any(command[i : i + 2] == ["--context", "default"] for i in range(1, len(command) - 1))
+    )
+
+
+def is_local_startup_parser_error(value: object) -> bool:
+    return is_copilot_context_parser_error(value) or str(value or "").strip() == (
+        "Process exited with code 1 before turn completion.\n"
+        "Not inside a trusted directory and --skip-git-repo-check was not specified."
+    )
+
+
+def is_local_startup_refusal(error: object, **context) -> bool:
+    """Only a matching, silent CLI completion proves a zero-provider refusal."""
+    if is_copilot_context_parser_refusal(error, **context):
+        return True
+    r = context.get("receipt") or {}
+    command = r.get("command") or []
+    return bool(
+        is_local_startup_parser_error(error)
+        and not is_copilot_context_parser_error(error)
+        and context.get("provider") == "codex"
+        and context.get("status") == "error"
+        and context.get("source") == "run_exec"
+        and not context.get("thread_id")
+        and context.get("call_id")
+        and r.get("call_id") == context["call_id"]
+        and r.get("run_label") == context.get("run_label")
+        and r.get("backend") == "codex"
+        and r.get("type") == "agent.io.complete"
+        and r.get("exit_code") == 1
+        and r.get("turn_failed") is True
+        and r.get("turn_completed") is False
+        and r.get("thread_id") is None
+        and r.get("tool_activity_observed") is False
+        and r.get("fatal_error") == "Process exited with code 1 before turn completion."
+        and all(
+            r.get(k) == 0 for k in ("agent_message_count", "stdout_line_count", "json_event_count")
+        )
+        and all(
+            r.get(k) in (None, 0)
+            for k in (
+                "input_tokens",
+                "cached_input_tokens",
+                "cache_write_tokens",
+                "output_tokens",
+                "reasoning_output_tokens",
+            )
+        )
+        and not r.get("premium_requests_present")
+        and not r.get("model_usage")
+        and all(
+            r.get(k) is None
+            for k in (
+                "premium_requests",
+                "total_nano_aiu",
+                "cost_usd",
+                "provider_cost_usd",
+                "premium_request_cost_usd",
+            )
+        )
+        and isinstance(command, list)
+        and len(command) > 1
+        and command[1] == "exec"
+        and "--skip-git-repo-check" not in command
     )

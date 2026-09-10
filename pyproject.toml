@@ -32,6 +32,7 @@ dependencies = [
   "rich>=13.7",
   "PyYAML>=6",
   "portalocker>=3",
+  "psutil>=5.9",
   "jsonschema>=4",
   "pypdf>=5,<7",
   "fastapi>=0.110",
@@ -134,6 +135,7 @@ Repository = "https://github.com/lbx154/Argus"
 
 [tool.hatch.build.targets.wheel]
 packages = ["argus_skill"]
+exclude = ["argus_skill/verticals/crystalpilot/**"]
 # Package Markdown and JSON files are runtime Skill data.
 
 [tool.hatch.build.targets.wheel.force-include]

@@ -39,6 +39,13 @@ def _source_files(root: Path) -> Iterable[Path]:
         "argus_skill/**/*.md",
         "argus_skill/**/*.yaml",
         "argus_skill/**/*.yml",
+        "argus_skill/verticals/**/*.mjs",
+        "argus_skill/verticals/**/*.ts",
+        "argus_skill/verticals/**/*.tsx",
+        "argus_skill/verticals/**/*.css",
+        "argus_skill/verticals/**/*.html",
+        "argus_skill/verticals/**/*.svg",
+        "argus_skill/verticals/**/*.toml",
         "frontend/core/src/**/*",
         "frontend/tui/src/**/*",
         "frontend/tui/bin/**/*",
@@ -94,6 +101,20 @@ def _source_files(root: Path) -> Iterable[Path]:
     seen: set[Path] = set()
     for pattern in patterns:
         for path in root.glob(pattern):
+            relative_parts = path.relative_to(root).parts
+            if len(relative_parts) > 3 and relative_parts[:2] == ("argus_skill", "verticals"):
+                optional = root / "argus_skill" / "verticals" / relative_parts[2] / "workbench.json"
+                if optional.is_file():
+                    continue  # Optional packages have their own artifact checksum.
+            # A bundled workbench is source, but its local dependencies and
+            # generated assets must not change release identity or differ from
+            # the installed wheel's digest.
+            if path.is_relative_to(root / "argus_skill" / "verticals") and any(
+                part in {"node_modules", "__pycache__", "dist", ".venv", ".pytest_cache"}
+                or part.endswith(".egg-info")
+                for part in path.relative_to(root).parts
+            ):
+                continue
             if (
                 not path.is_file()
                 or path.name == MANIFEST_FILE

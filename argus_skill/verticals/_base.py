@@ -49,7 +49,8 @@ def load_vertical(name: object, project_root: object = None) -> VerticalDefiniti
     stages_path = os.path.join(
         os.path.dirname(__file__), *import_name.split("."), "stages.py"
     )
-    if os.path.isfile(stages_path):
+    optional = Path(stages_path).with_name("workbench.json").is_file()
+    if os.path.isfile(stages_path) and not optional:
         try:
             return importlib.import_module(module_name)
         except Exception as exc:  # noqa: BLE001

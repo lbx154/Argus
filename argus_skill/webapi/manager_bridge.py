@@ -251,6 +251,19 @@ def manager_message(
             "reply": "project no longer exists; the message was not processed",
         }
 
+    # Native domain commands stay on this session and do not run a classifier.
+    from ..core.workbench_plugins import native_plugin_command
+    with _lock_for(sid):
+        plugin_reply = native_plugin_command(operator_text, sid=sid,
+            life_dir=life_dir, global_root=mem.global_root)
+        if plugin_reply is not None:
+            append_turn(life_dir, "operator", body)
+            append_turn(life_dir, "argus", plugin_reply)
+            _emit_ui_turn(life_dir, "operator", body, message_id=f"{turn_id}-operator")
+            _emit_ui_turn(life_dir, "argus", plugin_reply, message_id=f"{turn_id}-argus")
+            _fragment("delta", {"text": plugin_reply})
+            return {"kind": "chat", "reply": plugin_reply}
+
     # Atlas card references: replace each ``[[Argus引用 {...}]]`` marker line
     # with a readable inline line in the persisted operator text, and carry the
     # bounded context block separately so only the model-facing bodies (triage

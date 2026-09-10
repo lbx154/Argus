@@ -38,9 +38,11 @@ _SESSION_PREFIX = "s-"
 _LOCK_PATH_BUDGET = 240
 
 
-def new_session_id() -> str:
+def new_session_id(namespace: str = "") -> str:
     """A short, unique, path-safe session id, e.g. ``s-3f9a1c20``."""
-    return _SESSION_PREFIX + secrets.token_hex(4)
+    if namespace and not namespace.replace("_", "").isalnum():
+        raise ValueError("invalid session namespace")
+    return _SESSION_PREFIX + (namespace + "-" if namespace else "") + secrets.token_hex(4)
 
 
 @dataclass
