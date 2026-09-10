@@ -39,7 +39,7 @@ def main():
                   assets / f"Argus-{version}-macos-aarch64.dmg",
                   assets / f"Argus-{version}-macos-x86_64.dmg"]
     assert all(path.is_file() for path in installers)
-    manifest["notes"] = "修复工作台布局和样式；Copilot 首次下载增加实际进度与网络停滞提示。"
+    manifest["notes"] = "试用默认 GPT-5.5 high；修复工作台布局，增加 Copilot 下载进度与网络提示。"
     (assets / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     hashes = []
     for path in sorted(assets.iterdir()):
@@ -48,6 +48,7 @@ def main():
     (assets / "SHA256SUMS").write_text("\n".join(hashes) + "\n")
     args.notes.write_text(f"""## Argus {version} · Windows & Mac
 
+- 试用默认模型改为 **GPT-5.5，推理强度 high**；服务端使用 Responses 转发并统一执行该设置。
 - 修复 Windows / Mac 工作台布局：按中间区域实际可用宽度调整分栏，避免两侧栏展开时挤压标题和卡片。
 - 修复全局样式覆盖工作台的问题，恢复标题字号、按钮和内容间距。
 - Copilot 首次下载显示实际进度；连续 30 秒没有进展时提示检查网络或开启系统代理 / TUN。

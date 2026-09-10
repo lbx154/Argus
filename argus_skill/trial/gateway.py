@@ -16,8 +16,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.background import BackgroundTask
 from starlette.staticfiles import StaticFiles
 
-from . import MAX_OUTPUT_TOKENS, MODEL
+from . import CLIENT_MODEL, MAX_OUTPUT_TOKENS, MODEL
 from .copilot import Copilot
+from .responses import chat_chunks, completion, request_payload
 from .secrets import Vault
 from .store import Store, TrialError
 
@@ -36,7 +37,7 @@ class TrialFiles(StaticFiles):
 class Settings:
     state_dir: Path
     key_file: Path
-    model: str = "gpt-4.1"
+    model: str = CLIENT_MODEL
     timeout: float = 300
     site_dir: Path | None = None
 
@@ -90,6 +91,7 @@ class Completion(BaseModel):
     top_p: float | None = Field(default=None, ge=0, le=1)
     frequency_penalty: float | None = Field(default=None, ge=-2, le=2)
     presence_penalty: float | None = Field(default=None, ge=-2, le=2)
+    reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] | None = None
     snippy: Snippy | None = None
     stop: str | list[str] | None = None
     # Accepted for OpenAI-compatible clients; never allow storage or n>1.
@@ -126,14 +128,13 @@ def prepare(data: dict, model: str) -> tuple[dict, int]:
     payload = parsed.model_dump(exclude_none=True)
     output = payload.pop("max_completion_tokens", None) or payload.pop("max_tokens", None) or MAX_OUTPUT_TOKENS
     payload.update(model=model, max_tokens=output)
-    payload.pop("store", None)
-    payload.pop("n", None)
-    payload.pop("stream_options", None)
-    if parsed.stream:
-        payload["stream_options"] = {"include_usage": True}
     # Text-only requests: reserve UTF-8 bytes plus protocol/tool framing and
     # the enforced output maximum. Refund only from authoritative upstream
     # usage. This deliberately conservative estimate is not a tokenizer.
+    try:
+        payload = request_payload(payload)
+    except (KeyError, TypeError):
+        raise TrialError(400, "invalid_tools", "Invalid local function call or tool choice.") from None
     reserve = len(json.dumps(payload, ensure_ascii=False).encode()) + output
     reserve += 4096 + 64 * len(parsed.messages) + 256 * len(parsed.tools or [])
     return payload, reserve
@@ -151,12 +152,6 @@ def usage_total(data: dict) -> int | None:
         return None
     # Cached input is already included in prompt_tokens; never double count it.
     return total
-
-
-def public_chunk(data: dict) -> dict:
-    if not isinstance(data, dict) or "error" in data or not isinstance(data.get("choices"), list):
-        raise TrialError(502, "provider_protocol_error", "Invalid provider completion response.")
-    return {**{k: data[k] for k in ("id", "object", "created", "choices", "usage") if k in data}, "model": MODEL}
 
 
 def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
@@ -223,7 +218,7 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
             async with asyncio.timeout(settings.timeout):
                 base_url, headers = await copilot.authorization()
                 actual = None  # Ambiguous network failures must not refund usage.
-                upstream = copilot.client.build_request("POST", base_url + "/chat/completions", headers=headers, json=payload)
+                upstream = copilot.client.build_request("POST", base_url + "/responses", headers=headers, json=payload)
                 response = await copilot.client.send(upstream, stream=True)
                 if response.status_code != 200:
                     # Do not return upstream bodies, cookies, headers, or auth errors.
@@ -239,14 +234,14 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                     )
                 body = await response.aread()
                 data = json.loads(body)
-                result = public_chunk(data)
-                actual = usage_total(data)
+                result = completion(data)
+                actual = usage_total(result)
                 if actual is None:
                     raise TrialError(502, "provider_usage_missing", "Provider did not report token usage; reservation retained.")
                 return JSONResponse(result, headers={"Cache-Control": "no-store"})
         except (httpx.HTTPError, TimeoutError):
             raise TrialError(502, "provider_connection_failed", "Trial provider connection failed.") from None
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, KeyError, AttributeError):
             raise TrialError(502, "provider_protocol_error", "Invalid provider completion response.") from None
         finally:
             if not handed_off:
@@ -264,29 +259,19 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
         complete = False
         try:
             async with asyncio.timeout(settings.timeout):
-                event_lines = []
-                async for line in response.aiter_lines():
-                    if len(line) + sum(map(len, event_lines)) > MAX_BODY_BYTES:
-                        raise TrialError(502, "provider_protocol_error", "Provider event is too large.")
-                    if line.startswith("data:"):
-                        event_lines.append(line[5:].lstrip())
-                    elif not line and event_lines:
-                        raw, event_lines = "\n".join(event_lines), []
-                        if raw == "[DONE]":
-                            if actual is None:
-                                raise TrialError(502, "provider_usage_missing", "Provider did not report token usage; reservation retained.")
-                            complete = True
-                            app.state.store.settle(request_id, actual)
-                            yield "data: [DONE]\n\n"
-                            return
-                        data = json.loads(raw)
-                        chunk = public_chunk(data)
-                        reported = usage_total(data)
-                        if reported is not None:
-                            actual = reported
-                        yield "data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n"
-                raise TrialError(502, "provider_stream_incomplete", "Provider stream ended early; reservation retained.")
-        except (httpx.HTTPError, TimeoutError, ValueError, TypeError, TrialError) as exc:
+                async for chunk in chat_chunks(response, MAX_BODY_BYTES):
+                    if chunk is None:
+                        if actual is None:
+                            raise TrialError(502, "provider_usage_missing", "Provider did not report token usage; reservation retained.")
+                        complete = True
+                        app.state.store.settle(request_id, actual)
+                        yield "data: [DONE]\n\n"
+                        return
+                    reported = usage_total(chunk)
+                    if reported is not None:
+                        actual = reported
+                    yield "data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n"
+        except (httpx.HTTPError, TimeoutError, ValueError, TypeError, KeyError, AttributeError, TrialError) as exc:
             code = exc.code if isinstance(exc, TrialError) else "provider_stream_failed"
             yield "data: " + json.dumps({"error": {"code": code, "message": "Trial stream failed; retry after checking remaining quota."}}) + "\n\n"
         finally:

@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 import certifi
 
-from . import CLIENT_MODEL, MAX_OUTPUT_TOKENS, MODEL
+from . import CLIENT_MODEL, MAX_OUTPUT_TOKENS, MODEL, REASONING_EFFORT
 
 TRIAL_ENV = "ARGUS_SKILL_COPILOT_TRIAL"
 
@@ -125,6 +125,11 @@ def setup_trial(url: str, *, non_interactive: bool = False, api_key: str | None 
         TRIAL_ENV: "1", "ARGUS_SKILL_MODEL": CLIENT_MODEL,
         "ARGUS_SKILL_RUNNER_BACKEND": "copilot", "ARGUS_SKILL_RUNNER_BIN": executable,
     }
+    from ..core.knobs import KNOBS
+
+    # Seed the trial's visible role settings as well as enforcing high upstream.
+    overrides.update({knob.name: REASONING_EFFORT for knob in KNOBS
+                      if knob.name.endswith("_REASONING_EFFORT")})
     saved_env = {k: os.environ.get(k) for k in overrides}
     succeeded = False
     try:

@@ -143,9 +143,11 @@ def main():
                 script = (
                     "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
                     "from argus_skill.core.knob_store import read_persisted_knobs; "
+                    "from argus_skill.trial import CLIENT_MODEL; "
                     "k=read_persisted_knobs(); assert k['ARGUS_SKILL_COPILOT_TRIAL']=='1'; "
+                    "assert k['ARGUS_SKILL_MODEL']=='gpt-5.5' and k['ARGUS_SKILL_ENGINEER_REASONING_EFFORT']=='high'; "
                     "r=run_read_only_agent_prompt(backend='copilot',executable=k['ARGUS_SKILL_RUNNER_BIN'],"
-                    f"model='gpt-4.1',run_label='native-release-smoke',prompt={prompt!r}); "
+                    f"model=CLIENT_MODEL,run_label='native-release-smoke',prompt={prompt!r}); "
                     "assert r.ok and 'native-installed-trial-evidence' in r.output and 'NATIVE_TRIAL_OK' in r.output; "
                     "print('Persisted native local-tool round trip passed.')"
                 )

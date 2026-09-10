@@ -37,6 +37,7 @@ test.beforeAll(async () => {
 test.afterAll(() => { server?.kill(); });
 
 test('real embedded workbench retains typography and fits the pane between both sidebars', async ({ page }) => {
+  test.setTimeout(60_000);
   const errors: string[] = [];
   const consoleErrors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -59,7 +60,8 @@ test('real embedded workbench retains typography and fits the pane between both 
   const frame = page.frameLocator('#cockpitFrame');
   const composer = frame.locator('.conversation-composer');
   try {
-    await expect(composer).toBeVisible();
+    // Windows CI needs time for the first real project snapshot on a cold backend.
+    await expect(composer).toBeVisible({ timeout: 20_000 });
   } catch (error) {
     console.error('Workbench startup errors:', errors, consoleErrors);
     for (const document of page.frames()) {

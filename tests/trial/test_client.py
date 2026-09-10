@@ -85,6 +85,7 @@ def test_trial_workers_replace_inherited_provider_credentials(tmp_path, monkeypa
     assert env["COPILOT_PROVIDER_BASE_URL"] == "https://trial.example.com/v1"
     assert env["COPILOT_PROVIDER_API_KEY"] == key
     assert env["COPILOT_PROVIDER_WIRE_MODEL"] == "argus-trial"
+    assert env["COPILOT_MODEL"] == env["COPILOT_PROVIDER_MODEL_ID"] == "gpt-5.5"
     assert env["COPILOT_HOME"] == str(tmp_path / "copilot-trial-home")
     assert "COPILOT_PROVIDER_BEARER_TOKEN" not in env and "GITHUB_TOKEN" not in env
     assert env["COPILOT_PROVIDER_HEADERS"] == "User-Agent: Argus/0.1.1"
@@ -139,30 +140,33 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch):
     monkeypatch.setattr(gateway, "prepare", inspect_payload)
 
     def upstream(request):
-        assert str(request.url) == "https://api.githubcopilot.com/chat/completions"
+        assert str(request.url) == "https://api.githubcopilot.com/responses"
         assert request.headers["authorization"] == "Bearer fake-github-secret"
         payload = json.loads(request.content)
         requests.append(payload)
-        messages = payload["messages"]
+        assert payload["model"] == "gpt-5.5" and payload["reasoning"] == {"effort": "high"}
+        messages = payload["input"]
         if any("ARGUS_SETUP_OK" in str(m.get("content")) for m in messages):
             delta, finish = {"role": "assistant", "content": "ARGUS_SETUP_OK"}, "stop"
-        elif any(m["role"] == "tool" for m in messages):
-            assert any("trial-local-file-evidence" in str(m.get("content")) for m in messages if m["role"] == "tool")
+        elif any(m.get("type") == "function_call_output" for m in messages):
+            assert any("trial-local-file-evidence" in str(m.get("output")) for m in messages if m.get("type") == "function_call_output")
             delta, finish = {"role": "assistant", "content": "TRIAL_TOOL_OK"}, "stop"
         else:
-            assert any(t["function"]["name"] == "view" for t in payload["tools"])
+            assert any(t["name"] == "view" for t in payload["tools"])
             delta = {"role": "assistant", "tool_calls": [{
                 "index": 0, "id": "call_read", "type": "function",
                 "function": {"name": "view", "arguments": json.dumps({"path": str(tmp_path / "evidence.txt")})},
             }]}
             finish = "tool_calls"
-        data = {"id": "test-response", "object": "chat.completion.chunk", "created": 1,
-                "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
-        end = {"id": "test-response", "object": "chat.completion.chunk", "created": 1,
-               "choices": [{"index": 0, "delta": {}, "finish_reason": finish}]}
-        usage = {"id": "test-response", "object": "chat.completion.chunk", "created": 1,
-                 "choices": [], "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}}
-        content = "".join("data: " + json.dumps(part) + "\n\n" for part in (data, end, usage)) + "data: [DONE]\n\n"
+        if finish == "tool_calls":
+            call = delta["tool_calls"][0]
+            output = [{"type": "function_call", "call_id": call["id"], **call["function"]}]
+        else:
+            output = [{"type": "message", "role": "assistant",
+                       "content": [{"type": "output_text", "text": delta["content"]}]}]
+        data = {"id": "test-response", "created_at": 1, "status": "completed", "output": output,
+                "usage": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120}}
+        content = "data: " + json.dumps({"type": "response.completed", "response": data}) + "\n\n"
         return httpx.Response(200, text=content, headers={"Content-Type": "text/event-stream"})
 
     app = create_app(Settings(state, key), transport=httpx.MockTransport(upstream))
@@ -206,8 +210,11 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch):
         # through Argus's actual worker launch, not a manually configured CLI.
         result = subprocess.run(
             [sys.executable, "-c", "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
+             "from argus_skill.core.knob_store import read_persisted_knobs; "
+             "k=read_persisted_knobs(); assert k['ARGUS_SKILL_MODEL']=='gpt-5.5'; "
+             "assert k['ARGUS_SKILL_ENGINEER_REASONING_EFFORT']=='high'; "
              "import shutil; r=run_read_only_agent_prompt(backend='copilot', executable=shutil.which('copilot'), "
-             "model='gpt-4.1', run_label='trial-tool-smoke', prompt='Read " + str(tmp_path / "evidence.txt") + " and report TRIAL_TOOL_OK.'); "
+             "model='gpt-5.5', run_label='trial-tool-smoke', prompt='Read " + str(tmp_path / "evidence.txt") + " and report TRIAL_TOOL_OK.'); "
              "print(r.output); print(r.error); raise SystemExit(0 if r.ok else 1)"],
             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60,
         )
