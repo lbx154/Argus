@@ -534,10 +534,13 @@ class CommandBuilderMixin:
             "on",
             "--no-ask-user",
         ]
-        if options.model:
-            command.extend(["--model", options.model])
-        if options.reasoning_effort:
-            command.extend(["--reasoning-effort", options.reasoning_effort])
+        from ..trial.client import trial_model_options
+
+        model, effort = trial_model_options(options.model, options.reasoning_effort)
+        if model:
+            command.extend(["--model", model])
+        if effort:
+            command.extend(["--reasoning-effort", effort])
         review_output = getattr(options, "review_output", None)
         if review_output and not options.disable_tools:
             from ..reviewer.review_file import copilot_review_file_args

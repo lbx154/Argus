@@ -37,6 +37,11 @@ def trial_enabled(env: dict[str, str] | None = None) -> bool:
     return enabled == "1"
 
 
+def trial_model_options(model: str | None, effort: str | None) -> tuple[str | None, str | None]:
+    """Old saved role models must not override the trial's custom provider ID."""
+    return (CLIENT_MODEL, REASONING_EFFORT) if trial_enabled() else (model, effort)
+
+
 def apply_trial_provider(env: dict[str, str]) -> dict[str, str]:
     """Apply the user's trial key to both one-shot and ACP workers."""
     from ..core.paths import global_root

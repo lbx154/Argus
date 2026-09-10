@@ -112,6 +112,21 @@ def test_failed_trial_verification_restores_previous_profile(tmp_path, monkeypat
     assert os.environ[client.TRIAL_ENV] == "0"
 
 
+def test_old_trial_models_resolve_to_the_current_provider_without_changing_personal_mode(tmp_path, monkeypatch):
+    from argus_skill.core.knob_store import write_persisted_knobs
+    from argus_skill.core.knobs import resolve_role_model, resolve_role_reasoning_effort
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.delenv(client.TRIAL_ENV, raising=False)
+    write_persisted_knobs({client.TRIAL_ENV: "1", "ARGUS_SKILL_MODEL": "gpt-4.1"})
+    assert resolve_role_model("engineer", env={}) == "gpt-5.5"
+    assert resolve_role_reasoning_effort("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", env={}) == "high"
+    assert client.trial_model_options("gpt-4.1", "low") == ("gpt-5.5", "high")
+    monkeypatch.setenv(client.TRIAL_ENV, "0")
+    assert client.trial_model_options("gpt-4.1", "low") == ("gpt-4.1", "low")
+    assert resolve_role_model("engineer", env={client.TRIAL_ENV: "0"}) == "gpt-4.1"
+
+
 @pytest.mark.e2e
 @pytest.mark.skipif(shutil.which("copilot") is None, reason="Copilot CLI required for real client smoke test")
 def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch):
@@ -214,7 +229,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch):
              "k=read_persisted_knobs(); assert k['ARGUS_SKILL_MODEL']=='gpt-5.5'; "
              "assert k['ARGUS_SKILL_ENGINEER_REASONING_EFFORT']=='high'; "
              "import shutil; r=run_read_only_agent_prompt(backend='copilot', executable=shutil.which('copilot'), "
-             "model='gpt-5.5', run_label='trial-tool-smoke', prompt='Read " + str(tmp_path / "evidence.txt") + " and report TRIAL_TOOL_OK.'); "
+             "model='gpt-4.1', run_label='trial-tool-smoke', prompt='Read " + str(tmp_path / "evidence.txt") + " and report TRIAL_TOOL_OK.'); "
              "print(r.output); print(r.error); raise SystemExit(0 if r.ok else 1)"],
             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60,
         )

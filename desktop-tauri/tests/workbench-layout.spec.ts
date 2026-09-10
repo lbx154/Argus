@@ -5,6 +5,7 @@ import { createInterface } from 'node:readline';
 
 let server: ChildProcess;
 let origin: string;
+let serverErrors = "";
 
 test.beforeAll(async () => {
   const root = resolve('..');
@@ -13,10 +14,9 @@ test.beforeAll(async () => {
     env: { ...process.env, PYTHONPATH: [root, process.env.PYTHONPATH].filter(Boolean).join(delimiter) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  let errors = '';
-  server.stderr!.on('data', (chunk) => { errors += chunk.toString(); });
+  server.stderr!.on('data', (chunk) => { serverErrors += chunk.toString(); });
   origin = await new Promise<string>((resolveOrigin, reject) => {
-    const timer = setTimeout(() => reject(new Error(`Layout fixture timed out: ${errors}`)), 20_000);
+    const timer = setTimeout(() => reject(new Error(`Layout fixture timed out: ${serverErrors}`)), 20_000);
     const lines = createInterface({ input: server.stdout! });
     lines.on('line', (line) => {
       if (!line.startsWith('{"origin":')) return;
@@ -25,13 +25,21 @@ test.beforeAll(async () => {
       lines.close();
     });
     server.once('error', (error) => { clearTimeout(timer); reject(error); });
-    server.once('exit', (code) => { clearTimeout(timer); reject(new Error(`Layout fixture exited ${code}: ${errors}`)); });
+    server.once('exit', (code) => { clearTimeout(timer); reject(new Error(`Layout fixture exited ${code}: ${serverErrors}`)); });
   });
   await expect.poll(async () => {
     try {
       return (await fetch(`${origin}/api/meta`, { headers: { Authorization: 'Bearer local-layout-test' } })).status;
     } catch { return 0; }
   }).toBe(200);
+});
+
+test.afterEach(async ({ page }, info) => {
+  if (info.status === info.expectedStatus) return;
+  console.error('Workbench fixture errors:', serverErrors);
+  for (const document of page.frames()) {
+    console.error('Rendered frame:', document.url(), await document.locator('body').innerText());
+  }
 });
 
 test.afterAll(() => { server?.kill(); });
@@ -42,6 +50,10 @@ test('real embedded workbench retains typography and fits the pane between both 
   const consoleErrors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+  page.on('response', (response) => {
+    if (response.status() >= 400) console.error('HTTP failure:', response.status(), response.url());
+  });
+  page.on('requestfailed', (request) => console.error('Request failed:', request.url(), request.failure()));
   // Only native IPC is simulated. The iframe loads the actual production web
   // bundle, project API and styles; a placeholder cockpit cannot test layout.
   await page.route('**/bridge.ts', (route) => route.fulfill({
@@ -75,7 +87,8 @@ test('real embedded workbench retains typography and fits the pane between both 
   });
   const before = await composerStyle();
   await frame.locator('.workspace-tab').nth(2).click();
-  await expect(frame.locator('.overview-hero__copy h1')).toBeVisible();
+  // The full workbench snapshot loads separately from the conversation snapshot.
+  await expect(frame.locator('.overview-hero__copy h1')).toBeVisible({ timeout: 20_000 });
   // Loading the lazy workbench stylesheet must not restyle the conversation.
   // Compare before resizing, since the shell deliberately fits its sidebars
   // when the desktop window gets narrower.

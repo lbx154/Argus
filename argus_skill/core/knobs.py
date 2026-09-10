@@ -633,6 +633,11 @@ def resolve_role_model(
     consistently, not just in whichever process happened to make it.
     """
     env_map = env if env is not None else os.environ
+    from ..trial import CLIENT_MODEL
+    from ..trial.client import trial_enabled
+
+    if trial_enabled(env_map):
+        return CLIENT_MODEL
     if role_env:
         explicit = str(env_map.get(role_env, "") or "").strip()
         if explicit:
@@ -971,6 +976,11 @@ def resolve_role_reasoning_effort(
     switch or natural-language "engineer 用 high 强度") -> ``default``.
     """
     env_map = env if env is not None else os.environ
+    from ..trial import REASONING_EFFORT
+    from ..trial.client import trial_enabled
+
+    if trial_enabled(env_map):
+        return REASONING_EFFORT
     if role_env:
         explicit = str(env_map.get(role_env, "") or "").strip()
         if explicit:
