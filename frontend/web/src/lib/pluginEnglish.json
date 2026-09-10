@@ -109,5 +109,6 @@
   "PLATON 安装配方已更新，点击修复依赖即可使用当前版本。": "The PLATON installation recipe has been updated. Click Repair dependencies to use the current version.",
   "PLATON 未生成校验规则；请检查运行库": "PLATON did not generate verification rules; check the runtime",
   "请输入 SHELX 授权信息以安装": "Enter SHELX authorization details to install",
-  "无法启动，请核对平台与运行库": "Unable to start; check the platform and runtime"
+  "无法启动，请核对平台与运行库": "Unable to start; check the platform and runtime",
+  "衍射数据处理、结构求解、精修与三维晶体研究工作台": "Diffraction data processing, structure solution, refinement and a 3D crystallography workbench"
 }
