@@ -15,7 +15,9 @@ def main() -> int:
     output = sys.stdout
 
     def emit(**event):
-        print(json.dumps(event, ensure_ascii=False), file=output, flush=True)
+        # Frozen Windows helpers can retain an ANSI stdout code page despite
+        # PYTHONIOENCODING. JSON escapes preserve Unicode over that pipe.
+        print(json.dumps(event, ensure_ascii=True), file=output, flush=True)
 
     key = ""
     try:

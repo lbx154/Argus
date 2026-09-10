@@ -88,6 +88,9 @@ def install_native_copilot() -> str:
             raise ValueError("Copilot 下载校验失败，请重试。")
         staged = Path(temporary) / executable_name
         extract_binary(archive, staged, executable_name)
-        verify_cli(staged)
+        # Publish the checksum-verified bytes before launching: on Windows the
+        # CLI's background processes can keep its executable locked after help
+        # exits, preventing a rename or temporary-directory cleanup.
         os.replace(staged, executable)
+    verify_cli(executable)
     return str(executable)

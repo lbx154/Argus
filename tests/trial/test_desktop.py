@@ -70,11 +70,14 @@ def test_corrupt_download_never_installs(tmp_path, monkeypatch):
     assert not any(path.is_file() for path in tmp_path.rglob("copilot.exe" if os.name == "nt" else "copilot"))
 
 
-def test_desktop_protocol_never_relays_key_or_setup_stdout(monkeypatch, capsys):
+def test_desktop_protocol_never_relays_key_or_setup_stdout(monkeypatch):
     from argus_skill.core import knob_store
 
     key = "argus_trial_" + "a" * 64
     monkeypatch.setattr(desktop.sys, "stdin", io.StringIO(json.dumps({"api_key": key}) + "\n"))
+    wire = io.BytesIO()
+    # Match the frozen helper's redirected Windows stdout.
+    monkeypatch.setattr(desktop.sys, "stdout", io.TextIOWrapper(wire, encoding="cp1252"))
 
     def setup(_url, **kwargs):
         assert kwargs["api_key"] == key and kwargs["desktop"]
@@ -83,12 +86,13 @@ def test_desktop_protocol_never_relays_key_or_setup_stdout(monkeypatch, capsys):
         return 0
 
     monkeypatch.setattr(desktop, "setup_trial", setup)
-    monkeypatch.setattr(knob_store, "read_persisted_knobs", lambda: {"ARGUS_SKILL_RUNNER_BIN": "/private/copilot"})
+    monkeypatch.setattr(knob_store, "read_persisted_knobs", lambda: {"ARGUS_SKILL_RUNNER_BIN": "/用户/copilot"})
     assert desktop.main() == 0
-    output = capsys.readouterr().out
+    output = wire.getvalue().decode("ascii")
     assert key not in output
     events = [json.loads(line) for line in output.splitlines()]
-    assert events[-1] == {"event": "complete", "runner_bin": "/private/copilot"}
+    assert events[-1] == {"event": "complete", "runner_bin": "/用户/copilot"}
+    assert any(event.get("message") == "验证中" for event in events)
 
 
 @pytest.mark.skipif(os.environ.get("ARGUS_TEST_NATIVE_COPILOT") != "1", reason="Native asset smoke is opt-in")
