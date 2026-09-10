@@ -26,7 +26,7 @@ def _capture_prompt(monkeypatch) -> str:
 
 
 def test_prompt_version_bumped_for_readability_rules():
-    assert map_narrative.PROMPT_VERSION == 7
+    assert map_narrative.PROMPT_VERSION == 8
 
 
 def test_prompt_restates_runner_receipts_as_one_plain_sentence(monkeypatch):

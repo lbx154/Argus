@@ -106,9 +106,9 @@ describe("step readability in buildSubmap", () => {
     );
     const review = rows.find((r) => r.kind === "review")!;
     expect(review.summary).toBe("Continued in a fresh session; earlier progress is kept");
-    expect(review.detail).toContain("— runner receipt: Provider turn cap reached");
+    expect(review.detail).toContain("— technical record: Provider turn cap reached");
     const prose = review.detail.indexOf("One Engineer call");
-    const receipt = review.detail.indexOf("— runner receipt:");
+    const receipt = review.detail.indexOf("— technical record:");
     expect(prose).toBeGreaterThanOrEqual(0);
     expect(prose).toBeLessThan(receipt);
     expect(review.detail.indexOf("Read the continuation note first.")).toBeLessThan(receipt);
@@ -140,7 +140,7 @@ describe("step readability in buildSubmap", () => {
       ],
       true,
     );
-    expect(rows.find((r) => r.kind === "execution")!.title).toBe("本轮执行记录");
+    expect(rows.find((r) => r.kind === "execution")!.title).toBe("完成一轮工作");
   });
   it("titles finished reviews by verdict", () => {
     const rowFor = (status: string, zh: boolean) =>
@@ -149,12 +149,12 @@ describe("step readability in buildSubmap", () => {
         [event("e1", "round.review.completed", { round_index: 1, status, text: "Reviewed." })],
         zh,
       ).find((r) => r.kind === "review")!;
-    expect(rowFor("done", false).title).toBe("Review passed");
-    expect(rowFor("continue", false).title).toBe("Review: keep going");
-    expect(rowFor("blocked", false).title).toBe("Review: needs a change");
-    expect(rowFor("failed", false).title).toBe("Review failed");
-    expect(rowFor("done", true).title).toBe("审查通过");
-    expect(rowFor("replan", true).title).toBe("审查：需要调整");
+    expect(rowFor("done", false).title).toBe("The Reviewer was satisfied");
+    expect(rowFor("continue", false).title).toBe("The Reviewer asked for another pass");
+    expect(rowFor("blocked", false).title).toBe("The Reviewer asked to change course");
+    expect(rowFor("failed", false).title).toBe("The Reviewer did not accept this round");
+    expect(rowFor("done", true).title).toBe("审阅通过");
+    expect(rowFor("replan", true).title).toBe("审阅者建议调整方向");
   });
   it("keeps the verdict title and latest summary when start and completion merge", () => {
     const rows = buildSubmap(
@@ -171,7 +171,7 @@ describe("step readability in buildSubmap", () => {
     );
     const reviews = rows.filter((r) => r.kind === "review");
     expect(reviews).toHaveLength(1);
-    expect(reviews[0].title).toBe("Review passed");
+    expect(reviews[0].title).toBe("The Reviewer was satisfied");
     expect(reviews[0].summary).toBe("Looks solid.");
   });
   it("clips long records to one readable first sentence", () => {
@@ -186,13 +186,13 @@ describe("step readability in buildSubmap", () => {
     expect(exec.summary!.length).toBeLessThanOrEqual(140);
   });
   it("uses one fallback string for missing detail", () => {
-    expect(noDetails(false)).toBe("No details available yet.");
-    expect(noDetails(true)).toBe("暂无详细记录");
+    expect(noDetails(false)).toBe("Nothing has been written down for this step yet.");
+    expect(noDetails(true)).toBe("这一步还没有留下记录");
     const rows = buildSubmap(
       task,
       [event("e2", "round.main.completed", { round_index: 1, text: "" })],
       false,
     );
-    expect(rows.find((r) => r.kind === "execution")!.detail).toBe("No details available yet.");
+    expect(rows.find((r) => r.kind === "execution")!.detail).toBe("Nothing has been written down for this step yet.");
   });
 });

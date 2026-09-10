@@ -108,9 +108,9 @@ describe("macro card copy", () => {
     });
     act(() => renderer!.root.findByProps({ "data-step-id": "empty" }).props.onClick());
     const rendered = JSON.stringify(renderer!.toJSON());
-    expect(rendered).toContain("No details available yet.");
+    expect(rendered).toContain("Nothing has been written down for this step yet.");
     expect(rendered).not.toContain("Details are not available yet");
-    expect(rendered).not.toContain("暂无详细记录。");
+    expect(rendered).not.toContain("这一步还没有留下记录。");
   });
   it("skips the unified placeholder when choosing a multi-part summary", () => {
     const markup = renderToStaticMarkup(
@@ -118,7 +118,7 @@ describe("macro card copy", () => {
         {...propsFor(
           [
             step("real", { detail: "Real measured progress." }),
-            step("empty", { detail: "No details available yet." }),
+            step("empty", { detail: "Nothing has been written down for this step yet." }),
           ],
           { partCount: 2 },
         )}
@@ -126,7 +126,7 @@ describe("macro card copy", () => {
     );
     const body = markup.slice(markup.indexOf("map-card-copy"), markup.indexOf("map-card-stages"));
     expect(body).toContain("Real measured progress.");
-    expect(body).not.toContain("No details available yet.");
+    expect(body).not.toContain("Nothing has been written down for this step yet.");
   });
 });
 

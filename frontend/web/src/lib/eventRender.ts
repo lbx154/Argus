@@ -214,7 +214,7 @@ export function renderEvent(ev: EventMsg, locale: Locale = 'en'): Rendered | nul
     return { role: 'engineer', label: 'Engineer', glyph: '✅', text: l(`round ${roundNo(ev)} completed`, `第 ${roundNo(ev)} 轮已完成`), tone: 'info' };
   if (t === 'round.review.completed') {
     if (ev.review_skipped === true)
-      return { role: 'reviewer', label: 'Reviewer', glyph: '↪', text: `${l('review not performed', '审查未执行')} · ${trunc(S(ev, 'reason'), 160)}`, tone: 'info' };
+      return { role: 'reviewer', label: 'Reviewer', glyph: '↪', text: `${l('no review this round', '这一轮没有审阅')} · ${trunc(S(ev, 'reason'), 160)}`, tone: 'info' };
     const st = S(ev, 'status');
     const tone: Tone = st === 'done' ? 'ok' : st === 'blocked' || st === 'no_progress' ? 'err' : 'warn';
     const glyph = st === 'done' ? '✅' : st === 'blocked' || st === 'no_progress' ? '⛔' : '↻';

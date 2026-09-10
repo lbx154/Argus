@@ -93,7 +93,7 @@ describe("task submap evidence", () => {
       }),
     ], true);
     expect(rows.find((row) => row.kind === "review")).toMatchObject({
-      title: "审查未执行", status: "skipped", eventIds: ["e1", "e2"],
+      title: "这一轮没有审阅", status: "skipped", eventIds: ["e1", "e2"],
     });
     expect(rows.find((row) => row.kind === "review")?.detail).toContain("Resume from the saved checkpoint.");
     expect(rows.some((row) => row.kind === "revision")).toBe(false);

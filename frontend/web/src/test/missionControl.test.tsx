@@ -268,7 +268,7 @@ describe('MissionControl', () => {
     reduceMissionViewEvent(view, { type: 'round.review.completed', ts: 1, status: 'continue', reason: 'Add a control.' });
     reduceMissionViewEvent(view, { type: 'round.review.completed', ts: 2, status: 'continue', reason: 'Turn allowance reached.', next_action: 'Resume from checkpoint.', review_skipped: true });
     expect(view.review).toEqual({ status: 'skipped', reason: 'Turn allowance reached.', rejected_attempts: 1 });
-    expect(view.timeline.at(-1)).toMatchObject({ title: 'Review not performed', tone: 'info' });
+    expect(view.timeline.at(-1)).toMatchObject({ title: 'No review this round', tone: 'info' });
     expect(view.role_work.at(-1)).toMatchObject({ kind: 'review', status: 'skipped', detail: 'Turn allowance reached.\n\nNext action: Resume from checkpoint.' });
     expect(view.roles.find((role) => role.role === 'reviewer')?.status).toBe('waiting');
 

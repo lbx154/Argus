@@ -500,12 +500,13 @@ def daemon_stop_review_decision(
         # having to parse ``reason`` prose.
         backend_stop_kind="daemon_shutdown",
         reason=(
-            "Engineer interrupted because daemon shutdown was requested; "
-            f"no backend retry was attempted. error={error_text}"
+            "Argus was stopped by its operator in the middle of this round; the "
+            "Engineer's work so far is kept and nothing was retried. "
+            f"Runner receipt: error={error_text}"
         ),
         next_action=(
-            "Restart the daemon when ready; the continuous planner will choose "
-            "the next concrete task from the persisted project state."
+            "When Argus is started again it continues from the saved project "
+            "state and picks the next concrete task."
         ),
     )
 

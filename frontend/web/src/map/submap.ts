@@ -85,7 +85,7 @@ function teamSummary(event: MapEvent, zh: boolean, waitingForDeps: boolean): str
 }
 
 export const noDetails = (zh: boolean) =>
-  zh ? "暂无详细记录" : "No details available yet.";
+  zh ? "这一步还没有留下记录" : "Nothing has been written down for this step yet.";
 
 // One colleague-voiced sentence per recognized piece of harness plumbing.
 // `match` applies only to text that carries an explicit "Runner receipt:"
@@ -93,10 +93,47 @@ export const noDetails = (zh: boolean) =>
 // start-anchored emitted opening (round_stop_signals.py, _idle_cycle.py) for
 // receipts that arrive without the marker. Research prose that merely talks
 // about budgets or quarantine policy must never be replaced by a canned line.
-const HARNESS_NOTES: Array<{ match: RegExp; bare?: RegExp; zh: string; en: string }> = [
+const HARNESS_NOTES: Array<{ match?: RegExp; bare?: RegExp; kind?: "interrupt" | "reviewer" | "round"; zh: string; en: string }> = [
+  {
+    // The operator stopped Argus mid-round. Not a verdict on anything.
+    match: /External interrupt|daemon (?:stop|shutdown)|stopped by its operator/i,
+    bare: /^(?:Engineer interrupted because daemon shutdown|Argus was stopped by its operator|Reviewer backend returned no complete judgment \([^)]*External interrupt)/,
+    kind: "interrupt",
+    zh: "运行被操作员停下，这一轮没有做完；这不是对工作本身的评价",
+    en: "Argus was stopped by its operator before this round could finish; this says nothing about the work itself",
+  },
+  {
+    match: /no complete judgment|before reaching a judgment|reached a conclusion|did not reach a conclusion/i,
+    bare: /^(?:Reviewer backend (?:returned no complete judgment|ended before reaching a judgment)|The Reviewer's session ended before it reached a conclusion|The review did not reach a conclusion)/,
+    kind: "reviewer",
+    zh: "审阅者的会话在得出结论前就结束了，这一轮没有评审意见",
+    en: "The Reviewer's session ended before it reached a conclusion, so this round was not judged",
+  },
+  {
+    bare: /^Engineer backend failed before a trustworthy completed turn/,
+    kind: "reviewer",
+    zh: "模型服务在工程师做完之前断开了；Argus 会换一个新会话重试，审阅等到那时再做",
+    en: "The model service dropped the Engineer's session before it finished; Argus retries in a fresh session and the review waits until then",
+  },
+  {
+    bare: /^Retry in a fresh (?:\w+ )?session/,
+    zh: "Argus 会换一个新会话再试一次",
+    en: "Argus will try again in a fresh session",
+  },
+  {
+    bare: /^Restart the daemon when ready/,
+    zh: "重新启动后，Argus 会从项目留下的状态继续，选择下一项具体任务",
+    en: "Once Argus is started again it continues from the saved project state and picks the next concrete task",
+  },
+  {
+    bare: /^engineer round \d+ \((?:fresh|rotated|resumed)[^)]*\)\s*$/i,
+    kind: "round",
+    zh: "工程师开始了新的一轮工作",
+    en: "The Engineer began a new round of work",
+  },
   {
     match: /provider[\s-]?turn/i,
-    bare: /^One Engineer call used its whole per-call provider-turn allowance/,
+    bare: /^(?:One Engineer call|\d+ Engineer sessions in a row each) used (?:its|their) whole per-call provider-turn allowance/,
     zh: "继续换了个新会话接着做，之前的进展都在",
     en: "Continued in a fresh session; earlier progress is kept",
   },
@@ -125,14 +162,14 @@ const HARNESS_NOTES: Array<{ match: RegExp; bare?: RegExp; zh: string; en: strin
 export function humanizeHarnessNote(
   text: string,
   zh: boolean,
-): { summary: string; receipt: string } {
+): { summary: string; receipt: string; kind?: "interrupt" | "reviewer" | "round" } {
   const raw = String(text || "").trim();
   const marker = raw.search(/Runner receipt:/i);
   const tail = marker >= 0 ? raw.slice(marker).trim() : "";
   const rule = tail
-    ? HARNESS_NOTES.find((note) => note.match.test(raw))
+    ? HARNESS_NOTES.find((note) => note.match?.test(raw))
     : HARNESS_NOTES.find((note) => note.bare?.test(raw));
-  if (rule) return { summary: zh ? rule.zh : rule.en, receipt: tail || raw };
+  if (rule) return { summary: zh ? rule.zh : rule.en, receipt: tail || raw, kind: rule.kind };
   return { summary: "", receipt: tail };
 }
 
@@ -175,6 +212,45 @@ export function readableRecord(value: string | undefined | null): string {
     .trim();
 }
 
+/** What a structural record means, for the steps that carry no prose of their
+ * own. Only the events whose meaning is fixed by their type get a sentence;
+ * a silent round still says that nothing was written down. */
+function describeRecord(event: MapEvent, status: string, zh: boolean): string {
+  switch (event.type) {
+    case "life.planner.task_added":
+      return zh ? "规划者把这项任务列入了计划。" : "The Planner added this task to the plan.";
+    case "life.mission.started":
+      return zh ? "工程师接手了这项任务，开始动手。" : "The Engineer picked up this task and began working.";
+    case "life.phase.started":
+    case "round.review.started":
+      return event.role === "reviewer"
+        ? zh ? "审阅者打开了工程师的工作，开始核查。" : "The Reviewer opened the Engineer's work to check it."
+        : "";
+    case "life.mission.completed":
+      return status === "done"
+        ? zh ? "任务完成，结果已经记录在案。" : "The task was finished; its result is on record."
+        : status.startsWith("paused")
+          ? zh ? "这项任务的工作暂停了。" : "Work on this task was paused."
+          : zh ? "任务到此结束。" : "The task ended here.";
+    case "life.mission.failed":
+      return zh ? "任务没有达到目标就结束了。" : "The task ended without reaching its goal.";
+    default:
+      return "";
+  }
+}
+
+/** Where a finished task ended up, when its own record says nothing. */
+function outcomeSentence(status: string, zh: boolean): string {
+  switch (status) {
+    case "done": return zh ? "这项任务已经完成。" : "This task was completed.";
+    case "failed": return zh ? "这项任务没有达到目标。" : "This task did not reach its goal.";
+    case "aborted": return zh ? "这项任务被取消了。" : "This task was cancelled.";
+    case "skipped": return zh ? "这项任务被跳过了。" : "This task was skipped.";
+    case "superseded": return zh ? "这项任务被一个新的计划取代了。" : "A new plan took the place of this task.";
+    default: return "";
+  }
+}
+
 /** Display observations, including their evidence strength; never fill a missing stage with success. */
 export function buildSubmap(
   task: MapTask,
@@ -185,7 +261,7 @@ export function buildSubmap(
     {
       id: `${task.id}:brief`,
       kind: "plan",
-      title: zh ? "任务目标" : "Task brief",
+      title: zh ? "这项任务要做什么" : "What this task set out to do",
       detail: task.objective || task.title,
       status: "recorded",
       source: "task",
@@ -268,55 +344,65 @@ export function buildSubmap(
     const prose = readableRecord(cut >= 0 ? raw.slice(0, cut) : raw);
     const reviewVerdictTitle =
       status === "done"
-        ? zh ? "审查通过" : "Review passed"
+        ? zh ? "审阅通过" : "The Reviewer was satisfied"
         : status === "continue"
-          ? zh ? "审查：继续推进" : "Review: keep going"
+          ? zh ? "审阅者要求再改一轮" : "The Reviewer asked for another pass"
           : ["blocked", "replan", "replan_requested"].includes(status)
-            ? zh ? "审查：需要调整" : "Review: needs a change"
+            ? zh ? "审阅者建议调整方向" : "The Reviewer asked to change course"
             : status === "failed"
-              ? zh ? "审查未通过" : "Review failed"
+              ? zh ? "审阅未通过" : "The Reviewer did not accept this round"
               : "";
-    const clause = kind === "execution" ? titleClause(prose) : "";
-    const title = reviewSkipped
-      ? zh ? "审查未执行" : "Review not performed"
-      : kind === "review"
-        ? finished
-          ? reviewVerdictTitle || (zh ? "审查意见" : "Review outcome")
-          : zh
-            ? "开始审查"
-            : "Review started"
-        : kind === "result"
-          ? zh
-            ? "执行结果"
-            : "Execution result"
-          : kind === "plan"
+    // Harness plumbing never names a step; only research prose does.
+    const interrupted = note.kind === "interrupt";
+    const clause = kind === "execution" && !note.summary ? titleClause(prose) : "";
+    const title = interrupted
+      ? zh ? "这一轮没做完就被停下" : "Stopped before the round could finish"
+      : reviewSkipped
+        ? zh ? "这一轮没有审阅" : "No review this round"
+        : kind === "review"
+          ? finished
+            ? reviewVerdictTitle || (zh ? "审阅意见" : "What the Reviewer said")
+            : zh
+              ? "审阅者开始核查"
+              : "The Reviewer began reading"
+          : kind === "result"
             ? zh
-              ? "任务进入计划"
-              : "Added to plan"
-            : clause ||
-              (e.type === "life.mission.started"
-                ? zh
-                  ? "开始执行"
-                  : "Execution started"
-                : e.type === "round.main.completed"
+              ? "最后得到了什么"
+              : "What came out"
+            : kind === "plan"
+              ? zh
+                ? "列入计划"
+                : "Taken into the plan"
+              : clause ||
+                (note.kind === "round"
                   ? zh
-                    ? "本轮执行记录"
-                    : "Round execution"
-                  : zh
-                    ? "执行尝试"
-                    : "Execution attempt");
+                    ? "新一轮开始"
+                    : "A new round began"
+                  : e.type === "life.mission.started"
+                    ? zh
+                      ? "开始动手"
+                      : "Work began"
+                    : e.type === "round.main.completed"
+                      ? zh
+                        ? "完成一轮工作"
+                        : "A round of work"
+                      : zh
+                        ? "一次尝试"
+                        : "An attempt at the work");
+    const nextNote = humanizeHarnessNote(e.next_action || "", zh);
+    const described = prose || note.summary ? "" : describeRecord(e, status, zh);
     rows.push({
       id: e.id,
       kind,
       title,
-      summary: note.summary || clipSentence(prose) || undefined,
+      summary: note.summary || clipSentence(prose) || described || undefined,
       detail: [
-        prose || note.summary || noDetails(zh),
-        reviewSkipped && e.next_action
-          ? `${zh ? "下一步" : "Next action"}: ${e.next_action}`
+        prose || note.summary || described || noDetails(zh),
+        reviewSkipped && e.next_action && !nextNote.summary
+          ? `${zh ? "接下来" : "What happens next"}: ${e.next_action}`
           : "",
         note.receipt
-          ? `${zh ? "——运行记录：" : "— runner receipt: "}${note.receipt.replace(/^Runner receipt:\s*/i, "")}`
+          ? `${zh ? "——技术记录：" : "— technical record: "}${note.receipt.replace(/^Runner receipt:\s*/i, "")}`
           : "",
       ].filter(Boolean).join("\n\n"),
       status,
@@ -327,7 +413,7 @@ export function buildSubmap(
       eventIds: [e.id],
     });
     if (
-      !reviewSkipped && e.next_action &&
+      !reviewSkipped && !interrupted && e.next_action &&
       ["continue", "blocked", "replan", "replan_requested"].includes(
         e.status || "",
       )
@@ -335,8 +421,8 @@ export function buildSubmap(
       rows.push({
         id: `${e.id}:next`,
         kind: "revision",
-        title: zh ? "建议的修订" : "Requested revision",
-        detail: e.next_action,
+        title: zh ? "审阅者提出的修改" : "What the Reviewer asked to change",
+        detail: nextNote.summary || e.next_action,
         status: "requested",
         ts: e.ts,
         round,
@@ -350,7 +436,7 @@ export function buildSubmap(
     rows.push({
       id: `${task.id}:active`,
       kind: "execution",
-      title: zh ? "执行进展" : "Execution progress",
+      title: zh ? "正在进行的工作" : "Work under way",
       detail: task.summary || "",
       status: task.status,
       source: "task",
@@ -363,8 +449,8 @@ export function buildSubmap(
     rows.push({
       id: `${task.id}:outcome`,
       kind: "result",
-      title: zh ? "任务状态记录" : "Recorded task outcome",
-      detail: task.summary || "",
+      title: zh ? "任务的最终状态" : "Where this task ended up",
+      detail: task.summary || outcomeSentence(task.status, zh),
       status: task.status,
       source: "task",
       eventIds: [],
@@ -538,7 +624,7 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
     const sameRound =
       sameEpisode && source.round != null && source.round === target.round;
     let relation: SubmapLink["relation"] = "record_order";
-    let label = zh ? "后续记录" : "Later record";
+    let label = zh ? "接着" : "then";
     let explanation = zh
       ? "同一任务的相邻观察，未确认直接因果或执行依赖。"
       : "Adjacent observations of the same task; no causal dependency is asserted.";
@@ -547,8 +633,10 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       label = zh
         ? target.kind === "plan"
           ? "纳入计划"
-          : "执行此任务"
-        : "Execute";
+          : "着手执行"
+        : target.kind === "plan"
+          ? "planned"
+          : "carried out";
       explanation = zh
         ? "同一任务的目标／计划与其执行记录关联。"
         : "The task brief or plan is linked to execution of that same task.";
@@ -558,7 +646,7 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       sameRound
     ) {
       relation = "review";
-      label = zh ? "提交审查" : "Review";
+      label = zh ? "交付审阅" : "reviewed";
       explanation = zh
         ? "同一个任务、同一执行段、同一轮次的执行与审查记录。"
         : "Execution and review belong to the same task, episode and numbered round.";
@@ -568,7 +656,7 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       target.eventIds.some((id) => source.eventIds.includes(id))
     ) {
       relation = "revision";
-      label = zh ? "提出修订" : "Revise";
+      label = zh ? "提出修改" : "asked to change";
       explanation = zh
         ? "这条修订建议来自对应的审查记录。"
         : "This revision was requested in the corresponding review.";
@@ -581,13 +669,13 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       target.round > source.round
     ) {
       relation = "next_attempt";
-      label = zh ? "进入下轮" : "Next round";
+      label = zh ? "下一轮" : "next round";
       explanation = zh
         ? "修订建议之后出现了同一任务的下一轮执行；不表示建议的全部内容已被采纳。"
         : "A later round follows the revision request; this does not certify every requested change was applied.";
     } else if (target.kind === "result" && target.source === "task") {
       relation = "snapshot";
-      label = zh ? "状态记录" : "Recorded status";
+      label = zh ? "最终状态" : "ended as";
       explanation = zh
         ? "任务状态记录；部分执行过程可能缺失。"
         : "Links to the captured state of this task; intermediate records may be missing.";
@@ -596,7 +684,7 @@ export function submapLinks(steps: SubmapStep[], zh: boolean): SubmapLink[] {
       ["review", "execution", "revision"].includes(source.kind)
     ) {
       relation = "outcome";
-      label = zh ? "形成结果" : "Outcome";
+      label = zh ? "得到结果" : "led to";
       explanation = zh
         ? "同一任务的后续完成／失败事件，不等同于成功认证。"
         : "A completion or failure event of this task, not a certification of success.";

@@ -144,10 +144,10 @@ describe('renderEvent', () => {
 
   it('presents an explicitly skipped review as an informational interruption', () => {
     const event = { type: 'round.review.completed', status: 'continue', reason: 'Turn allowance reached.', review_skipped: true } as EventMsg;
-    expect(renderEvent(event)).toMatchObject({ tone: 'info', text: 'review not performed · Turn allowance reached.' });
+    expect(renderEvent(event)).toMatchObject({ tone: 'info', text: 'no review this round · Turn allowance reached.' });
     const semantic = renderSemanticEvent(event as TypedArgusEvent, { ...WEB_RENDER_CONTEXT, locale: 'zh-CN' });
     expect(semantic.tone).toBe('info');
-    expect(renderText(semantic)).toBe('审查未执行 · Turn allowance reached.');
+    expect(renderText(semantic)).toBe('这一轮没有审阅 · Turn allowance reached.');
   });
 
   it('shows an engineer-requested bounded review deferral', () => {

@@ -50,6 +50,10 @@
 .map-macro:not([data-overview-density="full"]) .map-card-live { display: none; }
 @keyframes atlas-live-ring { 0% { opacity: .9; transform: scale(.55); } 70% { opacity: 0; transform: scale(1.35); } 100% { opacity: 0; transform: scale(1.35); } }
 
+/* The reader names the stage and, underneath, says in one line what that
+ * stage is for, so a newcomer learns the roles while reading. */
+.macro-reader header > span .macro-reader-note { display: block; margin-top: 3px; font-size: 10.5px; font-weight: 450; letter-spacing: 0; text-transform: none; color: rgb(var(--ink-faint)); }
+
 /* Replaying a live session: the same reveal strip the datasets use, with a
  * way back to the present. */
 .map-playback .map-replay-exit { margin-left: 4px; }

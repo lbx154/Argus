@@ -213,7 +213,7 @@ export function renderEvent(ev: EventMsg): Rendered | null {
   if (t === 'round.main.completed') return { role: 'engineer', label: 'Engineer', glyph: '✅', text: `round ${roundNo(ev)} completed`, tone: 'info' };
   if (t === 'round.review.completed') {
     if (ev.review_skipped === true)
-      return { role: 'reviewer', label: 'Reviewer', glyph: '↪', text: `review not performed · ${trunc(S(ev, 'reason'), 200)}`, tone: 'info' };
+      return { role: 'reviewer', label: 'Reviewer', glyph: '↪', text: `no review this round · ${trunc(S(ev, 'reason'), 200)}`, tone: 'info' };
     const st = S(ev, 'status');
     const tone: Tone = st === 'done' ? 'ok' : st === 'blocked' || st === 'no_progress' ? 'err' : 'warn';
     const glyph = st === 'done' ? '✅' : st === 'blocked' || st === 'no_progress' ? '⛔' : '↻';

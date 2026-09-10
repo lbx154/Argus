@@ -911,18 +911,26 @@ class Reviewer:
             or "backend_unavailable"
         )
         if fatal or result.exit_code != 0:
+            # Plain words first; the transport details ride behind a
+            # "Runner receipt:" marker so the cockpit can set them aside.
+            interrupted = "external interrupt" in fatal.lower() or "daemon stop" in fatal.lower()
             reason = (
-                "Reviewer backend returned no complete judgment "
-                f"(exit={result.exit_code}"
+                (
+                    "Argus was stopped by its operator before the Reviewer could "
+                    "finish reading this round; nothing here is a judgment on the work."
+                    if interrupted
+                    else "The Reviewer's session ended before it reached a conclusion, "
+                    "so this round was not judged."
+                )
+                + f" Runner receipt: exit={result.exit_code}"
                 + (f", fatal_error={fatal}" if fatal else "")
-                + ")."
             )
             return ReviewDecision(
                 status="blocked",
                 reason=reason,
                 next_action=(
-                    "Reviewer backend ended before reaching a judgment — do NOT "
-                    "treat partial output as evidence about the engineer's work."
+                    "The review did not reach a conclusion; treat this round as not "
+                    "yet reviewed rather than as feedback on the work."
                 ),
                 backend_unavailable=True,
                 input_tokens=rev_in,

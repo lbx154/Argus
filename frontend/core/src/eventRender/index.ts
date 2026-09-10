@@ -276,7 +276,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('engineer', 'role.engineer', '✅', localized(context, `round ${roundNumber(event)} completed`, `第 ${roundNumber(event)} 轮已完成`), 'info');
     case 'round.review.completed': {
       if (event.review_skipped === true) {
-        return model('reviewer', 'role.reviewer', '↪', `${localized(context, 'review not performed', '审查未执行')} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, 'info');
+        return model('reviewer', 'role.reviewer', '↪', `${localized(context, 'no review this round', '这一轮没有审阅')} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, 'info');
       }
       const status = stringField(event, 'status');
       const tone: RenderTone = status === 'done' ? 'ok' : status === 'blocked' || status === 'no_progress' ? 'err' : 'warn';

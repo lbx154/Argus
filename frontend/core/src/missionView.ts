@@ -419,7 +419,7 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
         updated_at: ts,
       };
     }
-    const reviewTitle = reviewSkipped ? 'Review not performed' : status === 'done' ? 'Evidence accepted' : 'Attempt rejected';
+    const reviewTitle = reviewSkipped ? 'No review this round' : status === 'done' ? 'Evidence accepted' : 'Attempt rejected';
     setRole(view, 'reviewer', reviewSkipped ? 'waiting' : status === 'done' ? 'done' : 'rejected', reviewSkipped ? reviewTitle : status === 'done' ? 'Accepted evidence' : 'Requested another attempt', ts);
     addTimeline(view, event, 'reviewer', reviewTitle, reason, reviewSkipped ? 'info' : status === 'done' ? 'success' : 'error');
     const nextAction = S(event, 'next_action');

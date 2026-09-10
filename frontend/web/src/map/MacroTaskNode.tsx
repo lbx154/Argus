@@ -21,6 +21,7 @@ import type { MapCopy, CardReference } from "./presentation";
 import { ACTIVE, statusKey } from "./model";
 import {
   STEP_KINDS,
+  humanizeHarnessNote,
   noDetails,
   type StepKind,
   type SubmapLayout,
@@ -100,26 +101,35 @@ const ICONS = {
   revision: RotateCcw,
   result: FileText,
 };
+/* Status words a reader outside the team understands at a glance. */
 const STATES: Record<string, [string, string]> = {
   done: ["已完成", "Completed"],
   running: ["进行中", "In progress"],
   pending: ["待开始", "Planned"],
-  failed: ["未通过", "Failed"],
+  failed: ["未通过", "Did not pass"],
   aborted: ["已取消", "Cancelled"],
   skipped: ["已跳过", "Skipped"],
-  superseded: ["已替代", "Superseded"],
-  question: ["待答复", "Needs input"],
+  superseded: ["已被新计划替代", "Replaced by a new plan"],
+  question: ["等待答复", "Waiting for an answer"],
   paused: ["已暂停", "Paused"],
   paused_external_work: ["等待后台任务", "Waiting on background work"],
-  missing: ["引用缺失", "Missing"],
+  missing: ["记录中缺失", "Not in this record"],
   unknown: ["状态未知", "Unknown"],
-  continue: ["需修订", "Revise"],
-  blocked: ["受阻", "Blocked"],
-  started: ["开始记录", "Started"],
-  recorded: ["已记录", "Recorded"],
-  requested: ["修订建议", "Suggested"],
-  replan: ["调整计划", "Revise plan"],
-  replan_requested: ["调整计划", "Revise plan"],
+  continue: ["需再改一轮", "Another pass needed"],
+  blocked: ["受阻", "Held up"],
+  started: ["进行中", "Under way"],
+  recorded: ["已记录", "On record"],
+  requested: ["修改建议", "Requested"],
+  replan: ["需要调整计划", "Plan needs adjusting"],
+  replan_requested: ["需要调整计划", "Plan needs adjusting"],
+};
+/* One sentence per stage, so a newcomer learns who does what while reading. */
+const KIND_NOTES: Record<StepKind, [string, string]> = {
+  plan: ["规划者决定要做什么、为什么做", "The Planner decides what to do and why"],
+  execution: ["工程师动手把事情做出来", "The Engineer does the work"],
+  review: ["审阅者独立核查结果", "The Reviewer checks the result independently"],
+  revision: ["审阅者要求修改的地方", "What the Reviewer asked to change"],
+  result: ["这项任务最后得到了什么", "What the task produced in the end"],
 };
 const sourceLabel = (step: SubmapStep, zh: boolean) =>
   step.source === "team"
@@ -401,6 +411,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             {partSummary ||
               copy[task.id]?.summary ||
               task.pending_question ||
+              humanizeHarnessNote(task.summary || "", zh).summary ||
               task.summary ||
               task.objective ||
               (zh ? "放大查看任务内部" : "Zoom to explore")}
@@ -410,7 +421,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               const StageIcon = ICONS[kind];
               const present = layout.steps.some((step) => step.kind === kind);
               const active = layout.steps.some((step) => step.kind === kind && isStepActive(step));
-              return <span key={kind} className={`submap-kind-${kind}`} data-present={present} data-active={active} title={KINDS[kind][zh ? 0 : 1]}><StageIcon size={12} /><span>{zh ? ({ plan: '规划', execution: '执行', review: '审查', result: '交付' })[kind] : KINDS[kind][1]}</span></span>;
+              return <span key={kind} className={`submap-kind-${kind}`} data-present={present} data-active={active} title={`${KINDS[kind][zh ? 0 : 1]} · ${KIND_NOTES[kind][zh ? 0 : 1]}`}><StageIcon size={12} /><span>{zh ? ({ plan: '规划', execution: '执行', review: '审查', result: '交付' })[kind] : KINDS[kind][1]}</span></span>;
             })}
           </div>
           {teamSteps.length > 0 && (
@@ -480,6 +491,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             <span
               key={kind}
               className={`submap-kind-${kind} ${layout.steps.some((s) => s.kind === kind) ? "" : "is-unrecorded"}`}
+              title={KIND_NOTES[kind][zh ? 0 : 1]}
             >
               {KINDS[kind][zh ? 0 : 1]}
             </span>
@@ -539,7 +551,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                   {step.source === 'team' ? (zh ? '子任务 · ' : 'Subtask · ') : ''}{KINDS[step.kind][zh ? 0 : 1]}
                   {step.round != null && (
                     <em className="submap-round">
-                      {zh ? `第 ${step.round} 轮` : `R${step.round}`}
+                      {zh ? `第 ${step.round} 轮` : `Round ${step.round}`}
                     </em>
                   )}
                 </span>
@@ -607,7 +619,10 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             }}
           >
             <header>
-              <span>{KINDS[detail.kind][zh ? 0 : 1]}</span>
+              <span>
+                {KINDS[detail.kind][zh ? 0 : 1]}
+                <small className="macro-reader-note">{KIND_NOTES[detail.kind][zh ? 0 : 1]}</small>
+              </span>
               <button
                 aria-label="Close step details"
                 onClick={() => {
