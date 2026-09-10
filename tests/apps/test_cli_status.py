@@ -87,6 +87,8 @@ def test_status_separates_active_queue_from_history(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     life_root, repo = project_with_history
+    # Status reads live settings, not the daemon's launch-time budget snapshot.
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0")
     monkeypatch.setattr(
         "argus_skill.daemon.life_worker.read_daemon_status",
         lambda life_dir: Namespace(
@@ -208,6 +210,7 @@ def test_status_shows_active_work_when_present(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     life_root, repo = project_with_active_and_history
+    monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "0")
     monkeypatch.setattr(
         "argus_skill.daemon.life_worker.read_daemon_status",
         lambda life_dir: Namespace(

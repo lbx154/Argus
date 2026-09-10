@@ -36,6 +36,8 @@ def install(package: Path, directory: Path) -> tuple[Path, Path]:
     finally:
         subprocess.run(["hdiutil", "detach", str(mount)], check=True, timeout=90)
     app = directory / "Argus.app/Contents"
+    subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app.parent)],
+                   check=True, timeout=90)
     return app / "MacOS/Argus", app / "Resources/argus-backend/argus-backend"
 
 
@@ -91,7 +93,10 @@ def main():
         response.raise_for_status()
         before = response.json()["tokens_used"]
         with tempfile.TemporaryDirectory(prefix="argus-trial-release-") as temporary:
-            root = Path(temporary)
+            # macOS /var is a symlink to /private/var. Tauri deliberately rejects
+            # an executable launched through any symlink; use the real bundle
+            # path, as Finder does, without disabling that protection.
+            root = Path(temporary).resolve()
             binary, frozen = install(args.package.resolve(), root / "installed")
             assert binary.is_file() and frozen.is_file(), "Installed native runtime is missing"
             env = {k: v for k, v in os.environ.items()

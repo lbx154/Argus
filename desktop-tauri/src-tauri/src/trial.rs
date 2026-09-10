@@ -39,6 +39,7 @@ pub async fn configure(
     if !valid_key(api_key) {
         return Err("请输入完整的内部测试 Key。".to_owned());
     }
+    release.validate_payload()?;
     let executable = if release.development {
         env::var_os("ARGUS_SKILL_BIN")
             .map(PathBuf::from)

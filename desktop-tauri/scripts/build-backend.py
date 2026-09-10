@@ -42,7 +42,7 @@ def main():
                     shutil.rmtree(child)
                 else:
                     child.unlink()
-    shutil.copytree(source, destination, dirs_exist_ok=True)
+    shutil.copytree(source, destination, dirs_exist_ok=True, symlinks=True)
     print(f"Desktop backend staged: {destination}")
 
 

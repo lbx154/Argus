@@ -30,6 +30,7 @@ Windows 另需 MSVC Build Tools，Mac 需 Xcode Command Line Tools。安装开�
 ```bash
 python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
 npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
 npm --prefix desktop-tauri ci
 python -m argus_skill.release_tools.build_release
 npm --prefix frontend/web run build
@@ -42,9 +43,13 @@ Windows 产物在 `desktop-tauri/src-tauri/target/release/bundle/nsis/`；
 Mac 的 `.app` / `.dmg` 位于相邻的 `macos/` / `dmg/`。
 现有 `npm run dist` 仍是 Windows 的签名更新发布流程。
 
-`.github/workflows/desktop-trial.yml` 提供 Windows、Mac Apple Silicon 和 Intel 的
-原生构建任务，验证客户端组件与冻结后的原生 Copilot 安装并上传安装包。
-这是未签名的内部构建流程，Mac Developer ID 签名和 notarization 尚未配置。
+`.github/workflows/release.yml` 在 Windows、Mac Apple Silicon 和 Intel 上构建原生包。
+发布前会安装 EXE / DMG，使用受保护的 `ARGUS_TRIAL_SMOKE_KEY` 验证真实公网试用、
+两次工作台启动和持久化后的本地工具调用。三个平台的更新包均使用既有 Argus updater
+密钥签名；`latest.json` 合并三个平台的下载地址和签名。
+Mac Developer ID 签名和 notarization 尚未配置；首次启动若被 macOS 阻止，可在
+**系统设置 → 隐私与安全性 → 仍要打开** 中确认。该确认不需要命令行。
+`desktop-trial.yml` 另外提供无需发布凭据的未签名构建检查。
 
 ## 当前验证范围（2026-09-10）
 
@@ -53,5 +58,6 @@ Linux 上已通过桌面 TypeScript / Vite 构建、Rust 编译及核心测试�
 第二个冻结进程读取持久化配置并完成本地文件工具调用。
 浏览器模拟 IPC 已检查 Key 格式校验、输入清空、错误重试和成功进入工作台。
 
-Mac / Windows 实机 GUI、安装和重启测试尚未执行；该工作流尚未运行，
-本次没有生成或发布这两个系统的安装包。不能把 Linux 的结果当作原生系统验收。
+Mac / Windows 原生安装、GUI 和重启由发布工作流验证；任一平台失败都会阻止发布。
+正式下载请使用 [GitHub Releases](https://github.com/lbx154/Argus/releases)，
+不要使用尚未通过安装验证的构建产物。
