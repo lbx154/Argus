@@ -75,6 +75,7 @@ def _source_files(root: Path) -> Iterable[Path]:
         "desktop-tauri/src-tauri/build.rs",
         "desktop-tauri/src-tauri/installer-hooks.nsh",
         "desktop-tauri/src-tauri/tauri.conf.json",
+        "desktop-tauri/src-tauri/tauri.*.conf.json",
         # Only source scripts belong to the release. A broad glob would include
         # ignored __pycache__ bytecode produced by the packaged-host smoke test
         # and make the manifest change merely by running verification.

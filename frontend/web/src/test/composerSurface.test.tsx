@@ -13,18 +13,19 @@ const mainProps = {
 };
 
 describe('shared conversation surface', () => {
-  it('uses the same rounded input, Argus attachment button and send button in both views', () => {
+  it('keeps Argus attachment and send controls in the conversation and expandable map composer', () => {
     const main = renderToStaticMarkup(createElement(ChatBox, mainProps));
     const map = renderToStaticMarkup(createElement(MapComposer, {
       ...mainProps, onSend: async () => false, focusSignal: 0, sessionName: 'fixture', historical: false, zh: true,
     }));
     for (const html of [main, map]) {
-      expect(html).toContain('class="map-composer"');
-      expect(html).toContain('composer-surface');
+      expect(html).toMatch(/class="map-composer(?:"| )/);
       expect(html).toContain('data-logo="rounded-mark"');
       expect(html).toContain('class="map-send');
       expect(html).not.toContain('📎');
     }
+    expect(main).toContain('composer-surface');
+    expect(map).toContain('map-island-surface');
   });
 
   it('preserves IME composition and Shift+Enter, and sends once on normal Enter', () => {

@@ -18,6 +18,8 @@ async function launch(page: Page, complete = false) {
       failure: '',
       saveCount: 0,
       saved: null as unknown,
+      trialMode: false,
+      trialCount: 0,
       delaySave: false,
       url: 'http://127.0.0.1:18880/',
       savedAppearance: null as unknown,
@@ -34,7 +36,7 @@ async function launch(page: Page, complete = false) {
       setWindowTheme: async () => undefined,
       setAppearance: async (appearance: unknown) => { state.savedAppearance = appearance; return appearance; },
       getSetup: async () => ({
-        complete: state.complete, host: '127.0.0.1', port: 18880,
+        complete: state.complete, trialMode: state.trialMode, host: '127.0.0.1', port: 18880,
         runnerKind: 'codex', runnerConfigured: state.complete,
         runnerBins: {}, detectedRunners: { codex: 'C:/agents/codex.cmd', pi: 'C:/agents/pi.cmd' },
         piConfiguration: { configDir: '' },
@@ -51,12 +53,21 @@ async function launch(page: Page, complete = false) {
         state.emit({ state: 'ready', message: '已就绪' });
         return { ok: true };
       },
+      completeTrialSetup: async (_key: string) => {
+        state.trialCount++;
+        callbacks.trial?.('正在准备试用环境…');
+        if (state.delaySave) await new Promise<void>((resolve) => { state.releaseSave = resolve; });
+        if (state.failure) return { ok: false, error: state.failure };
+        state.complete = state.trialMode = true;
+        state.emit({ state: 'ready', message: '已就绪' });
+        return { ok: true };
+      },
       restartBackend: async () => state.emit({ state: 'ready', message: '已就绪' }),
       chooseRunner: async () => 'C:/custom/codex.cmd',
       getUpdateStatus: async () => ({ state: 'idle', currentVersion: '0.1.1', userInitiated: false }),
       checkForUpdate: async () => ({ state: 'idle', currentVersion: '0.1.1', userInitiated: true, detail: '预览构建不安装发布更新。' }),
       dismissUpdate: async () => undefined,
-      onTrialProgress: () => undefined,
+      onTrialProgress: (callback: (value: unknown) => void) => { callbacks.trial = callback; },
       onStatus: (callback: (value: unknown) => void) => { callbacks.status = callback; },
       onUpdateStatus: () => undefined,
       onShowSetup: () => undefined,
@@ -229,4 +240,30 @@ test('CLI grid and settings stay usable at the minimum supported window size', a
   await expect(page.locator('#wizardNext')).toBeInViewport();
   await finishSteps(page);
   await expect(page.locator('#wizardFinish')).toBeInViewport();
+});
+
+test('internal trial key validates, retries privately, and opens the cockpit without account setup', async ({ page }) => {
+  await launch(page);
+  await page.locator('#trialOpen').click();
+  await expect(page.getByText('如果您是拿到了内部测试的 Key，可以直接在这个地方填入使用')).toBeVisible();
+  await expect(page.locator('#stepper')).toBeHidden();
+  await page.locator('#trialKey').fill('invalid');
+  await page.locator('#trialSubmit').click();
+  await expect(page.locator('#trialProgress')).toHaveText('请输入完整的内部测试 Key。');
+  expect(await page.evaluate(() => (window as any).desktopTest.trialCount)).toBe(0);
+  await configure(page, { failure: '此 Key 无效，请重试。' });
+  await page.locator('#trialKey').fill('argus_trial_' + 'a'.repeat(64));
+  await page.locator('#trialSubmit').click();
+  await expect(page.locator('#trialProgress')).toHaveText('此 Key 无效，请重试。');
+  await expect(page.locator('#trialKey')).toHaveValue('');
+  await configure(page, { failure: '', delaySave: true });
+  await page.locator('#trialKey').fill('argus_trial_' + 'a'.repeat(64));
+  await page.locator('#trialSubmit').click();
+  await expect(page.locator('#trialKey')).toHaveValue('');
+  await expect(page.locator('#trialSubmit')).toBeDisabled();
+  await expect(page.locator('#trialProgress')).toHaveText('正在准备试用环境…');
+  await page.evaluate(() => (window as any).desktopTest.releaseSave());
+  await expect(page.locator('#wizard')).toBeHidden();
+  await expect(page.locator('#cockpit')).toBeVisible();
+  expect(await page.evaluate(() => (window as any).desktopTest.trialMode)).toBe(true);
 });

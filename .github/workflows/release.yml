@@ -2,7 +2,7 @@ name: release
 
 # Release version changes are operator-controlled. Do not bump package versions
 # for a bug fix unless the operator explicitly authorizes that release change.
-# v0.1.2 is an operator-authorized desktop-only release, published explicitly
+# v0.1.2 and v0.1.3 are operator-authorized desktop-only releases, published explicitly
 # after installer validation. Do not auto-publish PyPI or mixed release assets.
 
 on:
@@ -90,61 +90,84 @@ jobs:
           name: python-dist
           path: dist/*
 
-  windows:
-    name: build · Windows Tauri installers
-    runs-on: windows-latest
+  desktop:
+    name: build · ${{ matrix.platform }} desktop
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x86_64
+          - os: macos-14
+            platform: darwin-aarch64
+          - os: macos-15-intel
+            platform: darwin-x86_64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.12.0"
-          cache: npm
-          cache-dependency-path: |
-            frontend/web/package-lock.json
-            frontend/tui/package-lock.json
-            desktop-tauri/package-lock.json
+          node-version: '22.12.0'
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: x86_64-pc-windows-msvc
       - name: Install build dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e . "pyinstaller>=6.11,<7"
+          python -m pip install -e ".[trial]" pytest ruff "httpx2>=2.9,<3" "pyinstaller>=6.11,<7" tzdata
           npm --prefix frontend/web ci
           npm --prefix frontend/tui ci
           npm --prefix desktop-tauri ci
+      - name: Validate native desktop and trial components
+        env:
+          ARGUS_TEST_NATIVE_COPILOT: '1'
+        run: |
+          python -m ruff check argus_skill/trial desktop-tauri/scripts tests/trial tests/desktop
+          python -m pytest tests/trial/test_desktop.py tests/trial/test_client.py tests/desktop --tb=short
+          npm --prefix desktop-tauri run ui:typecheck
+          cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --lib --test core_tests
       - name: Build release sources and frozen backend
-        shell: pwsh
         run: |
           python -m argus_skill.release_tools.build_release
-          npm --prefix frontend/web run build
-          ./desktop-tauri/scripts/build-backend.ps1 -SkipInstall
-      - name: Build signed Tauri Desktop and stage release artifacts
-        shell: pwsh
+          npm --prefix desktop-tauri run build:backend
+      - name: Build signed desktop updates
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
-            throw "TAURI_SIGNING_PRIVATE_KEY is required: unsigned desktop updates must never be published."
-          }
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
           npm --prefix desktop-tauri run build
-          ./desktop-tauri/scripts/stage-release.ps1
+      - name: Stage Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./desktop-tauri/scripts/stage-release.ps1
+      - name: Stage Mac installer and updater
+        if: runner.os == 'macOS'
+        run: python desktop-tauri/scripts/stage-macos-release.py
+      - name: Verify installed trial and native GUI restart
+        env:
+          ARGUS_TRIAL_SMOKE_KEY: ${{ secrets.ARGUS_TRIAL_SMOKE_KEY }}
+        run: |
+          python - <<'PYSMOKE'
+          import pathlib, subprocess, sys
+          suffix = '*.exe' if sys.platform == 'win32' else '*.dmg'
+          packages = list(pathlib.Path('desktop-tauri/release').glob(suffix))
+          assert len(packages) == 1, packages
+          subprocess.run([sys.executable, 'desktop-tauri/scripts/smoke-trial-release.py', str(packages[0])], check=True)
+          PYSMOKE
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-installers
-          path: |
-            desktop-tauri/release/*.exe
-            desktop-tauri/release/*.sig
-            desktop-tauri/release/latest.json
+          name: desktop-${{ matrix.platform }}
+          path: desktop-tauri/release/*
+          if-no-files-found: error
 
   pypi:
     name: publish · PyPI
-    if: startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/tags/v0.1.2'
-    needs: [python, windows]
+    if: startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/tags/v0.1.2' && github.ref != 'refs/tags/v0.1.3'
+    needs: [python, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -164,7 +187,7 @@ jobs:
   github:
     name: publish · GitHub Release
     if: startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/tags/v0.1.2'
-    needs: [python, windows]
+    needs: [python, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -175,62 +198,18 @@ jobs:
           path: release-assets
       - uses: actions/download-artifact@v4
         with:
-          name: windows-installers
+          pattern: desktop-*
+          merge-multiple: true
           path: release-assets
       - name: Require signed updater manifest
         run: |
           test -s release-assets/latest.json
           test -n "$(find release-assets -name '*.sig' -print -quit)"
-      - name: Generate release notes from staged artifacts
-        run: |
-          python - <<'PY'
-          import hashlib
-          import json
-          import os
-          import textwrap
-          import zipfile
-          from pathlib import Path
-
-          assets = Path("release-assets")
-          installers = list(assets.glob("Argus-*-setup.exe"))
-          wheels = list(assets.glob("*.whl"))
-          assert len(installers) == 1, installers
-          assert len(wheels) == 1, wheels
-
-          installer = installers[0]
-          digest = hashlib.sha256(installer.read_bytes()).hexdigest()
-          with zipfile.ZipFile(wheels[0]) as archive:
-              manifest = json.loads(
-                  archive.read("argus_skill/release_manifest.json")
-              )
-          version = str(manifest["package_version"])
-          assert os.environ["GITHUB_REF_NAME"] == f"v{version}"
-          release_id = str(manifest["release_id"])
-          Path("release-body.md").write_text(
-              textwrap.dedent(f"""\
-              ## Argus {version}
-
-              Refreshed signed Tauri Desktop preview release.
-
-              ### Highlights
-
-              - Desktop messages default to Auto routing instead of forcing every input into the task pipeline
-              - Existing installations reset the old implicit Task preference while preserving new explicit choices
-              - Frozen local Python backend with verified runtime ownership
-              - Manager → Planner → Engineer → Reviewer task pipeline
-              - Signed desktop update metadata
-
-              ### Windows
-
-              Download `{installer.name}`.
-
-              SHA-256: `{digest}`
-
-              Release identity: `{release_id}`
-              """),
-              encoding="utf-8",
-          )
-          PY
+      - uses: actions/checkout@v4
+        with:
+          path: source
+      - name: Verify merged updater manifest and generate release notes
+        run: python source/desktop-tauri/scripts/prepare-github-release.py release-assets --notes release-body.md
       - uses: softprops/action-gh-release@v2
         with:
           files: release-assets/**/*

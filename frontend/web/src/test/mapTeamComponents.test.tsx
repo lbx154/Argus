@@ -57,8 +57,8 @@ describe('Team work in the map', () => {
     expect(renderer!.root.findByProps({ 'data-step-id': 'review' }).props['data-active']).toBe(true);
     expect(renderer!.root.findByProps({ 'data-step-id': 'complete' }).props['data-active']).toBe(false);
     const markup = renderToStaticMarkup(<MacroTaskNode {...props} />);
-    expect(markup).toContain('data-active="true" title="Execute"');
-    expect(markup).toContain('data-active="true" title="Review"');
+    expect(markup).toContain('data-active="true" title="Engineer"');
+    expect(markup).toContain('data-active="true" title="Reviewer"');
     expect(markup).toContain('Subtasks 1/3 done · 2 running');
 
     const menu = props.data.menu;
