@@ -75,6 +75,13 @@ const wizardCancel = document.getElementById('wizardCancel') as HTMLButtonElemen
 const wizardBack = document.getElementById('wizardBack') as HTMLButtonElement;
 const wizardNext = document.getElementById('wizardNext') as HTMLButtonElement;
 const wizardFinish = document.getElementById('wizardFinish') as HTMLButtonElement;
+const trialOpen = document.getElementById('trialOpen') as HTMLButtonElement;
+const trialForm = document.getElementById('trialForm') as HTMLFormElement;
+const trialKey = document.getElementById('trialKey') as HTMLInputElement;
+const trialSubmit = document.getElementById('trialSubmit') as HTMLButtonElement;
+const trialProgress = document.getElementById('trialProgress') as HTMLParagraphElement;
+const trialShortcut = document.getElementById('trialShortcut') as HTMLButtonElement;
+let trialBusy = false;
 
 const cockpitEl = document.getElementById('cockpit') as HTMLElement;
 const cockpitFrame = document.getElementById('cockpitFrame') as HTMLIFrameElement;
@@ -260,6 +267,7 @@ function hideSplashAfterCockpitLoad(): void {
 }
 
 function render(status: DesktopStatus): void {
+  if (trialBusy) return;
   document.body.dataset.state = status.state;
   statusEl.textContent = status.message;
   detailEl.hidden = !(status.state === 'error' && status.detail);
@@ -419,6 +427,14 @@ function showWizard(setup: DesktopSetup): void {
   document.documentElement.dataset.settingsMode = cockpitMounted ? 'true' : 'false';
   wizardCancel.hidden = !cockpitMounted;
   applySetup(setup);
+  trialKey.value = '';
+  trialForm.hidden = true;
+  wizardEl.classList.remove('trial-entry-active');
+  stepperEl.hidden = false;
+  trialOpen.setAttribute('aria-expanded', 'false');
+  trialOpen.className = 'primary';
+  trialOpen.textContent = setup.trialMode ? '更换内部测试 Key' : '输入内部测试 Key';
+  trialProgress.textContent = '';
   portInput.value = String(port);
   renderRunnerKind();
   renderRunner();
@@ -426,6 +442,7 @@ function showWizard(setup: DesktopSetup): void {
 }
 
 async function reopenWizard(): Promise<void> {
+  if (applying) return;
   setupRequested = true;
   const result = await capture(() => desktopBridge.getSetup());
   if (!result.ok) {
@@ -442,6 +459,7 @@ function closeWizard(): void {
   splashEl.classList.remove('has-wizard');
   document.documentElement.dataset.settingsMode = 'false';
   setupRequested = false;
+  trialKey.value = '';
 }
 
 function closeDesktopMenus(): void {
@@ -606,6 +624,69 @@ retryEl.addEventListener('click', () => {
 
 setupEl.addEventListener('click', () => void reopenWizard());
 
+function revealTrial(): void {
+  trialForm.hidden = false;
+  wizardEl.classList.add('trial-entry-active');
+  stepperEl.hidden = true;
+  wizardCaption.textContent = '内部测试';
+  trialOpen.className = 'ghost small';
+  trialOpen.textContent = '使用自己的账号';
+  trialOpen.setAttribute('aria-expanded', 'true');
+  trialKey.focus();
+}
+trialOpen.addEventListener('click', () => {
+  if (applying) return;
+  if (trialForm.hidden) {
+    revealTrial();
+  } else {
+    trialForm.hidden = true;
+    trialKey.value = '';
+    wizardEl.classList.remove('trial-entry-active');
+    stepperEl.hidden = false;
+    trialOpen.className = 'primary';
+    trialOpen.textContent = '输入内部测试 Key';
+    trialOpen.setAttribute('aria-expanded', 'false');
+    goToStep(0);
+  }
+});
+trialShortcut.addEventListener('click', async () => {
+  await reopenWizard();
+  if (wizardOpen) revealTrial();
+});
+desktopBridge.onTrialProgress((message) => {
+  if (trialBusy) trialProgress.textContent = message;
+});
+trialForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (applying) return;
+  const key = trialKey.value.trim();
+  if (!/^argus_trial_[a-f0-9]{64}$/.test(key)) {
+    trialProgress.textContent = '请输入完整的内部测试 Key。';
+    trialKey.focus();
+    return;
+  }
+  applying = trialBusy = true;
+  trialKey.value = '';
+  trialKey.disabled = trialSubmit.disabled = true;
+  wizardEl.setAttribute('aria-busy', 'true');
+  trialSubmit.textContent = '正在准备…';
+  trialProgress.textContent = '正在验证 Key…';
+  const result = await capture(() => desktopBridge.completeTrialSetup(key));
+  applying = trialBusy = false;
+  trialKey.disabled = trialSubmit.disabled = false;
+  wizardEl.removeAttribute('aria-busy');
+  trialSubmit.textContent = '开始试用';
+  if (!result.ok || !result.value.ok) {
+    // Never reflect raw IPC errors, which could contain serialized input.
+    trialProgress.textContent = result.ok ? (result.value.error || '配置失败，请重试。') : '无法连接本地安装服务，请重试。';
+    return;
+  }
+  closeWizard();
+  const status = await capture(() => desktopBridge.getStatus());
+  if (status.ok) render(status.value);
+  else renderIpcFailure('无法读取本地服务状态', status.detail);
+});
+
 diagnosticsEl.addEventListener('click', () => {
   diagnosticsEl.disabled = true;
   void capture(() => desktopBridge.exportDiagnostics()).then((result) => {
@@ -679,6 +760,7 @@ wizardNext.addEventListener('click', () => {
 });
 
 wizardFinish.addEventListener('click', async () => {
+  if (applying) return;
   if (!runnerSelected || !(runnerBins[runnerKind] || detectedRunners[runnerKind])) {
     goToStep(0);
     return;

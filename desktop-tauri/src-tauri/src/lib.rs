@@ -9,6 +9,7 @@ mod release;
 mod resilience;
 mod runner;
 mod settings;
+mod trial;
 mod update_policy;
 mod updater;
 
@@ -54,6 +55,7 @@ pub struct AppState {
     delivered: Mutex<DeliveryDedupe>,
     preview_restore_maximized: Mutex<Option<bool>>,
     tray: Mutex<Option<TrayIcon>>,
+    setup_lock: tokio::sync::Mutex<()>,
 }
 
 struct DeliveryDedupe {
@@ -293,6 +295,7 @@ fn initialize(app: &AppHandle) -> tauri::Result<()> {
         }),
         preview_restore_maximized: Mutex::new(None),
         tray: Mutex::new(None),
+        setup_lock: tokio::sync::Mutex::new(()),
     });
     // Keep the native non-client frame, but render the small File/Help strip in
     // the trusted local shell so its gradient follows the cockpit theme. The
@@ -332,6 +335,7 @@ fn get_setup(app: AppHandle) -> Result<DesktopSetup, String> {
     }
     Ok(DesktopSetup {
         complete,
+        trial_mode: settings.trial_mode,
         host: settings.host,
         port: settings.port,
         runner_kind,
@@ -403,6 +407,40 @@ async fn choose_runner(kind: models::RunnerKind) -> Result<Option<String>, Strin
 
 #[tauri::command]
 async fn complete_setup(app: AppHandle, input: CompleteSetupInput) -> SetupResult {
+    let app_state = state(&app);
+    let Ok(_guard) = app_state.setup_lock.try_lock() else {
+        return SetupResult::error("正在应用设置，请稍候。");
+    };
+    apply_setup(&app, input, false).await
+}
+
+#[tauri::command]
+async fn complete_trial_setup(app: AppHandle, input: trial::TrialSetupInput) -> SetupResult {
+    let app_state = state(&app);
+    let Ok(_guard) = app_state.setup_lock.try_lock() else {
+        return SetupResult::error("正在准备试用，请稍候。");
+    };
+    let release = make_release_context(&app);
+    let executable = match trial::configure(&app, &release, input.api_key.trim()).await {
+        Ok(path) => path,
+        Err(message) => return SetupResult::error(message),
+    };
+    let settings = app_state.settings.snapshot();
+    let mut bins = settings.runner_bins;
+    bins.insert("copilot".to_owned(), executable);
+    apply_setup(
+        &app,
+        CompleteSetupInput {
+            port: settings.port as u32,
+            runner_kind: models::RunnerKind::Copilot,
+            runner_bins: bins,
+        },
+        true,
+    )
+    .await
+}
+
+async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: bool) -> SetupResult {
     if !(1024..=65535).contains(&input.port) {
         return SetupResult::error("端口需在 1024 - 65535 之间");
     }
@@ -414,6 +452,7 @@ async fn complete_setup(app: AppHandle, input: CompleteSetupInput) -> SetupResul
     next.runner_bins = normalized_runner_bins(&input.runner_bins);
     next.runner_configured = true;
     next.setup_complete = true;
+    next.trial_mode = trial_mode;
     let configured = match resolve_runner_configuration(&next) {
         Ok(configured) => configured,
         Err(error) => return SetupResult::error(error.to_string()),
@@ -426,7 +465,10 @@ async fn complete_setup(app: AppHandle, input: CompleteSetupInput) -> SetupResul
             "未找到所选 Agent CLI。请先安装并登录，或选择有效的可执行文件。",
         );
     }
-    let runtime_changed = previous.port != next.port
+    // A new key must also replace ACP workers holding the prior provider env.
+    let runtime_changed = trial_mode
+        || previous.port != next.port
+        || previous.trial_mode != next.trial_mode
         || previous.runner_kind != next.runner_kind
         || previous.runner_configured != next.runner_configured
         || previous.runner_bins != next.runner_bins;
@@ -662,6 +704,7 @@ pub fn run() {
         set_large_preview,
         choose_runner,
         complete_setup,
+        complete_trial_setup,
         restart_backend,
         export_diagnostics,
         hide_desktop,

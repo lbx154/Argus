@@ -96,15 +96,31 @@ impl SettingsStore {
 }
 
 fn desktop_data_dir() -> PathBuf {
-    let app_data = env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .or_else(|| {
-            env::var_os("USERPROFILE")
-                .map(PathBuf::from)
-                .map(|home| home.join("AppData").join("Roaming"))
-        })
-        .unwrap_or_else(|| PathBuf::from("."));
-    app_data.join(CANONICAL_USER_DATA_DIR)
+    #[cfg(not(windows))]
+    {
+        let home = env::var_os("HOME")
+            .map(PathBuf::from)
+            .expect("HOME is required for desktop settings");
+        return home
+            .join(if cfg!(target_os = "macos") {
+                "Library/Application Support"
+            } else {
+                ".local/share"
+            })
+            .join(CANONICAL_USER_DATA_DIR);
+    }
+    #[cfg(windows)]
+    {
+        let app_data = env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .or_else(|| {
+                env::var_os("USERPROFILE")
+                    .map(PathBuf::from)
+                    .map(|home| home.join("AppData").join("Roaming"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."));
+        app_data.join(CANONICAL_USER_DATA_DIR)
+    }
 }
 
 fn migrate_legacy_settings(data_dir: &Path, target: &Path) -> anyhow::Result<()> {

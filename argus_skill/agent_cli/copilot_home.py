@@ -249,6 +249,9 @@ def apply_copilot_home(env: dict[str, str]) -> dict[str, str]:
     Mutates and returns ``env`` so it can be used inline while building a child
     environment.
     """
+    from ..trial.client import apply_trial_provider
+
+    apply_trial_provider(env)
     if str(env.get(COPILOT_HOME_ENV) or "").strip():
         return env
     home = prepare_copilot_home(env)

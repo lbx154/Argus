@@ -109,6 +109,10 @@ class CopilotCallUsage:
 
 
 def copilot_usage_db_candidates() -> list[Path]:
+    from ..trial.client import profile_path, trial_enabled
+
+    if trial_enabled():
+        return [profile_path().parent / "copilot-trial-home" / "session-store.db"]
     candidates: list[Path] = []
     configured = os.environ.get("COPILOT_HOME", "").strip()
     if configured:
@@ -134,6 +138,10 @@ def capture_copilot_usage_cursor() -> CopilotUsageCursor | None:
     # the parent environment and picking the first existing DB can instead
     # capture the operator's unrelated personal store. Use the intended child
     # home even before its DB is created; accounting itself remains read-only.
+    from ..trial.client import profile_path, trial_enabled
+
+    if trial_enabled():
+        return _capture_cursor(profile_path().parent / "copilot-trial-home" / "session-store.db")
     configured = os.environ.get("COPILOT_HOME", "").strip()
     home = Path(configured).expanduser() if configured else argus_copilot_home()
     path = home / "session-store.db"

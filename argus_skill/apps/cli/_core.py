@@ -428,13 +428,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     setup_only = (
         bool(getattr(args, "non_interactive", False))
+        or bool(getattr(args, "trial_url", None))
         or bool(getattr(args, "set_git_global", False))
         or bool(getattr(args, "configure_codex", False))
     )
     if setup_only and not args.setup:
         sys.stderr.write(
             "argus-skill: --non-interactive / --set-git-global / "
-            "--configure-codex require --setup\n"
+            "--configure-codex / --trial-url require --setup\n"
         )
         return 2
     readiness_modifier = (
@@ -591,6 +592,7 @@ def main(argv: list[str] | None = None) -> int:
             api_url=getattr(args, "api_url", None),
             api_key=getattr(args, "api_key", None),
             api_model=getattr(args, "api_model", None),
+            trial_url=getattr(args, "trial_url", None),
         )
     if getattr(args, "doctor", False):
         return _run_with_path_resolution_errors(lambda: _cmd_doctor(args))

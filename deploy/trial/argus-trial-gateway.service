@@ -1,0 +1,18 @@
+[Unit]
+Description=Argus trial gateway (10 private keys, 1M tokens per key)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/argus-trial-gateway-20260909
+ExecStart=%h/argus-trial-gateway-20260909/.venv/bin/argus-trial-server serve --host 127.0.0.1 --port 18765 --model gpt-4.1 --site-dir %h/argus-trial-gateway-20260909/site
+Environment=PYTHONUNBUFFERED=1
+UMask=0077
+NoNewPrivileges=yes
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

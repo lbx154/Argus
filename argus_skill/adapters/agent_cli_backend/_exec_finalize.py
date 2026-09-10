@@ -119,6 +119,7 @@ def finalize_result(
                 build_usage_record,
                 usage_recorded_event,
             )
+            from ...trial.client import trial_enabled
 
             pricing_model, model_fallback_source = resolve_pricing_model(
                 result.usage_model,
@@ -154,6 +155,7 @@ def finalize_result(
                 premium_requests=premium,
                 total_nano_aiu=result.total_nano_aiu,
                 copilot_token_billing_expected=ctx.copilot_token_billing_expected,
+                hosted_trial=backend._backend_name == "copilot" and trial_enabled(),
                 provider_cost_usd=(
                     provider_cost_usd
                     if backend._backend_name in {"opencode", "pi"}

@@ -506,8 +506,23 @@ def run_setup(
     api_url: str | None = None,
     api_key: str | None = None,
     api_model: str | None = None,
+    trial_url: str | None = None,
 ) -> int:
     """Configure and validate one explicit backend/auth contract."""
+    if trial_url:
+        if api_url or api_key or api_model or backend not in (None, "copilot") or auth_mode:
+            sys.stderr.write("argus: --trial-url selects its own backend and model; omit other backend/auth/API options\n")
+            return SETUP_EXIT_USAGE
+        from ..trial.client import setup_trial
+
+        try:
+            return setup_trial(trial_url, non_interactive=non_interactive)
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            sys.stderr.write(f"argus: trial setup failed: {exc}\n")
+            return SETUP_EXIT_NOT_READY
+    # An explicit regular setup verifies the user's chosen account/provider.
+    # Persisting that validated profile below disables any prior trial mode.
+    os.environ["ARGUS_SKILL_COPILOT_TRIAL"] = "0"
     if non_interactive:
         return _run_noninteractive_setup(
             backend=backend,

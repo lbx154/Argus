@@ -32,21 +32,26 @@
       "csp": "default-src 'self'; img-src 'self' asset: data: blob: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; frame-src http://127.0.0.1:*",
       "devCsp": "default-src 'self' http://127.0.0.1:1420; img-src 'self' asset: data: blob: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; connect-src 'self' ws://127.0.0.1:1420 http://127.0.0.1:1420 http://127.0.0.1:* ws://127.0.0.1:*; frame-src http://127.0.0.1:*",
       "freezePrototype": true,
-      "capabilities": ["main-window"]
+      "capabilities": [
+        "main-window"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "createUpdaterArtifacts": true,
     "publisher": "lbx154",
     "homepage": "https://github.com/lbx154/Argus",
     "shortDescription": "Argus autonomous research runtime",
     "resources": {
-      "../resources/argus-backend": "argus-backend",
-      "../resources/WebView2Loader.dll": "WebView2Loader.dll"
+      "../resources/argus-backend": "argus-backend"
     },
-    "icon": ["icons/icon.ico"],
+    "icon": [
+      "icons/icon.png"
+    ],
     "windows": {
       "allowDowngrades": true,
       "certificateThumbprint": null,

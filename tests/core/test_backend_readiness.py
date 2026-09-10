@@ -435,6 +435,7 @@ def test_profile_persistence_only_accepts_ready_report(monkeypatch) -> None:
             "ARGUS_SKILL_RUNNER_BACKEND": "copilot",
             "ARGUS_SKILL_BACKEND_AUTH_MODE": "subscription_cli",
             "ARGUS_SKILL_BACKEND_VALIDATED_VERSION": "1.0.74",
+            "ARGUS_SKILL_COPILOT_TRIAL": "0",
         }
     ]
 

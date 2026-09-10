@@ -272,6 +272,9 @@ class CopilotAcpClient:
             ]
             for path in self._add_dirs:
                 cmd += ["--add-dir", path]
+        from ..trial.client import apply_trial_provider
+
+        child_env = apply_trial_provider(dict(os.environ))
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -283,7 +286,7 @@ class CopilotAcpClient:
             encoding="utf-8",
             errors="replace",
             bufsize=1,
-            env=runner_child_environment(self._agent_bin),
+            env=runner_child_environment(self._agent_bin, env=child_env) or child_env,
             **background_subprocess_kwargs(),
         )
         self._alive = True

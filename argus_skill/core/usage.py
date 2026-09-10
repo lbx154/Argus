@@ -284,6 +284,7 @@ def build_usage_record(
     premium_requests: float | None = None,
     total_nano_aiu: int | None = None,
     copilot_token_billing_expected: bool = False,
+    hosted_trial: bool = False,
     provider_cost_usd: float | None = None,
     thread_id: str | None = None,
     model_usage: Iterable[dict[str, Any]] | None = None,
@@ -314,6 +315,13 @@ def build_usage_record(
         pricing_tier = "not_started"
         cost_usd: float | None = 0.0
         cost_basis = "none"
+    elif normalized_provider == "copilot" and hosted_trial:
+        # Trial users owe no provider dollars. The server enforces and records
+        # their token allowance; BYOK sessions have no local Copilot AIU bill.
+        pricing_status = "not_billed"
+        pricing_tier = "hosted_trial"
+        cost_usd = 0.0
+        cost_basis = "hosted_trial"
     elif normalized_provider == "copilot" and total_nano_aiu is not None:
         pricing_status = "priced"
         pricing_tier = "copilot_token"

@@ -62,6 +62,7 @@ _PYTHON_PRE_ACTION_VALUE_OPTIONS = frozenset(
         "--notify-stage",
         "--backend",
         "--auth-mode",
+        "--trial-url",
         "--skills-dir",
         "--project-root",
         "--proposed-condition",
@@ -73,6 +74,7 @@ _PYTHON_PRE_ACTION_OPTIONAL_VALUE_OPTIONS = frozenset({"--resume"})
 
 _PYTHON_PRE_ACTION_BOOL_OPTIONS = frozenset(
     {
+        "--trial",
         "--drain",
         "--force",
         "--fix-safe",

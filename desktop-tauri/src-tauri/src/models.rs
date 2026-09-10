@@ -77,6 +77,8 @@ pub struct DesktopSettings {
     #[serde(default)]
     pub setup_complete: bool,
     #[serde(default)]
+    pub trial_mode: bool,
+    #[serde(default)]
     pub appearance_theme: AppearanceTheme,
 }
 
@@ -98,6 +100,7 @@ impl Default for DesktopSettings {
             runner_bins: BTreeMap::new(),
             runner_configured: false,
             setup_complete: false,
+            trial_mode: false,
             appearance_theme: AppearanceTheme::default(),
         }
     }
@@ -174,6 +177,7 @@ pub struct DesktopRuntimeIdentity {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopSetup {
     pub complete: bool,
+    pub trial_mode: bool,
     pub host: String,
     pub port: u16,
     pub runner_kind: RunnerKind,

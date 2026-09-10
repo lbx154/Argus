@@ -1385,3 +1385,30 @@ button {
     padding-top: 2px;
   }
 }
+
+.trial-invite {
+  margin-bottom: 28px;
+  padding: 22px 24px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 16px;
+  background: linear-gradient(125deg, color-mix(in srgb, var(--accent) 7%, var(--tile)), var(--tile));
+}
+.trial-invite-top { display: flex; gap: 20px; align-items: center; justify-content: space-between; }
+.trial-eyebrow { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .13em; }
+.trial-invite h3 { margin: 8px 0 0; font-size: 20px; letter-spacing: -.02em; }
+.trial-invite p { color: var(--muted); font-size: 13px; line-height: 1.7; margin: 12px 0 0; }
+.trial-invite button { flex-shrink: 0; }
+#trialForm { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+#trialForm label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 9px; }
+.trial-input-row { display: flex; gap: 10px; }
+#trialKey { flex: 1; min-width: 0; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--tile); color: var(--ink); font: 13px ui-monospace, monospace; }
+#trialKey:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#trialProgress:not(:empty) { color: var(--accent); font-weight: 600; }
+#wizard[aria-busy='true'] .panel-content-env,
+#wizard[aria-busy='true'] .wizard-foot,
+#wizard[aria-busy='true'] #trialOpen { pointer-events: none; opacity: .5; }
+#wizard.trial-entry-active .panel[data-panel='env'] > .panel-intro,
+#wizard.trial-entry-active .stepper,
+#wizard.trial-entry-active .panel-content-env,
+#wizard.trial-entry-active .wizard-foot { display: none; }
+#wizard.trial-entry-active .trial-invite { margin-bottom: 0; }

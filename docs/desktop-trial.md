@@ -1,0 +1,57 @@
+# Mac / Windows 内部试用版
+
+首次启动或 **文件 → 设置** 中可打开 **输入内部测试 Key**。
+启动恢复页也提供 **使用内部测试 Key** 按钮。界面提示：
+
+> 如果您是拿到了内部测试的 Key，可以直接在这个地方填入使用
+
+粘贴 Key 后点击 **开始试用**，客户端依次验证余额、自动下载官方 Copilot 独立程序、
+校验 SHA-256、验证一次真实模型回复，成功后直接打开 Argus 工作台。
+工作台随桌面包提供；Copilot 在首次启用试用时下载。用户无需运行命令行，
+无需预装 Python、Node.js 或 Copilot，也无需登录 GitHub、Codex、Claude 账号。
+首次准备需要连接 `argusbot.cn` 和 GitHub Releases；失败时显示错误并允许重试。
+
+Mac 支持 Apple Silicon / Intel，最低 macOS 13；Windows 的原生 CLI 适配
+x64 / ARM64，当前安装包构建任务覆盖 Windows x64。运行时固定使用官方
+Copilot 1.0.83，与包内 SHA-256 对照后才执行。
+
+Key 经桌面 IPC 和子进程标准输入传递，不放入命令行参数、桌面日志或浏览器存储。
+只在本机用户目录保存该用户的试用 Key；服务端 GitHub 凭据不会下载到客户端。
+Mac/Linux 的试用配置文件权限为 0600；Windows 使用用户目录的继承访问权限。
+试用配置和 Copilot 路径会保留，重启后复用。验证失败恢复原试用配置。
+每个 Key 累计 100 万 input + output tokens，可跨设备共享余额。
+服务端统一限制 10 路活跃请求、1000 万 TPM，详见 [转发服务](trial-gateway.md)。
+
+## 构建
+
+需要在目标操作系统和架构上构建：Python 3.11+、Node.js 22.12+、Rust stable；
+Windows 另需 MSVC Build Tools，Mac 需 Xcode Command Line Tools。安装开发依赖后执行：
+
+```bash
+python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
+npm --prefix frontend/web ci
+npm --prefix desktop-tauri ci
+python -m argus_skill.release_tools.build_release
+npm --prefix frontend/web run build
+npm --prefix desktop-tauri run build:backend
+npm --prefix desktop-tauri run build:unsigned
+```
+
+若 Python 不在默认路径上，通过 `ARGUS_BUILD_PYTHON` 指定构建环境解释器。
+Windows 产物在 `desktop-tauri/src-tauri/target/release/bundle/nsis/`；
+Mac 的 `.app` / `.dmg` 位于相邻的 `macos/` / `dmg/`。
+现有 `npm run dist` 仍是 Windows 的签名更新发布流程。
+
+`.github/workflows/desktop-trial.yml` 提供 Windows、Mac Apple Silicon 和 Intel 的
+原生构建任务，验证客户端组件与冻结后的原生 Copilot 安装并上传安装包。
+这是未签名的内部构建流程，Mac Developer ID 签名和 notarization 尚未配置。
+
+## 当前验证范围（2026-09-10）
+
+Linux 上已通过桌面 TypeScript / Vite 构建、Rust 编译及核心测试、Python 客户端与桌面测试。
+真实冻结后端在全新用户目录、空 PATH 下完成自动下载、Key 验证、真实模型回复；
+第二个冻结进程读取持久化配置并完成本地文件工具调用。
+浏览器模拟 IPC 已检查 Key 格式校验、输入清空、错误重试和成功进入工作台。
+
+Mac / Windows 实机 GUI、安装和重启测试尚未执行；该工作流尚未运行，
+本次没有生成或发布这两个系统的安装包。不能把 Linux 的结果当作原生系统验收。

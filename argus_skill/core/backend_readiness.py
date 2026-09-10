@@ -948,6 +948,7 @@ def persist_validated_profile(
         return False
     values = {
         "ARGUS_SKILL_RUNNER_BACKEND": report.profile.backend,
+        "ARGUS_SKILL_COPILOT_TRIAL": "0",
         AUTH_MODE_KNOB: report.profile.auth_mode,
         "ARGUS_SKILL_BACKEND_VALIDATED_VERSION": report.version,
     }

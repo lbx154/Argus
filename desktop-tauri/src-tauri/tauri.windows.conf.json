@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "resources": {
+      "../resources/WebView2Loader.dll": "WebView2Loader.dll"
+    },
+    "icon": [
+      "icons/icon.ico"
+    ]
+  }
+}

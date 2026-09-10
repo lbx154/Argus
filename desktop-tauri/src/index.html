@@ -101,6 +101,7 @@
             重试
           </button>
           <button class="setup" id="setup" type="button" hidden>修改设置</button>
+          <button class="setup" id="trialShortcut" type="button">使用内部测试 Key</button>
           <button class="setup" id="diagnostics" type="button" hidden>导出脱敏诊断</button>
         </div>
       </section>
@@ -157,6 +158,22 @@
 
         <div class="wizard-body">
           <section class="panel" data-panel="env">
+            <section class="trial-invite" aria-labelledby="trialHeading">
+              <div class="trial-invite-top">
+                <div><span class="trial-eyebrow">ARGUS · 内部测试</span><h3 id="trialHeading">用一个 Key，开始使用 Argus</h3></div>
+                <button class="primary" id="trialOpen" type="button" aria-expanded="false" aria-controls="trialForm">输入内部测试 Key</button>
+              </div>
+              <p>如果您是拿到了内部测试的 Key，可以直接在这个地方填入使用</p>
+              <form id="trialForm" hidden>
+                <label for="trialKey">内部测试 Key</label>
+                <div class="trial-input-row">
+                  <input id="trialKey" type="password" autocomplete="off" spellcheck="false" placeholder="argus_trial_…" required aria-describedby="trialHelp trialProgress">
+                  <button class="primary" id="trialSubmit" type="submit">开始试用</button>
+                </div>
+                <p id="trialHelp">自动准备运行环境，无需登录其他 Coding 账号。每个 Key 提供累计 100 万 token，同一 Key 可跨设备使用。</p>
+                <p id="trialProgress" role="status" aria-live="polite"></p>
+              </form>
+            </section>
             <div class="panel-intro">
               <span class="panel-eyebrow">步骤 1</span>
               <h3>选择 Agent CLI</h3>

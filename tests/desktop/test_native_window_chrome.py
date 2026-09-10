@@ -25,7 +25,8 @@ def test_windows_caption_buttons_use_a_native_non_client_frame() -> None:
     assert window["backgroundColor"] == "#f9fafb"
     assert "frame-src http://127.0.0.1:*" in security["csp"]
     assert security["freezePrototype"] is True
-    assert config["bundle"]["resources"]["../resources/WebView2Loader.dll"] == "WebView2Loader.dll"
+    windows = json.loads((TAURI_ROOT / "src-tauri/tauri.windows.conf.json").read_text())
+    assert windows["bundle"]["resources"]["../resources/WebView2Loader.dll"] == "WebView2Loader.dll"
 
 
 def test_installer_bypasses_close_to_tray_before_replacing_files() -> None:

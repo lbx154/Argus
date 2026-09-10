@@ -1,7 +1,7 @@
 use crate::{
     identity::{
         authenticated_bundled_backend_matches, backend_launch_claim_matches,
-        backend_ownership_matches, normalized_windows_path, prior_backend_ownership_matches,
+        backend_ownership_matches, prior_backend_ownership_matches,
         same_path, ExpectedBackendIdentity, ExpectedBackendLaunch, ExpectedPriorBackendOwnership,
     },
     logger::DesktopLogger,
@@ -930,6 +930,10 @@ impl BackendSupervisor {
             );
         if settings.runner_configured {
             process
+                .env(
+                    "ARGUS_SKILL_COPILOT_TRIAL",
+                    if settings.trial_mode { "1" } else { "0" },
+                )
                 .env("ARGUS_SKILL_RUNNER_BACKEND", settings.runner_kind.as_str())
                 .env_remove("ARGUS_SKILL_RUNNER_BIN");
         }
@@ -1339,14 +1343,7 @@ impl BackendSupervisor {
     }
 
     fn ensure_special_prompts(&self) -> anyhow::Result<()> {
-        let home = env::var_os("ARGUS_SKILL_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                env::var_os("USERPROFILE")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| PathBuf::from("."))
-                    .join(".argus-skill")
-            });
+        let home = argus_home_dir();
         let file = home.join("special_prompts").join("10-house-rules.md");
         if !file.is_file() {
             if let Some(parent) = file.parent() {
@@ -1379,6 +1376,11 @@ impl BackendSupervisor {
         let shell_body = format!("#!/bin/sh\nexec '{shell}' \"$@\"\n");
         for name in ["python", "python3"] {
             fs::write(runtime_bin.join(name), &shell_body)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(runtime_bin.join(name), fs::Permissions::from_mode(0o700))?;
+            }
         }
         Ok(Some(runtime_bin))
     }
@@ -1433,7 +1435,14 @@ fn identity_probe(
 
 fn normalized_path(path: &Path) -> String {
     let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    normalized_windows_path(&resolved.to_string_lossy())
+    #[cfg(windows)]
+    {
+        crate::identity::normalized_windows_path(&resolved.to_string_lossy())
+    }
+    #[cfg(not(windows))]
+    {
+        resolved.to_string_lossy().into_owned()
+    }
 }
 
 fn random_nonce() -> String {

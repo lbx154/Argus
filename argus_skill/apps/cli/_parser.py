@@ -392,6 +392,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="allow an explicitly selected prerelease backend CLI",
     )
     capability_grp.add_argument(
+        "--trial",
+        dest="trial_url",
+        action="store_const",
+        const="https://argusbot.cn",
+        help="with --setup: connect using a trial key from the Argus website",
+    )
+    capability_grp.add_argument(
+        "--trial-url",
+        default=None,
+        help="with --setup: trial gateway origin (prompts privately for your trial key)",
+    )
+    capability_grp.add_argument(
         "--api-url",
         default=None,
         help="with --setup: configure an OpenAI-compatible API through Pi",

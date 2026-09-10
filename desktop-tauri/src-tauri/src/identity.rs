@@ -29,6 +29,7 @@ pub struct ExpectedPriorBackendOwnership {
 /// Rust's `std::fs::canonicalize` returns the `\\\\?\\` extended form, while
 /// Python's `sys.executable` reports an ordinary drive path. They identify the
 /// same file and must not make a fresh desktop-owned backend look foreign.
+#[cfg(windows)]
 pub fn normalized_windows_path(value: &str) -> String {
     let normalized = value.trim().replace('/', "\\");
     let without_extended_prefix = normalized
@@ -45,7 +46,14 @@ pub fn normalized_windows_path(value: &str) -> String {
 }
 
 pub fn same_path(left: &str, right: &str) -> bool {
-    normalized_windows_path(left).eq_ignore_ascii_case(&normalized_windows_path(right))
+    #[cfg(windows)]
+    {
+        normalized_windows_path(left).eq_ignore_ascii_case(&normalized_windows_path(right))
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
 }
 
 pub fn backend_launch_claim_matches(
@@ -187,6 +195,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn accepts_python_drive_paths_after_rust_canonicalization() {
         assert_eq!(
             normalized_windows_path(r"\\?\D:\Argus\argus-backend.exe"),
@@ -215,6 +224,14 @@ mod tests {
             token_sha256: ownership.token_sha256.clone(),
         };
         assert!(backend_ownership_matches(&ownership, &probe(), &expected));
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn posix_paths_preserve_case_and_separators() {
+        assert!(same_path("/Applications/Argus.app/backend", "/Applications/Argus.app/backend"));
+        assert!(!same_path("/Applications/Argus.app/backend", "/Applications/argus.app/backend"));
+        assert!(!same_path("/tmp/argus/backend", r"\tmp\argus\backend"));
     }
 
     #[test]

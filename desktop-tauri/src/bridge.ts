@@ -44,6 +44,7 @@ export interface DesktopRuntimeIdentity {
 
 export interface DesktopSetup {
   complete: boolean;
+  trialMode: boolean;
   host: string;
   port: number;
   runnerKind: RunnerKind;
@@ -115,6 +116,10 @@ export const desktopBridge = {
   onStatus: (callback: (status: DesktopStatus) => void): (() => void) =>
     eventSubscription('argus:status', callback),
   getSetup: (): Promise<DesktopSetup> => invoke('get_setup'),
+  completeTrialSetup: (apiKey: string): Promise<SetupResult> =>
+    invoke('complete_trial_setup', { input: { apiKey } }),
+  onTrialProgress: (callback: (message: string) => void): (() => void) =>
+    eventSubscription('argus:trial-progress', callback),
   getAppearance: (): Promise<DesktopAppearance> => invoke('get_appearance'),
   setAppearance: (appearance: { theme: 'light' | 'dark' }): Promise<DesktopAppearance> =>
     invoke('set_appearance', { input: appearance }),

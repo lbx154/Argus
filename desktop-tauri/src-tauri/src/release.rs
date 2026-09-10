@@ -42,9 +42,13 @@ impl ReleaseContext {
         if self.development {
             return None;
         }
-        self.resource_dir
-            .as_ref()
-            .map(|resources| resources.join("argus-backend").join("argus-backend.exe"))
+        self.resource_dir.as_ref().map(|resources| {
+            resources.join("argus-backend").join(if cfg!(windows) {
+                "argus-backend.exe"
+            } else {
+                "argus-backend"
+            })
+        })
     }
 
     pub fn identity(&self) -> DesktopReleaseIdentity {

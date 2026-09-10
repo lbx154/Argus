@@ -1,0 +1,222 @@
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+import httpx
+import pytest
+import uvicorn
+from cryptography.fernet import Fernet
+
+from argus_skill.trial import client
+from argus_skill.trial.gateway import Settings, create_app
+from argus_skill.trial.secrets import Vault, write_private
+
+
+@pytest.mark.parametrize("url", ["http://example.com", "https://user:pass@example.com", "https://example.com/v1", "https://example.com?key=value", "file:///tmp/socket"])
+def test_connect_rejects_insecure_or_ambiguous_url(url):
+    with pytest.raises(ValueError, match="HTTPS origin"):
+        client.connect(url)
+
+
+def test_noninteractive_trial_never_prompts_for_a_key(monkeypatch):
+    monkeypatch.delenv("ARGUS_TRIAL_KEY", raising=False)
+    monkeypatch.setattr(client.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(client.getpass, "getpass", lambda *_: pytest.fail("Must not prompt"))
+    with pytest.raises(ValueError, match="ARGUS_TRIAL_KEY"):
+        client.connect("https://argusbot.cn", non_interactive=True)
+
+
+def test_default_trial_command_uses_the_public_argus_site():
+    from argus_skill.apps.cli import build_parser
+
+    args = build_parser().parse_args(["--setup", "--trial"])
+    assert args.setup and args.trial_url == "https://argusbot.cn"
+
+
+def test_trial_setup_selects_copilot_and_does_not_use_pi(monkeypatch):
+    from argus_skill.tools import setup
+
+    captured = []
+    monkeypatch.setattr(client, "setup_trial", lambda url, **kwargs: captured.append(url) or 0)
+    assert setup.run_setup(trial_url="https://trial.example.com") == 0
+    assert captured == ["https://trial.example.com"]
+    assert setup.run_setup(trial_url="https://trial.example.com", backend="pi") == 2
+    assert setup.run_setup(trial_url="https://trial.example.com", backend="codex") == 2
+
+
+def test_missing_copilot_is_installed_automatically(monkeypatch):
+    from types import SimpleNamespace
+
+    from argus_skill.agent_cli import runner_backend
+
+    installed = []
+    monkeypatch.setattr(runner_backend, "resolve_runner_bin", lambda _backend: "/bin/copilot" if installed else None)
+    monkeypatch.setattr(client.shutil, "which", lambda name: "/bin/npm")
+
+    def run(argv, **kwargs):
+        if argv[0] == "/bin/npm":
+            installed.append(argv)
+            return SimpleNamespace(returncode=0)
+        assert argv == ["/bin/copilot", "help", "providers"]
+        return SimpleNamespace(returncode=0, stdout="COPILOT_PROVIDER_WIRE_MODEL")
+
+    monkeypatch.setattr(client.subprocess, "run", run)
+    assert client.ensure_copilot() == "/bin/copilot"
+    assert installed == [["/bin/npm", "install", "-g", "@github/copilot@latest"]]
+
+
+def test_trial_workers_replace_inherited_provider_credentials(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    key = "argus_trial_" + "a" * 64
+    client.profile_path().write_text(json.dumps({"base_url": "https://trial.example.com/v1", "api_key": key}))
+    env = client.apply_trial_provider({
+        client.TRIAL_ENV: "1", "COPILOT_PROVIDER_BASE_URL": "https://old.example.com",
+        "COPILOT_PROVIDER_BEARER_TOKEN": "old-secret", "GITHUB_TOKEN": "github-secret",
+        "COPILOT_PROVIDER_HEADERS": "Authorization: old-secret",
+    })
+    assert env["COPILOT_PROVIDER_BASE_URL"] == "https://trial.example.com/v1"
+    assert env["COPILOT_PROVIDER_API_KEY"] == key
+    assert env["COPILOT_PROVIDER_WIRE_MODEL"] == "argus-trial"
+    assert env["COPILOT_HOME"] == str(tmp_path / "copilot-trial-home")
+    assert "COPILOT_PROVIDER_BEARER_TOKEN" not in env and "GITHUB_TOKEN" not in env
+    assert env["COPILOT_PROVIDER_HEADERS"] == "User-Agent: Argus/0.1.1"
+    client.profile_path().write_text("invalid")
+    with pytest.raises(ValueError):
+        client.apply_trial_provider({client.TRIAL_ENV: "1"})
+
+
+def test_failed_trial_verification_restores_previous_profile(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from argus_skill.core import backend_readiness
+
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setenv(client.TRIAL_ENV, "0")
+    previous = b'{"base_url":"https://old.example.com/v1","api_key":"old-trial-key"}'
+    client.profile_path().write_bytes(previous)
+    monkeypatch.setattr(client, "ensure_copilot", lambda: "/bin/copilot")
+    monkeypatch.setattr(client, "connect", lambda _url, **kwargs: ("https://trial.example.com/v1", "argus_trial_" + "a" * 64))
+    monkeypatch.setattr(backend_readiness, "check_backend_readiness", lambda *a, **kw: SimpleNamespace(ok=False))
+    monkeypatch.setattr(backend_readiness, "format_backend_readiness", lambda _report: "not ready")
+    assert client.setup_trial("https://trial.example.com") == 1
+    assert client.profile_path().read_bytes() == previous
+    assert os.environ[client.TRIAL_ENV] == "0"
+
+
+@pytest.mark.e2e
+@pytest.mark.skipif(shutil.which("copilot") is None, reason="Copilot CLI required for real client smoke test")
+def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch):
+    """Real Argus -> real Copilot CLI -> HTTP gateway -> simulated upstream."""
+    key = tmp_path / "key"
+    state = tmp_path / "server"
+    state.mkdir()
+    write_private(key, Fernet.generate_key())
+    Vault(key, state / "github-token.enc").save("fake-github-secret")
+    requests = []
+    rejected = []
+    from pydantic import ValidationError
+
+    from argus_skill.trial import gateway
+
+    original_prepare = gateway.prepare
+
+    def inspect_payload(data, model):
+        try:
+            gateway.Completion.model_validate(data)
+        except ValidationError as exc:
+            rejected.extend(exc.errors(include_input=False))
+            rejected.append({"snippy": data.get("snippy")})
+        return original_prepare(data, model)
+
+    monkeypatch.setattr(gateway, "prepare", inspect_payload)
+
+    def upstream(request):
+        assert str(request.url) == "https://api.githubcopilot.com/chat/completions"
+        assert request.headers["authorization"] == "Bearer fake-github-secret"
+        payload = json.loads(request.content)
+        requests.append(payload)
+        messages = payload["messages"]
+        if any("ARGUS_SETUP_OK" in str(m.get("content")) for m in messages):
+            delta, finish = {"role": "assistant", "content": "ARGUS_SETUP_OK"}, "stop"
+        elif any(m["role"] == "tool" for m in messages):
+            assert any("trial-local-file-evidence" in str(m.get("content")) for m in messages if m["role"] == "tool")
+            delta, finish = {"role": "assistant", "content": "TRIAL_TOOL_OK"}, "stop"
+        else:
+            assert any(t["function"]["name"] == "view" for t in payload["tools"])
+            delta = {"role": "assistant", "tool_calls": [{
+                "index": 0, "id": "call_read", "type": "function",
+                "function": {"name": "view", "arguments": json.dumps({"path": str(tmp_path / "evidence.txt")})},
+            }]}
+            finish = "tool_calls"
+        data = {"id": "test-response", "object": "chat.completion.chunk", "created": 1,
+                "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
+        end = {"id": "test-response", "object": "chat.completion.chunk", "created": 1,
+               "choices": [{"index": 0, "delta": {}, "finish_reason": finish}]}
+        usage = {"id": "test-response", "object": "chat.completion.chunk", "created": 1,
+                 "choices": [], "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}}
+        content = "".join("data: " + json.dumps(part) + "\n\n" for part in (data, end, usage)) + "data: [DONE]\n\n"
+        return httpx.Response(200, text=content, headers={"Content-Type": "text/event-stream"})
+
+    app = create_app(Settings(state, key), transport=httpx.MockTransport(upstream))
+    server = uvicorn.Server(uvicorn.Config(app, access_log=False, log_level="error"))
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert server.started
+    credential = app.state.vault.credential("test-key")
+    app.state.store.issue("test-key", credential)
+    project = Path(__file__).resolve().parents[2]
+    # Isolate Copilot/Argus state and remove all inherited provider credentials and
+    # role overrides. Preserve HOME itself rather than repurposing it.
+    env = {k: v for k, v in os.environ.items() if not (
+        k.startswith(("ARGUS_", "PI_", "COPILOT_", "GH_", "GITHUB_")) or "TOKEN" in k or "API_KEY" in k
+    )}
+    env.update(
+        ARGUS_SKILL_HOME=str(tmp_path / "argus"),
+        PYTHONPATH=str(project),
+        CI="true",
+        ARGUS_TRIAL_KEY=credential,
+    )
+    (tmp_path / "evidence.txt").write_text("trial-local-file-evidence")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "argus_skill", "--setup", "--trial-url", f"http://127.0.0.1:{port}"],
+            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr + str(rejected)
+        config = json.loads((tmp_path / "argus/copilot-trial.json").read_text())
+        assert config["api_key"].startswith("argus_trial_")
+        assert "fake-github-secret" not in json.dumps(config)
+        assert "fake-access-secret" not in json.dumps(config)
+        env.pop("ARGUS_TRIAL_KEY")
+        # A fresh Python process proves persisted trial routing; this goes
+        # through Argus's actual worker launch, not a manually configured CLI.
+        result = subprocess.run(
+            [sys.executable, "-c", "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
+             "import shutil; r=run_read_only_agent_prompt(backend='copilot', executable=shutil.which('copilot'), "
+             "model='gpt-4.1', run_label='trial-tool-smoke', prompt='Read " + str(tmp_path / "evidence.txt") + " and report TRIAL_TOOL_OK.'); "
+             "print(r.output); print(r.error); raise SystemExit(0 if r.ok else 1)"],
+            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60,
+        )
+        assert result.returncode == 0 and "TRIAL_TOOL_OK" in result.stdout, result.stdout + result.stderr + str(rejected)
+        assert len(requests) >= 3
+        # Setup consumed one call; the local tool round trip consumed two.
+        response = httpx.get(f"http://127.0.0.1:{port}/trial/status", headers={"Authorization": "Bearer " + config["api_key"]})
+        assert response.json()["tokens_used"] == 120 * len(requests)
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+        sock.close()
