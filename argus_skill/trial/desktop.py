@@ -29,7 +29,9 @@ def main() -> int:
         # The shell receives only this protocol, never CLI output or credentials.
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             code = setup_trial(TRIAL_URL, non_interactive=True, api_key=key, desktop=True,
-                               progress=lambda message: emit(event="progress", message=message))
+                               progress=lambda message: emit(event="progress", message=message),
+                               download_progress=lambda downloaded, total: emit(
+                                   event="download", downloaded_bytes=downloaded, total_bytes=total))
         if code:
             raise ValueError("试用连接验证未通过，请检查网络后重试。原有设置已保留。")
         from ..core.knob_store import read_persisted_knobs

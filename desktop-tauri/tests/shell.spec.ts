@@ -24,6 +24,9 @@ async function launch(page: Page, complete = false) {
       url: 'http://127.0.0.1:18880/',
       savedAppearance: null as unknown,
       releaseSave: null as (() => void) | null,
+      emitDownload: (downloaded_bytes: number, total_bytes: number | null) =>
+        callbacks.download?.({ downloaded_bytes, total_bytes }),
+      emitTrialProgress: (message: string) => callbacks.trial?.(message),
       emit: (value: { state: string; message: string }) => {
         state.status = value;
         callbacks.status?.(value);
@@ -68,6 +71,7 @@ async function launch(page: Page, complete = false) {
       checkForUpdate: async () => ({ state: 'idle', currentVersion: '0.1.1', userInitiated: true, detail: '预览构建不安装发布更新。' }),
       dismissUpdate: async () => undefined,
       onTrialProgress: (callback: (value: unknown) => void) => { callbacks.trial = callback; },
+      onTrialDownload: (callback: (value: unknown) => void) => { callbacks.download = callback; },
       onStatus: (callback: (value: unknown) => void) => { callbacks.status = callback; },
       onUpdateStatus: () => undefined,
       onShowSetup: () => undefined,
@@ -266,4 +270,52 @@ test('internal trial key validates, retries privately, and opens the cockpit wit
   await expect(page.locator('#wizard')).toBeHidden();
   await expect(page.locator('#cockpit')).toBeVisible();
   expect(await page.evaluate(() => (window as any).desktopTest.trialMode)).toBe(true);
+});
+
+test('trial download shows real progress, stalled network advice and clears it on recovery', async ({ page }) => {
+  await page.clock.install();
+  await launch(page);
+  await configure(page, { delaySave: true });
+  await page.locator('#trialOpen').click();
+  await page.locator('#trialKey').fill('argus_trial_' + 'a'.repeat(64));
+  await page.locator('#trialSubmit').click();
+  await page.evaluate(() => (window as any).desktopTest.emitDownload(0, null));
+  await expect(page.locator('#trialDownloadBar')).toBeVisible();
+  await expect(page.locator('#trialDownloadBar')).not.toHaveAttribute('value');
+  await page.clock.fastForward(30_000);
+  await expect(page.locator('#trialNetworkHint')).toBeVisible();
+  await expect(page.locator('#trialNetworkHint')).toContainText('代理（梯子）');
+  await page.evaluate(() => (window as any).desktopTest.emitDownload(1024 * 1024, 4 * 1024 * 1024));
+  await expect(page.locator('#trialDownloadBar')).toHaveAttribute('value', '25');
+  await expect(page.locator('#trialDownloadDetails')).toHaveText('25% · 1.0 MB / 4.0 MB');
+  await expect(page.locator('#trialNetworkHint')).toBeHidden();
+  await page.evaluate(() => (window as any).desktopTest.emitDownload(2 * 1024 * 1024, null));
+  await expect(page.locator('#trialDownloadBar')).not.toHaveAttribute('value');
+  await expect(page.locator('#trialDownloadDetails')).toHaveText('已下载 2.0 MB');
+  await page.evaluate(() => (window as any).desktopTest.emitTrialProgress('下载完成，正在校验 Copilot 安装包…'));
+  await expect(page.locator('#trialDownloadBar')).toBeHidden();
+  await page.clock.fastForward(30_000);
+  await expect(page.locator('#trialNetworkHint')).toBeHidden();
+  await page.evaluate(() => (window as any).desktopTest.releaseSave());
+  await expect(page.locator('#wizard')).toBeHidden();
+});
+
+test('trial download failure clears progress and allows a fresh retry', async ({ page }) => {
+  await launch(page);
+  await configure(page, { delaySave: true, failure: 'Copilot 下载失败或连接超时。请检查网络，或开启代理（梯子）后重试。' });
+  await page.locator('#trialOpen').click();
+  await page.locator('#trialKey').fill('argus_trial_' + 'a'.repeat(64));
+  await page.locator('#trialSubmit').click();
+  await page.evaluate(() => (window as any).desktopTest.emitDownload(1024, 2048));
+  await page.evaluate(() => (window as any).desktopTest.releaseSave());
+  await expect(page.locator('#trialDownloadBar')).toBeHidden();
+  await expect(page.locator('#trialProgress')).toContainText('代理（梯子）');
+  await expect(page.locator('#trialSubmit')).toBeEnabled();
+  await configure(page, { failure: '' });
+  await page.locator('#trialKey').fill('argus_trial_' + 'a'.repeat(64));
+  await page.locator('#trialSubmit').click();
+  await page.evaluate(() => (window as any).desktopTest.emitDownload(0, null));
+  await expect(page.locator('#trialDownloadDetails')).toHaveText('正在连接下载服务器…');
+  await page.evaluate(() => (window as any).desktopTest.releaseSave());
+  await expect(page.locator('#wizard')).toBeHidden();
 });

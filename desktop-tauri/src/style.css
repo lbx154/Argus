@@ -1469,6 +1469,12 @@ button {
 #trialKey { flex: 1; min-width: 0; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--tile); color: var(--ink); font: 13px ui-monospace, monospace; }
 #trialKey:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #trialProgress:not(:empty) { color: var(--accent); font-weight: 600; }
+#trialDownload { margin-top: 12px; }
+#trialDownloadBar { display: block; width: 100%; height: 8px; border: 0; border-radius: 4px; overflow: hidden; accent-color: var(--accent); }
+#trialDownloadBar::-webkit-progress-bar { background: var(--line); border-radius: 4px; }
+#trialDownloadBar::-webkit-progress-value { background: var(--accent); border-radius: 4px; }
+#trialDownloadDetails { margin-top: 8px; font-variant-numeric: tabular-nums; }
+#trialNetworkHint { padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 9px; color: var(--ink); background: var(--tile); }
 #wizard[aria-busy='true'] .panel-content-env,
 #wizard[aria-busy='true'] .wizard-foot,
 #wizard[aria-busy='true'] #trialOpen { pointer-events: none; opacity: .5; }

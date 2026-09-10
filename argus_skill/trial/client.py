@@ -104,7 +104,7 @@ def ensure_copilot() -> str:
 
 
 def setup_trial(url: str, *, non_interactive: bool = False, api_key: str | None = None,
-                desktop: bool = False, progress=print) -> int:
+                desktop: bool = False, progress=print, download_progress=None) -> int:
     from ..core.backend_readiness import check_backend_readiness, format_backend_readiness
     from ..core.knob_store import write_persisted_knobs
     from ..tools.setup import _verify_setup_smoke
@@ -115,8 +115,7 @@ def setup_trial(url: str, *, non_interactive: bool = False, api_key: str | None 
     if desktop:
         from .native_cli import install_native_copilot
 
-        progress("正在下载并准备 Copilot，首次使用可能需要几分钟…")
-        executable = install_native_copilot()
+        executable = install_native_copilot(progress=progress, download_progress=download_progress)
     else:
         executable = ensure_copilot()
     path = profile_path()

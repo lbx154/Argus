@@ -9,6 +9,7 @@ import {
   type DesktopStatus,
   type PiConfiguration,
   type RunnerKind,
+  type TrialDownloadProgress,
   type UpdateStatus,
 } from './bridge';
 
@@ -89,6 +90,11 @@ const trialForm = document.getElementById('trialForm') as HTMLFormElement;
 const trialKey = document.getElementById('trialKey') as HTMLInputElement;
 const trialSubmit = document.getElementById('trialSubmit') as HTMLButtonElement;
 const trialProgress = document.getElementById('trialProgress') as HTMLParagraphElement;
+const trialDownload = document.getElementById('trialDownload') as HTMLDivElement;
+const trialDownloadBar = document.getElementById('trialDownloadBar') as HTMLProgressElement;
+const trialDownloadDetails = document.getElementById('trialDownloadDetails') as HTMLParagraphElement;
+const trialNetworkHint = document.getElementById('trialNetworkHint') as HTMLParagraphElement;
+let trialDownloadTimer: ReturnType<typeof setTimeout> | undefined;
 const trialShortcut = document.getElementById('trialShortcut') as HTMLButtonElement;
 let trialBusy = false;
 
@@ -483,6 +489,7 @@ function showWizard(setup: DesktopSetup): void {
   trialOpen.className = 'primary';
   trialOpen.textContent = setup.trialMode ? '更换内部测试 Key' : '输入内部测试 Key';
   trialProgress.textContent = '';
+  resetTrialDownload();
   portInput.value = String(port);
   renderRunnerKind();
   renderRunner();
@@ -718,8 +725,39 @@ trialShortcut.addEventListener('click', async () => {
   if (wizardOpen) revealTrial();
 });
 desktopBridge.onTrialProgress((message) => {
-  if (trialBusy) trialProgress.textContent = message;
+  if (!trialBusy) return;
+  resetTrialDownload();
+  trialProgress.textContent = message;
 });
+function resetTrialDownload(): void {
+  clearTimeout(trialDownloadTimer);
+  trialDownloadTimer = undefined;
+  trialDownload.hidden = true;
+  trialNetworkHint.hidden = true;
+  trialDownloadBar.removeAttribute('value');
+  trialDownloadDetails.textContent = '';
+}
+
+function renderTrialDownload({ downloaded_bytes: downloaded, total_bytes: total }: TrialDownloadProgress): void {
+  if (!trialBusy) return;
+  clearTimeout(trialDownloadTimer);
+  trialNetworkHint.hidden = true;
+  trialDownload.hidden = false;
+  trialProgress.textContent = '正在下载 Copilot…';
+  const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (total !== null && total > 0) {
+    const percent = Math.min(100, Math.floor(downloaded / total * 100));
+    trialDownloadBar.value = percent;
+    trialDownloadDetails.textContent = `${percent}% · ${megabytes(downloaded)} / ${megabytes(total)}`;
+  } else {
+    trialDownloadBar.removeAttribute('value');
+    trialDownloadDetails.textContent = downloaded > 0 ? `已下载 ${megabytes(downloaded)}` : '正在连接下载服务器…';
+  }
+  trialDownloadTimer = setTimeout(() => {
+    trialNetworkHint.hidden = false;
+  }, 30_000);
+}
+desktopBridge.onTrialDownload(renderTrialDownload);
 trialForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (applying) return;
@@ -730,12 +768,14 @@ trialForm.addEventListener('submit', async (event) => {
     return;
   }
   applying = trialBusy = true;
+  resetTrialDownload();
   trialKey.value = '';
   trialKey.disabled = trialSubmit.disabled = true;
   wizardEl.setAttribute('aria-busy', 'true');
   trialSubmit.textContent = '正在准备…';
   trialProgress.textContent = '正在验证 Key…';
   const result = await capture(() => desktopBridge.completeTrialSetup(key));
+  resetTrialDownload();
   applying = trialBusy = false;
   trialKey.disabled = trialSubmit.disabled = false;
   wizardEl.removeAttribute('aria-busy');
