@@ -2,7 +2,7 @@ export function installStaleChunkRecovery(
   target: EventTarget,
   reload: () => void,
   options: {
-    releaseId: string;
+    buildId: string;
     storage: () => Pick<Storage, 'getItem' | 'setItem'>;
   },
 ): void {
@@ -22,8 +22,8 @@ export function installStaleChunkRecovery(
     try {
       const storage = options.storage();
       const key = 'argus.stale-chunk-reloaded';
-      if (storage.getItem(key) === options.releaseId) return;
-      storage.setItem(key, options.releaseId);
+      if (storage.getItem(key) === options.buildId) return;
+      storage.setItem(key, options.buildId);
     } catch {
       return;
     }

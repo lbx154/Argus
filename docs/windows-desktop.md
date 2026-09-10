@@ -43,8 +43,7 @@ Tauri 桌面端提供完整的原生宿主功能：
 - 首次运行时选择 Codex、Claude、Copilot、Cursor、Pi、OpenCode、Grok Build、Qoder 或
   DeepSeek Harness，并支持显式选择可执行文件；
 - 启动、认证、接管和安全停止冻结的 `argus-backend.exe`；
-- 对 PID、启动时间、可执行文件、release manifest digest、端口和 Web-token hash
-  做严格 ownership 验证；
+- 对 PID、启动时间、可执行文件、端口和 Web-token hash 做严格 ownership 验证；
 - 有界的健康检测和自动恢复，避免无限 crash loop；
 - 原生 Windows 标题栏、单实例、托盘、隐藏到后台、菜单和显式“停止后端并退出”；
 - 后端失败时仍可操作的启动/恢复页，和脱敏诊断 ZIP 导出；
@@ -146,10 +145,9 @@ cockpit，并在存在目标时定位到对应成果。没有可展示文件时�
 
 1. listener PID 与启动时间；
 2. 精确后端 executable path；
-3. 当前 release manifest 的 `source_digest`；
-4. loopback host/port；
-5. Web token 的 SHA-256；
-6. 本次 spawn 的随机 `ARGUS_DESKTOP_LAUNCH_NONCE`。
+3. loopback host/port；
+4. Web token 的 SHA-256；
+5. 本次 spawn 的随机 `ARGUS_DESKTOP_LAUNCH_NONCE`。
 
 新版本只能替换两类旧 listener：完整旧 ownership record 精确匹配的后端，或经过
 当前 token 认证且路径精确等于 bundled backend 的兼容旧版 listener。其他端口占用、
@@ -227,11 +225,10 @@ Cloudflare Worker 模板：它仅代理 `lbx154/Argus` 的允许 release 资产�
 ## 内部体验预览（不安装、不发布）
 
 `npm --prefix desktop-tauri run build:preview` 是独立的本地验收路径，不调用 `dist`、
-NSIS、签名或上传脚本。它刷新仓库已有的运行身份清单和 Web/TUI 静态资源，冻结当前
+NSIS、签名或上传脚本。它重新构建 Web/TUI 静态资源，冻结当前
 Python 后端，以 Tauri `--no-bundle --no-sign --features preview` 编译宿主，再对实际
 暂存目录执行 WebView2 端到端检查。仅检查通过后生成 `desktop-tauri/build/previews/`
-下的独立 ZIP；不生成安装器、签名文件或 `latest.json`。内置 `release_manifest.json`
-仍是后端身份校验的必要数据，不是更新发布清单。
+下的独立 ZIP；不生成安装器、签名文件或 `latest.json`。
 
 完整解压后运行 `Argus.exe`。预览使用单独标识 `cn.argusbot.desktop.preview`，
 桌面设置、日志与 WebView 缓存位于 `%APPDATA%/argus-desktop-preview/`，项目与运行时

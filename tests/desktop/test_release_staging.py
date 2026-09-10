@@ -95,9 +95,10 @@ def test_release_notes_require_all_desktop_platforms(tmp_path, monkeypatch):
                  "Argus-0.1.5-linux-x86_64.deb"):
         (tmp_path / name).write_bytes(b"native installer")
     with zipfile.ZipFile(tmp_path / "argus_skill-0.1.5-py3-none-any.whl", "w") as wheel:
-        wheel.writestr("argus_skill/release_manifest.json", json.dumps({
-            "package_version": "0.1.5", "release_id": "0.1.5+test",
-        }))
+        wheel.writestr(
+            "argus_skill-0.1.5.dist-info/METADATA",
+            "Metadata-Version: 2.1\nName: argus-skill\nVersion: 0.1.5\n",
+        )
     notes = tmp_path.parent / "trial-release-notes.txt"
     monkeypatch.setattr(sys, "argv", [str(script), str(tmp_path), "--notes", str(notes)])
 

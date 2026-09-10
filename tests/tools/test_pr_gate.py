@@ -44,7 +44,6 @@ def test_json_config_detection_is_narrow() -> None:
     assert is_config_path("frontend/web/tsconfig.node.json")
     assert is_config_path("plugins/argus/.mcp.json")
     assert is_config_path("plugins/argus/.claude-plugin/plugin.json")
-    assert is_config_path("argus_skill/release_manifest.json")
     assert not is_config_path("frontend/core/fixtures/eventCorpus.generated.json")
     assert not is_config_path("argus_skill/core/event_payload_schemas.json")
     assert not is_config_path("tests/domains/fixtures/example.json")

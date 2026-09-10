@@ -768,16 +768,10 @@ class PlanningContextMixin:
     @staticmethod
     def _planner_waiting_runtime_revision() -> str:
         """Identify the runtime policy that authored a durable wait."""
-        from ...core.runtime_identity import source_root
-        from ...release import release_identity
+        from ... import __version__
+        from ...core.runtime_identity import source_revision
 
-        identity = release_identity(source_root())
-        return str(
-            identity.get("runtime_source_digest")
-            or identity.get("manifest_source_digest")
-            or identity.get("release_id")
-            or "unknown"
-        )
+        return str(source_revision() or __version__ or "unknown")
 
     def _clear_planner_wait_control_binding(
         self,

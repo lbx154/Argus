@@ -54,7 +54,7 @@ python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
 npm --prefix frontend/web ci
 npm --prefix frontend/tui ci
 npm --prefix desktop-tauri ci
-python -m argus_skill.release_tools.build_release
+npm --prefix frontend/web run build && npm --prefix frontend/tui run build
 npm --prefix frontend/web run build
 npm --prefix desktop-tauri run build:backend
 npm --prefix desktop-tauri run build:unsigned

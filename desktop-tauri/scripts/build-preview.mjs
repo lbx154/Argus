@@ -31,9 +31,9 @@ function powershell(script, args = []) {
   run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(desktop, 'scripts', script), ...args]);
 }
 
-// Refresh the existing internal release identity and checked-in Web/TUI bundles
-// together. This is not the updater's latest.json and is required by ownership.
-run(python, ['-m', 'argus_skill.release_tools.build_release']);
+// Rebuild the checked-in Web/TUI bundles from the current source.
+run('npm', ['--prefix', join(repo, 'frontend', 'web'), 'run', 'build']);
+run('npm', ['--prefix', join(repo, 'frontend', 'tui'), 'run', 'build']);
 powershell('build-backend.ps1', ['-SkipInstall', '-PythonExecutable', python]);
 powershell('prepare-backend.ps1');
 const base = JSON.parse(readFileSync(join(desktop, 'src-tauri', 'tauri.conf.json'), 'utf8'));
@@ -48,7 +48,6 @@ run(process.execPath, [
   'build', '--no-bundle', '--no-sign', '--features', 'preview', '--config', JSON.stringify(config),
 ], desktop);
 
-const manifest = JSON.parse(readFileSync(join(repo, 'argus_skill', 'release_manifest.json'), 'utf8'));
 const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
 const name = `Argus-${base.version}-preview-${stamp}-win-x64`;
 const stage = join(desktop, 'build', 'previews', name);
@@ -60,7 +59,7 @@ cpSync(join(desktop, 'build', 'argus-backend'), join(stage, 'argus-backend'), { 
 cpSync(join(repo, 'LICENSE'), join(stage, 'LICENSE.txt'));
 writeFileSync(join(stage, 'README-预览说明.txt'), `Argus ${base.version} · Windows x64 内部预览
 构建时间：${new Date().toISOString()}
-运行身份：${manifest.release_id}
+版本：${base.version}
 
 1. 完整解压此目录，再双击 Argus.exe。不要在 ZIP 内直接启动或单独移动 EXE。
 2. 首次启动选择已安装并登录的 Agent CLI，然后确认。以后自动使用已保存的选择。

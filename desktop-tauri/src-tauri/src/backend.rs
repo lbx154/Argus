@@ -106,7 +106,6 @@ struct MetaAuthentication {
 #[derive(Deserialize)]
 struct MetaRuntime {
     package_version: Option<String>,
-    manifest_source_digest: Option<String>,
     executable: Option<String>,
     pid: Option<u32>,
     started_at: Option<String>,
@@ -263,7 +262,7 @@ impl BackendSupervisor {
             self.set_status(BackendState::Error, "运行包文件需要修复", Some(error));
             return;
         }
-        self.inner.logger.info(format!("starting verified release {} from {}", self.inner.release.identity().release_id, command.command.display()));
+        self.inner.logger.info(format!("starting verified release {} from {}", self.inner.release.identity().package_version, command.command.display()));
 
         self.set_status(BackendState::Starting, "正在检查本地服务", None);
         let probe = self.probe_for_startup(&settings).await;
@@ -665,7 +664,6 @@ impl BackendSupervisor {
                     }),
                     pid: None,
                     executable: None,
-                    manifest_source_digest: None,
                     started_at: None,
                     launch_nonce: None,
                     failure_kind: Some(if timeout_failure {
@@ -684,7 +682,6 @@ impl BackendSupervisor {
                 detail: Some(format!("本地服务健康检查返回 HTTP {}", response.status())),
                 pid: None,
                 executable: None,
-                manifest_source_digest: None,
                 started_at: None,
                 launch_nonce: None,
                 failure_kind: Some(ProbeFailureKind::Http),
@@ -708,7 +705,6 @@ impl BackendSupervisor {
                     detail: Some("端口上的服务返回了无法验证的 Argus 身份数据".to_owned()),
                     pid: None,
                     executable: None,
-                    manifest_source_digest: None,
                     started_at: None,
                     launch_nonce: None,
                     failure_kind: Some(ProbeFailureKind::Identity),
@@ -734,7 +730,6 @@ impl BackendSupervisor {
             detail: None,
             pid: runtime.pid,
             executable: runtime.executable,
-            manifest_source_digest: runtime.manifest_source_digest,
             started_at: runtime.started_at,
             launch_nonce: runtime.desktop_launch_nonce,
             failure_kind: None,
@@ -775,14 +770,6 @@ impl BackendSupervisor {
                         package_version.unwrap_or_default(),
                         self.inner.release.app_version
                     )),
-                    failure_kind: Some(ProbeFailureKind::Identity),
-                    ..probe
-                };
-            }
-            if probe.manifest_source_digest.as_deref() != Some(self.expected_manifest_digest().as_str())
-            {
-                return ProbeIdentity {
-                    detail: Some("端口上的 Argus 后端不是当前桌面构建".to_owned()),
                     failure_kind: Some(ProbeFailureKind::Identity),
                     ..probe
                 };
@@ -840,10 +827,6 @@ impl BackendSupervisor {
         })
     }
 
-    fn expected_manifest_digest(&self) -> String {
-        self.inner.release.manifest_digest()
-    }
-
     fn token_sha256(settings: &DesktopSettings) -> String {
         format!("{:x}", Sha256::digest(settings.token.as_bytes()))
     }
@@ -882,7 +865,6 @@ impl BackendSupervisor {
             return false;
         }
         let Some(ownership) = cached.or_else(|| self.read_ownership()) else { return false; };
-        let digest = self.expected_manifest_digest();
         let executable = if self.inner.release.development {
             probe.executable.clone().unwrap_or_default()
         } else {
@@ -895,7 +877,6 @@ impl BackendSupervisor {
                 host: settings.host.clone(),
                 port: settings.port,
                 executable,
-                manifest_source_digest: digest,
                 token_sha256: Self::token_sha256(settings),
             },
         )
@@ -961,7 +942,6 @@ impl BackendSupervisor {
         settings: DesktopSettings,
         generation: u64,
     ) -> anyhow::Result<()> {
-        let manifest_source_digest = self.expected_manifest_digest();
         self.ensure_special_prompts()?;
         let runtime_bin = self.ensure_runtime_command_shims(&command.command)?;
         let shell_command = shell_command_path(&command.command);
@@ -1102,7 +1082,6 @@ impl BackendSupervisor {
                     generation,
                     ExpectedBackendLaunch {
                         launch_nonce,
-                        manifest_source_digest,
                         spawned_at_ms,
                         now_ms: 0,
                     },
@@ -1380,7 +1359,6 @@ impl BackendSupervisor {
 
     fn write_ownership(&self, pid: u32, root_pid: u32, executable: &str, started_at: &str) -> anyhow::Result<()> {
         anyhow::ensure!(pid > 0 && root_pid > 0, "invalid backend process identity");
-        let manifest_source_digest = self.expected_manifest_digest();
         let settings = self.inner.settings.snapshot();
         let token_sha256 = Self::token_sha256(&settings);
         let ownership = BackendOwnership {
@@ -1390,7 +1368,6 @@ impl BackendSupervisor {
             host: settings.host,
             port: settings.port,
             executable: normalized_path(Path::new(executable)),
-            manifest_source_digest,
             token_sha256,
             started_at: started_at.to_owned(),
         };
@@ -1506,7 +1483,6 @@ fn identity_probe(
         detail: None,
         pid: None,
         executable: None,
-        manifest_source_digest: None,
         started_at: None,
         launch_nonce: None,
         failure_kind: None,

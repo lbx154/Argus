@@ -47,7 +47,6 @@ def launcher(monkeypatch, tmp_path):
         lambda _node: (22, 12, 0),
     )
     monkeypatch.setattr(tui_launcher, "_configure_tui_backend_bin", lambda: None)
-    monkeypatch.setattr(tui_launcher, "_export_tui_local_identity", lambda: None)
     return bundle
 
 

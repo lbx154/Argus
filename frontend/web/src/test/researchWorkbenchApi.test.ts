@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../../core/src/release.generated';
 import {
   API_PROTOCOL,
   REQUIRED_API_CAPABILITIES,
@@ -21,10 +20,6 @@ const currentMeta = {
     python_version: '3.13.0',
     executable: '/venv/bin/python',
     started_at: '2026-07-11T00:00:00Z',
-    release_id: RELEASE_ID,
-    manifest_source_digest: RELEASE_SOURCE_DIGEST,
-    runtime_source_digest: RELEASE_SOURCE_DIGEST,
-    release_matches_source: true,
   },
 };
 

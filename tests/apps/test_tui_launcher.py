@@ -60,16 +60,6 @@ def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path) -> No
     monkeypatch.setattr(tui_launcher.sys, "executable", str(venv_bin / "python"))
     monkeypatch.delenv("ARGUS_SKILL_BIN", raising=False)
     monkeypatch.setattr(tui_launcher, "_bundle_path", lambda: bundle)
-    monkeypatch.setattr(
-        tui_launcher,
-        "_tui_local_identity",
-        lambda: {
-            "release_id": "0.1.1+local",
-            "runtime_source_digest": "abc123",
-        },
-    )
-    monkeypatch.delenv("ARGUS_TUI_LOCAL_RELEASE_ID", raising=False)
-    monkeypatch.delenv("ARGUS_TUI_LOCAL_SOURCE_DIGEST", raising=False)
     monkeypatch.setattr(tui_launcher.shutil, "which", lambda name: "/usr/bin/node")
     monkeypatch.setattr(tui_launcher, "_node_version", lambda node: (22, 12, 0))
     monkeypatch.setattr(tui_launcher, "_needs_foreground_spawn", lambda: False)
@@ -83,25 +73,6 @@ def test_launcher_execs_node_with_bundled_ink(monkeypatch, tmp_path: Path) -> No
     assert seen["executable"] == "/usr/bin/node"
     assert seen["argv"] == ["/usr/bin/node", str(bundle), "--project", "wiki"]
     assert tui_launcher.os.environ["ARGUS_SKILL_BIN"] == str(backend)
-    assert tui_launcher.os.environ["ARGUS_TUI_LOCAL_RELEASE_ID"] == "0.1.1+local"
-    assert tui_launcher.os.environ["ARGUS_TUI_LOCAL_SOURCE_DIGEST"] == "abc123"
-
-
-def test_launcher_clears_stale_source_digest_for_wheel_install(monkeypatch) -> None:
-    monkeypatch.setenv("ARGUS_TUI_LOCAL_SOURCE_DIGEST", "stale")
-    monkeypatch.setattr(
-        tui_launcher,
-        "_tui_local_identity",
-        lambda: {
-            "release_id": "0.1.1+wheel",
-            "runtime_source_digest": None,
-        },
-    )
-
-    tui_launcher._export_tui_local_identity()
-
-    assert tui_launcher.os.environ["ARGUS_TUI_LOCAL_RELEASE_ID"] == "0.1.1+wheel"
-    assert "ARGUS_TUI_LOCAL_SOURCE_DIGEST" not in tui_launcher.os.environ
 
 
 def test_binary_launcher_points_tui_at_real_frozen_backend(

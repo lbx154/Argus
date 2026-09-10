@@ -570,7 +570,7 @@ fn show_about(app: AppHandle) {
         .set_description(format!(
             "Argus {version}{}\nTauri / Rust · Windows x64\n运行身份：{}\n桌面数据：{}\n关闭窗口后任务继续；停止本地后端并退出才会结束任务。",
             if release::preview_mode() { " · Preview（不安装发布更新）" } else { "" },
-            state(&app).supervisor.release().identity().release_id,
+            state(&app).supervisor.release().identity().package_version,
             state(&app).settings.data_dir().display(),
         ))
         .set_buttons(rfd::MessageButtons::Ok)

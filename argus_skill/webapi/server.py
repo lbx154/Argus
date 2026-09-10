@@ -591,9 +591,6 @@ def create_app(
         revision = api_meta["runtime"].get("revision")
         if revision:
             response.headers["X-Argus-Revision"] = str(revision)
-        response.headers["X-Argus-Release"] = str(
-            api_meta["runtime"].get("release_id") or "unknown"
-        )
         cache_control = _web_cache_control(request.url.path)
         if cache_control:
             response.headers["Cache-Control"] = cache_control
@@ -720,17 +717,11 @@ def serve(
     auth_token: str | None = None,
 ) -> int:
     """Run the API with uvicorn (blocking). Defaults to a localhost bind."""
-    from ..core.runtime_identity import (
-        release_match_preflight_error,
-        source_root_preflight_error,
-    )
+    from ..core.runtime_identity import source_root_preflight_error
 
     source_error = source_root_preflight_error()
     if source_error:
         raise RuntimeError(f"webapi refused mismatched source root: {source_error}")
-    release_error = release_match_preflight_error()
-    if release_error:
-        raise RuntimeError(f"webapi refused inconsistent release: {release_error}")
     import uvicorn
 
     uvicorn.run(

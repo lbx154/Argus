@@ -197,8 +197,7 @@ try {
   assert.equal((await request('/api/projects', false)).status, 401);
   const meta = await (await request('/api/meta')).json();
   assert.equal(meta.authentication.authenticated, true);
-  const manifest = JSON.parse(readFileSync(join(stage, 'argus-backend', '_internal', 'argus_skill', 'release_manifest.json'), 'utf8'));
-  assert.equal(meta.runtime.manifest_source_digest, manifest.source_digest);
+  assert.ok(meta.runtime.package_version, 'bundled backend reports its package version');
   const map = await request('/api/projects/s-preview-smoke/map');
   assert.equal(map.status, 200);
   assert.equal((await map.json()).tasks[0].id, 'task-smoke');

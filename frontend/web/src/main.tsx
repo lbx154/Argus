@@ -8,7 +8,6 @@ import { I18nProvider, useI18n } from './i18n';
 import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
 import { queryRetryPolicy } from './hooks';
 import { installStaleChunkRecovery } from './lib/preloadRecovery';
-import { RELEASE_ID } from '../../core/src/release.generated';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import 'katex/dist/katex.min.css';
@@ -17,7 +16,7 @@ import './index.css';
 // A cockpit left open across an update can still reference a deleted hashed
 // chunk. Reload the no-store shell before React turns that import into a blank UI.
 installStaleChunkRecovery(window, () => window.location.reload(), {
-  releaseId: RELEASE_ID,
+  buildId: new URL(import.meta.url).pathname,
   storage: () => window.sessionStorage,
 });
 

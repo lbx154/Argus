@@ -375,7 +375,6 @@ def _apply_framework_deployment_decision(
             "baseline_failure_count": len(receipt["baseline_failures"]),
             "candidate_failure_count": len(receipt["candidate_failures"]),
             "acceptance_passed": bool(receipt["acceptance_passed"]),
-            "release_matches_source": bool(receipt["release_matches_source"]),
             "both_publication_routes_complete": bool(
                 receipt["both_publication_routes_complete"]
             ),

@@ -16,7 +16,6 @@ DAEMON_CAPABILITIES = (
     "events.jsonl.v1",
     "manager.directive.v1",
     "mission.abort.v2",
-    "release.identity.v1",
     "usage.ledger.v1",
 )
 
@@ -63,15 +62,6 @@ def daemon_protocol_compatibility(status: Any) -> tuple[bool | None, str]:
             f"{runtime.get('source_root')} but ARGUS_SKILL_SOURCE_ROOT points to "
             f"{runtime.get('configured_source_root')}",
         )
-    require_release_match = str(
-        os.environ.get("ARGUS_SKILL_REQUIRE_RELEASE_MATCH", "")
-    ).strip().lower() in {"1", "true", "yes", "on"}
-    if (
-        require_release_match
-        and isinstance(runtime, dict)
-        and runtime.get("release_matches_source") is False
-    ):
-        return False, "daemon release manifest does not match its loaded source"
     worktree = runtime.get("worktree") if isinstance(runtime, dict) else None
     require_clean = str(os.environ.get("ARGUS_SKILL_REQUIRE_CLEAN_SOURCE", "")).strip().lower() in {
         "1", "true", "yes", "on"
@@ -80,23 +70,6 @@ def daemon_protocol_compatibility(status: Any) -> tuple[bool | None, str]:
         worktree.get("dirty") is True or worktree.get("detached") is True
     ):
         return False, "daemon loaded a dirty or detached source checkout"
-    expected_runtime = runtime_identity()
-    if isinstance(runtime, dict) and runtime.get("self_managed_source") is True:
-        return True, ""
-    expected_release = str(expected_runtime.get("release_id") or "")
-    actual_release = str((runtime or {}).get("release_id") or "")
-    if expected_release and actual_release and expected_release != actual_release:
-        return (
-            False,
-            "daemon release is incompatible with WebAPI release",
-        )
-    expected_digest = str(expected_runtime.get("runtime_source_digest") or "")
-    actual_digest = str((runtime or {}).get("runtime_source_digest") or "")
-    if expected_digest and actual_digest and expected_digest != actual_digest:
-        return (
-            False,
-            "daemon process source is incompatible with WebAPI source",
-        )
     return True, ""
 
 

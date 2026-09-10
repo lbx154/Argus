@@ -190,7 +190,7 @@ def _text_findings(path: Path, root: Path) -> list[Finding]:
         if machine and machine.group(0).split("/")[-1] != "...":
             findings.append(Finding("machine_specific_path", rel, number, machine.group(0)))
         digest = _DIGEST.search(text)
-        if digest and path.name not in {"package-lock.json", "release.generated.ts", "release_manifest.json"}:
+        if digest and path.name != "package-lock.json":
             findings.append(Finding("hardcoded_digest", rel, number, digest.group(0)))
         hardware = _HARDWARE.search(text)
         if hardware and generic:

@@ -20,7 +20,6 @@ from typing import Any, Iterator
 
 from ..core.file_lock import exclusive_file_lock
 from ..core.secret_guard import known_secret_values, redact_secrets_text
-from ..release import release_identity
 from .context_packet import CHECKPOINT_CONTRACT_VERSION
 
 CIRCUIT_FILENAME = "runtime-failure-circuit.json"
@@ -85,16 +84,17 @@ def _relevant_source_digest() -> str:
 
 def runtime_failure_identity() -> dict[str, Any]:
     """Facts that are allowed to close an existing runtime-failure circuit."""
-    try:
-        from ..core.runtime_identity import source_root
+    from .. import __version__
 
-        identity = release_identity(source_root())
+    try:
+        from ..core.runtime_identity import source_revision
+
+        revision = str(source_revision() or "")
     except Exception:  # noqa: BLE001 - identity failure must fail closed
-        identity = {}
+        revision = ""
     return {
-        "release_id": str(identity.get("release_id") or "unknown"),
-        "manifest_source_digest": str(identity.get("manifest_source_digest") or ""),
-        "runtime_source_digest": str(identity.get("runtime_source_digest") or ""),
+        "package_version": str(__version__ or "unknown"),
+        "source_revision": revision,
         "relevant_source_digest": _relevant_source_digest(),
         "checkpoint_contract_version": CHECKPOINT_CONTRACT_VERSION,
     }
@@ -190,8 +190,8 @@ def record_runtime_failure_circuit(
             "last_observed_at": now,
             "item_ids": list(dict.fromkeys(item_ids))[-20:],
             "clear_conditions": [
-                "release_id_changed",
-                "manifest_or_runtime_source_digest_changed",
+                "package_version_changed",
+                "source_revision_changed",
                 "relevant_source_digest_changed",
                 "checkpoint_contract_version_changed",
                 "reviewed_canary_passed",

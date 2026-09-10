@@ -9,7 +9,6 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../core/src/protocol.js';
-import { RELEASE_ID, RELEASE_SOURCE_DIGEST } from '../../core/src/release.generated.js';
 import { ApiClient } from '../src/api.js';
 import {
   cleanupSpawnedApi,
@@ -39,10 +38,6 @@ function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> 
       python_version: '3.13.0',
       executable: '/venv/bin/python',
       started_at: '2026-07-11T00:00:00Z',
-      release_id: RELEASE_ID,
-      manifest_source_digest: RELEASE_SOURCE_DIGEST,
-      runtime_source_digest: RELEASE_SOURCE_DIGEST,
-      release_matches_source: true,
     },
     ...overrides,
   };
@@ -75,50 +70,8 @@ test('protocol contract accepts the current server and rejects missing capabilit
   }));
   assert.equal(wrongCheckout.compatible, false);
   assert.equal(wrongCheckout.reason, 'backend is running from a different installation than configured');
-  const wrongRelease = inspectApiMeta(meta({
-    runtime: {
-      ...(meta().runtime as Record<string, unknown>),
-      release_id: '0.1.0+stale',
-    },
-  }));
-  assert.equal(wrongRelease.compatible, false);
-  assert.equal(
-    wrongRelease.reason,
-    'backend and client installations are out of sync; restart or reinstall Argus',
-  );
-  // A source/editable checkout whose working tree drifted from the last release
-  // build reports release_matches_source=false but keeps a matching release_id;
-  // this must remain compatible so `argus-skill --web` from source is not bricked.
-  const driftedSource = inspectApiMeta(meta({
-    runtime: {
-      ...(meta().runtime as Record<string, unknown>),
-      release_matches_source: false,
-      runtime_source_digest: 'deadbeef',
-    },
-  }));
-  assert.equal(driftedSource.compatible, true);
-  assert.equal(
-    driftedSource.warning,
-    'python -m argus_skill.release_tools.build_release',
-  );
 });
 
-test('local source identity rejects a stale process even when release ids match', () => {
-  const staleProcess = inspectApiMeta(meta({
-    runtime: {
-      ...(meta().runtime as Record<string, unknown>),
-      runtime_source_digest: 'old-process-source',
-    },
-  }), {
-    releaseId: RELEASE_ID,
-    sourceDigest: RELEASE_SOURCE_DIGEST,
-  });
-  assert.equal(staleProcess.compatible, false);
-  assert.equal(
-    staleProcess.reason,
-    'backend is running code from a different local installation; restart it',
-  );
-});
 
 test('snapshot contract fails closed when budget fields are absent', () => {
   assert.throws(
@@ -155,12 +108,7 @@ test('startup probe identifies an old reachable backend as incompatible', async 
 
 test('startup probe preserves stale Argus process identity for verified local recovery', async () => {
   const originalFetch = globalThis.fetch;
-  const stale = meta({
-    runtime: {
-      ...(meta().runtime as Record<string, unknown>),
-      release_id: '0.1.0+stale',
-    },
-  });
+  const stale = meta({ protocol: { name: 'argus.webapi', major: 1, minor: 5 } });
   globalThis.fetch = (async () => new Response(JSON.stringify(stale), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
@@ -171,7 +119,7 @@ test('startup probe preserves stale Argus process identity for verified local re
     assert.equal(probe.meta?.runtime.pid, 123);
     assert.equal(
       probe.message,
-      'backend and client installations are out of sync; restart or reinstall Argus',
+      `server protocol minor 5 is older than required ${API_PROTOCOL.minServerMinor}`,
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -193,66 +141,7 @@ test('startup probe reports generic backend status', async () => {
   }
 });
 
-test('startup probe hides local source drift but warns packaged clients', async () => {
-  const originalFetch = globalThis.fetch;
-  const originalDigest = process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
-  const drifted = meta({
-    runtime: {
-      ...(meta().runtime as Record<string, unknown>),
-      release_matches_source: false,
-      runtime_source_digest: 'deadbeef',
-    },
-  });
-  globalThis.fetch = (async () => new Response(JSON.stringify(drifted), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  })) as typeof fetch;
-  try {
-    delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
-    const packagedProbe = await probeApi('127.0.0.1', 8799);
-    assert.equal(packagedProbe.state, 'compatible');
-    assert.equal(
-      packagedProbe.warning,
-      'python -m argus_skill.release_tools.build_release',
-    );
-    process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST = 'deadbeef';
-    const sourceProbe = await probeApi('127.0.0.1', 8799);
-    assert.equal(sourceProbe.state, 'compatible');
-    assert.equal(sourceProbe.warning, undefined);
-  } finally {
-    globalThis.fetch = originalFetch;
-    if (originalDigest === undefined) delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
-    else process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST = originalDigest;
-  }
-});
 
-test('startup probe uses the source identity exported by the Python launcher', async () => {
-  const originalFetch = globalThis.fetch;
-  const originalDigest = process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
-  process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST = RELEASE_SOURCE_DIGEST;
-  const stale = meta({
-    runtime: {
-      ...(meta().runtime as Record<string, unknown>),
-      runtime_source_digest: 'old-process-source',
-    },
-  });
-  globalThis.fetch = (async () => new Response(JSON.stringify(stale), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  })) as typeof fetch;
-  try {
-    const probe = await probeApi('127.0.0.1', 8799);
-    assert.equal(probe.state, 'incompatible');
-    assert.equal(
-      probe.message,
-      'backend is running code from a different local installation; restart it',
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-    if (originalDigest === undefined) delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
-    else process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST = originalDigest;
-  }
-});
 
 test('launcher schedules only live daemons with incompatible runtime identity', async () => {
   const calls: string[] = [];
@@ -1013,35 +902,3 @@ test('ApiClient requests Manager prewarm only when asked', async () => {
   }
 });
 
-test('ApiClient forwards compatible source-drift warnings', async () => {
-  const originalFetch = globalThis.fetch;
-  const warnings: string[] = [];
-  let calls = 0;
-  const drifted = meta({
-    runtime: {
-      ...(meta().runtime as Record<string, unknown>),
-      release_matches_source: false,
-      runtime_source_digest: 'deadbeef',
-    },
-  });
-  globalThis.fetch = (async () => {
-    calls += 1;
-    return Response.json(calls === 1 ? drifted : { projects: [] });
-  }) as typeof fetch;
-  try {
-    const api = new ApiClient({
-      host: '127.0.0.1',
-      port: 8799,
-      project: '_',
-      onCompatibilityWarning: (warning) => warnings.push(warning),
-    });
-
-    await api.listProjects();
-
-    assert.deepEqual(warnings, [
-      'python -m argus_skill.release_tools.build_release',
-    ]);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
