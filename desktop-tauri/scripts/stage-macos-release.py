@@ -13,8 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     version = json.loads((ROOT / "package.json").read_text())["version"]
     arch = {"arm64": "aarch64", "x86_64": "x86_64"}[platform.machine()]
+    bundle_arch = "x64" if arch == "x86_64" else arch
     bundle = ROOT / "src-tauri/target/release/bundle"
-    installers = list((bundle / "dmg").glob(f"Argus_{version}_{arch}.dmg"))
+    installers = list((bundle / "dmg").glob(f"Argus_{version}_{bundle_arch}.dmg"))
     if len(installers) != 1:
         raise SystemExit(f"Expected one macOS {arch} installer for {version}")
     archive = bundle / "macos/Argus.app.tar.gz"
