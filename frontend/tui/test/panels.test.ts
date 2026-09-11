@@ -1016,7 +1016,7 @@ test('searchable event and full task panels stay useful at 60 columns', async ()
   );
   assert.match(feed, /Watch/);
   assert.match(feed, /needs credentials/);
-  assert.doesNotMatch(feed, /round 2 completed/);
+  assert.doesNotMatch(feed, /round 2 of work/);
 
   const item = {
     id: 'task-123', title: 'Reproduce benchmark', objective: 'Run five seeds and verify there is no benchmark leakage.',

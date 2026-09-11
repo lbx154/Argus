@@ -128,7 +128,7 @@ test('Manager routing failures lead with structured facts and retain raw error',
 
   assert.match(
     rendered?.text ?? '',
-    /^分流失败 · 契约： research_target_level got "phd", expected exploratory\|publishable\|doctoral \(第2次尝试\)/,
+    /^没能判断这个请求该归谁 · 回答格式： research_target_level got "phd", expected exploratory\|publishable\|doctoral \(第2次尝试\)/,
   );
   assert.match(rendered?.text ?? '', /原始错误: ManagerClassificationContractError/);
   assert.equal(rendered?.expand, true);
@@ -206,14 +206,14 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
   const context = { locale: 'en', showReasoning: true, unknownEventPolicy: 'hide', density: 'full' } as const;
   const oldRendererBugs: Record<string, Partial<ReturnType<typeof semanticProjection>>> = {
     // The old TUI hard-codes Chinese for only three event families instead of honoring one locale policy.
-    'life.manager.intent.started': { text: 'classifying request…' },
-    'life.manager.intent.failed': { text: 'routing failed · backend 401 Missing bearer (attempt 2) · raw: VerticalDecisionError: routing failed' },
+    'life.manager.intent.started': { text: 'working out what kind of request this is…' },
+    'life.manager.intent.failed': { text: 'could not work out where this request belongs · model service 401 Missing bearer (attempt 2) · error text: VerticalDecisionError: routing failed' },
     'life.phase.started': { text: 'entering implementation' },
     // The old TUI leaks recognized credentials; the semantic core redacts them.
     'engineer.progress.secret-redaction': { text: 'using token <REDACTED:github-token>' },
     // These are semantic distinctions/events that the old whitelist currently loses.
-    'life.planner.task_skipped.review-purchase-deferred': { text: 'review purchase deferred Purchase another paper review' },
-    'life.planner.normalized': { text: 'normalized · removed duplicate planner task' },
+    'life.planner.task_skipped.review-purchase-deferred': { text: 'put off another paper review Purchase another paper review' },
+    'life.planner.normalized': { text: 'tidied the plan · removed duplicate planner task' },
     // The old renderer leaves a trailing space when this schema has no objective field.
     'life.planner.start': { text: 'planning' },
     'life.planner.waiting': { role: 'planner', visibility: 'normal' },
@@ -261,6 +261,6 @@ test('render-events streams semantic-core corpus events as one plain line per ND
 
   assert.equal(
     rendered,
-    '🧭 [Manager] 判断任务归属…\n• [Argus] [future.event] kept for grep\n\n',
+    '🧭 [Manager] 判断这是什么样的请求…\n• [Argus] [future.event] kept for grep\n\n',
   );
 });
