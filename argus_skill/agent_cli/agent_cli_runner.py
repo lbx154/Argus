@@ -89,6 +89,9 @@ class RunnerOptions:
     # (the whole daemon) byte-for-byte unchanged; only the Manager chat
     # front-door sets it, to stream the reply live.
     on_agent_message: Callable[[str], None] | None = None
+    trusted_extensions: list[str] | None = None
+    trusted_tool_names: list[str] | None = None
+    extension_env: dict[str, str] | None = None
 
 
 class AgentCliRunner(

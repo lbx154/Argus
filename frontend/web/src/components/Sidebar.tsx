@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProjectRow } from '../api';
+import { PluginLauncher } from './PluginLauncher';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
 import { ago, uptime } from '../lib/format';
@@ -147,6 +148,7 @@ export function Sidebar({
         </div>
       ) : null}
 
+      <PluginLauncher compact={slim} />
       {!slim ? (
         <>
           <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line/50 px-3">

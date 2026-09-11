@@ -1,0 +1,36 @@
+name: optional-plugin-compatibility
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'argus_skill/core/plugin_manager.py'
+      - 'argus_skill/core/plugin_runtime.py'
+      - 'argus_skill/core/workbench_plugins.py'
+      - 'argus_skill/plugin_catalog.json'
+      - 'argus_skill/release_tools/build_plugins.py'
+      - 'tests/core/test_*plugin*.py'
+      - 'argus_skill/agent_cli/**'
+      - 'argus_skill/webapi/routes/plugins.py'
+      - '.github/workflows/plugin-compatibility.yml'
+permissions:
+  contents: read
+jobs:
+  plugins:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -e . pytest build
+      - name: Host contracts (no private checkout or model calls)
+        run: python -m pytest tests/core/test_plugin_manager.py tests/core/test_plugin_runtime.py tests/core/test_external_plugin_release.py tests/apps/test_runtime_packaged_skills.py tests/skills/test_vertical_plugins.py
+      - name: Clean install from public HTTPS source (no licensed binaries or model calls)
+        run: python -m argus_skill.release_tools.verify_plugin_install

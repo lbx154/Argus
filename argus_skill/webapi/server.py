@@ -684,6 +684,8 @@ def create_app(
     from .routes.map_notes import register_map_note_routes
 
     register_map_note_routes(app, ctx)
+    from .routes.plugins import register_plugin_routes
+    register_plugin_routes(app, ctx)
 
     # ── static web UI (optional) ──────────────────────────────────────────
     # When the React frontend has been built (`npm run build` in frontend/web),
