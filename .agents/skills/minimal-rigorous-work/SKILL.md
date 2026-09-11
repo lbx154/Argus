@@ -30,3 +30,7 @@ Solve the current task completely with the shortest clear control path.
   broaden checks only when the blast radius is broad.
 - Report `BLOCKED` or `UNTESTED` honestly. Stop when the requested outcome is
   complete.
+- Unless the operator explicitly authorizes direct publication, provide a locally built Mac release package for
+  the operator to install and try. Wait for explicit acceptance before pushing
+  main, publishing a GitHub Release, or deploying the gateway. Do not replace
+  the operator's running App automatically.

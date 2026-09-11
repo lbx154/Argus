@@ -635,8 +635,9 @@ button {
 
 :root[data-settings-mode='true'] .wizard-body {
   flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: clamp(28px, 4vw, 52px);
   background:
@@ -647,6 +648,7 @@ button {
 
 :root[data-settings-mode='true'] .panel:not([hidden]) {
   width: min(1040px, 100%);
+  margin-block: auto;
   min-height: 380px;
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
@@ -655,6 +657,17 @@ button {
   border-radius: 16px;
   background: var(--tile);
   box-shadow: 0 28px 80px -46px var(--shadow);
+}
+
+:root[data-settings-mode='true'] .panel[data-panel='env'] > .trial-invite {
+  grid-column: 1 / -1;
+  margin: 0;
+  border-width: 0 0 1px;
+  border-radius: 0;
+}
+
+:root[data-settings-mode='true'] .wizard.trial-entry-active .panel[data-panel='env'] {
+  min-height: 0;
 }
 
 :root[data-settings-mode='true'] .panel-intro {

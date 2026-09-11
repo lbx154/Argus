@@ -12,6 +12,11 @@ The host checks its default and per-role execution backends. CrystalPilot suppor
 
 After installation, `/crystalpilot` in a native Argus session enables scientific tools in that interface. Opening CrystalPilot from Plugins uses its own workbench. The surfaces retain separate conversations, ownership and project bindings.
 
+The host checks the current session's enabled entry in the plugin-owned binding
+registry before attaching tools; sharing a working directory does not enable a
+plugin for another session. Workbench executors retain the installation host
+root separately from their own session-storage root.
+
 ## Environment and lifecycle
 
 The plugin prepares its private scientific environment and automatically attempts free dependency installation. Missing optional/licensed components remain visible in its health report and can be repaired or configured later. For SHELX, users register with the upstream author and enter their licensed download credentials in the local administration form. Credentials are not passed through models.

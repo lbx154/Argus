@@ -1,4 +1,5 @@
 import { BackendHandshake } from './BackendHandshake';
+import { PluginLauncher } from './PluginLauncher';
 import { Wordmark } from './Wordmark';
 import { Button } from './primitives';
 import { TAGLINE } from '../lib/soul';
@@ -47,6 +48,7 @@ export function Landing({
           ) : canCreate ? (
             <Button onClick={onNew} variant="primary">{t('landing.new')}</Button>
           ) : null}
+          {!error ? <PluginLauncher /> : null}
         </div>
       )}
     </div>

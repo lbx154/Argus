@@ -114,6 +114,11 @@ class LifeWorkerBootMixin:
         # its virtual environment first.
         configure_framework_python_env(prepend_python_path=True)
         if self.config.global_root is not None:
+            from ..core.workbench_plugins import plugin_accounting_root
+
+            plugin_host = plugin_accounting_root(self.config.life_dir)
+            if plugin_host is not None:
+                os.environ["ARGUS_WORKBENCH_HOST_ROOT"] = str(plugin_host)
             os.environ["ARGUS_SKILL_HOME"] = str(self.config.global_root.resolve())
 
         self._rf_export_configured_backend()

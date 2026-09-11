@@ -1,5 +1,7 @@
 """Runtime hooks for explicitly installed and enabled workbench plugins."""
 
+from pathlib import Path
+
 from . import plugin_manager as manager
 
 
@@ -28,18 +30,32 @@ def native_plugin_command(text, *, sid, life_dir, global_root):
     return None
 
 
-def prepare_plugin_run(prompt, options, *, backend, run_label):
+def prepare_plugin_run(prompt, options, *, backend, run_label, project_root=None):
     import portalocker
 
+    if options is None or project_root is None:
+        return prompt, options
+    project_root = Path(project_root).resolve()
     for name, plugin in installed_workbenches().items():
-        if options is None or not plugin.owns_workdir(options.working_dir):
+        spec = manager.catalog()[name]
+        bindings_path = manager.host_root() / spec["session_bindings"]
+        binding = manager.read_json(bindings_path).get(project_root.name, {})
+        if not binding.get("enabled") or Path(binding["life_dir"]).resolve() != project_root:
             continue
         directory = manager.install_root() / name
         with portalocker.Lock(str(directory / "manage.lock"), timeout=10):
+            # The external plugin owns this registry. A shared working directory
+            # is not authorization to use another session's scientific dataset.
+            bindings = manager.read_json(bindings_path)
+            binding = bindings.get(project_root.name, {})
+            if not binding.get("enabled") or Path(binding["life_dir"]).resolve() != project_root:
+                continue
             # The registry may have switched after the initial discovery.
             plugin = manager.load_plugin(name)
             if plugin is None:
                 raise manager.PluginError("插件已停用，请重新启用后再执行。")
+            if not plugin.owns_workdir(options.working_dir):
+                continue
             operation = manager.read_json(directory / "operation.json")
             if (
                 operation.get("status") == "running"

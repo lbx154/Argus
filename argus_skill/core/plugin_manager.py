@@ -306,7 +306,9 @@ def _python(root=None):
                     *command,
                     "-I",
                     "-c",
-                    "import sys; assert (3,11)<=sys.version_info[:2]<(3,14); print(sys.executable)",
+                    "import sys; assert not getattr(sys, 'frozen', False); "
+                    "assert (3,11)<=sys.version_info[:2]<(3,14); "
+                    "import venv, ensurepip; print(sys.executable)",
                 ],
                 capture_output=True,
                 text=True,

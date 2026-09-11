@@ -6,6 +6,7 @@
       "version": "0.4.0",
       "description": "衍射数据处理、结构求解、精修与三维晶体研究工作台",
       "command": "/crystalpilot",
+      "session_bindings": "plugins/crystalpilot/bindings.json",
       "factory": "argus_crystalpilot.host:CrystalPilotPlugin",
       "installer": "argus_crystalpilot.installation",
       "setup": {
