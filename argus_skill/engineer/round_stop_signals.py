@@ -16,7 +16,7 @@ import json
 import re
 
 from ..core.models import ReviewDecision, RunnerResult
-from ..core.stop_kinds import normalize_stop_kind
+from ..core.stop_kinds import normalize_stop_kind, stop_kind_clause
 
 _SUCCESS_ITEM_STATUSES: tuple[str, ...] = (
     "completed",
@@ -326,15 +326,20 @@ def backend_failure_review_decision(
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     threshold = max(1, int(threshold or 1))
     retry_text = (
-        "Retry in a fresh Codex session; do not resume the failed thread. "
-        "If this repeats, pause the daemon and reduce concurrent Codex load."
+        "Try again in a fresh session rather than resuming the failed one. "
+        "If this keeps happening, pause Argus and reduce how many model "
+        "sessions run at once."
     )
+    # The sentence is what a person reads; the runtime's own facts follow the
+    # "Technical record:" marker so a consumer can set them aside.
     return ReviewDecision(
         status="continue",
         reason=(
-            "Engineer backend failed before a trustworthy completed turn; "
-            f"reviewer skipped. backend_failure_streak={streak}/{threshold}; "
-            f"error={error_text}"
+            "The model service dropped the Engineer's session before it "
+            "produced a result that could be checked, so this round was not "
+            "judged; Argus retries in a fresh session. "
+            f"Technical record: consecutive failures={streak}, "
+            f"limit={threshold}, error={error_text}"
         ),
         next_action=retry_text,
     )
@@ -374,10 +379,11 @@ def provider_turn_cap_review_decision(
     return ReviewDecision(
         status="continue",
         reason=(
-            "One Engineer call used its whole per-call provider-turn allowance "
-            f"({rotations}); reviewer skipped. The work so "
-            "far is kept and the task continues in a fresh session from the "
-            f"checkpoint. Runner receipt: {error_text}"
+            "The Engineer's session reached the length limit for a single "
+            f"call before finishing ({rotations}), so this round was not "
+            "judged; the work so far is kept and the task continues in a "
+            "fresh session from its saved progress. "
+            f"Technical record: {error_text}"
         ),
         next_action=next_action,
     )
@@ -391,19 +397,22 @@ def external_pause_review_decision(
 ) -> ReviewDecision:
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     if stop_kind == "daemon_shutdown":
-        next_action = "Restart the daemon to resume this mission from its checkpoint."
+        next_action = "Start Argus again to resume this task from its saved progress."
     elif stop_kind == "operator_pause":
-        next_action = "Resume this mission when the operator is ready."
+        next_action = "Resume this task when the operator is ready."
     else:
         next_action = (
-            "Resume from the persisted checkpoint after the blocking budget or "
-            "provider condition has been cleared."
+            "Resume from the saved progress once the budget or model-service "
+            "condition that paused the work has cleared."
         )
+    why = stop_kind_clause(stop_kind) or "the work was interrupted"
     return ReviewDecision(
         status="blocked",
         reason=(
-            f"Backend call paused before a trustworthy completed turn "
-            f"(stop_kind={stop_kind}); reviewer skipped. error={error_text}"
+            f"The work was paused before the Engineer finished this round "
+            f"because {why}, so this round was not judged; it resumes from "
+            f"the saved progress. Technical record: stop_kind={stop_kind}; "
+            f"error={error_text}"
         ),
         next_action=next_action,
         backend_unavailable=True,
@@ -420,10 +429,14 @@ def execution_host_review_decision(
     error_text = str(fatal_error or f"exit={exit_code}").strip()
     return ReviewDecision(
         status="blocked",
-        reason=f"Execution host is unavailable; reviewer skipped. error={error_text}",
+        reason=(
+            "The tool environment the Engineer needs could not be started, so "
+            "this round did not run and was not judged. "
+            f"Technical record: error={error_text}"
+        ),
         next_action=(
             "Restore the code-mode host executable in the Codex installation, "
-            "then explicitly resume this mission to retry from its checkpoint."
+            "then explicitly resume this task to retry from its saved progress."
         ),
         backend_unavailable=True,
         backend_fatal_error=error_text,
@@ -439,13 +452,14 @@ def model_configuration_review_decision(
     return ReviewDecision(
         status="blocked",
         reason=(
-            "Configured model is unavailable; Engineer and Reviewer were not "
-            f"run. error={error_text}"
+            "The configured model is unavailable, so neither the Engineer nor "
+            "the Reviewer could run this round. "
+            f"Technical record: error={error_text}"
         ),
         next_action=(
-            "The daemon retries this mission after a provider cooldown. If the "
-            "model name is wrong rather than the provider being down, select a "
-            "model supported by the configured CLI."
+            "Argus retries this task after the model service's waiting period. "
+            "If the model name is wrong rather than the service being down, "
+            "choose a model the configured CLI supports."
         ),
         backend_unavailable=True,
         backend_fatal_error=error_text,
@@ -502,7 +516,7 @@ def daemon_stop_review_decision(
         reason=(
             "Argus was stopped by its operator in the middle of this round; the "
             "Engineer's work so far is kept and nothing was retried. "
-            f"Runner receipt: error={error_text}"
+            f"Technical record: error={error_text}"
         ),
         next_action=(
             "When Argus is started again it continues from the saved project "

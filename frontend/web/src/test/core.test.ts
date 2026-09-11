@@ -448,19 +448,21 @@ describe('shared frontend core', () => {
       success: true,
     })).toMatchObject({
       outcomeClass: 'completed',
-      label: 'Task completed',
+      kind: 'mission_completed',
+      label: 'The task was completed.',
       tone: 'ok',
       missionStatus: 'complete',
+      technical: '',
     });
 
     const cases = [
       [
         { outcome_class: 'completed', status: 'supervisor_error', success: false },
-        { outcomeClass: 'completed', label: 'Task completed', tone: 'ok', missionStatus: 'complete' },
+        { outcomeClass: 'completed', kind: 'mission_completed', label: 'The task was completed.', tone: 'ok', missionStatus: 'complete' },
       ],
       [
         { status: 'done', success: true, final_submission_certified: true },
-        { outcomeClass: 'completed', label: 'Submission certified', tone: 'ok', missionStatus: 'complete' },
+        { outcomeClass: 'completed', kind: 'mission_certified', label: 'The final submission was checked and approved.', tone: 'ok', missionStatus: 'complete' },
       ],
       [
         {
@@ -468,31 +470,37 @@ describe('shared frontend core', () => {
           success: true,
           outcome: { final_submission_certified: true },
         },
-        { outcomeClass: 'completed', label: 'Task completed', tone: 'ok', missionStatus: 'complete' },
+        { outcomeClass: 'completed', kind: 'mission_completed', label: 'The task was completed.', tone: 'ok', missionStatus: 'complete' },
       ],
       [
         { status: 'research_incomplete', success: false },
-        { outcomeClass: 'incomplete', label: 'Mission incomplete', tone: 'warn', missionStatus: 'incomplete' },
+        { outcomeClass: 'incomplete', kind: 'mission_incomplete', label: 'The task stopped with work still remaining.', tone: 'warn', missionStatus: 'incomplete' },
       ],
       [
         { status: 'no_progress', success: false },
-        { outcomeClass: 'stalled', label: 'Mission stalled', tone: 'warn', missionStatus: 'stalled' },
+        { outcomeClass: 'stalled', kind: 'mission_stalled', label: 'The task stopped because recent rounds made no useful progress.', tone: 'warn', missionStatus: 'stalled' },
       ],
       [
         { status: 'blocked', success: false },
-        { outcomeClass: 'blocked', label: 'Mission blocked', tone: 'err', missionStatus: 'blocked' },
+        { outcomeClass: 'blocked', kind: 'mission_blocked', label: 'The task cannot continue until something outside it is resolved.', tone: 'err', missionStatus: 'blocked' },
       ],
       [
         { status: 'supervisor_error', success: false },
-        { outcomeClass: 'failed', label: 'Mission failed', tone: 'err', missionStatus: 'failed' },
+        { outcomeClass: 'failed', kind: 'mission_failed', label: 'The task could not be completed.', tone: 'err', missionStatus: 'failed' },
       ],
       [
+        // An unrecognised status is kept as a technical fact, never written into the sentence.
         { status: 'legacy_weird_status', success: false },
-        { outcomeClass: 'ended', label: 'Mission ended · legacy_weird_status', tone: 'info', missionStatus: 'ended' },
+        { outcomeClass: 'ended', kind: 'mission_ended', label: 'The task ended without a recorded outcome.', tone: 'info', missionStatus: 'ended', technical: 'legacy_weird_status' },
+      ],
+      [
+        // A paused task says why it paused and that it can resume; the raw status stays technical.
+        { status: 'paused_daemon_shutdown', success: false, stop_kind: 'backend_unavailable', resumable: true },
+        { outcomeClass: 'ended', kind: 'mission_paused', label: 'The task was paused before it finished because Argus was stopped; its progress is saved and it can be resumed.', tone: 'info', missionStatus: 'ended', technical: 'paused_daemon_shutdown' },
       ],
       [
         { success: false },
-        { outcomeClass: 'ended', label: 'Mission ended', tone: 'info', missionStatus: 'ended' },
+        { outcomeClass: 'ended', kind: 'mission_ended', label: 'The task ended without a recorded outcome.', tone: 'info', missionStatus: 'ended', technical: '' },
       ],
     ] as const;
 

@@ -241,7 +241,7 @@ describe('renderEvent', () => {
       success: true,
       summary: 'Created RESULT.txt and verified its contents.',
     } as EventMsg)).toMatchObject({
-      text: 'Task completed · Created RESULT.txt and verified its contents.',
+      text: 'The task was completed. · Created RESULT.txt and verified its contents.',
       tone: 'ok',
     });
     expect(renderEvent({
@@ -250,7 +250,7 @@ describe('renderEvent', () => {
       success: true,
       final_submission_certified: true,
     } as EventMsg)).toMatchObject({
-      text: 'Submission certified',
+      text: 'The final submission was checked and approved.',
       tone: 'ok',
     });
     expect(renderEvent({
@@ -258,7 +258,7 @@ describe('renderEvent', () => {
       status: 'research_incomplete',
       success: false,
     } as EventMsg)).toMatchObject({
-      text: 'Mission incomplete',
+      text: 'The task stopped with work still remaining.',
       tone: 'warn',
     });
     expect(renderEvent({
@@ -267,7 +267,7 @@ describe('renderEvent', () => {
       status: 'done',
       success: true,
     } as EventMsg)).toMatchObject({
-      text: 'Mission blocked',
+      text: 'The task cannot continue until something outside it is resolved.',
       tone: 'err',
     });
     expect(renderEvent({
@@ -275,7 +275,7 @@ describe('renderEvent', () => {
       status: 'legacy_weird_status',
       success: false,
     } as EventMsg)).toMatchObject({
-      text: 'Mission ended · legacy_weird_status',
+      text: 'The task ended without a recorded outcome.',
       tone: 'info',
     });
   });

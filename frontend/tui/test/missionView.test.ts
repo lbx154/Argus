@@ -242,7 +242,7 @@ test('mission projector keeps research_incomplete distinct from failure', () => 
     success: false,
   });
   assert.equal(view.mission.status, 'incomplete');
-  assert.equal(view.timeline.at(-1)?.title, 'Mission incomplete');
+  assert.equal(view.timeline.at(-1)?.title, 'The task stopped with work still remaining.');
   assert.equal(view.timeline.at(-1)?.detail, 'research_incomplete');
 });
 
@@ -277,7 +277,7 @@ test('mission projector forces life.mission.failed to failed even with malformed
     outcome_class: 'incomplete',
   });
   assert.equal(view.mission.status, 'failed');
-  assert.equal(view.timeline.at(-1)?.title, 'Mission failed');
+  assert.equal(view.timeline.at(-1)?.title, 'The task could not be completed.');
   assert.equal(view.timeline.at(-1)?.detail, 'Kernel v7');
 });
 

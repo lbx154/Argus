@@ -53,8 +53,9 @@ function copyView(view: MissionView): MissionView {
 
 export function emptyMissionView(): MissionView {
   return {
-    schema_version: 6,
+    schema_version: 7,
     bootstrapped: false,
+    language: '',
     mission: {
       id: '',
       title: '',

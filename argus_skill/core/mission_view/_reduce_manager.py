@@ -1,11 +1,11 @@
 """Manager and Planner mission-view event-family reducers.
 
-Manager events project the front-door "goal framed" moment and stage
-transition decisions; Planner events project the L4 continuous-mode
-scheduling lifecycle (start / task added / verdict / waiting / idle / error).
-Both are Manager/Planner-authored decisions and this module only projects
-their structured fields into the read model — it makes no stage or quality
-judgement of its own.
+Manager events project the moment the request is understood and the stage
+decisions that follow; Planner events project the continuous-mode scheduling
+lifecycle (start / task added / plan settled / waiting / idle / error). Both
+are Manager/Planner-authored decisions and this module only projects their
+structured fields into the read model, with a sentence a reader outside the
+team understands, in the session's language.
 """
 from __future__ import annotations
 
@@ -13,6 +13,20 @@ from typing import Any, Mapping
 
 from ..event_catalog import EventType
 from ._reduce_helpers import _role_work, _set_role, _text, _timeline, _upsert
+from ._wording import (
+    remember_language,
+    say,
+    session_is_chinese,
+    stage_label,
+    stage_name,
+)
+
+_STAGE_DECISION_KINDS = {
+    "advance": "stage_advanced",
+    "hold": "stage_held",
+    "rollback": "stage_rolled_back",
+    "complete": "stage_completed",
+}
 
 
 def reduce_manager_event(
@@ -26,6 +40,8 @@ def reduce_manager_event(
     if event_type == EventType.LIFE_MANAGER_INTENT_STARTED:
         item_id = _text(event, "item_id") or _text(event, "intent_id")
         objective = _text(event, "objective", 2000)
+        remember_language(view, objective)
+        chinese = session_is_chinese(view, objective)
         mission.update({
             "id": item_id,
             "title": objective[:180],
@@ -36,12 +52,14 @@ def reduce_manager_event(
             "completed_at": None,
             "status": "grounding",
         })
-        _set_role(view, "manager", "active", "Grounding project", ts)
+        label = say("grounding_started", chinese)
+        _set_role(view, "manager", "active", label, ts, kind="grounding_started")
         _timeline(
             view,
             event,
             role="manager",
-            title="Project grounding started",
+            kind="grounding_started",
+            title=label,
             detail=objective[:500],
         )
         _role_work(
@@ -49,7 +67,7 @@ def reduce_manager_event(
             event,
             role="manager",
             kind="grounding",
-            title="Grounding project",
+            title=label,
             detail=objective,
             status="active",
         )
@@ -57,6 +75,8 @@ def reduce_manager_event(
     elif event_type == EventType.LIFE_MANAGER_INTENT_COMPLETED:
         item_id = _text(event, "item_id") or _text(event, "intent_id")
         objective = _text(event, "objective", 2000) or _text(event, "execution_task", 2000)
+        remember_language(view, objective)
+        chinese = session_is_chinese(view, objective)
         mission.update({
             "id": item_id,
             "title": objective[:180],
@@ -83,7 +103,7 @@ def reduce_manager_event(
         if current_stage:
             view["stage"] = {
                 "id": current_stage,
-                "label": current_stage.replace("_", " ").title(),
+                "label": stage_label(current_stage, chinese),
             }
         elif (
             isinstance(stages, list)
@@ -91,15 +111,24 @@ def reduce_manager_event(
             and not _text(view.get("stage", {}), "id")
         ):
             stage = str(stages[0] or "").strip()
-            view["stage"] = {"id": stage, "label": stage.replace("_", " ").title()}
-        _set_role(view, "manager", "done", "Goal framed", ts)
-        _timeline(view, event, role="manager", title="Goal framed", detail=_text(event, "reason"), tone="success")
+            view["stage"] = {"id": stage, "label": stage_label(stage, chinese)}
+        label = say("goal_framed", chinese)
+        _set_role(view, "manager", "done", label, ts, kind="goal_framed")
+        _timeline(
+            view,
+            event,
+            role="manager",
+            kind="goal_framed",
+            title=label,
+            detail=_text(event, "reason"),
+            tone="success",
+        )
         _role_work(
             view,
             event,
             role="manager",
             kind="decision",
-            title="Goal framed",
+            title=label,
             detail=_text(event, "reason", 4000)
             or _text(event, "execution_task", 4000),
             status="done",
@@ -107,13 +136,15 @@ def reduce_manager_event(
 
     elif event_type == EventType.LIFE_MANAGER_INTENT_FAILED:
         mission["status"] = "failed"
-        title = "I couldn't determine how to handle this request."
-        detail = "Nothing was queued. See the recorded diagnostic for details."
-        _set_role(view, "manager", "error", title, ts)
+        chinese = session_is_chinese(view, _text(event, "objective", 2000))
+        title = say("goal_not_understood", chinese)
+        detail = say("goal_not_understood_detail", chinese)
+        _set_role(view, "manager", "error", title, ts, kind="goal_not_understood")
         _timeline(
             view,
             event,
             role="manager",
+            kind="goal_not_understood",
             title=title,
             detail=detail,
             tone="error",
@@ -130,18 +161,25 @@ def reduce_manager_event(
 
     elif event_type == EventType.LIFE_MANAGER_STAGE_DECISION:
         stage = _text(event, "target_stage") or _text(event, "stage") or _text(event, "current_stage")
-        stage_name = stage.replace("_", " ") or "this stage"
+        chinese = session_is_chinese(view, _text(event, "reason"))
         action = _text(event, "action").strip().lower()
-        title = {
-            "advance": f"Advanced to {stage_name}",
-            "hold": f"Staying in {stage_name}",
-            "rollback": f"Returning to {stage_name}",
-            "complete": f"Completed {stage_name}",
-        }.get(action, f"Reviewed {stage_name}")
+        kind = _STAGE_DECISION_KINDS.get(action, "stage_reconsidered")
+        title = say(
+            kind,
+            chinese,
+            stage=stage_name(stage, chinese) or ("这个" if chinese else "current"),
+        )
         if stage:
-            view["stage"] = {"id": stage, "label": stage.replace("_", " ").title()}
-        _set_role(view, "manager", "done", title, ts)
-        _timeline(view, event, role="manager", title=title, detail=_text(event, "reason"))
+            view["stage"] = {"id": stage, "label": stage_label(stage, chinese)}
+        _set_role(view, "manager", "done", title, ts, kind=kind)
+        _timeline(
+            view,
+            event,
+            role="manager",
+            kind=kind,
+            title=title,
+            detail=_text(event, "reason"),
+        )
         _role_work(
             view,
             event,
@@ -161,14 +199,20 @@ def reduce_planner_event(
     ts: float,
     mission: dict[str, Any],
 ) -> None:
+    chinese = session_is_chinese(
+        view,
+        _text(event, "objective", 2000),
+        _text(event, "title", 240),
+    )
     if event_type == EventType.LIFE_PLANNER_START:
-        _set_role(view, "planner", "active", "Planning next work", ts)
+        label = say("planning_started", chinese)
+        _set_role(view, "planner", "active", label, ts, kind="planning_started")
         _role_work(
             view,
             event,
             role="planner",
             kind="planning",
-            title="Planning next work",
+            title=label,
             detail=_text(event, "objective", 4000),
             status="active",
         )
@@ -186,19 +230,28 @@ def reduce_planner_event(
             "branch_id": _text(event, "branch_id") or item_id,
             "parent_branch_id": _text(event, "parent_branch_id") or None,
         })
-        label = (
-            "Research branch added"
+        kind = (
+            "research_route_added"
             if _text(view.get("routing", {}), "vertical") == "research"
-            else "Task added"
+            else "task_added"
         )
-        _set_role(view, "planner", "done", label, ts)
-        _timeline(view, event, role="planner", title=label, detail=_text(event, "title"), tone="info")
+        label = say(kind, chinese)
+        _set_role(view, "planner", "done", label, ts, kind=kind)
+        _timeline(
+            view,
+            event,
+            role="planner",
+            kind=kind,
+            title=label,
+            detail=_text(event, "title"),
+            tone="info",
+        )
         _role_work(
             view,
             event,
             role="planner",
             kind="task",
-            title=_text(event, "title", 240) or "Task added",
+            title=_text(event, "title", 240) or label,
             detail=_text(event, "objective", 4000),
             status="pending",
         )
@@ -211,24 +264,26 @@ def reduce_planner_event(
             if project_done and isinstance(raw_delivery, dict)
             else None
         )
-        label = (
-            "Task completed"
+        kind = (
+            "task_delivered"
             if delivery is not None
-            else "Project reviewed"
+            else "project_finished"
             if project_done
-            else "Planning complete"
+            else "planning_complete"
         )
+        label = say(kind, chinese)
         if delivery is not None:
             view["delivery"] = delivery
             mission = view.setdefault("mission", {})
             mission["status"] = "complete"
             mission["summary"] = str(delivery.get("summary") or "")[:1200]
             mission["completed_at"] = ts
-        _set_role(view, "planner", "done", label, ts)
+        _set_role(view, "planner", "done", label, ts, kind=kind)
         _timeline(
             view,
             event,
             role="planner",
+            kind=kind,
             title=label,
             detail=_text(event, "reason"),
             tone="success" if project_done else "neutral",
@@ -244,12 +299,14 @@ def reduce_planner_event(
         )
 
     elif event_type == EventType.LIFE_PLANNER_WAITING:
-        _set_role(view, "planner", "waiting", "Waiting on external work", ts)
+        label = say("planner_waiting", chinese)
+        _set_role(view, "planner", "waiting", label, ts, kind="planner_waiting")
         _timeline(
             view,
             event,
             role="planner",
-            title="Planner waiting",
+            kind="planner_waiting",
+            title=label,
             detail=_text(event, "reason") or _text(event, "waiting_reason"),
         )
         _role_work(
@@ -257,29 +314,33 @@ def reduce_planner_event(
             event,
             role="planner",
             kind="waiting",
-            title="Planner waiting",
+            title=label,
             detail=_text(event, "reason", 4000)
             or _text(event, "waiting_reason", 4000),
             status="waiting",
         )
 
     elif event_type == EventType.LIFE_PLANNER_TERMINAL_IDLE:
-        _set_role(view, "planner", "waiting", "Idle", ts)
+        label = say("planner_idle", chinese)
+        _set_role(view, "planner", "waiting", label, ts, kind="planner_idle")
         _timeline(
             view,
             event,
             role="planner",
-            title="Planner idle",
+            kind="planner_idle",
+            title=label,
             detail=_text(event, "reason"),
         )
 
     elif event_type == EventType.LIFE_PLANNER_ERROR:
-        _set_role(view, "planner", "error", "Planning failed", ts)
+        label = say("planning_failed", chinese)
+        _set_role(view, "planner", "error", label, ts, kind="planning_failed")
         _timeline(
             view,
             event,
             role="planner",
-            title="Planner failed",
+            kind="planning_failed",
+            title=label,
             detail=_text(event, "error") or _text(event, "reason"),
             tone="error",
         )

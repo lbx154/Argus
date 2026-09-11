@@ -263,3 +263,32 @@ def test_post_edit_review_stop_kind_reaches_mission_status(
     assert review_events[0]["input_tokens"] == 6
     assert review_events[0]["output_tokens"] == 3
     assert review_events[0]["premium_requests"] == 1.0
+
+
+def test_stop_kinds_have_reader_facing_clauses_in_both_languages() -> None:
+    from argus_skill.core.stop_kinds import (
+        STOP_KINDS,
+        pause_status_clause,
+        stop_kind_clause,
+    )
+
+    for kind in STOP_KINDS:
+        english = stop_kind_clause(kind)
+        chinese = stop_kind_clause(kind, chinese=True)
+        assert english and chinese
+        for text in (english, chinese):
+            assert "_" not in text
+            for word in ("backend", "daemon", "provider_", "stop_kind"):
+                assert word not in text.lower()
+    assert stop_kind_clause("not-a-kind") == ""
+    assert stop_kind_clause(None) == ""
+    assert stop_kind_clause("daemon_shutdown") == "Argus was stopped"
+    assert stop_kind_clause("daemon_shutdown", chinese=True) == "Argus 被停止"
+
+    assert pause_status_clause("paused_daemon_shutdown") == "Argus was stopped"
+    assert pause_status_clause("paused_budget") == "the project reached its budget limit"
+    assert pause_status_clause("paused_external_work", chinese=True) == (
+        "需要先等 Argus 之外的工作完成"
+    )
+    assert pause_status_clause("paused_something_new") == "the work was paused"
+    assert pause_status_clause("failed") == ""

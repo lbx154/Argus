@@ -26,8 +26,12 @@ def test_legacy_team_waiting_projects_as_planner_waiting(tmp_path: Path) -> None
 
     planner = next(role for role in view["roles"] if role["role"] == "planner")
     assert planner["status"] == "waiting"
-    assert planner["label"] == "Waiting on external work"
-    assert view["timeline"][-1]["title"] == "Planner waiting"
+    assert planner["kind"] == "planner_waiting"
+    assert planner["label"] == (
+        "Waiting for work outside Argus to finish before planning further"
+    )
+    assert view["timeline"][-1]["kind"] == "planner_waiting"
+    assert view["timeline"][-1]["title"] == planner["label"]
 
 
 def test_manager_handoff_refreshes_stage_after_objective_update(tmp_path: Path) -> None:
@@ -65,7 +69,8 @@ def test_manager_grounding_lifecycle_is_visible(tmp_path: Path) -> None:
     assert view["mission"]["status"] == "grounding"
     assert view["mission"]["objective"] == "Repair parser behavior"
     assert view["active_role"] == "manager"
-    assert roles["manager"]["label"] == "Grounding project"
+    assert roles["manager"]["kind"] == "grounding_started"
+    assert roles["manager"]["label"] == "Reading the request to work out what it asks for"
 
     view = emit(
         tmp_path,
@@ -101,7 +106,8 @@ def test_manager_grounding_lifecycle_is_visible(tmp_path: Path) -> None:
         title="Fix the CLI",
     )
     planner = next(role for role in view["roles"] if role["role"] == "planner")
-    assert planner["label"] == "Task added"
+    assert planner["kind"] == "task_added"
+    assert planner["label"] == "A new task was added to the plan."
 
 
 def test_manager_intent_failure_is_not_labeled_as_grounding_failed(
@@ -145,8 +151,9 @@ def test_manager_stage_decision_uses_human_action_and_status(tmp_path: Path) -> 
     )
 
     manager = next(role for role in view["roles"] if role["role"] == "manager")
-    assert manager["label"] == "Returning to paper review"
-    assert view["timeline"][-1]["title"] == "Returning to paper review"
+    assert manager["kind"] == "stage_rolled_back"
+    assert manager["label"] == "The project went back to the paper review stage."
+    assert view["timeline"][-1]["title"] == "The project went back to the paper review stage."
     assert view["role_work"][-1]["status"] == "done"
     assert view["role_work"][-1]["detail"] == "The submission evidence is stale."
 
@@ -196,7 +203,7 @@ def test_v3_snapshot_rebuilds_to_include_completion_summary(tmp_path: Path) -> N
         backlog=[],
     )
 
-    assert view["schema_version"] == 6
+    assert view["schema_version"] == 7
     assert view["mission"]["summary"] == (
         "Created RESULT.txt and verified its exact contents."
     )
@@ -320,7 +327,7 @@ def test_legacy_snapshot_recovers_only_matching_final_delivery(
         "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8",
     )
     (tmp_path / "mission-view.json").write_text(json.dumps({
-        "schema_version": 6, "bootstrapped": True, "last_event_ts": 10,
+        "schema_version": 7, "bootstrapped": True, "last_event_ts": 10,
         "mission": {
             "id": "task", "status": "complete", "started_at": 1,
             "completed_at": 3, "summary": "Keep compact summary",
@@ -372,7 +379,7 @@ def test_v4_snapshot_migrates_without_discarding_projected_state(tmp_path: Path)
         backlog=[],
     )
 
-    assert view["schema_version"] == 6
+    assert view["schema_version"] == 7
     assert view["mission"]["id"] == "kept"
     assert view["routing"]["route"] == ""
 
@@ -395,7 +402,8 @@ def test_venue_and_idea_research_are_visible_as_engineer_work(tmp_path: Path) ->
     roles = {role["role"]: role for role in view["roles"]}
     assert view["active_role"] == "engineer"
     assert roles["engineer"]["status"] == "active"
-    assert roles["engineer"]["label"] == "Researching target venue"
+    assert roles["engineer"]["kind"] == "venue_research_started"
+    assert roles["engineer"]["label"] == "Studying what the target venue expects"
     assert view["role_work"][-1]["kind"] == "venue_research"
 
     view = emit(
@@ -406,7 +414,8 @@ def test_venue_and_idea_research_are_visible_as_engineer_work(tmp_path: Path) ->
         text="built research/VENUE_PROFILE.json",
     )
     roles = {role["role"]: role for role in view["roles"]}
-    assert roles["engineer"]["label"] == "Venue profile ready"
+    assert roles["engineer"]["kind"] == "venue_profile_ready"
+    assert roles["engineer"]["label"] == "The target venue's expectations are written up."
 
     view = emit(
         tmp_path,
@@ -416,7 +425,8 @@ def test_venue_and_idea_research_are_visible_as_engineer_work(tmp_path: Path) ->
     )
     roles = {role["role"]: role for role in view["roles"]}
     assert view["active_role"] == "engineer"
-    assert roles["engineer"]["label"] == "Searching candidate ideas"
+    assert roles["engineer"]["kind"] == "idea_search_started"
+    assert roles["engineer"]["label"] == "Searching for candidate research ideas"
 
 
 def test_planner_terminal_event_clears_active_role(tmp_path: Path) -> None:
@@ -434,7 +444,10 @@ def test_planner_terminal_event_clears_active_role(tmp_path: Path) -> None:
     roles = {role["role"]: role for role in view["roles"]}
     assert view["active_role"] == ""
     assert roles["planner"]["status"] == "done"
-    assert roles["planner"]["label"] == "Project reviewed"
+    assert roles["planner"]["kind"] == "project_finished"
+    assert roles["planner"]["label"] == (
+        "The project has reached its goal; no further tasks are planned."
+    )
     assert view["timeline"][-1]["type"] == "life.planner.verdict"
 
 
@@ -676,10 +689,17 @@ def test_engineer_self_review_is_not_presented_as_independent_review(
 
     roles = {row["role"]: row for row in view["roles"]}
     assert view["review"]["source"] == "engineer_self_review"
-    assert roles["engineer"]["label"] == "Self-verified"
-    assert roles["reviewer"]["label"] == "Independent review not required"
+    assert roles["engineer"]["kind"] == "self_check_held_up"
+    assert roles["engineer"]["label"] == (
+        "The Engineer checked its own result and it held up"
+    )
+    assert roles["reviewer"]["kind"] == "independent_check_not_needed"
+    assert roles["reviewer"]["label"] == "No independent check was needed for this round"
     assert view["timeline"][-1]["role"] == "engineer"
-    assert view["timeline"][-1]["title"] == "Engineer self-review accepted"
+    assert view["timeline"][-1]["kind"] == "self_check_accepted"
+    assert view["timeline"][-1]["title"] == (
+        "The Engineer's own check of the result was accepted."
+    )
 
 
 def test_new_mission_resets_prior_review_projection(tmp_path: Path) -> None:
@@ -730,7 +750,10 @@ def test_new_mission_resets_prior_review_projection(tmp_path: Path) -> None:
     assert view["review"] == {"status": "", "reason": "", "rejected_attempts": 0}
     assert view["outcome"] == {}
     assert roles["reviewer"]["status"] == "waiting"
-    assert roles["reviewer"]["label"] == "Awaiting engineer handoff"
+    assert roles["reviewer"]["kind"] == "awaiting_engineer"
+    assert roles["reviewer"]["label"] == (
+        "Waiting for the Engineer to finish a round before checking it"
+    )
     assert roles["engineer"]["status"] == "active"
     assert view["active_role"] == "engineer"
 
@@ -750,13 +773,24 @@ def test_skipped_review_is_not_a_verdict_or_rejected_attempt(tmp_path: Path, sta
     )
     assert view["review"]["status"] == "skipped"
     assert view["review"]["rejected_attempts"] == 1
-    assert view["timeline"][-1]["title"] == "Review not performed"
-    assert view["timeline"][-1]["tone"] == "info"
+    entry = view["timeline"][-1]
+    assert entry["kind"] == "round_not_judged"
+    assert entry["title"] == "This round was not judged."
+    assert entry["tone"] == "info"
+    assert entry["cause"] == "unknown"
+    assert entry["detail"] == "The work did not reach a result that could be checked."
+    # The runtime's own record stays beside the sentence, never inside it.
+    assert entry["technical"] == "Session turn allowance exhausted; review did not run."
     work = view["role_work"][-1]
     assert work["status"] == "skipped"
     assert work["kind"] == "review"
-    assert "saved checkpoint" in work["detail"]
-    assert next(role for role in view["roles"] if role["role"] == "reviewer")["status"] == "waiting"
+    assert work["title"] == entry["title"]
+    assert work["detail"] == entry["detail"]
+    assert work["technical"] == entry["technical"]
+    assert "saved checkpoint" not in work["detail"]
+    reviewer = next(role for role in view["roles"] if role["role"] == "reviewer")
+    assert reviewer["status"] == "waiting"
+    assert reviewer["kind"] == "round_not_judged"
 
 
 def test_new_review_clears_prior_verdict_without_erasing_history(tmp_path: Path) -> None:
@@ -786,10 +820,20 @@ def test_snapshot_corrects_old_review_projection_without_rewriting_it(tmp_path: 
         view = update_mission_view_event(tmp_path, event)
     view["bootstrapped"] = True
     view["review"] = {"status": "continue", "reason": "Turn allowance reached.", "rejected_attempts": 1}
-    for key in ("timeline", "role_work"):
-        for row in view[key]:
-            if row["title"] == "Review not performed":
-                row.update(title="Attempt rejected", tone="error", status="continue", kind="verdict")
+    for row in view["timeline"]:
+        if row["kind"] == "round_not_judged":
+            row.update(
+                kind="another_attempt_requested",
+                title="The results were not accepted; another attempt was requested.",
+                tone="error",
+            )
+    for row in view["role_work"]:
+        if row["kind"] == "review" and row["status"] == "skipped":
+            row.update(
+                title="The results were not accepted; another attempt was requested.",
+                status="continue",
+                kind="verdict",
+            )
     view_file = tmp_path / "mission-view.json"
     event_file = tmp_path / "events.jsonl"
     view_file.write_text(json.dumps(view))
@@ -801,8 +845,18 @@ def test_snapshot_corrects_old_review_projection_without_rewriting_it(tmp_path: 
 
     result = snapshot()
     assert result["review"] == {"status": "", "reason": "", "rejected_attempts": 0}
-    assert any(row["title"] == "Review not performed" and row["tone"] == "info" for row in result["timeline"])
-    assert any(row["title"] == "Review not performed" and row["status"] == "skipped" for row in result["role_work"])
+    assert any(
+        row["kind"] == "round_not_judged"
+        and row["title"] == "This round was not judged."
+        and row["tone"] == "info"
+        for row in result["timeline"]
+    )
+    assert any(
+        row["kind"] == "review"
+        and row["status"] == "skipped"
+        and row["title"] == "This round was not judged."
+        for row in result["role_work"]
+    )
     assert view_file.read_bytes() == before
 
     # A later real rejection invalidates the read cache while the older writer
@@ -973,27 +1027,48 @@ def test_review_deferral_projects_as_engineer_activity(tmp_path: Path) -> None:
 
     assert view["active_role"] == "engineer"
     roles = {role["role"]: role for role in view["roles"]}
-    assert roles["engineer"]["label"] == "Continuing before review"
+    assert roles["engineer"]["kind"] == "continuing_before_check"
+    assert roles["engineer"]["label"] == (
+        "Continuing to the next round before the results are checked"
+    )
     assert roles["reviewer"]["status"] == "waiting"
     assert view["timeline"][-1]["detail"] == "wire the parser into the runner"
 
 
 @pytest.mark.parametrize(
-    ("status", "success", "mission_status", "role_status", "label", "tone"),
+    ("status", "success", "mission_status", "role_status", "kind", "label", "tone"),
     [
-        ("done", True, "complete", "done", "Task completed", "success"),
-        ("completed", False, "complete", "done", "Task completed", "success"),
-        ("research_incomplete", False, "incomplete", "done", "Work remains", "info"),
-        ("no_progress", False, "stalled", "done", "No useful progress", "info"),
-        ("blocked", False, "blocked", "error", "Cannot continue yet", "error"),
-        ("failed", False, "failed", "error", "Task failed", "error"),
         (
-            "legacy_unknown_status",
-            False,
-            "ended",
-            "done",
-            "Mission ended · legacy_unknown_status",
+            "done", True, "complete", "done",
+            "mission_completed", "The task was completed.", "success",
+        ),
+        (
+            "completed", False, "complete", "done",
+            "mission_completed", "The task was completed.", "success",
+        ),
+        (
+            "research_incomplete", False, "incomplete", "done",
+            "mission_incomplete", "The task stopped with work still remaining.", "info",
+        ),
+        (
+            "no_progress", False, "stalled", "done",
+            "mission_stalled",
+            "The task stopped because recent rounds made no useful progress.",
             "info",
+        ),
+        (
+            "blocked", False, "blocked", "error",
+            "mission_blocked",
+            "The task cannot continue until something outside it is resolved.",
+            "error",
+        ),
+        (
+            "failed", False, "failed", "error",
+            "mission_failed", "The task could not be completed.", "error",
+        ),
+        (
+            "legacy_unknown_status", False, "ended", "done",
+            "mission_ended", "The task ended without a recorded outcome.", "info",
         ),
     ],
 )
@@ -1003,6 +1078,7 @@ def test_completed_mission_projects_terminal_outcomes_without_false_failures(
     success: bool,
     mission_status: str,
     role_status: str,
+    kind: str,
     label: str,
     tone: str,
 ) -> None:
@@ -1020,9 +1096,14 @@ def test_completed_mission_projects_terminal_outcomes_without_false_failures(
     timeline = view["timeline"][-1]
     assert view["mission"]["status"] == mission_status
     assert role["status"] == role_status
+    assert role["kind"] == kind
     assert role["label"] == label
+    assert timeline["kind"] == kind
     assert timeline["title"] == label
     assert timeline["tone"] == tone
+    # A status the projection does not recognise is kept as a technical fact,
+    # not written into the sentence.
+    assert timeline.get("technical", "") == (status if kind == "mission_ended" else "")
     assert load_mission_view(tmp_path)["mission"]["status"] == mission_status
 
 
@@ -1038,7 +1119,8 @@ def test_completed_mission_prefers_normalized_outcome_class(tmp_path: Path) -> N
     )
 
     assert view["mission"]["status"] == "incomplete"
-    assert view["timeline"][-1]["title"] == "Work remains"
+    assert view["timeline"][-1]["kind"] == "mission_incomplete"
+    assert view["timeline"][-1]["title"] == "The task stopped with work still remaining."
 
 
 def test_completed_mission_projects_engineer_summary(tmp_path: Path) -> None:
@@ -1079,8 +1161,9 @@ def test_final_submission_projects_as_certified_not_merely_completed(
     )
 
     role = next(role for role in view["roles"] if role["role"] == "engineer")
-    assert role["label"] == "Submission certified"
-    assert view["timeline"][-1]["title"] == "Submission certified"
+    assert role["kind"] == "mission_certified"
+    assert role["label"] == "The final submission was checked and approved."
+    assert view["timeline"][-1]["title"] == "The final submission was checked and approved."
 
 
 def test_nested_submission_flag_does_not_claim_certification(
@@ -1103,7 +1186,8 @@ def test_nested_submission_flag_does_not_claim_certification(
     )
 
     role = next(role for role in view["roles"] if role["role"] == "engineer")
-    assert role["label"] == "Task completed"
+    assert role["kind"] == "mission_completed"
+    assert role["label"] == "The task was completed."
 
 
 def test_completed_mission_preserves_stage_outcome(tmp_path: Path) -> None:
@@ -1301,7 +1385,10 @@ def test_live_role_overlay_does_not_corrupt_event_sourced_role_state(
     roles = {role["role"]: role for role in resumed["roles"]}
 
     assert roles["manager"]["status"] == "done"
-    assert roles["manager"]["label"] == "Goal framed"
+    assert roles["manager"]["kind"] == "goal_framed"
+    assert roles["manager"]["label"] == (
+        "The request has been understood and the goal for this project is set."
+    )
     assert roles["engineer"]["status"] == "active"
 
 
@@ -1377,7 +1464,8 @@ def test_evolution_events_project_skill_and_wiki_storage(tmp_path: Path) -> None
     }
     assert view["learned_wiki_pages"][0]["title"] == "Bounded retry pattern"
     assert view["learned_wiki_pages"][0]["status"] == "candidate"
-    assert view["timeline"][-1]["title"] == "Knowledge promoted"
+    assert view["timeline"][-1]["kind"] == "knowledge_promoted"
+    assert view["timeline"][-1]["title"] == "A knowledge page was promoted."
 
 
 def test_skill_source_promotion_updates_capability_projection(tmp_path: Path) -> None:
@@ -1405,4 +1493,313 @@ def test_skill_source_promotion_updates_capability_projection(tmp_path: Path) ->
     assert skill["source_placement"] == "vertical"
     assert skill["source_vertical"] == "kernelbench"
     assert skill["source_path"].endswith("bounded-retry.md")
-    assert view["timeline"][-1]["title"] == "Capability promoted to source"
+    assert view["timeline"][-1]["kind"] == "capability_shared"
+    assert view["timeline"][-1]["title"] == (
+        "A capability was promoted for use across projects."
+    )
+
+
+def test_chinese_request_gets_chinese_sentences_with_stable_codes(tmp_path: Path) -> None:
+    emit(
+        tmp_path,
+        "life.manager.intent.completed",
+        1,
+        item_id="task-1",
+        objective="给我写一篇iclr的论文",
+        vertical="research",
+        current_stage="idea",
+        reason="The request asks for a full paper.",
+    )
+    view = emit(
+        tmp_path,
+        "life.mission.started",
+        2,
+        item_id="task-1",
+        title="Build the source-backed twelve-route idea portfolio",
+        objective="Build the source-backed twelve-route idea portfolio",
+    )
+
+    roles = {role["role"]: role for role in view["roles"]}
+    assert view["language"] == "zh"
+    assert view["stage"] == {"id": "idea", "label": "选题"}
+    assert roles["manager"]["kind"] == "goal_framed"
+    assert roles["manager"]["label"] == "已经理解这项请求，项目目标已经确定。"
+    # The Planner wrote this task in English; the operator asked in Chinese,
+    # and the operator's language wins.
+    assert roles["engineer"]["kind"] == "mission_started"
+    assert roles["engineer"]["label"] == "开始处理这项任务"
+    assert roles["reviewer"]["label"] == "等待工程师完成一轮工作后再核对"
+
+    view = emit(tmp_path, "round.start", 3, round_index=9, round_max=0)
+    assert view["timeline"][-1]["kind"] == "round_started"
+    assert view["timeline"][-1]["title"] == "第 9 轮工作开始。"
+
+
+def test_round_the_model_service_dropped_is_explained_without_runtime_words(
+    tmp_path: Path,
+) -> None:
+    emit(
+        tmp_path,
+        "life.manager.intent.completed",
+        1,
+        item_id="task-1",
+        objective="给我写一篇iclr的论文",
+    )
+    emit(tmp_path, "life.mission.started", 2, item_id="task-1", title="Portfolio")
+    raw = (
+        "Engineer backend failed before a trustworthy completed turn; "
+        "reviewer skipped. backend_failure_streak=9/2; "
+        "error=Copilot CLI exited with code 1."
+    )
+    view = emit(
+        tmp_path,
+        "round.review.completed",
+        3,
+        round_index=9,
+        status="continue",
+        reason=raw,
+        next_action="Retry in a fresh Codex session; do not resume the failed thread.",
+        review_source="reviewer",
+        backend_unavailable=False,
+        stop_kind=None,
+        text=f"review: skipped (backend failure) — {raw}",
+        review_skipped=True,
+        item_id="task-1",
+    )
+
+    entry = view["timeline"][-1]
+    assert entry["kind"] == "round_not_judged"
+    assert entry["cause"] == "engineer_service_dropped"
+    assert entry["title"] == "这一轮没有人审阅。"
+    assert entry["detail"] == (
+        "模型服务在工程师得出可核对的结果之前中断了会话，因此没有可以审阅的内容。"
+        "Argus 会换一个新会话重试。"
+    )
+    assert entry["technical"] == (
+        "backend_failure_streak=9/2; error=Copilot CLI exited with code 1."
+    )
+    for text in (entry["title"], entry["detail"]):
+        assert "backend" not in text.lower()
+        assert "streak" not in text.lower()
+        assert "reviewer skipped" not in text.lower()
+    work = view["role_work"][-1]
+    assert work["cause"] == "engineer_service_dropped"
+    assert work["technical"] == entry["technical"]
+    assert work["detail"] == entry["detail"]
+    # The raw sentence is still available as the projection's record.
+    assert view["review"]["reason"] == raw
+
+
+def test_round_skipped_for_a_pause_names_the_reason(tmp_path: Path) -> None:
+    view = emit(
+        tmp_path,
+        "round.review.completed",
+        1,
+        status="blocked",
+        reason="Backend call paused (stop_kind=budget_exhausted); reviewer skipped. error=exit=0",
+        stop_kind="budget_exhausted",
+        backend_unavailable=True,
+        text="review: skipped (budget_exhausted)",
+        review_skipped=True,
+    )
+    entry = view["timeline"][-1]
+    assert entry["cause"] == "paused"
+    assert entry["detail"] == (
+        "The work was paused before the Engineer finished this round because "
+        "the project reached its budget limit; it resumes from the saved progress."
+    )
+    assert entry["technical"] == "stop_kind=budget_exhausted; error=exit=0"
+
+
+def test_round_skipped_because_argus_stopped_is_classified_by_stop_kind(
+    tmp_path: Path,
+) -> None:
+    view = emit(
+        tmp_path,
+        "round.review.completed",
+        1,
+        status="blocked",
+        reason="Argus was stopped by its operator in the middle of this round. Technical record: error=daemon stop requested",
+        stop_kind="daemon_shutdown",
+        text="review: skipped (daemon stop requested)",
+        review_skipped=True,
+    )
+    entry = view["timeline"][-1]
+    assert entry["cause"] == "argus_stopped"
+    assert entry["detail"] == (
+        "Argus was stopped while this round was running; the work so far is saved."
+    )
+    assert entry["technical"] == "error=daemon stop requested"
+
+
+def test_paused_mission_is_described_as_paused_not_as_a_status_code(tmp_path: Path) -> None:
+    emit(
+        tmp_path,
+        "life.manager.intent.completed",
+        1,
+        item_id="task-1",
+        objective="给我写一篇iclr的论文",
+    )
+    view = emit(
+        tmp_path,
+        "life.mission.completed",
+        2,
+        item_id="task-1",
+        title="Portfolio",
+        success=False,
+        status="paused_daemon_shutdown",
+        summary="Existing team storage has source snapshots but no route reports yet.",
+        outcome_class="ended",
+        outcome={
+            "execution_status": "paused",
+            "review_status": "continue",
+            "interruption_kind": "backend_unavailable",
+            "resumable": True,
+        },
+        stop_kind="backend_unavailable",
+        resumable=True,
+    )
+    role = next(role for role in view["roles"] if role["role"] == "engineer")
+    entry = view["timeline"][-1]
+    assert view["mission"]["status"] == "ended"
+    assert role["kind"] == "mission_paused"
+    assert role["label"] == "任务在完成前暂停，因为 Argus 被停止；进度已保存，可以继续。"
+    assert entry["kind"] == "mission_paused"
+    assert entry["title"] == role["label"]
+    assert entry["technical"] == "paused_daemon_shutdown"
+    assert "paused_daemon_shutdown" not in entry["title"]
+    assert entry["detail"] == (
+        "Existing team storage has source snapshots but no route reports yet."
+    )
+    assert view["role_work"][-1]["technical"] == "paused_daemon_shutdown"
+
+
+def test_english_paused_mission_names_the_reason(tmp_path: Path) -> None:
+    view = emit(
+        tmp_path,
+        "life.mission.completed",
+        1,
+        item_id="task-1",
+        title="Run the benchmark",
+        success=False,
+        status="paused_budget",
+    )
+    assert view["timeline"][-1]["title"] == (
+        "The task was paused before it finished because the project reached "
+        "its budget limit; its progress is saved and it can be resumed."
+    )
+
+
+def test_version_six_view_is_rebuilt_with_codes_and_sentences(tmp_path: Path) -> None:
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps({
+            "type": "life.manager.intent.completed",
+            "ts": 1,
+            "item_id": "task-1",
+            "objective": "给我写一篇iclr的论文",
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "mission-view.json").write_text(
+        json.dumps({
+            "schema_version": 6,
+            "bootstrapped": True,
+            "roles": [{"role": "manager", "status": "done", "label": "Goal framed"}],
+            "timeline": [{"id": "old", "title": "Goal framed", "type": "life.manager.intent.completed"}],
+        }),
+        encoding="utf-8",
+    )
+
+    view = snapshot_mission_view(tmp_path, session={}, daemon={}, roles=[], backlog=[])
+
+    assert view["schema_version"] == 7
+    assert view["language"] == "zh"
+    manager = next(role for role in view["roles"] if role["role"] == "manager")
+    assert manager["kind"] == "goal_framed"
+    assert manager["label"] == "已经理解这项请求，项目目标已经确定。"
+    assert all(row.get("kind") for row in view["timeline"])
+    assert load_mission_view(tmp_path)["schema_version"] == 7
+
+
+def test_failed_task_closing_row_explains_the_runtime_record(tmp_path: Path) -> None:
+    emit(
+        tmp_path,
+        "life.manager.intent.completed",
+        1,
+        item_id="task-1",
+        objective="给我写一篇iclr的论文",
+    )
+    raw = (
+        "Reviewer backend unavailable for 2 consecutive attempt(s); failing loud "
+        "rather than settling the round without a real review. The Reviewer's "
+        "session ended before it reached a conclusion, so this round was not "
+        "judged. Runner receipt: exit=1, fatal_error=Copilot CLI exited with code 1."
+    )
+    view = emit(
+        tmp_path,
+        "life.mission.completed",
+        2,
+        item_id="task-1",
+        title="Portfolio",
+        success=False,
+        status="failed",
+        failure_reason=raw,
+        stop_reason=raw,
+    )
+    entry = view["timeline"][-1]
+    assert entry["kind"] == "mission_failed"
+    assert entry["title"] == "任务没能完成。"
+    assert entry["cause"] == "reviewer_unreachable"
+    assert entry["detail"] == (
+        "审阅者连续 2 次没能给出判断，Argus 选择停下这项任务，"
+        "而不是在没有真正审阅的情况下结束一轮。"
+    )
+    assert entry["technical"] == "exit=1, fatal_error=Copilot CLI exited with code 1."
+    assert view["role_work"][-1]["cause"] == "reviewer_unreachable"
+    assert view["role_work"][-1]["detail"] == entry["detail"]
+
+
+def test_failed_task_keeps_a_roles_own_reason_verbatim(tmp_path: Path) -> None:
+    view = emit(
+        tmp_path,
+        "life.mission.completed",
+        1,
+        item_id="task-1",
+        title="Prove the lemma",
+        success=False,
+        status="failed",
+        failure_reason="The proof relies on a lemma that does not hold for n = 0.",
+    )
+    entry = view["timeline"][-1]
+    assert entry["detail"] == "The proof relies on a lemma that does not hold for n = 0."
+    assert "cause" not in entry
+    assert "technical" not in entry
+
+
+def test_failed_task_with_new_runtime_wording_is_explained_in_english(tmp_path: Path) -> None:
+    view = emit(
+        tmp_path,
+        "life.mission.completed",
+        1,
+        item_id="task-1",
+        title="Run the sweep",
+        success=False,
+        status="error",
+        failure_reason=(
+            "The model service dropped the Engineer's session before it produced a "
+            "result that could be checked, so this round was not judged; Argus "
+            "retries in a fresh session. Technical record: consecutive failures=2, "
+            "limit=2, error=Copilot CLI exited with code 1."
+        ),
+    )
+    entry = view["timeline"][-1]
+    assert entry["cause"] == "engineer_service_dropped"
+    assert entry["detail"] == (
+        "The model service kept dropping the Engineer's session before it produced "
+        "a result that could be checked, so Argus stopped this task; it can be "
+        "retried later."
+    )
+    assert entry["technical"] == (
+        "consecutive failures=2, limit=2, error=Copilot CLI exited with code 1."
+    )

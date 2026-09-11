@@ -220,6 +220,8 @@ export type MissionRoleStatus = 'active' | 'done' | 'waiting' | 'rejected' | 'er
 export interface MissionRoleView {
   role: string;
   status: MissionRoleStatus | string;
+  /** Stable code naming the state the label describes; localize by this. */
+  kind?: string;
   label: string;
   updated_at: number;
   backend?: string;
@@ -251,6 +253,10 @@ export interface MissionRoleWorkItem {
   title: string;
   detail: string;
   status: string;
+  /** Why a round produced no judgment (rows with kind "review" and status "skipped"). */
+  cause?: string;
+  /** The runtime's own record (exit code, retry count); shown apart from the sentence. */
+  technical?: string;
   item_id?: string;
   mission_id?: string;
   mission_title?: string;
@@ -279,9 +285,15 @@ export interface MissionTimelineItem {
   ts: number;
   type: string;
   role: string;
+  /** Stable code naming what happened; localize by this, not by the title. */
+  kind?: string;
   title: string;
   detail: string;
   tone: 'neutral' | 'info' | 'success' | 'error' | 'skill' | string;
+  /** Why a round produced no judgment (rows with kind "round_not_judged"). */
+  cause?: string;
+  /** The runtime's own record (exit code, retry count); shown apart from the sentence. */
+  technical?: string;
   item_id?: string;
   branch_id?: string;
 }
@@ -313,8 +325,10 @@ export interface MissionStorageView {
 }
 
 export interface MissionView {
-  schema_version: 6;
+  schema_version: number;
   bootstrapped?: boolean;
+  /** "zh" or "en" once the operator's request has been seen; the view's sentences are in this language. */
+  language?: string;
   health?: string;
   mission: {
     id: string;

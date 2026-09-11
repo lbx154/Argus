@@ -12,6 +12,7 @@ from typing import Any, Mapping
 
 from ..event_catalog import EventType
 from ._reduce_helpers import _integer, _text, _timeline, _upsert
+from ._wording import say, session_is_chinese
 
 
 def reduce_skill_event(
@@ -36,7 +37,20 @@ def reduce_skill_event(
                 "mission_id": str(mission.get("id") or ""),
                 "mission_title": str(mission.get("title") or "")[:240],
             })
-            _timeline(view, event, role="reviewer", title="Capability unlocked" if event_type == EventType.SKILL_CREATED else "Capability upgraded", detail=_text(event, "name"), tone="skill")
+            kind = (
+                "capability_learned"
+                if event_type == EventType.SKILL_CREATED
+                else "capability_improved"
+            )
+            _timeline(
+                view,
+                event,
+                role="reviewer",
+                kind=kind,
+                title=say(kind, session_is_chinese(view)),
+                detail=_text(event, "name"),
+                tone="skill",
+            )
 
     elif event_type == EventType.SKILL_ARCHIVED:
         skill_id = _text(event, "skill_id") or _text(event, "name")
@@ -71,7 +85,8 @@ def reduce_skill_event(
                 view,
                 event,
                 role="manager",
-                title="Capability promoted to source",
+                kind="capability_shared",
+                title=say("capability_shared", session_is_chinese(view)),
                 detail=name,
                 tone="skill",
             )

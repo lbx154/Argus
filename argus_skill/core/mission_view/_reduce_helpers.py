@@ -4,6 +4,11 @@ Kept separate from the family reducers so each family module only imports the
 small set of primitives it actually needs (text/number coercion, timeline and
 role-work upserts, decision-context capture) without pulling in unrelated
 reducer code.
+
+Every row that carries a sentence for a person also carries the code that
+names what happened (``kind``), so a frontend can localize by code rather
+than by matching the sentence. Rows that need a technical fact keep it in a
+separate ``technical`` field; the sentence itself never carries one.
 """
 from __future__ import annotations
 
@@ -19,6 +24,9 @@ from ._view_state import (
     MISSION_ROLE_WORK_LIMIT_PER_ROLE,
     MISSION_TIMELINE_LIMIT,
 )
+from ._wording import say, session_is_chinese
+
+MISSION_TECHNICAL_NOTE_LIMIT = 300
 
 
 def _text(event: Mapping[str, Any], key: str, limit: int = 500) -> str:
@@ -59,7 +67,15 @@ def _upsert(rows: list[dict[str, Any]], key: str, value: str, patch: dict[str, A
     rows.append(patch)
 
 
-def _set_role(view: dict[str, Any], role: str, status: str, label: str, ts: float) -> None:
+def _set_role(
+    view: dict[str, Any],
+    role: str,
+    status: str,
+    label: str,
+    ts: float,
+    *,
+    kind: str = "",
+) -> None:
     if role not in _ROLE_NAMES:
         return
     roles = view.setdefault("roles", [])
@@ -72,10 +88,17 @@ def _set_role(view: dict[str, Any], role: str, status: str, label: str, ts: floa
             ):
                 existing.update({
                     "status": "done",
-                    "label": "Handed off",
+                    "kind": "handed_off",
+                    "label": say("handed_off", session_is_chinese(view)),
                     "updated_at": ts,
                 })
-    patch = {"role": role, "status": status, "label": label, "updated_at": ts}
+    patch = {
+        "role": role,
+        "status": status,
+        "kind": kind,
+        "label": label,
+        "updated_at": ts,
+    }
     _upsert(roles, "role", role, patch)
     if status == "active":
         view["active_role"] = role
@@ -91,6 +114,9 @@ def _timeline(
     title: str,
     detail: str = "",
     tone: str = "neutral",
+    kind: str = "",
+    cause: str = "",
+    technical: str = "",
 ) -> None:
     rows = view.setdefault("timeline", [])
     event_id = _event_id(event)
@@ -101,10 +127,15 @@ def _timeline(
         "ts": float(event.get("ts") or time.time()),
         "type": canonical_event_type(event.get("type")),
         "role": role,
+        "kind": kind,
         "title": title[:180],
         "detail": detail[:500],
         "tone": tone,
     }
+    if cause:
+        row["cause"] = cause
+    if technical:
+        row["technical"] = technical[:MISSION_TECHNICAL_NOTE_LIMIT]
     for key in ("item_id", "branch_id"):
         value = _text(event, key, 160)
         if value:
@@ -122,6 +153,8 @@ def _role_work(
     title: str,
     detail: str = "",
     status: str = "",
+    cause: str = "",
+    technical: str = "",
 ) -> None:
     if role not in _ROLE_NAMES:
         return
@@ -149,6 +182,10 @@ def _role_work(
         "mission_title": str(mission.get("title") or "")[:240],
         "round_index": _integer(event, "round_index"),
     }
+    if cause:
+        patch["cause"] = cause
+    if technical:
+        patch["technical"] = technical[:MISSION_TECHNICAL_NOTE_LIMIT]
     _upsert(rows, "id", work_id, patch)
     keep_ids: set[str] = set()
     for role_name in _ROLE_NAMES:
@@ -182,12 +219,18 @@ def _visible_role_work_progress(
     return True
 
 
-_PROGRESS_LABELS = {
-    "agent_message": "Reporting progress",
-    "assistant_message": "Reporting progress",
-    "command_execution": "Running a command",
-    "reasoning": "Reasoning",
-    "tool_use": "Using a tool",
-    "tool_result": "Inspecting tool output",
-    "codex_idle": "Waiting for model output",
+# The Engineer's progress events name their activity with a short machine
+# kind; each maps to the code of the sentence that describes it.
+_PROGRESS_KINDS = {
+    "agent_message": "progress_message",
+    "assistant_message": "progress_message",
+    "command_execution": "progress_command",
+    "reasoning": "progress_reasoning",
+    "tool_use": "progress_tool",
+    "tool_result": "progress_tool_result",
+    "codex_idle": "progress_waiting_model",
 }
+
+
+def _progress_kind(kind: str) -> str:
+    return _PROGRESS_KINDS.get(kind, "progress_working")

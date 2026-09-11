@@ -112,10 +112,10 @@ class IdleCycleMixin:
             and is_execution_host_startup_error(continuous.done_reason)
         ):
             reason = (
-                "Code-mode execution host is unavailable. Restore the host "
-                "executable in the Codex installation, then explicitly "
-                "re-enable continuous work to retry planning. "
-                f"Runner receipt: {continuous.done_reason}"
+                "The program that runs code for Argus could not be started, so "
+                "planning is paused. Restore the Codex installation, then "
+                "re-enable continuous work to try again. "
+                f"Technical record: {continuous.done_reason}"
             )
             if self._should_journal_idle_repeat("execution_host_failure"):
                 self._emit({
@@ -149,10 +149,11 @@ class IdleCycleMixin:
             ):
                 continue
             reason = (
-                "Code-mode execution host is unavailable. Restore the host "
-                "executable in the Codex installation, then explicitly resume "
-                f"mission {blocked.id} to retry from its checkpoint. "
-                f"Runner receipt: {outcome['execution_host_failure']}"
+                "The program that runs code for Argus could not be started, so "
+                f"task {blocked.id} is waiting. Restore the Codex installation, "
+                "then resume the task and it will pick up from its last saved "
+                "point. "
+                f"Technical record: {outcome['execution_host_failure']}"
             )
             if self._should_journal_idle_repeat("execution_host_failure"):
                 self._emit({

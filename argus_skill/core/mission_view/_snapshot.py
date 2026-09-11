@@ -28,6 +28,7 @@ from ._view_state import (
     _write_unlocked,
     empty_mission_view,
 )
+from ._wording import say, session_is_chinese, stage_label
 
 
 def _bootstrap_view(root: Path) -> dict[str, Any]:
@@ -40,9 +41,12 @@ def _bootstrap_view(root: Path) -> dict[str, Any]:
 
 
 @lru_cache(maxsize=8)
-def _review_projection(root: Path, fingerprints: tuple) -> dict[str, Any]:
-    """Replay only review ownership/verdicts; the source logs remain untouched."""
+def _review_projection(root: Path, fingerprints: tuple, language: str = "") -> dict[str, Any]:
+    """Replay only review ownership/judgments; the source logs remain untouched."""
     view = empty_mission_view()
+    # The replay sees no Manager intent, so it inherits the language the full
+    # view already settled on; otherwise its sentences could switch language.
+    view["language"] = language
     # Never join a start from the rotated log across an omitted current prefix.
     names = ("events.jsonl",) if fingerprints[1] and fingerprints[1][2] > MISSION_BOOTSTRAP_MAX_BYTES else ("events.jsonl.1", "events.jsonl")
     for name in names:
@@ -69,7 +73,11 @@ def _refresh_review_projection(root: Path, view: dict[str, Any]) -> None:
             fingerprints.append((stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns))
         except OSError:
             fingerprints.append(None)
-    replay = _review_projection(root, tuple(fingerprints))
+    replay = _review_projection(
+        root,
+        tuple(fingerprints),
+        str(view.get("language") or ""),
+    )
     mission = view.get("mission", {})
     if (
         not replay["mission"]["id"]
@@ -80,9 +88,24 @@ def _refresh_review_projection(root: Path, view: dict[str, Any]) -> None:
         # rejection count. Do not replace it with another mission's projection.
         return
     view["review"] = dict(replay["review"])
-    for key in ("timeline", "role_work"):
-        corrected = {row["id"]: row for row in replay[key] if row["title"] == "Review not performed"}
-        view[key] = [{**row, **corrected.get(row["id"], {})} for row in view.get(key, [])]
+    # Rows are matched by code, never by their sentence, which varies with the
+    # session's language.
+    corrected = {
+        row["id"]: row
+        for row in replay["timeline"]
+        if row.get("kind") == "round_not_judged"
+    }
+    view["timeline"] = [
+        {**row, **corrected.get(row["id"], {})} for row in view.get("timeline", [])
+    ]
+    corrected = {
+        row["id"]: row
+        for row in replay["role_work"]
+        if row.get("kind") == "review" and row.get("status") == "skipped"
+    }
+    view["role_work"] = [
+        {**row, **corrected.get(row["id"], {})} for row in view.get("role_work", [])
+    ]
     reviewer = next(role for role in replay["roles"] if role["role"] == "reviewer")
     for role in view.get("roles", []):
         if (
@@ -107,6 +130,11 @@ def merge_mission_view_snapshot(
     current_stage: str = "",
 ) -> dict[str, Any]:
     mission = view.setdefault("mission", {})
+    chinese = session_is_chinese(
+        view,
+        str(session.get("objective") or ""),
+        str((continuous or {}).get("objective") or ""),
+    )
     if continuous and continuous.get("enabled"):
         routing = view.setdefault("routing", {})
         if not routing.get("route"):
@@ -200,7 +228,7 @@ def merge_mission_view_snapshot(
         or mission.get("id")
     )
     if current_stage and has_mission_context:
-        view["stage"] = {"id": current_stage, "label": current_stage.replace("_", " ").title()}
+        view["stage"] = {"id": current_stage, "label": stage_label(current_stage, chinese)}
     elif not has_mission_context:
         view["stage"] = {"id": "", "label": ""}
 
@@ -218,22 +246,34 @@ def merge_mission_view_snapshot(
                 and existing.get("role") != active_name
                 and existing.get("status") == "active"
             ):
-                existing.update({"status": "done", "label": "Handed off"})
+                existing.update({
+                    "status": "done",
+                    "kind": "handed_off",
+                    "label": say("handed_off", chinese),
+                })
         view["active_role"] = active_name
     else:
         for existing in role_rows:
             if existing.get("status") == "active":
-                existing.update({"status": "waiting", "label": "Waiting"})
+                existing.update({
+                    "status": "waiting",
+                    "kind": "waiting",
+                    "label": say("waiting", chinese),
+                })
         view["active_role"] = ""
     for role in roles:
         name = str(role.get("role") or "")
         if name not in _ROLE_NAMES:
             continue
         if role.get("active"):
+            # A live role reports its own activity in its own words; when it
+            # reports nothing, say only that it is working.
+            live_label = str(role.get("label") or role.get("status") or "").strip()
             patch = {
                 "role": name,
                 "status": "active",
-                "label": str(role.get("label") or role.get("status") or "Working"),
+                "kind": "live_activity" if live_label else "progress_working",
+                "label": live_label or say("progress_working", chinese),
                 "updated_at": time.time() - float(role.get("age_s") or 0.0),
                 "backend": str(role.get("backend") or ""),
                 "model": str(role.get("model") or ""),

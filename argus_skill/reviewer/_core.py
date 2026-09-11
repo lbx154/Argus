@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.models import ReviewDecision, RunnerOptions
+from ..core.operator_messages import uses_cjk
 from ..core.ports import RunnerBackend
 from ..core.role_decision import latest_role_decision
 from ..core.run_gateway import run_exec as gateway_run_exec
@@ -911,26 +912,40 @@ class Reviewer:
             or "backend_unavailable"
         )
         if fatal or result.exit_code != 0:
-            # Plain words first; the transport details ride behind a
-            # "Runner receipt:" marker so the cockpit can set them aside.
+            # Plain words first, in the language of the task; the transport
+            # details ride behind a "Technical record:" marker so a consumer
+            # can set them aside.
             interrupted = "external interrupt" in fatal.lower() or "daemon stop" in fatal.lower()
-            reason = (
-                (
-                    "Argus was stopped by its operator before the Reviewer could "
+            chinese = uses_cjk(objective)
+            if interrupted:
+                sentence = (
+                    "审阅者还没读完这一轮，Argus 就被操作员停止了；这里没有任何"
+                    "对工作本身的评价。"
+                    if chinese
+                    else "Argus was stopped by its operator before the Reviewer could "
                     "finish reading this round; nothing here is a judgment on the work."
-                    if interrupted
+                )
+            else:
+                sentence = (
+                    "审阅者的会话在得出结论前就结束了，这一轮没有评审意见。"
+                    if chinese
                     else "The Reviewer's session ended before it reached a conclusion, "
                     "so this round was not judged."
                 )
-                + f" Runner receipt: exit={result.exit_code}"
-                + (f", fatal_error={fatal}" if fatal else "")
+            reason = (
+                sentence
+                + (" 技术记录：" if chinese else " Technical record: ")
+                + f"exit={result.exit_code}"
+                + (f"; fatal_error={fatal}" if fatal else "")
             )
             return ReviewDecision(
                 status="blocked",
                 reason=reason,
                 next_action=(
-                    "The review did not reach a conclusion; treat this round as not "
-                    "yet reviewed rather than as feedback on the work."
+                    "这一轮还没有得到判断；请把它当作尚未审阅，而不是对工作的反馈。"
+                    if chinese
+                    else "The check did not reach a conclusion; treat this round as "
+                    "not yet judged rather than as feedback on the work."
                 ),
                 backend_unavailable=True,
                 input_tokens=rev_in,

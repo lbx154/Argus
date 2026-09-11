@@ -643,7 +643,7 @@ def test_build_snapshot_shape_and_failsoft(
     assert snap["cost_control"]["unresolved_calls"] == 0
     assert snap["daemon_commands"]["revision"] == 0
     assert snap["observability"]["slo"]["status"] == "healthy"
-    assert snap["mission_view"]["schema_version"] == 6
+    assert snap["mission_view"]["schema_version"] == 7
     assert len(snap["roles"]) == 4  # manager/planner/engineer/reviewer
     assert {r["role"] for r in snap["roles"]} == {"manager", "planner", "engineer", "reviewer"}
     assert len(snap["recent_events"]) == 2

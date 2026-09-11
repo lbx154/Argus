@@ -8,6 +8,9 @@ This package was split out of a single ~1.5k-line module. It is organized as:
 - ``_view_state``: on-disk schema defaults, file locking, load/bootstrap.
 - ``_reduce_helpers``: small shared primitives (text/number coercion,
   timeline/role-work upserts) used by every event-family reducer.
+- ``_wording``: every sentence shown to a person, keyed by the stable code
+  (``kind``) the reducers stamp on roles and timeline rows, in the session's
+  language.
 - ``_reduce_manager`` / ``_reduce_mission`` / ``_reduce_research`` /
   ``_reduce_skill`` / ``_reduce_wiki``: one module per mission-view
   event family, each exposing a small ``reduce_<family>_event(view, event,

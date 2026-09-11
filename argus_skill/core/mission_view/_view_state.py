@@ -19,7 +19,7 @@ from ..event_catalog import EventType, canonical_event_type
 
 MISSION_VIEW_FILE = "mission-view.json"
 MISSION_VIEW_LOCK_FILE = "mission-view.lock"
-MISSION_VIEW_SCHEMA_VERSION = 6
+MISSION_VIEW_SCHEMA_VERSION = 7
 MISSION_TIMELINE_LIMIT = 120
 MISSION_ROLE_WORK_LIMIT_PER_ROLE = 40
 MISSION_BOOTSTRAP_MAX_BYTES = 8 * 1024 * 1024
@@ -42,6 +42,9 @@ def empty_mission_view() -> dict[str, Any]:
     return {
         "schema_version": MISSION_VIEW_SCHEMA_VERSION,
         "bootstrapped": False,
+        # "zh" or "en" once the operator's request has been seen; sentences in
+        # the view are written in this language.
+        "language": "",
         "mission": {
             "id": "",
             "title": "",
@@ -67,7 +70,13 @@ def empty_mission_view() -> dict[str, Any]:
         "round": {"current": 0, "max": 0},
         "active_role": "",
         "roles": [
-            {"role": role, "status": "waiting", "label": "Waiting", "updated_at": 0.0}
+            {
+                "role": role,
+                "status": "waiting",
+                "kind": "waiting",
+                "label": "Waiting",
+                "updated_at": 0.0,
+            }
             for role in _ROLE_NAMES
         ],
         "role_work": [],
@@ -129,11 +138,14 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return empty_mission_view()
     schema_version = payload.get("schema_version")
-    if schema_version not in {1, 2, 3, 4, 5, MISSION_VIEW_SCHEMA_VERSION}:
+    if schema_version not in {1, 2, 3, 4, 5, 6, MISSION_VIEW_SCHEMA_VERSION}:
         return empty_mission_view()
-    if schema_version in {1, 2, 3, 4, 5}:
+    if schema_version in {1, 2, 3, 4, 5, 6}:
         payload["schema_version"] = MISSION_VIEW_SCHEMA_VERSION
-        if schema_version == 3:
+        if schema_version in {3, 6}:
+            # Version 6 wrote English runtime phrases as the labels people
+            # read; rebuilding from the event log gives every row its code
+            # and a sentence in the session's language.
             payload["bootstrapped"] = False
         for key in (
             "hypotheses",
@@ -157,6 +169,7 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
     storage = payload.setdefault("storage", {})
     for key, value in storage_defaults.items():
         storage.setdefault(key, value)
+    payload.setdefault("language", "")
     payload.setdefault("learned_wiki_pages", [])
     payload.setdefault("role_work", [])
     payload.setdefault("frontier", {"change": "", "summary": "", "updated_at": 0.0})

@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from ..event_catalog import EventType
 from ._reduce_helpers import _integer, _text, _timeline, _upsert
+from ._wording import say, session_is_chinese
 
 
 def reduce_wiki_event(
@@ -55,15 +56,17 @@ def reduce_wiki_event(
                 "path": _text(event, "path", 1000),
                 "updated_at": ts,
             })
+            kind = (
+                "knowledge_captured"
+                if event_type == EventType.WIKI_CREATED
+                else "knowledge_refined"
+            )
             _timeline(
                 view,
                 event,
                 role="reviewer",
-                title=(
-                    "Knowledge captured"
-                    if event_type == EventType.WIKI_CREATED
-                    else "Knowledge refined"
-                ),
+                kind=kind,
+                title=say(kind, session_is_chinese(view)),
                 detail=_text(event, "title", 240) or page_id,
                 tone="skill",
             )
@@ -88,7 +91,8 @@ def reduce_wiki_event(
                 view,
                 event,
                 role="reviewer",
-                title="Knowledge retired",
+                kind="knowledge_retired",
+                title=say("knowledge_retired", session_is_chinese(view)),
                 detail=page_id,
                 tone="error",
             )
@@ -113,11 +117,13 @@ def reduce_wiki_event(
                     **patch,
                 })
             promoted = event_type == EventType.WIKI_PROMOTION_PROMOTED
+            kind = "knowledge_promoted" if promoted else "knowledge_demoted"
             _timeline(
                 view,
                 event,
                 role="reviewer",
-                title="Knowledge promoted" if promoted else "Knowledge demoted",
+                kind=kind,
+                title=say(kind, session_is_chinese(view)),
                 detail=f"{page_id} → {_text(event, 'to_status')}",
                 tone="success" if promoted else "neutral",
             )

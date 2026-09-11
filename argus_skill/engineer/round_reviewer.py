@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Callable
 
 from ..core.event_catalog import EventType
 from ..core.models import ReviewDecision, RoundRecord
+from ..core.operator_messages import uses_cjk
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.stop_kinds import (
     NON_FAILURE_STOP_KINDS,
@@ -693,17 +694,25 @@ class RoundReviewerMixin:
                     review=review,
                     fatal_error=engineer_result.fatal_error,
                 ))
+                # Said in the language of the task, since this sentence is
+                # what the operator reads when the task stops.
+                attempts = state.reviewer_backend_failure_streak
+                stopped_because = (
+                    f"审阅者连续 {attempts} 次没能给出判断，Argus 选择停下这项"
+                    "任务，而不是在没有真正审阅的情况下结束这一轮。"
+                    if uses_cjk(objective)
+                    else (
+                        f"The Reviewer could not reach a judgment {attempts} "
+                        f"time{'s' if attempts != 1 else ''} in a row, so Argus "
+                        "stopped this task rather than settle the round "
+                        "without a real judgment. "
+                    )
+                )
                 return control_return((
                     "error",
                     state.rounds,
                     state.last_engineer_message,
-                    (
-                        "Reviewer backend unavailable for "
-                        f"{state.reviewer_backend_failure_streak} consecutive "
-                        "attempt(s); failing loud rather than settling the "
-                        "round without a real review. "
-                        + review.reason
-                    ),
+                    stopped_because + review.reason,
                     None,
                 ))
             backoff_seconds = max(
