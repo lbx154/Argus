@@ -25,8 +25,9 @@ from jsonschema import Draft202012Validator, SchemaError
 from argus_skill.core.secret_guard import redact_secrets_record
 
 from .analytics import _sanitize
-from .training_capture import _hosted_sensitive
-from .training_schema import pi_execution_arguments, pi_strict_schema
+from .training_capture import HOSTED_PROFILE, _hosted_sensitive
+from .training_public_assets import check_public_skill_event
+from .training_schema import pi_execution_arguments, pi_schema_equal, pi_strict_schema
 
 MAX_PACKAGE_BYTES = 64 * 1024 * 1024
 MAX_EVIDENCE_BYTES = 32 * 1024 * 1024
@@ -123,10 +124,17 @@ def _schema(schema, location):
     return Draft202012Validator(schema)
 
 
-def _sample(sample, location, *, portable=False):
+def _public_binding(source):
+    if (isinstance(source, dict) and source.get("kind") == "pi.training_episode"
+            and source.get("runtime_profile") == HOSTED_PROFILE):
+        runtime = source.get("runtime")
+        if isinstance(runtime, dict) and runtime.get("profile") == HOSTED_PROFILE:
+            return {"sid": source.get("sid"), "mission_id": runtime.get("mission_id")}
+    return {}
+
+
+def _sample(sample, location, *, portable=False, source=None):
     _require(isinstance(sample, dict) and not sample.keys() - {"messages", "tools"}, "invalid_sample_fields", location)
-    _require(not _hosted_sensitive(sample) and _sanitize(redact_secrets_record(sample)) == sample,
-             "sensitive_training_content", location)
     tools = sample.get("tools", [])
     _require(isinstance(tools, list), "invalid_tools", location)
     schemas = {}
@@ -203,6 +211,13 @@ def _sample(sample, location, *, portable=False):
     normalized = {"messages": canonical}
     if tools:
         normalized["tools"] = tools
+    # Portable arguments are JSON strings: escaped newlines after a code colon
+    # can look like a Windows drive, while Unicode escapes can hide a secret.
+    # Scan the strictly decoded semantic object. The original rows and bytes
+    # remain untouched for the format correspondence and manifest hash checks.
+    _require(not _hosted_sensitive(normalized, **_public_binding(source))
+             and _sanitize(redact_secrets_record(normalized)) == normalized,
+             "sensitive_training_content", location)
     return normalized, calls, results
 
 
@@ -263,9 +278,13 @@ def _check_public_sources(trajectories):
             _require(isinstance(event, dict) and set(event) == {"id", "sequence", "kind", "observed_at", "payload"},
                      "private_or_unknown_episode_field", spot)
             payload = event["payload"]
-            _require(isinstance(payload, dict) and not _hosted_sensitive(payload)
+            _require(isinstance(payload, dict) and not _hosted_sensitive(payload, **_public_binding(source))
                      and _sanitize(redact_secrets_record(payload)) == payload, "sensitive_source_content", spot)
             kind = event["kind"]
+            try:
+                check_public_skill_event(kind, payload)
+            except ValueError:
+                raise InvalidPackage("unverified_public_skill_content", spot) from None
             if kind in {"context", "agent_end"}:
                 _public_messages(payload.get("messages"), spot)
             elif kind == "provider_request":
@@ -326,8 +345,12 @@ def _tool_source(metadata, sample, calls, results, source, origin, location, exp
                 for tool in payload["tools"]:
                     _require(isinstance(tool, dict) and set(tool) == {"name", "description", "parameters"},
                              "invalid_runtime_tool_schema", spot)
+                    name = tool.get("name")
+                    _require(isinstance(name, str) and NAME.fullmatch(name) and name not in schema_by_name
+                             and isinstance(tool.get("description"), str),
+                             "invalid_or_duplicate_runtime_tool_name", spot)
                     _schema(tool["parameters"], spot)
-                    schema_by_name[tool["name"]] = tool
+                    schema_by_name[name] = tool
         elif kind == "provider_request":
             _require(set(payload) == {"messages", "tools", "model"} and isinstance(payload["model"], str),
                      "invalid_provider_request_fields", spot)
@@ -390,6 +413,9 @@ def _tool_source(metadata, sample, calls, results, source, origin, location, exp
         for request, prefix in zip(requests, prefixes):
             _require(_wire_messages(request["messages"]) == _wire_messages(prefix) and request["tools"] == sample["tools"],
                      "sample_does_not_match_provider_request", location)
+        provider_names = [tool["function"]["name"] for tool in sample["tools"]]
+        _require(len(provider_names) == len(set(provider_names)) and set(provider_names) == set(schema_by_name),
+                 "runtime_provider_tool_identity_mismatch", location)
         for provider_tool in sample["tools"]:
             function = provider_tool["function"]
             runtime_tool = schema_by_name.get(function["name"])
@@ -399,7 +425,7 @@ def _tool_source(metadata, sample, calls, results, source, origin, location, exp
                 expected = pi_strict_schema(runtime_tool["parameters"]) if function.get("strict") else runtime_tool["parameters"]
             except ValueError:
                 raise InvalidPackage("unsupported_provider_schema_conversion", location) from None
-            _require(function["parameters"] == expected, "runtime_provider_schema_mismatch", location)
+            _require(pi_schema_equal(function["parameters"], expected), "runtime_provider_schema_mismatch", location)
         runtime_metadata = source.get("runtime")
         _require(isinstance(runtime_metadata, dict) and runtime_metadata == metadata.get("runtime") == origin.get("runtime"),
                  "runtime_attribution_mismatch", location)
@@ -502,8 +528,9 @@ def _validate(files, evidence_by_hash):
         _require(len(hf) == len(portable) == len(selected) == quality.get(split), "split_row_count_mismatch", f"hf_trl_{split}.jsonl")
         for index, (row, native, standard) in enumerate(zip(selected, hf, portable), 1):
             spot = f"hf_trl_{split}.jsonl:{index}"
-            normalized, calls, results = _sample(native, spot)
-            converted, _, _ = _sample(standard, f"sft_{split}.jsonl:{index}", portable=True)
+            source = source_by_id.get(row["event_id"])
+            normalized, calls, results = _sample(native, spot, source=source)
+            converted, _, _ = _sample(standard, f"sft_{split}.jsonl:{index}", portable=True, source=source)
             _require(native == normalized and normalized == converted, "portable_hf_semantic_mismatch", spot)
             _require(_digest(native) == row["sample_id"], "sample_content_hash_mismatch", spot)
             evidence_row = row.get("quality_evidence")

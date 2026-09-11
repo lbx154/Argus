@@ -123,14 +123,28 @@ export function trainingExtension(submit) {
     pi.on("agent_start", async (_event, ctx) => {
       if (running) { await quarantine("session_compacted_or_reused"); return; }
       running = true;
+      let failure = "capture_init_authorize_failed";
       try {
         if (ctx.model?.api !== "openai-completions" || ctx.model?.provider !== "argus") return;
         const permission = await submit("authorize", {});
         if (!permission.enabled) return;
+        failure = "capture_init_begin_failed";
         const begun = await submit("begin", {session_id: ctx.sessionManager.getSessionId()});
-        if (begun.profile !== PROFILE) throw Error("runtime_profile_changed");
+        failure = "runtime_profile_changed";
+        if (begun.profile !== PROFILE) throw Error(failure);
+        failure = "capture_init_reply_invalid";
+        if (!Number.isSafeInteger(begun.episode_id) || begun.episode_id < 1
+            || !Array.isArray(begun.allowed_tools) || !begun.allowed_tools.length
+            || begun.allowed_tools.some(name => typeof name !== "string")) throw Error(failure);
         episode = begun.episode_id; allowed = new Set(begun.allowed_tools);
-      } catch (_) { episode = null; }
+      } catch (error) {
+        episode = null;
+        if (error?.message === "capture_transport_timeout" && failure.startsWith("capture_init_"))
+          failure = failure.replace("_failed", "_timeout");
+        // The host owns the episode binding even if its begin reply arrived
+        // after our timeout. Only fixed codes cross IPC; never error text.
+        try { await submit("init_failed", {reason: failure}); } catch (_) {}
+      }
     });
     pi.on("context", async event => {
       await project("context", () => {
@@ -187,7 +201,7 @@ export default function (pi) {
   const submit = (action, value) => new Promise((resolve, reject) => {
     const socket = net.createConnection({path: socketPath});
     let data = "";
-    socket.setTimeout(1000, () => socket.destroy(Error("capture_transport_failed")));
+    socket.setTimeout(10000, () => socket.destroy(Error("capture_transport_timeout")));
     socket.on("connect", () => socket.end(JSON.stringify({action, lease, value}) + "\n"));
     socket.on("data", chunk => {
       data += chunk.toString("utf8");

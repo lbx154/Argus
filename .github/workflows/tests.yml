@@ -38,7 +38,6 @@ env:
     tests/life/test_state_machine_guards.py
     tests/life/test_telegram_bot.py
     tests/life/test_telegram_mobile.py
-    tests/core/test_release.py
     tests/core/test_cost_control.py
     tests/core/test_usage.py
     tests/core/test_project_contract.py

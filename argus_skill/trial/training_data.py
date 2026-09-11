@@ -32,7 +32,7 @@ MAX_PROJECTS = 20
 MAX_EVENTS = 2000
 MAX_PROJECT_EVENTS = 500
 MAX_EVENT_BYTES = 20 * 1024
-MAX_SOURCE_BYTES = 8 * 1024 * 1024
+MAX_SOURCE_BYTES = 32 * 1024 * 1024
 MAX_EXPORT_BYTES = 32 * 1024 * 1024
 LIMITATIONS = [
     "Global journey completeness is always unverified; gaps and truncation are explicit.",
@@ -64,7 +64,11 @@ _SENSITIVE = re.compile(
     r"\d{3}\.\d{3}\.\d{4}|\d{3}[ ]\d{3}[ ]\d{4})(?![\w.])|"
     r"(?:\b(?:phone|mobile|telephone|tel|call[ ]me[ ]at)\b|手机号|手机|电话)"
     r"[\"']?[ \t]*[:：=,]?[ \t]*[\"']?(?:\+?\d[ -]*){7,15}(?!\d)|"
-    r"(?:/home/|/Users/|/data/|/root/|/mnt/|[A-Z]:\\|\\\\)[^\s\"']+|"
+    r"(?:/home/|/Users/|/data/|/root/|/mnt/|[A-Z]:\\)[^\s\"']+|"
+    # A UNC path needs a server and a share. LaTeX/regex escapes such as
+    # \\(k\\) are not network paths. Keep Windows device namespaces blocked.
+    r"\\\\[?.]\\(?!\\)[^\s\"']*|"
+    r"\\\\(?:[\w.-]+|\[[A-F0-9:]+\])\\[^\s\\\"']+(?:\\[^\s\"']*)?|"
     r"\b(?:sk-[A-Z0-9_-]{8,}|gh[pousr]_[A-Z0-9_]+|github_pat_[A-Z0-9_]+|"
     r"argus_trial_[A-Z0-9]+|AKIA[A-Z0-9]{16})\b|"
     r"\beyJ[A-Z0-9_-]+\.[A-Z0-9_-]+\.[A-Z0-9_-]+\b|"

@@ -119,6 +119,49 @@ def pi_strict_schema(runtime_schema):
     return _copy_json(schema, "invalid_tool_schema")
 
 
+def pi_schema_equal(actual, expected):
+    """Compare schemas without treating `required` order as meaningful.
+
+    JSON object key order is lost in canonical storage. Pi derives its strict
+    required list from that order, but JSON Schema defines required as a unique
+    set. Normalize only the comparison copies, preserving captured arrays and
+    every other schema value (including arrays inside defaults or constants).
+    """
+    def canonical(schema):
+        node = _copy_json(schema, "invalid_tool_schema")
+
+        def visit(item):
+            if not isinstance(item, dict):
+                return
+            if "required" in item:
+                required = item["required"]
+                if (not isinstance(required, list) or any(not isinstance(key, str) for key in required)
+                        or len(set(required)) != len(required)):
+                    raise ValueError("invalid_tool_schema")
+                item["required"] = sorted(required)
+            for key in ("properties", "patternProperties", "$defs", "definitions", "dependentSchemas"):
+                if isinstance(item.get(key), dict):
+                    for child in item[key].values():
+                        visit(child)
+            for key in ("items", "additionalItems", "additionalProperties", "unevaluatedProperties",
+                        "propertyNames", "contains", "not", "if", "then", "else"):
+                value = item.get(key)
+                for child in value if isinstance(value, list) else [value]:
+                    visit(child)
+            for key in ("anyOf", "oneOf", "allOf", "prefixItems"):
+                if isinstance(item.get(key), list):
+                    for child in item[key]:
+                        visit(child)
+
+        visit(node)
+        return node
+
+    try:
+        return canonical(actual) == canonical(expected)
+    except ValueError:
+        return False
+
+
 def pi_execution_arguments(raw_args, runtime_schema):
     """Match Pi's optional-null removal, rejecting all other required coercion.
 

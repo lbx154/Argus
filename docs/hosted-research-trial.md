@@ -178,7 +178,7 @@ Start newly provisioned workspace containers with the capture image:
 ```sh
 python -m argus_skill.trial.web_admin start-containers \
   --root "$ARGUS_TRIAL_ROOT" \
-  --image argus-web-trial:pi-data-20260911-r4
+  --image argus-web-trial:pi-data-20260911-r6
 ```
 
 The same capture tag is the default when `--image` is omitted. Pass an explicit
@@ -209,7 +209,35 @@ volumes, no Docker socket and private Unix-socket forwarding. HTTPS egress rejec
 private/non-public destinations. Existing host work must not be terminated to make
 capacity available for the trial.
 
+## Capture capacity and public references
+
+Hosted Pi episodes retain at most 16 MiB of cumulative observations and 512
+observations. Repeated public contexts count toward that total. Each projected
+event and observer RPC remains limited to 4 MiB, with an 8 KiB transport envelope;
+individual public text stays at 256 KiB and tool results at 64 KiB. Retained hosted
+episodes share the existing 128 MiB storage budget. Exceeding a limit quarantines
+the episode; it never silently truncates a training sample.
+
+Preview/source selection and generated export packages are each capped at
+32 MiB. Export checks both expanded contents and ZIP bytes. Export large projects
+separately when their combined package exceeds the limit. The offline validator
+retains its independent 64 MiB ZIP and expanded-content ceiling; that does not
+increase the exporter limit.
+
+Standard platform directory references are recognized as public path literals,
+with project and mission references bound to the observed runtime. Published
+Skill files are resolved from the built-in package inventory, and actual `read`
+results must match the shipped body or its exact requested line selection.
+Unknown or modified global files and raw model logs are not admitted by these
+exceptions. LaTeX escapes are distinguished from actual UNC server/share paths;
+Windows drive and device paths remain sensitive. Credential/environment dumps
+continue to be filtered or quarantined. Quarantines retain only fixed event kind,
+structural field and detector labels for diagnosis, never matched content.
+
 ## Validation
+
+For repeatable ordinary-user production tasks and the independent acceptance
+workflow, see [Agentic training examples](examples/agentic-training/README.md).
 
 Linux CI installs `.[dev,qr,trial]`, runs Ruff and the full Python suite. Web CI
 typechecks and tests the current Web frontend. Local focused validation is:

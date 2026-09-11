@@ -13,7 +13,7 @@ from . import CLIENT_MODEL
 from .admin import issue_keys
 from .secrets import Vault, write_private
 
-DEFAULT_WEB_IMAGE = "argus-web-trial:pi-data-20260911-r4"
+DEFAULT_WEB_IMAGE = "argus-web-trial:pi-data-20260911-r6"
 
 
 def initialize(root: Path, admin_token_file: Path, admin_url: str) -> None:

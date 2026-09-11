@@ -168,7 +168,7 @@ def test_start_cli_selects_capture_image_only_for_new_containers(tmp_path, monke
     else:
         assert starts == []
         assert len(launches) == 10
-        expected = image or "argus-web-trial:pi-data-20260911-r4"
+        expected = image or "argus-web-trial:pi-data-20260911-r6"
         assert all(command[-1] == expected for command in launches)
         for number, command in enumerate(launches, 1):
             assert f"type=bind,src={tmp_path}/tenants/trial-{number:02d}/data,dst=/tenant" in command

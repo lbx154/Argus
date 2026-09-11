@@ -24,7 +24,7 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
       role: 'engineer',
       label: 'Engineer',
       glyph: '🎉',
-      text: 'Task completed · Created RESULT.txt and verified its contents.',
+      text: 'The task was completed. · Created RESULT.txt and verified its contents.',
       tone: 'ok',
       rule: true,
     },

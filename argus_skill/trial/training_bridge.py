@@ -23,7 +23,12 @@ from pathlib import Path
 
 from .analytics import AnalyticsError
 from .research_controls import SID
-from .training_capture import HOSTED_EPISODE_BYTES, HOSTED_PROFILE, HOSTED_TOOLS
+from .training_capture import (
+    HOSTED_PAYLOAD_BYTES,
+    HOSTED_PROFILE,
+    HOSTED_TOOLS,
+    INIT_FAILURE_REASONS,
+)
 
 IMAGE_PACKAGE = Path("/opt/argus/argus_skill/trial")
 EXTENSION_NAME = "pi_training_extension.mjs"
@@ -172,6 +177,7 @@ class Lease:
     expires: float
     producer: dict | None = None
     episode_id: int | None = None
+    initialization_error: str | None = None
 
 
 @dataclass
@@ -192,6 +198,7 @@ class TrainingBridge:
         self.lock = threading.RLock()
         self.counts = Counter()
         self.last_error_code = None
+        self.last_diagnostic = None
         self.last_event_at = None
         self.boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
         with training.analytics._db() as db:
@@ -220,6 +227,13 @@ class TrainingBridge:
                 self.counts["episodes_started"] += 1
             elif action in {"daemon_prepare", "daemon_helper", "daemon_fork", "daemon_claim"}:
                 self.counts[action + "_completed"] += 1
+            elif action == "init_failed":
+                if not result.get("already_failed"):
+                    self.counts["initialization_failed"] += 1
+                    if result.get("state") == "quarantined":
+                        self.counts["episodes_quarantined"] += 1
+                self.last_error_code = result["reason"]
+                self.last_diagnostic = result.get("diagnostic")
             elif action == "event":
                 self.counts["events_received"] += 1
                 self.last_event_at = time.time()
@@ -228,13 +242,15 @@ class TrainingBridge:
                     self.counts["episodes_" + state] += 1
                 if result.get("reason"):
                     self.last_error_code = result["reason"]
+                    self.last_diagnostic = result.get("diagnostic")
         return result
 
     def status(self):
         with self.lock:
             return {"state": "listening", "counts": dict(self.counts), "active_leases": len(self.leases),
                     "pending_daemon_launches": len(self.daemon_tickets),
-                    "last_error_code": self.last_error_code, "last_event_at": self.last_event_at}
+                    "last_error_code": self.last_error_code, "last_event_at": self.last_event_at,
+                    "last_diagnostic": self.last_diagnostic}
 
     def _parent(self, peer, sid):
         with self.training.analytics._db() as db:
@@ -358,6 +374,26 @@ class TrainingBridge:
             if lease.producer and (producer["pid"], producer["started"]) != (lease.producer["pid"], lease.producer["started"]):
                 raise AnalyticsError(403, "training_producer_changed")
             lease.producer = producer
+            if action == "init_failed":
+                if set(value) != {"reason"} or value["reason"] not in INIT_FAILURE_REASONS:
+                    raise ValueError("Invalid training initialization diagnosis")
+                if lease.initialization_error:
+                    return {"state": "disabled", "reason": lease.initialization_error, "already_failed": True}
+                result = {"state": "disabled", "reason": value["reason"]}
+                if lease.episode_id is not None:
+                    try:
+                        result = self.training.capture.event(
+                            self.tenant, lease.sid, lease.episode_id, "quarantine", {"reason": value["reason"]},
+                        )
+                    except AnalyticsError as exc:
+                        if exc.status not in {404, 409}:
+                            raise
+                # dispatch's lease lock serializes this with a begin whose
+                # response timed out. A failed initializer cannot start again.
+                lease.initialization_error = value["reason"]
+                return result
+            if lease.initialization_error:
+                raise AnalyticsError(409, "training_initialization_failed")
             if action == "authorize" and not value:
                 return self.training.capture.authorize(self.tenant, lease.sid)
             if action == "begin" and set(value) == {"session_id"}:
@@ -388,8 +424,8 @@ class _Handler(socketserver.StreamRequestHandler):
         self.connection.settimeout(3)
         try:
             peer = struct.unpack("3i", self.connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
-            raw = self.rfile.readline(HOSTED_EPISODE_BYTES + 8193)
-            if len(raw) > HOSTED_EPISODE_BYTES + 8192 or not raw.endswith(b"\n"):
+            raw = self.rfile.readline(HOSTED_PAYLOAD_BYTES + 8193)
+            if len(raw) > HOSTED_PAYLOAD_BYTES + 8192 or not raw.endswith(b"\n"):
                 raise ValueError("Training bridge request exceeds capacity")
             result = self.server.bridge.dispatch(json.loads(raw), peer)
         except AnalyticsError as exc:

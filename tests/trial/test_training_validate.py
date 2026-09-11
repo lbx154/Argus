@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import zipfile
+from pathlib import Path
 
 import pytest
 from test_training_runtime import training as training
@@ -10,7 +11,13 @@ from test_training_runtime import training as training
 from argus_skill.trial.interaction_capture import Capture
 from argus_skill.trial.training_capture import HOSTED_PROFILE
 from argus_skill.trial.training_schema import pi_strict_schema
-from argus_skill.trial.training_validate import _sample, main, validate_package
+from argus_skill.trial.training_validate import (
+    InvalidPackage,
+    _check_public_sources,
+    _sample,
+    main,
+    validate_package,
+)
 
 
 def canonical(value):
@@ -171,6 +178,45 @@ def test_empty_tool_output_and_portable_parameter_string_are_legal():
     assert normalized["messages"][1]["tool_calls"][0]["function"]["arguments"] == {"path": "empty.txt"}
 
 
+def portable_command_sample(arguments):
+    return {"tools": [{"type": "function", "function": {"name": "bash", "description": "Run a command.",
+             "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}}],
+            "messages": [{"role": "user", "content": "Run this public check."},
+                         {"role": "assistant", "tool_calls": [{"id": "synthetic-call", "type": "function", "function": {
+                             "name": "bash", "arguments": arguments}}]},
+                         {"role": "tool", "tool_call_id": "synthetic-call", "content": ""},
+                         {"role": "assistant", "content": "The check completed."}]}
+
+
+def test_portable_code_newlines_are_scanned_after_strict_json_decoding():
+    command = "for number in numbers:\n    print(number)\n"
+    sample = portable_command_sample(json.dumps({"command": command}))
+    original = canonical(sample)
+    normalized, _, _ = _sample(sample, "synthetic", portable=True)
+    assert normalized["messages"][1]["tool_calls"][0]["function"]["arguments"] == {"command": command}
+    assert canonical(sample) == original
+
+
+@pytest.mark.parametrize("command", [
+    r"C:\Users\Alice\private.txt", r"\\server\share\private.txt", r"\\?\C:\private.txt",
+    "/root/private", "/tenant/home/.ssh/id_rsa", "sk-123456789secret", "password=synthetic-secret",
+])
+def test_portable_real_private_paths_and_credentials_remain_rejected(command):
+    sample = portable_command_sample(json.dumps({"command": command}))
+    with pytest.raises(InvalidPackage, match="sensitive_training_content"):
+        _sample(sample, "synthetic", portable=True)
+
+
+@pytest.mark.parametrize("arguments", [
+    r'{"command":"\u0073k-123456789secret"}',
+    r'{"command":"\u002froot/private"}',
+    r'{"command":"\u0070assword=synthetic-secret"}',
+])
+def test_portable_json_unicode_escapes_cannot_hide_sensitive_semantics(arguments):
+    with pytest.raises(InvalidPackage, match="sensitive_training_content"):
+        _sample(portable_command_sample(arguments), "synthetic", portable=True)
+
+
 def test_cli_writes_content_free_structured_report(package, tmp_path, capsys):
     blob, evidence, _, _ = package
     source, report = tmp_path / "synthetic.zip", tmp_path / "validation.json"
@@ -209,3 +255,76 @@ def test_duplicate_json_keys_and_nonfinite_numbers_fail_strictly():
                       (b'{"a":1e999}', "nonfinite_json_number")):
         with pytest.raises(InvalidPackage, match=code):
             _json(raw, "synthetic")
+
+
+def test_offline_public_skill_read_rejects_modified_body_at_valid_published_path():
+    relative = "verticals/software/skills/engineer/software-change-implementation.md"
+    body = (Path(__file__).resolve().parents[2] / "argus_skill" / relative).read_text()
+    payload = {
+        "toolCallId": "synthetic-public-read", "toolName": "read",
+        "input": {"path": "/tenant/home/.argus-skill/skills/_shared_verticals/software/engineer/software-change-implementation.md"},
+        "content": [{"type": "text", "text": body}], "isError": False, "output_complete": True,
+    }
+    source = {
+        "kind": "pi.training_episode", "sid": "s-a1b2c3d4", "runtime_profile": HOSTED_PROFILE,
+        "runtime": {"profile": HOSTED_PROFILE, "mission_id": "a1b2c3d4e5f6"},
+        "events": [{"id": "synthetic-public-read", "sequence": 0, "kind": "tool_result",
+                    "observed_at": 1, "payload": payload}],
+    }
+    _check_public_sources([source])
+    payload["content"][0]["text"] = body + "\nA modified local skill instruction.\n"
+    with pytest.raises(InvalidPackage) as error:
+        _check_public_sources([source])
+    assert error.value.code == "unverified_public_skill_content"
+    assert error.value.location == "trajectories.jsonl:1"
+    assert "modified local skill" not in str(error.value)
+
+
+@pytest.mark.parametrize("required,code", [
+    (["timeout", "command"], None),
+    (["command"], "runtime_provider_schema_mismatch"),
+    (["command", "timeout", "timeout"], "invalid_tool_schema"),
+])
+def test_provider_required_order_is_irrelevant_but_membership_is_exact(package, required, code):
+    blob, evidence, _, _ = package
+
+    def mutate(parsed):
+        for split in ("train", "validation"):
+            for filename in (f"hf_trl_{split}.jsonl", f"sft_{split}.jsonl"):
+                for sample in parsed[filename]:
+                    sample["tools"][0]["function"]["parameters"]["required"] = list(required)
+            selected = [row for row in parsed["samples.jsonl"] if row["quality_approved"] and row["split"] == split]
+            for row, sample in zip(selected, parsed[f"hf_trl_{split}.jsonl"]):
+                row["sample_id"] = digest(canonical(sample).encode())
+        for source in parsed["trajectories.jsonl"]:
+            for event in source["events"]:
+                if event["kind"] == "provider_request":
+                    event["payload"]["tools"][0]["function"]["parameters"]["required"] = list(required)
+
+    changed = rewrite(blob, mutate)
+    report = validate_package(changed, evidence_path=evidence)
+    if code is None:
+        assert report["valid"], report
+        with zipfile.ZipFile(io.BytesIO(changed)) as archive:
+            sample = json.loads(archive.read("hf_trl_train.jsonl").splitlines()[0])
+        assert sample["tools"][0]["function"]["parameters"]["required"] == required
+    else:
+        assert not report["valid"] and report["errors"][0]["code"] == code, report
+
+
+@pytest.mark.parametrize("name,code", [
+    ("bash", "invalid_or_duplicate_runtime_tool_name"),
+    ("unused_runtime_tool", "runtime_provider_tool_identity_mismatch"),
+])
+def test_runtime_tool_inventory_cannot_hide_duplicates_or_missing_provider_definitions(package, name, code):
+    blob, evidence, _, _ = package
+
+    def mutate(parsed):
+        for source in parsed["trajectories.jsonl"]:
+            for event in source["events"]:
+                if event["kind"] == "context":
+                    tool = json.loads(json.dumps(event["payload"]["tools"][0]))
+                    event["payload"]["tools"].append({**tool, "name": name})
+
+    report = validate_package(rewrite(blob, mutate), evidence_path=evidence)
+    assert not report["valid"] and report["errors"][0]["code"] == code, report

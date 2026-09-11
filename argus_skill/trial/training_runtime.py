@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import select
 import socket
 from contextlib import contextmanager
@@ -18,7 +19,9 @@ _daemon_launch = None
 
 def _request(path, action, value, lease=None):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.settimeout(1.0)
+        # Capture registration may hash the pinned runtime and poll consent.
+        # Keep daemon fork admission within its existing four-second ack window.
+        client.settimeout(10.0 if action in {"register", "close"} else 1.0)
         client.connect(path)
         data = json.dumps({"action": action, "lease": lease, "value": value}, separators=(",", ":")).encode()
         client.sendall(data + b"\n")
@@ -188,6 +191,12 @@ def capture_runtime_call(ctx, options):
                     options._training_extension = EXTENSION
                     command = ctx.backend._runner._build_command(resume_thread_id=None, options=options)
                     mission = ctx.usage_mission_id
+                    # The supervisor's accounting scope appends an attempt to
+                    # the real mission ID. Preserve the actual task binding.
+                    if isinstance(mission, str):
+                        attempt = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9_-]{0,79}):attempt:[1-9][0-9]{0,8}", mission)
+                        if attempt:
+                            mission = attempt[1]
                     if not isinstance(mission, str) or not SID.fullmatch(mission):
                         mission = None
                     result = _request(path, "register", {"sid": sid, "call_id": ctx.call_id,

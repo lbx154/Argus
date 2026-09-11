@@ -103,3 +103,18 @@ def test_inputs_are_bounded_and_non_json_values_rejected(bash_schema):
             pi_strict_schema(value)
     with pytest.raises(ValueError, match="invalid_tool_arguments"):
         pi_execution_arguments({"command": object()}, bash_schema)
+def test_required_semantic_comparison_keeps_captured_order_and_rejects_missing_or_duplicate():
+    import copy
+
+    from argus_skill.trial.training_schema import pi_schema_equal
+
+    actual = {"type": "object", "properties": {"second": {"type": "string"}, "first": {"type": "string"}},
+              "required": ["second", "first"], "additionalProperties": False}
+    original = copy.deepcopy(actual)
+    assert pi_schema_equal(actual, {**actual, "required": ["first", "second"]})
+    assert actual == original
+    assert not pi_schema_equal(actual, {**actual, "required": ["first"]})
+    assert not pi_schema_equal(actual, {**actual, "required": ["first", "first", "second"]})
+    assert not pi_schema_equal(actual, {**actual, "default": {"required": ["first", "second"]}})
+    left = {**actual, "default": {"required": ["second", "first"]}}
+    assert not pi_schema_equal(left, {**left, "default": {"required": ["first", "second"]}})

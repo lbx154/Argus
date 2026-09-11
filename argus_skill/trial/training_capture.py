@@ -38,12 +38,18 @@ MAX_OBSERVATIONS = 64
 MAX_RESULT_CHARS = 4096
 PROFILE = "pi-0.85.1-final-observer-v1"
 HOSTED_PROFILE = "pi-0.85.1-hosted-workspace-v1"
-HOSTED_EPISODE_BYTES = 4 * 1024 * 1024
+HOSTED_EPISODE_BYTES = 16 * 1024 * 1024
+HOSTED_PAYLOAD_BYTES = 4 * 1024 * 1024
 HOSTED_RESULT_CHARS = 64 * 1024
 HOSTED_TEXT_CHARS = 256 * 1024
 HOSTED_OBSERVATIONS = 512
 HOSTED_TOOLS = frozenset({"read", "write", "edit", "grep", "find", "ls", "bash"})
 DOCUMENT_TOOLS = frozenset({"read", "write", "edit", "grep", "find", "ls", "bash", "powershell"})
+INIT_FAILURE_REASONS = frozenset({
+    "capture_init_authorize_failed", "capture_init_authorize_timeout",
+    "capture_init_begin_failed", "capture_init_begin_timeout",
+    "capture_init_reply_invalid", "runtime_profile_changed",
+})
 
 
 class TrainingCapture:
@@ -67,6 +73,8 @@ class TrainingCapture:
                 db.execute("ALTER TABLE training_tool_episodes ADD COLUMN runtime_profile TEXT NOT NULL DEFAULT 'pi-0.85.1-final-observer-v1'")
             if "runtime_metadata" not in columns:
                 db.execute("ALTER TABLE training_tool_episodes ADD COLUMN runtime_metadata TEXT NOT NULL DEFAULT '{}'")
+            if "diagnostic" not in columns:
+                db.execute("ALTER TABLE training_tool_episodes ADD COLUMN diagnostic TEXT NOT NULL DEFAULT '{}'")
             if db.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='journey_tombstones'",
             ).fetchone():
@@ -171,15 +179,17 @@ class TrainingCapture:
                 raise AnalyticsError(409, "training_episode_closed")
             hosted = row["runtime_profile"] == HOSTED_PROFILE
             maximum = HOSTED_EPISODE_BYTES if hosted else MAX_EPISODE_BYTES
-            sensitive = _hosted_sensitive if hosted else _sensitive
+            payload_maximum = HOSTED_PAYLOAD_BYTES if hosted else MAX_EPISODE_BYTES
+            mission = json.loads(row["runtime_metadata"]).get("mission_id") if hosted else None
             access = self._authorization(db, tenant, sid)
             reason = None
+            diagnostic = None
             if not access["enabled"] or access["grants"] != json.loads(row["grants"]):
                 reason = "training_capture_consent_changed"
             observations = json.loads(row["record"])
             if reason is None:
                 try:
-                    if not isinstance(payload, dict) or len(_json(payload)) > maximum:
+                    if not isinstance(payload, dict) or len(_json(payload)) > payload_maximum:
                         raise ValueError("capture_payload_oversized")
                     fields = {
                         "context": {"messages", "tools"}, "agent_end": {"messages"},
@@ -215,8 +225,21 @@ class TrainingCapture:
                         raise ValueError("tool_result_excerpt_truncated")
                     # Scrub in memory first. Never store a modified ideal answer or
                     # silently rewrite arguments; changed/sensitive episodes fail.
-                    clean = _sanitize(redact_secrets_record(payload))
-                    if clean != payload or sensitive(clean):
+                    if hosted:
+                        from .training_public_assets import check_public_skill_event
+
+                        try:
+                            check_public_skill_event(kind, payload)
+                        except ValueError:
+                            diagnostic = {"kind": kind, "field": "payload.content" if kind == "tool_result" else "payload.input",
+                                          "detector": "public_skill_digest"}
+                            raise
+                    redacted = redact_secrets_record(payload)
+                    clean = _sanitize(redacted)
+                    sensitive = (_hosted_sensitive(clean, sid=sid, mission_id=mission)
+                                 if hosted else _sensitive(clean))
+                    if clean != payload or sensitive:
+                        diagnostic = _content_diagnostic(kind, payload, sid=sid, mission_id=mission)
                         raise ValueError("sensitive_capture_content")
                     if kind == "quarantine":
                         reason = payload.get("reason")
@@ -225,7 +248,7 @@ class TrainingCapture:
                             "capture_projection_failed", "capture_transport_failed",
                             "unreviewed_tool_or_document_access",
                             "runtime_call_unsettled", "runtime_profile_changed", "provider_context_mismatch",
-                            "session_compacted_or_reused",
+                            "session_compacted_or_reused", *INIT_FAILURE_REASONS,
                         }:
                             reason = "capture_projection_failed"
                     elif kind != "settled":
@@ -246,9 +269,11 @@ class TrainingCapture:
                         "invalid_tool_arguments", "private_or_nontext_context", "invalid_capture_order",
                         "unreviewed_tool_or_document_access",
                         "provider_context_mismatch", "runtime_profile_changed", "session_compacted_or_reused",
+                        "unverified_public_skill_content",
                     }
                     reason = str(exc) if str(exc) in safe_codes else "malformed_tool_episode"
             state = "quarantined" if reason else "complete" if kind == "settled" else "capturing"
+            diagnostic = (diagnostic or {"kind": kind, "field": "payload", "detector": "validation"}) if reason else {}
             record = "[]" if reason else _json(observations)
             size = db.execute(
                 "SELECT coalesce(sum(length(record)),0) FROM training_tool_episodes WHERE id!=?",
@@ -257,13 +282,13 @@ class TrainingCapture:
             if size + len(record) > (128 * 1024 * 1024 if hosted else MAX_CAPTURE_BYTES):
                 state, reason, record = "quarantined", "training_capture_capacity", "[]"
             db.execute(
-                "UPDATE training_tool_episodes SET state=?,reason=?,record=?,updated_at=? WHERE id=?",
-                (state, reason, record, self.analytics.clock(), episode_id),
+                "UPDATE training_tool_episodes SET state=?,reason=?,record=?,diagnostic=?,updated_at=? WHERE id=?",
+                (state, reason, record, _json(diagnostic), self.analytics.clock(), episode_id),
             )
         if state != "capturing":
             self.training.audit("capture", outcome="completed" if state == "complete" else "denied",
                                 actor="system", counts={"quarantined": int(state == "quarantined")})
-        return {"episode_id": episode_id, "state": state, "reason": reason}
+        return {"episode_id": episode_id, "state": state, "reason": reason, "diagnostic": diagnostic}
 
     @staticmethod
     def _public_blocks(blocks, *, result=False, maximum=MAX_RESULT_CHARS):
@@ -451,20 +476,27 @@ class TrainingCapture:
                     raise ValueError("provider_context_mismatch")
                 if len(provider_tools) != len(tools):
                     raise ValueError("provider_context_mismatch")
-                for tool, runtime_tool in zip(provider_tools, tools):
+                runtime_by_name = {tool["name"]: tool for tool in tools}
+                provider_names = set()
+                for tool in provider_tools:
                     if (not isinstance(tool, dict) or set(tool) != {"type", "function"}
                             or tool["type"] != "function" or not isinstance(tool["function"], dict)
                             or tool["function"].keys() - {"name", "description", "parameters", "strict"}
                             or ("strict" in tool["function"] and type(tool["function"]["strict"]) is not bool)):
                         raise ValueError("provider_context_mismatch")
-                    from .training_schema import pi_strict_schema
+                    from .training_schema import pi_schema_equal, pi_strict_schema
 
                     function = tool["function"]
+                    name = function.get("name")
+                    if not isinstance(name, str) or name not in runtime_by_name or name in provider_names:
+                        raise ValueError("provider_context_mismatch")
+                    provider_names.add(name)
+                    runtime_tool = runtime_by_name[name]
                     expected_parameters = (pi_strict_schema(runtime_tool["parameters"])
                                            if function.get("strict") is True else runtime_tool["parameters"])
                     if (function.get("name") != runtime_tool["name"]
                             or function.get("description") != runtime_tool["description"]
-                            or function.get("parameters") != expected_parameters):
+                            or not pi_schema_equal(function.get("parameters"), expected_parameters)):
                         raise ValueError("provider_context_mismatch")
                     validator = Draft202012Validator(function["parameters"])
                     if any(call["name"] == function["name"] and not validator.is_valid(call["arguments"])
@@ -505,14 +537,17 @@ class TrainingCapture:
             }
             provenance.append(origin)
             if row["state"] != "complete":
-                origin.update(disposition="quarantined", reason=row["reason"] or "capture_not_settled")
+                origin.update(disposition="quarantined", reason=row["reason"] or "capture_not_settled",
+                              diagnostic=json.loads(row["diagnostic"]))
                 continue
             events = json.loads(row["record"])
             try:
                 from .training_data import _sensitive
 
                 hosted = row["runtime_profile"] == HOSTED_PROFILE
-                if (_hosted_sensitive if hosted else _sensitive)(events):
+                sensitive = (_hosted_sensitive(events, sid=sid, mission_id=origin["runtime"].get("mission_id"))
+                             if hosted else _sensitive(events))
+                if sensitive:
                     raise ValueError("sensitive_capture_content")
                 sample = self._sample(events, grant, hosted=hosted)
             except (ValueError, TypeError, KeyError, IndexError):
@@ -541,7 +576,152 @@ class TrainingCapture:
         return candidates, trajectories, provenance
 
 
-def _hosted_sensitive(value):
+def _content_diagnostic(kind, payload, *, sid, mission_id):
+    """Fixed detector names and structural fields only, never matched text."""
+    from .training_data import _SENSITIVE
+
+    known = {"messages", "content", "text", "tools", "parameters", "properties", "description", "input",
+             "path", "command", "pattern", "glob", "oldText", "newText", "edits", "function", "arguments",
+             "tool_calls", "name", "toolName", "toolCallId", "model", "role", "type", "payload"}
+
+    def walk(value, field="payload", depth=0):
+        if depth > 30:
+            return None
+        if isinstance(value, str):
+            if redact_secrets_record(value) != value:
+                return {"kind": kind, "field": field, "detector": "secret_redactor"}
+            if _sanitize(value) != value:
+                return {"kind": kind, "field": field, "detector": "analytics_sanitizer"}
+            match = _SENSITIVE.search(_public_path_scan_text(value, sid, mission_id))
+            if match:
+                detector = "private_path" if re.search(r"/home/|/Users/|/data/|/root/|/mnt/|[A-Z]:\\|\\\\", match[0], re.I) else "sensitive_pattern"
+                return {"kind": kind, "field": field, "detector": detector}
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                child = field + "." + (key if key in known else "*")
+                if _sanitize({key: "public-probe"}) != {key: "public-probe"}:
+                    return {"kind": kind, "field": child, "detector": "analytics_sanitizer"}
+                result = walk(str(key), field + ".*", depth + 1) or walk(item, child, depth + 1)
+                if result:
+                    return result
+        elif isinstance(value, list):
+            for item in value:
+                result = walk(item, field + "[]", depth + 1)
+                if result:
+                    return result
+        return None
+
+    return walk(payload) or {"kind": kind, "field": "payload", "detector": "content_filter"}
+
+
+def _workspace_path_scan_text(value, workspace):
+    """Mask bound POSIX path literals, leaving other paths and all text intact.
+
+    This is lexical, never a filesystem/symlink lookup or a shell expansion.
+    Quotes delimit a literal; ordinary POSIX filename characters (including
+    spaces, Unicode and globs) are not an ASCII allowlist. Ambiguous traversal
+    and encoded/Windows separators retain the original private-home marker.
+    """
+    output = list(value)
+    plain_end = 0
+    plain_unsafe = -1
+    unsafe_path = re.compile(r"(?:^|[/\\])\.{1,2}(?=[/\\]|$)|\\|[\x00-\x1f\x7f]|%(?:2e|2f|5c)", re.I)
+    new_absolute = re.compile(r"[\s,:=(\[{]/")
+    root = re.compile(r"(?<![\w/.\\%+-])" + re.escape(workspace)
+                      + r"(?=/|$|[\s\"'`<>;,|&])")
+    for match in root.finditer(value):
+        start, end = match.span()
+        if end < len(value) and value[end] == "/":
+            initial_quote = value[start - 1] if start and value[start - 1] in "\"'`" else None
+            quote = initial_quote
+            saw_quote = bool(quote)
+            cached_plain = end < plain_end and not quote
+            cursor = plain_end if cached_plain else end
+            while not cached_plain and cursor < len(value):
+                char = value[cursor]
+                if char in "\r\n":
+                    break
+                if quote:
+                    if char == quote:
+                        if initial_quote:
+                            break
+                        quote = None
+                elif char in "\"'`":
+                    quote = char
+                    saw_quote = True
+                elif char in ";|&<>":
+                    break
+                cursor += 1
+            # Check before splitting on spaces/punctuation. Otherwise a path
+            # such as "workdir/a [1]/../../private" could lose its home marker
+            # while its traversal survives as an apparently relative string.
+            if not saw_quote:
+                if not cached_plain:
+                    plain_end = cursor
+                    plain_unsafe = max((m.start() for m in unsafe_path.finditer(value, end, cursor)), default=-1)
+                unsafe = plain_unsafe >= end
+            else:
+                components = value[end:cursor].translate(str.maketrans("", "", "\"'`"))
+                unsafe = unsafe_path.search(components) is not None
+            if unsafe:
+                continue
+            # A second absolute path must remain visible to the private-path
+            # detector, including colon-separated path lists and diagnostics.
+            boundary = new_absolute.search(value, end, cursor)
+            if boundary:
+                cursor = boundary.start()
+            if not initial_quote:
+                inner_quote = re.search(r"[\"'`]", value[end:cursor])
+                if inner_quote:
+                    cursor = end + inner_quote.start()
+            end = cursor
+        for index in range(start, end):
+            if value[index] == "/":
+                output[index] = " "
+    return "".join(output)
+def _public_path_scan_text(value, sid, mission_id):
+    """Exempt only bound platform path literals in a disposable scan copy.
+
+    Neither the stored bytes nor tool access changes. In particular, raw model
+    logs and other project/home files never acquire an exemption. Path suffixes
+    remain in the scan so secret/PII-shaped filenames are still rejected.
+    """
+    if not isinstance(sid, str) or not re.fullmatch(r"s-[a-f0-9]{8}", sid):
+        return value
+    workspace = f"/tenant/home/.argus-skill/workspaces/{sid}"
+    value = _workspace_path_scan_text(value, workspace)
+    # The normal role-library and durable-learning templates publish these
+    # directory names. This exempts the names only, never arbitrary skill
+    # files, their bodies, another project, or the surrounding home directory.
+    public_directories = {
+        "/tenant/home/.argus-skill",
+        f"/tenant/home/.argus-skill/projects/{sid}/skills",
+        f"/tenant/home/.argus-skill/projects/{sid}/skills/engineer",
+        f"/tenant/home/.argus-skill/projects/{sid}/skills/reviewer",
+    }
+    handoffs = set()
+    if isinstance(mission_id, str) and re.fullmatch(r"[a-f0-9]{12}", mission_id):
+        root = f"/tenant/home/.argus-skill/projects/{sid}/handoffs/{mission_id}"
+        handoffs = {root + "/" + name for name in (
+            "mission.json", "latest.json", "frontier.json", "CHECKPOINT.md",
+            "role-sessions/engineer.json", "role-sessions/reviewer.json",
+        )}
+
+    def replace(match):
+        from .training_public_assets import public_skill_literal
+
+        path = match[0]
+        if path in handoffs or path in public_directories or public_skill_literal(path):
+            # Keep all segment text for the credential/PII detectors while
+            # removing the private-home interpretation of this exact path.
+            return path.replace("/", " ")
+        return path
+
+    return re.sub(r"(?<![\w/.\\%+-])/tenant/home/\.argus-skill(?:/[^\s\"'`<>;,|]+)?"
+                  r"(?=$|[\s\"'`<>;,|])", replace, value)
+
+
+def _hosted_sensitive(value, *, sid=None, mission_id=None):
     """Inspect the public projection, not words like 'reasoning' in user text.
 
     Private content is excluded structurally by the read-only producer. Public
@@ -551,11 +731,12 @@ def _hosted_sensitive(value):
     from .training_data import _SENSITIVE
 
     if isinstance(value, str):
-        return bool(_SENSITIVE.search(value))
+        return bool(_SENSITIVE.search(_public_path_scan_text(value, sid, mission_id)))
     if isinstance(value, dict):
-        return any(_hosted_sensitive(str(key)) or _hosted_sensitive(item) for key, item in value.items())
+        return any(_hosted_sensitive(str(key), sid=sid, mission_id=mission_id)
+                   or _hosted_sensitive(item, sid=sid, mission_id=mission_id) for key, item in value.items())
     if isinstance(value, list):
-        return any(_hosted_sensitive(item) for item in value)
+        return any(_hosted_sensitive(item, sid=sid, mission_id=mission_id) for item in value)
     return False
 
 
