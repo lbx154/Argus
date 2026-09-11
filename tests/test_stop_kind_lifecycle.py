@@ -133,6 +133,23 @@ def test_trial_quota_receipts_are_provider_fences(message: str) -> None:
     assert _raw_backend_stop_kind(fatal_error=message, exit_code=1) == "provider_fence"
 
 
+def test_rejected_trial_request_does_not_retry_as_a_backend_outage(tmp_path: Path) -> None:
+    message = (
+        "HTTP 400: 400 Unsupported trial request; use text/tool "
+        "Chat Completions with model argus-trial."
+    )
+    stop_kind = _raw_backend_stop_kind(fatal_error=message, exit_code=1)
+
+    assert stop_kind == "permanent_error"
+    status, backend, events = _run_engineer(tmp_path, stop_kind)
+    assert status == "error"
+    assert backend.calls == 1
+    assert not any(event["type"] == "round.backend_failure.backoff" for event in events)
+    assert _raw_backend_stop_kind(
+        fatal_error="HTTP 400: context length exceeded", exit_code=1,
+    ) == "backend_unavailable"
+
+
 def test_backend_unavailable_holds_identical_failures_until_the_round_budget(
     tmp_path: Path,
 ) -> None:
