@@ -69,6 +69,8 @@ _PROVIDER_FENCE_PATTERNS = (
     "max budget usd",
     "max-budget-usd",
     "provider budget limit",
+    "trial_quota_exceeded",
+    "insufficient trial tokens for this request",
 )
 _TRANSIENT_ERROR_PATTERNS = (
     "timed out",
@@ -110,7 +112,7 @@ def _raw_backend_stop_kind(
         interrupt_kind = stop_kind_from_external_interrupt(fatal)
         if interrupt_kind is not None:
             return interrupt_kind
-    if any(pattern in low for pattern in _PROVIDER_FENCE_PATTERNS):
+    if has_http_status(low, {402}) or any(pattern in low for pattern in _PROVIDER_FENCE_PATTERNS):
         return "provider_fence"
     if has_http_status(low, {429}) or any(
         pattern in low for pattern in _PROVIDER_COOLDOWN_PATTERNS
