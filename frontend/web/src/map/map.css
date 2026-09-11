@@ -23,11 +23,14 @@
   --map-minimap-mask: rgba(13, 19, 27, 0.72);
   --map-vignette: rgba(0, 0, 0, 0.3);
 }
+/* The header is two lines: the session's name, then one sentence on where
+ * the work stands. Everything else about the map lives behind the options
+ * button at the right. */
 .map-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px 24px 4px;
+  padding: 14px 24px 0;
 }
 .map-heading { flex: 1; min-width: 0; }
 .map-more { position: relative; flex-shrink: 0; }
@@ -60,24 +63,35 @@
   box-shadow: 0 12px 40px #1834541a;
 }
 .map-more-menu .map-scope-button { margin-left: 0; text-align: left; }
+.map-more-menu .map-team-progress { padding: 2px 0 6px; border-bottom: 1px solid rgb(var(--line) / .6); }
+/* Entries that only matter where the canvas legend is hidden. */
+.map-narrow-only { display: none; }
 .map-status-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 6px 24px 10px;
-  font-size: 12px;
+  padding: 3px 24px 10px;
+  font-size: 12.5px;
   color: rgb(var(--ink-dim));
 }
-.map-status { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.map-status-line { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0; }
 .map-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.map-status .map-progress-strip { width: 96px; margin: 0; }
+.map-status-sep { color: rgb(var(--ink-faint)); }
+.map-attention-link {
+  flex-shrink: 0;
+  color: #a06a4b;
+  font-weight: 550;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.map-attention-link:hover { color: #7f5238; text-decoration-style: solid; }
+[data-theme="dark"] .map-attention-link { color: #d9a883; }
 .map-live-dot { width: 6px; height: 6px; border-radius: 50%; background: #5da890; box-shadow: 0 0 0 3px #5da89020; animation: map-live-dot 1.6s ease-in-out infinite; }
 @keyframes map-live-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-.map-status-row .map-workspace-actions { margin-left: auto; padding: 0; }
 @media (max-width: 640px) {
-  .map-status-row { flex-wrap: wrap; padding: 6px 14px 10px; }
-  .map-status-row .map-workspace-actions { margin-left: 0; }
-  .map-header { padding: 14px 14px 4px; }
+  .map-status-row { padding: 2px 14px 8px; font-size: 12px; }
+  .map-header { padding: 10px 14px 0; }
 }
 .map-heading h1 {
   font-size: 18px;
@@ -122,32 +136,21 @@
   align-items: center;
   margin-left: auto;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: 11px;
   color: rgb(var(--ink-faint));
 }
+/* The subtask tally, one compact line inside the options menu. */
 .map-team-progress {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
-  padding: 7px 28px;
-  border-bottom: 1px solid rgb(var(--line) / .6);
-  background: var(--map-paper);
+  gap: 6px 14px;
   color: rgb(var(--ink-faint));
-  font-size: 11px;
+  font-size: 12px;
 }
 .map-team-progress > span { display: inline-flex; align-items: center; gap: 5px; }
 .map-team-progress strong, .map-team-progress b { color: rgb(var(--ink-dim)); font-weight: 550; font-variant-numeric: tabular-nums; }
 .map-card-team-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 640px) {
-  .map-team-progress { padding: 7px 14px; gap: 7px 12px; }
-}
-.map-attention-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #c58662;
-}
 .map-workspace {
   display: flex;
   flex: 1;
@@ -161,17 +164,27 @@
   min-height: 0;
   background: var(--map-canvas);
 }
+/* One toolbar row across the top of the canvas: finding and moving on the
+ * left, the conversation, the agents and the deliveries on the right. The
+ * row itself lets pointer events through to the canvas; only its controls
+ * catch them. */
 .map-canvas-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 6px;
   position: absolute;
   top: 17px;
   left: 20px;
+  right: 20px;
   z-index: 6;
+  pointer-events: none;
 }
+.map-canvas-toolbar > * { pointer-events: auto; }
+.map-toolbar-gap { flex: 1; min-width: 6px; pointer-events: none; }
 .map-canvas-toolbar > button,
-.map-search {
+.map-search,
+.map-workspace-actions button {
   background: var(--map-paper);
   border: 1px solid rgb(var(--line) / 0.7);
   box-shadow: 0 2px 6px #24364c05;
@@ -181,7 +194,8 @@
   gap: 6px;
   height: 34px;
   color: rgb(var(--ink-dim));
-  font-size: 11px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 .map-canvas-toolbar > button {
   padding: 0 10px;
@@ -192,6 +206,7 @@
 }
 .map-search svg {
   color: rgb(var(--ink-faint));
+  flex-shrink: 0;
 }
 .map-search input {
   background: transparent;
@@ -199,7 +214,7 @@
   outline: none;
   min-width: 0;
   width: 100%;
-  font-size: 11px;
+  font-size: 12px;
   color: rgb(var(--ink));
 }
 .map-search:focus-within {
@@ -293,13 +308,13 @@
   padding: 12px 16px 9px;
 }
 .map-card-number {
-  font-size: 10px;
+  font-size: 11px;
   font-family: "Geist Mono Variable", monospace;
   color: rgb(var(--ink-faint));
   letter-spacing: 0.4px;
 }
 .map-status {
-  font-size: 10px;
+  font-size: 11px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -372,12 +387,12 @@
   gap: 8px;
   border-top: 1px solid rgb(var(--line) / 0.45);
   padding: 10px 16px;
-  font-size: 10px;
+  font-size: 11px;
   color: rgb(var(--ink-faint));
 }
 .map-card-bottom time {
   margin-left: auto;
-  font-size: 9px;
+  font-size: 11px;
 }
 .map-role {
   display: flex;
@@ -425,7 +440,7 @@
   border: 1px solid rgb(var(--line) / 0.7);
   padding: 9px 12px;
   border-radius: 7px;
-  font-size: 10px;
+  font-size: 11px;
   color: rgb(var(--ink-faint));
   box-shadow: 0 2px 6px #24364c05;
 }
@@ -456,7 +471,7 @@
   border-radius: 6px;
   padding: 7px 10px;
   z-index: 5;
-  font-size: 10px;
+  font-size: 11px;
 }
 .argus-map .react-flow__controls {
   box-shadow: 0 2px 9px #24364c08;
@@ -492,7 +507,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 10px;
+  font-size: 11px;
   color: rgb(var(--ink-dim));
 }
 .map-playback button {
@@ -513,11 +528,11 @@
 .map-playback small {
   margin-left: auto;
   color: rgb(var(--ink-faint));
-  font-size: 10px;
+  font-size: 11px;
 }
 .map-count {
   font-family: "Geist Mono Variable", monospace;
-  font-size: 10px;
+  font-size: 11px;
 }
 .map-empty {
   display: flex;
@@ -564,67 +579,66 @@
     font-size: 19px;
   }
 }
-@media (max-width: 640px) {
-  .map-header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    padding: 10px 14px;
-    gap: 3px 8px;
-  }
-  .map-heading-icon,
-  .map-eyebrow {
+/* Below the desktop breakpoint the canvas keeps its whole width: the legend
+ * and the overview inset go, and the options menu offers what they did. */
+@media (max-width: 1023px) {
+  .map-legend,
+  .argus-map .react-flow__minimap {
     display: none;
   }
-  .map-heading h1 {
-    font-size: 14px;
+  .map-more-menu .map-narrow-only { display: block; }
+}
+/* Narrow desktops and tablets: the toolbar keeps every control as an icon. */
+@media (max-width: 1199px) {
+  .map-canvas-toolbar button > span {
+    display: none;
   }
-  .map-header .map-source-badge[data-live="true"],
+  .map-search {
+    width: 150px;
+  }
+}
+@media (max-width: 640px) {
+  .map-heading h1 {
+    font-size: 15px;
+  }
   .map-dataset-bar > svg {
     display: none;
   }
-  .map-header-actions { grid-column: 2; grid-row: 1 / 3; }
-  .map-dataset-bar {
-    grid-column: 1;
-    grid-row: 2;
-  }
   .map-dataset-bar select {
     max-width: 100%;
-    font-size: 11px;
+    font-size: 12px;
   }
   .map-capture {
-    display: none;
-  }
-  .map-summary {
-    padding: 9px 14px;
-    font-size: 10px;
-  }
-  .map-summary-note {
     display: none;
   }
   .map-canvas-toolbar {
     left: 12px;
     right: 12px;
     top: 12px;
-    gap: 5px;
+    gap: 4px;
   }
+  /* The search is an icon until it is tapped, then it opens for typing. */
   .map-search {
+    width: 38px;
+    padding: 0 11px;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .map-search:focus-within {
     width: 160px;
-    min-width: 38px;
-    flex-shrink: 1;
+  }
+  .map-search:not(:focus-within) input {
+    opacity: 0;
   }
   .map-canvas-toolbar > button { flex-shrink: 0; }
-  .map-attention-detail, .map-dependencies { padding: 7px 14px; }
-  .map-dependencies strong { flex-basis: 60px; }
-  .map-canvas-toolbar button > span {
+  /* Inside a card the row keeps the pager and the way back; the search and
+   * the whole-map fit wait until the reader is back on the overview. */
+  .map-canvas-wrap[data-detailed="true"] .map-search,
+  .map-canvas-wrap[data-detailed="true"] .map-fit-button {
     display: none;
   }
-  .map-legend {
-    left: 56px;
-    gap: 9px;
-    font-size: 8px;
-    padding: 8px;
-  }
-
+  .map-attention-detail, .map-dependencies { padding: 7px 14px; }
+  .map-dependencies strong { flex-basis: 60px; }
   .map-playback {
     padding: 0 12px;
     gap: 9px;
@@ -651,21 +665,6 @@
     width: 80px;
   }
 }
-.map-settings {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  margin-left: auto;
-  border: 1px solid rgb(var(--line));
-  border-radius: 10px;
-  color: var(--ink-dim);
-}
-.map-settings:hover { color: var(--blue); }
-
-.map-header-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-shrink: 0; }
-@media (max-width: 640px) { .map-header-actions { gap: 6px; } }
-
 .map-scope-button {
   margin-left: 12px;
   padding: 7px 11px;
@@ -686,15 +685,17 @@
 .map-history-options span, .map-history-choice small { display: block; font-size: 12px; line-height: 1.6; opacity: .72; }
 @media (max-width: 640px) { .map-history-choice { padding: 22px; } .map-scope-button { margin-left: 8px; } }
 
-.map-workspace-actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; padding: 0 24px 10px; }
-.map-workspace-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 12px; min-height: 36px; border: 1px solid rgb(var(--line)); border-radius: 11px; font-size: 12px; background: rgb(var(--panel)); color: rgb(var(--ink-dim)); }
+/* The right-hand group of the toolbar: the drawers and the deliveries. */
+.map-workspace-actions { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
+.map-workspace-actions button { position: relative; padding: 0 10px; }
 .map-workspace-actions button[aria-expanded=true] { color: rgb(var(--blue)); border-color: rgb(var(--blue) / .45); background: rgb(var(--blue) / .07); }
 .map-workspace-actions button:disabled { opacity: .45; cursor: default; }
-.map-workspace-actions button i { width: 6px; height: 6px; background: #94a4b0; border-radius: 50%; }
-.map-workspace-actions button i[data-active=true] { background: #5da890; box-shadow: 0 0 0 3px #5da89015; }
-.map-workspace-actions .map-delivery-toggle { margin-left: auto; color: rgb(var(--blue)); }
-.map-delivery-toggle span { padding: 1px 5px; border-radius: 5px; background: rgb(var(--blue) / .08); font-size: 10px; }
-.map-conversation { position: absolute; z-index: 10; right: 18px; top: 18px; bottom: 150px; width: min(520px, calc(100% - 36px)); display: flex; flex-direction: column; min-height: 150px; overflow: hidden; background: rgb(var(--panel)); border: 1px solid rgb(var(--line)); border-radius: 18px; box-shadow: 0 16px 60px #1834541c; animation: map-agent-enter 250ms ease-out; }
+/* A small dot on the activity icon says whether an agent is at work right now. */
+.map-agent-toggle i { position: absolute; left: 21px; top: 7px; width: 6px; height: 6px; box-sizing: content-box; border: 1.5px solid var(--map-paper); background: #94a4b0; border-radius: 50%; }
+.map-agent-toggle i[data-active=true] { background: #5da890; box-shadow: 0 0 0 2px #5da89033; }
+.map-delivery-toggle:not(:disabled) { color: rgb(var(--blue)); }
+.map-delivery-toggle b { padding: 1px 6px; border-radius: 6px; background: rgb(var(--blue) / .1); color: rgb(var(--blue)); font-size: 11px; font-weight: 600; }
+.map-conversation { position: absolute; z-index: 10; right: 18px; top: 62px; bottom: 150px; width: min(520px, calc(100% - 36px)); display: flex; flex-direction: column; min-height: 150px; overflow: hidden; background: rgb(var(--panel)); border: 1px solid rgb(var(--line)); border-radius: 18px; box-shadow: 0 16px 60px #1834541c; animation: map-agent-enter 250ms ease-out; }
 .map-conversation>header { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid rgb(var(--line)); color: rgb(var(--ink-dim)); font-size: 12px; }
 .map-conversation>header button { margin-left: auto; padding: 10px; border-radius: 8px; }
 .map-conversation .conversation-row { max-width: 100%; padding: 12px 16px; }
@@ -704,7 +705,7 @@
 .map-starters { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
 .map-starters button { padding: 9px 12px; border: 1px solid rgb(var(--line)); background: rgb(var(--panel)); border-radius: 10px; font-size: 12px; color: rgb(var(--blue)); pointer-events: auto; }
 .map-empty p { max-width: 450px; }
-@media(max-width:640px) { .map-workspace-actions { gap: 6px; padding: 0 14px 8px; } .map-workspace-actions button { padding: 8px 10px; font-size: 11px; min-height: 38px; } .map-conversation { top: 8px; right: 10px; width: calc(100% - 20px); bottom: 148px; } .map-starters { margin-top: 12px; } .map-starters button { padding: 9px; font-size: 11px; } }
+@media(max-width:640px) { .map-workspace-actions { gap: 4px; } .map-workspace-actions button { padding: 0; width: 36px; justify-content: center; } .map-agent-toggle i { left: 20px; } .map-delivery-toggle b { position: absolute; right: -5px; top: -6px; padding: 0 4px; font-size: 11px; line-height: 15px; } .map-conversation { top: 56px; right: 10px; width: calc(100% - 20px); bottom: 148px; } .map-starters { margin-top: 12px; } .map-starters button { padding: 9px; font-size: 12px; } }
 @media(prefers-reduced-motion:reduce) { .map-conversation { animation: none; } }
 
 /* --- Overview legibility: the far and middle zoom must read by status. --- */
@@ -859,60 +860,6 @@
     var(--map-vignette) 100%
   );
 }
-/* --- Header progress strip and count chips. --- */
-.map-progress-strip {
-  display: flex;
-  width: 148px;
-  height: 6px;
-  border-radius: 4px;
-  overflow: hidden;
-  background: rgb(var(--line) / 0.4);
-  margin: 0 4px;
-}
-.map-progress-strip i {
-  display: block;
-  height: 100%;
-  min-width: 3px;
-}
-.map-progress-strip .seg-done { background: #63a888; }
-.map-progress-strip .seg-running { background: #5f95cf; }
-.map-progress-strip .seg-question { background: #cfa14e; }
-.map-progress-strip .seg-failed { background: #c98266; }
-.map-progress-strip .seg-other { background: transparent; }
-.map-count-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: 12px;
-  font-size: 11px;
-  color: rgb(var(--ink-faint));
-}
-.map-count-chip strong {
-  color: rgb(var(--ink-dim));
-  font-weight: 550;
-  font-variant-numeric: tabular-nums;
-}
-.map-count-chip.is-done svg { color: #55927a; }
-.map-count-chip.is-running strong { color: #4a7fb8; }
-button.map-attention-jump {
-  border: 1px solid #c5866230;
-  background: #c5866212;
-  color: #a06a4b;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-button.map-attention-jump strong { color: inherit; }
-button.map-attention-jump:hover {
-  border-color: #c5866260;
-  background: #c5866222;
-}
-[data-theme="dark"] button.map-attention-jump { color: #d9a883; }
-@media (max-width: 900px) {
-  .map-progress-strip { width: 90px; }
-  .map-count-chip > span:last-child { display: none; }
-}
-
 /* --- Frame-rate work: cull invisible paint, animate on the compositor. --- */
 /* An unfocused card's inner submap is opacity:0 by design, yet its whole
  * subtree still took part in style, layout, and paint. Skipping it here is
@@ -964,13 +911,11 @@ button.map-attention-jump:hover {
 }
 /* Light touch feedback on the chrome. */
 .map-canvas-toolbar > button,
-.map-workspace-actions button,
-button.map-attention-jump {
+.map-workspace-actions button {
   transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 .map-canvas-toolbar > button:active,
-.map-workspace-actions button:active,
-button.map-attention-jump:active {
+.map-workspace-actions button:active {
   transform: scale(0.95);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -981,7 +926,7 @@ button.map-attention-jump:active {
   .map-card,
   .map-canvas-toolbar > button,
   .map-workspace-actions button,
-  button.map-attention-jump {
+  .map-attention-link {
     transition: none;
   }
   .map-card:hover,
@@ -993,7 +938,7 @@ button.map-attention-jump:active {
 /* --- Search feedback: how many matches, and the currently focused result. --- */
 .map-search-count {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 11px;
   color: rgb(var(--ink-faint));
   background: rgb(var(--line) / 0.35);
   border-radius: 8px;

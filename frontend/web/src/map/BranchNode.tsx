@@ -1,7 +1,10 @@
 import { memo } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import {
+  ChevronDown,
+  ChevronRight,
   GitBranch,
+  Layers,
   ListChecks,
   MoreHorizontal,
   Route,
@@ -11,6 +14,10 @@ import { statusKey, type MapTask } from "./model";
 
 /** World-unit frame of a branch pill; the atlas layout reads the same numbers. */
 export const BRANCH_FRAME = { width: 640, height: 190 };
+/** A folded group carries a whole sentence, so it gets a card-wide frame tall
+ * enough for that sentence at overview zoom, where its type scales up the way
+ * the cards' titles do. */
+export const GROUP_FRAME = { width: 1440, height: 640 };
 
 export type BranchData = {
   task: MapTask;
@@ -18,6 +25,8 @@ export type BranchData = {
   /** The card the fan belongs to; a branch pill only navigates there. */
   parentCardId: string;
   open: (id: string) => void;
+  /** Unfolds or refolds a group node; only group nodes call it. */
+  toggleGroup?: (id: string) => void;
   /** Optional 1-based position of this pill within its fan. When both
    * fanIndex and fanCount are present, a small mono "k/N" ordinal badge
    * renders; when either is missing the pill renders exactly as before. */
@@ -57,30 +66,43 @@ const STATES: Record<string, [string, string]> = {
 };
 
 /** A promoted team branch: display and navigation only. Clicking always opens
- * the owning card, where the full subtask record lives.
+ * the owning card, where the full subtask record lives. A folded group is the
+ * one exception: clicking it unfolds the subtasks it stands for, and clicking
+ * again folds them back.
  */
 export const BranchNode = memo(function BranchNode({
   data,
 }: NodeProps<BranchFlowNode>) {
   const { task, zh, fanIndex, fanCount } = data;
   const state = statusKey(task);
-  const Glyph = task.overflow_count
-    ? MoreHorizontal
-    : GLYPHS[task.team_role ?? ""] ?? GitBranch;
+  const group = task.group;
+  const Glyph = group
+    ? Layers
+    : task.overflow_count
+      ? MoreHorizontal
+      : GLYPHS[task.team_role ?? ""] ?? GitBranch;
   const stateLabel = (STATES[state] ?? STATES.unknown)[zh ? 0 : 1];
   const stateGlyph = STATE_GLYPHS[state];
-  const fanned = typeof fanIndex === "number" && typeof fanCount === "number";
+  const fanned = !group && typeof fanIndex === "number" && typeof fanCount === "number";
+  const toggleLabel = group?.expanded
+    ? zh ? "收起" : "Fold"
+    : zh ? "展开" : "Unfold";
   return (
     <button
       type="button"
-      className={`map-branch map-state-${state} nodrag nopan`}
+      className={`map-branch map-state-${state}${group ? " map-branch-group" : ""} nodrag nopan`}
       data-testid="map-branch"
       data-branch-id={task.id}
       data-status={state}
       data-overflow={!!task.overflow_count}
+      data-group={!!group}
+      data-expanded={group ? group.expanded : undefined}
+      aria-expanded={group ? group.expanded : undefined}
       title={task.excerpt || task.objective || task.title}
-      aria-label={`${task.title} · ${stateLabel} · ${zh ? "打开所属任务" : "Open the owning task"}`}
-      onClick={() => data.open(data.parentCardId)}
+      aria-label={group
+        ? `${task.title} · ${toggleLabel}`
+        : `${task.title} · ${stateLabel} · ${zh ? "打开所属任务" : "Open the owning task"}`}
+      onClick={() => (group ? data.toggleGroup?.(task.id) : data.open(data.parentCardId))}
     >
       {(["source", "target"] as const).flatMap((type) =>
         [Position.Left, Position.Right, Position.Top, Position.Bottom].map(
@@ -115,6 +137,12 @@ export const BranchNode = memo(function BranchNode({
           }
         >
           {`${fanIndex}/${fanCount}`}
+        </span>
+      )}
+      {group && (
+        <span className="map-branch-toggle" data-testid="map-branch-toggle" aria-hidden="true">
+          {toggleLabel}
+          {group.expanded ? <ChevronDown /> : <ChevronRight />}
         </span>
       )}
       <span className="map-branch-dot" aria-hidden="true" />

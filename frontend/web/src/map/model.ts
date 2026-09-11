@@ -26,6 +26,20 @@ export interface MapTask
   team_role?: string;
   excerpt?: string;
   overflow_count?: number;
+  /** Present on a folded node that stands in for several parallel subtasks. */
+  group?: BranchGroup;
+}
+/** Several parallel subtasks of one task that share a state, shown as one
+ * node until the reader unfolds them. */
+export interface BranchGroup {
+  /** The shared state, in the card vocabulary (statusKey). */
+  status: string;
+  /** Ids of the folded branch nodes, in creation order. */
+  members: string[];
+  /** How many of each kind of subtask the group holds, in order of first appearance. */
+  counts: Array<{ role: string; count: number }>;
+  /** True while the reader has unfolded the group into its members. */
+  expanded: boolean;
 }
 /** One tool call inside a work segment, as the runner reported it. */
 export interface WorkStep {
@@ -371,6 +385,7 @@ export function promoteTeamBranches(
   graph: MapGraph,
   events: MapEvent[],
   zh: boolean,
+  cap = TEAM_BRANCH_CAP,
 ): MapGraph {
   const byParent = new Map<string, Map<string, MapEvent>>();
   for (const event of events) {
@@ -389,7 +404,7 @@ export function promoteTeamBranches(
       .filter((event) => !taken.has(event.id))
       .sort((a, b) => a.ts - b.ts || a.id.localeCompare(b.id));
     if (!own.length) continue;
-    const kept = own.slice(0, TEAM_BRANCH_CAP);
+    const kept = own.slice(0, cap);
     const keptIds = new Set(kept.map((event) => event.id));
     for (const event of kept) {
       taken.add(event.id);
@@ -453,7 +468,7 @@ export function promoteTeamBranches(
         status: "recorded",
         deps: [],
         role: "team",
-        ts: own[TEAM_BRANCH_CAP]?.ts,
+        ts: own[cap]?.ts,
         branch: true,
         parent_id: task.id,
         overflow_count: dropped,
@@ -480,6 +495,164 @@ export function promoteTeamBranches(
     tasks: [...graph.tasks, ...branches],
     links: [...graph.links, ...links],
   };
+}
+
+/** A fan folds once this many subtasks of one task stand in the same state. */
+export const GROUP_MINIMUM = 3;
+
+const GROUP_NOUNS: Record<string, [(n: number) => string, (n: number) => string]> = {
+  "idea-route": [(n) => `${n} 条研究路线`, (n) => `${n} research route${n === 1 ? "" : "s"}`],
+  "idea-review": [(n) => `${n} 次独立复核`, (n) => `${n} independent review${n === 1 ? "" : "s"}`],
+  "idea-selector": [(n) => `${n} 次方案选择`, (n) => `${n} idea selection${n === 1 ? "" : "s"}`],
+};
+const GROUP_NOUN_OTHER: [(n: number) => string, (n: number) => string] = [
+  (n) => `${n} 个并行子任务`,
+  (n) => `${n} parallel subtask${n === 1 ? "" : "s"}`,
+];
+/* Where a whole group stands, said the way a colleague would. */
+const GROUP_STATES: Record<string, [string, string]> = {
+  pending: ["尚未开始", "have not started"],
+  running: ["正在进行", "are under way"],
+  done: ["已经完成", "are complete"],
+  failed: ["没有完成", "did not finish"],
+  question: ["在等待答复", "are waiting for an answer"],
+  paused: ["已暂停", "are paused"],
+  superseded: ["已被新计划替代", "were replaced by a new plan"],
+  aborted: ["已取消", "were cancelled"],
+  skipped: ["已跳过", "were skipped"],
+};
+
+/** One sentence naming a folded group: how many subtasks of each kind it holds
+ * and where they all stand, e.g. "12 条研究路线与 12 次独立复核尚未开始". */
+export function branchGroupTitle(
+  counts: Array<{ role: string; count: number }>,
+  status: string,
+  zh: boolean,
+): string {
+  const nouns = counts.map(({ role, count }) => (GROUP_NOUNS[role] ?? GROUP_NOUN_OTHER)[zh ? 0 : 1](count));
+  const list = zh
+    ? nouns.length > 1
+      ? `${nouns.slice(0, -1).join("、")}与 ${nouns[nouns.length - 1]}`
+      : nouns[0]
+    : nouns.length > 1
+      ? `${nouns.slice(0, -1).join(", ")} and ${nouns[nouns.length - 1]}`
+      : nouns[0];
+  const state = (GROUP_STATES[status] ?? ["已记录在案", "are on record"])[zh ? 0 : 1];
+  return zh ? `${list}${state}` : `${list} ${state}`;
+}
+
+/** Fold the parallel subtasks of each task that share a state into one node,
+ * so a fan of twenty-four "not started" pills reads as a single sentence.
+ * Pure: the input graph is returned unchanged when nothing folds.
+ * - A group forms from at least `minimum` branch nodes with the same owning
+ *   task and the same state; a subtask whose state changes falls out of its
+ *   group on the next fold, because the fold is recomputed from the states.
+ * - Folded: the members leave the graph and every link that touched one of
+ *   them now touches the group instead (parent → group, group → parent, group
+ *   → a selector that depended on them), deduplicated, self-links dropped.
+ * - Unfolded (`expanded` holds the group id): the members stay, the owning
+ *   task hands its fan to the group node, and the group node hands it on to
+ *   the member roots, so the group reads as a bracket around its members.
+ */
+export function foldTeamBranches(
+  graph: MapGraph,
+  expanded: ReadonlySet<string>,
+  zh: boolean,
+  minimum = GROUP_MINIMUM,
+): MapGraph {
+  const buckets = new Map<string, MapTask[]>();
+  for (const task of graph.tasks) {
+    if (!task.branch || task.overflow_count || task.group || !task.parent_id) continue;
+    const key = JSON.stringify([task.parent_id, statusKey(task)]);
+    (buckets.get(key) ?? buckets.set(key, []).get(key)!).push(task);
+  }
+  const taken = new Set(graph.tasks.map((task) => task.id));
+  const groups = new Map<string, MapTask>();
+  const groupOf = new Map<string, string>();
+  for (const [key, members] of buckets) {
+    if (members.length < minimum) continue;
+    const [parent, status] = JSON.parse(key) as [string, string];
+    const id = `team-group:${parent}:${status}`;
+    if (taken.has(id)) continue;
+    const counts: BranchGroup["counts"] = [];
+    for (const member of members) {
+      const role = member.team_role ?? "";
+      const entry = counts.find((c) => c.role === role);
+      if (entry) entry.count++;
+      else counts.push({ role, count: 1 });
+    }
+    const first = members[0];
+    const isExpanded = expanded.has(id);
+    groups.set(id, {
+      id,
+      title: branchGroupTitle(counts, status, zh),
+      objective: zh
+        ? "点击展开，逐条查看这些子任务；再点一次收起。"
+        : "Click to see them one by one; click again to fold them back.",
+      excerpt: zh
+        ? "点击展开，逐条查看这些子任务；再点一次收起。"
+        : "Click to see them one by one; click again to fold them back.",
+      status: first.status,
+      deps: [],
+      pending_question: first.pending_question,
+      role: "team",
+      ts: first.ts,
+      branch: true,
+      parent_id: parent,
+      group: { status, members: members.map((m) => m.id), counts, expanded: isExpanded },
+    });
+    for (const member of members) groupOf.set(member.id, id);
+  }
+  if (!groups.size) return graph;
+  // A group takes the place of its first member; folded members leave, and
+  // unfolded ones follow their group so creation order still reads left to right.
+  const tasks: MapTask[] = [];
+  const placed = new Set<string>();
+  for (const task of graph.tasks) {
+    const groupId = groupOf.get(task.id);
+    if (!groupId) {
+      tasks.push(task);
+      continue;
+    }
+    if (!placed.has(groupId)) {
+      placed.add(groupId);
+      tasks.push(groups.get(groupId)!);
+    }
+    if (expanded.has(groupId)) tasks.push(task);
+  }
+  const links: MapLink[] = [];
+  const seen = new Set<string>();
+  for (const link of graph.links) {
+    const sourceGroup = groupOf.get(link.source);
+    const targetGroup = groupOf.get(link.target);
+    let source = link.source;
+    let target = link.target;
+    if (sourceGroup && !expanded.has(sourceGroup)) source = sourceGroup;
+    if (targetGroup && !expanded.has(targetGroup)) target = targetGroup;
+    if (
+      targetGroup && expanded.has(targetGroup) && link.kind === "fanout" &&
+      link.source === groups.get(targetGroup)!.parent_id
+    )
+      source = targetGroup;
+    if (source === target) continue;
+    if (source === link.source && target === link.target) {
+      links.push(link);
+      continue;
+    }
+    const id = JSON.stringify([link.kind, source, target]);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    links.push({ ...link, id, source, target });
+  }
+  for (const [id, group] of groups) {
+    if (!expanded.has(id)) continue;
+    const linkId = JSON.stringify(["fanout", group.parent_id, id]);
+    if (!seen.has(linkId)) {
+      seen.add(linkId);
+      links.push({ id: linkId, source: group.parent_id!, target: id, kind: "fanout" });
+    }
+  }
+  return { ...graph, tasks, links };
 }
 
 /** Connect components with content/context links; recorded dependencies remain authoritative. */

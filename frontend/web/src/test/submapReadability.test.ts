@@ -81,6 +81,24 @@ describe("humanizeHarnessNote", () => {
     expect(note.summary).toBe("");
     expect(note.receipt).toBe("Runner receipt: exit=2");
   });
+  it("splits the newer technical-record markers the same way, in both languages", () => {
+    const en = humanizeHarnessNote(
+      "The Reviewer's session ended before it reached a conclusion, so this round was not judged. Technical record: exit=1, fatal_error=Copilot CLI exited with code 1.",
+      false,
+    );
+    expect(en.summary).toBe("The Reviewer's session ended before it reached a conclusion, so this round was not judged");
+    expect(en.receipt).toBe("Technical record: exit=1, fatal_error=Copilot CLI exited with code 1.");
+    const zh = humanizeHarnessNote("这一轮没有人审阅。技术记录：exit=1", true);
+    expect(zh.summary).toBe("");
+    expect(zh.receipt).toBe("技术记录：exit=1");
+    const rows = buildSubmap(task, [
+      event("e1", "round.review.completed", { round_index: 1, status: "failed", text: "Adjusted the sampler bounds. Technical record: exit=2" }),
+    ], false);
+    const review = rows.find((row) => row.kind === "review")!;
+    expect(review.summary).toBe("Adjusted the sampler bounds.");
+    expect(review.detail).toContain("— technical record: exit=2");
+    expect(review.detail).not.toContain("Technical record:");
+  });
   it("leaves plain research prose untouched", () => {
     expect(humanizeHarnessNote("Found the leak in the eval split.", false)).toEqual({
       summary: "",

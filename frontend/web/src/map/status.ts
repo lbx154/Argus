@@ -32,7 +32,9 @@ export function mapStatusSentence(input: {
         ? zh ? "已全部完成" : "all completed"
         : hasOpenWork
           ? zh ? "已暂停" : "paused"
-          : zh ? "就绪" : "ready"
+          : total > 0
+            ? zh ? "没有在进行的工作" : "nothing in progress"
+            : zh ? "就绪" : "ready"
       : roleName
         ? zh ? `${roleName} 正在工作` : `${roleName} is working`
         : allDone

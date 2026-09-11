@@ -10,7 +10,7 @@
 .map-card h3 { font-size: 15px; line-height: 1.48; font-weight: 650; }
 .map-card-copy { color: rgb(var(--ink-dim)); font-size: 11px; line-height: 1.7; margin-bottom: 9px; }
 .map-card-stages { display: flex; gap: 3px; margin: 0 16px 12px; align-items: center; }
-.map-card-stages>span { display: flex; flex: 1; align-items: center; justify-content: center; gap: 3px; padding: 5px 2px; border-radius: 5px; color: rgb(var(--ink-faint)); font-size: 8px; background: rgb(var(--line) / .16); opacity: .6; }
+.map-card-stages>span { display: flex; flex: 1; align-items: center; justify-content: center; gap: 3px; padding: 5px 2px; border-radius: 5px; color: rgb(var(--ink-faint)); font-size: 11px; background: rgb(var(--line) / .16); opacity: .6; }
 .map-card-stages>span[data-present=true] { color: var(--step-color); background: color-mix(in srgb, var(--step-color) 9%, transparent); opacity: 1; }
 .map-card-stages>span[data-active=true] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--step-color) 40%, transparent); }
 .map-card-stages>span[data-active=true] svg { animation: atlas-stage-pulse 1.8s ease-in-out infinite; }
@@ -44,7 +44,7 @@
 .map-macro[data-overview-density=micro] .map-card-copy { display: none; }
 .map-macro[data-overview-density=compact] .map-card-copy { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: max(11px, calc(9px * var(--overview-type))); line-height: 1.55; margin-bottom: 8px; }
 .map-macro:not([data-overview-density=full]) .map-card h3 { font-size: max(15px, calc(12px * var(--overview-type))); line-height: 1.4; min-height: 0; margin-bottom: 10px; }
-.map-macro:not([data-overview-density=full]) .map-card-number, .map-macro:not([data-overview-density=full]) .map-status { font-size: max(10px, calc(8px * var(--overview-type))); }
+.map-macro:not([data-overview-density=full]) .map-card-number, .map-macro:not([data-overview-density=full]) .map-status { font-size: max(11px, calc(8px * var(--overview-type))); }
 .map-macro:not([data-overview-density=full]) .map-card-stages { margin-top: auto; margin-bottom: 8px; }
 .map-macro:not([data-overview-density=full]) .map-card-stages>span>span { display: none; }
 .map-macro:not([data-overview-density=full]) .map-card-stages svg { width: max(12px, calc(10px * var(--overview-type))); height: max(12px, calc(10px * var(--overview-type))); }

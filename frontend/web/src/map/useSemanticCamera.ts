@@ -22,21 +22,21 @@ const clamp = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, n));
 type ReaderRect = Parameters<MacroNode["data"]["readStep"]>[1];
 
+/** The box of a piece of chrome, or nothing when a stylesheet has hidden it
+ * (a hidden element measures as an empty box at the origin, which would
+ * otherwise pass for chrome sitting at the top-left corner). */
+function chromeRect(el: HTMLElement, selector: string) {
+  const rect = el.querySelector(selector)?.getBoundingClientRect();
+  return rect && rect.width > 0 && rect.height > 0 ? rect : undefined;
+}
+
 function viewingArea(el: HTMLElement, detailed = false) {
   const bounds = el.getBoundingClientRect();
-  const toolbar = el
-    .querySelector(".map-canvas-toolbar")
-    ?.getBoundingClientRect();
-  const composer = el
-    .querySelector(".map-composer-dock")
-    ?.getBoundingClientRect();
-  const minimap = el
-    .querySelector(".react-flow__minimap")
-    ?.getBoundingClientRect();
-  const legend = el.querySelector(".map-legend")?.getBoundingClientRect();
-  const controls = el
-    .querySelector(".react-flow__controls")
-    ?.getBoundingClientRect();
+  const toolbar = chromeRect(el, ".map-canvas-toolbar");
+  const composer = chromeRect(el, ".map-composer-dock");
+  const minimap = chromeRect(el, ".react-flow__minimap");
+  const legend = chromeRect(el, ".map-legend");
+  const controls = chromeRect(el, ".react-flow__controls");
   const hideChrome = el.dataset.reading === "true" || detailed && el.clientWidth < 640;
   const left = el.clientWidth < 640 ? 20 : 50;
   const top = Math.max(
@@ -236,12 +236,16 @@ export function useSemanticCamera(
   );
   const enter = useCallback(
     (id: string) => {
+      // After a fit the overview to come back to is the fitted view, which
+      // `fit` has already remembered even if the camera is still on its way
+      // there; any other overview is wherever the reader left the camera.
+      const fitted = fitOnResize.current;
       fitOnResize.current = false;
       cancelWheel();
       const node = flow.getNode(id),
         el = root.current;
       if (!node || !el) return;
-      if (flow.getZoom() <= 0.32 && !fittedDetail.current)
+      if (!fitted && flow.getZoom() <= 0.32 && !fittedDetail.current)
         overview.current = flow.getViewport();
       lockedFocus.current = id;
       reading.current = false;
@@ -370,14 +374,16 @@ export function useSemanticCamera(
     const nodes = flow.getNodes().filter((n) =>
       !n.hidden && (!taskIds || taskIds.has(n.data.task.id)));
     if (!el || !nodes.length) return;
-    void flow.setViewport(
-      overviewViewport(
-        { width: el.clientWidth, height: el.clientHeight },
-        viewingArea(el),
-        flow.getNodesBounds(nodes),
-      ),
-      { duration: motionDuration(reducedMotion, 320) },
+    const view = overviewViewport(
+      { width: el.clientWidth, height: el.clientHeight },
+      viewingArea(el),
+      flow.getNodesBounds(nodes),
     );
+    // The fitted view is the overview to come back to, even when a card is
+    // entered before the camera has finished travelling there (a phone opens
+    // straight onto the current task).
+    if (!taskIds) overview.current = view;
+    void flow.setViewport(view, { duration: motionDuration(reducedMotion, 320) });
   }, [cancelWheel, flow, reducedMotion, root]);
   refitOverview.current = () => fit(overviewTasks.current);
   const fitUpdatedScene = useCallback(() => {

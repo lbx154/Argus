@@ -16,7 +16,7 @@ it("shows the recorded question or most recent explicit failure, never an unrela
   expect(attentionReason(task, events, false)).toBe("Route cost differs from the baseline");
   expect(attentionReason({ ...task, pending_question: "Choose a route" }, events, false)).toBe("Choose a route");
   expect(attentionReason(task, [event], false)).toBe("Old failure");
-  expect(attentionReason(task, [], false)).toBe("No failure reason was recorded. Open the task details.");
+  expect(attentionReason(task, [], false)).toBe("This task did not finish, and the record does not say why.");
 });
 
 it("keeps new model settings when an earlier generation finishes", () => {

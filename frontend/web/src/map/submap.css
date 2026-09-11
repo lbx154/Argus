@@ -54,7 +54,7 @@
   gap: 4px;
   margin-left: auto;
   color: #6a8da8;
-  font-size: 9px;
+  font-size: 11px;
 }
 .macro-detail {
   position: absolute;
@@ -94,7 +94,7 @@
 .macro-heading small {
   color: rgb(var(--ink-faint));
   letter-spacing: 2.5px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -234,7 +234,7 @@
   flex-shrink: 0;
 }
 .submap-step-meta small {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 550;
   letter-spacing: 0.02em;
   text-align: right;
@@ -268,7 +268,7 @@
   align-items: center;
   margin-top: auto;
   color: rgb(var(--ink-faint) / 0.85);
-  font-size: 10px;
+  font-size: 11px;
   border-top: 1px solid rgb(var(--line) / 0.5);
   padding-top: 8px;
 }
@@ -401,21 +401,6 @@
   }
 }
 @media (max-width: 640px) {
-  .argus-map .react-flow__minimap {
-    display: block;
-    width: 132px;
-    height: 88px;
-    right: 0;
-    bottom: 0;
-  }
-  .map-legend {
-    bottom: 109px;
-    left: 12px;
-    gap: 10px;
-  }
-  .map-search {
-    width: 144px;
-  }
   .macro-step-detail {
     overscroll-behavior: contain;
   }
@@ -712,7 +697,7 @@
   text-overflow: ellipsis;
   display: block;
   text-align: center;
-  font-size: 10px;
+  font-size: 11px;
   color: rgb(var(--ink-faint));
   min-height: 15px;
   padding-top: 5px;
@@ -837,17 +822,10 @@
   .map-composer textarea {
     font-size: 14px;
   }
-  .argus-map .react-flow__minimap {
-    bottom: calc(var(--map-composer-height, 85px) + 22px);
-  }
-  .map-legend {
-    bottom: auto;
-    top: 60px;
-    height: fit-content;
-  }
+  /* Pinch zooms the map and the toolbar fits it; the small zoom buttons
+   * would only crowd the composer on a phone. */
   .argus-map .react-flow__controls {
-    top: 106px;
-    bottom: auto;
+    display: none;
   }
   .map-reference-chips {
     max-height: 65px;
@@ -938,31 +916,32 @@
 .macro-part-nav button:disabled {
   opacity: 0.35;
 }
+/* The part pager is a toolbar control on phones, where the card's own part
+ * links at its foot are out of reach; wider screens use those links. */
 .map-part-switcher {
   display: none;
 }
 @media (max-width: 640px) {
   .map-part-switcher {
-    position: absolute;
-    z-index: 6;
     display: flex;
     align-items: center;
-    gap: 7px;
-    top: 106px;
-    left: 128px;
-    padding: 0 4px;
-    height: 30px;
+    gap: 2px;
+    flex-shrink: 0;
+    height: 34px;
+    padding: 0 2px;
     border: 1px solid rgb(var(--line) / 0.7);
     border-radius: 7px;
     background: var(--map-paper);
+    box-shadow: 0 2px 6px #24364c05;
     font-size: 12px;
+    font-variant-numeric: tabular-nums;
     color: #527fa7;
   }
   .map-part-switcher button {
     display: grid;
     place-items: center;
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 30px;
   }
   .map-part-switcher button:disabled {
     opacity: 0.35;
@@ -972,7 +951,7 @@
   }
 }
 .submap-round {
-  font-size: 9px;
+  font-size: 11px;
   font-style: normal;
   font-weight: 550;
   color: rgb(var(--ink-faint));

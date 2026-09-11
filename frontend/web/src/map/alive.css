@@ -43,7 +43,7 @@
 @keyframes atlas-step-settle { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
 
 /* The living status line on the card being worked on. */
-.map-card-live { display: flex; align-items: center; gap: 7px; margin: 0 16px 10px; padding: 6px 10px; border-radius: 7px; font-size: 10.5px; line-height: 1.4; color: color-mix(in srgb, #4a86c5 78%, rgb(var(--ink))); background: color-mix(in srgb, #4a86c5 8%, transparent); }
+.map-card-live { display: flex; align-items: center; gap: 7px; margin: 0 16px 10px; padding: 6px 10px; border-radius: 7px; font-size: 11px; line-height: 1.4; color: color-mix(in srgb, #4a86c5 78%, rgb(var(--ink))); background: color-mix(in srgb, #4a86c5 8%, transparent); }
 .map-card-live i { position: relative; flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: #4a86c5; }
 .map-card-live i::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid #4a86c5; opacity: 0; animation: atlas-live-ring 2.2s cubic-bezier(.2, .7, .3, 1) infinite; }
 .map-card-live span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -52,14 +52,14 @@
 
 /* The reader names the stage and, underneath, says in one line what that
  * stage is for, so a newcomer learns the roles while reading. */
-.macro-reader header > span .macro-reader-note { display: block; margin-top: 3px; font-size: 10.5px; font-weight: 450; letter-spacing: 0; text-transform: none; color: rgb(var(--ink-faint)); }
+.macro-reader header > span .macro-reader-note { display: block; margin-top: 3px; font-size: 11px; font-weight: 450; letter-spacing: 0; text-transform: none; color: rgb(var(--ink-faint)); }
 
 /* Replaying a live session: the same reveal strip the datasets use, with a
  * way back to the present. */
 .map-playback .map-replay-exit { margin-left: 4px; }
 .map-playback[data-floating="true"] { position: absolute; z-index: 7; left: 20px; top: 61px; height: 38px; width: min(560px, calc(100% - 40px)); padding: 0 12px; border: 1px solid rgb(var(--line) / .7); border-radius: 10px; background: var(--map-paper); box-shadow: 0 6px 22px #24364c14; animation: map-agent-enter 250ms ease-out; }
 .map-playback[data-floating="true"] small { display: none; }
-@media (max-width: 640px) { .map-playback[data-floating="true"] { top: 105px; } }
+@media (max-width: 640px) { .map-playback[data-floating="true"] { top: 54px; left: 12px; width: calc(100% - 24px); } }
 
 @media (prefers-reduced-motion: reduce) {
   .map-ambient { transition: none; transform: none; }

@@ -125,6 +125,60 @@
   border-left-style: solid;
   color: rgb(var(--ink-dim));
 }
+/* A folded group speaks a whole sentence for the subtasks it stands for. Like
+ * the cards' titles, its type grows as the camera pulls back (--map-zoom is
+ * the live zoom, set on the canvas), so the sentence reads at overview zoom
+ * instead of shrinking into a sliver; a small handle says what a click does. */
+.map-branch-group {
+  /* Capped so that, however far the camera pulls back, the sentence still
+   * fits its frame in four lines; beyond that the reader zooms in. */
+  --group-type: clamp(40px, calc(11px / var(--map-zoom, 0.24)), 110px);
+  gap: calc(var(--group-type) * 0.45);
+  padding: 0 calc(var(--group-type) * 0.7) 0 calc(var(--group-type) * 0.55);
+  border-radius: 64px;
+}
+.map-branch-group .map-branch-title {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  font-size: var(--group-type);
+  line-height: 1.3;
+}
+.map-branch-group .map-branch-glyph {
+  width: calc(var(--group-type) * 1.8);
+  height: calc(var(--group-type) * 1.8);
+}
+.map-branch-group .map-branch-glyph svg {
+  width: calc(var(--group-type) * 0.95);
+  height: calc(var(--group-type) * 0.95);
+}
+.map-branch-group .map-branch-dot {
+  width: calc(var(--group-type) * 0.6);
+  height: calc(var(--group-type) * 0.6);
+}
+.map-branch-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+  font-size: calc(var(--group-type) * 0.8);
+  font-weight: 560;
+  line-height: 1;
+  padding: 0.4em 0.7em;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--state) 70%, rgb(var(--ink)));
+  background: color-mix(in srgb, var(--state) 14%, transparent);
+  border: 2px solid color-mix(in srgb, var(--state) 30%, transparent);
+}
+.map-branch-toggle svg {
+  width: 1em;
+  height: 1em;
+}
+.map-branch-group[data-expanded="true"] {
+  border-style: dashed;
+  border-left-style: solid;
+}
 [data-theme="dark"] .map-branch {
   box-shadow: 0 10px 36px #0004;
 }

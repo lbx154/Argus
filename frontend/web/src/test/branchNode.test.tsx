@@ -149,6 +149,51 @@ it("localises the ordinal badge title", () => {
   ).toBe("并行分支 1 / 3");
 });
 
+it("renders a folded group that unfolds on click instead of opening the card", () => {
+  const open = vi.fn();
+  const toggleGroup = vi.fn();
+  const group = branch({
+    id: "team-group:m:pending",
+    title: "12 research routes and 12 independent reviews have not started",
+    team_role: undefined,
+    status: "pending",
+    group: {
+      status: "pending",
+      members: ["team:r1", "team:r2", "team:r3"],
+      counts: [{ role: "idea-route", count: 12 }, { role: "idea-review", count: 12 }],
+      expanded: false,
+    },
+  });
+  act(() => {
+    renderer = create(
+      <BranchNode {...propsFor(group, open, { toggleGroup, fanIndex: 1, fanCount: 3 })} />,
+    );
+  });
+  const pill = renderer!.root.findByProps({ "data-testid": "map-branch" });
+  expect(pill.props["data-group"]).toBe(true);
+  expect(pill.props["aria-expanded"]).toBe(false);
+  expect(pill.props["aria-label"]).toBe(
+    "12 research routes and 12 independent reviews have not started · Unfold",
+  );
+  // A group is a bracket around pills, so it wears no k/N ordinal of its own.
+  expect(renderer!.root.findAllByProps({ "data-testid": "map-branch-fan" })).toEqual([]);
+  act(() => pill.props.onClick());
+  expect(toggleGroup).toHaveBeenCalledWith("team-group:m:pending");
+  expect(open).not.toHaveBeenCalled();
+  act(() => renderer!.unmount());
+  act(() => {
+    renderer = create(
+      <BranchNode {...propsFor({ ...group, group: { ...group.group!, expanded: true } }, open, { toggleGroup, zh: true })} />,
+    );
+  });
+  expect(
+    renderer!.root.findByProps({ "data-testid": "map-branch" }).props["aria-expanded"],
+  ).toBe(true);
+  expect(
+    renderer!.root.findByProps({ "data-testid": "map-branch-toggle" }).children[0],
+  ).toBe("收起");
+});
+
 it("renders the overflow pill that leads back into the parent card", () => {
   const open = vi.fn();
   act(() => {

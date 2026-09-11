@@ -116,7 +116,7 @@
 }
 .map-island-copy small {
   color: rgb(var(--ink-faint));
-  font-size: 10px;
+  font-size: 11px;
   line-height: 16px;
 }
 .map-island-indicator {
@@ -218,7 +218,7 @@
 .map-island-key-hint {
   flex: 1;
   color: rgb(var(--ink-faint));
-  font-size: 10px;
+  font-size: 11px;
   white-space: nowrap;
 }
 .map-island-dock .map-route-select {

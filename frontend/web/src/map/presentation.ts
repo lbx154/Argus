@@ -1,13 +1,22 @@
 import type { Dataset, MapEvent, MapTask } from "./model";
 import type { SubmapStep } from "./submap";
+import { humanizeHarnessNote, readableRecord } from "./submap";
 
+/** Why a task waits on the reader: its open question, or the reason its last
+ * attempt failed, said the way the cards say it. A record that is only a
+ * technical receipt becomes the colleague's sentence for it; a record that
+ * says nothing is reported as exactly that. */
 export function attentionReason(task: MapTask, events: MapEvent[], zh: boolean): string {
   if (task.pending_question) return task.pending_question;
   const failure = events.filter((event) => event.item_id === task.id &&
     (event.status === "failed" || event.success === false || event.type.endsWith(".failed")))
     .sort((a, b) => b.ts - a.ts)[0];
-  return failure?.reason || failure?.text ||
-    (zh ? "暂无失败原因记录，请查看任务详情。" : "No failure reason was recorded. Open the task details.");
+  const raw = failure?.reason || failure?.text || "";
+  const note = humanizeHarnessNote(raw, zh);
+  const cut = note.receipt ? raw.lastIndexOf(note.receipt) : -1;
+  const prose = readableRecord(cut >= 0 ? raw.slice(0, cut) : raw);
+  return note.summary || prose ||
+    (zh ? "这项任务没有完成，记录里没有写明原因。" : "This task did not finish, and the record does not say why.");
 }
 
 export interface CardCopy {

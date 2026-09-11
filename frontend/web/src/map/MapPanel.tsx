@@ -1,7 +1,7 @@
 import { MapConversation } from './MapConversation';
 import { mapStatusSentence } from './status';
 import { PendingBanner } from '../components/PendingBanner';
-import { PackageCheck, MessageCircle, SlidersHorizontal } from 'lucide-react';
+import { Activity, PackageCheck, MessageCircle, SlidersHorizontal } from 'lucide-react';
 import { AgentActivity } from '../components/AgentActivity';
 import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
 import type { MapSend, DispatchObserver } from './submission';
@@ -46,13 +46,13 @@ import {
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { useI18n } from "../i18n";
-import { ACTIVE, attentionTasks, buildMap, connectMap, currentTask, formationWidths, promoteTeamBranches, statusKey, taskDependencies, type Dataset } from "./model";
+import { ACTIVE, TEAM_BRANCH_CAP, attentionTasks, buildMap, connectMap, currentTask, foldTeamBranches, formationWidths, promoteTeamBranches, statusKey, taskDependencies, type Dataset } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, layoutGraph, relationPorts } from "./graphLayout";
 import { MacroTaskNode, MapArtifactContext, MapNotesContext, type MacroData, type MacroNode } from "./MacroTaskNode";
 import { groupNotesByNode } from "./notes";
 import "./notes.css";
-import { BranchNode, BRANCH_FRAME, type BranchFlowNode } from "./BranchNode";
+import { BranchNode, BRANCH_FRAME, GROUP_FRAME, type BranchFlowNode } from "./BranchNode";
 import { INITIAL_VIEWPORT, useSemanticCamera } from "./useSemanticCamera";
 import { useMapCopy } from "./useMapCopy";
 import { MapComposer, type MapComposerProps } from "./MapComposer";
@@ -96,6 +96,9 @@ const MINIMAP_STATUS: Record<string, string> = {
   missing: "#c3c5cb",
 };
 
+/** The subtask tally lives in the map options menu: the cards and the folded
+ * group nodes already say how the subtasks stand, so this line is for a
+ * reader who wants the numbers in one place. */
 export function MapTeamProgress({ events, zh }: { events: Dataset['events']; zh: boolean }) {
   const team = [...new Map(events.filter((event) => event.type === 'team.task').map((event) => [event.id, event])).values()];
   if (!team.length) return null;
@@ -123,6 +126,7 @@ export function MapCanvas({
   viewKey,
   paused,
   actions,
+  replacements,
 }: {
   data: Dataset;
   sessionId: string;
@@ -136,9 +140,22 @@ export function MapCanvas({
   viewKey: string;
   paused: boolean;
   actions: MapWorkspaceActions;
+  /** Whether plan-replacement links are drawn; the panel owns the switch so
+   * the options menu can flip it on screens that hide the legend. */
+  replacements?: { shown: boolean; toggle: () => void };
 }) {
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [conversationOpen, setConversationOpen] = useState(false);
+  // Folded subtask groups the reader has unfolded, by group node id.
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleGroup = useCallback((id: string) => {
+    setOpenGroups((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const [flight, setFlight] = useState<MapDispatchFlight | null>(null);
   const dispatchSerial = useRef(0);
   const alive = useRef(true);
@@ -189,14 +206,22 @@ export function MapCanvas({
   }, [graph, data.events, zh, links]);
   // Team fan-out promotion: parallel `team.task` work leaves its owning card
   // as small branch pills and returns to it, instead of hiding as steps.
+  // Subtasks that share a state are then folded into one sentence-labelled
+  // node, so a wide portfolio does not spray two dozen identical pills across
+  // the canvas; the fold leaves room for a whole portfolio before the
+  // overflow pill takes over.
   const promotedCache = useRef<ReturnType<typeof promoteTeamBranches> | null>(null);
   const promoted = useMemo(() => {
     promotedCache.current = replaceEqualDeep(
       promotedCache.current,
-      promoteTeamBranches(graph, data.events, zh),
+      foldTeamBranches(
+        promoteTeamBranches(graph, data.events, zh, TEAM_BRANCH_CAP * 3),
+        openGroups,
+        zh,
+      ),
     );
     return promotedCache.current!;
-  }, [graph, data.events, zh]);
+  }, [graph, data.events, zh, openGroups]);
   // Compose cards and branch pills into one geometry. Same caching discipline
   // as layoutScene: streaming prose/status changes never re-run the search.
   const atlasCache = useRef<{
@@ -222,7 +247,8 @@ export function MapCanvas({
       branches.map((task) => [task.id, anchor.get(task.parent_id!) ?? task.parent_id!]),
     );
     const frames: typeof scene.frames = { ...scene.frames };
-    for (const task of branches) frames[task.id] = { ...BRANCH_FRAME, scale: 1 };
+    for (const task of branches)
+      frames[task.id] = { ...(task.group ? GROUP_FRAME : BRANCH_FRAME), scale: 1 };
     const atlasLinks = [
       ...scene.links,
       ...promoted.links
@@ -475,7 +501,9 @@ export function MapCanvas({
   const matchIndex = matches.findIndex((card) => card.id === camera.focusId);
   const [visibleCount, setVisibleCount] = useState(graph.tasks.length);
   const [playing, setPlaying] = useState(false);
-  const [showReplacements, setShowReplacements] = useState(false);
+  const [localReplacements, setLocalReplacements] = useState(false);
+  const showReplacements = replacements?.shown ?? localReplacements;
+  const toggleReplacements = replacements?.toggle ?? (() => setLocalReplacements((v) => !v));
   const [focusFeedback, setFocusFeedback] = useState("");
   const traceTask = useCallback((id: string | null) => {
     setTraceId(id);
@@ -660,24 +688,27 @@ export function MapCanvas({
   const branchNodes = useMemo(
     () => {
       // Fan ordinals: "3/5" on a pill tells how wide this parallel push is.
+      // A folded group is a bracket around pills, not one of them.
       const fanTotal = new Map<string, number>();
       for (const task of atlas.branches) {
+        if (task.group) continue;
         const owner = task.parent_id ?? "";
         fanTotal.set(owner, (fanTotal.get(owner) ?? 0) + 1);
       }
       const fanSeen = new Map<string, number>();
       const next = atlas.branches.map<BranchFlowNode>((task) => {
         const owner = task.parent_id ?? "";
-        const ordinal = (fanSeen.get(owner) ?? 0) + 1;
-        fanSeen.set(owner, ordinal);
+        const frame = atlas.frames[task.id];
+        const ordinal = task.group ? undefined : (fanSeen.get(owner) ?? 0) + 1;
+        if (ordinal !== undefined) fanSeen.set(owner, ordinal);
         return {
           id: task.id,
           type: "branch",
           position: positions[task.id] ?? { x: 0, y: 0 },
-          width: BRANCH_FRAME.width,
-          height: BRANCH_FRAME.height,
+          width: frame.width,
+          height: frame.height,
           style: {
-            width: BRANCH_FRAME.width, height: BRANCH_FRAME.height,
+            width: frame.width, height: frame.height,
             opacity: traceTasks && !traceTasks.has(owner) ? 0.22 : 1,
           },
           hidden: !visibleIds.has(task.id),
@@ -689,15 +720,16 @@ export function MapCanvas({
             zh,
             parentCardId: atlas.branchAnchor.get(task.id)!,
             open: openCard,
+            toggleGroup,
             fanIndex: ordinal,
-            fanCount: fanTotal.get(owner)!,
+            fanCount: ordinal === undefined ? undefined : fanTotal.get(owner)!,
           },
         };
       });
       previousBranchNodes.current = replaceEqualDeep(previousBranchNodes.current, next);
       return previousBranchNodes.current;
     },
-    [atlas, positions, visibleIds, zh, openCard, traceTasks],
+    [atlas, positions, visibleIds, zh, openCard, toggleGroup, traceTasks],
   );
   const flowNodes = useMemo<AtlasNode[]>(
     () => (branchNodes.length ? [...displayNodes, ...branchNodes] : displayNodes),
@@ -980,30 +1012,10 @@ export function MapCanvas({
   return (
     <MapNotesContext.Provider value={notesScope}>
     <MapArtifactContext.Provider value={artifactScope}>
+      {/* The second header line: one sentence on where the work stands, and,
+          when something waits on the reader, a link straight to it. */}
       <div className="map-status-row">
-        <div className="map-status" role="status">
-          {data.tasks.length > 0 && (
-            <span
-              className="map-progress-strip"
-              role="img"
-              aria-label={
-                zh
-                  ? `已完成 ${tally.done}，进行中 ${tally.running}，值得关注 ${attention.length}`
-                  : `${tally.done} completed, ${tally.running} running, ${attention.length} need attention`
-              }
-            >
-              {(["done", "running", "question", "failed", "other"] as const).map(
-                (bucket) =>
-                  tally[bucket] > 0 && (
-                    <i
-                      key={bucket}
-                      className={`seg-${bucket}`}
-                      style={{ flexGrow: tally[bucket] }}
-                    />
-                  ),
-              )}
-            </span>
-          )}
+        <p className="map-status-line" role="status">
           {(composer.pending || (!paused && activePhase)) ? <i className="map-live-dot" aria-hidden /> : null}
           <span className="map-status-text">
             {mapStatusSentence({
@@ -1018,26 +1030,23 @@ export function MapCanvas({
             })}
           </span>
           {attention.length > 0 && (
-            <button
-              type="button"
-              className="map-count-chip map-attention-jump"
-              onClick={locateAttention}
-              title={zh ? "跳到需要你处理的任务" : "Jump to the task waiting on you"}
-              aria-label={zh ? `逐个查看 ${attention.length} 项待处理任务` : `Cycle through ${attention.length} tasks needing attention`}
-            >
-              <span className="map-attention-dot" />
-              <strong>{attention.length}</strong>
-              <span>{zh ? "待处理" : "need attention"}</span>
-            </button>
+            <>
+              <span className="map-status-sep" aria-hidden>·</span>
+              <button
+                type="button"
+                className="map-attention-link"
+                onClick={locateAttention}
+                title={zh ? "跳到需要你处理的任务" : "Jump to the task waiting on you"}
+                aria-label={zh ? `逐个查看 ${attention.length} 项需要你处理的任务` : `Cycle through ${attention.length} tasks needing attention`}
+              >
+                {zh
+                  ? `${attention.length} 项需要你处理`
+                  : `${attention.length} ${attention.length === 1 ? "needs" : "need"} your attention`}
+              </button>
+            </>
           )}
-        </div>
-        {data.kind === 'live' && <div className="map-workspace-actions">
-          <button type="button" aria-expanded={conversationOpen} onClick={() => { setConversationOpen((open) => !open); setAgentsOpen(false); }}><MessageCircle size={15} />{zh ? '对话' : 'Conversation'}</button>
-          <button type="button" aria-expanded={agentsOpen} onClick={() => { setAgentsOpen((open) => !open); setConversationOpen(false); }}><i data-active={!!activePhase || composer.pending} />{zh ? 'Agent 动态' : 'Agent activity'}</button>
-          <button type="button" className="map-delivery-toggle" disabled={!actions.deliveryCount} onClick={actions.onOpenDelivery}><PackageCheck size={15} />{zh ? '交付成果' : 'Deliveries'}{actions.deliveryCount > 0 && <span>{actions.deliveryCount}</span>}</button>
-        </div>}
+        </p>
       </div>
-      <MapTeamProgress events={data.events} zh={zh} />
       {data.kind === 'live' && !readOnly && <PendingBanner questions={snapshot.pending_questions ?? []} backlog={snapshot.backlog} onAnswer={actions.onAnswer} onLocate={locateAttention} />}
       {camera.detailed && attentionIndex >= 0 && (
         <div className="map-attention-detail" role="status">
@@ -1120,11 +1129,13 @@ export function MapCanvas({
             <button
               onClick={locateCurrent}
               title={zh ? "定位当前或最近任务" : "Locate current or latest task"}
+              aria-label={zh ? "定位当前" : "Locate current"}
             >
               <LocateFixed size={15} />
               <span>{zh ? "定位当前" : "Locate current"}</span>
             </button>
             <button
+              className="map-fit-button"
               onClick={showOverview}
               title={zh ? "适配全图" : "Fit map"}
               aria-label="Fit map"
@@ -1166,41 +1177,80 @@ export function MapCanvas({
                 <span>{zh ? "返回全图" : "Overview"}</span>
               </button>
             )}
+            {/* On a phone the pager sits in this row, so it never floats over
+                the card heading; larger screens use the card's own part links. */}
+            {camera.detailed && focusedNode && focusedNode.data.partCount > 1 && (
+              <nav
+                className="map-part-switcher"
+                aria-label={zh ? "切换任务部分" : "Switch task part"}
+              >
+                <button
+                  aria-label={zh ? "上一部分" : "Previous part"}
+                  disabled={!focusedNode.data.previousId}
+                  onClick={() =>
+                    focusedNode.data.previousId &&
+                    camera.enter(focusedNode.data.previousId)
+                  }
+                >
+                  <ChevronLeft size={15} />
+                </button>
+                <span>
+                  {focusedNode.data.part} / {focusedNode.data.partCount}
+                </span>
+                <button
+                  aria-label={zh ? "下一部分" : "Next part"}
+                  disabled={!focusedNode.data.nextId}
+                  onClick={() =>
+                    focusedNode.data.nextId &&
+                    camera.enter(focusedNode.data.nextId)
+                  }
+                >
+                  <ChevronRight size={15} />
+                </button>
+              </nav>
+            )}
+            <span className="map-toolbar-gap" aria-hidden />
+            {/* The conversation, the agents' activity and the deliveries open
+                from the same row as the navigation, so the map has one
+                toolbar rather than a stack of them. */}
+            {data.kind === 'live' && (
+              <div className="map-workspace-actions">
+                <button
+                  type="button"
+                  aria-expanded={conversationOpen}
+                  aria-label={zh ? '对话' : 'Conversation'}
+                  title={zh ? '与 Argus 的对话' : 'Your conversation with Argus'}
+                  onClick={() => { setConversationOpen((open) => !open); setAgentsOpen(false); }}
+                >
+                  <MessageCircle size={15} /><span>{zh ? '对话' : 'Conversation'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="map-agent-toggle"
+                  aria-expanded={agentsOpen}
+                  aria-label={zh ? 'Agent 动态' : 'Agent activity'}
+                  title={zh ? '各个 Agent 正在做什么' : 'What each agent is doing'}
+                  onClick={() => { setAgentsOpen((open) => !open); setConversationOpen(false); }}
+                >
+                  <Activity size={15} /><i data-active={!!activePhase || composer.pending} aria-hidden /><span>{zh ? 'Agent 动态' : 'Agent activity'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="map-delivery-toggle"
+                  disabled={!actions.deliveryCount}
+                  aria-label={zh ? '交付成果' : 'Deliveries'}
+                  title={zh ? '已交付的成果' : 'What has been delivered'}
+                  onClick={actions.onOpenDelivery}
+                >
+                  <PackageCheck size={15} /><span>{zh ? '交付成果' : 'Deliveries'}</span>{actions.deliveryCount > 0 && <b>{actions.deliveryCount}</b>}
+                </button>
+              </div>
+            )}
           </div>
           {focusFeedback && (
             <div className="map-feedback" role="status">
               {focusFeedback}
             </div>
-          )}
-          {camera.detailed && focusedNode && focusedNode.data.partCount > 1 && (
-            <nav
-              className="map-part-switcher nowheel"
-              aria-label={zh ? "切换任务部分" : "Switch task part"}
-            >
-              <button
-                aria-label={zh ? "上一部分" : "Previous part"}
-                disabled={!focusedNode.data.previousId}
-                onClick={() =>
-                  focusedNode.data.previousId &&
-                  camera.enter(focusedNode.data.previousId)
-                }
-              >
-                <ChevronLeft size={15} />
-              </button>
-              <span>
-                {focusedNode.data.part} / {focusedNode.data.partCount}
-              </span>
-              <button
-                aria-label={zh ? "下一部分" : "Next part"}
-                disabled={!focusedNode.data.nextId}
-                onClick={() =>
-                  focusedNode.data.nextId &&
-                  camera.enter(focusedNode.data.nextId)
-                }
-              >
-                <ChevronRight size={15} />
-              </button>
-            </nav>
           )}
           {graph.tasks.length === 0 ? (
             <div className="map-empty">
@@ -1302,7 +1352,7 @@ export function MapCanvas({
             </span>
             <button
               className={!showReplacements ? "is-muted" : ""}
-              onClick={() => setShowReplacements((v) => !v)}
+              onClick={toggleReplacements}
               aria-pressed={showReplacements}
               disabled={replacementCount === 0}
               aria-label="Toggle plan replacements"
@@ -1606,6 +1656,17 @@ export const MapPanel = memo(function MapPanel({
   );
 
   const data = source === "live" ? live.data : dataset.data;
+  // Plan-replacement links are off by default; the legend flips them on wide
+  // screens and the options menu does the same where the legend is hidden.
+  const [replacementsShown, setReplacementsShown] = useState(false);
+  const replacements = useMemo(
+    () => ({ shown: replacementsShown, toggle: () => setReplacementsShown((v) => !v) }),
+    [replacementsShown],
+  );
+  const replacementCount = useMemo(
+    () => data ? buildMap(data.tasks).links.filter((link) => link.kind === "replacement").length : 0,
+    [data],
+  );
   // Stable object identities: fresh actions/composer objects on every render
   // would invalidate the node-data memos in every mounted MapCanvas card.
   const actions = useMemo<MapWorkspaceActions>(
@@ -1656,6 +1717,7 @@ export const MapPanel = memo(function MapPanel({
             <SlidersHorizontal size={16} />
           </summary>
           <div className="map-more-menu">
+            {data && <MapTeamProgress events={data.events} zh={zh} />}
             <div className="map-dataset-bar">
               <Compass size={15} />
               <select
@@ -1690,6 +1752,18 @@ export const MapPanel = memo(function MapPanel({
             {!readOnly && onOpenSettings && (
               <button type="button" onClick={onOpenSettings} className="map-scope-button">
                 {zh ? "地图模型设置" : "Map model settings"}
+              </button>
+            )}
+            {replacementCount > 0 && (
+              <button
+                type="button"
+                className="map-scope-button map-narrow-only"
+                aria-pressed={replacementsShown}
+                onClick={replacements.toggle}
+              >
+                {replacementsShown
+                  ? zh ? `隐藏计划替代连线 · ${replacementCount}` : `Hide plan changes · ${replacementCount}`
+                  : zh ? `显示计划替代连线 · ${replacementCount}` : `Show plan changes · ${replacementCount}`}
               </button>
             )}
           </div>
@@ -1760,6 +1834,7 @@ export const MapPanel = memo(function MapPanel({
             sessionId={snapshot.session.id}
             zh={zh}
             readOnly={readOnly}
+            replacements={replacements}
             activePhase={
               source === "live" && !paused
                 ? snapshot.roles.find((r) => r.active)?.role

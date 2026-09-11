@@ -396,20 +396,24 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               {String(ordinal).padStart(2, "0")}
               {data.partCount > 1 && ` · ${data.part}/${data.partCount}`}
             </span>
-            <span className="map-status">
-              {state === "done" ? (
-                <Check size={11} />
-              ) : state === "failed" ? (
-                <X size={11} />
-              ) : state === "question" ? (
-                <HelpCircle size={11} />
-              ) : state === "paused" ? (
-                <Pause size={11} />
-              ) : (
-                <span className="map-state-dot" />
-              )}
-              {stateLabel(displayedState)}
-            </span>
+            {/* An earlier part of a long task has no state of its own; the
+                task's state is read on its last part, so no chip here. */}
+            {state !== "recorded" && (
+              <span className="map-status">
+                {state === "done" ? (
+                  <Check size={11} />
+                ) : state === "failed" ? (
+                  <X size={11} />
+                ) : state === "question" ? (
+                  <HelpCircle size={11} />
+                ) : state === "paused" ? (
+                  <Pause size={11} />
+                ) : (
+                  <span className="map-state-dot" />
+                )}
+                {stateLabel(displayedState)}
+              </span>
+            )}
           </div>
           <h3>
             <MarkdownExcerpt>{title}</MarkdownExcerpt>
@@ -504,7 +508,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </small>
             <h2><MarkdownExcerpt>{title}</MarkdownExcerpt></h2>
           </div>
-          <span className="macro-state">{stateLabel(displayedState)}</span>
+          {state !== "recorded" && (
+            <span className="macro-state">{stateLabel(displayedState)}</span>
+          )}
         </header>
         <div className="macro-stage-key">
           {STEP_KINDS

@@ -159,13 +159,19 @@ const HARNESS_NOTES: Array<{ match?: RegExp; bare?: RegExp; kind?: "interrupt" |
   },
 ];
 
+/** Where a record's plain sentence ends and its technical tail begins. Records
+ * written today end with "Technical record:" (or "技术记录：" in Chinese);
+ * older ones end with "Runner receipt:", and they are kept as they are. */
+export const TECHNICAL_MARKER = /Runner receipt:|Technical record:|技术记录[:：]/i;
+const TECHNICAL_MARKER_PREFIX = /^(?:Runner receipt|Technical record|技术记录)\s*[:：]\s*/i;
+
 /** Say what a harness record means for the research; move the raw receipt aside. */
 export function humanizeHarnessNote(
   text: string,
   zh: boolean,
 ): { summary: string; receipt: string; kind?: "interrupt" | "reviewer" | "round" } {
   const raw = String(text || "").trim();
-  const marker = raw.search(/Runner receipt:/i);
+  const marker = raw.search(TECHNICAL_MARKER);
   const tail = marker >= 0 ? raw.slice(marker).trim() : "";
   const rule = tail
     ? HARNESS_NOTES.find((note) => note.match?.test(raw))
@@ -539,7 +545,7 @@ export function buildSubmap(
           ? `${zh ? "接下来" : "What happens next"}: ${e.next_action}`
           : "",
         note.receipt
-          ? `${zh ? "——技术记录：" : "— technical record: "}${note.receipt.replace(/^Runner receipt:\s*/i, "")}`
+          ? `${zh ? "——技术记录：" : "— technical record: "}${note.receipt.replace(TECHNICAL_MARKER_PREFIX, "")}`
           : "",
       ].filter(Boolean).join("\n\n"),
       status,
