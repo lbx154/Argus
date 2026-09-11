@@ -14,6 +14,17 @@ import {
   normalizeThemeStyle,
 } from './lib/themePreference';
 
+type WorkspaceView = 'mission' | 'activity' | 'workbench' | 'map';
+const WORKSPACE_VIEWS: readonly WorkspaceView[] = ['mission', 'activity', 'workbench', 'map'];
+// The old key remembered whatever view the page happened to open on, so a
+// default was replayed forever as if the visitor had chosen it. The new key is
+// written only when someone picks a view.
+const WORKSPACE_VIEW_KEY = 'argus.workspace.view.v2';
+
+function isWorkspaceView(value: string | null): value is WorkspaceView {
+  return WORKSPACE_VIEWS.includes(value as WorkspaceView);
+}
+
 function storedBoolean(key: string, fallback: boolean): boolean {
   const value = readLocalStorage(key);
   return value == null ? fallback : value === 'true';
@@ -34,14 +45,17 @@ export function useWorkbenchLayout() {
   const [showReasoning, setShowReasoning] = useState(
     () => storedBoolean('argus.reasoning.visible.v1', false),
   );
-  const [workspaceView, setWorkspaceView] = useState<'mission' | 'activity' | 'workbench' | 'map'>(
-    () => {
-      const requested = params.get('view');
-      if (requested === 'mission' || requested === 'activity' || requested === 'workbench' || requested === 'map') return requested;
-      const stored = readLocalStorage('argus.workspace.view');
-      return stored === 'mission' || stored === 'activity' || stored === 'workbench' || stored === 'map' ? stored : 'map';
-    },
-  );
+  const [workspaceView, setWorkspaceViewState] = useState<WorkspaceView>(() => {
+    const requested = params.get('view');
+    if (isWorkspaceView(requested)) return requested;
+    const stored = readLocalStorage(WORKSPACE_VIEW_KEY);
+    // A first visit opens on the mission story; the map is a choice, not a landing.
+    return isWorkspaceView(stored) ? stored : 'mission';
+  });
+  const setWorkspaceView = useCallback((view: WorkspaceView) => {
+    writeLocalStorage(WORKSPACE_VIEW_KEY, view);
+    setWorkspaceViewState(view);
+  }, []);
   const [mobileView, setMobileView] = useState<'activity' | 'preview'>('activity');
   const [rightPanelOpen, setRightPanelOpen] = useState(() => storedBoolean('argus.preview.expanded.v5', true));
   const [leftWidth, setLeftWidth] = useState(() => {
@@ -75,10 +89,6 @@ export function useWorkbenchLayout() {
     writeLocalStorage('argus.sidebar.width.v2', String(leftWidth));
     writeLocalStorage('argus.preview.width.v2', String(rightWidth));
   }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
-
-  useEffect(() => {
-    writeLocalStorage('argus.workspace.view', workspaceView);
-  }, [workspaceView]);
 
   useEffect(() => {
     writeLocalStorage('argus.reasoning.visible.v1', String(showReasoning));

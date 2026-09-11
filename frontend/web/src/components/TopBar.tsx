@@ -59,8 +59,9 @@ export function TopBar({
     || activeItem?.objective
     || (missionTerminal ? missionView?.mission.summary || missionView?.mission.title : '')
     || snap.session.objective
-    || t('common.ready');
+    || '';
   const degraded = Boolean(snap.partial || snap.observability?.slo.status === 'degraded');
+  const spendUsd = typeof snap.spend_usd === 'number' ? snap.spend_usd : snap.usage_summary?.known_cost_usd ?? 0;
   const externalDaemon = snap.daemon.alive && snap.daemon.control_available === false;
   const daemonActionLabel = externalDaemon
     ? t('topbar.externallyManaged')
@@ -92,13 +93,13 @@ export function TopBar({
       </div>
       <span className="hidden h-4 w-px shrink-0 bg-line/40 sm:block" />
       <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span
+        {roleActive ? <span
           data-role-dot={roleName}
-          aria-label={roleActive ? t('topbar.roleActive', { role: roleName }) : t('topbar.roleIdle', { role: roleName })}
-          className={`h-2 w-2 shrink-0 rounded-full ${roleActive ? 'animate-pulse motion-reduce:animate-none' : ''}`}
+          aria-label={t('topbar.roleActive', { role: roleName })}
+          className="h-2 w-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none"
           style={{ background: theme.role[roleName] || 'rgb(var(--ink-faint))' }}
-        />
-        <span className="hidden shrink-0 text-xs font-semibold capitalize text-ink-dim sm:inline">{roleName}</span>
+        /> : null}
+        {roleActive ? <span className="hidden shrink-0 text-xs font-semibold capitalize text-ink-dim sm:inline">{roleName}</span> : null}
         <span className="truncate text-xs text-ink-faint">{focus}</span>
       </div>
       <span
@@ -113,7 +114,7 @@ export function TopBar({
       >
         <span className="sr-only">{healthTitle}</span>
       </span>
-      <DaemonSpendBadge
+      {spendUsd > 0 ? <DaemonSpendBadge
         settledUsd={snap.spend_usd}
         knownUsd={snap.usage_summary?.known_cost_usd}
         status={snap.spend_status}
@@ -121,7 +122,7 @@ export function TopBar({
         premiumRequests={snap.usage_summary?.premium_requests}
         live={snap.daemon.alive}
         compact
-      />
+      /> : null}
       {onToggleMobileView ? (
         <button
           type="button"

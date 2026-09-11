@@ -15,6 +15,7 @@ import { CopyButton } from './CopyButton';
 import { roleLabel } from '../lib/enumLabels';
 import { TurnSteps } from './TurnSteps';
 import { turnStepsFrom } from '../../../core/src/phaseTrail';
+import { plainDetail } from '../lib/plainStatus';
 
 type ActivityRow = { ev: EventMsg; r: Rendered; key: string };
 type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
@@ -38,8 +39,10 @@ export function activeProviderRequest(events: EventMsg[]): EventMsg | null {
 }
 
 function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: boolean; last: boolean }) {
+  const { locale } = useI18n();
   const roleHue = theme.role[r.role] ?? theme.inkFaint;
   const color = toneColor(r.tone);
+  const plain = plainDetail(r.text, locale);
   return (
     <div
       className={`event-activity-row group relative grid grid-cols-[16px_minmax(0,1fr)] gap-3 px-4 py-3 transition-colors hover:bg-bg/70 ${last ? 'animate-appear' : ''} ${r.reasoning ? 'opacity-60' : ''}`}
@@ -67,8 +70,8 @@ function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: bo
             {clockOf(ev)}
           </time>
         </div>
-        <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${r.reasoning ? 'italic' : ''}`} style={{ color }}>
-          {r.text}
+        <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${r.reasoning ? 'italic' : ''}`} style={{ color }} title={plain.technical || undefined}>
+          {plain.text}
         </div>
       </div>
     </div>
@@ -163,7 +166,7 @@ function RoleLogGroup({
   active: boolean;
   onToggle: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const color = theme.role[role];
   const logScroller = useRef<HTMLDivElement>(null);
   const tailLength = rows[rows.length - 1]?.r.text.length ?? 0;
@@ -197,7 +200,7 @@ function RoleLogGroup({
         />
         <span className="text-xs font-semibold text-ink-dim">{roleLabel(role, t)}</span>
         <span className="font-mono text-xs text-ink-faint">{rows.length}</span>
-        {rows.length > 0 ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">{rows[rows.length - 1].r.text}</span> : <span className="flex-1" />}
+        {rows.length > 0 ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">{plainDetail(rows[rows.length - 1].r.text, locale).text}</span> : <span className="flex-1" />}
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>

@@ -629,6 +629,17 @@ const en: Record<string, string> = {
   'label.resource.advisory': 'Recommendations only',
   'label.resource.released': 'Resources released',
   'label.resource.kept': 'Resources kept',
+  // --- Declutter 2026-09-11 (WP2: mission view, live progress panel, workbench, operations) ---
+  'mission.lastProgress': 'Progress recorded before the stop',
+  'mission.nextResume': 'The progress is saved. Run Argus again and it continues from where it stopped.',
+  'mission.nextResumeLive': 'Argus will continue from the saved progress.',
+  'research.totalTime': 'Total time',
+  'research.optionDelivery': 'Delivery',
+  'research.optionCheckpoint': 'Checkpoint',
+  'research.optionPending': 'being written',
+  'operations.unavailableHere': 'This is not available on this Argus.',
+  'operations.requestFailed': 'That did not go through.',
+  'operations.technicalDetails': 'Technical details',
 };
 
 const zhCN: Record<string, string> = {
@@ -1248,6 +1259,17 @@ const zhCN: Record<string, string> = {
   'label.resource.advisory': '仅提供建议',
   'label.resource.released': '已释放资源',
   'label.resource.kept': '继续占用资源',
+  // --- Declutter 2026-09-11 (WP2: mission view, live progress panel, workbench, operations) ---
+  'mission.lastProgress': '停下之前记录的进展',
+  'mission.nextResume': '进度已保存，重新运行 Argus 就会从停下的地方继续。',
+  'mission.nextResumeLive': 'Argus 会从已保存的进度继续。',
+  'research.totalTime': '累计用时',
+  'research.optionDelivery': '交付',
+  'research.optionCheckpoint': '检查点',
+  'research.optionPending': '生成中',
+  'operations.unavailableHere': '这项功能在当前的 Argus 上不提供。',
+  'operations.requestFailed': '这次操作没有成功。',
+  'operations.technicalDetails': '技术细节',
 };
 
 function initialLocale(): Locale {

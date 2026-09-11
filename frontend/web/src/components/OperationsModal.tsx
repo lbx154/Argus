@@ -19,13 +19,16 @@ import {
   faTrashArrowUp,
 } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
+import { requestFailureText, routeRefused } from '../lib/requestFailure';
 import { ResourceStatusView } from './ResourceStatus';
 
 type QuickAction = 'task' | 'nudge' | 'note' | 'plan';
 type OperationTab = 'work' | 'runtime' | 'system' | 'recovery';
+type Capability = 'sourceUpdate' | 'metrics' | 'trash' | 'resources';
 
-const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : String(error || 'Unknown error');
+// The hosted trial portal is built with this flag and never offers a source
+// update, so the modal does not ask for one there.
+const HOSTED_TRIAL = import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1';
 
 async function requireCommandSuccess<T>(operation: Promise<T>): Promise<T> {
   const result = await operation;
@@ -64,6 +67,8 @@ export function OperationsModal({
   const [workdir, setWorkdir] = useState(snap.session.workdir ?? snap.session.cwd ?? '');
   const [skillsArgs, setSkillsArgs] = useState('ls');
   const [output, setOutput] = useState('');
+  const [failure, setFailure] = useState<{ text: string; technical: string } | null>(null);
+  const [unavailable, setUnavailable] = useState<ReadonlySet<Capability>>(() => new Set());
   const [skillsOutput, setSkillsOutput] = useState('');
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
   const [sourceUpdate, setSourceUpdate] = useState<SourceUpdateStatus | null>(null);
@@ -74,29 +79,44 @@ export function OperationsModal({
   const [trashQuery, setTrashQuery] = useState('');
   const [busy, setBusy] = useState('');
   const [tab, setTab] = useState<OperationTab>('work');
+  const markUnavailable = (capability: Capability) => setUnavailable((current) => {
+    if (current.has(capability)) return current;
+    return new Set([...current, capability]);
+  });
+  // One plain sentence on the page; the request line and status code wait in a fold.
+  const reportFailure = (error: unknown) => setFailure(requestFailureText(error, t));
+  const sourceUpdateOffered = !HOSTED_TRIAL && !unavailable.has('sourceUpdate');
 
   useEffect(() => {
     if (!open) return;
     setWorkdir(snap.session.workdir ?? snap.session.cwd ?? '');
-    void Promise.all([api.metrics(), api.trash()]).then(
-      ([nextMetrics, nextTrash]) => {
-        setMetrics(nextMetrics);
-        setTrash(nextTrash.entries);
-        setTrashTotal(nextTrash.total);
-      },
-      (error) => setOutput(errorText(error)),
-    );
+    void api.metrics().then(setMetrics, (error) => {
+      if (routeRefused(error)) markUnavailable('metrics');
+      else reportFailure(error);
+    });
+    void api.trash().then((nextTrash) => {
+      setTrash(nextTrash.entries);
+      setTrashTotal(nextTrash.total);
+    }, (error) => {
+      if (routeRefused(error)) markUnavailable('trash');
+      else reportFailure(error);
+    });
   }, [open, snap.session.cwd, snap.session.workdir]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !sourceUpdateOffered) return;
     let cancelled = false;
+    const fail = (error: unknown) => {
+      if (cancelled) return;
+      if (routeRefused(error)) markUnavailable('sourceUpdate');
+      else reportFailure(error);
+    };
     const refresh = async () => {
       try {
         const next = await api.sourceUpdateStatus();
         if (!cancelled) setSourceUpdate(next);
       } catch (error) {
-        if (!cancelled) setOutput(errorText(error));
+        fail(error);
       }
     };
     void api.sourceUpdateStatus().then(async (initial) => {
@@ -106,15 +126,13 @@ export function OperationsModal({
         const checking = await api.checkSourceUpdate();
         if (!cancelled) setSourceUpdate(checking);
       }
-    }).catch((error) => {
-      if (!cancelled) setOutput(errorText(error));
-    });
+    }).catch(fail);
     const timer = window.setInterval(() => void refresh(), 1_500);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [open]);
+  }, [open, sourceUpdateOffered]);
 
   useEffect(() => {
     if (!open || tab !== 'system') return;
@@ -122,7 +140,10 @@ export function OperationsModal({
     setResourceError('');
     void api.resources().then(
       setResources,
-      (error) => setResourceError(errorText(error)),
+      (error) => {
+        if (routeRefused(error)) markUnavailable('resources');
+        else setResourceError(t('operations.requestFailed'));
+      },
     );
   }, [open, tab]);
 
@@ -130,12 +151,13 @@ export function OperationsModal({
     if (busy) return;
     setBusy(key);
     setOutput('');
+    setFailure(null);
     try {
       const result = await operation();
       if (success !== null) setOutput(success || JSON.stringify(result, null, 2));
       onChanged();
     } catch (error) {
-      setOutput(errorText(error));
+      reportFailure(error);
     } finally {
       setBusy('');
     }
@@ -199,7 +221,7 @@ export function OperationsModal({
           ['system', t('operations.system'), faChartLine],
           ['recovery', t('operations.recovery'), faTrashArrowUp],
         ] as const).map(([value, label, icon]) => (
-          <button key={value} type="button" onClick={() => { setTab(value); setOutput(''); }} aria-current={tab === value ? 'page' : undefined} className={`flex h-8 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-xs font-medium ${tab === value ? 'bg-blue/10 text-blue' : 'text-ink-faint hover:bg-bg hover:text-ink'}`}><FontAwesomeIcon icon={icon} /><span>{label}</span></button>
+          <button key={value} type="button" onClick={() => { setTab(value); setOutput(''); setFailure(null); }} aria-current={tab === value ? 'page' : undefined} className={`flex h-8 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-xs font-medium ${tab === value ? 'bg-blue/10 text-blue' : 'text-ink-faint hover:bg-bg hover:text-ink'}`}><FontAwesomeIcon icon={icon} /><span>{label}</span></button>
         ))}
       </div>
       <div className="grid max-h-[76vh] gap-3 overflow-y-auto bg-bg p-3 scroll-thin lg:grid-cols-2">
@@ -232,7 +254,7 @@ export function OperationsModal({
             <button type="button" onClick={() => void run('reset', () => api.resetManager(sid), 'Manager context reset.')} disabled={!!busy} title={t('operations.resetManager')} aria-label={t('operations.resetManager')} className="flex h-9 w-9 items-center justify-center rounded border border-line text-xs text-ink-dim disabled:opacity-40"><FontAwesomeIcon icon={faRotateLeft} /></button>
             <button type="button" onClick={() => void run('upgrade', () => requireCommandSuccess(api.upgradeDaemon(sid, snap.daemon_commands?.revision)), 'Current-release daemon started after safely draining active work.')} disabled={!!busy || externalDaemon} title={externalDaemon ? 'Externally supervised daemon cannot be restarted from this Web host' : incompatible ? 'Upgrade incompatible daemon' : 'Restart on current release'} aria-label={externalDaemon ? 'Externally supervised daemon' : incompatible ? 'Upgrade incompatible daemon' : 'Restart on current release'} className={`flex h-9 w-9 items-center justify-center rounded border text-xs disabled:opacity-40 ${incompatible ? 'border-err/60 bg-err/10 text-err' : 'border-line text-ink-dim'}`}><FontAwesomeIcon icon={faArrowRotateRight} /></button>
           </div>
-          <div className="mt-4 rounded-lg border border-line bg-bg p-3">
+          {sourceUpdateOffered ? <div className="mt-4 rounded-lg border border-line bg-bg p-3">
             <div className="flex flex-wrap items-start gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -266,7 +288,7 @@ export function OperationsModal({
               </button>
             </div>
             {sourceUpdate?.restart_required ? <p className="mt-2 text-xs text-warn">{t('operations.updateRestart')}</p> : null}
-          </div>
+          </div> : null}
           {snap.daemon.protocol_error ? <p className="mt-2 text-xs text-err">{snap.daemon.protocol_error}</p> : null}
           {replacements.length ? (
             <div className="mt-4">
@@ -289,7 +311,7 @@ export function OperationsModal({
           {skillsOutput ? <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-bg p-3 font-mono text-xs text-ink-dim scroll-thin">{skillsOutput}</pre> : null}
         </section> : null}
 
-        {tab === 'system' ? <section className="rounded-lg border border-line bg-panel p-4">
+        {tab === 'system' && !unavailable.has('metrics') ? <section className="rounded-lg border border-line bg-panel p-4">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-dim">{t('operations.metrics')}</h3>
           <div className="mt-3 flex items-center gap-3">
             <span className={`rounded px-2 py-1 text-xs font-semibold ${metrics?.slo?.status === 'healthy' ? 'bg-ok/10 text-ok' : 'bg-warn/10 text-warn'}`}>{metrics?.slo?.status ?? 'loading'}</span>
@@ -298,9 +320,10 @@ export function OperationsModal({
           {metrics ? <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-bg p-3 font-mono text-[10px] text-ink-dim scroll-thin">{JSON.stringify({ web: metrics.web, provider: metrics.provider, cost_control: metrics.cost_control }, null, 2)}</pre> : null}
         </section> : null}
 
-        {tab === 'system' ? <ResourceStatusView status={resources} error={resourceError} /> : null}
+        {tab === 'system' && !unavailable.has('resources') ? <ResourceStatusView status={resources} error={resourceError} /> : null}
 
-        {tab === 'recovery' ? <section className="rounded-lg border border-line bg-panel p-4 lg:col-span-2">
+        {tab === 'recovery' && unavailable.has('trash') ? <p className="text-sm text-ink-faint lg:col-span-2">{t('operations.unavailableHere')}</p> : null}
+        {tab === 'recovery' && !unavailable.has('trash') ? <section className="rounded-lg border border-line bg-panel p-4 lg:col-span-2">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="mr-auto text-xs font-semibold uppercase tracking-wide text-ink-dim">{t('operations.trash')} · {trashTotal}</h3>
             <input value={trashQuery} onChange={(event) => setTrashQuery(event.target.value)} onKeyDown={(event) => { if (!isImeComposing(event) && event.key === 'Enter') void searchTrash(); }} placeholder={t('operations.searchTrash')} className="h-8 min-w-52 rounded border border-line bg-bg px-2 text-xs text-ink outline-none focus:border-blue" />
@@ -319,6 +342,17 @@ export function OperationsModal({
           {trashTotal > trash.length ? <p className="mt-2 text-[10px] text-ink-faint">Showing the newest {trash.length} matches. Narrow the search to find older sessions.</p> : null}
         </section> : null}
 
+        {failure ? (
+          <div className="rounded-lg border border-line bg-panel p-3 text-sm text-ink-dim lg:col-span-2">
+            <p>{failure.text}</p>
+            {failure.technical ? (
+              <details className="mt-1 text-xs text-ink-faint">
+                <summary className="cursor-pointer hover:text-ink">{t('operations.technicalDetails')}</summary>
+                <pre className="mt-1 whitespace-pre-wrap font-mono">{failure.technical}</pre>
+              </details>
+            ) : null}
+          </div>
+        ) : null}
         {output ? <pre className="rounded-lg border border-line bg-panel p-3 font-mono text-xs whitespace-pre-wrap text-ink-dim lg:col-span-2">{output}</pre> : null}
       </div>
     </Modal>

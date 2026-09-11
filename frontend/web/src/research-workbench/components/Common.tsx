@@ -16,6 +16,7 @@ import remarkMath from 'remark-math-extended';
 import rehypeKatex from 'rehype-katex';
 import { PdfPreview } from '../../components/PdfPreview';
 import { isMarkdownArtifact } from '../../lib/artifactPresentation';
+import { plainDetail } from '../../lib/plainStatus';
 import { api } from '../api';
 import { roleLabel } from '../enumLabels';
 import type { ArtifactInfo, EventMsg } from '../types';
@@ -151,8 +152,8 @@ export function EventTimeline({
     <div className={cx('event-list', dense && 'event-list--dense')}>
       {rows.map((event, index) => {
         const role = eventRole(event);
-        const title = eventTitle(event);
-        const detail = eventDetail(event, dense ? 180 : 480);
+        const title = eventTitle(event, locale);
+        const detail = plainDetail(eventDetail(event, dense ? 180 : 480), locale).text;
         const tone = statusTone(String(event.status ?? event.kind ?? event.type ?? ''));
         return (
           <article className="event-row" key={`${event.type}-${event.ts}-${event.message_id ?? index}`}>

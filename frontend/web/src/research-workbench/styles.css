@@ -909,3 +909,9 @@
     padding: 15px;
   }
 }
+
+/* The reduced overview: one column, the whole objective, a readable path. */
+.overview-hero--plain { grid-template-columns: 1fr; }
+.overview-hero--plain .overview-hero__copy h1 { margin-top: 0; }
+.overview-hero--plain .overview-hero__copy p { display: block; max-width: none; -webkit-line-clamp: unset; font-size: 14px; line-height: 1.7; }
+.overview-hero--plain .overview-hero__copy > code { display: block; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }

@@ -16,6 +16,7 @@ import {
 } from '../lib/configSurface';
 import { roleLabel } from '../lib/enumLabels';
 import { useI18n } from '../i18n';
+import { requestFailureText } from '../lib/requestFailure';
 import {
   BACKEND_OPTIONS,
   backendLabel,
@@ -193,7 +194,7 @@ export function ConfigModal({
       setQuickConfigMsg(t('settings.backendSwitched', { backend: backendLabel(backend, t) }));
     } catch (error) {
       setQuickConfigError(true);
-      setQuickConfigMsg(error instanceof Error ? error.message : String(error));
+      setQuickConfigMsg(requestFailureText(error, t).text);
     } finally {
       setQuickConfigBusy(false);
     }
@@ -209,7 +210,7 @@ export function ConfigModal({
       setQuickConfigMsg(t('settings.applied'));
     } catch (error) {
       setQuickConfigError(true);
-      setQuickConfigMsg(error instanceof Error ? error.message : String(error));
+      setQuickConfigMsg(requestFailureText(error, t).text);
     } finally {
       setQuickConfigBusy(false);
     }
@@ -228,7 +229,7 @@ export function ConfigModal({
       await refreshSettings();
       setBudgetResult(t('settings.budgetSaved'));
     } catch (error) {
-      setBudgetResult(error instanceof Error ? error.message : String(error));
+      setBudgetResult(requestFailureText(error, t).text);
     } finally {
       setBudgetBusy(false);
     }
@@ -243,7 +244,7 @@ export function ConfigModal({
       await refreshSettings();
       setResult(t('settings.applied'));
     } catch (error) {
-      setResult(error instanceof Error ? error.message : String(error));
+      setResult(requestFailureText(error, t).text);
     } finally {
       setBusy(false);
     }
@@ -465,7 +466,7 @@ export function IdentityModal({ sid, open, onClose }: { sid: string; open: boole
       await refetch();
       setResult(t('identity.saved'));
     } catch (error) {
-      setResult(error instanceof Error ? error.message : String(error));
+      setResult(requestFailureText(error, t).text);
     } finally {
       setBusy(false);
     }
