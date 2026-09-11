@@ -437,3 +437,30 @@ describe("work segments inside a round", () => {
     expect(steps[4].eventIds).toEqual(["e2", "e5"]);
   });
 });
+
+it("heads each step column with the round of work it holds", () => {
+  const task = { id: "t", title: "T", objective: "T", status: "done", deps: [] } as MapTask;
+  const rounds = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `r${i + 1}`, type: "round.start", ts: i + 1, item_id: "t", round_index: i + 1, text: "" }) as MapEvent);
+  const many = layoutSubmap(task, rounds(7), false);
+  expect(many.columns.map((c) => c.title)).toEqual(["Setting out · Rounds 1–2", "Rounds 3–5", "Rounds 6–7 · Outcome"]);
+  const few = layoutSubmap(task, rounds(1), true);
+  expect(few.columns.map((c) => c.title)).toEqual(["起点", "第 1 轮", "结果"]);
+  const none = layoutSubmap(task, [], false);
+  expect(none.columns.map((c) => c.title)).toEqual(["Setting out", "Outcome"]);
+  // A segment of work recorded without a round number belongs to the round under way.
+  const segment = layoutSubmap(task, [
+    ...rounds(1),
+    { id: "p", type: "life.phase.started", ts: 5, item_id: "t", text: "", label: "implementation" } as MapEvent,
+  ], false);
+  for (const title of segment.columns.map((c) => c.title))
+    expect(["Setting out", "Setting out · Round 1", "Round 1", "Round 1 · cont.", "Round 1 · Outcome", "Round 1 · cont. · Outcome", "Outcome"]).toContain(title);
+  // Work recorded before the round's own record still belongs to that round.
+  const early = layoutSubmap(task, [
+    { id: "w", type: "life.mission.started", ts: 0, item_id: "t", text: "" } as MapEvent,
+    { id: "p", type: "life.phase.started", ts: 0.5, item_id: "t", text: "", label: "implementation" } as MapEvent,
+    ...rounds(1),
+  ], false);
+  for (const title of early.columns.map((c) => c.title))
+    expect(["Setting out", "Setting out · Round 1", "Round 1", "Round 1 · cont.", "Round 1 · Outcome", "Round 1 · cont. · Outcome", "Outcome"]).toContain(title);
+});

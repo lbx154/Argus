@@ -687,21 +687,24 @@ export function layoutSubmap(
   const height = 408 + (rows - 1) * pitchY;
   const left = (width - (count * 232 + (count - 1) * 108)) / 2;
   const positions: SubmapLayout["positions"] = {};
+  const rounds = effectiveRounds(steps);
+  let previousRounds: number[] = [];
   const columns = Array.from({ length: count }, (_, col) => {
     const start = col * rows,
       end = Math.min(start + rows, steps.length),
       x = left + col * pitchX;
-    steps.slice(start, end).forEach((step, row) => {
+    const slice = steps.slice(start, end);
+    slice.forEach((step, row) => {
       positions[step.id] = { x, y: 180 + row * pitchY };
     });
-    return {
-      id: `steps:${offset + start}`,
-      title: zh
-        ? `环节 ${offset + start + 1}–${offset + end}`
-        : `Steps ${offset + start + 1}–${offset + end}`,
-      x,
-      y: 142,
-    };
+    const from = offset + start + 1, to = offset + end;
+    const fallback = from === to
+      ? zh ? `环节 ${from}` : `Step ${from}`
+      : zh ? `环节 ${from}–${to}` : `Steps ${from}–${to}`;
+    const sliceRounds = roundsIn(rounds.slice(start, end));
+    const title = columnTitle(slice, sliceRounds, previousRounds, col === 0 && offset === 0, col === count - 1, zh, fallback);
+    previousRounds = sliceRounds;
+    return { id: `steps:${offset + start}`, title, x, y: 142 };
   });
   return {
     steps,
@@ -711,6 +714,61 @@ export function layoutSubmap(
     width,
     height,
   };
+}
+
+/** The round each step belongs to. A step recorded without a round number,
+ * such as a segment of the Engineer's work, belongs to the numbered round
+ * whose record follows it (a round's work is recorded when the round ends),
+ * or failing that to the last round seen. Planning steps and the outcome of
+ * the whole task belong to no round. */
+function effectiveRounds(steps: SubmapStep[]): (number | undefined)[] {
+  const numbered = steps.map((step) => (typeof step.round === "number" ? step.round : undefined));
+  let previous: number | undefined;
+  return steps.map((step, i) => {
+    if (numbered[i] !== undefined) {
+      previous = numbered[i];
+      return numbered[i];
+    }
+    if (step.kind === "result" || step.kind === "plan") return undefined;
+    const next = numbered.slice(i + 1).find((r) => r !== undefined);
+    return next ?? previous;
+  });
+}
+
+function roundsIn(rounds: (number | undefined)[]): number[] {
+  return [...new Set(rounds.filter((r): r is number => typeof r === "number"))].sort((a, b) => a - b);
+}
+
+/** A column is headed by the round of work it holds, so a reader sees the
+ * rhythm of the research (a round of work, its review, the next round) instead
+ * of a running count of cells. Columns before any round are the setting out,
+ * a trailing column without rounds is the outcome. */
+function columnTitle(
+  steps: SubmapStep[],
+  rounds: number[],
+  previousRounds: number[],
+  first: boolean,
+  last: boolean,
+  zh: boolean,
+  fallback: string,
+): string {
+  if (!rounds.length) {
+    if (first && steps.some((s) => s.kind === "plan")) return zh ? "起点" : "Setting out";
+    if (last && steps.some((s) => s.kind === "result")) return zh ? "结果" : "Outcome";
+    return fallback;
+  }
+  const lo = rounds[0], hi = rounds[rounds.length - 1];
+  const continued = rounds.length === 1 && previousRounds.length > 0 &&
+    previousRounds[previousRounds.length - 1] === lo;
+  let label = lo === hi
+    ? zh ? `第 ${lo} 轮` : `Round ${lo}`
+    : zh ? `第 ${lo}–${hi} 轮` : `Rounds ${lo}–${hi}`;
+  if (continued) label = zh ? `${label} · 续` : `${label} · cont.`;
+  // A column that also holds the planning before the first round, or the
+  // outcome after the last, says so.
+  if (first && steps[0].kind === "plan") label = zh ? `起点 · ${label}` : `Setting out · ${label}`;
+  if (last && steps[steps.length - 1].kind === "result") label = zh ? `${label} · 结果` : `${label} · Outcome`;
+  return label;
 }
 
 export function frameForSubmap(layout: Pick<SubmapLayout, "width" | "height">) {

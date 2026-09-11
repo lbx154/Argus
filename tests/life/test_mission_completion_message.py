@@ -51,7 +51,7 @@ def test_continuous_mission_completion_publishes_once(tmp_path) -> None:
         "Progress: Updated the parser and passed focused regression tests."
         in transcript[0]["text"]
     )
-    assert "Planner is selecting the next work item" in transcript[0]["text"]
+    assert "the Planner is deciding what comes next" in transcript[0]["text"]
     ui_events = [
         event
         for line in (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
@@ -333,3 +333,43 @@ def test_bounded_independent_review_completion_is_natural_and_footer_free(
         "Research cache options",
     ):
         assert internal not in text
+
+
+def test_continued_mission_names_the_next_queued_task(tmp_path) -> None:
+    from argus_skill.life.memory import BacklogItem
+
+    memory = LifeMemory.open(tmp_path)
+    memory.backlog.add(BacklogItem.new(title="Write the release notes", objective="notes"))
+    memory.backlog.add(BacklogItem.new(title="Record the demo video", objective="video"))
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=_Runner(),
+        sink=JsonlEventSink(None, life_dir=memory.root, verbosity="full"),
+        config=LifeSupervisorConfig(
+            continuous=True,
+            continuous_objective="keep improving",
+            open_ended=True,
+        ),
+    )
+    event = {
+        "type": "life.mission.completed",
+        "item_id": "task-1",
+        "title": "Fix the first issue",
+        "success": True,
+        "status": "done",
+        "summary": "Updated the parser.",
+        "outcome": {"review_status": "done"},
+    }
+
+    assert supervisor._emit(event) is True
+
+    transcript = [
+        json.loads(line)
+        for line in (tmp_path / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(transcript) == 1
+    assert (
+        "Next up: Write the release notes, with one more queued after it."
+        in transcript[0]["text"]
+    )
+    assert "Planner is selecting" not in transcript[0]["text"]

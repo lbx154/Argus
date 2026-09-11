@@ -46,19 +46,19 @@ function managerFailureText(ev: EventMsg, locale: Locale): string {
   const phase = S(ev, 'phase');
   const cause = S(ev, 'cause') || S(ev, 'backend_error');
   const raw = S(ev, 'error');
-  if (!phase || !cause) return `${l('routing failed', '分流失败')} ${trunc(raw, 140)}`;
+  if (!phase || !cause) return `${l('could not work out where this request belongs', '没能判断这个请求该归谁')} ${trunc(raw, 140)}`;
   const phaseLabel: Record<string, string> = {
-    backend: l('backend', '后端'),
-    parse: l('parse', '解析'),
-    contract: l('contract:', '契约：'),
-    timeout: l('timeout', '超时'),
+    backend: l('model service', '模型服务'),
+    parse: l('reading the answer', '读取回答'),
+    contract: l('answer shape:', '回答格式：'),
+    timeout: l('timed out', '超时'),
   };
   const attempts = Number((ev as Record<string, unknown>).attempts || 0);
   const attempt = attempts > 1
     ? l(` (attempt ${attempts})`, ` (第${attempts}次尝试)`)
     : '';
-  const summary = `${l('routing failed', '分流失败')} · ${phaseLabel[phase] || phase} ${cause}${attempt}`;
-  return raw ? `${summary} · ${l('raw', '原始错误')}: ${raw}` : summary;
+  const summary = `${l('could not work out where this request belongs', '没能判断这个请求该归谁')} · ${phaseLabel[phase] || phase} ${cause}${attempt}`;
+  return raw ? `${summary} · ${l('error text', '原始错误')}: ${raw}` : summary;
 }
 
 /** Accept both lifecycle event schemas (`round_index` and legacy `round`). */
@@ -152,7 +152,7 @@ export function renderEvent(ev: EventMsg, locale: Locale = 'en'): Rendered | nul
 
   // ── Manager triage
   if (t === 'life.manager.intent.started')
-    return { role: 'manager', label: 'Manager', glyph: '🧭', text: l('classifying request…', '判断任务归属…'), tone: 'info' };
+    return { role: 'manager', label: 'Manager', glyph: '🧭', text: l('working out what kind of request this is…', '判断这是什么样的请求…'), tone: 'info' };
   if (t === 'life.manager.intent.completed') {
     const routing = formatMissionRouting({
       route: S(ev, 'route') || 'team',
@@ -187,19 +187,19 @@ export function renderEvent(ev: EventMsg, locale: Locale = 'en'): Rendered | nul
   if (t === 'life.planner.verdict') {
     const done = S(ev, 'status') === 'done' || (ev as Record<string, unknown>).project_done === true;
     return done
-      ? { role: 'planner', label: 'Planner', glyph: '🏁', text: l('project done', '项目已完成'), tone: 'ok' }
-      : { role: 'planner', label: 'Planner', glyph: '📋', text: l(`queued ${S(ev, 'queued') || S(ev, 'n') || 'next'} task(s)`, `已加入 ${S(ev, 'queued') || S(ev, 'n') || '下一'} 个任务`), tone: 'accent' };
+      ? { role: 'planner', label: 'Planner', glyph: '🏁', text: l('the project is finished', '项目已完成'), tone: 'ok' }
+      : { role: 'planner', label: 'Planner', glyph: '📋', text: l(`lined up ${S(ev, 'queued') || S(ev, 'n') || 'next'} task(s) to do next`, `已排好 ${S(ev, 'queued') || S(ev, 'n') || '下一'} 个接下来要做的任务`), tone: 'accent' };
   }
   if (t === 'life.planner.task_added')
-    return { role: 'planner', label: 'Planner', glyph: '＋', text: `${l('added', '已添加')} ${trunc(S(ev, 'title') || S(ev, 'objective'), 140)}`, tone: 'accent' };
+    return { role: 'planner', label: 'Planner', glyph: '＋', text: `${l('added a task', '新增任务')} · ${trunc(S(ev, 'title') || S(ev, 'objective'), 140)}`, tone: 'accent' };
   if (t === 'life.planner.task_skipped')
-    return { role: 'planner', label: 'Planner', glyph: '⏭', text: `${l('skipped duplicate', '已跳过重复任务')} ${trunc(S(ev, 'title'), 120)}`, tone: 'dim' };
+    return { role: 'planner', label: 'Planner', glyph: '⏭', text: `${l('skipped a task already planned', '跳过了已在计划中的任务')} ${trunc(S(ev, 'title'), 120)}`, tone: 'dim' };
   if (t === 'life.planner.error')
-    return { role: 'planner', label: 'Planner', glyph: '⚠', text: `${l('planner error', 'Planner 错误')} ${trunc(S(ev, 'error') || S(ev, 'text'), 140)}`, tone: 'err' };
+    return { role: 'planner', label: 'Planner', glyph: '⚠', text: `${l('the Planner hit an error', '规划者出错')} ${trunc(S(ev, 'error') || S(ev, 'text'), 140)}`, tone: 'err' };
 
   // ── Mission / round lifecycle
   if (t === 'life.mission.started' || t === 'mission.started')
-    return { role: 'engineer', label: 'Engineer', glyph: '🚀', text: trunc(S(ev, 'title') || S(ev, 'objective') || S(ev, 'text') || l('mission started', '任务已开始'), 160), tone: 'info', rule: true };
+    return { role: 'engineer', label: 'Engineer', glyph: '🚀', text: trunc(S(ev, 'title') || S(ev, 'objective') || S(ev, 'text') || l('started work on this task', '开始做这项任务'), 160), tone: 'info', rule: true };
   if (t === 'round.started' || t === 'round.start')
     return { role: 'engineer', label: 'Engineer', glyph: '──', text: l(`round ${roundNo(ev)}`, `第 ${roundNo(ev)} 轮`), tone: 'dim', rule: true };
   if (t === 'life.phase.started') {
@@ -209,23 +209,23 @@ export function renderEvent(ev: EventMsg, locale: Locale = 'en'): Rendered | nul
     return { role, label: roleLabel(role), glyph: '🔄', text: l(`entering ${phase}`, `进入 ${phase}`), tone: 'info' };
   }
   if (t === 'round.review.started')
-    return { role: 'reviewer', label: 'Reviewer', glyph: '🔄', text: l(`review round ${roundNo(ev)}`, `审核第 ${roundNo(ev)} 轮`), tone: 'info' };
+    return { role: 'reviewer', label: 'Reviewer', glyph: '🔄', text: l(`the Reviewer checks round ${roundNo(ev)}`, `审阅者检查第 ${roundNo(ev)} 轮`), tone: 'info' };
   if (t === 'round.review.deferred')
-    return { role: 'engineer', label: 'Engineer', glyph: '↪', text: l(`continues before review · ${trunc(S(ev, 'next_step'), 160)}`, `审核前继续执行 · ${trunc(S(ev, 'next_step'), 160)}`), tone: 'info' };
+    return { role: 'engineer', label: 'Engineer', glyph: '↪', text: l(`carries on into the next round without a review · ${trunc(S(ev, 'next_step'), 160)}`, `不经审阅直接进入下一轮 · ${trunc(S(ev, 'next_step'), 160)}`), tone: 'info' };
   if (t === 'round.main.completed')
-    return { role: 'engineer', label: 'Engineer', glyph: '✅', text: l(`round ${roundNo(ev)} completed`, `第 ${roundNo(ev)} 轮已完成`), tone: 'info' };
+    return { role: 'engineer', label: 'Engineer', glyph: '✅', text: l(`finished round ${roundNo(ev)} of work`, `第 ${roundNo(ev)} 轮工作已完成`), tone: 'info' };
   if (t === 'round.review.completed') {
     if (ev.review_skipped === true)
       return { role: 'reviewer', label: 'Reviewer', glyph: '↪', text: `${l('no review this round', '这一轮没有审阅')} · ${trunc(S(ev, 'reason'), 160)}`, tone: 'info' };
     const st = S(ev, 'status');
     const tone: Tone = st === 'done' ? 'ok' : st === 'blocked' || st === 'no_progress' ? 'err' : 'warn';
     const glyph = st === 'done' ? '✅' : st === 'blocked' || st === 'no_progress' ? '⛔' : '↻';
-    return { role: 'reviewer', label: 'Reviewer', glyph, text: `${st || '?'} · ${trunc(S(ev, 'reason'), 160)}`, tone };
+    return { role: 'reviewer', label: 'Reviewer', glyph, text: `${reviewVerdict(st, l)} · ${trunc(S(ev, 'reason'), 160)}`, tone };
   }
   if (t === 'life.iteration.critic')
     return { role: 'critic', label: 'Critic', glyph: '👔', text: `${S(ev, 'decision') || ''} ${trunc(S(ev, 'reason'), 140)}`, tone: 'info' };
   if (t === 'life.iteration.continued')
-    return { role: 'critic', label: 'Critic', glyph: '🔁', text: l('queued next iteration', '已加入下一轮迭代'), tone: 'dim' };
+    return { role: 'critic', label: 'Critic', glyph: '🔁', text: l('lined up the next iteration', '排好了下一轮迭代'), tone: 'dim' };
   if (t === 'life.mission.completed' || t === 'mission.completed' || t === 'loop.completed') {
     const presentation = missionOutcomePresentation(ev);
     const summary = trunc(S(ev, 'summary'), 240);
@@ -239,21 +239,21 @@ export function renderEvent(ev: EventMsg, locale: Locale = 'en'): Rendered | nul
     };
   }
   if (t === 'life.mission.failed' || t === 'mission.error')
-    return { role: 'engineer', label: 'Engineer', glyph: '❌', text: `${l('mission failed', '任务失败')} ${trunc(S(ev, 'reason') || S(ev, 'error'), 140)}`, tone: 'err', rule: true };
+    return { role: 'engineer', label: 'Engineer', glyph: '❌', text: `${l('this task failed', '这项任务失败了')} ${trunc(S(ev, 'reason') || S(ev, 'error'), 140)}`, tone: 'err', rule: true };
   if (t === 'loop.start')
     return { role: 'engineer', label: 'Engineer', glyph: '▶', text: trunc(S(ev, 'text') || S(ev, 'objective'), 160), tone: 'info' };
   if (t === 'loop.done')
-    return { role: 'engineer', label: 'Engineer', glyph: '🏁', text: `${l('loop done', '循环完成')} ${trunc(S(ev, 'text'), 120)}`, tone: 'dim' };
+    return { role: 'engineer', label: 'Engineer', glyph: '🏁', text: `${l('the run finished', '这次运行结束')} ${trunc(S(ev, 'text'), 120)}`, tone: 'dim' };
 
   // ── inbox / reports (accent)
   if (t === 'life.inbox.queued')
-    return { role: 'system', label: l('You', '你'), glyph: '📥', text: `${l('nudge', '追加指导')} · ${trunc(S(ev, 'text'), 160)}`, tone: 'accent' };
+    return { role: 'system', label: l('You', '你'), glyph: '📥', text: `${l('you added guidance', '你追加了指导')} · ${trunc(S(ev, 'text'), 160)}`, tone: 'accent' };
   if (t === 'final.report.ready' || t === 'pptx.report.ready')
     return { role: 'system', label: 'Argus', glyph: '📄', text: l('report ready', '报告已就绪'), tone: 'accent' };
   if (t === 'plan.completed')
     return { role: 'planner', label: 'Planner', glyph: '📋', text: l('plan completed', '计划已完成'), tone: 'accent' };
   if (t === 'daemon.stopping')
-    return { role: 'system', label: 'Argus', glyph: '🛑', text: l('stopping', '正在停止'), tone: 'err' };
+    return { role: 'system', label: 'Argus', glyph: '🛑', text: l('Argus is stopping', '正在停止'), tone: 'err' };
 
   // ── Guardian (监视守护) — Argus Panoptes keeping watch: the signals that fire
   // when a mission stalls, blocks, escalates, or a role backend fails. These are
@@ -261,29 +261,29 @@ export function renderEvent(ev: EventMsg, locale: Locale = 'en'): Rendered | nul
   // "waits" are dropped as noise), so THIS is where the operator sees the guardian
   // at work. Anything flagged operator_alert is surfaced loud regardless of type.
   if (t === 'round.reviewer_backend_failure')
-    return { role: 'system', label: l('Notice', '通知'), glyph: '!', text: l(`reviewer backend down — holding · ${trunc(S(ev, 'text'), 150)}`, `Reviewer 后端不可用 — 已暂停 · ${trunc(S(ev, 'text'), 150)}`), tone: 'err', rule: true };
+    return { role: 'system', label: l('Notice', '通知'), glyph: '!', text: l(`the Reviewer's model service is unreachable — waiting · ${trunc(S(ev, 'text'), 150)}`, `审阅者的模型服务连不上 — 先等待 · ${trunc(S(ev, 'text'), 150)}`), tone: 'err', rule: true };
   if (t === 'round.stall')
-    return { role: 'system', label: l('Notice', '通知'), glyph: '!', text: trunc(S(ev, 'text') || l('no forward progress', '没有取得进展'), 170), tone: 'warn' };
+    return { role: 'system', label: l('Notice', '通知'), glyph: '!', text: trunc(S(ev, 'text') || l('no progress this round', '这一轮没有进展'), 170), tone: 'warn' };
   if (t === 'round.escalated')
-    return { role: 'system', label: l('Notice', '通知'), glyph: '!', text: trunc(S(ev, 'text') || l('soft round limit — escalating external blockers', '达到软轮次上限 — 正在升级外部阻塞'), 170), tone: 'warn' };
+    return { role: 'system', label: l('Notice', '通知'), glyph: '!', text: trunc(S(ev, 'text') || l('many rounds without a finish — raising what is blocking the work', '轮次已经很多还没做完 — 把外部阻碍提出来'), 170), tone: 'warn' };
   if (t === 'life.planner.stall_escalation')
-    return { role: 'system', label: l('Notice', '通知'), glyph: '!', text: `${l('planner stalled', 'Planner 停滞')} — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'warn' };
+    return { role: 'system', label: l('Notice', '通知'), glyph: '!', text: `${l('the Planner is stuck', '规划者卡住了')} — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'warn' };
   if (t === 'life.budget.pause')
     return { role: 'system', label: l('Watch', '监控'), glyph: '⏸', text: l(`budget cap reached — paused · ${trunc(S(ev, 'text') || S(ev, 'reason'), 140)}`, `已达到预算上限 — 已暂停 · ${trunc(S(ev, 'text') || S(ev, 'reason'), 140)}`), tone: 'warn' };
   if (t === 'budget.reservation.denied')
-    return { role: 'system', label: l('Budget', '预算'), glyph: '$', text: `${l('budget denied', '预算申请被拒绝')} — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'err', rule: true };
+    return { role: 'system', label: l('Budget', '预算'), glyph: '$', text: `${l('not enough budget for this step', '这一步的预算不够')} — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'err', rule: true };
   if (t === 'budget.unpriced.blocked')
-    return { role: 'system', label: l('Budget', '预算'), glyph: '$', text: `${l('budget blocked by unresolved cost', '预算因成本未确定而阻塞')} — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'err', rule: true };
+    return { role: 'system', label: l('Budget', '预算'), glyph: '$', text: `${l('held until the cost of this step is known', '这一步的成本还不清楚，先不做')} — ${trunc(S(ev, 'reason') || S(ev, 'text'), 150)}`, tone: 'err', rule: true };
   if (t === 'life.lifecycle.block') return null;
   if (t === 'life.daemon.idle_timeout')
-    return { role: 'system', label: l('Watch', '监控'), glyph: '🟦', text: trunc(S(ev, 'text') || l('idle timeout — standing by', '空闲超时 — 正在待命'), 150), tone: 'dim' };
+    return { role: 'system', label: l('Watch', '监控'), glyph: '🟦', text: trunc(S(ev, 'text') || l('nothing to do for a while — standing by', '一段时间没有事做 — 待命中'), 150), tone: 'dim' };
   // round.watchdog.* only reach the feed in "full" verbosity — still render them.
   if (t === 'round.watchdog.restart_requested')
-    return { role: 'system', label: l('Watch', '监控'), glyph: '🔄', text: l(`stall caught — restarting the round · ${trunc(S(ev, 'reason'), 160)}`, `检测到停滞 — 正在重启本轮 · ${trunc(S(ev, 'reason'), 160)}`), tone: 'warn' };
+    return { role: 'system', label: l('Watch', '监控'), glyph: '🔄', text: l(`the round got stuck — starting it again · ${trunc(S(ev, 'reason'), 160)}`, `这一轮卡住了 — 重新开始这一轮 · ${trunc(S(ev, 'reason'), 160)}`), tone: 'warn' };
   if (t === 'engineer.failure_nudge')
-    return { role: 'engineer', label: 'Engineer', glyph: '⚠', text: `${l('repeated tool failure', '工具重复失败')} — ${trunc(S(ev, 'text') || S(ev, 'reason'), 160)}`, tone: 'warn' };
+    return { role: 'engineer', label: 'Engineer', glyph: '⚠', text: `${l('the same tool keeps failing', '同一个工具反复失败')} — ${trunc(S(ev, 'text') || S(ev, 'reason'), 160)}`, tone: 'warn' };
   if (t === 'mission.idle')
-    return { role: 'system', label: 'Argus', glyph: '🟦', text: trunc(S(ev, 'text') || l('idle — awaiting the next mission', '空闲 — 正在等待下一个任务'), 160), tone: 'dim' };
+    return { role: 'system', label: 'Argus', glyph: '🟦', text: trunc(S(ev, 'text') || l('idle — waiting for the next task', '空闲 — 正在等待下一个任务'), 160), tone: 'dim' };
   // Catch-all: any event the daemon flagged for the operator's eyes, surfaced
   // even if its type has no bespoke renderer (harness marks it, cockpit shows it).
   if ((ev as Record<string, unknown>).operator_alert === true) {
@@ -299,4 +299,16 @@ export function renderEvent(ev: EventMsg, locale: Locale = 'en'): Rendered | nul
 export function eventKey(ev: EventMsg, i: number): string {
   void i;
   return sharedEventKey(ev);
+}
+
+/** The Reviewer's verdict in words a reader outside the project understands. */
+function reviewVerdict(status: string, l: (english: string, chinese: string) => string): string {
+  const verdicts: Record<string, [string, string]> = {
+    done: ['the Reviewer was satisfied', '审阅者认可了这一轮'],
+    blocked: ['the Reviewer found the work stuck', '审阅者认为工作卡住了'],
+    no_progress: ['the Reviewer saw no progress', '审阅者没有看到进展'],
+  };
+  if (!status) return l('the Reviewer gave no verdict', '审阅者没有给出结论');
+  const verdict = verdicts[status] ?? ['the Reviewer asked for another pass', '审阅者要求再改一轮'];
+  return l(verdict[0], verdict[1]);
 }

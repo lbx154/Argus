@@ -144,9 +144,9 @@ function managerFailure(event: TypedArgusEvent, context: RenderContext): string 
   const phase = stringField(event, 'phase');
   const cause = stringField(event, 'cause') || stringField(event, 'backend_error');
   const raw = stringField(event, 'error');
-  if (!phase || !cause) return `${localized(context, 'routing failed', '分流失败')} ${clean(raw, context.density === 'full' ? 160 : 140)}`;
+  if (!phase || !cause) return `${localized(context, 'could not work out where this request belongs', '没能判断这个请求该归谁')} ${clean(raw, context.density === 'full' ? 160 : 140)}`;
   const labels: Record<string, [string, string]> = {
-    backend: ['backend', '后端'], parse: ['parse', '解析'], contract: ['contract:', '契约：'], timeout: ['timeout', '超时'],
+    backend: ['model service', '模型服务'], parse: ['reading the answer', '读取回答'], contract: ['answer shape:', '回答格式：'], timeout: ['timed out', '超时'],
   };
   const phaseLabel = labels[phase]
     ? localized(context, labels[phase][0], labels[phase][1])
@@ -155,8 +155,8 @@ function managerFailure(event: TypedArgusEvent, context: RenderContext): string 
   const attempt = attempts > 1
     ? localized(context, ` (attempt ${attempts})`, ` (第${attempts}次尝试)`)
     : '';
-  const summary = `${localized(context, 'routing failed', '分流失败')} · ${phaseLabel} ${cause}${attempt}`;
-  return raw ? `${summary} · ${localized(context, 'raw', '原始错误')}: ${raw}` : summary;
+  const summary = `${localized(context, 'could not work out where this request belongs', '没能判断这个请求该归谁')} · ${phaseLabel} ${cause}${attempt}`;
+  return raw ? `${summary} · ${localized(context, 'error text', '原始错误')}: ${raw}` : summary;
 }
 
 function roundNumber(event: TypedArgusEvent): string | number {
@@ -203,7 +203,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'engineer.progress':
       return progress(event, context);
     case 'life.manager.intent.started':
-      return model('manager', 'role.manager', '🧭', localized(context, 'classifying request…', '判断任务归属…'), 'info');
+      return model('manager', 'role.manager', '🧭', localized(context, 'working out what kind of request this is…', '判断这是什么样的请求…'), 'info');
     case 'life.manager.intent.completed': {
       const routing = formatMissionRouting({
         route: stringField(event, 'route') || 'team', vertical: stringField(event, 'vertical'),
@@ -233,34 +233,34 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.planner.verdict': {
       const done = stringField(event, 'status') === 'done' || row(event).project_done === true;
       return done
-        ? model('planner', 'role.planner', '🏁', localized(context, 'project done', '项目已完成'), 'ok')
-        : model('planner', 'role.planner', '📋', localized(context, `queued ${stringField(event, 'queued') || stringField(event, 'n') || 'next'} task(s)`, `已加入 ${stringField(event, 'queued') || stringField(event, 'n') || '下一'} 个任务`), 'accent');
+        ? model('planner', 'role.planner', '🏁', localized(context, 'the project is finished', '项目已完成'), 'ok')
+        : model('planner', 'role.planner', '📋', localized(context, `lined up ${stringField(event, 'queued') || stringField(event, 'n') || 'next'} task(s) to do next`, `已排好 ${stringField(event, 'queued') || stringField(event, 'n') || '下一'} 个接下来要做的任务`), 'accent');
     }
     case 'life.planner.task_added':
-      return model('planner', 'role.planner', '＋', `${localized(context, 'added', '已添加')} ${clean(stringField(event, 'title') || stringField(event, 'objective'), context.density === 'full' ? 160 : 140)}`, 'accent');
+      return model('planner', 'role.planner', '＋', `${localized(context, 'added a task', '新增任务')} · ${clean(stringField(event, 'title') || stringField(event, 'objective'), context.density === 'full' ? 160 : 140)}`, 'accent');
     case 'life.planner.task_skipped': {
       const reviewDeferred = stringField(event, 'skip_category') === 'paper_review_purchase_deferred';
       const prefix = reviewDeferred
-        ? localized(context, 'review purchase deferred', '已延后重复评审')
-        : localized(context, 'skipped duplicate', '已跳过重复任务');
+        ? localized(context, 'put off another paper review', '推迟了再买一次评审')
+        : localized(context, 'skipped a task already planned', '跳过了已在计划中的任务');
       return model('planner', 'role.planner', '⏭', `${prefix} ${clean(stringField(event, 'title'), context.density === 'full' ? 140 : 120)}`, 'dim');
     }
     case 'life.planner.normalized':
-      return model('planner', 'role.planner', '≋', `${localized(context, 'normalized', '已规范化')} · ${clean(stringField(event, 'diagnostic'), 180)}`, 'dim');
+      return model('planner', 'role.planner', '≋', `${localized(context, 'tidied the plan', '整理了计划')} · ${clean(stringField(event, 'diagnostic'), 180)}`, 'dim');
     case 'life.planner.waiting':
       return model('planner', 'role.planner', '⌛', `${localized(context, 'waiting', '等待中')} · ${clean(stringField(event, 'reason'), 180)}`, 'info');
     case 'life.planner.waiting_woken':
       return model('planner', 'role.planner', '↻', `${localized(context, 'resumed', '已唤醒')} · ${clean(stringField(event, 'wake_reason'), 180)}`, 'info');
     case 'life.planner.terminal_idle':
-      return model('planner', 'role.planner', 'Ⅱ', `${localized(context, 'idle', '空闲')} · ${clean(stringField(event, 'reason'), 180)}`, 'dim');
+      return model('planner', 'role.planner', 'Ⅱ', `${localized(context, 'nothing left to plan', '暂时没有要规划的')} · ${clean(stringField(event, 'reason'), 180)}`, 'dim');
     case 'life.planner.verification_probe':
       return context.showReasoning
-        ? model('planner', 'role.planner', '⌕', `${localized(context, 'verification probe', '验证探测')} · ${clean(stringField(event, 'reason'), 180)}`, 'dim')
+        ? model('planner', 'role.planner', '⌕', `${localized(context, 'checking that the plan still holds', '检查计划是否仍然成立')} · ${clean(stringField(event, 'reason'), 180)}`, 'dim')
         : hidden();
     case 'life.planner.error':
-      return model('planner', 'role.planner', '⚠', `${localized(context, 'planner error', 'Planner 错误')} ${clean(stringField(event, 'error') || stringField(event, 'text'), context.density === 'full' ? 160 : 140)}`, 'err');
+      return model('planner', 'role.planner', '⚠', `${localized(context, 'the Planner hit an error', '规划者出错')} ${clean(stringField(event, 'error') || stringField(event, 'text'), context.density === 'full' ? 160 : 140)}`, 'err');
     case 'life.mission.started':
-      return model('engineer', 'role.engineer', '🚀', clean(stringField(event, 'title') || stringField(event, 'objective') || stringField(event, 'text') || localized(context, 'mission started', '任务已开始'), context.density === 'full' ? 180 : 160), 'info');
+      return model('engineer', 'role.engineer', '🚀', clean(stringField(event, 'title') || stringField(event, 'objective') || stringField(event, 'text') || localized(context, 'started work on this task', '开始做这项任务'), context.density === 'full' ? 180 : 160), 'info');
     case 'round.start':
       return model('engineer', 'role.engineer', '──', localized(context, `round ${roundNumber(event)}`, `第 ${roundNumber(event)} 轮`), 'dim');
     case 'life.phase.started': {
@@ -269,11 +269,11 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return phase ? model(role, `role.${role}`, '🔄', localized(context, `entering ${phase}`, `进入 ${phase}`), 'info') : hidden();
     }
     case 'round.review.started':
-      return model('reviewer', 'role.reviewer', '🔄', localized(context, `review round ${roundNumber(event)}`, `审核第 ${roundNumber(event)} 轮`), 'info');
+      return model('reviewer', 'role.reviewer', '🔄', localized(context, `the Reviewer checks round ${roundNumber(event)}`, `审阅者检查第 ${roundNumber(event)} 轮`), 'info');
     case 'round.review.deferred':
-      return model('engineer', 'role.engineer', '↪', localized(context, `continues before review · ${clean(stringField(event, 'next_step'), context.density === 'full' ? 180 : 160)}`, `审核前继续执行 · ${clean(stringField(event, 'next_step'), context.density === 'full' ? 180 : 160)}`), 'info');
+      return model('engineer', 'role.engineer', '↪', localized(context, `carries on into the next round without a review · ${clean(stringField(event, 'next_step'), context.density === 'full' ? 180 : 160)}`, `不经审阅直接进入下一轮 · ${clean(stringField(event, 'next_step'), context.density === 'full' ? 180 : 160)}`), 'info');
     case 'round.main.completed':
-      return model('engineer', 'role.engineer', '✅', localized(context, `round ${roundNumber(event)} completed`, `第 ${roundNumber(event)} 轮已完成`), 'info');
+      return model('engineer', 'role.engineer', '✅', localized(context, `finished round ${roundNumber(event)} of work`, `第 ${roundNumber(event)} 轮工作已完成`), 'info');
     case 'round.review.completed': {
       if (event.review_skipped === true) {
         return model('reviewer', 'role.reviewer', '↪', `${localized(context, 'no review this round', '这一轮没有审阅')} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, 'info');
@@ -281,7 +281,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       const status = stringField(event, 'status');
       const tone: RenderTone = status === 'done' ? 'ok' : status === 'blocked' || status === 'no_progress' ? 'err' : 'warn';
       const glyph = status === 'done' ? '✅' : status === 'blocked' || status === 'no_progress' ? '⛔' : '↻';
-      return model('reviewer', 'role.reviewer', glyph, `${status || '?'} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, tone);
+      return model('reviewer', 'role.reviewer', glyph, `${reviewVerdict(status, context)} · ${clean(stringField(event, 'reason'), context.density === 'full' ? 200 : 160)}`, tone);
     }
     case 'life.mission.completed': {
       const presentation = missionOutcomePresentation(row(event));
@@ -289,35 +289,35 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return model('engineer', 'role.engineer', presentation.glyph, summary ? `${presentation.label} · ${summary}` : presentation.label, presentation.tone);
     }
     case 'life.mission.failed':
-      return model('engineer', 'role.engineer', '❌', `${localized(context, 'mission failed', '任务失败')} ${clean(stringField(event, 'reason') || stringField(event, 'error'), context.density === 'full' ? 160 : 140)}`, 'err');
+      return model('engineer', 'role.engineer', '❌', `${localized(context, 'this task failed', '这项任务失败了')} ${clean(stringField(event, 'reason') || stringField(event, 'error'), context.density === 'full' ? 160 : 140)}`, 'err');
     case 'loop.start':
       return model('engineer', 'role.engineer', '▶', clean(stringField(event, 'text') || stringField(event, 'objective'), context.density === 'full' ? 16_000 : 160), 'info', { expandable: context.density === 'full' });
     case 'loop.done':
-      return model('engineer', 'role.engineer', '🏁', `${localized(context, 'loop done', '循环完成')} ${clean(stringField(event, 'text'), context.density === 'full' ? 140 : 120)}`, 'dim');
+      return model('engineer', 'role.engineer', '🏁', `${localized(context, 'the run finished', '这次运行结束')} ${clean(stringField(event, 'text'), context.density === 'full' ? 140 : 120)}`, 'dim');
     case 'life.inbox.queued':
-      return model('system', 'role.operator', '📥', `${localized(context, 'nudge', '追加指导')} · ${clean(stringField(event, 'text'), context.density === 'full' ? 180 : 160)}`, 'accent');
+      return model('system', 'role.operator', '📥', `${localized(context, 'you added guidance', '你追加了指导')} · ${clean(stringField(event, 'text'), context.density === 'full' ? 180 : 160)}`, 'accent');
     case 'daemon.parked':
-      return context.density === 'compact' ? hidden() : model('system', 'role.system', 'Ⅱ', `session parked · state saved${stringField(event, 'replaced_by') ? ` · replaced by ${stringField(event, 'replaced_by')}` : ''}`, 'warn');
+      return context.density === 'compact' ? hidden() : model('system', 'role.system', 'Ⅱ', `Argus set this project aside with its state saved${stringField(event, 'replaced_by') ? ` · continued as ${stringField(event, 'replaced_by')}` : ''}`, 'warn');
     case 'provider.request.denied':
-      return context.density === 'compact' ? hidden() : model('system', 'event.quota', '⏸', `${stringField(event, 'provider') || 'provider'} request blocked · ${clean(stringField(event, 'reason'), 160)}`, 'warn');
+      return context.density === 'compact' ? hidden() : model('system', 'event.quota', '⏸', `a request to ${stringField(event, 'provider') || 'the model service'} was held back · ${clean(stringField(event, 'reason'), 160)}`, 'warn');
     case 'round.reviewer_backend_failure':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', context.density === 'full' ? `reviewer backend down — holding, won't continue blind · ${clean(stringField(event, 'text'), 150)}` : `reviewer backend down — holding · ${clean(stringField(event, 'text'), 150)}`, 'err');
+      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', context.density === 'full' ? `the Reviewer's model service is unreachable — waiting rather than going on unchecked · ${clean(stringField(event, 'text'), 150)}` : `the Reviewer's model service is unreachable — waiting · ${clean(stringField(event, 'text'), 150)}`, 'err');
     case 'round.stall':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, context.density === 'full' ? 'no forward progress — watching closely' : 'no forward progress', '没有取得进展'), 170), 'warn');
+      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, context.density === 'full' ? 'no progress this round — keeping a close eye on it' : 'no progress this round', '这一轮没有进展'), 170), 'warn');
     case 'round.escalated':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, 'soft round limit — escalating external blockers', '达到软轮次上限 — 正在升级外部阻塞'), 170), 'warn');
+      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || localized(context, 'many rounds without a finish — raising what is blocking the work', '轮次已经很多还没做完 — 把外部阻碍提出来'), 170), 'warn');
     case 'life.planner.stall_escalation':
-      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', `${localized(context, 'planner stalled', 'Planner 停滞')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), 150)}`, 'warn');
+      return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', `${localized(context, 'the Planner is stuck', '规划者卡住了')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), 150)}`, 'warn');
     case 'life.budget.pause':
       return model('system', 'event.watch', '⏸', localized(context, `budget cap reached — paused · ${clean(stringField(event, 'text') || stringField(event, 'reason'), 140)}`, `已达到预算上限 — 已暂停 · ${clean(stringField(event, 'text') || stringField(event, 'reason'), 140)}`), 'warn');
     case 'budget.reservation.denied':
-      return model('system', 'event.budget', '$', `${localized(context, 'budget denied', '预算申请被拒绝')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), context.density === 'full' ? 160 : 150)}`, 'err');
+      return model('system', 'event.budget', '$', `${localized(context, 'not enough budget for this step', '这一步的预算不够')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), context.density === 'full' ? 160 : 150)}`, 'err');
     case 'budget.unpriced.blocked':
-      return model('system', 'event.budget', '$', `${localized(context, 'budget blocked by unresolved cost', '预算因成本未确定而阻塞')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), context.density === 'full' ? 160 : 150)}`, 'err');
+      return model('system', 'event.budget', '$', `${localized(context, 'held until the cost of this step is known', '这一步的成本还不清楚，先不做')} — ${clean(stringField(event, 'reason') || stringField(event, 'text'), context.density === 'full' ? 160 : 150)}`, 'err');
     case 'life.lifecycle.block':
       return context.density === 'compact' ? hidden() : model('system', 'event.watch', '⛔', `blocked — needs you · ${clean(stringField(event, 'text') || stringField(event, 'reason'), 150)}`, 'err');
     case 'life.daemon.idle_timeout':
-      return model('system', 'event.watch', '🟦', clean(stringField(event, 'text') || localized(context, 'idle timeout — standing by', '空闲超时 — 正在待命'), 150), 'dim');
+      return model('system', 'event.watch', '🟦', clean(stringField(event, 'text') || localized(context, 'nothing to do for a while — standing by', '一段时间没有事做 — 待命中'), 150), 'dim');
     case 'operator_alert':
       return model('system', 'event.notice', context.density === 'full' ? '👁' : '!', clean(stringField(event, 'text') || stringField(event, 'reason') || event.type, 170), 'err');
 
@@ -355,4 +355,16 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
 
 export function renderText(modelValue: RenderModel): string {
   return modelValue.segments.map((segment) => segment.text).join('');
+}
+
+/** The Reviewer's verdict in words a reader outside the project understands. */
+function reviewVerdict(status: string, context: RenderContext): string {
+  const verdicts: Record<string, [string, string]> = {
+    done: ['the Reviewer was satisfied', '审阅者认可了这一轮'],
+    blocked: ['the Reviewer found the work stuck', '审阅者认为工作卡住了'],
+    no_progress: ['the Reviewer saw no progress', '审阅者没有看到进展'],
+  };
+  if (!status) return localized(context, 'the Reviewer gave no verdict', '审阅者没有给出结论');
+  const verdict = verdicts[status] ?? ['the Reviewer asked for another pass', '审阅者要求再改一轮'];
+  return localized(context, verdict[0], verdict[1]);
 }

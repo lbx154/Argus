@@ -101,6 +101,16 @@ export function foldLayout(
     adjacent[e.source].push({ index: e.target, weight: e.weight });
     adjacent[e.target].push({ index: e.source, weight: e.weight });
   }
+  // Cards that hand work to each other sit closer together than cards that
+  // merely follow one another in time, so a column reads as groups of related
+  // work rather than as an evenly spaced list.
+  const linked = new Set(
+    edges.filter((e) => e.weight === 1).map((e) => `${Math.min(e.source, e.target)}:${Math.max(e.source, e.target)}`),
+  );
+  const gapBetween = (above: string, below: string) => {
+    const a = index.get(above)!, b = index.get(below)!;
+    return linked.has(`${Math.min(a, b)}:${Math.max(a, b)}`) ? ROW_GAP : ROW_GAP * 1.3;
+  };
   const area = ids.reduce(
     (sum, id) => sum + sizes[id].width * sizes[id].height,
     0,
@@ -176,13 +186,13 @@ export function foldLayout(
     let x = 0;
     columns.forEach((column, col) => {
       let y = (height - heights[col]) / 2;
-      for (const id of column) {
+      column.forEach((id, i) => {
         positions[id] = { x: x + (widths[col] - sizes[id].width) / 2, y };
-        y += sizes[id].height + ROW_GAP;
-      }
+        y += sizes[id].height + (i + 1 < column.length ? gapBetween(id, column[i + 1]) : 0);
+      });
       x += widths[col] + columnGap;
     });
-    sweepColumns(columns, positions, ids, index, sizes, adjacent, () => ROW_GAP);
+    sweepColumns(columns, positions, ids, index, sizes, adjacent, gapBetween);
     const top = Math.min(...ids.map((id) => positions[id].y));
     for (const id of ids) positions[id].y -= top;
     height = Math.max(...ids.map((id) => positions[id].y + sizes[id].height));

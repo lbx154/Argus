@@ -121,11 +121,11 @@ describe('renderEvent', () => {
     } as EventMsg;
 
     expect(renderEvent(event)?.text).toBe(
-      'routing failed · backend 401 Missing bearer (attempt 2) · raw: '
+      'could not work out where this request belongs · model service 401 Missing bearer (attempt 2) · error text: '
       + 'VerticalDecisionError: routing failed [backend]: 401 Missing bearer',
     );
     expect(renderEvent(event, 'zh-CN')?.text).toContain(
-      '分流失败 · 后端 401 Missing bearer (第2次尝试)',
+      '没能判断这个请求该归谁 · 模型服务 401 Missing bearer (第2次尝试)',
     );
   });
 
@@ -460,7 +460,7 @@ describe('semantic renderer shadow comparison', () => {
     expect(renderSemanticEvent(blocked, { ...WEB_RENDER_CONTEXT, density: 'full' }).visibility).toBe('alert');
 
     const started = EVENT_CORPUS.fixtures.find((row) => row.id === 'life.manager.intent.started')!.event;
-    expect(renderText(renderSemanticEvent(started, { ...WEB_RENDER_CONTEXT, locale: 'zh-CN' }))).toBe('判断任务归属…');
+    expect(renderText(renderSemanticEvent(started, { ...WEB_RENDER_CONTEXT, locale: 'zh-CN' }))).toBe('判断这是什么样的请求…');
 
     const unknown = { type: 'future.event', text: 'kept for grep' } as unknown as TypedArgusEvent;
     expect(renderSemanticEvent(unknown, WEB_RENDER_CONTEXT).visibility).toBe('hidden');
@@ -474,9 +474,9 @@ describe('semantic renderer shadow comparison', () => {
       // A failed command was incorrectly dim in web even though TUI marks it as an error.
       'engineer.progress.failed-command': { tone: 'err', visibility: 'alert' },
       // The old label says duplicate even when policy deferred an unnecessary review purchase.
-      'life.planner.task_skipped.review-purchase-deferred': { text: 'review purchase deferred Purchase another paper review' },
+      'life.planner.task_skipped.review-purchase-deferred': { text: 'put off another paper review Purchase another paper review' },
       // These catalog events currently fall through the web whitelist despite carrying operator meaning.
-      'life.planner.normalized': { text: 'normalized · removed duplicate planner task' },
+      'life.planner.normalized': { text: 'tidied the plan · removed duplicate planner task' },
       // The old renderer leaves a trailing space when this schema has no objective field.
       'life.planner.start': { text: 'planning' },
       'life.planner.waiting': { role: 'planner', visibility: 'normal' },
