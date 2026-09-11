@@ -67,7 +67,16 @@ describe('file reading experience', () => {
 });
 
 describe('role identity and focused workbench', () => {
-  it.each(['idle', 'active', 'done', 'error'])('keeps four distinct role markers when roles are %s', (status) => {
+  it('shows no team strip while no role has done anything and no executor is running', () => {
+    for (const status of ['idle', 'waiting']) {
+      const view = emptyMissionView();
+      for (const role of view.roles) role.status = status;
+      const html = renderToStaticMarkup(createElement(MissionControl, { view }));
+      expect(html).not.toContain('data-role-dot=');
+    }
+  });
+
+  it.each(['active', 'done', 'error'])('keeps four distinct role markers when roles are %s', (status) => {
     const view = emptyMissionView();
     for (const role of view.roles) role.status = status;
     const html = renderToStaticMarkup(createElement(MissionControl, { view }));

@@ -160,9 +160,6 @@ export function Sidebar({
                 }`}
               >
                 {t(`common.${value}`)}
-                <span className="ml-1.5 font-mono text-ink-faint">
-                  {value === 'local' ? localProjects.length : projects.length}
-                </span>
               </button>
             ))}
             <button
@@ -232,7 +229,6 @@ export function Sidebar({
                   <FontAwesomeIcon icon={faChevronDown} className={`h-2.5 w-2.5 transition-transform ${groupIsCollapsed(path) ? '-rotate-90' : ''}`} />
                   <FontAwesomeIcon icon={faFolder} className="h-3 w-3" />
                   <span className="min-w-0 flex-1 truncate">{projectGroupLabel(path)}</span>
-                  <span className="font-mono text-[10px]">{rows.length}</span>
                 </button>
                 {!groupIsCollapsed(path) ? rows.map((project) => {
                   const active = project.id === activeId;
