@@ -1033,6 +1033,87 @@ def manager_resolve_operator_decision(
         return result
 
 
+_ACK_TITLE_LIMIT = 80
+
+
+def _dispatch_ack_text(result: dict[str, Any], daemon: Any, daemon_alive: bool) -> str:
+    """The sentence Argus says once a request has been handed to the executor."""
+    from ..core.operator_messages import uses_cjk
+
+    item = result.get("item") if isinstance(result.get("item"), dict) else {}
+    title = " ".join(str(item.get("title") or item.get("objective") or "").split())
+    if len(title) > _ACK_TITLE_LIMIT:
+        title = title[: _ACK_TITLE_LIMIT - 1] + "…"
+    zh = uses_cjk(title)
+    named = (f"：{title}" if zh else f": {title}") if title else ""
+    dispatch_state = result.get("dispatch_state")
+    if dispatch_state == "already_queued":
+        status = str(item.get("status") or "queued")
+        return (
+            f"这件事已经在队列里了（{status}），没有重复创建。"
+            if zh
+            else f"This request is already queued ({status}); no duplicate task was created."
+        )
+    if dispatch_state == "queued_after_current":
+        return (
+            f"已排在当前工作之后{named}。正在进行的任务会先做完。"
+            if zh
+            else f"Queued after the current work{named}. The task in progress finishes first."
+        )
+    if dispatch_state == "queued":
+        return (
+            f"已加入队列，执行者接下来会处理{named}"
+            if zh
+            else f"Queued; the running executor picks it up next{named}"
+        )
+    if dispatch_state == "running":
+        return f"正在执行{named}" if zh else f"Running now{named}"
+    if dispatch_state == "planner_pending":
+        if daemon_alive:
+            return (
+                "目标已更新，Planner 会在当前工作之后安排它。"
+                if zh
+                else "Objective updated; the Planner will schedule it after the current work."
+            )
+        return (
+            "目标已更新，执行者正在启动，Planner 会安排它。"
+            if zh
+            else "Objective updated; the executor is starting and the Planner will schedule it."
+        )
+    if daemon is None and daemon_alive:
+        return (
+            f"执行者已在运行，这件事已交给它{named}"
+            if zh
+            else f"The executor is already running and now has this task{named}"
+        )
+    if isinstance(daemon, dict):
+        if daemon.get("admission_required"):
+            return (
+                f"正在等待空闲的执行槽位{named}"
+                if zh
+                else f"Waiting for a free executor slot{named}"
+            )
+        if int(daemon.get("rc", 0)) != 0:
+            diagnostic = str(
+                daemon.get("startup_diagnostic")
+                or daemon.get("diagnostic")
+                or daemon.get("error")
+                or "unknown error"
+            )
+            daemon["diagnostic"] = diagnostic
+            daemon["error"] = "The background worker could not start."
+            return (
+                "后台执行者没能启动。请查看它的启动详情后再试一次。"
+                if zh
+                else "The background worker could not start. Check its startup details and try again."
+            )
+    return (
+        f"已交给团队，开始执行{named}"
+        if zh
+        else f"Handed to the team; work has started{named}"
+    )
+
+
 def record_task_dispatch_ack(
     sid: str,
     result: dict[str, Any],
@@ -1055,51 +1136,10 @@ def record_task_dispatch_ack(
     daemon = result.get("daemon")
     daemon_alive = result.get("daemon_alive", False)
 
-    # Derive truthful human-readable text
-    dispatch_state = result.get("dispatch_state")
-    if dispatch_state == "already_queued":
-        status = str((result.get("item") or {}).get("status") or "queued")
-        text = (
-            f"request already queued ({status}); no duplicate task was created"
-        )
-    elif dispatch_state == "queued_after_current":
-        text = (
-            "queued after current work; the active executor remains on its "
-            "current mission"
-        )
-    elif dispatch_state == "queued":
-        text = "queued; the active executor will pick up this task"
-    elif dispatch_state == "running":
-        text = "task is running on the active executor"
-    elif dispatch_state == "planner_pending":
-        text = (
-            "campaign updated; the active executor will sequence this objective "
-            "through Planner after current work"
-            if daemon_alive
-            else "campaign updated; executor is starting and Planner will sequence it"
-        )
-    elif daemon is None and daemon_alive:
-        text = "executor already running"
-    elif isinstance(daemon, dict):
-        if daemon.get("admission_required"):
-            text = "waiting for an executor slot"
-        elif int(daemon.get("rc", 0)) != 0:
-            diagnostic = str(
-                daemon.get("startup_diagnostic")
-                or daemon.get("diagnostic")
-                or daemon.get("error")
-                or "unknown error"
-            )
-            daemon["diagnostic"] = diagnostic
-            daemon["error"] = "The background worker could not start."
-            text = (
-                "The background worker could not start. "
-                "Check its startup details and try again."
-            )
-        else:
-            text = "executor started"
-    else:
-        text = "executor started"
+    # Derive truthful human-readable text, in the operator's language and
+    # naming the task, so the acknowledgement reads as a sentence rather than
+    # a status code.
+    text = _dispatch_ack_text(result, daemon, daemon_alive)
 
     # Resolve life_dir
     root = Path(global_root) if global_root else None

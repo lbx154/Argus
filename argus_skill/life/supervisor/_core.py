@@ -1736,6 +1736,42 @@ class LifeSupervisor(
                 })
         return delivered
 
+    def _continuation_line(self, item_id: str, chinese: bool) -> str:
+        """Say what happens after a finished task, naming the next queued item.
+
+        Each continued task used to end with the same generic sentence, so a
+        long campaign showed it a dozen times in a row. Reading the backlog
+        here keeps the line specific to this moment.
+        """
+        pending: list[Any] = []
+        try:
+            pending = [
+                row for row in self.memory.backlog.pending() if row.id != item_id
+            ]
+        except Exception:  # noqa: BLE001 - a status line must not break settlement
+            pending = []
+        if not pending:
+            return (
+                "计划里暂时没有下一项，Planner 正在决定接下来做什么。"
+                if chinese
+                else "Nothing is queued yet; the Planner is deciding what comes next."
+            )
+        next_title = " ".join(str(pending[0].title or "").split()) or (
+            "下一项" if chinese else "the next item"
+        )
+        more = len(pending) - 1
+        if chinese:
+            tail = f"，之后还有 {more} 项" if more > 0 else ""
+            return f"接下来做：{next_title}{tail}。"
+        tail = (
+            f", with {more} more queued after it"
+            if more > 1
+            else ", with one more queued after it"
+            if more == 1
+            else ""
+        )
+        return f"Next up: {next_title}{tail}."
+
     def _publish_mission_completion_message(self, event: dict[str, Any]) -> None:
         """Tell the operator a Team mission ended without another model call."""
         try:
@@ -1993,11 +2029,7 @@ class LifeSupervisor(
                 )
                 return
             if campaign_continues:
-                continuation = (
-                    "任务已继续；Planner 正在选择下一步工作。"
-                    if chinese
-                    else "Task continues; Planner is selecting the next work item."
-                )
+                continuation = self._continuation_line(item_id, chinese)
             elif final_submission_certified:
                 continuation = (
                     "最终交付已通过独立审核。"

@@ -1320,9 +1320,9 @@ class TestManagerMessageLifecycleErrors:
 # ── Dispatch acknowledgement persistence ────────────────────────────────────
 
 _DISPATCH_ACK_CASES = [
-    ({"rc": 0, "pid": 42}, "executor started"),
-    (None, "executor already running"),
-    ({"admission_required": True}, "waiting for an executor slot"),
+    ({"rc": 0, "pid": 42}, "work has started"),
+    (None, "already running"),
+    ({"admission_required": True}, "Waiting for a free executor slot"),
     (
         {"rc": 2, "error": "auth failed"},
         "The background worker could not start. Check its startup details and try again.",
@@ -1434,17 +1434,17 @@ def test_dispatch_ack_distinguishes_durable_campaign_update(tmp_path: Path) -> N
         global_root=tmp_path,
     )
 
-    assert "campaign updated" in text
-    assert "after current work" in text
-    assert "executor already running" not in text
+    assert "Objective updated" in text
+    assert "after the current work" in text
+    assert "already running" not in text
 
 
 @pytest.mark.parametrize(
     ("dispatch_state", "expected"),
     [
-        ("queued_after_current", "queued after current work"),
-        ("queued", "active executor will pick up"),
-        ("running", "task is running on the active executor"),
+        ("queued_after_current", "Queued after the current work"),
+        ("queued", "running executor picks it up next"),
+        ("running", "Running now"),
         ("already_queued", "no duplicate task was created"),
     ],
 )
@@ -1533,3 +1533,22 @@ def test_dispatch_ack_surfaces_transcript_write_failure(
     assert len(queued) == 1
     assert queued[0].id == result["item"]["id"]
     assert queued[0].status == "pending"
+
+
+def test_dispatch_ack_names_the_task_in_the_operator_language(tmp_path: Path) -> None:
+    from argus_skill.webapi.manager_pending_question import record_task_dispatch_ack
+
+    (tmp_path / "projects" / "s-ack").mkdir(parents=True)
+    result: dict = {
+        "kind": "task",
+        "daemon_alive": True,
+        "daemon": {"rc": 0, "pid": 7},
+        "item": {"id": "t1", "title": "请做一个 8 页的 PPT，介绍 Argus。", "status": "pending"},
+    }
+    text = record_task_dispatch_ack("s-ack", result, global_root=tmp_path)
+    assert text == "已交给团队，开始执行：请做一个 8 页的 PPT，介绍 Argus。"
+
+    result = {"kind": "task", "daemon_alive": True, "daemon": None,
+              "item": {"id": "t2", "title": "Write the release notes", "status": "pending"}}
+    text = record_task_dispatch_ack("s-ack", result, global_root=tmp_path)
+    assert text == "The executor is already running and now has this task: Write the release notes"
