@@ -1191,6 +1191,13 @@ def _run_triage_and_fallbacks(
 
     if reply is not None:
         result: dict[str, Any] = {"kind": "chat"}
+        failure = chat_state.pop("_self_failure", None)
+        if failure is not None:
+            result.update({
+                "mission_result": True,
+                "success": False,
+                "summary": failure,
+            })
         delivery = chat_state.pop("_self_delivery", None)
         if isinstance(delivery, dict):
             result.update({
