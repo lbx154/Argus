@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, Header, HTTPException, Response
+from fastapi import Depends, Header, HTTPException, Request, Response
 
 from .context import ServerContext
 from .models import BudgetSetIn, ConfigSetIn, IdentitySetIn, SkillsIn
@@ -163,7 +163,7 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
         )
 
     @app.get("/api/system/doctor", dependencies=[Depends(ctx.require_auth)])
-    def _system_doctor() -> dict[str, Any]:
+    def _system_doctor(request: Request) -> dict[str, Any]:
         """Read-only typed host/runtime inventory for Web and Desktop support."""
         import sys
         from pathlib import Path
@@ -174,12 +174,15 @@ def register_meta_routes(app, ctx: ServerContext, server_mod) -> None:
         root = server_mod._global_root(ctx.global_root)
         source = source_root()
         checkout = source if (source / "pyproject.toml").is_file() else None
+        web_host, web_port = request.scope["server"]
         report = run_full_doctor(
             DoctorContext(
                 global_root=root,
                 project_root=root,
                 checkout=checkout,
                 python_executable=Path(sys.executable),
+                web_host=web_host,
+                web_port=web_port,
                 install_mode=(
                     "frozen" if getattr(sys, "frozen", False)
                     else "source" if checkout is not None

@@ -285,9 +285,9 @@ describe('shared frontend core', () => {
     const dark = renderToStaticMarkup(createElement(Sidebar, { ...props, themeMode: 'dark' }));
     expect(light).toContain('Settings');
     expect(light).toContain('data-icon="gear"');
-    expect(light).toContain('data-icon="sun"');
+    expect(light).toContain('lucide-sun');
     expect(light).toContain('switch to dark');
-    expect(dark).toContain('data-icon="moon"');
+    expect(dark).toContain('lucide-moon');
     expect(dark).toContain('switch to light');
     expect(`${light}${dark}`).not.toContain('system');
     expect(`${light}${dark}`).not.toContain('desktop');

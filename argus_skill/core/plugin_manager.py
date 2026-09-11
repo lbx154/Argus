@@ -10,6 +10,7 @@ import hashlib
 import importlib
 import importlib.util
 import json
+import logging
 import os
 import platform
 import re
@@ -29,10 +30,16 @@ from .paths import global_root
 
 API_VERSION = 1
 UNSUPPORTED = "暂不支持，敬请期待。当前插件支持 Codex、Copilot 和 Pi。"
+# A deployment lists the catalog ids that must simply be there, comma separated.
+# The web server prepares them at startup and the interface shows them as
+# provided by the service, with no install, disable or uninstall controls.
+PREINSTALL_ENV = "ARGUS_PLUGINS_PREINSTALL"
+HOST_MANAGED = "此插件由服务方提供并维护，无需停用或卸载。"
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 _loaded: dict[tuple[str, str, str], object] = {}
 _jobs: dict[tuple[str, str], threading.Thread] = {}
 _lock = threading.RLock()
+log = logging.getLogger(__name__)
 
 
 class PluginError(ValueError):
@@ -76,6 +83,21 @@ def catalog():
 
 def registry(root=None):
     return read_json(install_root(root) / "registry.json")
+
+
+def preinstalled_ids(env=None):
+    """Return the catalog ids the deployment declares, each once, in order."""
+    raw = (os.environ if env is None else env).get(PREINSTALL_ENV, "")
+    ids = []
+    for part in raw.split(","):
+        part = part.strip()
+        if part and part not in ids:
+            ids.append(part)
+    return ids
+
+
+def managed_by_host(name, env=None):
+    return name in preinstalled_ids(env)
 
 
 def state_entry(plugin_id, root=None):
@@ -206,6 +228,7 @@ def _busy(plugin_id, root):
 
 def plugin_rows(root=None):
     root = host_root(root)
+    managed = set(preinstalled_ids())
     rows = []
     for name, spec in catalog().items():
         state = state_entry(name, root)
@@ -238,6 +261,7 @@ def plugin_rows(root=None):
                 "operation": operation,
                 "health": read_json(install_root(root) / name / "resources" / "health.json"),
                 "available": c["supported"] and bool(state.get("enabled")),
+                "managed_by_host": name in managed,
                 "url": f"/plugins/{name}/",
             }
         )
@@ -602,6 +626,8 @@ def mutate(name, action, root=None, *, payload=None):
             )
         if action not in {"enable", "disable", "uninstall"}:
             raise PluginError("Unknown plugin operation")
+        if action != "enable" and managed_by_host(name):
+            raise PluginError(HOST_MANAGED)
         if not row.get("release"):
             raise PluginError("插件尚未安装")
         if action == "enable" and not compatibility(spec)["supported"]:
@@ -620,3 +646,96 @@ def mutate(name, action, root=None, *, payload=None):
         if action == "uninstall":
             shutil.rmtree(directory / "releases", ignore_errors=True)
         return {"status": "completed", "data_retained": True}
+
+
+def preinstall_need(name, root=None):
+    """Return what a declared plugin still needs: install, update, enable, or None."""
+    spec = catalog().get(name)
+    if not spec:
+        raise PluginError("Unknown plugin")
+    row = state_entry(name, root)
+    if not row.get("release"):
+        return "install"
+    if row.get("version") != spec["version"] or installed_digest(row, root) != spec.get(
+        "artifact", {}
+    ).get("sha256"):
+        return "update"
+    if not row.get("enabled"):
+        return "enable"
+    return None
+
+
+def wait_for_operation(name, root=None, timeout=10800):
+    """Block until the plugin's running operation ends and return its final record."""
+    root = host_root(root)
+    deadline = time.monotonic() + timeout
+    thread = _jobs.get((str(root), name))
+    if thread is not None:
+        thread.join(timeout)
+    while True:
+        operation = read_json(install_root(root) / name / "operation.json")
+        if operation.get("status") != "running" or not _job_alive(root, name, operation):
+            return operation
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"Plugin {name} did not finish within {timeout:.0f} seconds")
+        time.sleep(1)
+
+
+def preinstall(root=None, *, ids=None, wait=False, timeout=10800, logger=None):
+    """Bring every declared plugin to installed, enabled and current.
+
+    The web server calls this once at startup on its own thread, so a slow
+    download never delays the interface; the image-build command calls it with
+    ``wait`` so the shared root is complete before the image is sealed. A
+    plugin that is already current is left untouched, and one whose operation
+    is still running is left to finish rather than started twice. Returns one
+    record per id with a ``status`` of ready, running, completed or failed.
+    """
+    logger = logger or log
+    root = host_root(root)
+    results = {}
+    for name in preinstalled_ids() if ids is None else list(ids):
+        try:
+            need = preinstall_need(name, root)
+        except PluginError as exc:
+            logger.warning("Plugin %s cannot be prepared: %s", name, exc)
+            results[name] = {"status": "failed", "error": str(exc)}
+            continue
+        if need is None:
+            logger.info("Plugin %s is installed, enabled and current under %s", name, root)
+            results[name] = {"status": "ready"}
+            continue
+        operation = read_json(install_root(root) / name / "operation.json")
+        if operation.get("status") == "running" and _job_alive(root, name, operation):
+            action = operation.get("action", need)
+            logger.info("Plugin %s already has a %s operation running; leaving it to finish", name, action)
+            record = {"status": "running", "action": action}
+        else:
+            try:
+                outcome = mutate(name, need, root)
+            except PluginError as exc:
+                logger.warning("Plugin %s could not start its %s: %s", name, need, exc)
+                results[name] = {"status": "failed", "action": need, "error": str(exc)}
+                continue
+            record = {"status": outcome["status"], "action": need}
+            logger.info(
+                "Plugin %s: %s %s under %s",
+                name,
+                "started" if record["status"] == "running" else "finished",
+                need,
+                root,
+            )
+        if wait and record["status"] == "running":
+            final = wait_for_operation(name, root, timeout)
+            record["status"] = "completed" if final.get("status") == "completed" else "failed"
+            if final.get("error"):
+                record["error"] = final["error"]
+            (logger.info if record["status"] == "completed" else logger.warning)(
+                "Plugin %s: %s %s%s",
+                name,
+                record["action"],
+                record["status"],
+                f" ({record['error']})" if record.get("error") else "",
+            )
+        results[name] = record
+    return results

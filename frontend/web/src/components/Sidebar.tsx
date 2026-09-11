@@ -7,6 +7,7 @@ import { ago, uptime } from '../lib/format';
 import { filterProjects, hasHumanProjectLabel } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { Moon, Sun } from 'lucide-react';
 import {
   faAnglesLeft,
   faAnglesRight,
@@ -16,9 +17,7 @@ import {
   faGear,
   faLanguage,
   faMicrochip,
-  faMoon,
   faPlay,
-  faSun,
 } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
 
@@ -117,7 +116,7 @@ export function Sidebar({
     });
     return [...groups.entries()];
   }, [normalizedLocalCwd, scope, visible]);
-  const themeIcon = themeMode === 'light' ? faSun : faMoon;
+  const ThemeIcon = themeMode === 'light' ? Sun : Moon;
   const nextTheme = themeMode === 'light' ? 'dark' : 'light';
   const groupIsCollapsed = (path: string) => collapsedGroups.has(path) && !query.trim();
 
@@ -347,7 +346,7 @@ export function Sidebar({
               <FontAwesomeIcon icon={faLanguage} className="h-3.5 w-3.5" />
             </button>
             <button type="button" onClick={onCycleTheme} title={t('sidebar.theme', { current: themeMode, next: nextTheme })} aria-label={t('sidebar.theme', { current: themeMode, next: nextTheme })} className="icon-control flex h-8 w-8 items-center justify-center">
-              <FontAwesomeIcon icon={themeIcon} className="h-3.5 w-3.5" />
+              <ThemeIcon className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden="true" />
             </button>
           </div>
         </>

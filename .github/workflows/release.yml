@@ -2,7 +2,7 @@ name: release
 
 # Release version changes are operator-controlled. Do not bump package versions
 # for a bug fix unless the operator explicitly authorizes that release change.
-# v0.1.2 through v0.1.5 are operator-authorized desktop releases, published explicitly
+# v0.1.2 through v0.1.6 are operator-authorized desktop releases, published explicitly
 # without running test suites. Tests belong to the separate tests workflow.
 
 on:
@@ -174,7 +174,7 @@ jobs:
 
   pypi:
     name: publish · PyPI
-    if: startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/tags/v0.1.2' && github.ref != 'refs/tags/v0.1.3' && github.ref != 'refs/tags/v0.1.4' && github.ref != 'refs/tags/v0.1.5'
+    if: startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/tags/v0.1.2' && github.ref != 'refs/tags/v0.1.3' && github.ref != 'refs/tags/v0.1.4' && github.ref != 'refs/tags/v0.1.5' && github.ref != 'refs/tags/v0.1.6'
     needs: [python, desktop]
     runs-on: ubuntu-latest
     permissions:

@@ -25,6 +25,19 @@ Installations live under `ARGUS_SKILL_HOME/extensions/<id>/releases`. Research s
 
 The plugin center uses Argus's authenticated local administration interface. It is not a multi-tenant marketplace. Browsers submit a catalog id and action, not arbitrary installer URLs or commands. Dynamic ASGI routing activates installed plugins without restarting unrelated Argus sessions.
 
+## Hosted deployments
+
+On a hosted service the visitor should never have to click Install: the server prepares the workbench itself. Set `ARGUS_PLUGINS_PREINSTALL` to the comma-separated catalog ids that must be present (for example `ARGUS_PLUGINS_PREINSTALL=crystalpilot`). At startup the web server checks each one; a plugin that is installed, enabled and matches the catalog is left untouched, anything else starts the normal verified install (with its automatic setup) in the background, once, without delaying the interface. The server log records what was found and what was started. While the install runs, the sidebar entry shows a single preparing sentence with the current step; once it finishes, the entry opens the workbench directly. Plugins named this way are reported with `managed_by_host: true`, the interface hides disable and uninstall for them, and the API refuses those two actions.
+
+To avoid a several-minute first start on every tenant, bake the plugin into the image with the same verified install:
+
+```
+ARGUS_SKILL_HOME=/tmp/argus-build \
+python -m argus_skill.release_tools.preinstall_plugins crystalpilot --root /opt/argus-plugins
+```
+
+The command waits for the install to finish and exits non-zero if it did not. Point every tenant at that root with `ARGUS_WORKBENCH_HOST_ROOT=/opt/argus-plugins` and keep `ARGUS_PLUGINS_PREINSTALL=crystalpilot` set, so startup confirms the shared copy and tenants see it as provided by the service. Environment checks and repairs write under `<root>/extensions/<id>/resources`, so the root must stay writable by the tenant user. Egress from the build host and from any tenant that installs at startup must reach the distribution host (`crystalpilot-downloads.argusbot.cn` over HTTPS) and the upstream sources the automatic setup downloads.
+
 ## Release maintenance
 
 The catalog is curated and pinned to reviewed HTTPS artifacts and SHA-256 digests. New plugin releases require a catalog update; this implementation does not automatically trust an online latest manifest. The public catalog at the distribution source helps maintainers inspect releases but does not override a user's bundled trust configuration.

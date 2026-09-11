@@ -51,10 +51,10 @@ _SENSITIVE_NAMES = frozenset(
 )
 _SENSITIVE_SUFFIXES = frozenset({".key", ".p12", ".pem", ".pfx"})
 _RENDERABLE_SUFFIXES = frozenset({
-    ".aac", ".bib", ".cfg", ".css", ".js", ".mjs", ".csv", ".flac", ".gif", ".html", ".ini",
+    ".aac", ".bib", ".cfg", ".css", ".js", ".mjs", ".csv", ".docx", ".flac", ".gif", ".html", ".ini",
     ".ipynb", ".jpeg", ".jpg", ".json", ".jsonl", ".log", ".m4a", ".m4v",
     ".markdown", ".md", ".mov", ".mp3", ".mp4", ".ogg", ".ogv", ".pdf",
-    ".png", ".pptx", ".py", ".rst", ".sh", ".tex", ".toml", ".ts", ".tsv", ".txt", ".wav",
+    ".png", ".pptx", ".py", ".rst", ".sh", ".svg", ".tex", ".toml", ".ts", ".tsv", ".txt", ".wav",
     ".webm", ".webp", ".xlsx", ".yaml", ".yml",
 })
 
