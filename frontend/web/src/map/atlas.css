@@ -1,8 +1,6 @@
 /* Atlas' visual language follows real task state; geometry remains in the layout model. */
 .argus-map { --atlas-flow: #3f9fba; }
 .map-canvas-wrap { background-image: radial-gradient(ellipse at 45% 40%, rgb(var(--blue) / .035), transparent 70%); }
-.map-progress-line { height: 2px; flex-shrink: 0; background: rgb(var(--line) / .25); }
-.map-progress-line>span { display: block; height: 100%; background: linear-gradient(90deg, #72a4d3, #65b9a1); transition: width 600ms cubic-bezier(.2,.8,.2,1); }
 .map-macro { border-radius: 36px; box-shadow: 0 18px 70px #16375014, 0 3px 8px #1637500a; }
 .map-macro[data-active=true] { border-color: #73a6c4; box-shadow: 0 0 0 8px #67a6c615, 0 20px 75px #316d9829; }
 .map-macro[data-active=true]::before { content: ''; position: absolute; inset: -14px; border: 3px solid #67a6c630; border-radius: 46px; pointer-events: none; animation: atlas-breathe 3.2s ease-in-out infinite; }
@@ -34,7 +32,7 @@
 @keyframes atlas-breathe { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
 @keyframes atlas-stage-pulse { 0%,100% { opacity: .6; } 50% { opacity: 1; } }
 @keyframes atlas-complete { 0% { box-shadow: 0 0 0 0 #69b39500; } 35% { box-shadow: 0 0 0 14px #69b39535, 0 18px 70px #4d9b7840; } 100% { box-shadow: 0 0 0 35px #69b39500; } }
-@media(prefers-reduced-motion:reduce) { .map-edge-spark, .map-dispatch-trail { display:none; } .submap-flow, .map-macro[data-active=true]::before, .map-macro[data-completed-now=true], .map-card-stages>span[data-active=true] svg { animation:none; } .map-progress-line>span { transition:none; } }
+@media(prefers-reduced-motion:reduce) { .map-edge-spark, .map-dispatch-trail { display:none; } .submap-flow, .map-macro[data-active=true]::before, .map-macro[data-completed-now=true], .map-card-stages>span[data-active=true] svg { animation:none; } }
 
 .map-route-select { flex-shrink: 0; border: 1px solid rgb(var(--line) / .7); border-radius: 9px; padding: 7px 6px; font-size: 11px; color: rgb(var(--ink-dim)); background: transparent; max-width: 74px; }
 .map-route-select:focus-visible { outline: 2px solid rgb(var(--blue) / .45); }

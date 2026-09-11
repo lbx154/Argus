@@ -3,7 +3,43 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import type { Dataset } from "./model";
 import { buildSubmap, type SubmapStep } from "./submap";
-import { mergeMapCopy, needsCardCopy, requestsFor, type MapCopy } from "./presentation";
+import {
+  mergeMapCopy,
+  needsCardCopy,
+  requestsFor,
+  stepRequests,
+  type CardRequest,
+  type MapCopy,
+} from "./presentation";
+
+/** How many step cards one canvas is willing to warm up for later readers. */
+export const PREWARM_LIMIT = 600;
+
+/**
+ * Step cards of every task that is not open right now. Written text for a card
+ * is shared through the server cache, so warming it in the background while
+ * this canvas is idle means the next reader who opens any task finds the
+ * plain-language notes already written instead of watching them being drafted.
+ * Tasks that have finished go first: their steps will not change again, so the
+ * text written for them is never wasted.
+ */
+export function prewarmRequests(
+  data: Dataset,
+  zh: boolean,
+  focused: string | null,
+  limit = PREWARM_LIMIT,
+): CardRequest[] {
+  const settled = (status?: string) =>
+    ["done", "failed", "cancelled", "recorded", "skipped"].includes(status || "");
+  const tasks = data.tasks.filter((t) => t.id !== focused);
+  const ordered = [...tasks.filter((t) => settled(t.status)), ...tasks.filter((t) => !settled(t.status))];
+  const out: CardRequest[] = [];
+  for (const task of ordered) {
+    if (out.length >= limit) break;
+    out.push(...stepRequests(data, task, buildSubmap(task, data.events, zh)));
+  }
+  return out.slice(0, limit);
+}
 
 export function useMapCopy(
   data: Dataset,
@@ -13,6 +49,7 @@ export function useMapCopy(
   visibleSteps?: SubmapStep[],
   sessionId?: string,
   paused = false,
+  prewarm = true,
 ) {
   const locale = zh ? "zh-CN" : "en-US";
   const source = data.kind === "live" ? "project" : "dataset";
@@ -45,8 +82,18 @@ export function useMapCopy(
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const retryAt = useRef(0);
-  const cards = requestsFor(data, steps, focused)
-    .filter((c) => needsCardCopy(c, data, copy.data))
+  const eventIndex = useMemo(
+    () => new Map(data.events.map((e) => [e.id, e])),
+    [data.events],
+  );
+  const foreground = requestsFor(data, steps, focused);
+  // Background warming only starts once everything on screen has its text.
+  const background = useMemo(
+    () => (prewarm ? prewarmRequests(data, zh, focused) : []),
+    [data, zh, focused, prewarm],
+  );
+  const cards = [...foreground, ...background]
+    .filter((c) => needsCardCopy(c, data, copy.data, eventIndex))
     .slice(0, 8);
   const signature = JSON.stringify([
     context,

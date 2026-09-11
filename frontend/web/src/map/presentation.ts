@@ -65,7 +65,12 @@ export function mergeMapCopy(previous: MapCopy | undefined, result: MapCopy, req
   };
 }
 
-export function needsCardCopy(card: CardRequest, data: Dataset, copy?: MapCopy): boolean {
+export function needsCardCopy(
+  card: CardRequest,
+  data: Dataset,
+  copy?: MapCopy,
+  eventIndex?: Map<string, MapEvent>,
+): boolean {
   const saved = copy?.cards[card.key];
   const task = data.tasks.find((t) => t.id === card.task_id);
   if (!saved || !task) return true;
@@ -79,7 +84,7 @@ export function needsCardCopy(card: CardRequest, data: Dataset, copy?: MapCopy):
   // current progress is being viewed. Do not rewrite it with a poorer subset.
   return card.event_ids.some((id) => {
     const index = ids.indexOf(id);
-    const event = data.events.find((e) => e.id === id);
+    const event = eventIndex ? eventIndex.get(id) : data.events.find((e) => e.id === id);
     return index < 0 || (saved.event_revisions && event?.revision &&
       saved.event_revisions[index] !== event.revision);
   }) || (!dynamic && JSON.stringify(card.event_ids) !== JSON.stringify(ids));
@@ -137,6 +142,44 @@ export function splitDraft(value: string) {
   });
   return { refs, text: lines.join("\n").replace(/^\n+/, "") };
 }
+/** Ids of the latest main/review outcomes of a task, optionally as of a moment. */
+function outcomeIds(data: Dataset, id: string, through = Infinity): string[] {
+  const start = Math.max(
+    -Infinity,
+    ...data.events
+      .filter(
+        (e) =>
+          e.item_id === id &&
+          e.type === "life.mission.started" &&
+          e.ts <= through,
+      )
+      .map((e) => e.ts),
+  );
+  return data.events
+    .filter(
+      (e) =>
+        e.item_id === id &&
+        e.ts >= start &&
+        e.ts <= through &&
+        ["round.main.completed", "round.review.completed"].includes(e.type),
+    )
+    .slice(-2)
+    .map((e) => e.id);
+}
+/** One request per step of a task's sub-map, in reading order. */
+export function stepRequests(data: Dataset, task: MapTask, steps: SubmapStep[]): CardRequest[] {
+  return steps.map((s) => ({
+    key: s.id,
+    task_id: task.id,
+    kind: s.kind,
+    event_ids: [
+      ...new Set([
+        ...(s.kind === "result" ? outcomeIds(data, task.id, s.ts) : []),
+        ...s.eventIds,
+      ]),
+    ].slice(-16),
+  }));
+}
 export function requestsFor(
   data: Dataset,
   steps: SubmapStep[],
@@ -146,36 +189,13 @@ export function requestsFor(
   const sorted = focusedTask
     ? [focusedTask, ...data.tasks.filter((t) => t.id !== focused)]
     : data.tasks;
-  const outcomes = (id: string, through = Infinity) => {
-    const start = Math.max(
-      -Infinity,
-      ...data.events
-        .filter(
-          (e) =>
-            e.item_id === id &&
-            e.type === "life.mission.started" &&
-            e.ts <= through,
-        )
-        .map((e) => e.ts),
-    );
-    return data.events
-      .filter(
-        (e) =>
-          e.item_id === id &&
-          e.ts >= start &&
-          e.ts <= through &&
-          ["round.main.completed", "round.review.completed"].includes(e.type),
-      )
-      .slice(-2)
-      .map((e) => e.id);
-  };
   const roots = sorted.map((t) => ({
     key: t.id,
     task_id: t.id,
     kind: "task",
     event_ids: [
       ...new Set([
-        ...outcomes(t.id),
+        ...outcomeIds(data, t.id),
         ...data.events
           .filter((e) => e.item_id === t.id)
           .slice(-2)
@@ -183,18 +203,6 @@ export function requestsFor(
       ]),
     ],
   }));
-  const children = focusedTask
-    ? steps.map((s) => ({
-        key: s.id,
-        task_id: focusedTask.id,
-        kind: s.kind,
-        event_ids: [
-          ...new Set([
-            ...(s.kind === "result" ? outcomes(focusedTask.id, s.ts) : []),
-            ...s.eventIds,
-          ]),
-        ].slice(-16),
-      }))
-    : [];
+  const children = focusedTask ? stepRequests(data, focusedTask, steps) : [];
   return [...roots.slice(0, 1), ...children, ...roots.slice(1)];
 }
