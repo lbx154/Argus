@@ -59,12 +59,26 @@ test('titles expand with the pane and trial model/Key controls remain visible in
       openCockpit: async () => ${JSON.stringify(`${origin}/?token=local-layout-test&project=s-layout&view=activity`)}
     }, { get: (object, key) => object[key] || (() => undefined) });`,
   }));
-  await page.route(`${origin}/api/projects/s-layout/config`, async (route) => {
-    const response = await route.fetch();
-    await route.fulfill({ response, json: { ...await response.json(), trial_mode: true } });
-  });
+  const configUrl = `${origin}/api/projects/s-layout/config`;
+  // This case exercises trial layout and native Key controls. Keep its trial
+  // configuration deterministic instead of waiting for backend discovery on
+  // a cold Windows runner before applying the existing trial-mode override.
+  await page.route(configUrl, (route) => route.fulfill({ json: {
+    schema_version: 1, generated_at_utc: '2026-09-11T00:00:00Z', trial_mode: true,
+    roles: [{
+      role: 'manager', backend: 'copilot', backend_label: 'Copilot', backend_source: 'trial fixture',
+      model: 'gpt-5.5', model_source: 'trial fixture', reasoning_effort: 'high',
+      reasoning_effort_source: 'trial fixture', description: 'Layout fixture manager',
+    }],
+    operator_knobs: [], how_to_change: [],
+  } }));
   await page.setViewportSize({ width: 1280, height: 820 });
-  await page.goto('/');
+  const [configResponse] = await Promise.all([
+    page.waitForResponse(configUrl),
+    page.goto('/'),
+  ]);
+  expect(configResponse.ok()).toBe(true);
+  expect(await configResponse.json()).toMatchObject({ trial_mode: true });
   const frame = page.frameLocator('#cockpitFrame');
   const title = frame.locator('.topbar-title').filter({ visible: true });
   await expect(title).toBeVisible({ timeout: 20_000 });
@@ -79,7 +93,8 @@ test('titles expand with the pane and trial model/Key controls remain visible in
   await expect.poll(async () => (await title.boundingBox())!.width).toBeGreaterThan(narrow!.width + 250);
   await expect.poll(() => title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   const runtime = frame.locator('.composer-runtime').filter({ visible: true });
-  await expect(runtime).toContainText('GPT-5.5 · high');
+  const trialModel = /^(Trial|试用) · GPT-5\.5 · high$/;
+  await expect(runtime.locator('.composer-runtime-model')).toHaveText(trialModel);
   const themeButton = frame.getByRole('button', { name: /theme; switch|主题；切换/ });
   for (const theme of ['light', 'dark']) {
     if (await frame.locator('html').getAttribute('data-theme') !== theme) await themeButton.click();
@@ -98,8 +113,8 @@ test('titles expand with the pane and trial model/Key controls remain visible in
   await frame.getByRole('dialog').getByRole('button', { name: /更换 Key|Change Key/, exact: true }).click();
   await expect(page.locator('#trialKey')).toBeVisible();
   await page.keyboard.press('Escape');
-  await frame.locator('.workspace-tab').nth(3).click();
-  await expect(frame.locator('.map-island-dock .composer-runtime')).toContainText('GPT-5.5 · high');
+  await frame.locator('.workspace-tabs').getByRole('button', { name: /^(Map|地图)$/ }).click();
+  await expect(frame.locator('.map-island-dock .composer-runtime-model')).toHaveText(trialModel);
   await expect(frame.locator('.map-island-dock .composer-runtime button')).toBeInViewport();
 });
 
@@ -145,30 +160,39 @@ test('real embedded workbench retains typography and fits the pane between both 
     return { width: el.clientWidth, fontSize: style.fontSize, padding: style.padding };
   });
   const before = await composerStyle();
-  await frame.locator('.workspace-tab').nth(2).click();
+  const workspaceTabs = frame.locator('.workspace-tabs');
+  const workbenchTab = workspaceTabs.getByRole('button', { name: /^(Workbench|工作台)$/ });
+  const activityTab = workspaceTabs.getByRole('button', { name: /^(Activity|动态)$/ });
+  const overviewTab = frame.getByRole('navigation', { name: /^(Workbench modules|工作台模块)$/ })
+    .getByRole('button', { name: /^(Project overview|项目概览)$/ });
+  await workbenchTab.click();
+  // Workbench opens on Execution. Select the overview whose typography and
+  // workspace modules this test verifies, independently of module order.
+  await overviewTab.click();
   // The full workbench snapshot loads separately from the conversation snapshot.
   await expect(frame.locator('.overview-hero__copy h1')).toBeVisible({ timeout: 20_000 });
   // Loading the lazy workbench stylesheet must not restyle the conversation.
   // Compare before resizing, since the shell deliberately fits its sidebars
   // when the desktop window gets narrower.
-  await frame.locator('.workspace-tab').nth(1).click();
+  await activityTab.click();
   await expect(composer).toBeVisible();
   await expect.poll(composerStyle).toEqual(before);
-  await frame.locator('.workspace-tab').nth(2).click();
+  await workbenchTab.click();
+  await overviewTab.click();
 
   for (const width of [1440, 1280, 1100, 1024, 960]) {
     await page.setViewportSize({ width, height: 820 });
     await expect.poll(() => frame.locator('.integrated-workbench').evaluate((pane) => {
       const copy = pane.querySelector('.overview-hero__copy')!;
       const heading = copy.querySelector('h1')!;
-      const stats = pane.querySelector('.overview-hero__stats')!;
+      const modules = pane.querySelector('.module-grid')!;
       const content = pane.querySelector('.ros-content')!;
       const style = getComputedStyle(heading);
       return {
         readableTitle: parseFloat(style.fontSize) > parseFloat(getComputedStyle(copy).fontSize),
-        headingSpacing: parseFloat(style.marginTop) > 0,
+        headingSpacing: parseFloat(style.marginBottom) > 0,
         fits: copy.scrollWidth <= copy.clientWidth + 1 && content.scrollWidth <= content.clientWidth + 1,
-        stacked: stats.getBoundingClientRect().top >= copy.getBoundingClientRect().bottom,
+        stacked: modules.getBoundingClientRect().top >= copy.getBoundingClientRect().bottom,
       };
     })).toEqual({ readableTitle: true, headingSpacing: true, fits: true, stacked: true });
   }
@@ -191,7 +215,7 @@ test('real embedded workbench retains typography and fits the pane between both 
       await expect(frame.locator('.inline-error')).toContainText('Executor startup diagnostic');
     }
   }
-  await frame.locator('.workspace-tab').nth(1).click();
+  await activityTab.click();
   await expect(composer).toBeVisible();
   expect(errors).toEqual([]);
 });
