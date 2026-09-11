@@ -687,21 +687,21 @@ export function layoutSubmap(
   const height = 408 + (rows - 1) * pitchY;
   const left = (width - (count * 232 + (count - 1) * 108)) / 2;
   const positions: SubmapLayout["positions"] = {};
+  let previousRounds: number[] = [];
   const columns = Array.from({ length: count }, (_, col) => {
     const start = col * rows,
       end = Math.min(start + rows, steps.length),
       x = left + col * pitchX;
-    steps.slice(start, end).forEach((step, row) => {
+    const slice = steps.slice(start, end);
+    slice.forEach((step, row) => {
       positions[step.id] = { x, y: 180 + row * pitchY };
     });
-    return {
-      id: `steps:${offset + start}`,
-      title: zh
-        ? `环节 ${offset + start + 1}–${offset + end}`
-        : `Steps ${offset + start + 1}–${offset + end}`,
-      x,
-      y: 142,
-    };
+    const fallback = zh
+      ? `环节 ${offset + start + 1}–${offset + end}`
+      : `Steps ${offset + start + 1}–${offset + end}`;
+    const title = columnTitle(slice, previousRounds, col === 0 && offset === 0, col === count - 1, zh, fallback);
+    previousRounds = roundsIn(slice);
+    return { id: `steps:${offset + start}`, title, x, y: 142 };
   });
   return {
     steps,
@@ -711,6 +711,38 @@ export function layoutSubmap(
     width,
     height,
   };
+}
+
+function roundsIn(steps: SubmapStep[]): number[] {
+  return [...new Set(steps.map((s) => s.round).filter((r): r is number => typeof r === "number"))]
+    .sort((a, b) => a - b);
+}
+
+/** A column is headed by the round of work it holds, so a reader sees the
+ * rhythm of the research (a round of work, its review, the next round) instead
+ * of a running count of cells. Columns before any round are the setting out,
+ * a trailing column without rounds is the outcome. */
+function columnTitle(
+  steps: SubmapStep[],
+  previousRounds: number[],
+  first: boolean,
+  last: boolean,
+  zh: boolean,
+  fallback: string,
+): string {
+  const rounds = roundsIn(steps);
+  if (!rounds.length) {
+    if (first && steps.some((s) => s.kind === "plan")) return zh ? "起点" : "Setting out";
+    if (last && steps.some((s) => s.kind === "result")) return zh ? "结果" : "Outcome";
+    return fallback;
+  }
+  const lo = rounds[0], hi = rounds[rounds.length - 1];
+  const continued = rounds.length === 1 && previousRounds.length > 0 &&
+    previousRounds[previousRounds.length - 1] === lo;
+  const label = lo === hi
+    ? zh ? `第 ${lo} 轮` : `Round ${lo}`
+    : zh ? `第 ${lo}–${hi} 轮` : `Rounds ${lo}–${hi}`;
+  return continued ? (zh ? `${label} · 续` : `${label} · cont.`) : label;
 }
 
 export function frameForSubmap(layout: Pick<SubmapLayout, "width" | "height">) {

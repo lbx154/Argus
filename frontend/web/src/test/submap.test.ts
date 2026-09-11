@@ -437,3 +437,15 @@ describe("work segments inside a round", () => {
     expect(steps[4].eventIds).toEqual(["e2", "e5"]);
   });
 });
+
+it("heads each step column with the round of work it holds", () => {
+  const task = { id: "t", title: "T", objective: "T", status: "done", deps: [] } as MapTask;
+  const rounds = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `r${i + 1}`, type: "round.start", ts: i + 1, item_id: "t", round_index: i + 1, text: "" }) as MapEvent);
+  const many = layoutSubmap(task, rounds(7), false);
+  expect(many.columns.map((c) => c.title)).toEqual(["Rounds 1–2", "Rounds 3–5", "Rounds 6–7"]);
+  const few = layoutSubmap(task, rounds(1), true);
+  expect(few.columns.map((c) => c.title)).toEqual(["起点", "第 1 轮", "结果"]);
+  const none = layoutSubmap(task, [], false);
+  expect(none.columns.map((c) => c.title)).toEqual(["Setting out", "Outcome"]);
+});
