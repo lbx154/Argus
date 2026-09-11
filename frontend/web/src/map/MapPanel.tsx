@@ -1,6 +1,7 @@
 import { MapConversation } from './MapConversation';
+import { mapStatusSentence } from './status';
 import { PendingBanner } from '../components/PendingBanner';
-import { PackageCheck, MessageCircle } from 'lucide-react';
+import { PackageCheck, MessageCircle, SlidersHorizontal } from 'lucide-react';
 import { AgentActivity } from '../components/AgentActivity';
 import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
 import type { MapSend, DispatchObserver } from './submission';
@@ -40,7 +41,6 @@ import {
   Play,
   RotateCcw,
   Search,
-  Settings2,
   X,
 } from "lucide-react";
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
@@ -980,20 +980,8 @@ export function MapCanvas({
   return (
     <MapNotesContext.Provider value={notesScope}>
     <MapArtifactContext.Provider value={artifactScope}>
-      <div className="map-progress-line" role="progressbar" aria-label={zh ? "已完成任务" : "Completed tasks"} aria-valuemin={0} aria-valuemax={data.tasks.length || 1} aria-valuenow={complete}><span style={{ width: `${data.tasks.length ? complete / data.tasks.length * 100 : 0}%` }} /></div>
-      <div className="map-summary">
-        <div>
-          <span
-            className="map-summary-value"
-            title={
-              scene.cards.length > graph.tasks.length
-                ? `${scene.cards.length} ${zh ? "张卡片" : "cards"}`
-                : undefined
-            }
-          >
-            {data.tasks.length}
-          </span>
-          <span>{zh ? "个任务" : "tasks"}</span>
+      <div className="map-status-row">
+        <div className="map-status" role="status">
           {data.tasks.length > 0 && (
             <span
               className="map-progress-strip"
@@ -1016,17 +1004,19 @@ export function MapCanvas({
               )}
             </span>
           )}
-          <span className="map-count-chip is-done">
-            <Check size={13} />
-            <strong>{complete}</strong>
-            <span>{zh ? "已完成" : "completed"}</span>
+          {(composer.pending || (!paused && activePhase)) ? <i className="map-live-dot" aria-hidden /> : null}
+          <span className="map-status-text">
+            {mapStatusSentence({
+              total: data.tasks.length,
+              complete,
+              running: tally.running,
+              pending: composer.pending,
+              paused,
+              hasOpenWork: data.tasks.some((task) => ACTIVE.has(task.status) || task.status === "pending"),
+              role: activePhase,
+              zh,
+            })}
           </span>
-          {tally.running > 0 && (
-            <span className="map-count-chip is-running">
-              <strong>{tally.running}</strong>
-              <span>{zh ? "进行中" : "running"}</span>
-            </span>
-          )}
           {attention.length > 0 && (
             <button
               type="button"
@@ -1037,39 +1027,17 @@ export function MapCanvas({
             >
               <span className="map-attention-dot" />
               <strong>{attention.length}</strong>
-              <span>{zh ? "值得关注" : "need attention"}</span>
+              <span>{zh ? "待处理" : "need attention"}</span>
             </button>
           )}
         </div>
-        {composer.pending ? (
-          <span className="map-live-phase"><i />{zh ? '正在处理消息' : 'Processing your message'}</span>
-        ) : paused ? (
-          <span className="map-paused-label">{data.tasks.length > 0 && complete === data.tasks.length ? <><Check size={13} />{zh ? '已完成' : 'Completed'}</> : data.tasks.some((task) => ACTIVE.has(task.status) || task.status === 'pending') ? <><Pause size={13} />{zh ? '已暂停' : 'Paused'}</> : (zh ? '就绪' : 'Ready')}</span>
-        ) : activePhase && (
-          <span className="map-live-phase">
-            <i />
-            {(
-              {
-                planner: "Planner",
-                manager: "Manager",
-                engineer: "Engineer",
-                reviewer: "Reviewer",
-              } as Record<string, string>
-            )[activePhase] || activePhase}
-          </span>
-        )}
-        <span className="map-summary-note">
-          {zh
-            ? "滚轮缩放 · 点击任务深入 · / 搜索 · F 全览"
-            : "Scroll to zoom · click a task to explore · / search · F fit"}
-        </span>
+        {data.kind === 'live' && <div className="map-workspace-actions">
+          <button type="button" aria-expanded={conversationOpen} onClick={() => { setConversationOpen((open) => !open); setAgentsOpen(false); }}><MessageCircle size={15} />{zh ? '对话' : 'Conversation'}</button>
+          <button type="button" aria-expanded={agentsOpen} onClick={() => { setAgentsOpen((open) => !open); setConversationOpen(false); }}><i data-active={!!activePhase || composer.pending} />{zh ? 'Agent 动态' : 'Agent activity'}</button>
+          <button type="button" className="map-delivery-toggle" disabled={!actions.deliveryCount} onClick={actions.onOpenDelivery}><PackageCheck size={15} />{zh ? '交付成果' : 'Deliveries'}{actions.deliveryCount > 0 && <span>{actions.deliveryCount}</span>}</button>
+        </div>}
       </div>
       <MapTeamProgress events={data.events} zh={zh} />
-      {data.kind === 'live' && <div className="map-workspace-actions">
-        <button type="button" aria-expanded={conversationOpen} onClick={() => { setConversationOpen((open) => !open); setAgentsOpen(false); }}><MessageCircle size={15} />{zh ? '对话' : 'Conversation'}</button>
-        <button type="button" aria-expanded={agentsOpen} onClick={() => { setAgentsOpen((open) => !open); setConversationOpen(false); }}><i data-active={!!activePhase || composer.pending} />{zh ? 'Agent 动态' : 'Agent activity'}</button>
-        <button type="button" className="map-delivery-toggle" disabled={!actions.deliveryCount} onClick={actions.onOpenDelivery}><PackageCheck size={15} />{zh ? '交付成果' : 'Deliveries'}{actions.deliveryCount > 0 && <span>{actions.deliveryCount}</span>}</button>
-      </div>}
       {data.kind === 'live' && !readOnly && <PendingBanner questions={snapshot.pending_questions ?? []} backlog={snapshot.backlog} onAnswer={actions.onAnswer} onLocate={locateAttention} />}
       {camera.detailed && attentionIndex >= 0 && (
         <div className="map-attention-detail" role="status">
@@ -1677,74 +1645,55 @@ export const MapPanel = memo(function MapPanel({
     <section
       ref={sectionRef}
       className="argus-map"
-      aria-label={zh ? "研究进度地图" : "Research progress map"}
+      aria-label={zh ? "进度地图" : "Progress map"}
     >
       <header className="map-header">
-        <div className="map-heading-icon">
-          <GitBranch size={20} />
-        </div>
         <div className="map-heading">
-          <div className="map-eyebrow">ARGUS / RESEARCH MAP</div>
-          <h1>{zh ? "研究地图" : "Research map"}</h1>
+          <h1 title={snapshot.session.display_name}>{snapshot.session.display_name}</h1>
         </div>
-        <div className="map-header-actions">
-        {!readOnly && onOpenSettings && (
-          <button type="button" onClick={onOpenSettings} className="map-settings"
-            aria-label={zh ? "地图模型设置" : "Map model settings"} title={zh ? "地图模型设置" : "Map model settings"}>
-            <Settings2 size={16} />
-          </button>
-        )}
-        {source === "live" && info.data && (
-          <button type="button" className="map-scope-button" onClick={() => setChooseHistory(true)}>
-            {zh ? "加载范围" : "History range"}
-          </button>
-        )}
-        <span className="map-source-badge" data-live={source === "live"}>
-          <span />
-          {source === "live"
-            ? zh
-              ? "当前会话"
-              : "Current session"
-            : data?.kind === "synthetic"
-              ? zh
-                ? "人工示例"
-                : "Synthetic example"
-              : data?.kind === "demo"
-                ? zh
-                  ? "历史演示"
-                  : "Recorded demo"
-                : zh
-                  ? "历史记录"
-                  : "Historical records"}
-        </span>
-        </div>
-      <div className="map-dataset-bar">
-        <Compass size={15} />
-        <select
-          aria-label={zh ? "地图数据来源" : "Map data source"}
-          value={source}
-          onChange={(e) => switchSource(e.target.value)}
-        >
-          <option value="live">
-            {zh ? "当前会话" : "Current session"} ·{" "}
-            {snapshot.session.display_name}
-          </option>
-          {!index.data?.datasets.some((d) => d.id === source) &&
-            source !== "live" && <option value={source}>{source}</option>}
-          {index.data?.datasets.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.title} · {d.task_count}
-            </option>
-          ))}
-        </select>
-
-        {data?.captured_at && (
-          <span className="map-capture">
-            <Clock3 size={12} />
-            {new Date(data.captured_at).toLocaleDateString()}
-          </span>
-        )}
-      </div>
+        <details className="map-more">
+          <summary aria-label={zh ? "地图选项" : "Map options"} title={zh ? "地图选项" : "Map options"}>
+            <SlidersHorizontal size={16} />
+          </summary>
+          <div className="map-more-menu">
+            <div className="map-dataset-bar">
+              <Compass size={15} />
+              <select
+                aria-label={zh ? "地图数据来源" : "Map data source"}
+                value={source}
+                onChange={(e) => switchSource(e.target.value)}
+              >
+                <option value="live">
+                  {zh ? "当前会话" : "Current session"} ·{" "}
+                  {snapshot.session.display_name}
+                </option>
+                {!index.data?.datasets.some((d) => d.id === source) &&
+                  source !== "live" && <option value={source}>{source}</option>}
+                {index.data?.datasets.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.title} · {d.task_count}
+                  </option>
+                ))}
+              </select>
+              {data?.captured_at && (
+                <span className="map-capture">
+                  <Clock3 size={12} />
+                  {new Date(data.captured_at).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+            {source === "live" && info.data && (
+              <button type="button" className="map-scope-button" onClick={() => setChooseHistory(true)}>
+                {zh ? "加载范围" : "History range"}
+              </button>
+            )}
+            {!readOnly && onOpenSettings && (
+              <button type="button" onClick={onOpenSettings} className="map-scope-button">
+                {zh ? "地图模型设置" : "Map model settings"}
+              </button>
+            )}
+          </div>
+        </details>
       </header>
       {source === "live" && info.data && (
         <MapHistoryChoice open={chooseHistory || !choice && info.data.requires_choice}

@@ -26,7 +26,14 @@ def _capture_prompt(monkeypatch) -> str:
 
 
 def test_prompt_version_bumped_for_readability_rules():
-    assert map_narrative.PROMPT_VERSION == 8
+    assert map_narrative.PROMPT_VERSION == 9
+
+
+def test_prompt_speaks_of_any_kind_of_work_not_only_research(monkeypatch):
+    prompt = _capture_prompt(monkeypatch)
+    assert "演示文稿" in prompt
+    assert "不把每件事都写成" in prompt
+    assert "工作段落" in prompt
 
 
 def test_prompt_restates_runner_receipts_as_one_plain_sentence(monkeypatch):
