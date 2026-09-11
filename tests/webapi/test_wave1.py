@@ -999,7 +999,18 @@ def test_html_and_svg_artifacts_are_never_served_as_executable_content(ctx) -> N
     assert html.status_code == 200
     assert html.headers["content-type"].startswith("text/plain")
     assert html.headers["x-content-type-options"] == "nosniff"
-    assert svg.status_code == 404
+    assert svg.status_code == 200
+    assert svg.headers["content-type"].startswith("text/plain")
+    assert svg.headers["x-content-type-options"] == "nosniff"
+    assert svg.text == (workspace / "figure.svg").read_text(encoding="utf-8")
+    download = client.get(
+        f"/api/projects/{sid}/artifact/raw",
+        params={"path": "figure.svg", "download": True},
+    )
+    assert download.status_code == 200
+    assert download.headers["content-type"] == "application/octet-stream"
+    assert download.headers["content-disposition"].startswith("attachment;")
+    assert download.content == svg.content
 
 
 def test_artifact_metadata_supports_rich_browser_formats(tmp_path: Path) -> None:
@@ -1013,6 +1024,7 @@ def test_artifact_metadata_supports_rich_browser_formats(tmp_path: Path) -> None
         "clip.mp4": "video",
         "image.png": "image",
         "paper.pdf": "pdf",
+        "memo.docx": "binary",
     }
     for name, kind in expected.items():
         (tmp_path / name).write_bytes(b"x")

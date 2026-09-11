@@ -985,6 +985,31 @@ def test_system_doctor_requires_auth_and_returns_typed_read_only_report(
     }
 
 
+def test_system_doctor_probes_its_bound_address_not_default_or_host_header(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes = []
+
+    def probe_web(host: str, port: int):
+        probes.append((host, port))
+        return "compatible", {"service": "argus-skill-webapi"}
+
+    monkeypatch.setattr("argus_skill.maintenance.doctor._probe_web", probe_web)
+    app = server.create_app(global_root=tmp_path, auth_token="secret")
+    with TestClient(app, base_url="http://127.0.0.1:55418") as doctor_client:
+        response = doctor_client.get(
+            "/api/system/doctor",
+            headers={"Authorization": "Bearer secret", "Host": "elsewhere.invalid:8799"},
+        )
+
+    assert response.status_code == 200
+    assert probes == [("127.0.0.1", 55418)]
+    web = next(item for item in response.json()["findings"] if item["scope"] == "web")
+    assert web["evidence"]["host"] == "127.0.0.1"
+    assert web["evidence"]["port"] == 55418
+
+
 def test_system_resources_requires_auth_and_redacts_status(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

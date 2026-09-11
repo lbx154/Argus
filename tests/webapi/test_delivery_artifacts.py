@@ -116,6 +116,7 @@ def test_solo_transcript_delivery_becomes_openable(tmp_path: Path) -> None:
     workspace.mkdir()
     (workspace / "team.md").write_text("team\n", encoding="utf-8")
     (workspace / "result.txt").write_text("done\n", encoding="utf-8")
+    (workspace / "figure.svg").write_text("<svg/>", encoding="utf-8")
     write_session_meta(
         tmp_path,
         SessionMeta(id=sid, cwd=str(life), workdir=str(workspace)),
@@ -134,6 +135,7 @@ def test_solo_transcript_delivery_becomes_openable(tmp_path: Path) -> None:
     delivery = {
         "delivery_id": "delivery:solo-call:task_completed",
         "title": "Create result",
+        "summary": "Created result.txt and `figure.svg`.",
         "targets": [{
             "path": "result.txt",
             "label": "result.txt",
@@ -154,6 +156,7 @@ def test_solo_transcript_delivery_becomes_openable(tmp_path: Path) -> None:
     assert [(row["path"], row["source"]) for row in rows] == [
         ("team.md", "delivery"),
         ("result.txt", "delivery"),
+        ("figure.svg", "delivery"),
     ]
 
 
@@ -163,7 +166,7 @@ def test_reviewed_framework_pptx_is_exposed_as_a_downloadable_binary(tmp_path: P
     workspace = tmp_path / "workspace"
     life.mkdir(parents=True)
     (workspace / "paper" / "figures").mkdir(parents=True)
-    for suffix in ("pptx", "pdf", "png"):
+    for suffix in ("pptx", "pdf", "png", "svg", "docx"):
         (workspace / "paper" / "figures" / f"method.{suffix}").write_bytes(b"output")
     write_session_meta(
         tmp_path, SessionMeta(id=sid, cwd=str(life), workdir=str(workspace)),
@@ -171,7 +174,7 @@ def test_reviewed_framework_pptx_is_exposed_as_a_downloadable_binary(tmp_path: P
     update_mission_view_event(life, {
         "type": "life.mission.completed", "item_id": "redraw-framework",
         "success": True, "status": "done",
-        "summary": "Reviewed paper/figures/method.{pptx,pdf,png}.",
+        "summary": "Reviewed paper/figures/method.{pptx,pdf,png,svg,docx}.",
     })
 
     rows = list_project_artifacts(sid, global_root=tmp_path)
@@ -181,4 +184,6 @@ def test_reviewed_framework_pptx_is_exposed_as_a_downloadable_binary(tmp_path: P
         ("paper/figures/method.pptx", "binary"),
         ("paper/figures/method.pdf", "pdf"),
         ("paper/figures/method.png", "image"),
+        ("paper/figures/method.svg", "text"),
+        ("paper/figures/method.docx", "binary"),
     ]
