@@ -10,7 +10,13 @@ from .life_worker import spawn_detached_daemon
 
 
 def main() -> int:
-    config = config_from_payload(json.load(sys.stdin))
+    payload = json.load(sys.stdin)
+    training_launch = payload.pop("_training_launch", None)
+    config = config_from_payload(payload)
+    from ..trial.training_runtime import arm_daemon_launch
+
+    arm_daemon_launch(training_launch, config)
+    training_launch = None
     # NOT quiet, despite this being a non-interactive helper. ``quiet`` means
     # "there is no operator reading this stream" — but the caller runs us with
     # ``capture_output=True`` and relays our stderr, so our stream IS how the

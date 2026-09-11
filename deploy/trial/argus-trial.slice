@@ -1,0 +1,12 @@
+[Unit]
+Description=Aggregate resource ceiling for invited Argus workspaces and compute jobs
+
+[Slice]
+CPUQuota=12000%
+CPUAccounting=yes
+MemoryMax=900G
+MemoryAccounting=yes
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target

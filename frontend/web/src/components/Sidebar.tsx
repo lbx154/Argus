@@ -15,6 +15,7 @@ import {
   faFolder,
   faGear,
   faLanguage,
+  faMicrochip,
   faMoon,
   faPlay,
   faSun,
@@ -326,6 +327,12 @@ export function Sidebar({
             ))}
           </div>
 
+          {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
+            <a href="/invite/compute" className="mx-3 mb-2 flex items-center gap-2 rounded-md border border-line/50 px-3 py-2 text-xs text-blue hover:bg-bg">
+              <FontAwesomeIcon icon={faMicrochip} className="h-3.5 w-3.5" />
+              {t('sidebar.compute')}
+            </a>
+          ) : null}
           <div className="flex min-h-14 items-center justify-between border-t border-line/50 px-4 py-2">
             <button type="button" onClick={() => onOpenPanel('config')} className="icon-control flex h-8 w-8 items-center justify-center" aria-label={t('sidebar.openSettings')} title={t('common.settings')}>
               <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />

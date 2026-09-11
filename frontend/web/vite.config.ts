@@ -17,6 +17,8 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    // Hosted pages allow same-origin assets under a strict CSP, not data URLs.
+    assetsInlineLimit: 0,
     // Open tabs can still request chunks from a previous release. Vite replaces
     // index.html and emits new fingerprinted assets without deleting those chunks.
     emptyOutDir: false,

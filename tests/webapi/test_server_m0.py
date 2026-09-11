@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill import __version__
 from argus_skill.core.cost_control import CostControlLockBusyError
 from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.core.transcript import append_turn

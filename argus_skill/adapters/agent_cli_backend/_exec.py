@@ -108,5 +108,7 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
     if denied is not None:
         return denied
 
-    with monitor_budget(ctx, cli_options):
+    from ...trial.training_runtime import capture_runtime_call
+
+    with monitor_budget(ctx, cli_options), capture_runtime_call(ctx, cli_options):
         return spawn_and_finish(ctx, cli_options)
