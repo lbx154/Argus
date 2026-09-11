@@ -359,3 +359,81 @@ it("reuses geometry for streaming prose while recalculating changed content boun
   expect(expanded.positions).not.toBe(prose.positions);
   expect(expanded.frames[task.id]).not.toEqual(first.frames[task.id]);
 });
+
+describe("work segments and single-agent turns", () => {
+  it("turns a narration plus its tool calls into one plain execution step", () => {
+    const steps = buildSubmap(task, [
+      event("e1", "life.mission.started"),
+      {
+        ...event("e2", "work.segment", { role: "engineer" }),
+        text: "先读取设计规范，再生成八页幻灯片。",
+        steps: [
+          { kind: "tool_use", label: 'view: {"path": "spec_lock.md"}', ts: 2, tool: "view" },
+          { kind: "tool_use", label: 'rg: {"pattern": "case study"}', ts: 3, tool: "rg" },
+          { kind: "command_execution", label: "python build.py", ts: 4, tool: "Build the deck" },
+          { kind: "tool_use", label: 'web_fetch: {"url": "https://example.org/readme"}', ts: 5, tool: "web_fetch", status: "failed" },
+        ],
+      },
+    ], true);
+    const segment = steps.find((step) => step.id === "e2");
+    expect(segment).toMatchObject({ kind: "execution", title: "先读取设计规范", status: "failed" });
+    expect(segment?.summary).toBe("先读取设计规范，再生成八页幻灯片。");
+    expect(segment?.detail).toBe([
+      "先读取设计规范，再生成八页幻灯片。",
+      ["· 查看 spec_lock.md", "· 查找 case study", "· Build the deck", "· 读取网页 https://example.org/readme（失败）"].join("\n"),
+    ].join("\n\n"));
+  });
+
+  it("describes a segment with no narration by the shape of its work", () => {
+    const steps = buildSubmap(task, [{
+      ...event("e3", "work.segment"),
+      text: "",
+      overflow: 2,
+      steps: [
+        { kind: "tool_use", label: "view: a", ts: 1, tool: "view" },
+        { kind: "tool_use", label: "view: b", ts: 2, tool: "view" },
+        { kind: "command_execution", label: "make", ts: 3 },
+      ],
+    }], false);
+    const segment = steps.find((step) => step.id === "e3");
+    expect(segment?.title).toBe("3 steps of work");
+    expect(segment?.summary).toBe("2 files read, 1 command run, 2 more not listed.");
+  });
+
+  it("lays out a single-agent turn as ask, work and answer", () => {
+    const turn: MapTask = { id: "turn:web-1", kind: "turn", title: "README 有几行？", objective: "README 有几行？", status: "done", deps: [], role: "manager" };
+    const steps = buildSubmap(turn, [
+      { ...event("turn:web-1:work", "work.segment", { item_id: "turn:web-1", role: "manager" }), text: "",
+        steps: [{ kind: "command_execution", label: "$ wc -l README.md", ts: 10, tool: "Count README lines", status: "completed" }] },
+      { ...event("turn:web-1:reply", "turn.replied", { item_id: "turn:web-1", role: "manager", status: "done" }), text: "一行。" },
+    ], true);
+    expect(steps.map((step) => [step.kind, step.title])).toEqual([
+      ["plan", "你提出的要求"],
+      ["execution", "Argus 动手查证"],
+      ["result", "Argus 的回答"],
+    ]);
+    expect(steps[1].detail).toBe("· Count README lines");
+    expect(steps[2].summary).toBe("一行。");
+  });
+});
+
+describe("work segments inside a round", () => {
+  it("keeps the round's closing node after the segments recorded within it", () => {
+    const steps = buildSubmap(task, [
+      event("e1", "life.mission.started"),
+      event("e2", "round.start", { round_index: 1 }),
+      { ...event("e3", "work.segment"), text: "先读文档。", steps: [{ kind: "tool_use", label: "view: a", ts: 3, tool: "view" }] },
+      { ...event("e4", "work.segment", { role: "reviewer" }), text: "核对结果。", steps: [{ kind: "tool_use", label: "view: b", ts: 4, tool: "view" }] },
+      event("e5", "round.main.completed", { round_index: 1, text: "做完了。" }),
+    ], true);
+    expect(steps.map((step) => [step.kind, step.id])).toEqual([
+      ["plan", "a:brief"],
+      ["execution", "e1"],
+      ["execution", "e3"],
+      ["review", "e4"],
+      ["execution", "e2"],
+      ["result", "a:outcome"],
+    ]);
+    expect(steps[4].eventIds).toEqual(["e2", "e5"]);
+  });
+});

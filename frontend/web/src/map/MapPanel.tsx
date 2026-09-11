@@ -1580,7 +1580,7 @@ export const MapPanel = memo(function MapPanel({
   });
   const paused = source === "live" && mapIsPaused(snapshot);
   const latestMapEvent = events.filter((e) => e.run_label !== "map-summary" &&
-    /^(life\.(mission\.|phase\.|planner\.task_added)|round\.|agent\.message|team\.|idea\.portfolio\.)/.test(String(e.type))).at(-1);
+    /^(life\.(mission\.|phase\.|planner\.task_added)|round\.|agent\.message|engineer\.progress|ui\.argus|team\.|idea\.portfolio\.)/.test(String(e.type))).at(-1);
   const updateKey = JSON.stringify([
     latestMapEvent?.ts,
     latestMapEvent?.event_id || latestMapEvent?.id,

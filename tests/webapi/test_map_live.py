@@ -270,3 +270,137 @@ def test_generation_schema_requires_every_card_exactly_once():
     assert cards["required"] == ["task-a", "review-b"]
     assert set(cards["properties"]) == {"task-a", "review-b"}
     assert cards["additionalProperties"] is False
+
+
+def _progress(kind, item_id, ts, **extra):
+    return {"type": "engineer.progress", "kind": kind, "item_id": item_id, "ts": ts,
+            "agent_layer": "engineer", **extra}
+
+
+def test_engineer_progress_folds_into_work_segments_with_narration_and_steps():
+    rows = [
+        {"type": "life.mission.started", "item_id": "a", "ts": 1},
+        _progress("agent_message", "a", 2, text="先读设计规范，再生成幻灯片。"),
+        _progress("reasoning", "a", 2.5, text="private"),
+        _progress("tool_use", "a", 3, text='view: {"path": "spec.md"}', tool_name="view", status="running"),
+        _progress("command_execution", "a", 4, text="python build.py", tool_name="Build the deck"),
+        _progress("agent_message", "a", 5, text="八页已生成，开始校验。"),
+        _progress("tool_use", "a", 6, text='view: {"path": "render.png"}', tool_name="view"),
+        {"type": "round.main.completed", "item_id": "a", "ts": 7, "last_message": "RESULT=done"},
+        _progress("agent_message", "a", 8, text="第二轮开始。"),
+    ]
+    segments: dict = {}
+    events = normalize_events(rows, {"a"}, set(), segments)
+    work = [e for e in events if e["type"] == "work.segment"]
+    assert [e["id"] for e in work] == ["seg:a:1", "seg:a:2", "seg:a:3"]
+    assert work[0]["text"] == "先读设计规范，再生成幻灯片。"
+    assert [s["kind"] for s in work[0]["steps"]] == ["tool_use", "command_execution"]
+    assert work[0]["steps"][1] == {
+        "kind": "command_execution", "label": "python build.py", "ts": 4.0, "tool": "Build the deck",
+    }
+    assert work[0]["ts"] == 2.0 and work[0]["ts_end"] == 4.0
+    assert work[1]["text"] == "八页已生成，开始校验。" and len(work[1]["steps"]) == 1
+    # The round ended before this narration, so it starts a fresh segment that is still open.
+    assert work[2]["text"] == "第二轮开始。" and work[2]["steps"] == []
+    assert list(segments["open"]) == ["a"]
+    # Reasoning never reaches the map; the original mission events are untouched.
+    assert [e["type"] for e in events if e["type"] != "work.segment"] == [
+        "life.mission.started", "round.main.completed",
+    ]
+
+
+def test_two_narrations_without_work_between_them_are_one_thought():
+    rows = [
+        _progress("agent_message", "a", 1, text="先看一眼。"),
+        _progress("agent_message", "a", 2, text="没有问题。"),
+        _progress("tool_use", "a", 3, text="view: x", tool_name="view"),
+    ]
+    events = normalize_events(rows, {"a"}, set(), {})
+    (segment,) = [e for e in events if e["type"] == "work.segment"]
+    assert segment["text"] == "先看一眼。\n\n没有问题。"
+    assert len(segment["steps"]) == 1
+
+
+def test_an_open_segment_keeps_growing_across_incremental_reads(tmp_path):
+    sid, life = sample(tmp_path)
+    with (life / "events.jsonl").open("a") as f:
+        f.write(json.dumps(_progress("agent_message", "task-a", 4, text="开始动手。")) + "\n")
+        f.write(json.dumps(_progress("tool_use", "task-a", 5, text="view: a", tool_name="view")) + "\n")
+    state: dict = {}
+    first = read_map(sid, tmp_path, life, event_state=state)
+    (segment,) = [e for e in first["events"] if e["type"] == "work.segment"]
+    assert len(segment["steps"]) == 1
+    with (life / "events.jsonl").open("a") as f:
+        f.write(json.dumps(_progress("tool_use", "task-a", 6, text="view: b", tool_name="view")) + "\n")
+    second = read_map(sid, tmp_path, life, event_state=state)
+    grown = [e for e in second["events"] if e["type"] == "work.segment"]
+    assert [e["id"] for e in grown] == ["seg:task-a:1"]
+    assert len(grown[0]["steps"]) == 2
+    assert grown[0]["revision"] != segment["revision"]
+
+
+def test_a_chat_turn_with_tool_steps_becomes_a_card_on_the_map(tmp_path):
+    sid, life = sample(tmp_path)
+    steps = [
+        {"kind": "command_execution", "label": "$ wc -l README.md", "tool": "Count README lines",
+         "call_id": "c1", "status": "completed", "started_ts": 10.0, "ended_ts": 12.0, "output": "1"},
+    ]
+    with (life / "events.jsonl").open("a") as f:
+        f.write(json.dumps({"type": "ui.operator", "message_id": "web-7-operator", "ts": 9,
+                            "text": "README 有几行？"}) + "\n")
+        f.write(json.dumps({"type": "ui.argus", "message_id": "web-7-argus", "ts": 13,
+                            "text": "一行。", "steps": steps}) + "\n")
+        f.write(json.dumps({"type": "ui.operator", "message_id": "web-8-operator", "ts": 14,
+                            "text": "谢谢"}) + "\n")
+        f.write(json.dumps({"type": "ui.argus", "message_id": "web-8-argus", "ts": 15,
+                            "text": "不客气。"}) + "\n")
+    state: dict = {}
+    data = read_map(sid, tmp_path, life, event_state=state)
+    cards = [t for t in data["tasks"] if t.get("kind") == "turn"]
+    assert [c["id"] for c in cards] == ["turn:web-7"]
+    card = cards[0]
+    assert card["title"] == "README 有几行？" and card["status"] == "done"
+    assert card["summary"] == "一行。" and card["role"] == "manager"
+    assert card["started_ts"] == 10.0 and card["finished_ts"] == 13.0
+    owned = [e for e in data["events"] if e["item_id"] == "turn:web-7"]
+    assert [e["type"] for e in owned] == ["work.segment", "turn.replied"]
+    assert owned[0]["steps"] == [{
+        "kind": "command_execution", "label": "$ wc -l README.md", "ts": 10.0,
+        "tool": "Count README lines", "status": "completed",
+    }]
+    assert owned[1]["text"] == "一行。"
+    # A later read that only sees new rows keeps the card.
+    with (life / "events.jsonl").open("a") as f:
+        f.write(json.dumps({"type": "round.start", "round_index": 2, "ts": 20}) + "\n")
+    again = read_map(sid, tmp_path, life, event_state=state)
+    assert [t["id"] for t in again["tasks"] if t.get("kind") == "turn"] == ["turn:web-7"]
+    assert [e["id"] for e in again["events"] if e["item_id"] == "turn:web-7"] == [
+        "turn:web-7:work", "turn:web-7:reply",
+    ]
+
+
+def test_history_pages_carry_work_segments_and_turns_and_regrow_open_segments(tmp_path):
+    from argus_skill.webapi.map_history import history_page
+
+    sid, life = sample(tmp_path)
+    with (life / "events.jsonl").open("a") as f:
+        f.write(json.dumps(_progress("agent_message", "task-a", 4, text="开始动手。")) + "\n")
+        f.write(json.dumps(_progress("tool_use", "task-a", 5, text="view: a", tool_name="view")) + "\n")
+        f.write(json.dumps({"type": "ui.operator", "message_id": "web-1-operator", "ts": 6, "text": "几行？"}) + "\n")
+        f.write(json.dumps({"type": "ui.argus", "message_id": "web-1-argus", "ts": 7, "text": "一行。",
+                            "steps": [{"kind": "tool_use", "label": "view: README", "status": "completed",
+                                       "started_ts": 6.5, "ended_ts": 6.8}]}) + "\n")
+    value = read_map(sid, tmp_path, life, include_events=False)
+    page = history_page(tmp_path, life, value, None)
+    kinds = sorted((e["item_id"], e["type"]) for e in page["events"])
+    assert ("task-a", "work.segment") in kinds
+    assert ("turn:web-1", "work.segment") in kinds and ("turn:web-1", "turn.replied") in kinds
+    segment = next(e for e in page["events"] if e["id"] == "seg:task-a:1")
+    assert len(segment["steps"]) == 1
+    with (life / "events.jsonl").open("a") as f:
+        f.write(json.dumps(_progress("tool_use", "task-a", 8, text="view: b", tool_name="view")) + "\n")
+    again = history_page(tmp_path, life, value, page["history_cursor"])
+    assert again["incremental"] is True
+    regrown = [e for e in again["events"] if e["id"] == "seg:task-a:1"]
+    assert len(regrown) == 1 and len(regrown[0]["steps"]) == 2
+    assert not [e for e in again["events"] if e["item_id"] == "turn:web-1"]

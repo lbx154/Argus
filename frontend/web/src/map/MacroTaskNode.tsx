@@ -131,6 +131,21 @@ const KIND_NOTES: Record<StepKind, [string, string]> = {
   revision: ["审阅者要求修改的地方", "What the Reviewer asked to change"],
   result: ["这项任务最后得到了什么", "What the task produced in the end"],
 };
+/* A single-agent turn has a different cast: you asked, Argus worked, Argus answered. */
+const TURN_KINDS: Record<StepKind, [string, string]> = {
+  plan: ["提问", "Asked"],
+  execution: ["Argus 查证", "Argus"],
+  review: ["核对", "Check"],
+  revision: ["修订", "Revise"],
+  result: ["回答", "Answer"],
+};
+const TURN_KIND_NOTES: Record<StepKind, [string, string]> = {
+  plan: ["你提出的要求", "What you asked for"],
+  execution: ["Argus 自己动手查证、运行命令", "Argus did the work itself: read, searched, ran commands"],
+  review: ["对结果的核对", "A check of the result"],
+  revision: ["需要修改的地方", "What had to change"],
+  result: ["Argus 给出的回答", "What Argus answered"],
+};
 const sourceLabel = (step: SubmapStep, zh: boolean) =>
   step.source === "team"
     ? zh ? "子任务工作记录" : "Subtask work record"
@@ -417,11 +432,16 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               (zh ? "放大查看任务内部" : "Zoom to explore")}
           </MarkdownExcerpt></div>
           <div className="map-card-stages" aria-label={zh ? '任务阶段' : 'Task stages'}>
-            {(['plan', 'execution', 'review', 'result'] as const).map((kind) => {
+            {(['plan', 'execution', 'review', 'result'] as const)
+              // A single-agent turn has no Planner or Reviewer; showing them
+              // as missing would read as a gap rather than a different shape.
+              .filter((kind) => task.kind !== 'turn' || layout.steps.some((step) => step.kind === kind))
+              .map((kind) => {
               const StageIcon = ICONS[kind];
               const present = layout.steps.some((step) => step.kind === kind);
               const active = layout.steps.some((step) => step.kind === kind && isStepActive(step));
-              return <span key={kind} className={`submap-kind-${kind}`} data-present={present} data-active={active} title={`${KINDS[kind][zh ? 0 : 1]} · ${KIND_NOTES[kind][zh ? 0 : 1]}`}><StageIcon size={12} /><span>{zh ? ({ plan: '规划', execution: '执行', review: '审查', result: '交付' })[kind] : KINDS[kind][1]}</span></span>;
+              const turnLabel = task.kind === 'turn' ? TURN_KINDS[kind][zh ? 0 : 1] : '';
+              return <span key={kind} className={`submap-kind-${kind}`} data-present={present} data-active={active} title={`${KINDS[kind][zh ? 0 : 1]} · ${KIND_NOTES[kind][zh ? 0 : 1]}`}><StageIcon size={12} /><span>{turnLabel || (zh ? ({ plan: '规划', execution: '执行', review: '审查', result: '交付' })[kind] : KINDS[kind][1])}</span></span>;
             })}
           </div>
           {teamSteps.length > 0 && (
@@ -487,13 +507,15 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           <span className="macro-state">{stateLabel(displayedState)}</span>
         </header>
         <div className="macro-stage-key">
-          {STEP_KINDS.map((kind) => (
+          {STEP_KINDS
+            .filter((kind) => task.kind !== 'turn' || layout.steps.some((s) => s.kind === kind))
+            .map((kind) => (
             <span
               key={kind}
               className={`submap-kind-${kind} ${layout.steps.some((s) => s.kind === kind) ? "" : "is-unrecorded"}`}
-              title={KIND_NOTES[kind][zh ? 0 : 1]}
+              title={task.kind === 'turn' ? TURN_KIND_NOTES[kind][zh ? 0 : 1] : KIND_NOTES[kind][zh ? 0 : 1]}
             >
-              {KINDS[kind][zh ? 0 : 1]}
+              {task.kind === 'turn' ? TURN_KINDS[kind][zh ? 0 : 1] : KINDS[kind][zh ? 0 : 1]}
             </span>
           ))}
         </div>
@@ -548,7 +570,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               <div className="submap-step-meta">
                 <span>
                   <Icon size={16} />
-                  {step.source === 'team' ? (zh ? '子任务 · ' : 'Subtask · ') : ''}{KINDS[step.kind][zh ? 0 : 1]}
+                  {step.source === 'team' ? (zh ? '子任务 · ' : 'Subtask · ') : ''}{(task.kind === 'turn' ? TURN_KINDS : KINDS)[step.kind][zh ? 0 : 1]}
                   {step.round != null && (
                     <em className="submap-round">
                       {zh ? `第 ${step.round} 轮` : `Round ${step.round}`}
@@ -620,7 +642,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           >
             <header>
               <span>
-                {KINDS[detail.kind][zh ? 0 : 1]}
+                {(task.kind === 'turn' ? TURN_KINDS : KINDS)[detail.kind][zh ? 0 : 1]}
                 <small className="macro-reader-note">{KIND_NOTES[detail.kind][zh ? 0 : 1]}</small>
               </span>
               <button

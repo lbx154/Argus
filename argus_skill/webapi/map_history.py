@@ -8,10 +8,13 @@ import time
 from pathlib import Path
 
 from ..life.memory import _jsonl_history_paths
-from .map_view import digest, normalize_events, with_revisions
+from .map_view import digest, normalize_events, turn_records, with_revisions
 
 PAGE_BYTES = 1024 * 1024
 PAGE_EVENTS = 500
+# Bump when the projection learns to derive new records from old rows, so an
+# index built by an earlier version is rebuilt instead of trusted.
+HISTORY_VERSION = 2
 
 
 def history_path(root: Path, life_dir: Path) -> Path:
@@ -56,7 +59,8 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
             previous_ids = set(state.get("task_ids", []))
             saved_files = state.get("files", [])
             reset = (
-                "files" not in state or bool(previous_ids - known_ids)
+                "files" not in state or state.get("version") != HISTORY_VERSION
+                or bool(previous_ids - known_ids)
                 or bool((known_ids - previous_ids) & set(state.get("omitted_owners", [])))
                 or len(saved_files) > len(files)
             )
@@ -75,11 +79,16 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
             if not state or reset:
                 db.execute("DELETE FROM events")
                 state = {"files": [], "task_ids": task_ids, "active": [], "omitted_owners": [],
+                         "version": HISTORY_VERSION,
                          "epoch": digest([str(life_dir), time.time_ns()])}
             more_bytes = False
             remaining = PAGE_BYTES
             active = set(state["active"])
             omitted = set(state.get("omitted_owners", []))
+            # Work segments still open and chat turns awaiting their reply
+            # carry over between pages, like the active-mission window does.
+            segments = state.get("segments") or {}
+            turn_asks = state.get("turn_asks") or {}
             for index, (path, stat) in enumerate(files):
                 if index == len(state["files"]):
                     state["files"].append({"identity": [stat.st_dev, stat.st_ino], "offset": 0})
@@ -111,9 +120,16 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
                     owners = known_ids | active | {
                         str(row.get("item_id") or row.get("mission_id") or "") for row in rows
                     }
-                    normalized = normalize_events(rows, owners - {""}, active)
+                    normalized = normalize_events(rows, owners - {""}, active, segments)
                     omitted.update(e["item_id"] for e in normalized if e["item_id"] not in known_ids)
                     events = [e for e in normalized if e["item_id"] in known_ids]
+                    # Turn cards are derived from these very events, so their
+                    # records need no owner in the task list to be kept.
+                    events.extend(
+                        event
+                        for turn in turn_records(rows, {}, turn_asks).values()
+                        for event in turn["events"]
+                    )
                     # A rewritten event (a step retired as superseded, streamed
                     # text finalized) must reach readers whose cursor already
                     # passed its seq: delete + insert under an explicitly
@@ -145,6 +161,7 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
                 if more_bytes:
                     break
             state.update(active=sorted(active), task_ids=task_ids, omitted_owners=sorted(omitted),
+                         segments=segments, turn_asks=turn_asks,
                          offset=sum(saved["offset"] for saved in state["files"]))
             db.execute("INSERT OR REPLACE INTO metadata VALUES ('state', ?)", (json.dumps(state),))
             epoch, _, number = (after or "").partition(":")

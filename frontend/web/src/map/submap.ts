@@ -5,6 +5,7 @@ import {
   type MapTask,
   type MapGraph,
   type MapLink,
+  type WorkStep,
 } from "./model";
 import { layoutGraph } from "./graphLayout";
 
@@ -239,6 +240,120 @@ function describeRecord(event: MapEvent, status: string, zh: boolean): string {
   }
 }
 
+const STEP_GLYPH = /^(?:[⚙✎↳$…∴▸]|✗ \$)\s*/u;
+const shorten = (value: string, limit: number) =>
+  value.length > limit ? `${value.slice(0, limit - 1).trimEnd()}…` : value;
+
+/** The one argument a reader wants to see for a tool call: a path, a pattern, a URL. */
+function stepArgument(label: string): string {
+  const raw = label.slice(label.indexOf(":") + 1).trim();
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      for (const key of ["path", "file", "file_path", "pattern", "query", "url", "command", "paths"]) {
+        const value = record[key];
+        if (typeof value === "string" && value.trim()) return value.trim();
+        if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+      }
+      const first = Object.values(record).find((value) => typeof value === "string" && value.trim());
+      return typeof first === "string" ? first.trim() : "";
+    }
+  } catch {
+    // Not JSON: the argument is the text itself.
+  }
+  return raw;
+}
+
+type StepVerb = "read" | "search" | "fetch" | "edit" | "run" | "other";
+function stepVerb(step: WorkStep): StepVerb {
+  const name = (step.tool || step.label.replace(STEP_GLYPH, "").split(":")[0] || "").trim().toLowerCase();
+  if (step.kind === "command_execution") return "run";
+  if (step.kind === "file_change") return "edit";
+  if (/^(view|read|cat|open|read_file|str_replace_editor)$/.test(name)) return "read";
+  if (/^(rg|grep|search|find_text|semantic_search|codebase_search)$/.test(name)) return "search";
+  if (/^(glob|find|list|ls|list_dir|find_files)$/.test(name)) return "search";
+  if (/^(web_fetch|fetch|web_search|http_get|browse)$/.test(name)) return "fetch";
+  if (/^(apply_patch|edit|write|create|write_file|edit_file|replace_in_file|str_replace)$/.test(name)) return "edit";
+  if (/^(bash|shell|sh|execute|terminal|run)$/.test(name)) return "run";
+  return "other";
+}
+
+/** One tool call as a short plain phrase — what was done, to what. */
+export function stepPhrase(step: WorkStep, zh: boolean): string {
+  const tool = (step.tool || "").trim();
+  const label = step.label.replace(STEP_GLYPH, "").trim();
+  // The Copilot desktop agent titles each call in plain words; the streaming
+  // runners give a bare tool name plus its arguments.
+  const titled = tool && /\s/.test(tool) && tool.length > 8;
+  const argument = shorten(stepArgument(label), 72);
+  const command = shorten(label, 72);
+  const verb = stepVerb(step);
+  const phrase = titled
+    ? tool
+    : verb === "run"
+      ? zh ? `运行命令 \`${command}\`` : `Ran \`${command}\``
+      : verb === "read"
+        ? zh ? `查看 ${argument || label}` : `Read ${argument || label}`
+        : verb === "search"
+          ? zh ? `查找 ${argument || label}` : `Looked for ${argument || label}`
+          : verb === "fetch"
+            ? zh ? `读取网页 ${argument || label}` : `Fetched ${argument || label}`
+            : verb === "edit"
+              ? zh ? `修改文件 ${argument || label}` : `Edited ${argument || label}`
+              : shorten(label, 80);
+  return step.status === "failed" ? `${phrase}${zh ? "（失败）" : " (failed)"}` : phrase;
+}
+
+/** "查看了 3 个文件，运行了 2 条命令" — the shape of a segment's work at a glance. */
+export function stepsSummary(steps: WorkStep[], overflow: number, zh: boolean): string {
+  const counts = new Map<StepVerb, number>();
+  steps.forEach((step) => counts.set(stepVerb(step), (counts.get(stepVerb(step)) ?? 0) + 1));
+  const parts: string[] = [];
+  const say = (verb: StepVerb, zhWord: string, enOne: string, enMany: string) => {
+    const n = counts.get(verb);
+    if (n) parts.push(zh ? `${zhWord}${n}${verb === "run" ? "条命令" : verb === "fetch" ? "个网页" : "处"}` : `${n} ${n === 1 ? enOne : enMany}`);
+  };
+  say("read", "查看了", "file read", "files read");
+  say("search", "查找了", "search", "searches");
+  say("fetch", "读取了", "page fetched", "pages fetched");
+  say("edit", "修改了", "file edited", "files edited");
+  say("run", "运行了", "command run", "commands run");
+  const other = counts.get("other");
+  if (other) parts.push(zh ? `${other}次其他操作` : `${other} other ${other === 1 ? "action" : "actions"}`);
+  if (overflow > 0) parts.push(zh ? `另有 ${overflow} 步未列出` : `${overflow} more not listed`);
+  return parts.length ? (zh ? `${parts.join("，")}。` : `${parts.join(", ")}.`) : "";
+}
+
+/** A work segment: the agent's own words for what it was doing, then the calls it made. */
+function workSegmentStep(event: MapEvent, zh: boolean): SubmapStep {
+  const steps = event.steps ?? [];
+  const narration = readableRecord(event.text);
+  const single = event.role === "manager";
+  const shape = stepsSummary(steps, event.overflow ?? 0, zh);
+  const title = titleClause(narration)
+    || (single
+      ? zh ? "Argus 动手查证" : "Argus did the work"
+      : steps.length
+        ? zh ? `做了 ${steps.length} 步操作` : `${steps.length} steps of work`
+        : zh ? "说明了接下来要做什么" : "Said what comes next");
+  const lines = steps.map((step) => `· ${stepPhrase(step, zh)}`);
+  if ((event.overflow ?? 0) > 0) lines.push(zh ? `· 另有 ${event.overflow} 步未列出` : `· ${event.overflow} more not listed`);
+  return {
+    id: event.id,
+    // The Reviewer's own reading and checking belongs to the review.
+    kind: event.role === "reviewer" ? "review" : "execution",
+    title,
+    summary: clipSentence(narration) || shape || undefined,
+    detail: [narration, lines.join("\n")].filter(Boolean).join("\n\n") || noDetails(zh),
+    status: steps.some((step) => step.status === "failed") ? "failed" : "recorded",
+    ts: event.ts,
+    source: event.association === "single_active_window" ? "interval" : "event",
+    eventIds: [event.id],
+  };
+}
+
 /** Where a finished task ended up, when its own record says nothing. */
 function outcomeSentence(status: string, zh: boolean): string {
   switch (status) {
@@ -257,11 +372,14 @@ export function buildSubmap(
   events: MapEvent[],
   zh: boolean,
 ): SubmapStep[] {
+  const turn = task.kind === "turn";
   const rows: SubmapStep[] = [
     {
       id: `${task.id}:brief`,
       kind: "plan",
-      title: zh ? "这项任务要做什么" : "What this task set out to do",
+      title: turn
+        ? zh ? "你提出的要求" : "What you asked"
+        : zh ? "这项任务要做什么" : "What this task set out to do",
       detail: task.objective || task.title,
       status: "recorded",
       source: "task",
@@ -305,6 +423,25 @@ export function buildSubmap(
         deps,
         updatedAt: e.updated_ts,
         revision: e.revision,
+      });
+      continue;
+    }
+    if (e.type === "work.segment") {
+      rows.push(workSegmentStep(e, zh));
+      continue;
+    }
+    if (e.type === "turn.replied") {
+      const answer = readableRecord(e.text);
+      rows.push({
+        id: e.id,
+        kind: "result",
+        title: zh ? "Argus 的回答" : "What Argus answered",
+        summary: clipSentence(answer) || undefined,
+        detail: answer || noDetails(zh),
+        status: "done",
+        ts: e.ts,
+        source: "event",
+        eventIds: [e.id],
       });
       continue;
     }
@@ -474,6 +611,10 @@ export function buildSubmap(
       previous.status = row.status;
       previous.eventIds.push(...row.eventIds);
       if (row.source === "interval") previous.source = "interval";
+      // The round's node tells how the round ended, so it belongs after the
+      // work segments recorded inside that round, not before them.
+      merged.splice(merged.indexOf(previous), 1);
+      merged.push(previous);
     } else {
       const copy = { ...row, eventIds: [...row.eventIds] };
       merged.push(copy);

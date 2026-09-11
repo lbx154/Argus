@@ -18,12 +18,23 @@ export interface MapTask
   superseded_by_plan_id?: string;
   superseded_reason?: string;
   acceptance_check?: string;
+  /** 'turn': a single-agent conversation turn that used tools, shown as a card. */
+  kind?: string;
   /** Synthesized team branch node (display/navigation only, never a card). */
   branch?: true;
   parent_id?: string;
   team_role?: string;
   excerpt?: string;
   overflow_count?: number;
+}
+/** One tool call inside a work segment, as the runner reported it. */
+export interface WorkStep {
+  kind: string;
+  label: string;
+  ts: number;
+  tool?: string;
+  status?: string;
+  call_id?: string;
 }
 export interface MapEvent {
   id: string;
@@ -32,6 +43,11 @@ export interface MapEvent {
   type: string;
   ts: number;
   text: string;
+  /** work.segment: when the segment's last step happened. */
+  ts_end?: number;
+  /** work.segment: the tool calls that followed the narration. */
+  steps?: WorkStep[];
+  overflow?: number;
   role?: string;
   status?: string;
   round_index?: number;
