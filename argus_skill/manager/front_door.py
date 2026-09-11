@@ -1224,6 +1224,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
     if runner is None or not hasattr(runner, "chat_reply_if_conversational"):
         return None
     chat_state.pop("_self_delivery", None)
+    chat_state.pop("_self_failure", None)
     captured: list[str] = []
     empty_reply = (
         "[Manager reply unavailable] The SELF turn completed without an assistant "
@@ -1231,11 +1232,22 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         f"Request: {_fallback_request_excerpt(body)}"
     )
 
-    def _empty_reply_for_outcome() -> str:
+    def _reply_for_outcome() -> str:
         outcome = getattr(runner, "last_chat_outcome", None)
         stop_reason = _redact_live_text(
             getattr(outcome, "stop_reason", "")
         ).strip()
+        if getattr(outcome, "success", None) is False:
+            reason = stop_reason or "The backend did not complete the turn."
+            if mode in execution_modes:
+                chat_state["_self_failure"] = reason
+            return (
+                "[Manager reply failed] The SELF turn stopped before completion: "
+                f"{reason}. Earlier progress messages are not a completed result; "
+                "partial files may exist. No TEAM task was dispatched."
+            )
+        if captured:
+            return captured[0]
         if not stop_reason:
             return empty_reply
         return (
@@ -1441,7 +1453,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                 chat_state["_self_delivery"] = delivery
             if mode == "inspect":
                 chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
-            return captured[0] if captured else _empty_reply_for_outcome()
+            return _reply_for_outcome()
     except TypeError:
         # Older runner without phase_cb / route support — retry without them
         # (fail-soft; the older runner will classify route internally).
@@ -1451,7 +1463,7 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
                 seed_thread_id=chat_state.get("last_thread_id"),
             ):
                 chat_state["last_thread_id"] = getattr(runner, "last_thread_id", None)
-                return captured[0] if captured else _empty_reply_for_outcome()
+                return _reply_for_outcome()
         except BackendLoginRequired:
             raise
         except Exception as exc:  # noqa: BLE001 — triage failure

@@ -888,6 +888,46 @@ def test_frontdoor_classifier_failure_never_dispatches_unclassified_message(
     assert LifeMemory.open(life).backlog.all() == []
 
 
+def test_interrupted_solo_work_reports_failure_without_enqueuing(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    sid = "s-solo-failed"
+    life = _make_project(tmp_path, sid)
+    manager_state._STATES.clear()
+
+    def classify(_mem, _text, state, **_kwargs):
+        state["_frontdoor_self_mode"] = "implement"
+        return None, None, "simple"
+
+    class InterruptedRunner:
+        last_thread_id = None
+        last_chat_outcome = SimpleNamespace(
+            success=False,
+            stop_reason="Forced restart after hard idle timeout (120s)",
+        )
+
+        def chat_reply_if_conversational(self, **kwargs):
+            kwargs["sink"].handle_event({
+                "type": "round.main.completed",
+                "last_message": "I am building the real workbook.",
+                "turn_completed": False,
+            })
+            return True
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(
+        front_door, "_ensure_manager_runner", lambda *_args: InterruptedRunner(),
+    )
+    result = manager_bridge.manager_message(sid, "Build the workbook.", global_root=tmp_path)
+
+    assert result["mission_result"] is True
+    assert result["success"] is False
+    assert "hard idle timeout" in result["reply"]
+    assert result["reply"] != "I am building the real workbook."
+    assert "delivery" not in result
+    assert LifeMemory.open(life).backlog.all() == []
+
+
 def test_known_budget_limit_is_reported_without_claiming_manager_backend_is_unavailable(
     tmp_path: Path, monkeypatch,
 ) -> None:
