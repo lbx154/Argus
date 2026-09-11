@@ -390,7 +390,7 @@ class SelfReplyMixin:
                 is_reply = event_type == "engineer.progress" and kind in REPLY_KINDS
                 if event_type == "loop.start":
                     _phase(
-                        f"{backend_label} working on your message…",
+                        "Argus 正在处理你的消息…",
                         kind="loop.start",
                     )
                 elif event_type == "engineer.progress" and not is_reply:
@@ -413,10 +413,9 @@ class SelfReplyMixin:
                 if callable(closer):
                     closer()
 
-        from ..core.role_config import runner_backend_label
-
-        backend_label = runner_backend_label()
-        _phase(f"Deciding: {backend_label} solo vs. the Argus team…")
+        # Plain words for the operator: the backend's name is a detail of how
+        # Argus works, not something a reader has to know.
+        _phase("正在判断：自己直接做，还是交给团队…")
         if route not in ("simple", "complex"):
             if root_task_id is None:
                 route = self.manager.route(objective, run_exec=_classify_run_exec)
@@ -427,7 +426,7 @@ class SelfReplyMixin:
                     root_task_id=root_task_id,
                 )
         if route == "simple":
-            _phase(f"{backend_label} handling it solo…")
+            _phase("Argus 自己动手处理…")
             mode = str(self_mode or "inspect").strip().lower()
             return self._simple_quick_reply(
                 objective=objective,
@@ -437,7 +436,7 @@ class SelfReplyMixin:
                 execute_mode=mode if mode in _SELF_EXECUTION_CONTRACTS else "",
                 root_task_id=root_task_id,
             )
-        _phase("Handing off to the Argus execution pipeline…")
+        _phase("交给团队按流程执行…")
         return None
 
 
@@ -752,7 +751,7 @@ class SelfReplyMixin:
                 sink.handle_event({
                     "type": "engineer.progress",
                     "kind": "codex_idle",
-                    "text": f"{backend_label} process running; no stream output for {idle}s",
+                    "text": f"模型还在运行，已有 {idle} 秒没有新的输出…",
                 })
             except Exception:  # noqa: BLE001
                 pass
