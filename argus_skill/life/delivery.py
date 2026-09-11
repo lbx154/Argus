@@ -28,7 +28,7 @@ _WINDOWS_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_])/?[A-Za-z]:[\\/][^\s<>\[\]()`\"']+",
 )
 _PLAIN_FILE_RE = re.compile(
-    r"(?<![\w:/\\.-])([A-Za-z0-9_./-]+\.(?:html|md|markdown|csv|tsv|json|txt|py|js|mjs|css|pdf|pptx|png|jpg|jpeg|webp))(?=$|[^\w/\\.-]|\.(?=\s|$))",
+    r"(?<![\w:/\\.-])([A-Za-z0-9_./-]+\.(?:html|md|markdown|csv|tsv|json|txt|py|js|mjs|css|pdf|pptx|xlsx|png|jpg|jpeg|webp))(?=$|[^\w/\\.-]|\.(?=\s|$))",
     re.IGNORECASE,
 )
 _BRACED_FILE_RE = re.compile(

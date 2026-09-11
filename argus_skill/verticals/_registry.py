@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from functools import lru_cache
 from importlib.metadata import entry_points
 from pathlib import Path
 from types import ModuleType
@@ -33,7 +32,6 @@ def _skills_root(module: ModuleType) -> Any:
     return value
 
 
-@lru_cache(maxsize=1)
 def vertical_plugins() -> dict[str, VerticalPlugin]:
     """Load valid plugins once. Invalid registrations are not advertised."""
     try:
@@ -41,9 +39,16 @@ def vertical_plugins() -> dict[str, VerticalPlugin]:
     except Exception:  # noqa: BLE001
         log.warning("vertical entry-point discovery failed", exc_info=True)
         return {}
+    from ..core import plugin_manager
     plugins: dict[str, VerticalPlugin] = {}
+    for name, plugin in plugin_manager.installed().items():
+        module = plugin.vertical_module()
+        plugins[name] = VerticalPlugin(name, module.VERTICAL_PURPOSE, module, _skills_root(module))
+    managed_names = set(plugin_manager.catalog())
     for entry in sorted(discovered, key=lambda row: (row.name, row.value)):
         name = str(entry.name or "").strip().lower()
+        if name in managed_names:
+            continue
         if not _NAME.fullmatch(name) or name in plugins:
             log.warning("ignoring invalid or duplicate vertical entry point %r", name)
             continue
@@ -80,7 +85,7 @@ def vertical_plugin(name: object) -> VerticalPlugin | None:
 
 
 def refresh_vertical_plugins() -> None:
-    vertical_plugins.cache_clear()
+    pass  # Managed activation is read on every discovery; installed modules are cached.
 
 
 __all__ = [

@@ -500,13 +500,19 @@ class EventConsumerMixin:
                     agent_messages.append(message)
             return thread_id, turn_completed, turn_failed, fatal_error
 
-        if event_type == "error":
+        if event_type == "error" or (
+            event_type == "session.error" and isinstance(data, dict)
+            and data.get("errorType") == "query"
+        ):
             turn_failed = True
             if fatal_error is None:
                 if isinstance(data, dict):
                     maybe_msg = data.get("message")
                     if isinstance(maybe_msg, str) and maybe_msg.strip():
                         fatal_error = maybe_msg.strip()
+                        status_code = data.get("statusCode")
+                        if event_type == "session.error" and type(status_code) is int and 400 <= status_code <= 599:
+                            fatal_error = f"HTTP {status_code}: {fatal_error}"
                 if fatal_error is None:
                     maybe_msg = event.get("message")
                     if isinstance(maybe_msg, str) and maybe_msg.strip():

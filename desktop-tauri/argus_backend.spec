@@ -18,7 +18,13 @@ ROOT = TAURI_ROOT.parent
 # optional scientific/quant dependency at build time. Modules reached by the
 # product runtime are still analyzed normally; dynamic providers remain exact
 # hidden imports below.
-datas = collect_data_files("argus_skill", include_py_files=True)
+optional_roots = [p.parent for p in (ROOT / "argus_skill/verticals").glob("*/workbench.json")]
+def optional_source(path):
+    path = Path(path).resolve()
+    return any(path == root or root in path.parents for root in optional_roots)
+
+datas = [(source, target) for source, target in collect_data_files("argus_skill", include_py_files=True)
+         if not optional_source(source)]
 # Windows does not ship an IANA timezone database. Keep named ZoneInfo keys
 # available to the frozen Python-compatible runtime and extension tools.
 datas += collect_data_files("tzdata")
@@ -35,6 +41,8 @@ def collect_in_tree_modules(package_root, package):
     """List every shipped Python module without importing optional subpackages."""
     modules = []
     for path in sorted(package_root.rglob("*.py")):
+        if optional_source(path):
+            continue
         relative = path.relative_to(package_root)
         parts = list(relative.with_suffix("").parts)
         if parts[-1] == "__init__":
@@ -80,6 +88,7 @@ domain_overlay_modules = collect_provider_modules(
 
 hiddenimports = (
     ["tzdata", "argus_skill.trial.desktop", "certifi"]
+    + collect_submodules("unittest")
     + collect_submodules("uvicorn")
     + collect_submodules("fastapi")
     + collect_submodules("websockets")
@@ -98,7 +107,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=["argus_skill.verticals." + p.name for p in optional_roots],
     noarchive=False,
 )
 

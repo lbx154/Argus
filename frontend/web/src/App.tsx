@@ -951,7 +951,7 @@ export default function App() {
       <main className="flex min-w-0 flex-1 overflow-x-hidden">
         {snap ? (
           <>
-            <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
+            <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
               {workspaceView !== 'map' && <TopBar
                 snap={snap}
                 streamOk={connected}

@@ -108,6 +108,27 @@ describe("humanizeHarnessNote", () => {
 });
 
 describe("step readability in buildSubmap", () => {
+  it("distinguishes a successful execution from the unfinished overall goal even with recorded prose", () => {
+    const rows = buildSubmap({ ...task, status: "done" }, [
+      event("e1", "life.mission.completed", {
+        success: true, overall_complete: false, campaign_continues: true,
+        stage_certification: "intentionally_skipped", text: "Read one source route.",
+      }),
+    ], false);
+    const result = rows.find((row) => row.kind === "result")!;
+    expect(result.title).toBe("This execution ended");
+    expect(result.status).toBe("recorded");
+    expect(result.summary).toContain("the overall goal is not complete and further work remains");
+    expect(result.detail).toContain("Read one source route.");
+    expect(result.detail).toContain("Stage certification was intentionally skipped; this is not final acceptance.");
+    expect(rows.some((row) => row.kind === "review")).toBe(false);
+    const legacy = buildSubmap({ ...task, status: "done" }, [
+      event("e2", "life.mission.completed", { success: true, text: "" }),
+    ], false).find((row) => row.kind === "result")!;
+    expect(legacy.status).toBe("done");
+    expect(legacy.summary).toBe("The task was finished; its result is on record.");
+  });
+
   it("shows the human sentence on the card and files the receipt after the prose", () => {
     const rows = buildSubmap(
       task,

@@ -103,6 +103,17 @@ describe("overviewViewport", () => {
       6,
     );
   });
+
+  it("fits a tall fan-out above the controls in a short desktop window", () => {
+    const shortCanvas = { width: 960, height: 374 };
+    const shortArea = { x: 50, y: 75, width: 860, height: 160 };
+    const bounds = { x: 0, y: 0, width: 11000, height: 7200 };
+    const view = overviewViewport(shortCanvas, shortArea, bounds);
+    expect(view.zoom).toBeLessThan(0.035);
+    expect(view.y).toBeGreaterThanOrEqual(shortArea.y);
+    expect(view.y + bounds.height * view.zoom)
+      .toBeLessThanOrEqual(shortArea.y + shortArea.height);
+  });
 });
 
 describe("readerViewport", () => {

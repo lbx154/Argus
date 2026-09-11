@@ -194,16 +194,16 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   useEffect(() => {
     const changed = previousStatus.current !== task.status;
     previousStatus.current = task.status;
-    if (!changed || task.status !== 'done') return;
+    if (!changed || task.status !== 'done' || data.completionScope) return;
     setCompletedNow(true);
     const timer = setTimeout(() => setCompletedNow(false), 1500);
     return () => clearTimeout(timer);
-  }, [task.status]);
+  }, [task.status, data.completionScope]);
   const selectedDetail = layout.steps.find((s) => s.id === detailId);
   const detail = selectedDetail ? currentStep(selectedDetail) : undefined;
   const detailTs = detail?.updatedAt ?? detail?.ts;
   const isLastPart = data.part === data.partCount;
-  const state = !isLastPart
+  const state = !isLastPart || data.completionScope
     ? "recorded"
     : task.status === "missing"
       ? "missing"
@@ -224,13 +224,14 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     copy[task.id]?.task_status !== task.status &&
     (ACTIVE.has(task.status) || task.status === "pending");
   const stepCopy = (step: SubmapStep) => {
+    if (step.completionScope) return undefined;
     const saved = copy[step.id];
     if (step.source !== 'team') return saved;
     const index = saved?.event_ids?.indexOf(step.id) ?? -1;
     return currentStep(step).revision && index >= 0 && saved?.event_revisions?.[index] === currentStep(step).revision ? saved : undefined;
   };
   const title =
-    (copy[task.id]?.title || task.title) +
+    (data.completionScope ? task.title : copy[task.id]?.title || task.title) +
     (data.part > 1
       ? zh
         ? ` · 续篇 ${data.part - 1}`
@@ -328,6 +329,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     (STATES[
       s === 'paused_external_work' ? s : s.startsWith("paused_") ? "paused" : ACTIVE.has(s) ? "running" : s
     ] ?? STATES.unknown)[zh ? 0 : 1];
+  const taskStateLabel = data.completionScope
+    ? zh ? "执行结束 · 目标未完成" : "Execution ended · goal incomplete"
+    : stateLabel(displayedState);
   return (
     <article
       className={`map-macro map-state-${state}`}
@@ -397,8 +401,10 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               {data.partCount > 1 && ` · ${data.part}/${data.partCount}`}
             </span>
             {/* An earlier part of a long task has no state of its own; the
-                task's state is read on its last part, so no chip here. */}
-            {state !== "recorded" && (
+                task's state is read on its last part, so no chip here. An
+                execution that ended before the goal was complete keeps its
+                label even on a recorded part. */}
+            {(state !== "recorded" || data.completionScope) && (
               <span className="map-status">
                 {state === "done" ? (
                   <Check size={11} />
@@ -411,7 +417,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                 ) : (
                   <span className="map-state-dot" />
                 )}
-                {stateLabel(displayedState)}
+                {taskStateLabel}
               </span>
             )}
           </div>
@@ -427,7 +433,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             )}
           </h3>
           <div className="map-card-copy"><MarkdownExcerpt>
-            {partSummary ||
+            {data.completionScope || partSummary ||
               copy[task.id]?.summary ||
               task.pending_question ||
               humanizeHarnessNote(task.summary || "", zh).summary ||
@@ -445,7 +451,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               const present = layout.steps.some((step) => step.kind === kind);
               const active = layout.steps.some((step) => step.kind === kind && isStepActive(step));
               const turnLabel = task.kind === 'turn' ? TURN_KINDS[kind][zh ? 0 : 1] : '';
-              return <span key={kind} className={`submap-kind-${kind}`} data-present={present} data-active={active} title={`${KINDS[kind][zh ? 0 : 1]} · ${KIND_NOTES[kind][zh ? 0 : 1]}`}><StageIcon size={12} /><span>{turnLabel || (zh ? ({ plan: '规划', execution: '执行', review: '审查', result: '交付' })[kind] : KINDS[kind][1])}</span></span>;
+              const resultLabel = kind === 'result' && data.completionScope
+                ? zh ? '执行记录' : 'Execution record' : '';
+              return <span key={kind} className={`submap-kind-${kind}`} data-present={present} data-active={active} title={`${KINDS[kind][zh ? 0 : 1]} · ${KIND_NOTES[kind][zh ? 0 : 1]}`}><StageIcon size={12} /><span>{resultLabel || turnLabel || (zh ? ({ plan: '规划', execution: '执行', review: '审查', result: '交付' })[kind] : KINDS[kind][1])}</span></span>;
             })}
           </div>
           {teamSteps.length > 0 && (
@@ -508,8 +516,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </small>
             <h2><MarkdownExcerpt>{title}</MarkdownExcerpt></h2>
           </div>
-          {state !== "recorded" && (
-            <span className="macro-state">{stateLabel(displayedState)}</span>
+          {(state !== "recorded" || data.completionScope) && (
+            <span className="macro-state" title={data.completionScope}>{taskStateLabel}</span>
           )}
         </header>
         <div className="macro-stage-key">
@@ -584,7 +592,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                   )}
                 </span>
                 <small>
-                  {step.source === 'team' && stepStatus(step) === 'failed' ? (zh ? '失败' : 'Failed') : stateLabel(stepStatus(step))}
+                  {step.completionScope && step.status === 'recorded'
+                    ? zh ? '执行结束' : 'Execution ended'
+                    : step.source === 'team' && stepStatus(step) === 'failed' ? (zh ? '失败' : 'Failed') : stateLabel(stepStatus(step))}
                 </small>
               </div>
               <h4><MarkdownExcerpt>{step.title}</MarkdownExcerpt></h4>

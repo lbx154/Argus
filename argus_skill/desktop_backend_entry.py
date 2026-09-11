@@ -117,7 +117,7 @@ def _python_compat_entrypoint(argv: list[str]) -> tuple[bool, int]:
     A one-folder PyInstaller build has no standalone ``python.exe``. Argus
     prompts and tools nevertheless rely on ``$ARGUS_SKILL_PYTHON -m ...``.
     The frozen backend therefore acts as the owning interpreter for in-package
-    modules, ``-c`` snippets, and explicit Python script paths.
+    modules, ``-c`` snippets, stdin scripts, and explicit Python script paths.
     """
     args = list(argv)
     while args and args[0] in {"-B", "-I", "-s", "-S", "-u"}:
@@ -127,7 +127,11 @@ def _python_compat_entrypoint(argv: list[str]) -> tuple[bool, int]:
     try:
         if len(args) >= 2 and args[0] == "-m":
             module = args[1].strip()
-            if module != "argus_skill" and not module.startswith("argus_skill."):
+            if (
+                module != "unittest"
+                and module != "argus_skill"
+                and not module.startswith("argus_skill.")
+            ):
                 print(
                     f"argus-backend: refusing non-Argus frozen module {module!r}",
                     file=sys.stderr,
@@ -135,12 +139,20 @@ def _python_compat_entrypoint(argv: list[str]) -> tuple[bool, int]:
                 )
                 return True, 2
             sys.argv = [module, *args[2:]]
+            if module == "unittest":
+                sys.path.insert(0, os.getcwd())
             runpy.run_module(module, run_name="__main__", alter_sys=True)
             return True, 0
         if len(args) >= 2 and args[0] == "-c":
             sys.argv = ["-c", *args[2:]]
             namespace = {"__name__": "__main__", "__package__": None}
             exec(compile(args[1], "<string>", "exec"), namespace, namespace)
+            return True, 0
+        if args and args[0] == "-":
+            sys.argv = ["-", *args[1:]]
+            sys.path.insert(0, os.getcwd())
+            namespace = {"__name__": "__main__", "__package__": None, "__file__": "<stdin>"}
+            exec(compile(sys.stdin.read(), "<stdin>", "exec"), namespace, namespace)
             return True, 0
         if args and not args[0].startswith("-"):
             script = Path(args[0]).expanduser()

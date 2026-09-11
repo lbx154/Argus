@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import io
 import os
 import shutil
 import subprocess
@@ -154,6 +155,73 @@ def test_frozen_python_compat_dispatches_argus_modules_and_code(capsys) -> None:
     assert "refusing non-Argus" in capsys.readouterr().err
 
 
+def test_frozen_python_compat_runs_unittest_with_standard_exit_codes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "test_passing.py").write_text(
+        "import unittest\n\n"
+        "class PassingTest(unittest.TestCase):\n"
+        "    def test_passes(self):\n"
+        "        self.assertEqual(2 + 2, 4)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "test_failing.py").write_text(
+        "import unittest\n\n"
+        "class FailingTest(unittest.TestCase):\n"
+        "    def test_fails(self):\n"
+        "        self.assertEqual(2 + 2, 5)\n",
+        encoding="utf-8",
+    )
+
+    assert _python_compat_entrypoint(
+        ["-m", "unittest", "test_passing.py"]
+    ) == (True, 0)
+    assert _python_compat_entrypoint(
+        ["-m", "unittest", "test_failing.py"]
+    ) == (True, 1)
+
+
+def test_frozen_python_compat_runs_stdin_with_python_argv_semantics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "stdin_sibling.py").write_text(
+        "VALUE = 'stdin-sibling-ok'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            "import sys\n"
+            "from stdin_sibling import VALUE\n"
+            "print(VALUE, sys.argv)\n"
+            "assert __file__ == '<stdin>'\n"
+        ),
+    )
+    original_argv = list(sys.argv)
+    original_path = list(sys.path)
+
+    handled, code = _python_compat_entrypoint(["-", "one", "two"])
+
+    assert handled is True and code == 0
+    assert "stdin-sibling-ok ['-', 'one', 'two']" in capsys.readouterr().out
+    assert sys.argv == original_argv
+    assert sys.path == original_path
+
+
+def test_frozen_python_compat_returns_stdin_system_exit_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "stdin", io.StringIO("raise SystemExit(7)\n"))
+
+    assert _python_compat_entrypoint(["-"]) == (True, 7)
+
+
 def test_frozen_python_compat_runs_scripts_with_python_argv_semantics(
     tmp_path: Path,
     capsys,
@@ -222,6 +290,8 @@ def test_pyinstaller_spec_collects_registered_stage_and_overlay_modules() -> Non
     assert "argus_skill.verticals.digital_circuit.benchmark.stages" in expected_verticals
     assert namespace["domain_overlay_modules"] == expected_domains
     assert set(expected_verticals + expected_domains) <= set(namespace["hiddenimports"])
+    assert "unittest" in namespace["hiddenimports"]
+    assert ("unittest", "warn once") in calls
     assert "argus_skill.tools.manager_live_view" in namespace["argus_modules"]
     assert "argus_skill.daemon.spawn_helper" in namespace["argus_modules"]
     assert ("argus_skill-python-sources", "True") in namespace["datas"]

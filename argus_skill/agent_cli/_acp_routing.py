@@ -97,6 +97,10 @@ class AcpRoutingMixin:
         ``ARGUS_SKILL_COPILOT_ACP_LABELS`` overrides the default label set. All
         engineer/reviewer/planner/mission turns stay on the CLI ``Popen`` path.
         """
+        # Session-bound MCP configurations must start their own CLI process;
+        # a warm ACP process cannot inherit this turn's scoped capability.
+        if options is not None and getattr(options, "extension_env", None):
+            return False
         if self.backend != BACKEND_COPILOT or not run_label:
             return False
         raw_flag = os.environ.get("ARGUS_SKILL_COPILOT_ACP")

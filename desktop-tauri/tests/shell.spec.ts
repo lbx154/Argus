@@ -247,6 +247,33 @@ test('CLI grid and settings stay usable at the minimum supported window size', a
   await expect(page.locator('#wizardFinish')).toBeInViewport();
 });
 
+for (const viewport of [{ width: 1280, height: 820 }, { width: 960, height: 640 }]) {
+  test(`reopened settings keep the trial card and CLI controls in their columns at ${viewport.width}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await launch(page, true);
+    const draft = page.frameLocator('#cockpitFrame').locator('#draft');
+    await draft.fill('Keep my unsent message');
+    await openSettings(page);
+    await expect(page.locator('.trial-invite')).toBeVisible();
+    await expect.poll(async () => {
+      const panel = await page.locator('.panel[data-panel="env"]').boundingBox();
+      const invite = await page.locator('.trial-invite').boundingBox();
+      return panel && invite ? invite.width / panel.width : 0;
+    }).toBeGreaterThan(0.95);
+    const intro = await page.locator('.panel[data-panel="env"] > .panel-intro').boundingBox();
+    const controls = await page.locator('.panel-content-env').boundingBox();
+    expect(controls!.x).toBeGreaterThan(intro!.x);
+    expect(controls!.width).toBeGreaterThan(intro!.width);
+    await expect(page.locator('#wizardNext')).toBeInViewport();
+    await expect(page.locator('#wizardCancel')).toBeInViewport();
+    await page.locator('#trialOpen').click();
+    await expect(page.locator('#trialKey')).toBeInViewport();
+    await expect(page.locator('#trialSubmit')).toBeInViewport();
+    await page.keyboard.press('Escape');
+    await expect(draft).toHaveValue('Keep my unsent message');
+  });
+}
+
 test('internal trial key validates, retries privately, and opens the cockpit without account setup', async ({ page }) => {
   await launch(page);
   await page.locator('#trialOpen').click();

@@ -13,6 +13,7 @@ from fastapi import Depends, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from ...core.workspace_lease import canonical_workdir
+from ...life.memory import LifeMemory
 from .context import ServerContext
 from .models import CommandIn, ContinuousIn, CreateDaemonIn, ReplaceDaemonIn, StopIn
 
@@ -70,6 +71,20 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
         command = body or CommandIn()
         life_dir = ctx.resolve_or_404(sid)
         project_root = ctx.project_root_or_404(sid)
+
+        def start_and_resume() -> dict[str, Any]:
+            result = ctx.not_found_if_none(
+                server_mod.start_project_daemon(
+                    sid,
+                    global_root=project_root,
+                    resume_continuous=True,
+                ),
+                sid,
+            )
+            if result.get("rc") == 0:
+                LifeMemory.open(life_dir).backlog.resume_all_paused()
+            return result
+
         receipt = await run_in_threadpool(
             server_mod.execute_daemon_command,
             life_dir,
@@ -78,14 +93,7 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
             command_id=command.command_id or None,
             expected_revision=command.expected_revision,
             issuer="webapi",
-            handler=lambda: ctx.not_found_if_none(
-                server_mod.start_project_daemon(
-                    sid,
-                    global_root=project_root,
-                    resume_continuous=True,
-                ),
-                sid,
-            ),
+            handler=start_and_resume,
         )
         return server_mod._command_response(receipt)
 
@@ -119,6 +127,21 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
     async def _daemon_replace(sid: str, body: ReplaceDaemonIn) -> dict[str, Any]:
         life_dir = ctx.resolve_or_404(sid)
         project_root = ctx.project_root_or_404(sid)
+
+        def replace_and_resume() -> dict[str, Any]:
+            result = ctx.not_found_if_none(
+                server_mod.replace_project_daemon(
+                    sid,
+                    body.victim_sid,
+                    global_root=project_root,
+                    resume_continuous=body.resume_continuous,
+                ),
+                sid,
+            )
+            if result.get("rc") == 0 and body.resume_continuous:
+                LifeMemory.open(life_dir).backlog.resume_all_paused()
+            return result
+
         receipt = await run_in_threadpool(
             server_mod.execute_daemon_command,
             life_dir,
@@ -130,15 +153,7 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
             command_id=body.command_id or None,
             expected_revision=body.expected_revision,
             issuer="webapi",
-            handler=lambda: ctx.not_found_if_none(
-                server_mod.replace_project_daemon(
-                    sid,
-                    body.victim_sid,
-                    global_root=project_root,
-                    resume_continuous=body.resume_continuous,
-                ),
-                sid,
-            ),
+            handler=replace_and_resume,
         )
         return server_mod._command_response(receipt)
 

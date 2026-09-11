@@ -110,6 +110,9 @@ class RunnerOptions:
     # role turns are entirely unaffected. A callback exception never breaks the
     # turn (it is swallowed by the runner).
     on_agent_message: Callable[[str], None] | None = None
+    trusted_extensions: list[str] | None = None
+    trusted_tool_names: list[str] | None = None
+    extension_env: dict[str, str] | None = None
 
 
 @dataclass

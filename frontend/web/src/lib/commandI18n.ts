@@ -10,6 +10,7 @@ const GROUPS: Record<SlashCommand['group'], string> = {
 };
 
 const DESCRIPTIONS: Record<CommandId, string> = {
+  crystalpilot: '在当前 Argus 会话启用晶体学工具，保持原生界面',
   status: '查看角色、队列、日志和健康状态',
   roles: '查看各角色的后端、模型、推理强度和实时活动',
   journal: '查看近期日志（默认 10 条）',

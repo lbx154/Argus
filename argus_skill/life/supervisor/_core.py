@@ -461,12 +461,12 @@ class LifeSupervisor(
     def _resume_automatic_pauses(self) -> list[BacklogItem]:
         """Wake pause classes whose external condition is rechecked per run.
 
-        Operator pauses and scientific/infrastructure blocks stay explicit.
+        Provider fences, operator pauses, and scientific/infrastructure blocks
+        stay explicit: time passing does not establish quota recovery.
         Budget pauses wake only after the cheap global-cap preflight succeeds.
         """
         statuses = {
             "paused_provider_cooldown",
-            "paused_provider_fence",
             "paused_daemon_shutdown",
         }
         try:
@@ -762,15 +762,27 @@ class LifeSupervisor(
                 stopped_by = "supervisor_error"
                 break
             if outcome is None:
+                active_items = self.memory.backlog.active()
                 running_items = [
                     item
-                    for item in self.memory.backlog.active()
+                    for item in active_items
                     if str(getattr(item, "status", "") or "") == "running"
                 ]
                 if running_items:
                     self._plan_alongside_running_work(running_items)
                     self._wait_idle()
                     continue
+                if any(
+                    item.status == "paused_provider_fence"
+                    for item in active_items
+                ):
+                    self._enter_pause_backoff()
+                    self._emit_status(
+                        "provider fence held; restore quota or configuration, "
+                        "then explicitly resume"
+                    )
+                    stopped_by = "paused_provider_fence"
+                    break
                 # Backlog empty — continuous mode: ask planner for more
                 if self.config.continuous and self.config.continuous_objective:
                     pending_questions = [

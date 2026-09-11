@@ -18,6 +18,7 @@ from argus_skill.manager.live_view import (
 
 def test_live_view_paths_are_workspace_relative_and_secret_safe() -> None:
     assert normalize_live_view_path("paper/main.pdf") == "paper/main.pdf"
+    assert normalize_live_view_path("reports/budget.xlsx") == "reports/budget.xlsx"
     assert normalize_live_view_path("pyproject.toml") == "pyproject.toml"
     assert normalize_live_view_path(".argus/live/current.md") == ".argus/live/current.md"
     for unsafe in (
@@ -31,6 +32,7 @@ def test_live_view_paths_are_workspace_relative_and_secret_safe() -> None:
         ".argus/live/nested/current.md",
         ".npmrc",
         "private/token.txt",
+        "private/token.xlsx",
         "config/service-account.json",
         "config/secrets.yaml",
         "oauth/client_secret.json",

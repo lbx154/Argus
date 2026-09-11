@@ -63,6 +63,31 @@ def test_append_keeps_active_window_and_waits_for_complete_json_line(tmp_path):
     assert feed.read(sid, tmp_path, life, complete["cursor"])["events"] == []
 
 
+def test_completion_scope_survives_incremental_feed_and_old_history_cache(tmp_path, monkeypatch):
+    sid, life, _ = setup_session(tmp_path)
+    feed = MapFeed()
+    first = feed.read(sid, tmp_path, life)
+    event = {"event_id": "ended", "type": "life.mission.completed", "item_id": "a",
+             "ts": 3, "success": True, "overall_complete": False, "campaign_continues": True}
+    append(life, event)
+    delta = feed.read(sid, tmp_path, life, first["cursor"])
+    assert not delta["tasks"]
+    assert delta["events"][0]["overall_complete"] is False
+    assert delta["events"][0]["campaign_continues"] is True
+    snapshot = read_map(sid, tmp_path, life, include_events=False)
+    with monkeypatch.context() as old:
+        old.setattr(map_history, "HISTORY_VERSION", map_history.HISTORY_VERSION - 1)
+        page = map_history.history_page(tmp_path, life, snapshot, None)
+    monkeypatch.setattr(map_history, "PAGE_EVENTS", 1)
+    rebuilt = map_history.history_page(tmp_path, life, snapshot, page["history_cursor"])
+    assert rebuilt["reset_history"]
+    completed = map_history.history_page(tmp_path, life, snapshot, rebuilt["history_cursor"])
+    assert completed["events"][0]["id"] == "ended"
+    assert completed["events"][0]["overall_complete"] is False
+    assert completed["events"][0]["campaign_continues"] is True
+    assert not completed["history_loading"]
+
+
 def test_unknown_cursor_and_replaced_log_return_a_full_projection(tmp_path):
     sid, life, _ = setup_session(tmp_path)
     feed = MapFeed()

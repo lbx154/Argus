@@ -871,16 +871,18 @@ export function MapCanvas({
   // One pass, one bucket per task: the strip must partition, not double-count
   // a failed task that also carries a question.
   const tally = useMemo(() => {
-    const buckets = { done: 0, running: 0, question: 0, failed: 0, other: 0 };
+    const ended = new Set(scene.cards.filter((card) => card.completionScope).map((card) => card.task.id));
+    const buckets = { done: 0, ended: 0, running: 0, question: 0, failed: 0, other: 0 };
     for (const task of data.tasks) {
-      if (task.status === "done") buckets.done++;
+      if (ended.has(task.id)) buckets.ended++;
+      else if (task.status === "done") buckets.done++;
       else if (ACTIVE.has(task.status)) buckets.running++;
       else if (task.pending_question) buckets.question++;
       else if (task.status === "failed") buckets.failed++;
       else buckets.other++;
     }
     return buckets;
-  }, [data.tasks]);
+  }, [data.tasks, scene.cards]);
   const complete = tally.done;
   const focus = (id: string) => {
     setTraceId(null);
@@ -1021,10 +1023,11 @@ export function MapCanvas({
             {mapStatusSentence({
               total: data.tasks.length,
               complete,
+              ended: tally.ended,
               running: tally.running,
               pending: composer.pending,
               paused,
-              hasOpenWork: data.tasks.some((task) => ACTIVE.has(task.status) || task.status === "pending"),
+              hasOpenWork: data.tasks.some((task) => ["running", "pending", "paused", "question"].includes(statusKey(task))),
               role: activePhase,
               zh,
             })}
@@ -1286,7 +1289,7 @@ export function MapCanvas({
               onNodeMouseLeave={() => setHoverId(null)}
               onMove={camera.onMove}
               defaultViewport={INITIAL_VIEWPORT}
-              minZoom={0.035}
+              minZoom={0.01}
               maxZoom={3.5}
               nodesDraggable={false}
               nodesFocusable={false}
@@ -1297,7 +1300,7 @@ export function MapCanvas({
               zoomOnDoubleClick={false}
               deleteKeyCode={null}
               selectionKeyCode={null}
-              onlyRenderVisibleElements
+              onlyRenderVisibleElements={fitted && nodesReady}
               proOptions={{ hideAttribution: true }}
             >
               <Background
@@ -1313,7 +1316,7 @@ export function MapCanvas({
                 fitViewOptions={{
                   padding: 0.16,
                   maxZoom: 0.27,
-                  minZoom: 0.035,
+                  minZoom: 0.01,
                   duration: camera.reducedMotion ? 0 : 320,
                 }}
               />

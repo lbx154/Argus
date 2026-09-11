@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from argus_skill.webapi import manager_dispatch
+from argus_skill.core.transcript import append_turn
+from argus_skill.webapi import manager_bridge, manager_dispatch, manager_state
 from argus_skill.webapi.manager_dispatch import (
     _classify_operator_turn,
     _ClassifyResult,
@@ -146,6 +147,44 @@ def test_forced_chat_skips_the_classifier(tmp_path, monkeypatch) -> None:
     assert result.self_mode == "inspect"
     assert result.frontdoor_failure == ""
     assert phases == ["对话模式：Manager 正在准备回复…"]
+
+
+def test_forced_chat_restores_history_without_classification(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    life = _make_project(tmp_path)
+    append_turn(life, "operator", "Write the report.")
+    append_turn(life, "argus", "The report is still in progress.")
+    manager_state._STATES.clear()
+    seen: list[str] = []
+
+    def _classify(*args, **kwargs):
+        raise AssertionError("explicit chat must not call the classifier")
+
+    def _triage(mem, body, chat_state, **kwargs):
+        assert kwargs["self_mode"] == "inspect"
+        seen.append(body)
+        return "The report is still in progress."
+
+    monkeypatch.setattr(
+        "argus_skill.manager.config_intent._front_door_classify", _classify,
+    )
+    monkeypatch.setattr(
+        "argus_skill.manager.front_door.manager_triage", _triage,
+    )
+
+    result = manager_bridge.manager_message(
+        _SID, "你写完了？", global_root=tmp_path, route_override="chat",
+    )
+
+    assert result == {"kind": "chat", "reply": "The report is still in progress."}
+    assert len(seen) == 1
+    assert "SESSION HANDOFF" in seen[0]
+    assert "Write the report." in seen[0]
+    assert "The report is still in progress." in seen[0]
+    assert seen[0].count("你写完了？") == 1
+    assert manager_state._STATES[_SID]["startup_handoffs"] == 1
 
 
 def test_forced_task_skips_the_classifier(tmp_path, monkeypatch) -> None:

@@ -1,0 +1,74 @@
+{
+  "plugins": [
+    {
+      "id": "crystalpilot",
+      "name": "Argus CrystalPilot",
+      "version": "0.4.0",
+      "description": "衍射数据处理、结构求解、精修与三维晶体研究工作台",
+      "command": "/crystalpilot",
+      "session_bindings": "plugins/crystalpilot/bindings.json",
+      "factory": "argus_crystalpilot.host:CrystalPilotPlugin",
+      "installer": "argus_crystalpilot.installation",
+      "setup": {
+        "module": "argus_crystalpilot.dependencies",
+        "actions": [
+          "health",
+          "repair",
+          "shelx",
+          "configure"
+        ],
+        "automatic": true,
+        "license": {
+          "action": "shelx",
+          "name": "SHELX",
+          "url": "https://shelx.uni-goettingen.de/register.php",
+          "platform_consent": {
+            "platform": "darwin",
+            "machines": [
+              "arm64",
+              "aarch64"
+            ],
+            "text": "SHELX 官方 Mac 版需要 Rosetta 2。我同意在缺少时自动安装 Rosetta 2，并接受 Apple 的软件许可。",
+            "url": "https://www.apple.com/legal/sla/"
+          }
+        }
+      },
+      "host_api": 1,
+      "backends": [
+        "codex",
+        "copilot",
+        "pi"
+      ],
+      "platforms": [
+        "windows",
+        "linux",
+        "darwin"
+      ],
+      "architectures": {
+        "windows": [
+          "amd64",
+          "x86_64",
+          "x64"
+        ],
+        "linux": [
+          "amd64",
+          "x86_64",
+          "x64"
+        ],
+        "darwin": [
+          "x86_64",
+          "arm64",
+          "aarch64"
+        ]
+      },
+      "package": "argus_crystalpilot",
+      "rights_notice": "© 2026 TopoSpace. All rights reserved. Unauthorized commercial use or derivative development is prohibited.",
+      "rights_notice_zh": "© 2026 TopoSpace 保留所有权利。未经许可，禁止商用或二次开发。",
+      "artifact": {
+        "filename": "argus_crystalpilot-0.4.0-py3-none-any.whl",
+        "sha256": "030f22e7c18cb411db43f42fc4667cba06da1593a8a2054cc1a8e7e1fd12fed2",
+        "url": "https://crystalpilot-downloads.argusbot.cn/releases/0.4.0/argus_crystalpilot-0.4.0-py3-none-any.whl"
+      }
+    }
+  ]
+}

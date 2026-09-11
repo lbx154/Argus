@@ -16,7 +16,7 @@ export interface CameraMemory {
   focusId: string | null;
   detailed: boolean;
 }
-const MIN_ZOOM = 0.035,
+const MIN_ZOOM = 0.01,
   MAX_ZOOM = 3.5;
 const clamp = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, n));

@@ -48,6 +48,23 @@ def execute(
     # The generated command, reservation, and settled usage record therefore
     # share one model id instead of independently guessing after the call.
     options = backend._resolve_execution_options(options)
+    from ...core.workbench_plugins import prepare_plugin_run
+    project_root = backend._usage_context_snapshot()[0]
+    if project_root is None:
+        log_path = backend._agent_io_log_path(options)
+        project_root = log_path.parent if log_path is not None else None
+    prompt, options = prepare_plugin_run(prompt, options,
+        backend=backend._runner.backend, run_label=run_label, project_root=project_root)
+    backend._plugin_execution_options = options
+    try:
+        return _execute_prepared(backend, prompt=prompt, options=options, run_label=run_label, resume_thread_id=resume_thread_id)
+    finally:
+        from ...core.workbench_plugins import finish_plugin_run
+        finish_plugin_run(options)
+        backend._plugin_execution_options = None
+
+
+def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
     # Reset per-call: the flag is checked AFTER this call completes,
     # so stale True from a previous call cannot stick across missions.
     backend._auth_failure_detected = False
@@ -59,6 +76,10 @@ def execute(
     )
     if usage_project_root is None and log_path is not None:
         usage_project_root = log_path.parent
+    from ...core.workbench_plugins import plugin_accounting_root
+    accounting_root = plugin_accounting_root(usage_project_root)
+    if accounting_root is not None:
+        usage_global_root = accounting_root
     io_context = backend._io_logger.start_call(
         call_id=call_id,
         run_label=run_label,
