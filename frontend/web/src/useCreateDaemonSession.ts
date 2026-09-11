@@ -14,6 +14,7 @@ interface UseCreateDaemonSessionOptions {
   queryClient: QueryClient;
   refetchProjects: () => Promise<unknown>;
   selectProject: (id: string) => void;
+  translate?: (key: string) => string;
 }
 
 export function useCreateDaemonSession({
@@ -23,6 +24,7 @@ export function useCreateDaemonSession({
   queryClient,
   refetchProjects,
   selectProject,
+  translate,
 }: UseCreateDaemonSessionOptions) {
   const [creatingDaemon, setCreatingDaemon] = useState(false);
   const creatingDaemonRef = useRef(false);
@@ -70,8 +72,8 @@ export function useCreateDaemonSession({
       notify(
         startCampaign ? 'info' : 'success',
         startCampaign
-          ? 'Session created and selected. Campaign is starting in the background.'
-          : 'Session created and selected.',
+          ? (translate ? translate('new.createdStarting') : 'Session created and selected. Campaign is starting in the background.')
+          : (translate ? translate('new.createdIdle') : 'Session created and selected.'),
       );
       if (startCampaign) {
         void startCampaign()

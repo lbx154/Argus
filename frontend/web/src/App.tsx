@@ -22,7 +22,6 @@ import {
   selectCompletionArtifact,
 } from './components/ResearchCanvas';
 import { ActionNotice, type NoticeTone, type UiNotice } from './components/ActionNotice';
-import { NewDaemonModal } from './components/NewDaemonModal';
 import { DaemonManageModal } from './components/DaemonManageModal';
 import { Sidebar } from './components/Sidebar';
 import { ProjectInspectorModal } from './components/ProjectInspectorModal';
@@ -195,7 +194,6 @@ export default function App() {
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [previewPathRequest, setPreviewPathRequest] = useState({ path: '', token: 0 });
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
-  const [newDaemonOpen, setNewDaemonOpen] = useState(false);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
   const [manageTargetSid, setManageTargetSid] = useState<string | null>(null);
   const [resumingSid, setResumingSid] = useState<string | null>(null);
@@ -308,8 +306,14 @@ export default function App() {
     queryClient,
     refetchProjects: projectsQ.refetch,
     selectProject,
+    translate: t,
   });
-  useEffect(() => subscribeDesktopNewChat(() => setNewDaemonOpen(true)), []);
+  // A new session starts as an idle conversation in the default workspace;
+  // the first message names what it is for, so there is nothing to ask up front.
+  const startNewSession = useCallback(() => { void createDaemon('', '', ''); }, [createDaemon]);
+  const startNewSessionRef = useRef(startNewSession);
+  startNewSessionRef.current = startNewSession;
+  useEffect(() => subscribeDesktopNewChat(() => startNewSessionRef.current()), []);
 
 
   const snapQ = useSnapshot(activeSid);
@@ -545,7 +549,7 @@ export default function App() {
     onOpenHelp: () => setOverlay('help'),
     onOpenIdentity: () => setOverlay('identity'),
     onOpenInspector: () => setOverlay('inspector'),
-    onOpenNewDaemon: () => setNewDaemonOpen(true),
+    onOpenNewDaemon: startNewSession,
     onOpenOperations: () => setOverlay('operations'),
     onOpenSidebar: () => setSidebarOpen(true),
     onReconnectEvents: () => dispatchEventView({ kind: 'reconnect' }),
@@ -823,7 +827,7 @@ export default function App() {
       locale,
     );
     const nav: PaletteItem[] = [
-      ...(kiosk ? [] : [{ id: 'new', label: t('palette.newDaemon'), hint: '+', group: t('palette.view'), run: () => setNewDaemonOpen(true) }]),
+      ...(kiosk ? [] : [{ id: 'new', label: t('palette.newDaemon'), hint: '+', group: t('palette.view'), run: startNewSession }]),
       { id: 'transcript', label: t('palette.openTranscript'), hint: '/transcript', group: t('palette.view'), run: () => setOverlay('transcript') },
       { id: 'inspector', label: t('palette.openProject'), hint: t('palette.projectHint'), group: t('palette.view'), run: () => setOverlay('inspector') },
       { id: 'operations', label: t('palette.openOperations'), hint: t('palette.operationsHint'), group: t('palette.view'), run: () => setOverlay('operations') },
@@ -925,7 +929,7 @@ export default function App() {
           onResume={(sid) => void resumeSession(sid)}
           resumingId={resumingSid}
           onOpenPanel={(panel) => setOverlay(panel)}
-          onNew={() => setNewDaemonOpen(true)}
+          onNew={startNewSession}
           loading={projectsQ.isLoading}
           creating={creatingDaemon}
           error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
@@ -1122,7 +1126,7 @@ export default function App() {
               void projectsQ.refetch();
               if (activeSid) void snapQ.refetch();
             }}
-            onNew={() => setNewDaemonOpen(true)}
+            onNew={startNewSession}
             onChoose={() => setSidebarOpen(true)}
             canCreate={!kiosk}
           />
@@ -1182,12 +1186,6 @@ export default function App() {
         onStop={requestStopIteration}
         busy={actions.disposeBacklog.isPending || actions.stopBacklog.isPending}
         readOnly={kiosk}
-      />
-      <NewDaemonModal
-        open={newDaemonOpen}
-        busy={creatingDaemon}
-        onClose={() => setNewDaemonOpen(false)}
-        onCreate={createDaemon}
       />
       <PendingReplyDialog
         reply={pendingReply}
