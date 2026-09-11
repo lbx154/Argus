@@ -110,5 +110,11 @@
   "PLATON 未生成校验规则；请检查运行库": "PLATON did not generate verification rules; check the runtime",
   "请输入 SHELX 授权信息以安装": "Enter SHELX authorization details to install",
   "无法启动，请核对平台与运行库": "Unable to start; check the platform and runtime",
-  "衍射数据处理、结构求解、精修与三维晶体研究工作台": "Diffraction data processing, structure solution, refinement and a 3D crystallography workbench"
+  "衍射数据处理、结构求解、精修与三维晶体研究工作台": "Diffraction data processing, structure solution, refinement and a 3D crystallography workbench",
+  "正在准备 ⟦0⟧ 工作台，首次需要几分钟": "Preparing the ⟦0⟧ workbench; the first time takes a few minutes",
+  "⟦0⟧ 暂时无法使用": "⟦0⟧ is unavailable for now",
+  "管理 ⟦0⟧": "Manage ⟦0⟧",
+  "原生会话输入 ⟦0⟧ 可启用后台工具。": "Native session input ⟦0⟧ can enable background tools.",
+  "研究工具由服务方提供，沿用 Argus 的模型与执行后端。": "Research tools are provided by the service and use Argus's model and execution backend.",
+  "此插件由服务方提供并维护，无需停用或卸载。": "This plugin is provided and maintained by the service; there is nothing to disable or uninstall."
 }

@@ -1,5 +1,8 @@
 """Optional plugin center plus dynamically activated, authenticated workbenches."""
 
+import logging
+import threading
+
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
@@ -43,6 +46,27 @@ class PluginSurface:
 
 
 def register_plugin_routes(app, ctx):
+    @app.on_event("startup")
+    def _prepare_declared_plugins():
+        """Install what the deployment declares, without holding up the interface.
+
+        Each install is already a background job; the reconciliation itself runs
+        on a thread too, so a catalog read or lock wait never delays serving.
+        Lines go to the server log so the operator can follow the preparation.
+        """
+        names = manager.preinstalled_ids()
+        if not names:
+            return
+        logger = logging.getLogger("uvicorn.error")
+        logger.info("Preparing the plugins this deployment declares: %s", ", ".join(names))
+        threading.Thread(
+            target=manager.preinstall,
+            args=(ctx.global_root,),
+            kwargs={"logger": logger},
+            daemon=True,
+            name="plugin-preinstall",
+        ).start()
+
     @app.get("/api/plugins", dependencies=[Depends(ctx.require_auth)])
     def list_plugins():
         return {"plugins": manager.plugin_rows(ctx.global_root)}
