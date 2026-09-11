@@ -455,4 +455,12 @@ it("heads each step column with the round of work it holds", () => {
   ], false);
   for (const title of segment.columns.map((c) => c.title))
     expect(["Setting out", "Round 1", "Round 1 · cont.", "Outcome"]).toContain(title);
+  // Work recorded before the round's own record still belongs to that round.
+  const early = layoutSubmap(task, [
+    { id: "w", type: "life.mission.started", ts: 0, item_id: "t", text: "" } as MapEvent,
+    { id: "p", type: "life.phase.started", ts: 0.5, item_id: "t", text: "", label: "implementation" } as MapEvent,
+    ...rounds(1),
+  ], false);
+  for (const title of early.columns.map((c) => c.title))
+    expect(["Setting out", "Round 1", "Round 1 · cont.", "Outcome"]).toContain(title);
 });

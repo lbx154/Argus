@@ -716,14 +716,22 @@ export function layoutSubmap(
   };
 }
 
-/** The round each step belongs to. Steps recorded without a round number,
- * such as a segment of the Engineer's work, belong to the round under way;
- * the outcome of the whole task belongs to no round. */
+/** The round each step belongs to. A step recorded without a round number,
+ * such as a segment of the Engineer's work, belongs to the numbered round
+ * whose record follows it (a round's work is recorded when the round ends),
+ * or failing that to the last round seen. Planning steps and the outcome of
+ * the whole task belong to no round. */
 function effectiveRounds(steps: SubmapStep[]): (number | undefined)[] {
-  let current: number | undefined;
-  return steps.map((step) => {
-    if (typeof step.round === "number") current = step.round;
-    return typeof step.round === "number" ? step.round : step.kind === "result" ? undefined : current;
+  const numbered = steps.map((step) => (typeof step.round === "number" ? step.round : undefined));
+  let previous: number | undefined;
+  return steps.map((step, i) => {
+    if (numbered[i] !== undefined) {
+      previous = numbered[i];
+      return numbered[i];
+    }
+    if (step.kind === "result" || step.kind === "plan") return undefined;
+    const next = numbered.slice(i + 1).find((r) => r !== undefined);
+    return next ?? previous;
   });
 }
 
