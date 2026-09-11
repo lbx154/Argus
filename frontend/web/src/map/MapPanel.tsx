@@ -1012,7 +1012,7 @@ export function MapCanvas({
               running: tally.running,
               pending: composer.pending,
               paused,
-              hasOpenWork: data.tasks.some((task) => ACTIVE.has(task.status) || task.status === "pending"),
+              hasOpenWork: data.tasks.some((task) => ["running", "pending", "paused", "question"].includes(statusKey(task))),
               role: activePhase,
               zh,
             })}
@@ -1236,7 +1236,7 @@ export function MapCanvas({
               onNodeMouseLeave={() => setHoverId(null)}
               onMove={camera.onMove}
               defaultViewport={INITIAL_VIEWPORT}
-              minZoom={0.035}
+              minZoom={0.01}
               maxZoom={3.5}
               nodesDraggable={false}
               nodesFocusable={false}
@@ -1247,7 +1247,7 @@ export function MapCanvas({
               zoomOnDoubleClick={false}
               deleteKeyCode={null}
               selectionKeyCode={null}
-              onlyRenderVisibleElements
+              onlyRenderVisibleElements={fitted && nodesReady}
               proOptions={{ hideAttribution: true }}
             >
               <Background
@@ -1263,7 +1263,7 @@ export function MapCanvas({
                 fitViewOptions={{
                   padding: 0.16,
                   maxZoom: 0.27,
-                  minZoom: 0.035,
+                  minZoom: 0.01,
                   duration: camera.reducedMotion ? 0 : 320,
                 }}
               />

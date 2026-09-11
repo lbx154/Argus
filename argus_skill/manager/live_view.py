@@ -55,7 +55,7 @@ _RENDERABLE_SUFFIXES = frozenset({
     ".ipynb", ".jpeg", ".jpg", ".json", ".jsonl", ".log", ".m4a", ".m4v",
     ".markdown", ".md", ".mov", ".mp3", ".mp4", ".ogg", ".ogv", ".pdf",
     ".png", ".pptx", ".py", ".rst", ".sh", ".tex", ".toml", ".ts", ".tsv", ".txt", ".wav",
-    ".webm", ".webp", ".yaml", ".yml",
+    ".webm", ".webp", ".xlsx", ".yaml", ".yml",
 })
 
 

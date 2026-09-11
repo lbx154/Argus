@@ -39,8 +39,10 @@ _SELF_LEARNING_REVIEW_INTERVAL = 5
 _SELF_EXECUTION_CONTRACTS = {
     "micro": (
         "bash",
-        "Complete the finite local microtask in the current directory. Use one shell "
-        "command to make the requested change and verify it, then report briefly and stop.",
+        "Complete the finite local microtask in the current directory. Inspect the relevant "
+        "local inputs in tool output before drafting or extracting facts; do not guess their contents "
+        "or format. Then make the requested change and verify it. Use only necessary "
+        "tool calls, report briefly, and stop.",
         "high",
     ),
     "implement": (

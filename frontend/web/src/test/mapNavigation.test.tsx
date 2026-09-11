@@ -8,15 +8,16 @@ import type { MacroNode } from "../map/MacroTaskNode";
 import type { Dataset } from "../map/model";
 
 const fitCamera = vi.hoisted(() => vi.fn<(ids?: ReadonlySet<string>) => void>());
+const initialization = vi.hoisted(() => ({ ready: false }));
 
 vi.mock("@xyflow/react", async (original) => {
   const react = await import("react");
   return {
     ...await original<typeof import("@xyflow/react")>(),
-    ReactFlow: ({ nodes, edges }: { nodes: MacroNode[]; edges: Edge[] }) =>
-      <div data-testid="flow" data-nodes={nodes} data-edges={edges} />,
+    ReactFlow: ({ nodes, edges, onlyRenderVisibleElements }: { nodes: MacroNode[]; edges: Edge[]; onlyRenderVisibleElements: boolean }) =>
+      <div data-testid="flow" data-nodes={nodes} data-edges={edges} data-culling={onlyRenderVisibleElements} />,
     useNodesState: () => [...react.useState([]), () => {}],
-    useNodesInitialized: () => false,
+    useNodesInitialized: () => initialization.ready,
   };
 });
 vi.mock("../map/useSemanticCamera", async () => {
@@ -77,9 +78,13 @@ const search = () => button("Search map tasks");
 const searchCount = () => renderer.root.findByProps({ className: "map-search-count" }).children.join("");
 
 beforeEach(() => {
+  initialization.ready = false;
   vi.stubGlobal("window", { addEventListener: vi.fn(), removeEventListener: vi.fn() });
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
-  act(() => { renderer = create(<QueryClientProvider client={client}><MapCanvas {...props} /></QueryClientProvider>); });
+  act(() => { renderer = create(<QueryClientProvider client={client}><MapCanvas {...props} /></QueryClientProvider>, {
+    createNodeMock: (element) => element.props.className?.split(" ").includes("map-canvas-wrap")
+      ? { clientWidth: 1440 } : null,
+  }); });
 });
 afterEach(() => {
   act(() => renderer?.unmount());
@@ -87,6 +92,54 @@ afterEach(() => {
   fitCamera.mockClear();
   vi.unstubAllGlobals();
 });
+
+it("measures offscreen cards before fitting and after graph growth", () => {
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  expect(renderer.root.findByProps({ "data-testid": "flow" }).props["data-culling"]).toBe(false);
+
+  initialization.ready = true;
+  act(() => renderer.update(
+    <QueryClientProvider client={client}><MapCanvas {...props} /></QueryClientProvider>,
+  ));
+  act(() => { for (const callback of frames.splice(0)) callback(0); });
+
+  expect(fitCamera).toHaveBeenCalledOnce();
+  expect(renderer.root.findByProps({ "data-testid": "flow" }).props["data-culling"]).toBe(true);
+
+  const expanded = { ...props, data: { ...data, tasks: [
+    ...data.tasks, { ...data.tasks[0], id: "later", title: "Later work", status: "pending", ts: 9 },
+  ] } };
+  initialization.ready = false;
+  act(() => renderer.update(
+    <QueryClientProvider client={client}><MapCanvas {...expanded} /></QueryClientProvider>,
+  ));
+  expect(nodes()).toHaveLength(5);
+  expect(renderer.root.findByProps({ "data-testid": "flow" }).props["data-culling"]).toBe(false);
+  initialization.ready = true;
+  act(() => renderer.update(
+    <QueryClientProvider client={client}><MapCanvas {...expanded} /></QueryClientProvider>,
+  ));
+  act(() => { for (const callback of frames.splice(0)) callback(0); });
+  expect(fitCamera).toHaveBeenCalledOnce();
+  expect(renderer.root.findByProps({ "data-testid": "flow" }).props["data-culling"]).toBe(true);
+});
+
+it.each(["paused_provider_fence", "paused_external_work", "blocked"])(
+  "does not call unfinished %s work ready",
+  (status) => {
+    act(() => renderer.update(
+      <QueryClientProvider client={client}>
+        <MapCanvas {...props} data={{ ...data, tasks: [
+          data.tasks[0], { ...data.tasks[1], status },
+        ] }} />
+      </QueryClientProvider>,
+    ));
+    expect(renderer.root.findByProps({ className: "map-status-text" }).children.join(""))
+      .toBe("2 tasks · 1 done · paused");
+  },
+);
 
 it("cycles all attention tasks and displays their actual question or failure reason", () => {
   const jump = () => act(() => button("Cycle through 2 tasks needing attention").props.onClick());

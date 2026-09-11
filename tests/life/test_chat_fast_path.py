@@ -334,9 +334,10 @@ def test_local_microtask_uses_compact_isolated_execution(monkeypatch) -> None:
         "--tools",
         "bash",
         "--system-prompt",
-        "Complete the finite local microtask in the current directory. Use one "
-        "shell command to make the requested change and verify it, then report "
-        "briefly and stop.",
+        "Complete the finite local microtask in the current directory. Inspect the relevant "
+        "local inputs in tool output before drafting or extracting facts; do not guess their contents "
+        "or format. Then make the requested change and verify it. Use only necessary "
+        "tool calls, report briefly, and stop.",
     ]
     assert runner.last_thread_id is None
 

@@ -317,6 +317,15 @@ def test_plain_completion_filenames_and_report_links_remain_confined(tmp_path):
     assert referenced_delivery_paths(tmp_path, ["../private.md and .env are not deliverables."]) == []
 
 
+def test_spreadsheet_completion_is_deliverable_without_markdown_link(tmp_path):
+    from argus_skill.life.delivery import referenced_delivery_paths
+
+    (tmp_path / "budget.xlsx").write_bytes(b"spreadsheet fixture")
+    assert referenced_delivery_paths(tmp_path, ["Created budget.xlsx."]) == ["budget.xlsx"]
+    assert referenced_delivery_paths(tmp_path, ["Created `budget.xlsx`."]) == ["budget.xlsx"]
+    assert referenced_delivery_paths(tmp_path, ["../budget.xlsx"]) == []
+
+
 def test_software_delivery_retains_the_reviewed_product_ahead_of_source_files(tmp_path, monkeypatch):
     from pathlib import Path
 

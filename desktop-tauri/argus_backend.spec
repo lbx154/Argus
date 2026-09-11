@@ -88,6 +88,7 @@ domain_overlay_modules = collect_provider_modules(
 
 hiddenimports = (
     ["tzdata", "argus_skill.trial.desktop", "certifi"]
+    + collect_submodules("unittest")
     + collect_submodules("uvicorn")
     + collect_submodules("fastapi")
     + collect_submodules("websockets")
