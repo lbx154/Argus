@@ -760,10 +760,15 @@ function columnTitle(
   const lo = rounds[0], hi = rounds[rounds.length - 1];
   const continued = rounds.length === 1 && previousRounds.length > 0 &&
     previousRounds[previousRounds.length - 1] === lo;
-  const label = lo === hi
+  let label = lo === hi
     ? zh ? `第 ${lo} 轮` : `Round ${lo}`
     : zh ? `第 ${lo}–${hi} 轮` : `Rounds ${lo}–${hi}`;
-  return continued ? (zh ? `${label} · 续` : `${label} · cont.`) : label;
+  if (continued) label = zh ? `${label} · 续` : `${label} · cont.`;
+  // A column that also holds the planning before the first round, or the
+  // outcome after the last, says so.
+  if (first && steps[0].kind === "plan") label = zh ? `起点 · ${label}` : `Setting out · ${label}`;
+  if (last && steps[steps.length - 1].kind === "result") label = zh ? `${label} · 结果` : `${label} · Outcome`;
+  return label;
 }
 
 export function frameForSubmap(layout: Pick<SubmapLayout, "width" | "height">) {
