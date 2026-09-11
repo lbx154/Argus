@@ -51,8 +51,8 @@ def register_plugin_routes(app, ctx):
         """Install what the deployment declares, without holding up the interface.
 
         Each install is already a background job; the reconciliation itself runs
-        on a thread too, so a catalog read or lock wait never delays serving.
-        Lines go to the server log so the operator can follow the preparation.
+        on a thread too, so a catalog read or lock wait never delays serving. The
+        thread waits for the outcome so the server log records how it ended.
         """
         names = manager.preinstalled_ids()
         if not names:
@@ -62,7 +62,7 @@ def register_plugin_routes(app, ctx):
         threading.Thread(
             target=manager.preinstall,
             args=(ctx.global_root,),
-            kwargs={"logger": logger},
+            kwargs={"logger": logger, "wait": True},
             daemon=True,
             name="plugin-preinstall",
         ).start()
