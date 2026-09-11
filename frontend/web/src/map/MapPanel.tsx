@@ -1,6 +1,7 @@
 import { MapConversation } from './MapConversation';
 import { mapStatusSentence } from './status';
 import { PendingBanner } from '../components/PendingBanner';
+import { ComposerRuntime } from '../components/ComposerRuntime';
 import { PackageCheck, MessageCircle, SlidersHorizontal } from 'lucide-react';
 import { AgentActivity } from '../components/AgentActivity';
 import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
@@ -1619,6 +1620,7 @@ export const MapPanel = memo(function MapPanel({
   );
   const composer = useMemo<MapComposerProps>(
     () => ({
+      footer: <ComposerRuntime sid={snapshot.session.id} roles={snapshot.roles} running={snapshot.daemon.alive} />,
       routeOverride,
       onRouteOverrideChange,
       value: draft,
@@ -1635,7 +1637,7 @@ export const MapPanel = memo(function MapPanel({
     }),
     [routeOverride, onRouteOverrideChange, draft, onDraftChange, send, attachments,
      pending, onCancel, focusSignal, snapshot.session.display_name, snapshot.session.id,
-     source, zh],
+     source, zh, snapshot.roles, snapshot.daemon.alive],
   );
   const switchSource = (value: string) => {
     setSource(value);

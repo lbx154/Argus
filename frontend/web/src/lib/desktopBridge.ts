@@ -72,6 +72,14 @@ function embeddedDesktopParent(): Window | null {
   return window.parent;
 }
 
+export function canOpenDesktopSettings(): boolean {
+  return embeddedDesktopParent() !== null;
+}
+
+export function openDesktopTrialSettings(): void {
+  embeddedDesktopParent()?.postMessage({ type: 'argus:show-trial-setup' }, '*');
+}
+
 function notificationPayload(value: unknown): DesktopDeliveryNotification | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;

@@ -7,6 +7,7 @@ import { effortColor } from '../lib/theme';
 import { ago } from '../lib/format';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
+import { canOpenDesktopSettings, openDesktopTrialSettings } from '../lib/desktopBridge';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCheck, faChevronDown, faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
 import {
@@ -266,7 +267,7 @@ export function ConfigModal({
         {!isLoading && !isError && !hasData && <EmptyHint>{t('settings.empty')}</EmptyHint>}
         {!isLoading && !isError && hasData && data && (
           <div className="space-y-4">
-            <section className="rounded-lg border border-line glass-card p-3">
+            {!data.trial_mode && <section className="rounded-lg border border-line glass-card p-3">
               <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('settings.quickConfig')}</div>
               <label className="flex flex-wrap items-center gap-2">
                 <span className="w-12 shrink-0 text-[10px] text-ink-faint">{t('settings.backend')}</span>
@@ -308,7 +309,18 @@ export function ConfigModal({
                   {quickConfigMsg}
                 </div>
               )}
-            </section>
+            </section>}
+
+            {data.trial_mode && <section className="rounded-lg border border-blue/30 bg-blue/5 p-3" aria-label={t('settings.trialAccount')}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">{t('settings.trialAccount')}</h3>
+                  <p className="mt-1 text-xs text-ink-dim">GPT-5.5 · high</p>
+                  <p className="mt-1 text-xs text-ink-faint">{t('settings.trialKeyHint')}</p>
+                </div>
+                {canOpenDesktopSettings() && <button type="button" className="compact-control px-3 py-2" onClick={() => { onClose(); openDesktopTrialSettings(); }}>{t('settings.changeTrialKey')}</button>}
+              </div>
+            </section>}
 
             <MapModelSettings sid={sid} config={data} onSaved={refreshSettings} />
 

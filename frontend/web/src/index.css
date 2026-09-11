@@ -407,6 +407,21 @@ select optgroup {
   font-size: 0.75rem;
 }
 
+.composer-runtime {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 6px 4px;
+  color: rgb(var(--ink-dim));
+  font-size: 11px;
+  line-height: 1.5;
+}
+.composer-runtime-model { min-width: 0; overflow-wrap: anywhere; }
+.composer-runtime button { flex-shrink: 0; color: rgb(var(--blue)); text-decoration: underline; text-underline-offset: 3px; }
+.composer-runtime button:focus-visible { outline: 2px solid rgb(var(--blue)); outline-offset: 3px; }
+
 .send-control {
   border-color: rgb(var(--blue) / 34%);
   background: rgb(var(--blue) / 8%);

@@ -35,6 +35,7 @@ test.beforeAll(async () => {
 });
 
 test.afterEach(async ({ page }, info) => {
+  await page.unrouteAll({ behavior: 'wait' });
   if (info.status === info.expectedStatus) return;
   console.error('Workbench fixture errors:', serverErrors);
   for (const document of page.frames()) {
@@ -43,6 +44,64 @@ test.afterEach(async ({ page }, info) => {
 });
 
 test.afterAll(() => { server?.kill(); });
+
+test('titles expand with the pane and trial model/Key controls remain visible in both themes', async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
+  await page.route('**/bridge.ts', (route) => route.fulfill({
+    contentType: 'application/javascript',
+    body: `export const desktopBridge = new Proxy({
+      getStatus: async () => ({ state: 'ready', message: 'Ready' }),
+      getSetup: async () => ({ complete: true, trialMode: true, host: '127.0.0.1', port: 8799,
+        runnerKind: 'copilot', runnerConfigured: true, runnerBins: {}, detectedRunners: {},
+        piConfiguration: { configDir: '' }, releaseIdentity: {}, runtimeIdentity: {} }),
+      getAppearance: async () => ({ theme: 'light', resolvedTheme: 'light' }),
+      getUpdateStatus: async () => ({ state: 'idle', currentVersion: '0.1.5', userInitiated: false }),
+      openCockpit: async () => ${JSON.stringify(`${origin}/?token=local-layout-test&project=s-layout&view=activity`)}
+    }, { get: (object, key) => object[key] || (() => undefined) });`,
+  }));
+  await page.route(`${origin}/api/projects/s-layout/config`, async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...await response.json(), trial_mode: true } });
+  });
+  await page.setViewportSize({ width: 1280, height: 820 });
+  await page.goto('/');
+  const frame = page.frameLocator('#cockpitFrame');
+  const title = frame.locator('.topbar-title').filter({ visible: true });
+  await expect(title).toBeVisible({ timeout: 20_000 });
+  const narrow = await title.boundingBox();
+  const divider = await frame.getByRole('separator', { name: /preview|预览/i }).boundingBox();
+  await page.mouse.move(divider!.x + divider!.width / 2, divider!.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(divider!.x + 120, divider!.y + 100, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await title.boundingBox())!.width).toBeGreaterThan(narrow!.width + 70);
+  await page.setViewportSize({ width: 1920, height: 820 });
+  await expect.poll(async () => (await title.boundingBox())!.width).toBeGreaterThan(narrow!.width + 250);
+  await expect.poll(() => title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  const runtime = frame.locator('.composer-runtime').filter({ visible: true });
+  await expect(runtime).toContainText('GPT-5.5 · high');
+  const themeButton = frame.getByRole('button', { name: /theme; switch|主题；切换/ });
+  for (const theme of ['light', 'dark']) {
+    if (await frame.locator('html').getAttribute('data-theme') !== theme) await themeButton.click();
+    await expect(frame.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    const button = await themeButton.boundingBox();
+    const icon = await themeButton.locator('svg').boundingBox();
+    expect(Math.abs(icon!.x + icon!.width / 2 - button!.x - button!.width / 2)).toBeLessThan(1);
+    expect(Math.abs(icon!.y + icon!.height / 2 - button!.y - button!.height / 2)).toBeLessThan(1);
+    await page.screenshot({ path: testInfo.outputPath(`runtime-${theme}.png`) });
+  }
+  await runtime.getByRole('button', { name: /更换 Key|Change Key/ }).click();
+  await expect(page.locator('#trialKey')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await frame.getByRole('button', { name: /打开设置|Open settings/ }).click();
+  await frame.getByRole('dialog').getByRole('button', { name: /更换 Key|Change Key/, exact: true }).click();
+  await expect(page.locator('#trialKey')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await frame.locator('.workspace-tab').nth(3).click();
+  await expect(frame.locator('.map-island-dock .composer-runtime')).toContainText('GPT-5.5 · high');
+  await expect(frame.locator('.map-island-dock .composer-runtime button')).toBeInViewport();
+});
 
 test('real embedded workbench retains typography and fits the pane between both sidebars', async ({ page }) => {
   test.setTimeout(60_000);

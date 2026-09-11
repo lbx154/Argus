@@ -718,10 +718,12 @@ trialOpen.addEventListener('click', () => {
     goToStep(0);
   }
 });
-trialShortcut.addEventListener('click', async () => {
+trialShortcut.addEventListener('click', () => void openTrialSettings());
+
+async function openTrialSettings(): Promise<void> {
   await reopenWizard();
-  if (wizardOpen) revealTrial();
-});
+  if (wizardOpen && !applying) revealTrial();
+}
 desktopBridge.onTrialProgress((message) => {
   if (!trialBusy) return;
   resetTrialDownload();
@@ -1019,6 +1021,7 @@ window.addEventListener('message', (event) => {
   const type = (data as { type?: unknown }).type;
   const payload = (data as { payload?: unknown }).payload;
   if (type === 'argus:show-setup') void reopenWizard();
+  if (type === 'argus:show-trial-setup') void openTrialSettings();
   if (type === 'argus:request-new-chat' && !wizardOpen) postToCockpit('argus:new-chat');
   if (type === 'argus:cockpit-interaction') closeDesktopMenus();
   if (type === 'argus:notify-delivery' || type === 'argus:notify-completion') {

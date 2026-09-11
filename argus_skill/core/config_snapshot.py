@@ -195,6 +195,7 @@ def build_config_snapshot(
 
     return {
         "schema_version": 1,
+        "trial_mode": env_map.get("ARGUS_SKILL_COPILOT_TRIAL", persisted.get("ARGUS_SKILL_COPILOT_TRIAL", "0")) == "1",
         "generated_at_utc": generated_at_utc or _now_utc(),
         "persisted_knob_error": persisted_error,
         "roles": role_rows,

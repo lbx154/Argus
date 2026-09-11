@@ -87,19 +87,20 @@ export function TopBar({
           </svg>
         </button>
       ) : null}
-      <div className="hidden min-w-0 max-w-28 truncate text-sm font-semibold text-ink sm:block">
-        {snap.session.display_name || snap.session.id}
-      </div>
-      <span className="hidden h-4 w-px shrink-0 bg-line/40 sm:block" />
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span
-          data-role-dot={roleName}
-          aria-label={roleActive ? t('topbar.roleActive', { role: roleName }) : t('topbar.roleIdle', { role: roleName })}
-          className={`h-2 w-2 shrink-0 rounded-full ${roleActive ? 'animate-pulse motion-reduce:animate-none' : ''}`}
-          style={{ background: theme.role[roleName] || 'rgb(var(--ink-faint))' }}
-        />
-        <span className="hidden shrink-0 text-xs font-semibold capitalize text-ink-dim sm:inline">{roleName}</span>
-        <span className="truncate text-xs text-ink-faint">{focus}</span>
+      <div className="topbar-heading flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+        <div className="topbar-title min-w-0 truncate text-sm font-semibold text-ink" title={snap.session.display_name || snap.session.id}>
+          {snap.session.display_name || snap.session.id}
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            data-role-dot={roleName}
+            aria-label={roleActive ? t('topbar.roleActive', { role: roleName }) : t('topbar.roleIdle', { role: roleName })}
+            className={`h-2 w-2 shrink-0 rounded-full ${roleActive ? 'animate-pulse motion-reduce:animate-none' : ''}`}
+            style={{ background: theme.role[roleName] || 'rgb(var(--ink-faint))' }}
+          />
+          <span className="shrink-0 text-[10px] font-semibold capitalize text-ink-dim">{roleName}</span>
+          <span className="truncate text-[10px] text-ink-faint" title={focus}>{focus}</span>
+        </div>
       </div>
       <span
         title={healthTitle}

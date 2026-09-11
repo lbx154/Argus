@@ -79,6 +79,18 @@ def test_config_snapshot_markdown_names_argus_native_controls() -> None:
     assert "effort 设为 <low|medium|high|xhigh>" in markdown
 
 
+def test_trial_snapshot_identifies_hosted_model_without_exposing_key() -> None:
+    from argus_skill.core.knob_store import write_persisted_knobs
+
+    write_persisted_knobs({"ARGUS_SKILL_COPILOT_TRIAL": "1", "ARGUS_SKILL_MODEL": "gpt-4.1"})
+    snapshot = build_config_snapshot(env={})
+    assert snapshot["trial_mode"] is True
+    assert all(row["model"] == "gpt-5.5" for row in snapshot["roles"])
+    assert all(row["reasoning_effort"] == "high" for row in snapshot["roles"])
+    assert "api_key" not in json.dumps(snapshot)
+    assert build_config_snapshot(env={"ARGUS_SKILL_COPILOT_TRIAL": "0"})["trial_mode"] is False
+
+
 def test_config_snapshot_reports_persisted_values_and_sources() -> None:
     from argus_skill.core.knob_store import write_persisted_knob
 
