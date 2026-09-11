@@ -62,6 +62,39 @@ _TRANSPORT_INFO_PREFIXES = (
     "Info: Unknown tool name in the tool allowlist:",
 )
 
+# ACP streams several ``tool_call_update`` notifications per call (content
+# growing, then the terminal status). Only these statuses end a call.
+_TERMINAL_TOOL_STATUSES = frozenset({"completed", "failed", "cancelled", "canceled", "error"})
+_TOOL_OUTPUT_EXCERPT_LIMIT = 240
+
+
+def _tool_output_excerpt(update: dict[str, Any]) -> str:
+    """A short, single-line excerpt of what a finished tool call produced."""
+    raw = update.get("rawOutput")
+    text = ""
+    if isinstance(raw, str):
+        text = raw
+    elif isinstance(raw, (dict, list)):
+        try:
+            text = json.dumps(raw, ensure_ascii=False)
+        except (TypeError, ValueError):
+            text = str(raw)
+    if not text:
+        parts: list[str] = []
+        for block in update.get("content") or []:
+            if not isinstance(block, dict):
+                continue
+            inner = block.get("content")
+            if isinstance(inner, dict) and isinstance(inner.get("text"), str):
+                parts.append(inner["text"])
+            elif isinstance(block.get("text"), str):
+                parts.append(block["text"])
+        text = "\n".join(parts)
+    text = " ".join(text.split())
+    if len(text) > _TOOL_OUTPUT_EXCERPT_LIMIT:
+        text = text[: _TOOL_OUTPUT_EXCERPT_LIMIT - 1] + "…"
+    return text
+
 
 def _prompt_timeout(run_label: str | None) -> float:
     """Return the maximum ACP inactivity allowed for this Manager role."""
@@ -126,6 +159,7 @@ class _Turn:
         "raw_text",
         "text",
         "tool_titles",
+        "tool_done",
         "tool_activity_observed",
         "allow_persistent",
         "last_activity_at",
@@ -146,6 +180,7 @@ class _Turn:
         self.raw_text = ""
         self.text = ""
         self.tool_titles: dict[str, str] = {}
+        self.tool_done: set[str] = set()
         self.tool_activity_observed = False
         self.allow_persistent = allow_persistent
         self.last_activity_at = time.monotonic()
@@ -511,28 +546,40 @@ class CopilotAcpClient:
             title = str(upd.get("title") or upd.get("kind") or "tool")
             if tool_id:
                 turn.tool_titles[tool_id] = title
-            self._emit_turn_event(
-                turn,
-                {
-                    "type": "tool.call",
-                    "data": {
-                        "name": title,
-                        "arguments": upd.get("rawInput") or {},
-                    },
-                },
-            )
+            call_data: dict[str, Any] = {
+                "name": title,
+                "arguments": upd.get("rawInput") or {},
+            }
+            if tool_id:
+                call_data["toolCallId"] = tool_id
+            tool_kind = str(upd.get("kind") or "").strip()
+            if tool_kind:
+                call_data["kind"] = tool_kind
+            self._emit_turn_event(turn, {"type": "tool.call", "data": call_data})
             return
         if update_type == "tool_call_update":
             tool_id = str(upd.get("toolCallId") or "")
             title = turn.tool_titles.get(tool_id, "tool")
-            status = str(upd.get("status") or "completed")
-            self._emit_turn_event(
-                turn,
-                {
-                    "type": "tool.result",
-                    "data": {"content": f"{title} ({status})"},
-                },
-            )
+            status = str(upd.get("status") or "completed").strip().lower() or "completed"
+            # Intermediate updates (pending, in_progress, content growing) are
+            # not results; rendering each one produced duplicate rows per call.
+            if status not in _TERMINAL_TOOL_STATUSES:
+                return
+            if tool_id:
+                if tool_id in turn.tool_done:
+                    return
+                turn.tool_done.add(tool_id)
+            result_data: dict[str, Any] = {
+                "content": f"{title} ({status})",
+                "name": title,
+                "status": status,
+            }
+            if tool_id:
+                result_data["toolCallId"] = tool_id
+            excerpt = _tool_output_excerpt(upd)
+            if excerpt:
+                result_data["output"] = excerpt
+            self._emit_turn_event(turn, {"type": "tool.result", "data": result_data})
             return
         if update_type != "agent_message_chunk":
             return

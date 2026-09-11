@@ -35,6 +35,7 @@ from .manager_dispatch import (
     _maybe_greeting_reply,
     _run_triage_and_fallbacks,
     _TurnEmitter,
+    record_turn_step,
 )
 from .manager_pending_question import _emit_ui_turn
 from .manager_session_intent import contextualize_operator_turn
@@ -203,7 +204,11 @@ def manager_message(
         except Exception:  # noqa: BLE001
             return False
 
+    turn_steps: list[dict[str, Any]] = []
+
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
+        if kind == "phase":
+            record_turn_step(turn_steps, payload)
         if not callable(on_fragment):
             return
         if kind == "delta":
@@ -244,6 +249,7 @@ def manager_message(
         turn_id=turn_id,
         fragment=_fragment,
         after_reply=_after_reply,
+        steps=turn_steps,
     )
     if not life_dir.is_dir():
         return {

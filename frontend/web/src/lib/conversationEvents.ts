@@ -13,9 +13,79 @@ interface TranscriptTurn {
   summary?: string;
   delivery_id?: string;
   delivery?: unknown;
+  steps?: unknown;
 }
 
 const LOCAL_REQUEST_FIELD = 'local_request_id';
+
+const hasSteps = (value: unknown): value is unknown[] => Array.isArray(value) && value.length > 0;
+
+/**
+ * Show the work behind a reply while it is still happening: the tool steps
+ * streamed so far become part of the Argus row (created empty when no words
+ * have arrived yet), and ``live`` tells the renderer to keep them unfolded.
+ */
+export function mergeOptimisticManagerSteps(
+  localEvents: EventMsg[],
+  sid: string,
+  requestId: number,
+  steps: unknown[],
+  nowMs = Date.now(),
+  live = true,
+): EventMsg[] {
+  const index = localEvents.findIndex((event) => (
+    event.type === 'ui.argus'
+    && Number(event[LOCAL_REQUEST_FIELD]) === requestId
+  ));
+  if (index < 0) {
+    if (!steps.length) return localEvents;
+    return [
+      ...localEvents,
+      {
+        type: 'ui.argus',
+        agent_layer: 'manager',
+        text: '',
+        ts: nowMs / 1_000,
+        event_id: `local-${sid}-${requestId}-argus`,
+        message_id: `local-${requestId}-argus`,
+        fragment_mode: 'snapshot',
+        steps,
+        live,
+        [LOCAL_REQUEST_FIELD]: requestId,
+      },
+    ];
+  }
+  const next = [...localEvents];
+  next[index] = { ...next[index], ...(steps.length ? { steps } : {}), live };
+  return next;
+}
+
+/**
+ * The turn is over (answered, failed or stopped): nothing is live any more,
+ * and a step still open is recorded as stopped at ``nowMs`` so its clock
+ * does not keep running on screen.
+ */
+export function settleOptimisticManagerTurn(
+  localEvents: EventMsg[],
+  requestId: number,
+  nowMs = Date.now(),
+): EventMsg[] {
+  return localEvents.map((event) => {
+    if (event.type !== 'ui.argus' || Number(event[LOCAL_REQUEST_FIELD]) !== requestId || event.live !== true) {
+      return event;
+    }
+    const steps = Array.isArray(event.steps)
+      ? event.steps.map((step) => {
+        if (!step || typeof step !== 'object') return step;
+        const row = step as Record<string, unknown>;
+        return row.ended_ts || row.status !== 'running'
+          ? step
+          : { ...row, ended_ts: nowMs / 1_000, status: 'stopped' };
+      })
+      : event.steps;
+    return { ...event, live: false, ...(steps !== undefined ? { steps } : {}) };
+  });
+}
 
 export function optimisticOperatorEvent(
   sid: string,
@@ -125,6 +195,7 @@ export function mergeConversationEvents(
     ...(typeof turn.summary === 'string' ? { summary: turn.summary } : {}),
     ...(typeof turn.delivery_id === 'string' ? { delivery_id: turn.delivery_id } : {}),
     ...(turn.delivery && typeof turn.delivery === 'object' ? { delivery: turn.delivery } : {}),
+    ...(hasSteps(turn.steps) ? { steps: turn.steps } : {}),
   }));
   const keepHistory = new Array(history.length).fill(true);
   for (let index = history.length - 1; index >= 0; index -= 1) {
@@ -178,6 +249,9 @@ export function mergeConversationEvents(
         ...(authoritative.delivery && typeof authoritative.delivery === 'object'
           ? { delivery: authoritative.delivery }
           : {}),
+        // The journaled steps carry real end times and outcomes; once they
+        // exist they replace the live trail and the row is no longer live.
+        ...(hasSteps(authoritative.steps) ? { steps: authoritative.steps, live: false } : {}),
       };
     }
     return event;

@@ -133,6 +133,11 @@ def describe_progress_step(event: Any) -> tuple[str, str]:
             ), ""
 
         if kind == "tool_result":
+            status = str(event.get("status") or "").strip().lower()
+            name = " ".join(str(event.get("tool_name") or "").split())
+            if name and status:
+                excerpt = " ".join(str(event.get("output_excerpt") or "").split())
+                return _clip(f"↳ {name} · {status}", _LABEL_LIMIT), _clip(excerpt, _DETAIL_LIMIT)
             first = _first_line(raw_text)
             return (_clip(f"↳ {first}", _LABEL_LIMIT) if first else "reading a tool result"), ""
 

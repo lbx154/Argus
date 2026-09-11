@@ -513,6 +513,8 @@ export interface StreamDone {
   kind?: string;
   reply?: string | null;
   item?: BacklogItem | null;
+  /** Tool steps journaled with the reply (see core/phaseTrail TurnStep). */
+  steps?: unknown;
   [k: string]: unknown;
 }
 
@@ -802,7 +804,18 @@ export const api = {
       onPhase?: (
         label: string,
         role: string,
-        meta: { heartbeat: boolean; quietS: number; kind: string; detail: string },
+        meta: {
+          heartbeat: boolean;
+          quietS: number;
+          kind: string;
+          detail: string;
+          /** Plain title of the tool call, its runner-side id and how it ended. */
+          tool: string;
+          toolKind: string;
+          callId: string;
+          status: string;
+          output: string;
+        },
       ) => void;
       onDelta?: (block: string, messageId: string, fragmentMode: string) => void;
       onDone?: (result: StreamDone) => void;
@@ -838,6 +851,11 @@ export const api = {
             quietS: Number.isFinite(quietS) ? quietS : 0,
             kind: String(f.kind ?? ''),
             detail: String(f.detail ?? ''),
+            tool: String(f.tool ?? ''),
+            toolKind: String(f.tool_kind ?? ''),
+            callId: String(f.call_id ?? ''),
+            status: String(f.status ?? ''),
+            output: String(f.output ?? ''),
           },
         );
       }

@@ -13,6 +13,8 @@ import { ArgusMark } from './Wordmark';
 import { useI18n } from '../i18n';
 import { CopyButton } from './CopyButton';
 import { roleLabel } from '../lib/enumLabels';
+import { TurnSteps } from './TurnSteps';
+import { turnStepsFrom } from '../../../core/src/phaseTrail';
 
 type ActivityRow = { ev: EventMsg; r: Rendered; key: string };
 type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
@@ -86,6 +88,7 @@ function ConversationRow({
 }) {
   const { t } = useI18n();
   const operator = String(ev.type) === 'ui.operator';
+  const steps = operator ? [] : turnStepsFrom(ev.steps);
   const responseLatencyMs = Number(ev.response_latency_ms ?? 0);
   const responseLatency = !operator && responseLatencyMs >= 100
     ? ` · ${(responseLatencyMs / 1_000).toFixed(1)}s`
@@ -138,7 +141,8 @@ function ConversationRow({
               />
               <time className="font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}{responseLatency}</time>
             </div>
-            <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{r.text}</MarkdownContent>
+            {steps.length ? <TurnSteps steps={steps} live={ev.live === true} /> : null}
+            {r.text ? <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{r.text}</MarkdownContent> : null}
           </div>
         </div>
       )}
@@ -371,8 +375,9 @@ function ConversationThread({
     .map((row) => {
       const messages = row.r.text.match(RUNTIME_INFO_PATTERN) ?? [];
       const text = row.r.text.replace(RUNTIME_INFO_PATTERN, '').trim();
+      const working = Array.isArray(row.ev.steps) && row.ev.steps.length > 0;
       return {
-        reply: text && !isSystemMessage(row) ? { ...row, r: { ...row.r, text } } : null,
+        reply: (text || working) && !isSystemMessage(row) ? { ...row, r: { ...row.r, text } } : null,
         messages: isSystemMessage(row) && messages.length === 0 ? [row.r.text] : messages,
       };
     });

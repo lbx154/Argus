@@ -18,6 +18,10 @@ from ..core.knobs import (
 from ..core.models import RunnerOptions
 from ..core.ports import EventSink
 from ..core.progress_step import REPLY_KINDS, describe_progress_step
+
+# Structured fields of one observable agent action that the cockpit can use
+# beyond the rendered label: which tool, which call, and how it ended.
+_PHASE_META_KEYS = ("tool_name", "call_id", "tool_kind", "status", "exit_code", "output_excerpt")
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.secret_guard import known_secret_values, redact_secrets_record
 from ..engineer.runner import should_clear_thread_id_after_outcome
@@ -357,10 +361,12 @@ class SelfReplyMixin:
             role: str = "manager",
             kind: str = "",
             detail: str = "",
+            meta: dict[str, Any] | None = None,
         ) -> None:
             if not callable(phase_cb):
                 return
             for kwargs in (
+                {"role": role, "kind": kind, "detail": detail, "meta": meta},
                 {"role": role, "kind": kind, "detail": detail},
                 {"role": role},
                 {},
@@ -389,7 +395,12 @@ class SelfReplyMixin:
                     )
                 elif event_type == "engineer.progress" and not is_reply:
                     label, detail = describe_progress_step(safe_event)
-                    _phase(label, kind=kind, detail=detail)
+                    meta = {
+                        key: safe_event[key]
+                        for key in _PHASE_META_KEYS
+                        if safe_event.get(key) not in (None, "")
+                    }
+                    _phase(label, kind=kind, detail=detail, meta=meta or None)
                 self._inner.handle_event(safe_event)
 
             def handle_stream_line(self, stream: str, line: str) -> None:

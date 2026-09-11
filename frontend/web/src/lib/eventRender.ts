@@ -112,7 +112,9 @@ export function renderEvent(ev: EventMsg, locale: Locale = 'en'): Rendered | nul
   }
   if (t === 'ui.argus') {
     const body = S(ev, 'text');
-    return body ? { role: 'manager', label: 'Argus', glyph: '◆', text: body, tone: 'bright', rule: true } : null;
+    // A reply that is still being worked on has steps before it has words.
+    const hasSteps = Array.isArray(ev.steps) && ev.steps.length > 0;
+    return body || hasSteps ? { role: 'manager', label: 'Argus', glyph: '◆', text: body, tone: 'bright', rule: true } : null;
   }
 
   // ── engineer.progress: split by kind (model speech vs operations vs reasoning)

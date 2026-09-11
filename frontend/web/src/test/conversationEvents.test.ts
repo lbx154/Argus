@@ -93,3 +93,49 @@ describe('optimistic Manager conversation', () => {
     expect(merged.filter((event) => event.type === 'ui.operator')).toHaveLength(2);
   });
 });
+
+describe('tool steps behind a Manager reply', () => {
+  it('shows the work before any words arrive, then keeps it under the reply', async () => {
+    const { mergeOptimisticManagerSteps, settleOptimisticManagerTurn } = await import('../lib/conversationEvents');
+    const operator = optimisticOperatorEvent('s-fast', 1, '数一下行数', 1_000);
+    const step = { kind: 'command_execution', label: '$ wc -l', status: 'running', started_ts: 1, ended_ts: 0 };
+    const working = mergeOptimisticManagerSteps([operator], 's-fast', 1, [step], 1_500, true);
+
+    expect(working).toHaveLength(2);
+    expect(working[1]).toMatchObject({ type: 'ui.argus', text: '', live: true, steps: [step] });
+
+    const replied = mergeOptimisticManagerDelta(working, 's-fast', 1, '一行。', 'web-1-argus', 2_000, 'snapshot');
+    expect(replied).toHaveLength(2);
+    expect(replied[1]).toMatchObject({ text: '一行。', live: true, steps: [step] });
+
+    const settled = settleOptimisticManagerTurn(replied, 1, 3_000);
+    expect(settled[1]).toMatchObject({ live: false });
+    expect((settled[1].steps as Array<Record<string, unknown>>)[0]).toMatchObject({ status: 'stopped', ended_ts: 3 });
+  });
+
+  it('prefers the journaled steps over the live trail once the transcript has them', async () => {
+    const { mergeOptimisticManagerSteps } = await import('../lib/conversationEvents');
+    const operator = optimisticOperatorEvent('s-fast', 1, '数一下行数', 1_000);
+    const live = mergeOptimisticManagerSteps([operator], 's-fast', 1, [{ kind: 'tool_use', label: 'x', status: 'running', started_ts: 1, ended_ts: 0 }], 1_500, true);
+    const replied = mergeOptimisticManagerDelta(live, 's-fast', 1, '一行。', 'web-1-argus', 2_000, 'snapshot');
+    const journaled = [{ kind: 'tool_use', label: 'x', status: 'completed', started_ts: 1, ended_ts: 2 }];
+
+    const merged = mergeConversationEvents(
+      [],
+      [
+        { ts: 1, role: 'operator', text: '数一下行数', message_id: 'web-1-operator' },
+        { ts: 2, role: 'argus', text: '一行。', message_id: 'web-1-argus', steps: journaled },
+      ],
+      replied,
+    );
+
+    const reply = merged.find((event) => event.type === 'ui.argus');
+    expect(reply).toMatchObject({ text: '一行。', live: false, steps: journaled });
+  });
+
+  it('carries steps on transcript rows replayed after a reload', () => {
+    const steps = [{ kind: 'tool_use', label: 'x', status: 'completed', started_ts: 1, ended_ts: 2 }];
+    const merged = mergeConversationEvents([], [{ ts: 2, role: 'argus', text: 'done', steps }], []);
+    expect(merged[0]).toMatchObject({ type: 'ui.argus', steps });
+  });
+});

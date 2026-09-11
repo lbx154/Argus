@@ -6,11 +6,7 @@ import { initialMessageRoute, MESSAGE_ROUTE_KEY } from './lib/messageRoute';
 import { TopBar } from './components/TopBar';
 import { EventStream, latestConversationDelivery } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
-import {
-  appendPhaseStep,
-  closePhaseTrail,
-  type PhaseStep,
-} from '../../core/src/phaseTrail';
+import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
 import { CommandPalette, commandPaletteRows, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './components/InfoModals';
@@ -50,7 +46,9 @@ import { eventViewReducer, initialEventViewState } from './lib/eventView';
 import {
   mergeConversationEvents,
   mergeOptimisticManagerDelta,
+  mergeOptimisticManagerSteps,
   optimisticOperatorEvent,
+  settleOptimisticManagerTurn,
 } from './lib/conversationEvents';
 import { mergeProjectCosts } from './lib/projectCosts';
 import { errorText, managerStreamFailureMessage } from './lib/format';
@@ -724,14 +722,25 @@ export default function App() {
                 detail: meta.detail,
                 heartbeat: meta.heartbeat,
                 quietS: meta.quietS,
+                tool: meta.tool,
+                toolKind: meta.toolKind,
+                callId: meta.callId,
+                status: meta.status,
+                output: meta.output,
               });
               setManagerSteps(trail);
+              // Tool work shows up in the conversation as it happens, under
+              // the reply that is still being written.
+              const steps = trailToTurnSteps(trail);
+              if (steps.length) {
+                setLocalConversationEvents((current) => mergeOptimisticManagerSteps(
+                  current, requestSid, requestId, steps, Date.now(), true,
+                ));
+              }
             },
             onDelta: (block, messageId, fragmentMode) => {
               if (!isCurrent()) return;
               gotDelta = true;
-              trail = closePhaseTrail(trail);
-              setManagerSteps(trail);
               showManagerText(
                 block,
                 messageId,
@@ -742,6 +751,15 @@ export default function App() {
             },
             onDone: (result) => {
               if (!isCurrent()) return;
+              trail = closePhaseTrail(trail);
+              setManagerSteps(trail);
+              // Prefer the journaled steps: they carry real end times and
+              // outcomes. The local trail stands in when a turn had none.
+              const journaled = turnStepsFrom(result.steps);
+              const steps = journaled.length ? journaled : trailToTurnSteps(trail, Date.now() / 1000, true);
+              setLocalConversationEvents((current) => mergeOptimisticManagerSteps(
+                current, requestSid, requestId, steps, Date.now(), false,
+              ));
               showManagerText(result.reply, '', 'snapshot');
               finishMessage(result);
               const item = result.item as { id?: unknown } | undefined;
@@ -770,6 +788,8 @@ export default function App() {
           observe?.({ type: 'settled', outcome: 'error' });
         }
       } finally {
+        // Whatever ended the turn, nothing in it is live any more.
+        setLocalConversationEvents((current) => settleOptimisticManagerTurn(current, requestId, Date.now()));
         if (controller.signal.aborted) observe?.({ type: 'settled', outcome: 'cancelled' });
         resetCurrentRequest();
       }

@@ -1289,3 +1289,37 @@ def test_acp_initialization_failure_terminates_spawned_process(monkeypatch) -> N
 
     assert terminated == [200]
     assert client._proc is None
+
+
+def test_acp_tool_result_is_emitted_once_per_call_on_terminal_status() -> None:
+    client = CopilotAcpClient("copilot-bin")
+    emitted: list[str] = []
+    client._active_turn = copilot_acp._Turn("s1", None, emitted.append, allow_persistent=True)
+
+    def update(payload: dict) -> None:
+        client._handle_notification("session/update", {"sessionId": "s1", "update": payload})
+
+    update({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Count README lines",
+            "kind": "execute", "status": "pending", "rawInput": {"command": "wc -l README.md"}})
+    update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress"})
+    update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress",
+            "content": [{"type": "content", "content": {"type": "text", "text": "1 README.md"}}]})
+    update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": "1 README.md"}}]})
+    update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"})
+
+    structured = [json.loads(line) for line in emitted if line.startswith("{")]
+    assert [event["type"] for event in structured] == ["tool.call", "tool.result"]
+    assert structured[0]["data"] == {
+        "name": "Count README lines",
+        "arguments": {"command": "wc -l README.md"},
+        "toolCallId": "t1",
+        "kind": "execute",
+    }
+    assert structured[1]["data"] == {
+        "content": "Count README lines (completed)",
+        "name": "Count README lines",
+        "status": "completed",
+        "toolCallId": "t1",
+        "output": "1 README.md",
+    }

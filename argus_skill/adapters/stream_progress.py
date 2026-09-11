@@ -896,16 +896,39 @@ def make_stream_progress_callback(
         if et == "tool.call":
             data = event.get("data") or {}
             if isinstance(data, dict):
-                name = data.get("name") or data.get("tool")
+                name = str(data.get("name") or data.get("tool") or "tool").strip()
                 args = data.get("arguments") or data.get("args") or ""
+                call_id = str(data.get("toolCallId") or data.get("call_id") or "").strip()
+                tool_kind = str(data.get("kind") or "").strip().lower()
+                command = ""
+                if isinstance(args, dict):
+                    command = str(
+                        args.get("command") or args.get("cmd") or args.get("script") or ""
+                    ).strip()
                 if isinstance(args, (dict, list)):
                     try:
                         args = json.dumps(args, ensure_ascii=False)
                     except (TypeError, ValueError):
                         args = str(args)
-                text = (str(name) + (": " + str(args) if args else "")).strip()
+                is_shell = bool(command) and (
+                    tool_kind == "execute" or name.lower() in _SHELL_TOOL_NAMES
+                )
+                kind = "command_execution" if is_shell else "tool_use"
+                text = command if is_shell else (name + (": " + str(args) if args else "")).strip()
                 if text:
-                    _emit_progress(kind="tool_use", text=text, actor=actor)
+                    if call_id:
+                        tool_calls[call_id] = (name, kind, text)
+                    extra: dict[str, Any] = {
+                        "status": "running",
+                        "tool_name": name,
+                        "call_id": call_id,
+                        "tool_kind": tool_kind,
+                    }
+                    if is_shell:
+                        # ACP titles describe the call in plain words; keep that
+                        # next to the command so the cockpit can show both.
+                        extra["action_summary"] = name
+                    _emit_progress(kind=kind, text=text, actor=actor, extra=extra)
             return
 
         if et == "tool.result":
@@ -918,8 +941,21 @@ def make_stream_progress_callback(
                     except (TypeError, ValueError):
                         content = str(content)
                 text = str(content).strip()
+                call_id = str(data.get("toolCallId") or data.get("call_id") or "").strip()
+                status = str(data.get("status") or "").strip().lower()
+                name = str(data.get("name") or "").strip()
+                if call_id and call_id in tool_calls:
+                    name = tool_calls.pop(call_id)[0] or name
                 if text:
-                    _emit_progress(kind="tool_result", text=text, actor=actor)
+                    extra = {
+                        "call_id": call_id,
+                        "status": status,
+                        "tool_name": name,
+                        "output_excerpt": (
+                            data.get("output") if isinstance(data.get("output"), str) else ""
+                        ),
+                    }
+                    _emit_progress(kind="tool_result", text=text, actor=actor, extra=extra)
             return
 
         # Copilot end-of-turn signal. Clear actor buffers so the next

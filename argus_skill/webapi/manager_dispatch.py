@@ -9,8 +9,9 @@ execution/continuous/bounded handoff entry points.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -269,6 +270,93 @@ def _journal_argus_reply(
     )
 
 
+# Phase kinds that are observable work of the turn (as opposed to routing
+# narration such as "handling it solo…"). These are what a reader wants to see
+# under the reply afterwards: which tools ran, on what, and how each ended.
+TURN_STEP_KINDS = frozenset({"tool_use", "command_execution", "file_change", "tool_result"})
+_TURN_STEP_LIMIT = 80
+_TURN_STEP_TEXT_LIMIT = 240
+_TERMINAL_STEP_STATUSES = frozenset({"completed", "failed", "cancelled", "canceled", "error", "done"})
+
+
+def _clip_step_text(value: Any) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) > _TURN_STEP_TEXT_LIMIT:
+        return text[: _TURN_STEP_TEXT_LIMIT - 1] + "…"
+    return text
+
+
+def record_turn_step(
+    steps: list[dict[str, Any]],
+    payload: dict[str, Any],
+    now: float | None = None,
+) -> None:
+    """Fold one streamed ``phase`` frame into the turn's durable step list.
+
+    A tool result closes the step that started the same call (``call_id``)
+    instead of adding a row of its own; a new call closes whatever step was
+    still open, because a single agent works one call at a time. Heartbeats
+    and routing narration are not steps. The list is bounded so a very long
+    turn cannot bloat the transcript.
+    """
+    if not isinstance(payload, dict) or payload.get("heartbeat"):
+        return
+    kind = str(payload.get("kind") or "").strip()
+    if kind not in TURN_STEP_KINDS:
+        return
+    ts = float(now if now is not None else time.time())
+    call_id = str(payload.get("call_id") or "").strip()
+    status = str(payload.get("status") or "").strip().lower()
+    if kind == "tool_result":
+        if not call_id:
+            return
+        for step in reversed(steps):
+            if step.get("call_id") == call_id:
+                step["status"] = status or "completed"
+                step["ended_ts"] = ts
+                output = _clip_step_text(payload.get("output"))
+                if output:
+                    step["output"] = output
+                return
+        return
+    for step in reversed(steps):
+        if not step.get("ended_ts"):
+            step["ended_ts"] = ts
+            if not step.get("status") or step.get("status") == "running":
+                step["status"] = "completed"
+        break
+    if len(steps) >= _TURN_STEP_LIMIT:
+        return
+    step: dict[str, Any] = {
+        "kind": kind,
+        "label": _clip_step_text(payload.get("label")),
+        "started_ts": ts,
+        "ended_ts": 0.0,
+        "status": status or "running",
+    }
+    for key in ("detail", "tool", "tool_kind"):
+        value = _clip_step_text(payload.get(key))
+        if value:
+            step[key] = value
+    if call_id:
+        step["call_id"] = call_id
+    steps.append(step)
+
+
+def finish_turn_steps(
+    steps: list[dict[str, Any]],
+    now: float | None = None,
+) -> list[dict[str, Any]]:
+    """Close any step still open when the reply lands; return the list."""
+    ts = float(now if now is not None else time.time())
+    for step in steps:
+        if not step.get("ended_ts"):
+            step["ended_ts"] = ts
+        if str(step.get("status") or "") in ("", "running"):
+            step["status"] = "completed"
+    return steps
+
+
 @dataclass
 class _TurnEmitter:
     """Bundles the per-turn streaming/journaling callbacks shared by the
@@ -280,6 +368,9 @@ class _TurnEmitter:
     turn_id: str
     fragment: Callable[[str, dict[str, Any]], None]
     after_reply: Callable[[str], None] | None = None
+    # Tool steps streamed during this turn, journaled with the reply so the
+    # conversation and the map can show the work behind a single-agent answer.
+    steps: list[dict[str, Any]] = field(default_factory=list)
 
     def phase(self, label: str, *, role: str = "manager") -> None:
         self.fragment("phase", {"role": role, "label": label})
@@ -303,6 +394,9 @@ class _TurnEmitter:
             )
             if key in result
         }
+        if self.steps:
+            metadata["steps"] = finish_turn_steps(self.steps)
+            result["steps"] = metadata["steps"]
         _journal_argus_reply(
             self.life_dir,
             self.turn_id,

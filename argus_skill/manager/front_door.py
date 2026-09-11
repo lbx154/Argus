@@ -15,6 +15,19 @@ from typing import Any, Callable
 
 from ..core.knobs import resolve_role_model
 from ..core.progress_step import REPLY_KINDS
+
+# Minimum spacing between live reply snapshots sent over SSE.
+_LIVE_DELTA_INTERVAL_S = 0.06
+
+# (progress-event key, SSE phase field) pairs carried on tool phases.
+_PHASE_META_FIELDS = (
+    ("tool_name", "tool"),
+    ("call_id", "call_id"),
+    ("tool_kind", "tool_kind"),
+    ("status", "status"),
+    ("exit_code", "exit_code"),
+    ("output_excerpt", "output"),
+)
 from ..core.runner_errors import is_pre_provider_refusal_error
 from ..core.secret_guard import known_secret_values, redact_secrets_text
 
@@ -1271,7 +1284,14 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         except Exception:  # noqa: BLE001
             return None
 
-    def _emit_phase(role: str, label: str, *, kind: str = "", detail: str = "") -> None:
+    def _emit_phase(
+        role: str,
+        label: str,
+        *,
+        kind: str = "",
+        detail: str = "",
+        meta: dict[str, Any] | None = None,
+    ) -> None:
         # Relay every real runner phase to both callback styles so SSE sees
         # classify/direct-reply transitions instead of a generic spinner.
         safe_label = _redact_live_text(label)
@@ -1294,6 +1314,13 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
             payload["kind"] = kind
         if safe_detail:
             payload["detail"] = safe_detail
+        # Structured tool facts ride along so the cockpit can pair a call with
+        # its result and show how it ended, instead of parsing the label.
+        for key, field in _PHASE_META_FIELDS:
+            value = (meta or {}).get(key)
+            if value in (None, ""):
+                continue
+            payload[field] = _redact_live_text(str(value)) if isinstance(value, str) else value
         _fragment("phase", payload)
 
     def _runner_phase(
@@ -1302,29 +1329,60 @@ def manager_triage(mem: Any, body: str, chat_state: dict[str, Any],
         role: str = "manager",
         kind: str = "",
         detail: str = "",
+        meta: dict[str, Any] | None = None,
     ) -> None:
         _emit_phase(
             str(role or "manager"),
             str(label or ""),
             kind=str(kind or ""),
             detail=str(detail or ""),
+            meta=meta if isinstance(meta, dict) else None,
         )
 
     class _Capture:
         def __init__(self, *, progress_phases: bool) -> None:
             self._progress_phases = progress_phases
             self._last_reply_message_id = ""
+            self._last_live_at = 0.0
+            self._last_live_message_id = ""
 
         def handle_event(self, event: dict[str, Any]) -> None:
             try:
                 etype = str(event.get("type") or "")
-                # Tool-capable SELF turns emit narration before/between tool
-                # calls and then one authoritative final answer. Sending every
-                # assistant message as a reply delta glues process narration into
-                # the answer. Keep only the latest id; round.main.completed below
-                # carries the final text and is streamed exactly once.
+                # Tool-capable SELF turns narrate before/between tool calls and
+                # then give one authoritative final answer. Each assistant
+                # message is streamed live as a snapshot of *that* message, so
+                # the operator watches the text arrive; a later message
+                # replaces the earlier one instead of being glued onto it, and
+                # round.main.completed below still carries the final text.
                 if etype == "engineer.progress" and str(event.get("kind") or "") in REPLY_KINDS:
                     self._last_reply_message_id = str(event.get("message_id") or "")
+                    if event.get("transient"):
+                        return
+                    live = _redact_live_text(
+                        _extract_chat_reply_text(str(event.get("text") or ""))
+                    )
+                    # A structured (JSON-wrapped) reply is only readable once it
+                    # is complete; showing its raw prefix would be noise.
+                    if not live or live.startswith("{"):
+                        return
+                    # Each snapshot carries the whole message so far; pacing
+                    # successive snapshots of the same message keeps a long
+                    # reply from re-sending itself per token. A new message is
+                    # always shown, and the final text always follows, so a
+                    # skipped frame loses nothing.
+                    now = time.monotonic()
+                    same_message = self._last_reply_message_id == self._last_live_message_id
+                    if same_message and now - self._last_live_at < _LIVE_DELTA_INTERVAL_S:
+                        return
+                    self._last_live_at = now
+                    self._last_live_message_id = self._last_reply_message_id
+                    _fragment("delta", {
+                        "text": live,
+                        "message_id": self._last_reply_message_id,
+                        "fragment_mode": "snapshot",
+                        "live": True,
+                    })
                     return
                 if etype in {"loop.start", "engineer.progress"}:
                     # The current runner reports these same events through its
