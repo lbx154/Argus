@@ -1,6 +1,6 @@
 import type { MessageRouteOverride } from '../api';
 import type { MapSend } from './submission';
-import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowUp, Check, ChevronDown, CornerDownLeft, Square, X } from "lucide-react";
 import { ArgusMark } from "../components/Wordmark";
 import { referenceText, splitDraft } from "./presentation";
@@ -16,6 +16,7 @@ import { isImeComposing } from "../lib/ime";
 import "./composerMotion.css";
 
 export interface MapComposerProps {
+  footer?: ReactNode;
   value: string;
   onChange: (text: string) => void;
   onSend: MapSend;
@@ -34,6 +35,7 @@ export interface MapComposerProps {
   onRouteOverrideChange?: (route: MessageRouteOverride) => void;
 }
 export function MapComposer({
+  footer,
   value,
   onChange,
   onSend,
@@ -441,6 +443,7 @@ export function MapComposer({
           </div>
         </form>
       </div>
+      {footer}
       <span className="map-composer-caption" role="status">
         {feedback
           ? `${feedback[0]} · ${feedback[1]}`

@@ -6,6 +6,7 @@ import { initialMessageRoute, MESSAGE_ROUTE_KEY } from './lib/messageRoute';
 import { TopBar } from './components/TopBar';
 import { EventStream, latestConversationDelivery } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
+import { ComposerRuntime } from './components/ComposerRuntime';
 import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
 import { CommandPalette, commandPaletteRows, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
@@ -1039,6 +1040,7 @@ export default function App() {
                       routeOverride={routeOverride}
                       onRouteOverrideChange={setRouteOverride}
                     />
+                    <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive} />
                     </div>
                   </div>
                 ) : null}

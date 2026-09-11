@@ -94,6 +94,7 @@ export interface ConfigKnob {
 }
 export interface ConfigSnapshot {
   schema_version: number;
+  trial_mode?: boolean;
   generated_at_utc: string;
   roles: ConfigRole[];
   operator_knobs: ConfigKnob[];

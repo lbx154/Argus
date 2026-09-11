@@ -226,6 +226,30 @@ test('a theme-only URL change does not remount the conversation', async ({ page 
   await expect(page.frameLocator('#cockpitFrame').locator('#draft')).toHaveValue('unsent after theme switch');
 });
 
+test('changing a trial Key opens its form directly and preserves the draft on failure or success', async ({ page }) => {
+  await launch(page, true);
+  await configure(page, { trialMode: true });
+  const draft = page.frameLocator('#cockpitFrame').locator('#draft');
+  await draft.fill('Keep my project and draft');
+  // Only the authenticated cockpit is allowed to open native settings.
+  await page.evaluate(() => window.postMessage({ type: 'argus:show-trial-setup' }, '*'));
+  await expect(page.locator('#wizard')).toBeHidden();
+  await draft.evaluate(() => window.parent.postMessage({ type: 'argus:show-trial-setup' }, '*'));
+  await expect(page.locator('#trialKey')).toBeVisible();
+  await expect(page.locator('#trialKey')).toBeFocused();
+  await configure(page, { failure: 'Key 无效，请检查后重试。' });
+  const key = `argus_trial_${'c'.repeat(64)}`;
+  await page.locator('#trialKey').fill(key);
+  await page.locator('#trialSubmit').click();
+  await expect(page.locator('#trialProgress')).toContainText('Key 无效');
+  await expect(page.locator('#trialKey')).toHaveValue('');
+  await configure(page, { failure: '' });
+  await page.locator('#trialKey').fill(key);
+  await page.locator('#trialSubmit').click();
+  await expect(page.locator('#wizard')).toBeHidden();
+  await expect(draft).toHaveValue('Keep my project and draft');
+});
+
 test('manual update check explains why preview does not install releases', async ({ page }) => {
   await launch(page, true);
   await page.locator('#helpMenuTrigger').click();
