@@ -14,7 +14,7 @@ PAGE_BYTES = 1024 * 1024
 PAGE_EVENTS = 500
 # Bump when the projection learns to derive new records from old rows, so an
 # index built by an earlier version is rebuilt instead of trusted.
-HISTORY_VERSION = 2
+HISTORY_VERSION = 3
 
 
 def history_path(root: Path, life_dir: Path) -> Path:

@@ -54,6 +54,21 @@ class _CompleteRunner:
         return _Outcome(success=True, status="done")
 
 
+class _ProviderFenceRunner:
+    def __init__(self) -> None:
+        self.usage_mission_ids: list[str] = []
+
+    def execute(self, **kwargs: Any) -> _Outcome:
+        self.usage_mission_ids.append(str(kwargs["usage_mission_id"]))
+        return _Outcome(
+            success=False,
+            status="paused_provider_fence",
+            stop_kind="provider_fence",
+            recoverable=True,
+            stop_reason="402 Payment Required: quota exhausted",
+        )
+
+
 def test_paused_budget_is_recoverable_with_fresh_usage_attempt(tmp_path) -> None:
     memory = LifeMemory.open(tmp_path / "life")
     runner = _PauseThenCompleteRunner()
@@ -67,7 +82,11 @@ def test_paused_budget_is_recoverable_with_fresh_usage_attempt(tmp_path) -> None
         ),
     )
     item = memory.backlog.add(
-        BacklogItem.new(title="research", objective="continue from checkpoint")
+        BacklogItem.new(
+            title="research",
+            objective="continue from checkpoint",
+            manager_decision={"routed": True, "vertical": "software"},
+        )
     )
 
     paused = supervisor.tick()
@@ -120,7 +139,6 @@ def test_budget_pause_backoff_never_starts_idle_timeout(tmp_path) -> None:
     [
         "paused_budget",
         "paused_provider_cooldown",
-        "paused_provider_fence",
         "paused_daemon_shutdown",
     ],
 )
@@ -129,7 +147,11 @@ def test_supervisor_auto_resumes_external_recoverable_pauses(
     status: str,
 ) -> None:
     memory = LifeMemory.open(tmp_path / "life")
-    item = BacklogItem.new(title="resume me", objective="continue")
+    item = BacklogItem.new(
+        title="resume me",
+        objective="continue",
+        manager_decision={"routed": True, "vertical": "software"},
+    )
     item.status = status
     memory.backlog.add(item)
     runner = _CompleteRunner()
@@ -152,9 +174,111 @@ def test_supervisor_auto_resumes_external_recoverable_pauses(
     assert summary["missions_run"] == 1
 
 
+@pytest.mark.parametrize("continuous", [False, True])
+def test_provider_fence_waits_across_passes_until_explicit_resume(
+    tmp_path,
+    monkeypatch,
+    continuous: bool,
+) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    item = memory.backlog.add(BacklogItem.new(
+        title="quota held",
+        objective="continue from checkpoint",
+        manager_decision={"routed": True, "vertical": "software"},
+    ))
+    runner = _ProviderFenceRunner()
+    config = LifeSupervisorConfig(
+        poll_interval_seconds=0.0,
+        continuous=continuous,
+        continuous_objective="standing work" if continuous else "",
+    )
+
+    def no_planning(*_args, **_kwargs):
+        pytest.fail("a provider fence must not trigger another paid planning call")
+
+    monkeypatch.setattr(LifeSupervisor, "_plan_next_work", no_planning)
+    supervisor = LifeSupervisor(
+        memory=memory, runner=runner, sink=_Sink(), config=config,
+    )
+
+    first = supervisor.run()
+    assert first["stopped_by"] == "paused_provider_fence"
+    assert first["missions_run"] == 1
+    assert memory.backlog.all()[0].status == "paused_provider_fence"
+    for _ in range(3):
+        held = supervisor.run()
+        assert held["stopped_by"] == "paused_provider_fence"
+        assert held["missions_run"] == 0
+        assert held["suggested_sleep"] > 0
+        assert memory.backlog.all()[0].attempt == 1
+        assert runner.usage_mission_ids == [f"{item.id}:attempt:1"]
+
+    memory = LifeMemory.open(tmp_path / "life")
+    supervisor = LifeSupervisor(
+        memory=memory, runner=runner, sink=_Sink(), config=config,
+    )
+    assert supervisor.run()["stopped_by"] == "paused_provider_fence"
+    assert memory.backlog.all()[0].attempt == 1
+    resumed = memory.backlog.resume_all_paused()
+    assert [(row.id, row.attempt) for row in resumed] == [(item.id, 2)]
+    assert memory.backlog.resume_all_paused() == []
+
+    retried = supervisor.run()
+    assert retried["stopped_by"] == "paused_provider_fence"
+    assert retried["missions_run"] == 1
+    assert runner.usage_mission_ids == [
+        f"{item.id}:attempt:1",
+        f"{item.id}:attempt:2",
+    ]
+    held = supervisor.run()
+    assert held["stopped_by"] == "paused_provider_fence"
+    assert held["missions_run"] == 0
+    stored = memory.backlog.all()[0]
+    assert stored.status == "paused_provider_fence"
+    assert stored.attempt == 2
+    assert len(runner.usage_mission_ids) == 2
+
+
+def test_provider_fence_does_not_block_independent_ready_work(tmp_path) -> None:
+    memory = LifeMemory.open(tmp_path / "life")
+    held = BacklogItem.new(
+        title="quota held",
+        objective="wait for recovery",
+        manager_decision={"routed": True, "vertical": "software"},
+    )
+    held.status = "paused_provider_fence"
+    memory.backlog.add(held)
+    ready = memory.backlog.add(BacklogItem.new(
+        title="independent",
+        objective="finish independent work",
+        manager_decision={"routed": True, "vertical": "software"},
+    ))
+    runner = _CompleteRunner()
+    supervisor = LifeSupervisor(
+        memory=memory,
+        runner=runner,
+        sink=_Sink(),
+        config=LifeSupervisorConfig(poll_interval_seconds=0.0),
+    )
+
+    summary = supervisor.run()
+
+    stored = {item.id: item for item in memory.backlog.all()}
+    assert stored[held.id].status == "paused_provider_fence"
+    assert stored[held.id].attempt == 1
+    assert stored[ready.id].status == "done"
+    assert runner.calls == 1
+    assert summary["missions_run"] == 1
+    assert summary["stopped_by"] == "paused_provider_fence"
+
+
 def test_supervisor_does_not_auto_resume_operator_pause(tmp_path) -> None:
     memory = LifeMemory.open(tmp_path / "life")
-    item = BacklogItem.new(title="operator paused", objective="wait")
+    item = BacklogItem.new(
+        title="operator paused",
+        objective="wait",
+        manager_decision={"routed": True, "vertical": "software"},
+    )
     item.status = "paused_operator"
     memory.backlog.add(item)
     runner = _CompleteRunner()
@@ -189,7 +313,11 @@ def test_budget_change_resumes_original_task_without_rebuilding_supervisor(
     )
     assert write_persisted_knob("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "1")
     memory = LifeMemory.open(tmp_path / "projects" / "paper")
-    item = BacklogItem.new(title="continue paper", objective="revise current evidence")
+    item = BacklogItem.new(
+        title="continue paper",
+        objective="revise current evidence",
+        manager_decision={"routed": True, "vertical": "software"},
+    )
     item.status = "paused_budget"
     memory.backlog.add(item)
     runner = _CompleteRunner()

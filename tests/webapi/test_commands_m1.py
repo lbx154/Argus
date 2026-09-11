@@ -17,7 +17,8 @@ import pytest
 
 from argus_skill.core.session import SessionMeta, touch_session, write_session_meta
 from argus_skill.daemon.state import write_continuous_config
-from argus_skill.life.memory import LifeMemory
+from argus_skill.life.memory import BacklogItem, LifeMemory
+from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus_skill.manager import config_intent, front_door
 from argus_skill.manager.front_door import (
     ManagerHandoffError,
@@ -693,13 +694,38 @@ def test_enable_continuous_does_not_overwrite_newer_same_value_stop(
 # ── daemon start/stop (monkeypatched — no real subprocess) ─────────────────
 
 
-def test_daemon_start_delegates(ctx, monkeypatch) -> None:
+@pytest.fixture()
+def fenced_backlog(ctx):
+    _root, _sid, life = ctx
+    memory = LifeMemory.open(life)
+    item = BacklogItem.new(
+        title="provider quota hold",
+        objective="resume after restoring quota",
+        manager_decision={"routed": True, "vertical": "software"},
+    )
+    item.status = "paused_provider_fence"
+    memory.backlog.add(item)
+    return memory, item
+
+
+def test_daemon_start_delegates(ctx, fenced_backlog, monkeypatch) -> None:
     root, sid, life = ctx
+    memory, item = fenced_backlog
     calls = {}
 
     def fake_spawn(config, *, quiet=False):
         calls["life_dir"] = config.life_dir
         calls["quiet"] = quiet
+        supervisor = LifeSupervisor(
+            memory=memory,
+            runner=SimpleNamespace(),
+            sink=SimpleNamespace(handle_event=lambda _event: None),
+            config=LifeSupervisorConfig(poll_interval_seconds=0.0),
+        )
+        summary = supervisor.run()
+        assert summary["stopped_by"] == "paused_provider_fence"
+        assert summary["missions_run"] == 0
+        assert memory.backlog.all()[0].attempt == 1
         return 0
 
     monkeypatch.setattr(server, "spawn_detached_daemon", fake_spawn)
@@ -707,6 +733,149 @@ def test_daemon_start_delegates(ctx, monkeypatch) -> None:
     r = client.post(f"/api/projects/{sid}/daemon/start")
     assert r.status_code == 200 and r.json()["rc"] == 0
     assert calls["life_dir"] == life.resolve() and calls["quiet"] is True
+    resumed = memory.backlog.all()[0]
+    assert (resumed.id, resumed.status, resumed.attempt) == (item.id, "pending", 2)
+
+
+def test_daemon_start_resumes_provider_fence_without_respawning_live_worker(
+    ctx, fenced_backlog, monkeypatch,
+) -> None:
+    root, sid, life = ctx
+    memory, item = fenced_backlog
+    status = server.DaemonStatus(
+        alive=True,
+        pid=321,
+        started_at_iso=None,
+        uptime_seconds=5.0,
+        life_dir=life,
+        pid_path=life / "daemon.pid",
+    )
+    monkeypatch.setattr(server, "read_daemon_status", lambda _path: status)
+
+    def no_spawn(*_args, **_kwargs):
+        pytest.fail("an already-running worker must not be spawned again")
+
+    monkeypatch.setattr(server, "spawn_detached_daemon", no_spawn)
+    client = TestClient(server.create_app(global_root=root))
+
+    result = client.post(f"/api/projects/{sid}/daemon/start").json()
+
+    assert result["command_status"] == "applied"
+    assert result["already_alive"] is True
+    assert result["daemon"]["pid"] == 321
+    resumed = memory.backlog.all()[0]
+    assert (resumed.id, resumed.status, resumed.attempt) == (item.id, "pending", 2)
+
+
+@pytest.mark.parametrize("operation", ["start", "replace"])
+def test_explicit_daemon_resume_rearms_provider_fence_once_per_command(
+    ctx, fenced_backlog, monkeypatch, operation,
+) -> None:
+    root, sid, _life = ctx
+    memory, item = fenced_backlog
+    starts = []
+
+    def start(*args, **_kwargs):
+        starts.append(args)
+        assert memory.backlog.all()[0].status == "paused_provider_fence"
+        return {"rc": 0, "already_alive": True}
+
+    monkeypatch.setattr(server, f"{operation}_project_daemon", start)
+    client = TestClient(server.create_app(global_root=root))
+    url = f"/api/projects/{sid}/daemon/{operation}"
+    body = {"command_id": "resume-fence", "expected_revision": 0}
+    if operation == "replace":
+        body.update(victim_sid="s-victim001", resume_continuous=True)
+
+    first = client.post(url, json=body).json()
+    assert first["command_status"] == "applied"
+    assert memory.backlog.all()[0].status == "pending"
+    assert memory.backlog.all()[0].attempt == 2
+    memory.backlog.update(item.id, status="paused_provider_fence")
+
+    duplicate = client.post(url, json=body).json()
+    stale = client.post(url, json={**body, "command_id": "stale-resume"}).json()
+    assert duplicate["command_status"] == "applied"
+    assert stale["command_status"] == "rejected"
+    assert len(starts) == 1
+    assert memory.backlog.all()[0].status == "paused_provider_fence"
+    assert memory.backlog.all()[0].attempt == 2
+
+    fresh = client.post(url, json={
+        **body,
+        "command_id": "recover-again",
+        "expected_revision": stale["command_revision"],
+    }).json()
+    assert fresh["command_status"] == "applied"
+    assert len(starts) == 2
+    assert memory.backlog.all()[0].status == "pending"
+    assert memory.backlog.all()[0].attempt == 3
+
+
+@pytest.mark.parametrize("operation", ["start", "replace"])
+@pytest.mark.parametrize("result", [
+    {"rc": 1, "error": "launcher failed"},
+    {"rc": 2, "admission_required": True},
+    {"rc": 3, "error": "workspace unavailable"},
+])
+def test_failed_daemon_resume_preserves_provider_fence(
+    ctx, fenced_backlog, monkeypatch, operation, result,
+) -> None:
+    root, sid, _life = ctx
+    memory, _item = fenced_backlog
+    monkeypatch.setattr(
+        server, f"{operation}_project_daemon", lambda *_args, **_kwargs: result,
+    )
+    client = TestClient(server.create_app(global_root=root))
+    body = {"command_id": "failed-resume"}
+    if operation == "replace":
+        body.update(victim_sid="s-victim001", resume_continuous=True)
+
+    response = client.post(f"/api/projects/{sid}/daemon/{operation}", json=body)
+
+    assert response.status_code == 200
+    assert response.json()["command_status"] == "failed"
+    assert memory.backlog.all()[0].status == "paused_provider_fence"
+    assert memory.backlog.all()[0].attempt == 1
+
+
+def test_automatic_continuous_restart_preserves_provider_fence(
+    ctx, fenced_backlog, monkeypatch,
+) -> None:
+    root, sid, _life = ctx
+    memory, _item = fenced_backlog
+    monkeypatch.setattr(
+        server, "spawn_detached_daemon", lambda *_args, **_kwargs: 0,
+    )
+
+    result = server.start_project_daemon(
+        sid, global_root=root, resume_continuous=True,
+    )
+
+    assert result["rc"] == 0
+    assert memory.backlog.all()[0].status == "paused_provider_fence"
+    assert memory.backlog.all()[0].attempt == 1
+
+
+def test_daemon_replace_without_resume_preserves_provider_fence(
+    ctx, fenced_backlog, monkeypatch,
+) -> None:
+    root, sid, _life = ctx
+    memory, _item = fenced_backlog
+    monkeypatch.setattr(
+        server, "replace_project_daemon", lambda *_args, **_kwargs: {"rc": 0},
+    )
+    client = TestClient(server.create_app(global_root=root))
+
+    response = client.post(f"/api/projects/{sid}/daemon/replace", json={
+        "victim_sid": "s-victim001",
+        "resume_continuous": False,
+    })
+
+    assert response.status_code == 200
+    assert response.json()["command_status"] == "applied"
+    assert memory.backlog.all()[0].status == "paused_provider_fence"
+    assert memory.backlog.all()[0].attempt == 1
 
 
 def test_daemon_start_surfaces_clean_launcher_failure(ctx, monkeypatch) -> None:

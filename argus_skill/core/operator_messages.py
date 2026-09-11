@@ -113,6 +113,23 @@ def render_operator_update(
     # Reviewer/Manager next_action is already the actionable instruction. Do
     # not replace it with the generic explanation used for a raw error reason.
     action = str(next_action or "").strip()
+    if state == "paused_provider_fence":
+        first = (
+            f"模型服务限制导致任务暂停：{subject}。"
+            if chinese
+            else f"Work is paused by a model-provider restriction: {subject}."
+        )
+        resume = (
+            "解除限制后，请点击“运行”恢复任务；不会自动重试。"
+            if chinese
+            else "After resolving the restriction, click Run to resume; automatic retries are disabled."
+        )
+        return "\n".join(part for part in (
+            first,
+            ("原因：" if chinese else "Reason: ") + why if why else "",
+            ("处理建议：" if chinese else "Next: ") + action if action else "",
+            resume,
+        ) if part)
     if state == "paused_external_work":
         # This is a healthy dependency wait, not a failed mission or a request
         # for the operator to restart a job. Keep runner IDs and slot details

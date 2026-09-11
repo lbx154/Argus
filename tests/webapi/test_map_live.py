@@ -69,6 +69,37 @@ def test_map_preserves_whether_a_review_actually_ran():
     assert all(event["status"] == "continue" for event in events)
 
 
+def test_map_preserves_execution_completion_scope_without_inventing_legacy_flags():
+    base = {"type": "life.mission.completed", "item_id": "a", "success": True}
+    events = normalize_events([
+        {**base, "ts": 1, "overall_complete": False, "campaign_continues": True,
+         "attempt": 1, "stage_certification": "intentionally_skipped"},
+        {**base, "ts": 2, "overall_complete": True, "campaign_continues": False},
+        {**base, "ts": 3},
+        {**base, "ts": 4, "overall_complete": "false", "campaign_continues": 1},
+    ], {"a"})
+    assert events[0]["success"] is True
+    assert events[0]["overall_complete"] is False
+    assert events[0]["campaign_continues"] is True
+    assert events[0]["attempt"] == 1
+    assert events[0]["stage_certification"] == "intentionally_skipped"
+    assert events[1]["overall_complete"] is True
+    assert events[1]["campaign_continues"] is False
+    for event in events[2:]:
+        assert "overall_complete" not in event
+        assert "campaign_continues" not in event
+
+
+def test_map_reads_certification_from_mission_outcome():
+    events = normalize_events([{
+        "type": "life.mission.completed", "item_id": "a", "ts": 1,
+        "success": True, "overall_complete": False,
+        "outcome": {"stage_certification": "intentionally_skipped"},
+    }], {"a"})
+
+    assert events[0]["stage_certification"] == "intentionally_skipped"
+
+
 def test_copy_routes_require_auth_and_check_task_event_ownership(tmp_path, monkeypatch):
     sid, life = sample(tmp_path)
     client = TestClient(create_app(global_root=tmp_path, auth_token="test"))

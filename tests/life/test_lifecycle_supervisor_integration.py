@@ -351,7 +351,10 @@ def test_cli_lifecycle_transition_aborts_when_explicit_session_is_missing(
     assert not lifecycle_path(tmp_path).exists()
 
 
-def test_cli_resume_after_quarantine_returns_to_running(tmp_path: Path) -> None:
+@pytest.mark.parametrize("pause_status", ["paused_budget", "paused_provider_fence"])
+def test_cli_resume_after_quarantine_returns_to_running(
+    tmp_path: Path, pause_status: str,
+) -> None:
     # Seed evidence so the inferred state on resume is RUNNING.
     bundle = tmp_path / "benchmarks" / "evidence" / "demo"
     bundle.mkdir(parents=True)
@@ -367,7 +370,7 @@ def test_cli_resume_after_quarantine_returns_to_running(tmp_path: Path) -> None:
     write_persisted(lifecycle_root, status=qstatus, history=[])
     memory = LifeMemory.open(lifecycle_root)
     paused_item = memory.backlog.add(BacklogItem.new(title="paused", objective="resume safely"))
-    memory.backlog.update(paused_item.id, status="paused_budget")
+    memory.backlog.update(paused_item.id, status=pause_status)
 
     proc = subprocess.run(
         [

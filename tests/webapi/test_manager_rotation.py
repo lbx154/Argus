@@ -213,15 +213,21 @@ def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeyp
     manager_state._STATES.clear()
 
     seen: list[str] = []
+    modes: list[str] = []
 
-    def _fake_triage(mem, body, chat_state, **_kw):
+    def _fake_triage(mem, body, chat_state, **kwargs):
         seen.append(body)
+        modes.append(kwargs["self_mode"])
         chat_state["last_thread_id"] = "thread-xyz"  # a live session accrues a thread
         return "ok"
 
+    def _classify(mem, body, chat_state, **kwargs):
+        chat_state["_frontdoor_self_mode"] = "reply"
+        return None, "simple"
+
     # Offline: stub the merged front-door classify (no real runner/LLM) + triage.
     monkeypatch.setattr(
-        "argus_skill.manager.config_intent._front_door_classify", lambda *a, **k: (None, "simple")
+        "argus_skill.manager.config_intent._front_door_classify", _classify
     )
     monkeypatch.setattr("argus_skill.manager.front_door.manager_triage", _fake_triage)
 
@@ -246,6 +252,7 @@ def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeyp
         for event_type in ("ui.operator", "ui.argus")
     ]
     assert all("SESSION HANDOFF" not in b for b in seen)
+    assert modes == ["reply", "inspect", "inspect", "inspect"]
     st = manager_state._STATES["s-rot00001"]
     assert st["last_thread_id"] == "thread-xyz"
 
@@ -253,8 +260,16 @@ def test_manager_session_rotates_with_structured_handoff(tmp_path: Path, monkeyp
     manager_bridge.manager_message("s-rot00001", "still there?", global_root=tmp_path)
     assert "SESSION HANDOFF" in seen[-1]
     assert "s-rot00001" in seen[-1]  # handoff carries the project path
+    assert "checking in" in seen[-1]
+    assert modes[-1] == "inspect"
     assert st["rotations"] == 1
     assert st["turns"] == 1  # counter reset after rotation
+
+    manager_bridge.manager_message("s-rot00001", "next question", global_root=tmp_path)
+    assert "SESSION HANDOFF" not in seen[-1]
+    assert modes[-1] == "inspect"
+    assert st["rotations"] == 1
+    assert st["turns"] == 2
 
 
 def test_rotation_resets_cached_runner_seed(tmp_path: Path, monkeypatch) -> None:
@@ -457,11 +472,13 @@ def test_web_process_restart_seeds_one_startup_handoff(
 
     def _classify(mem, text, chat_state, *, root_task_id=None):
         classified.append(text)
+        chat_state["_frontdoor_self_mode"] = "reply"
         return None, "simple"
 
     monkeypatch.setattr("argus_skill.manager.config_intent._front_door_classify", _classify)
 
     def _triage(mem, body, chat_state, **_kw):
+        assert _kw["self_mode"] == "inspect"
         seen.append(body)
         chat_state["last_thread_id"] = "warm-thread"
         return "ok"
@@ -486,6 +503,8 @@ def test_web_process_restart_seeds_one_startup_handoff(
     )
     assert "SESSION HANDOFF" not in seen[1]
     assert classified == ["new question", "next question"]
+    assert manager_state._STATES["s-restart01"]["startup_handoffs"] == 1
+    assert "needs_startup_handoff" not in manager_state._STATES["s-restart01"]
 
 
 def test_status_question_uses_model_path_and_consumes_pending_handoff(

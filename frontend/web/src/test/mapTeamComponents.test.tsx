@@ -4,8 +4,8 @@ import type { NodeProps } from '@xyflow/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MacroTaskNode, type MacroData, type MacroNode } from '../map/MacroTaskNode';
 import { MapTeamProgress } from '../map/MapPanel';
-import { layoutSubmap, type SubmapStep } from '../map/submap';
-import type { MapEvent, MapTask } from '../map/model';
+import { layoutScene, layoutSubmap, type SubmapStep } from '../map/submap';
+import { buildMap, type MapEvent, type MapTask } from '../map/model';
 
 vi.mock('@xyflow/react', async (original) => ({
   ...await original<typeof import('@xyflow/react')>(),
@@ -34,6 +34,27 @@ let renderer: ReactTestRenderer | undefined;
 afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; });
 
 describe('Team work in the map', () => {
+  it('shows partial completion instead of a green done claim or stale generated acceptance copy', () => {
+    const finished = { ...task, status: 'done' };
+    const events: MapEvent[] = [{ id: 'end', item_id: task.id, type: 'life.mission.completed', ts: 10,
+      text: 'Read one source route.', success: true, overall_complete: false, campaign_continues: true }];
+    const scene = layoutScene(buildMap([finished]), events, false);
+    const copy = { cards: Object.fromEntries([task.id, 'end'].map((id) => [id, {
+      title: 'Paper accepted.', summary: 'Paper accepted.', detail: 'Paper accepted.', generated_at: 1,
+    }])) };
+    const props = propsFor(scene.layouts[task.id].steps, { ...scene.cards[0], layout: scene.layouts[task.id], copy });
+    const markup = renderToStaticMarkup(<MacroTaskNode {...props} />);
+    expect(markup).toContain('Execution ended · goal incomplete');
+    expect(markup).toContain('the overall goal is not complete and further work remains');
+    expect(markup).toContain('Execution record');
+    expect(markup).not.toContain('map-state-done');
+    expect(markup).not.toContain('Paper accepted.');
+    act(() => { renderer = create(<MacroTaskNode {...props} />); });
+    act(() => renderer!.root.findByProps({ 'data-step-id': 'end' }).props.onClick());
+    expect(JSON.stringify(renderer!.toJSON())).toContain('Read one source route.');
+    expect(JSON.stringify(renderer!.toJSON())).not.toContain('Paper accepted.');
+  });
+
   it('keeps completed, waiting and failed workers truthful while their parent is running', () => {
     const props = propsFor([worker('complete', 'done'), worker('waiting', 'pending'), worker('failed', 'failed')]);
     act(() => { renderer = create(<MacroTaskNode {...props} />); });

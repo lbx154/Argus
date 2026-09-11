@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
-import { buildMap, type Dataset } from "../map/model";
+import { buildMap, latestMissionCompletion, type Dataset } from "../map/model";
+import { layoutScene } from "../map/submap";
 import { mapIsPaused, mergeMapProgress, parseMapSelection } from "../map/incremental";
 import { mergeMapCopy, needsCardCopy, type CardCopy } from "../map/presentation";
 import type { Snapshot } from "../api";
@@ -35,6 +36,30 @@ it("merges paged history without duplicates and drops explicitly removed tasks",
   expect(removed.tasks).toEqual([]);
   expect(removed.events).toEqual([]);
   expect(mergeMapProgress(first, { ...first, reset_history: true, events: [] }).events).toEqual([]);
+});
+
+it("keeps completion scope across event-only pages without leaking an earlier attempt into a new finish", () => {
+  const done = { ...first, tasks: [{ ...first.tasks[0], status: "done", started_ts: 2, finished_ts: 4, attempt: 1 }], events: [] };
+  const partial = { id: "partial", item_id: "a", type: "life.mission.completed", ts: 5, text: "",
+    success: true, overall_complete: false, campaign_continues: true, attempt: 1 };
+  const page = mergeMapProgress(done, { ...done, incremental: true, tasks: [], events: [partial] });
+  const next = mergeMapProgress(page, { ...done, incremental: true, tasks: [], events: first.events });
+  expect(layoutScene(buildMap(next.tasks), next.events, false).cards[0].completionScope).toContain("further work remains");
+  expect(next.tasks[0].status).toBe("done");
+
+  const retried = { ...next.tasks[0], started_ts: 10, finished_ts: 12, attempt: 2 };
+  const retryPage = mergeMapProgress(next, { ...done, incremental: true, tasks: [retried], events: [] });
+  expect(latestMissionCompletion(retried, retryPage.events)).toBeUndefined();
+  expect(layoutScene(buildMap(retryPage.tasks), retryPage.events, false).cards[0].completionScope).toBeUndefined();
+  const legacyFinish = { id: "later", item_id: "a", type: "life.mission.completed", ts: 13, text: "", success: true };
+  const finished = mergeMapProgress(retryPage, { ...done, incremental: true, tasks: [], events: [legacyFinish] });
+  const olderPage = mergeMapProgress(finished, { ...done, incremental: true, tasks: [], events: [partial] });
+  expect(latestMissionCompletion(retried, olderPage.events)).toEqual(legacyFinish);
+  expect(layoutScene(buildMap(olderPage.tasks), olderPage.events, false).cards[0].completionScope).toBeUndefined();
+  expect(latestMissionCompletion(retried, [{ ...partial, ts: 15 }])).toBeUndefined();
+  expect(latestMissionCompletion(retried, [legacyFinish, {
+    id: "restart", item_id: "a", type: "life.mission.started", ts: 14, text: "",
+  }])).toBeUndefined();
 });
 
 it('updates Team observations by identity and removes deleted workers without losing history', () => {

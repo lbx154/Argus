@@ -278,27 +278,33 @@ def test_profile_skill_upgrades_reply_mode_without_fast_reply(
     assert LifeMemory.open(life).backlog.all() == []
 
 
+@pytest.mark.parametrize("prior_turn_count", [0, 1], ids=["cold", "warm"])
+@pytest.mark.parametrize("fast_reply", ["", "I do not know your name."])
 def test_followup_self_turn_disables_stateless_fast_reply(
     tmp_path: Path,
     monkeypatch,
+    prior_turn_count: int,
+    fast_reply: str,
 ) -> None:
     sid = "s-contextual-self-reply"
     life = _make_project(tmp_path, sid)
     manager_state._STATES.clear()
     state = manager_state._chat_state_for(sid)
-    state["turns"] = 1
+    state["turns"] = prior_turn_count
     append_turn(life, "operator", "Proceedings of the AMS 是什么期刊？")
     append_turn(life, "argus", "它是美国数学会的综合性数学期刊。")
     seen: dict[str, str] = {}
 
     def classify(mem, text, chat_state, **kwargs):
+        seen["classified"] = text
         chat_state["_frontdoor_self_mode"] = "reply"
-        chat_state["_frontdoor_fast_reply"] = "I do not know your name."
+        chat_state["_frontdoor_fast_reply"] = fast_reply
         return None, None, "simple"
 
     monkeypatch.setattr(config_intent, "_front_door_classify", classify)
     def triage(*args, **kwargs):
         seen["body"] = args[1]
+        seen["self_mode"] = kwargs["self_mode"]
         return "Your name is Xiaobei."
 
     monkeypatch.setattr(front_door, "manager_triage", triage)
@@ -310,7 +316,11 @@ def test_followup_self_turn_disables_stateless_fast_reply(
     )
 
     assert result == {"kind": "chat", "reply": "Your name is Xiaobei."}
+    assert seen["self_mode"] == "inspect"
+    assert seen["classified"] == "What was my name?"
+    assert "SESSION HANDOFF" in seen["body"]
     assert "Proceedings of the AMS" in seen["body"]
+    assert "它是美国数学会的综合性数学期刊。" in seen["body"]
     assert "[CURRENT OPERATOR MESSAGE]\nWhat was my name?" in seen["body"]
     assert LifeMemory.open(life).backlog.all() == []
 

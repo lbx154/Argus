@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from argus_skill.daemon.life_worker import LifeWorker
+from argus_skill.life.memory import BacklogItem, LifeMemory
 
 
 def _worker(tmp_path) -> LifeWorker:
@@ -75,6 +76,66 @@ def test_wakeable_sleep_sleeps_full_when_quiet(tmp_path) -> None:
     t0 = time.monotonic()
     w._wakeable_sleep(0.4, 0.1, tmp_path)
     assert time.monotonic() - t0 >= 0.35
+
+
+@pytest.mark.parametrize("resume_before_sleep", [False, True])
+def test_provider_fence_sleep_wakes_on_explicit_resume(
+    tmp_path, resume_before_sleep: bool,
+) -> None:
+    worker = _worker(tmp_path)
+    memory = LifeMemory.open(tmp_path)
+    item = BacklogItem.new(
+        title="quota held",
+        objective="resume after recovery",
+        manager_decision={"routed": True, "vertical": "software"},
+    )
+    item.status = "paused_provider_fence"
+    memory.backlog.add(item)
+    waits = []
+
+    def resume_during_wait(timeout):
+        waits.append(timeout)
+        memory.backlog.resume_all_paused()
+        return False
+
+    worker._stop.wait = resume_during_wait
+    if resume_before_sleep:
+        memory.backlog.resume_all_paused()
+
+    worker._wakeable_sleep(
+        300.0, 0.1, tmp_path, wake_on_ready_work=True,
+    )
+
+    assert len(waits) == (0 if resume_before_sleep else 1)
+    assert memory.backlog.all()[0].status == "pending"
+    assert memory.backlog.all()[0].attempt == 2
+    assert not (tmp_path / "inbox.jsonl").exists()
+
+
+@pytest.mark.parametrize("status", ["paused_provider_fence", "pending"])
+def test_recovery_wake_does_not_bypass_unchanged_fence_or_budget_backoff(
+    tmp_path, status: str,
+) -> None:
+    worker = _worker(tmp_path)
+    memory = LifeMemory.open(tmp_path)
+    item = BacklogItem.new(
+        title="held work",
+        objective="wait",
+        manager_decision={"routed": True, "vertical": "software"},
+    )
+    item.status = status
+    memory.backlog.add(item)
+    waits = []
+    worker._stop.wait = lambda timeout: waits.append(timeout) or False
+
+    worker._wakeable_sleep(
+        2.0, 0.5, tmp_path,
+        wake_on_ready_work=status == "paused_provider_fence",
+    )
+
+    assert waits == [0.5] * 4
+    assert memory.backlog.all()[0].status == status
+    assert memory.backlog.all()[0].attempt == 1
 
 
 @pytest.mark.parametrize("existing_config", [False, True])

@@ -93,6 +93,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("does not count a partial research execution as a completed overall goal", () => {
+  const partial = { ...data, tasks: [data.tasks[0]], events: [{
+    id: "ended", item_id: "parent", type: "life.mission.completed", ts: 5, text: "",
+    success: true, overall_complete: false, campaign_continues: true,
+  }] };
+  act(() => renderer.update(
+    <QueryClientProvider client={client}><MapCanvas {...props} data={partial} /></QueryClientProvider>,
+  ));
+  const sentence = renderer.root.findByProps({ className: "map-status-text" }).children.join("");
+  expect(sentence).toContain("1 execution ended");
+  expect(sentence).toContain("execution completion is not overall completion");
+  expect(sentence).not.toContain("all completed");
+  const strip = renderer.root.findByProps({ className: "map-progress-strip" });
+  expect(strip.props["aria-label"]).toContain("0 completed, 1 execution ended before overall completion");
+  expect(strip.findAllByProps({ className: "seg-done" })).toHaveLength(0);
+  expect(nodes()[0].data.task.status).toBe("done");
+  expect(nodes()[0].data.completionScope).toContain("further work remains");
+});
+
 it("measures offscreen cards before fitting and after graph growth", () => {
   const frames: FrameRequestCallback[] = [];
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));

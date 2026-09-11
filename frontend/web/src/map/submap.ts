@@ -1,6 +1,7 @@
 import {
   ACTIVE,
   connectMap,
+  latestMissionCompletion,
   type MapEvent,
   type MapTask,
   type MapGraph,
@@ -8,6 +9,7 @@ import {
   type WorkStep,
 } from "./model";
 import { layoutGraph } from "./graphLayout";
+import { completionScope } from "./status";
 
 export const MAP_FRAME = { width: 1440, height: 1080 };
 export const MAX_STEPS_PER_CARD = 12;
@@ -23,6 +25,7 @@ export interface MapCard {
   totalSteps: number;
   previousId?: string;
   nextId?: string;
+  completionScope?: string;
 }
 
 export type StepKind = "plan" | "execution" | "review" | "revision" | "result";
@@ -44,6 +47,7 @@ export interface SubmapStep {
   deps?: string[];
   updatedAt?: number;
   revision?: string;
+  completionScope?: string;
 }
 export const STEP_KINDS: StepKind[] = [
   "plan",
@@ -228,11 +232,11 @@ function describeRecord(event: MapEvent, status: string, zh: boolean): string {
         ? zh ? "审阅者打开了工程师的工作，开始核查。" : "The Reviewer opened the Engineer's work to check it."
         : "";
     case "life.mission.completed":
-      return status === "done"
+      return completionScope(event, zh) || (status === "done"
         ? zh ? "任务完成，结果已经记录在案。" : "The task was finished; its result is on record."
         : status.startsWith("paused")
           ? zh ? "这项任务的工作暂停了。" : "Work on this task was paused."
-          : zh ? "任务到此结束。" : "The task ended here.";
+          : zh ? "任务到此结束。" : "The task ended here.");
     case "life.mission.failed":
       return zh ? "任务没有达到目标就结束了。" : "The task ended without reaching its goal.";
     default:
@@ -466,6 +470,7 @@ export function buildSubmap(
     const finished =
       e.type.endsWith(".completed") || e.type.endsWith(".failed");
     const reviewSkipped = kind === "review" && e.review_skipped === true;
+    const scope = completionScope(e, zh);
     const status =
       (reviewSkipped ? "skipped" : e.status) ||
       (e.success === false || e.type.endsWith(".failed")
@@ -503,9 +508,9 @@ export function buildSubmap(
               ? "审阅者开始核查"
               : "The Reviewer began reading"
           : kind === "result"
-            ? zh
-              ? "最后得到了什么"
-              : "What came out"
+            ? scope
+              ? zh ? "本次执行已结束" : "This execution ended"
+              : zh ? "最后得到了什么" : "What came out"
             : kind === "plan"
               ? zh
                 ? "列入计划"
@@ -532,9 +537,14 @@ export function buildSubmap(
       id: e.id,
       kind,
       title,
-      summary: note.summary || clipSentence(prose) || described || undefined,
+      summary: scope || note.summary || clipSentence(prose) || described || undefined,
       detail: [
-        prose || note.summary || described || noDetails(zh),
+        scope,
+        prose || note.summary || (!scope ? described || noDetails(zh) : ""),
+        scope && e.stage_certification === "intentionally_skipped"
+          ? zh ? "本阶段认证被有意跳过；这不代表最终验收通过。"
+            : "Stage certification was intentionally skipped; this is not final acceptance."
+          : "",
         reviewSkipped && e.next_action && !nextNote.summary
           ? `${zh ? "接下来" : "What happens next"}: ${e.next_action}`
           : "",
@@ -542,7 +552,8 @@ export function buildSubmap(
           ? `${zh ? "——技术记录：" : "— technical record: "}${note.receipt.replace(/^Runner receipt:\s*/i, "")}`
           : "",
       ].filter(Boolean).join("\n\n"),
-      status,
+      status: scope && status === "done" ? "recorded" : status,
+      completionScope: scope || undefined,
       ts: e.ts,
       round,
       episode,
@@ -981,6 +992,7 @@ export function layoutScene(
   const lastCard = new Map<string, string>();
   for (const [ordinal, task] of graph.tasks.entries()) {
     const steps = buildSubmap(task, events, zh);
+    const scope = task.status === "done" ? completionScope(latestMissionCompletion(task, events), zh) : "";
     const pages = stepPages(steps);
     const count = pages.length;
     // A part's ordinal is stable when subsequent events arrive. Original task
@@ -1002,6 +1014,7 @@ export function layoutScene(
         totalSteps: steps.length,
         previousId: part > 1 ? idFor(part - 1) : undefined,
         nextId: part < count ? idFor(part + 1) : undefined,
+        completionScope: scope || undefined,
       });
       layouts[id] = layoutSubmap(task, events, zh, slice, start);
       if (part > 1) {

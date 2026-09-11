@@ -3130,7 +3130,10 @@ def test_bounded_daemon_waits_for_background_work_then_finishes_same_task(
     monkeypatch.setattr(supervisor, "_run_one", run_one)
     sleeps: list[float] = []
 
-    def background_work_progresses(seconds, _poll, _root):
+    def background_work_progresses(
+        seconds, _poll, _root, *, wake_on_ready_work=False,
+    ):
+        assert wake_on_ready_work is False
         sleeps.append(seconds)
         assert not executed
         assert next(row for row in memory.backlog.active() if row.id == item.id).status == (

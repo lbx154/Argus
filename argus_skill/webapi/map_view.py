@@ -235,10 +235,17 @@ def normalize_events(
             number = row.get("round_index", row.get("round"))
             if isinstance(number, int) and 0 <= number < 10000:
                 e["round_index"] = number
-            if isinstance(row.get("success"), bool):
-                e["success"] = row["success"]
-            if isinstance(row.get("review_skipped"), bool):
-                e["review_skipped"] = row["review_skipped"]
+            for key in ("success", "review_skipped", "overall_complete", "campaign_continues"):
+                if isinstance(row.get(key), bool):
+                    e[key] = row[key]
+            if isinstance(row.get("attempt"), int):
+                e["attempt"] = row["attempt"]
+            outcome = row.get("outcome")
+            certification = row.get("stage_certification") or (
+                outcome.get("stage_certification") if isinstance(outcome, dict) else None
+            )
+            if certification:
+                e["stage_certification"] = text(certification, 80)
             if kind == "life.plan.node.superseded":
                 # Keep the shape lean: structured keys only when present.
                 if row.get("reason"):

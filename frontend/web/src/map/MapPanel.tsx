@@ -839,16 +839,18 @@ export function MapCanvas({
   // One pass, one bucket per task: the strip must partition, not double-count
   // a failed task that also carries a question.
   const tally = useMemo(() => {
-    const buckets = { done: 0, running: 0, question: 0, failed: 0, other: 0 };
+    const ended = new Set(scene.cards.filter((card) => card.completionScope).map((card) => card.task.id));
+    const buckets = { done: 0, ended: 0, running: 0, question: 0, failed: 0, other: 0 };
     for (const task of data.tasks) {
-      if (task.status === "done") buckets.done++;
+      if (ended.has(task.id)) buckets.ended++;
+      else if (task.status === "done") buckets.done++;
       else if (ACTIVE.has(task.status)) buckets.running++;
       else if (task.pending_question) buckets.question++;
       else if (task.status === "failed") buckets.failed++;
       else buckets.other++;
     }
     return buckets;
-  }, [data.tasks]);
+  }, [data.tasks, scene.cards]);
   const complete = tally.done;
   const focus = (id: string) => {
     setTraceId(null);
@@ -988,11 +990,11 @@ export function MapCanvas({
               role="img"
               aria-label={
                 zh
-                  ? `已完成 ${tally.done}，进行中 ${tally.running}，值得关注 ${attention.length}`
-                  : `${tally.done} completed, ${tally.running} running, ${attention.length} need attention`
+                  ? `已完成 ${tally.done}，${tally.ended ? `${tally.ended} 次执行结束时总体目标未完成，` : ""}进行中 ${tally.running}，值得关注 ${attention.length}`
+                  : `${tally.done} completed, ${tally.ended ? `${tally.ended} ${tally.ended === 1 ? "execution" : "executions"} ended before overall completion, ` : ""}${tally.running} running, ${attention.length} need attention`
               }
             >
-              {(["done", "running", "question", "failed", "other"] as const).map(
+              {(["done", "ended", "running", "question", "failed", "other"] as const).map(
                 (bucket) =>
                   tally[bucket] > 0 && (
                     <i
@@ -1009,6 +1011,7 @@ export function MapCanvas({
             {mapStatusSentence({
               total: data.tasks.length,
               complete,
+              ended: tally.ended,
               running: tally.running,
               pending: composer.pending,
               paused,

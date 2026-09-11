@@ -54,6 +54,9 @@ export interface MapEvent {
   attempt?: number;
   success?: boolean;
   review_skipped?: boolean;
+  overall_complete?: boolean;
+  campaign_continues?: boolean;
+  stage_certification?: string;
   title?: string;
   team_id?: string;
   team_task_id?: string;
@@ -126,6 +129,24 @@ export interface MapGraph {
 }
 
 export const ACTIVE = new Set(["running", "in_progress", "claimed"]);
+
+/** Resolve from merged events, not a page-local task snapshot or an earlier attempt. */
+export function latestMissionCompletion(task: MapTask, events: MapEvent[]): MapEvent | undefined {
+  let latest: MapEvent | undefined;
+  for (const event of events) {
+    if (event.item_id !== task.id || ![
+      "life.mission.started", "life.mission.completed", "life.mission.failed", "life.mission.orphaned",
+    ].includes(event.type)) continue;
+    if (!latest || event.ts >= latest.ts) latest = event;
+  }
+  if (latest?.type !== "life.mission.completed") return undefined;
+  // Settlement is recorded after the backlog finish timestamp. History pages
+  // may not yet contain the current attempt's completion.
+  if (latest.ts < Math.max(task.started_ts || 0, task.finished_ts || 0)) return undefined;
+  if (latest.attempt != null && task.attempt != null && latest.attempt !== task.attempt) return undefined;
+  return latest;
+}
+
 export function attentionTasks(tasks: MapTask[]): MapTask[] {
   return tasks
     .filter((task) => task.status !== "done" && !ACTIVE.has(task.status) &&

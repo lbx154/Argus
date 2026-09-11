@@ -116,6 +116,29 @@ def test_operator_abort_is_not_rendered_as_a_failure_or_retry() -> None:
 
 
 @pytest.mark.parametrize(
+    ("hint", "resume"),
+    [
+        ("继续论文", "点击“运行”恢复任务；不会自动重试"),
+        ("Continue the paper", "click Run to resume; automatic retries are disabled"),
+    ],
+)
+def test_provider_fence_explains_explicit_recovery(hint: str, resume: str) -> None:
+    text = render_operator_update(
+        title="Research",
+        status="paused_provider_fence",
+        reason="HTTP 402: Insufficient trial tokens for this request.",
+        next_action="Check the trial quota.",
+        language_hint=hint,
+    )
+
+    assert "HTTP 402" in text
+    assert "Check the trial quota." in text
+    assert resume in text
+    assert "Argus 会诊断" not in text
+    assert "Argus will diagnose" not in text
+
+
+@pytest.mark.parametrize(
     ("title", "hint", "waiting", "continuation"),
     [
         ("通信论文", "继续修订论文", "正在等待后台任务完成", "自动继续"),

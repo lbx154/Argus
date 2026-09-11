@@ -875,6 +875,7 @@
   min-width: 3px;
 }
 .map-progress-strip .seg-done { background: #63a888; }
+.map-progress-strip .seg-ended { background: #8793a4; }
 .map-progress-strip .seg-running { background: #5f95cf; }
 .map-progress-strip .seg-question { background: #cfa14e; }
 .map-progress-strip .seg-failed { background: #c98266; }
