@@ -687,6 +687,7 @@ export function layoutSubmap(
   const height = 408 + (rows - 1) * pitchY;
   const left = (width - (count * 232 + (count - 1) * 108)) / 2;
   const positions: SubmapLayout["positions"] = {};
+  const rounds = effectiveRounds(steps);
   let previousRounds: number[] = [];
   const columns = Array.from({ length: count }, (_, col) => {
     const start = col * rows,
@@ -696,11 +697,13 @@ export function layoutSubmap(
     slice.forEach((step, row) => {
       positions[step.id] = { x, y: 180 + row * pitchY };
     });
-    const fallback = zh
-      ? `环节 ${offset + start + 1}–${offset + end}`
-      : `Steps ${offset + start + 1}–${offset + end}`;
-    const title = columnTitle(slice, previousRounds, col === 0 && offset === 0, col === count - 1, zh, fallback);
-    previousRounds = roundsIn(slice);
+    const from = offset + start + 1, to = offset + end;
+    const fallback = from === to
+      ? zh ? `环节 ${from}` : `Step ${from}`
+      : zh ? `环节 ${from}–${to}` : `Steps ${from}–${to}`;
+    const sliceRounds = roundsIn(rounds.slice(start, end));
+    const title = columnTitle(slice, sliceRounds, previousRounds, col === 0 && offset === 0, col === count - 1, zh, fallback);
+    previousRounds = sliceRounds;
     return { id: `steps:${offset + start}`, title, x, y: 142 };
   });
   return {
@@ -713,9 +716,19 @@ export function layoutSubmap(
   };
 }
 
-function roundsIn(steps: SubmapStep[]): number[] {
-  return [...new Set(steps.map((s) => s.round).filter((r): r is number => typeof r === "number"))]
-    .sort((a, b) => a - b);
+/** The round each step belongs to. Steps recorded without a round number,
+ * such as a segment of the Engineer's work, belong to the round under way;
+ * the outcome of the whole task belongs to no round. */
+function effectiveRounds(steps: SubmapStep[]): (number | undefined)[] {
+  let current: number | undefined;
+  return steps.map((step) => {
+    if (typeof step.round === "number") current = step.round;
+    return typeof step.round === "number" ? step.round : step.kind === "result" ? undefined : current;
+  });
+}
+
+function roundsIn(rounds: (number | undefined)[]): number[] {
+  return [...new Set(rounds.filter((r): r is number => typeof r === "number"))].sort((a, b) => a - b);
 }
 
 /** A column is headed by the round of work it holds, so a reader sees the
@@ -724,13 +737,13 @@ function roundsIn(steps: SubmapStep[]): number[] {
  * a trailing column without rounds is the outcome. */
 function columnTitle(
   steps: SubmapStep[],
+  rounds: number[],
   previousRounds: number[],
   first: boolean,
   last: boolean,
   zh: boolean,
   fallback: string,
 ): string {
-  const rounds = roundsIn(steps);
   if (!rounds.length) {
     if (first && steps.some((s) => s.kind === "plan")) return zh ? "起点" : "Setting out";
     if (last && steps.some((s) => s.kind === "result")) return zh ? "结果" : "Outcome";

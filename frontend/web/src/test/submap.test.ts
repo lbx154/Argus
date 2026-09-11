@@ -448,4 +448,11 @@ it("heads each step column with the round of work it holds", () => {
   expect(few.columns.map((c) => c.title)).toEqual(["起点", "第 1 轮", "结果"]);
   const none = layoutSubmap(task, [], false);
   expect(none.columns.map((c) => c.title)).toEqual(["Setting out", "Outcome"]);
+  // A segment of work recorded without a round number belongs to the round under way.
+  const segment = layoutSubmap(task, [
+    ...rounds(1),
+    { id: "p", type: "life.phase.started", ts: 5, item_id: "t", text: "", label: "implementation" } as MapEvent,
+  ], false);
+  for (const title of segment.columns.map((c) => c.title))
+    expect(["Setting out", "Round 1", "Round 1 · cont.", "Outcome"]).toContain(title);
 });
