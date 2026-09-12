@@ -47,8 +47,14 @@ it('uses the same explanation component for a historical step without borrowing 
   const explanation = reader.findByType(ReaderExplanation);
   expect(explanation.props.brief).toEqual(oldCopy.reader_brief);
   expect(explanation.props.detail).toBe(oldCopy.detail);
-  const details = explanation.findAllByType('details').filter(node => node.findByType('summary').children.includes('Detailed explanation and conditions'));
+  const teaching = oldCopy.reader_brief!;
+  expect(explanation.findAllByType(MarkdownContent).map(node => node.props.children)).toEqual([
+    teaching.why, teaching.concept!.explanation, teaching.concept!.example, teaching.concept!.connection,
+    teaching.scope, teaching.next, oldCopy.detail,
+  ]);
+  const details = explanation.findAllByType('details');
   expect(details).toHaveLength(1);
+  expect(details[0].findByType('summary').children).toContain('Detailed explanation and conditions');
   expect(details[0].props.open).toBeUndefined();
   expect(details[0].findByType(MarkdownContent).props.children).toBe(oldCopy.detail);
   expect(reader.findAllByType(MarkdownContent).filter(node => node.props.children === oldCopy.detail)).toHaveLength(1);

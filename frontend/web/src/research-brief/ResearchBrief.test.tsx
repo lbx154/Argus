@@ -31,22 +31,26 @@ function cachedClient() {
   return client;
 }
 
-it('leads with a concept and example while retaining task scope, next steps, and the fixed evidence footer', () => {
+it('reads from the full problem through definition, example and connection before scope and next steps', () => {
   const props = inputs(), queryClient = cachedClient();
+  const copy = completedCopy(source.tasks[0], ['start-a', 'main-a']);
+  const paragraphs = ['先理解原始问题的条件与目标。'.repeat(40), '再说明当前任务怎样缩小仍未解决的范围。'.repeat(15)];
+  copy.cards.a.reader_brief = { ...copy.cards.a.reader_brief!, why: paragraphs.join('\n\n') };
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US'), copy);
   const markup = renderToStaticMarkup(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} readOnly /></QueryClientProvider>);
   expect(markup).toContain('Why this step helps');
+  for (const paragraph of paragraphs) expect(markup).toContain(`${paragraph}</p>`);
+  expect(markup).not.toContain('line-clamp-3');
   expect(markup).toContain('Counterexample');
   expect(markup).toContain('the general problem remains open');
   expect(markup).toContain('Background explanations are not research progress');
-  expect(markup.indexOf('One useful concept')).toBeLessThan(markup.indexOf('Illustrative example'));
-  expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('Concept explanation'));
-  expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('Why this step helps'));
-  expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('What this does and does not establish'));
-  expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('Assigned work and next steps'));
-  expect(markup.indexOf('Assigned work and next steps')).toBeLessThan(markup.indexOf('Detailed explanation and conditions'));
+  const readingOrder = ['Why this step helps', 'Definition', 'Example', 'Connection to this step', 'What this does and does not establish', 'Assigned work and next steps', 'Detailed explanation and conditions'];
+  for (const [index, heading] of readingOrder.entries()) {
+    expect(markup).toContain(heading);
+    if (index) expect(markup.indexOf(readingOrder[index - 1])).toBeLessThan(markup.indexOf(heading));
+  }
+  expect(markup.indexOf(copy.cards.a.reader_brief!.concept!.connection)).toBeLessThan(markup.indexOf('<details'));
   expect(markup).toContain('View evidence');
-  expect(markup).toContain('Illustrative example');
-  expect(markup).toContain('How it connects to this step');
   expect(markup).not.toContain('main-a');
   expect(markup).toContain('data-testid="research-brief-footer"');
 });
@@ -142,6 +146,7 @@ it('opens the existing explanation from compact chrome while retaining source an
   act(() => read.props.onClick());
   const reading = renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' });
   const headings = reading.findAllByType('h3').map(heading => heading.children.join(''));
+  expect(headings.indexOf('Why this step helps')).toBeLessThan(headings.findIndex(heading => heading.startsWith('One useful concept')));
   expect(headings.findIndex(heading => heading.startsWith('One useful concept'))).toBeLessThan(headings.indexOf('What this does and does not establish'));
   expect(reading.findAllByType(MarkdownContent).map(item => item.props.children).join('\n')).toContain('the general problem remains open');
   const details = reading.findAllByType('details').find(node => node.findByType('summary').children.includes('Detailed explanation and conditions'))!;
