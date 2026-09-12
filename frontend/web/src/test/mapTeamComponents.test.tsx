@@ -46,7 +46,7 @@ describe('Team work in the map', () => {
     const markup = renderToStaticMarkup(<MacroTaskNode {...props} />);
     expect(markup).toContain('Execution ended · goal incomplete');
     expect(markup).toContain('the overall goal is not complete and further work remains');
-    expect(markup).toContain('Execution record');
+    expect(markup).toContain('This execution ended');
     expect(markup).not.toContain('map-state-done');
     expect(markup).not.toContain('Paper accepted.');
     act(() => { renderer = create(<MacroTaskNode {...props} />); });
@@ -78,9 +78,9 @@ describe('Team work in the map', () => {
     expect(renderer!.root.findByProps({ 'data-step-id': 'review' }).props['data-active']).toBe(true);
     expect(renderer!.root.findByProps({ 'data-step-id': 'complete' }).props['data-active']).toBe(false);
     const markup = renderToStaticMarkup(<MacroTaskNode {...props} />);
-    expect(markup).toContain('data-active="true" title="Engineer · The Engineer does the work"');
-    expect(markup).toContain('data-active="true" title="Reviewer · The Reviewer checks the result independently"');
-    expect(markup).toContain('Subtasks 1/3 done · 2 running');
+    expect(markup).toContain('History · not current execution');
+    expect(markup).toContain('data-step-id="route"');
+    expect(markup).toContain('data-step-id="review"');
 
     const menu = props.data.menu;
     renderer!.root.findByProps({ 'data-step-id': 'review' }).props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 100, clientY: 100 });

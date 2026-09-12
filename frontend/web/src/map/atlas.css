@@ -1,16 +1,24 @@
 /* Atlas' visual language follows real task state; geometry remains in the layout model. */
 .argus-map { --atlas-flow: #3f9fba; }
 .map-canvas-wrap { background-image: radial-gradient(ellipse at 45% 40%, rgb(var(--blue) / .035), transparent 70%); }
-.map-macro { border-radius: 36px; box-shadow: 0 18px 70px #16375014, 0 3px 8px #1637500a; }
-.map-macro[data-active=true] { border-color: #73a6c4; box-shadow: 0 0 0 8px #67a6c615, 0 20px 75px #316d9829; }
-.map-macro[data-active=true]::before { content: ''; position: absolute; inset: -14px; border: 3px solid #67a6c630; border-radius: 46px; pointer-events: none; animation: atlas-breathe 3.2s ease-in-out infinite; }
+.map-macro { border-radius: 28px; border-top-width: 4px; box-shadow: 0 12px 36px rgb(var(--ink) / .06); }
+.map-macro[data-active=true] { border-color: rgb(var(--line)); border-top-color: var(--state); box-shadow: 0 12px 36px rgb(var(--blue) / .09); }
+.map-macro[data-active=true]::before { content: none; }
+.map-macro[data-history=true] { background: color-mix(in srgb, var(--map-paper) 94%, rgb(var(--line))); box-shadow: none; }
 .map-macro[data-completed-now=true] { animation: atlas-complete 1400ms ease-out; }
 .macro-summary .map-card { background: transparent; border-radius: 9px; }
-.map-card-number { color: #6b8ca4; }
-.map-card h3 { font-size: 15px; line-height: 1.48; font-weight: 650; }
-.map-card-copy { color: rgb(var(--ink-dim)); font-size: 11px; line-height: 1.7; margin-bottom: 9px; }
-.map-card-stages { display: flex; gap: 3px; margin: 0 16px 12px; align-items: center; }
-.map-card-stages>span { display: flex; flex: 1; align-items: center; justify-content: center; gap: 3px; padding: 5px 2px; border-radius: 5px; color: rgb(var(--ink-faint)); font-size: 11px; background: rgb(var(--line) / .16); opacity: .6; }
+.map-card-number { color: rgb(var(--ink-faint)); font-size: 10px; letter-spacing: .08em; }
+.map-card h3 { font-size: 16px; line-height: 1.45; font-weight: 600; letter-spacing: -.015em; margin-bottom: 10px; }
+.map-card-objective { margin: 0 16px 9px; font-size: 11px; line-height: 1.5; color: rgb(var(--ink-faint)); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.map-card-copy { color: rgb(var(--ink-dim)); font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
+.map-card-stages { display: flex; margin: 0 16px 12px; align-items: center; }
+.map-card-stages>span { color: rgb(var(--ink-faint)); font-size: 10px; }
+.map-card-stages .map-live-line { margin: 0; }
+.map-history-toggle { position: absolute; left: 16px; bottom: 9px; display: flex; gap: 5px; align-items: center; color: rgb(var(--ink-dim)); background: none; border: 0; font-size: 11px; padding: 3px 0; }
+.map-history-toggle:hover { color: rgb(var(--blue)); }
+.map-history-toggle:focus-visible { outline: 2px solid rgb(var(--blue) / .5); outline-offset: 3px; border-radius: 3px; }
+.map-history-toggle[aria-expanded=true] svg { transform: rotate(90deg); }
+.map-macro[data-detailed=true] .map-history-toggle { visibility: hidden; }
 .map-card-stages>span[data-present=true] { color: var(--step-color); background: color-mix(in srgb, var(--step-color) 9%, transparent); opacity: 1; }
 .map-card-stages>span[data-active=true] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--step-color) 40%, transparent); }
 .map-card-stages>span[data-active=true] svg { animation: atlas-stage-pulse 1.8s ease-in-out infinite; }
@@ -25,7 +33,7 @@
 .map-relation-label { color: #557a97; border-color: #8daec53b; font-size: 11px; box-shadow: 0 3px 10px #1c486510; }
 .submap-step[data-active=true] { background: linear-gradient(130deg, #6ca1c407, var(--map-paper) 60%); }
 [data-theme=dark] .map-macro { box-shadow: 0 18px 60px #0004; }
-[data-theme=dark] .map-macro[data-active=true] { box-shadow: 0 0 0 8px #67a6c612, 0 0 85px #31779930; }
+[data-theme=dark] .map-macro[data-active=true] { box-shadow: 0 12px 36px #0003; }
 [data-theme=dark] .map-relation-label { color: #9dc0dc; }
 @keyframes atlas-spark { 0% { offset-distance: 0%; opacity: 0; } 12% { opacity: 0.95; } 82% { opacity: 0.95; } 100% { offset-distance: 100%; opacity: 0; } }
 @keyframes atlas-submap-flow { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
@@ -49,6 +57,9 @@
 .map-macro:not([data-overview-density=full]) .map-card-stages>span>span { display: none; }
 .map-macro:not([data-overview-density=full]) .map-card-stages svg { width: max(12px, calc(10px * var(--overview-type))); height: max(12px, calc(10px * var(--overview-type))); }
 .map-macro:not([data-overview-density=full]) .map-card-bottom { display: none; }
+.map-macro:not([data-overview-density=full]) .map-history-toggle { bottom: 0; font-size: max(11px, calc(9px * var(--overview-type))); }
+.map-macro[data-overview-density=micro] .map-card-objective { display: none; }
+.map-macro:not([data-overview-density=full])[data-has-history=true] .map-card { padding-bottom: 24px; }
 .map-macro[data-overview-density=micro] .map-card-top, .map-macro[data-overview-density=micro] .map-card-stages { display: none; }
 .map-macro[data-overview-density=micro] .map-card h3 { font-size: max(15px, calc(10px * var(--overview-type))); margin: 0 12px; line-height: 1.4; }
 

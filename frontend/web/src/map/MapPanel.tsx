@@ -172,6 +172,11 @@ export function MapCanvas({
   const [fitted, setFitted] = useState(false);
   const savedView = useRef<ReturnType<typeof recalledView> | null>(null);
   if (!savedView.current) savedView.current = recalledView(viewKey);
+  const [expandedMissions, setExpandedMissions] = useState<ReadonlySet<string>>(() => {
+    const selected = savedView.current?.scene?.cards.find((card) => card.id === savedView.current?.camera?.focusId);
+    return new Set(selected && selected.id !== selected.task.id ? [selected.task.id] : []);
+  });
+  const [pendingCard, setPendingCard] = useState<string | null>(null);
   const [seenCards] = useState(() => new Set(savedView.current?.scene?.cards.map((card) => card.id)));
   const focusedNode = nodes.find((n) => n.id === camera.focusId);
   const attention = useMemo(() => attentionTasks(data.tasks), [data.tasks]);
@@ -201,10 +206,10 @@ export function MapCanvas({
   );
   const sceneCache = useRef<ReturnType<typeof layoutScene> | undefined>(savedView.current.scene);
   const scene = useMemo(() => {
-    const next = layoutScene(graph, data.events, zh, sceneCache.current, links);
+    const next = layoutScene(graph, data.events, zh, sceneCache.current, links, expandedMissions);
     sceneCache.current = replaceEqualDeep(sceneCache.current, next);
     return sceneCache.current;
-  }, [graph, data.events, zh, links]);
+  }, [graph, data.events, zh, links, expandedMissions]);
   // Team fan-out promotion: parallel `team.task` work leaves its owning card
   // as small branch pills and returns to it, instead of hiding as steps.
   // Subtasks that share a state are then folded into one sentence-labelled
@@ -515,11 +520,45 @@ export function MapCanvas({
       camera.fit(new Set([id, ...upstream.map((task) => task.id), ...downstream.map((task) => task.id)]));
     } else camera.fit();
   }, [camera.fit, graph]);
-  const openCard = useCallback((id: string) => {
-    const card = sceneCache.current?.cards.find((card) => card.id === id);
+  const openCard = useCallback((id: string, history = false) => {
+    const card = sceneCache.current?.allCards.find((card) => card.id === id);
+    if (card && !expandedMissions.has(card.task.id) && (history || id !== card.task.id)) {
+      setExpandedMissions((current) => new Set([...current, card.task.id]));
+      setPendingCard(id);
+      return;
+    }
     if (tracedTask && card) traceTask(card.task.id === tracedTask.id ? null : card.task.id);
     else camera.enter(id);
-  }, [camera.enter, tracedTask, traceTask]);
+  }, [camera.enter, tracedTask, traceTask, expandedMissions]);
+  const toggleHistory = useCallback((taskId: string) => {
+    const expanded = expandedMissions.has(taskId);
+    setExpandedMissions((current) => {
+      const next = new Set(current);
+      if (expanded) next.delete(taskId); else next.add(taskId);
+      return next;
+    });
+    if (focusedNode?.data.task.id === taskId) {
+      const last = sceneCache.current?.allCards.filter((card) => card.task.id === taskId).at(-1);
+      setPendingCard(expanded ? taskId : last?.id ?? taskId);
+    }
+  }, [expandedMissions, focusedNode?.data.task.id]);
+  useEffect(() => {
+    if (!pendingCard || !nodes.some((node) => node.id === pendingCard)) return;
+    camera.enter(pendingCard);
+    setPendingCard(null);
+  }, [pendingCard, nodes, camera.enter]);
+  // Explicit part links use the existing durable task ID and page ordinal.
+  const deepLinkApplied = useRef(false);
+  useEffect(() => {
+    if (deepLinkApplied.current || !nodesReady) return;
+    const params = new URLSearchParams(window.location?.search || "");
+    const taskId = params.get("map_task");
+    const part = Number(params.get("map_part") || 0);
+    const card = scene.allCards.find((card) => card.task.id === taskId && (!part || card.part === part));
+    if (!card) return;
+    deepLinkApplied.current = true;
+    openCard(part ? card.id : card.task.id, !!part);
+  }, [scene.allCards, nodesReady, openCard]);
   const showOverview = useCallback(() => {
     setTraceId(null);
     setFocusFeedback("");
@@ -541,6 +580,7 @@ export function MapCanvas({
           ...card,
           zh,
           open: openCard,
+          toggleHistory,
           readStep: camera.readStep,
           menu: showMenu,
           quote,
@@ -566,6 +606,7 @@ export function MapCanvas({
     zh,
     setNodes,
     openCard,
+    toggleHistory,
     camera.readStep,
     showMenu,
     quote,
@@ -1193,7 +1234,7 @@ export function MapCanvas({
                   disabled={!focusedNode.data.previousId}
                   onClick={() =>
                     focusedNode.data.previousId &&
-                    camera.enter(focusedNode.data.previousId)
+                    openCard(focusedNode.data.previousId, true)
                   }
                 >
                   <ChevronLeft size={15} />
@@ -1206,7 +1247,7 @@ export function MapCanvas({
                   disabled={!focusedNode.data.nextId}
                   onClick={() =>
                     focusedNode.data.nextId &&
-                    camera.enter(focusedNode.data.nextId)
+                    openCard(focusedNode.data.nextId, true)
                   }
                 >
                   <ChevronRight size={15} />

@@ -26,6 +26,8 @@ export interface MapCard {
   previousId?: string;
   nextId?: string;
   completionScope?: string;
+  historyCount?: number;
+  historyExpanded?: boolean;
 }
 
 export type StepKind = "plan" | "execution" | "review" | "revision" | "result";
@@ -991,6 +993,7 @@ export function layoutScene(
     positions: Record<string, { x: number; y: number }>;
   },
   links = connectMap(graph, [], zh),
+  expandedMissions?: ReadonlySet<string>,
 ) {
   const cards: MapCard[] = [];
   const layouts: Record<string, SubmapLayout> = {};
@@ -1040,16 +1043,34 @@ export function layoutScene(
     }
     lastCard.set(task.id, idFor(count));
   }
+  const allCards = cards.slice();
+  const visibleCard = new Map<string, string>();
+  if (expandedMissions) {
+    cards.length = 0;
+    for (const card of allCards) {
+      const expanded = expandedMissions.has(card.task.id);
+      visibleCard.set(card.id, expanded ? card.id : card.task.id);
+      if (!expanded && card.part !== card.partCount) continue;
+      const id = expanded ? card.id : card.task.id;
+      layouts[id] = layouts[card.id];
+      cards.push({
+        ...card, id,
+        historyCount: card.partCount - 1,
+        historyExpanded: expanded,
+      });
+    }
+  }
+  const resolve = (id: string) => visibleCard.get(id) ?? id;
   const frames = Object.fromEntries(
-    Object.entries(layouts).map(([id, layout]) => [id, frameForSubmap(layout)]),
+    cards.map(({ id }) => [id, frameForSubmap(layouts[id])]),
   );
   const displayLinks = [
     ...links.map((e) => ({
       ...e,
-      source: lastCard.get(e.source)!,
-      target: e.target,
+      source: resolve(lastCard.get(e.source)!),
+      target: resolve(e.target),
     })),
-    ...continuations,
+    ...continuations.filter((link) => resolve(link.source) !== resolve(link.target)),
   ];
   const ids = cards.map((card) => card.id);
   const structure = JSON.stringify([
@@ -1061,5 +1082,5 @@ export function layoutScene(
     previous?.structure === structure
       ? previous.positions
       : layoutGraph(ids, displayLinks, frames);
-  return { cards, links: displayLinks, layouts, positions, frames, structure };
+  return { cards, allCards, links: displayLinks, layouts, positions, frames, structure };
 }
