@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ._config import _MemoryView
 
 _PLANNER_HISTORY_KINDS = frozenset({
     "budget_pause",
@@ -75,6 +78,9 @@ def _cumulative_price(missions: list[Any]) -> str:
 
 
 class PlannerRenderingMixin:
+    if TYPE_CHECKING:
+        memory: _MemoryView
+
     def _render_research_plan_for_planner(self) -> str:
         """Return the fail-soft, bounded living research plan projection."""
         from ..research_plan import render_research_plan_for_planner
@@ -224,7 +230,7 @@ class PlannerRenderingMixin:
         try:
             render_recall = getattr(self.memory, "render_recall_context", None)
             if not callable(render_recall):
-                render_recall = self.memory.render_failure_experience_context
+                render_recall = getattr(self.memory, "render_failure_experience_context")
             failure_context = render_recall(
                 self.config.continuous_objective,
             ).strip()

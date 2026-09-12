@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...core.event_catalog import EventType
 from ...core.runner_errors import is_execution_host_startup_error
@@ -18,6 +18,9 @@ from ._constants import (
     PLAN_TERMINAL_IDLE,
     PLANNER_IDLE_JOURNAL_HEARTBEAT_SECONDS,
 )
+
+if TYPE_CHECKING:
+    from ._config import LifeSupervisorConfig
 
 log = logging.getLogger(__name__)
 _DAEMON_IDLE_EXIT_DEFAULT_MINUTES = 0.0
@@ -34,6 +37,11 @@ def _idle_exit_seconds() -> float:
 
 
 class IdleCycleMixin:
+    if TYPE_CHECKING:
+        config: LifeSupervisorConfig
+
+        def _bound_manager(self) -> Any: ...
+
     def _artifact_root(self) -> Path:
         raise NotImplementedError
 

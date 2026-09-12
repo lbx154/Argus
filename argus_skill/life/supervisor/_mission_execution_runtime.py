@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...agent_cli._process_control import windows_hidden_subprocess_kwargs
 from ...core.event_catalog import EventType
@@ -28,6 +28,9 @@ from ..memory import BacklogItem
 from ..mission_outcome import mission_outcome_class, mission_outcome_dimensions
 from ._cost import _CostTrackingSink
 from ._mission_execution_helpers import _MissionRunState
+
+if TYPE_CHECKING:
+    from ._config import _MemoryView
 
 log = logging.getLogger(__name__)
 
@@ -99,6 +102,9 @@ def dispose_maintenance_worktree(
 
 
 class MissionExecutionRuntimeMixin:
+    if TYPE_CHECKING:
+        memory: _MemoryView
+
     """Claim/context setup and runner invocation for one mission."""
 
     # ------------------------------------------------------------------

@@ -8,7 +8,7 @@ import threading
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..core.knobs import (
     resolve_manager_classify_model,
@@ -27,6 +27,9 @@ from ..core.secret_guard import known_secret_values, redact_secrets_record
 from ..engineer.runner import should_clear_thread_id_after_outcome
 from ._env import env_flag, env_int
 from ._runtime_backends import _Outcome
+
+if TYPE_CHECKING:
+    from ..manager import Manager
 
 _SELF_RETRYABLE_TRANSPORT_ERRORS = (
     "acp restart requested",
@@ -319,6 +322,8 @@ def build_status_snapshot_reply(root: Path | str, objective: str) -> str:
 
 class SelfReplyMixin:
     """Operator-facing Manager front door mixed into ``_SkillLoopRunner``."""
+
+    manager: Manager
 
     def _maybe_chat_outcome(
         self,

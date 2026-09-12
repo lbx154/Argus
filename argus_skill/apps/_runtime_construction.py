@@ -17,13 +17,16 @@ import shlex
 from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..core.knobs import resolve_runner_bin_setting
 from ..core.ports import EventSink
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ._env import env_int as _env_int
 from ._runtime_backends import _MemoryRunner, _ScriptedPlannerBackend
+
+if TYPE_CHECKING:
+    from ..manager import Manager
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +100,8 @@ class _RunnerConstructionMixin:
     :class:`~._self_reply.SelfReplyMixin` by the ``_SkillLoopRunner`` facade
     class in ``_runtime.py``.
     """
+
+    manager: Manager
 
     def __init__(self, args: argparse.Namespace, *, seed_thread_id: str | None = None) -> None:
         from ..loop import SkillLoop, SkillLoopConfig

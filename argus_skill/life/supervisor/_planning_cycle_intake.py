@@ -12,7 +12,7 @@ fast path.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...core.event_catalog import EventType
 from ...core.planner_verdict import PlannerVerdictStatus
@@ -32,11 +32,22 @@ from ._planning_cycle_helpers import (
     resume_completion_rejection_circuit,
 )
 
+if TYPE_CHECKING:
+    from ._config import _MemoryView
+
 _TERMINAL_TASK_STATUSES = {"done", "failed", "aborted", "skipped", "superseded"}
 
 
 class PlanningCycleIntakeMixin:
     """Gate checks + preflight short-circuits run before planner invocation."""
+
+    if TYPE_CHECKING:
+        memory: _MemoryView
+
+        def _emit_status(self, text: str) -> None: ...
+        def _enter_idle_backoff(self) -> float: ...
+        def _enter_pause_backoff(self) -> float: ...
+        def _reset_idle_backoff(self) -> None: ...
 
     def _emit_bounded_project_completion(self, reason: str) -> bool | str:
         """Record bounded completion, then deliver the Manager project report."""

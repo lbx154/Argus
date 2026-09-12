@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ._config import _MemoryView, _MissionRunner
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +47,12 @@ def _shared_skills_root(runner: object, memory: object) -> Path:
 
 
 class EvolutionMixin:
+    if TYPE_CHECKING:
+        memory: _MemoryView
+        runner: _MissionRunner
+
+        def _project_workdir(self) -> Path: ...
+
     def _evolve_runtime_skills_after_mission(
         self,
         *,

@@ -285,7 +285,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
 
         try:
             attachments = await _resolve_message_attachments(sid, body, global_root=project_root)
-            kwargs = {
+            kwargs: dict[str, Any] = {
                 "global_root": project_root,
                 "cancelled": lambda: lease.cancelled() or manager_control_generation(sid) != generation,
             }
@@ -338,7 +338,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
             def _on_fragment(kind: str, payload: dict) -> None:
                 q.put({"type": kind, **payload})
             try:
-                kwargs = {
+                kwargs: dict[str, Any] = {
                     "global_root": project_root,
                     "on_fragment": _on_fragment,
                     "cancelled": lambda: lease.cancelled() or manager_control_generation(sid) != generation,
