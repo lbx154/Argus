@@ -217,13 +217,38 @@ The same capture tag is the default when `--image` is omitted. Pass an explicit
 tag for a later verified release. The separate compute scheduler uses its own
 compute image from `compute.json`.
 
-Existing containers retain their image: this command starts them without
+Existing containers retain their image: `start-containers` starts them without
 recreating them, and Docker restart also retains their original image. Upgrading
-them requires a separate migration after their active and queued tasks have
-finished. Preserve each tenant's data, bootstrap and socket mounts, retain a
-rollback container, then recreate only the idle container with the selected
-image. Do not replace an active container to enable capture; collect new tasks
-after its migration instead of importing earlier runtime logs.
+them is a deliberate, separate step because it interrupts a tenant's running
+work.
+
+Ship the frontend, portal and tenant image as one version with a single
+backend-first roll:
+
+```sh
+python -m argus_skill.trial.web_admin release \
+  --root "$ARGUS_TRIAL_ROOT" \
+  --image argus-web-trial:pi-<commit> \
+  --source /path/to/deployed/checkout
+```
+
+`release` stamps the version from the source checkout's commit (refusing a dirty
+tree unless `--allow-dirty`), rolls every tenant container to `--image` first,
+then points the portal at that source's built frontend and restarts it, so the
+frontend never advertises a route the running backend lacks. It records the one
+version tying image, frontend and source together in `release.json` under the
+root, for audit and rollback, and preserves each tenant's data, bootstrap and
+socket mounts across the recreate. Build `--image` from the same commit as
+`--source` so the three pieces genuinely match; pass `--no-restart-portal` to
+roll and record without flipping the frontend yet.
+
+`roll-containers` performs only the container half: it recreates every tenant on
+`--image`, draining the previous container and retaining it as
+`<name>-rollback` for recovery, and leaves a tenant already on the target image
+untouched (the roll is idempotent). Because the roll replaces running
+containers, a tenant's active and queued tasks are interrupted; run it when that
+cost is acceptable, and recover a failed tenant from its retained rollback
+container.
 
 `deploy/trial/web_services.py --root "$ARGUS_TRIAL_ROOT"` creates five user units:
 the portal, model meter, compute scheduler, HTTPS egress proxy and relay guardian.
