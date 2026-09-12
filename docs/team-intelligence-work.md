@@ -46,11 +46,27 @@ the focused real Copilot/local-gateway and delivery/math checks passed. The
 original failed-run evidence is retained. A complete rerun uses immutable
 `7c84cc09d`, before the final b084 live merge.
 
+That rerun completed with 9,924 passed, 56 skipped and one failure. The remaining
+failure was the Python MCP test client closing its receive stream before
+consuming the server's cancellation response. `04c9cf5f6` now awaits that
+response and verifies the session still answers a ping; all 20 related tests
+and 20 separately parametrized cancellation/cleanup repetitions passed. This
+changes the test lifecycle, not production cancellation behavior.
+
 After merging b084, all 296 map/control backend checks and all 856 frontend
 tests passed; the standard frontend build includes TypeScript and generated
 contract checks. The merged changes do not alter request cancellation or model
 dispatch. Final artifact and image identities are tracked in the private release
 manifest rather than inferred from a moving working tree.
+
+Independent review also reproduced a b084 related-source cache gap: changing
+or deleting neighboring task B could leave task A's explanation cached with
+B's old assignment. The follow-up checks the bounded neighboring fields
+actually supplied to the models, preserving the original source snapshot.
+Filtered task views ask the backend to validate an open reader once per source
+cursor when its neighbors are hidden; unchanged sources reuse the cache without
+a model call. Shared in-flight requests cannot certify cards they did not
+submit. This does not change task state or cancel independent map generation.
 
 The real Engineer consultation used 3 requests / 3,708 metered tokens. Further
 Manager, Planner and Reviewer acceptance used 8 upstream requests / 14,853
