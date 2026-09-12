@@ -44,11 +44,9 @@ from typing import Any
 
 from ..apps.cli._follow import (
     _merge_recent_event_rows,
-    _read_recent_jsonl_events,
     _read_recent_project_events,  # noqa: F401 - used via server_mod._read_recent_project_events in webapi/routes/projects.py
 )
 from ..core.event_catalog import EventType, canonical_event_type
-from ..core.json_codec import loads_finite_json
 from ..core.metrics import (
     http_route_template,
     metrics_snapshot,  # noqa: F401 - used via server_mod.metrics_snapshot in webapi/routes/meta.py
@@ -402,44 +400,15 @@ def _read_replay_snapshot(
     limit: int,
     max_bytes: int = 256 * 1024,
 ) -> tuple[list[dict[str, Any]], int, int | None]:
-    """Read replay rows and their exact complete-line byte boundary once.
+    """Read replay and its byte boundary from one bounded file snapshot."""
+    from ..core.jsonl_reader import read_jsonl_replay
 
-    Reading from one open file description prevents an append from appearing
-    in the replay while the tail still starts at an older separately-statted
-    offset. The final unterminated JSONL record is deliberately left for the
-    live tail to finish.
-    """
-    limit = max(0, int(limit))
     try:
-        with path.open("rb") as fh:
-            inode = os.fstat(fh.fileno()).st_ino
-            size = fh.seek(0, os.SEEK_END)
-            start = max(0, size - max(1, int(max_bytes)))
-            fh.seek(start)
-            raw = fh.read(size - start)
+        with path.open("rb") as stream:
+            replay = read_jsonl_replay(stream, limit=limit, max_bytes=max_bytes)
+            return replay.rows, replay.offset, os.fstat(stream.fileno()).st_ino
     except OSError:
         return [], 0, None
-    last_newline = raw.rfind(b"\n")
-    if last_newline < 0:
-        return [], (0 if start == 0 else size), inode
-    offset = start + last_newline + 1
-    complete = raw[: last_newline + 1]
-    if start:
-        _, separator, complete = complete.partition(b"\n")
-        if not separator:
-            complete = b""
-    rows: list[dict[str, Any]] = []
-    for raw_line in complete.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            event = loads_finite_json(line)
-        except (UnicodeDecodeError, ValueError):
-            continue
-        if isinstance(event, dict):
-            rows.append(event)
-    return ([] if limit == 0 else rows[-limit:]), offset, inode
 
 
 async def tail_events(
@@ -448,68 +417,32 @@ async def tail_events(
     replay_limit: int = 40,
     poll_interval: float = 0.25,
 ):
-    """Async generator: yield the last ``replay_limit`` events, then every new
-    ``events.jsonl`` line as it is appended.
+    """Yield bounded replay, then drain each retained generation before the next.
 
-    Roll-safe: ``events.jsonl`` rotates to ``.jsonl.1`` at 100MB (the daemon's
-    ``event_log`` writer), which shrinks/replaces the live file. We track
-    ``(st_ino, st_size)`` and, on a shrink or inode change, restart the byte
-    offset from 0 so the freshly-rotated log is followed without dropping or
-    duplicating a truncated line. A partial trailing line (no ``\\n`` yet) is
-    buffered until its newline arrives.
+    An open file description retains unread bytes when events.jsonl rotates.
+    Reads and generation selection briefly share the writer's events.lock; no
+    lock is held while yielding, sleeping, or sending WebSocket messages.
     """
-    path = life_dir / EVENT_FILE
+    from ..core.jsonl_reader import JsonlTail
 
-    current, offset, inode = _read_replay_snapshot(path, limit=replay_limit)
-    previous = _read_recent_jsonl_events(
-        path.with_name(path.name + ".1"),
-        limit=replay_limit,
-    ) if replay_limit > 0 else []
-    replay = _merge_recent_event_rows(previous, current, limit=replay_limit)
-
-    hide = _hides_inner_monologue()
-    for ev in replay:
-        if hide and _is_inner_monologue(ev):
-            continue
-        yield ev
-
-    buf = b""
-
-    while True:
-        await asyncio.sleep(poll_interval)
-        try:
-            stat = path.stat()
-        except OSError:
-            continue  # file gone mid-roll — wait for it to reappear
-        if stat.st_ino != inode or stat.st_size < offset:
-            offset, inode, buf = 0, stat.st_ino, b""  # rotated/truncated → restart
-        if stat.st_size <= offset:
-            continue
-        try:
-            with path.open("rb") as fh:
-                fh.seek(offset)
-                chunk = fh.read()
-                offset = fh.tell()
-        except OSError:
-            continue
-        buf += chunk
-        *complete, buf = buf.split(b"\n")  # keep the last (possibly partial) line
-        for raw in complete:
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                ev = loads_finite_json(line)
-            except (UnicodeDecodeError, ValueError):
-                continue
-            if not isinstance(ev, dict):
-                continue
-            # The scratchpad is persisted to events.jsonl for debugging but is
-            # not pushed to a UI whose own README documents it as hidden by
-            # default. Re-read the knob each line so the setting is live.
-            if _is_inner_monologue(ev) and _hides_inner_monologue():
-                continue
-            yield ev
+    reader = JsonlTail(life_dir / EVENT_FILE)
+    try:
+        replay = reader.start(replay_limit=replay_limit, merge_rows=_merge_recent_event_rows)
+        hide = _hides_inner_monologue()
+        for event in replay:
+            if not (hide and _is_inner_monologue(event)):
+                yield event
+        while True:
+            batch = reader.read_batch()
+            for event in batch.rows:
+                # The reasoning knob remains live for newly appended records.
+                if not (_is_inner_monologue(event) and _hides_inner_monologue()):
+                    yield event
+            # Drain an existing backlog cooperatively, rather than imposing a
+            # poll delay per chunk. Idle and unfinished lines wait for an append.
+            await asyncio.sleep(0 if batch.more else poll_interval)
+    finally:
+        reader.close()
 
 
 # ---------------------------------------------------------------------------
@@ -523,6 +456,7 @@ def create_app(
     auth_token: str | None = None,
     session_roots: list[Path | str] | None = None,
     daemon_services: DaemonServices | None = None,
+    query_limits=None,
 ):
     """Build the FastAPI app. Requires the ``[web]`` extra (fastapi).
 
@@ -534,6 +468,8 @@ def create_app(
 
     ``daemon_services`` overrides project status/deletion and direct daemon
     starts for this app only. Defaults are captured when the app is built.
+    ``query_limits`` accepts ``index_cache.QueryLimits`` for this app's isolated
+    scan pool, queue capacity and HTTP deadlines. The app owns its shutdown.
     """
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
@@ -541,7 +477,7 @@ def create_app(
     from starlette.responses import JSONResponse
 
     from . import server as server_mod
-    from .index_cache import CacheWaitTimeout
+    from .index_cache import CacheWaitTimeout, QueryExecutor, QueryUnavailable
 
     token = auth_token if auth_token is not None else os.environ.get("ARGUS_SKILL_WEB_TOKEN")
     primary_root = _global_root(global_root).expanduser().resolve()
@@ -567,8 +503,9 @@ def create_app(
         version=str(api_meta["runtime"]["package_version"]),
     )
 
+    @app.exception_handler(QueryUnavailable)
     @app.exception_handler(CacheWaitTimeout)
-    async def _cache_wait_timeout(_request, exc: CacheWaitTimeout):
+    async def _cache_wait_timeout(_request, exc):
         return JSONResponse(
             status_code=503,
             content={"detail": str(exc)},
@@ -678,7 +615,14 @@ def create_app(
                 start=start_project_daemon,
             )
         ),
+        query_executor=QueryExecutor(query_limits),
     )
+    app.state.query_executor = ctx.query_executor
+    app.state.query_limits = ctx.query_executor.limits
+
+    @app.on_event("shutdown")
+    async def _shutdown_query_workers() -> None:
+        await ctx.query_executor.close()
 
     # Route registration is split by API domain so create_app() stays a thin
     # composition root: projects/sessions (listing, CRUD, snapshot/events,
