@@ -1171,6 +1171,7 @@ class _StageDecisionMixin:
                     _match_objective,
                     include_libraries=True,
                 ),
+                role_context=prompt_context.role_context,
             )
 
             raw = self._run_stage_model(

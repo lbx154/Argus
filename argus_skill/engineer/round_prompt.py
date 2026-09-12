@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Callable
 
 from ..core.event_catalog import EventType
 from ..life.context_packet import render_mission_brief
-from ..roles.prompts.engineer import assemble_round_prompt
+from ..roles.prompts.engineer import MISSION, assemble_round_prompt
 from .checkpoint import shared_checkpoint_instructions
 from .external_work import render_external_work_advisory
 
@@ -112,6 +112,64 @@ def full_prompt_decision(
 
 class RoundPromptMixin:
     """Mixin providing ``SupervisedEngineer``'s prompt-assembly phase."""
+
+    def _vertical_role_context(
+        self,
+        *,
+        supervised_config: "SupervisedConfig",
+        workdir: Path,
+    ) -> str:
+        """The active vertical's per-turn facts (research notes, GPU memory in use).
+
+        Resolved with the same vertical, state root, stage and operation the
+        static banner was resolved with, so the facts match the policy; placed
+        in the round's tail so the static text ahead of it stays identical
+        between rounds. Any failure means no block, never a broken round.
+        """
+        engineer_config = getattr(self, "engineer_config", None)
+        reviewer_config = getattr(self, "reviewer_config", None)
+        if engineer_config is None and reviewer_config is None:
+            return ""
+        try:
+            state_root = Path(
+                getattr(engineer_config, "vertical_state_root", None)
+                or getattr(reviewer_config, "vertical_state_root", None)
+                or workdir
+            )
+            vertical = (
+                str(getattr(reviewer_config, "active_vertical", "") or "")
+                .strip()
+                .lower()
+            )
+            if not vertical:
+                from ..skills.vertical_select import resolve_vertical_if_decided
+
+                vertical = str(resolve_vertical_if_decided(state_root) or "")
+            if not vertical:
+                return ""
+            operation = str(
+                getattr(supervised_config, "engineer_operation", "") or MISSION
+            )
+            stage: str | None = None
+            if operation != MISSION:
+                from ..skills.stage_machine import current_stage
+
+                stage = current_stage(state_root)
+            from ..roles.prompts import resolve_role_prompt
+            from ..roles.prompts.engineer import mission_request
+
+            return resolve_role_prompt(
+                mission_request(
+                    state_root,
+                    vertical=vertical,
+                    altitude_root=workdir,
+                    stage=stage,
+                    operation=operation,
+                    include_role_context=True,
+                )
+            ).role_context
+        except Exception:  # noqa: BLE001 - live context is advisory
+            return ""
 
     def _assemble_round_prompt(
         self,
@@ -229,6 +287,10 @@ class RoundPromptMixin:
         )
         engineer_prompt = assemble_round_prompt(
             engineer_prompt,
+            role_context=self._vertical_role_context(
+                supervised_config=supervised_config,
+                workdir=workdir,
+            ),
             checkpoint_block=checkpoint_block,
             background_advisory="",
             external_work_advisory=external_work_advisory,

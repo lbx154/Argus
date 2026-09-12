@@ -719,18 +719,27 @@ def assemble_manager_prompt(
     *,
     role_banner: str = "",
     role_skill_block: str = "",
+    role_context: str = "",
 ) -> str:
-    """Apply dynamic Manager policy after the decision prompt."""
+    """Wrap the decision prompt in the Manager's vertical policy and Skills.
+
+    The vertical banner holds for every decision of the campaign, so it leads
+    and extends the cacheable prefix; the vertical's live facts
+    (``role_context``) and the Skill block, whose recalled bodies follow the
+    decision at hand, close the prompt.
+    """
     context = sanitize_model_visible_text(str(role_banner or "").strip())
     with_vertical = (
-        f"{prompt}\n\n## Active vertical Manager skill\n{context}"
+        f"## Active vertical Manager skill\n{context}\n\n{prompt}"
         if context
         else prompt
     )
+    live = sanitize_model_visible_text(str(role_context or "").strip())
+    with_live = f"{with_vertical}\n\n{live}" if live else with_vertical
     with_skill = (
-        f"{with_vertical}\n\n{role_skill_block}"
+        f"{with_live}\n\n{role_skill_block}"
         if role_skill_block
-        else with_vertical
+        else with_live
     )
     return MODEL_INTEGRITY_BOUNDARY + "\n\n" + with_skill
 
@@ -873,7 +882,8 @@ def build_stage_decision_prompt(
             "evidence, keep the stage on HOLD and set `resolves_wait=true` so "
             "the Planner immediately replans without the outdated reason for waiting. "
             "This does not advance the stage or establish that its requirements are met. Set "
-            "`resolves_wait=false` when the obstacle remains unchanged.\n\n"
+            "`resolves_wait=false` when the obstacle remains unchanged.\n"
+            "Include `resolves_wait` when the Planner is waiting for a stated condition.\n\n"
         )
 
     actions = "ADVANCE, HOLD, ROLLBACK, or COMPLETE" if allow_rollback else (
@@ -932,11 +942,6 @@ def build_stage_decision_prompt(
             "REASON=one operator-language sentence stating the decisive evidence, "
             "whether the stage moves, and what happens next; do not repeat status tokens"
         )
-        + (
-            "\nInclude `resolves_wait` when the Planner is waiting for a stated condition."
-            if planner_waiting
-            else ""
-        )
         + "\nInclude live-view fields only when changing the panel. "
         # The policy bullet above says to COMPLETE *at the current stage*, but
         # that reads as guidance about WHEN to complete; this line is the format
@@ -955,8 +960,10 @@ def build_stage_decision_prompt(
         # improvising Manager loses its verdict; this line only keeps the trace
         # exact.
         "For HOLD and for COMPLETE, set TARGET_STAGE to the current stage.\n\n"
-        f"{wait_resolution_block}"
-        f"{mission_scope_block}"
+        # The objective and the stage's requirements hold across the
+        # campaign's decisions; the wait and scope arbitration, the evidence
+        # and the Planner note belong to this one decision, so they close the
+        # prompt and the provider can reuse the cached prefix.
         f"{objective_block}"
         f"{open_ended_block}"
         f"Current stage: `{current_stage}`\n"
@@ -964,6 +971,8 @@ def build_stage_decision_prompt(
         f"{rollback_targets}"
         "## What the current stage requires\n"
         f"{checklist_md}\n\n"
+        f"{wait_resolution_block}"
+        f"{mission_scope_block}"
         "## Latest completion evidence\n"
         f"source: {review_source}\n"
         f"status: {status}\n"
@@ -988,6 +997,8 @@ def stage_decision_request(
         # Preserve the existing stage-decision framing, which asks for the
         # Planner view of the current checklist.
         checklist_role=RoleName.PLANNER,
+        # The vertical's live facts (research notes) close the prompt.
+        include_role_context=True,
     )
 
 

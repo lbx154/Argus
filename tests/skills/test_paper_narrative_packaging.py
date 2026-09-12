@@ -166,20 +166,24 @@ def test_operation_prompts_enforce_narrative_and_cold_read_input_boundaries(
     paper.mkdir()
     (paper / "REVIEW.md").write_text("SECRET_PRIOR_REVIEW", encoding="utf-8")
 
-    narrative = render_role_prompt_fragment(
-        role="engineer",
-        operation=NARRATIVE_EDIT,
-        stage="review",
-        scope="",
-        project_root=tmp_path,
+    from argus_skill.verticals.research.prompt_policy import (
+        render_role_prompt_context,
     )
-    cold = render_role_prompt_fragment(
-        role="reviewer",
-        operation=COLD_READ,
-        stage="review",
-        scope="",
-        project_root=tmp_path,
-    )
+
+    def rendered(role: str, operation: str) -> str:
+        # The static policy and the live notes reach the role as one prompt;
+        # the notes ride in the per-turn context so the policy stays cacheable.
+        selection = dict(
+            role=role, operation=operation, stage="review", scope="", project_root=tmp_path,
+        )
+        return (
+            render_role_prompt_fragment(**selection)
+            + "\n\n"
+            + render_role_prompt_context(**selection)
+        )
+
+    narrative = rendered("engineer", NARRATIVE_EDIT)
+    cold = rendered("reviewer", COLD_READ)
 
     assert "UNIQUE_EVIDENCE_ROLE_MAP" in narrative
     assert "SECRET_PRIOR_REVIEW" not in narrative

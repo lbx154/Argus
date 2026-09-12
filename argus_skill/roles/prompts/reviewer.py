@@ -78,6 +78,7 @@ def evaluate_request(
     vertical: str | None = None,
     checklist_mode: ChecklistMode = ChecklistMode.AUTO,
     operation: str = EVALUATE,
+    include_role_context: bool = False,
 ) -> RolePromptRequest:
     return RolePromptRequest(
         role=RoleName.REVIEWER,
@@ -91,6 +92,7 @@ def evaluate_request(
         scope=scope,
         checklist_mode=checklist_mode,
         include_search_altitude=True,
+        include_role_context=include_role_context,
     )
 
 
@@ -334,6 +336,9 @@ def render_reviewer_prompt(
                 else ChecklistMode.AUTO
             ),
             operation=operation,
+            # The vertical's live facts (research notes, GPU memory in use)
+            # belong to the round delta, never to the fingerprinted static.
+            include_role_context=operation == EVALUATE,
         )
     )
     persisted_prompt_context = (
@@ -367,23 +372,7 @@ def render_reviewer_prompt(
         vertical=routed_vertical or "", stage=stage,
         scope=scope_normalized, operation=operation,
     )
-    research_context_block = ""
-    if prompt_context.vertical and operation == EVALUATE:
-        from ...verticals._base import load_vertical_contract
-
-        context_provider = load_vertical_contract(
-            prompt_context.vertical, project_root=_proot
-        ).role_prompt_context
-        if context_provider is not None:
-            research_context_block = context_provider(
-                role="reviewer",
-                operation=operation,
-                stage=stage,
-                scope=scope_normalized,
-                project_root=(
-                    resolve_project_root(working_dir) if working_dir else _proot
-                ),
-            )
+    research_context_block = prompt_context.role_context
     direct_workflow = resolve_workflow_mode(_proot) == "direct"
     _measured = not _requires_engineering_audit and os.environ.get(
         "ARGUS_SKILL_MEASURED_MODE", ""
@@ -715,6 +704,11 @@ def render_reviewer_prompt(
     # matches; when the objective and the Planner's guidance lived here, every
     # new mission rotated the fingerprint, forced a cold start, and re-sent the
     # full rubric — so those blocks ride in the delta below instead.
+    #
+    # Within the static text, what holds for every mission of the role comes
+    # first, then what holds for the stage, and last the recalled Skill block,
+    # which follows the mission's task: a fresh Reviewer on a new mission then
+    # shares the longest possible prefix with the previous one.
     static = (
         EFFECTIVE_TASK_CONTRACT
         + "\n\n"
@@ -739,7 +733,6 @@ def render_reviewer_prompt(
         + verification_instruction
         + wiki_curator_skill_block
         + direct_memory_edit_block
-        + matched_review_skill_block
         + stage_checklist
         + "\n\n"
         + rollback_block
@@ -750,6 +743,7 @@ def render_reviewer_prompt(
         + handoff_policy
         + "\n\n"
         + (optimize_banner + "\n\n" if optimize_banner else "")
+        + matched_review_skill_block
     )
     # Per-round DELTA — everything that varies with the mission or the round.
     # Fresh Reviewers receive this after the full static rubric every time.

@@ -40,6 +40,10 @@ class RolePromptRequest:
     checklist_mode: ChecklistMode = ChecklistMode.NONE
     checklist_role: RoleName | None = None
     include_search_altitude: bool = False
+    # The vertical's per-turn facts (research notes, GPU memory in use). They
+    # change between rounds, so they never enter ``role_banner``; a builder
+    # that asks for them places ``role_context`` after its stable prompt.
+    include_role_context: bool = False
     # Stage and vertical resolve from the state root; the altitude facts are
     # about the work itself and live in the project worktree. Passing one root
     # for both meant every altitude block was handed
@@ -68,6 +72,9 @@ class ResolvedRolePrompt:
     requires_independent_review: bool
     search_altitude: str
     fragment_ids: tuple[str, ...]
+    # Live vertical facts for this turn; empty unless the request asked for
+    # them. Kept apart from ``role_banner`` so the banner stays byte-stable.
+    role_context: str = ""
 
     @property
     def requires_final_certification(self) -> bool:

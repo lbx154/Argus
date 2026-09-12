@@ -151,6 +151,7 @@ def continuous_request(
     stage: str | None = None,
     operation: str = CONTINUOUS,
     include_search_altitude: bool = True,
+    include_role_context: bool = False,
     altitude_root: Path | str | None = None,
 ) -> RolePromptRequest:
     return RolePromptRequest(
@@ -161,6 +162,7 @@ def continuous_request(
         stage=stage,
         checklist_mode=ChecklistMode.STAGE,
         include_search_altitude=include_search_altitude,
+        include_role_context=include_role_context,
     )
 
 
@@ -419,7 +421,9 @@ def build_continuous_prompt(
         else _workspace
     )
     prompt_context = resolve_role_prompt(
-        continuous_request(_proot, altitude_root=_workspace)
+        continuous_request(
+            _proot, altitude_root=_workspace, include_role_context=True
+        )
     )
     stage = prompt_context.stage
     stage_checklist = prompt_context.stage_checklist
@@ -631,6 +635,11 @@ def build_continuous_prompt(
         operator_context, _revision = build_operator_context_block(
             "planner", state_root, consume_once=False
         )
+    # Order: what is the same for every cycle of this vertical and stage,
+    # then what is the same for the whole campaign (the brief), then what
+    # changes between cycles. The provider caches the prompt prefix, so the
+    # blocks that move — live vertical facts, altitude, journal, plan,
+    # runtime digest, cycle counter, operator context — close the prompt.
     return _join_prompt_blocks(
         ground_truth_mandate(
             "planner",
@@ -647,11 +656,13 @@ def build_continuous_prompt(
         final_submission_scope_block,
         stage_checklist,
         stage_gate_block,
+        planner_hygiene_block,
         matched_planner_skill_block,
         _reviewed_facts_block(),
         wiki_block,
-        search_altitude_block,
         "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
+        sanitize_model_visible_text(prompt_context.role_context),
+        search_altitude_block,
         "## Journal of completed work (most recent last)\n"
         + sanitize_model_visible_text(
             journal_tail.strip()
@@ -662,7 +673,6 @@ def build_continuous_prompt(
         + sanitize_model_visible_text(
             runtime_change_summary.strip() or "(no additional runtime context)"
         ),
-        planner_hygiene_block,
         cycle_line,
         trailing_policy,
         operator_context,
@@ -702,7 +712,7 @@ def build_continuous_resume_prompt(
     workspace = resolve_project_root(project_root)
     state = resolve_project_root(state_root) if state_root is not None else workspace
     prompt_context = resolve_role_prompt(
-        continuous_request(state, altitude_root=workspace)
+        continuous_request(state, altitude_root=workspace, include_role_context=True)
     )
     if prompt_context.vertical == "research":
         research_plan_context = ""
@@ -764,14 +774,15 @@ def build_continuous_resume_prompt(
         + str(prompt_context.stage_checklist or ""),
         skill_block,
         _reviewed_facts_block(),
+        "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
         # Live vertical facts change between cycles, which is exactly what a
         # resume delta is for — the header above already promises that current
         # state supersedes stale session facts. Omitting them meant a resumed
         # Planner never saw its vertical's altitude at all: the search floor and
         # frozen count for a metric campaign, or the accepted papers pulled to
         # disk for a paper campaign. Each vertical still renders only its own.
+        sanitize_model_visible_text(prompt_context.role_context),
         sanitize_model_visible_text(prompt_context.search_altitude or ""),
-        "## Manager mission brief (authoritative)\n" + continuous_objective.strip(),
         journal_block,
         research_plan_context,
         "## Current reality (authoritative over the journal above)\n"

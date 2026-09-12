@@ -19,7 +19,9 @@ _CONTEXT_CHAR_LIMIT = 32_000
 # and running experiments. Paper/review prose does not need it.
 _COMPUTE_STAGES = frozenset({"idea", "experiment"})
 _HARDWARE_CACHE_SECONDS = 60.0
-_hardware_cache: tuple[float, str] | None = None
+# One nvidia-smi reading feeds both the static inventory and the live usage
+# lines, so the two never describe different moments.
+_hardware_cache: tuple[float, list[tuple[str, str, float, float]]] | None = None
 # Local checkpoint inventory: scanning a few cache directories is cheap, but
 # not so cheap that every prompt render should redo it.
 _model_inventory_cache: dict[str, tuple[float, str]] = {}
@@ -31,40 +33,44 @@ _PROJECT_SCAN_DEPTH = 3
 _SKIPPED_DIR_NAMES = frozenset({"node_modules", "site-packages", "__pycache__"})
 
 
-def _query_local_gpus() -> list[str]:
-    if shutil.which("nvidia-smi") is None:
-        return []
-    try:
-        proc = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=index,name,memory.total,memory.used",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    lines: list[str] = []
-    for row in proc.stdout.strip().splitlines():
-        parts = [part.strip() for part in row.split(",")]
-        if len(parts) != 4:
-            continue
-        index, name, total_mib, used_mib = parts
+def _query_local_gpus() -> list[tuple[str, str, float, float]]:
+    """``(index, name, total_gb, used_gb)`` per GPU, cached briefly.
+
+    Fail-soft to an empty list on machines without GPUs or ``nvidia-smi``.
+    """
+    global _hardware_cache
+    now = time.monotonic()
+    if _hardware_cache is not None and now - _hardware_cache[0] < _HARDWARE_CACHE_SECONDS:
+        return _hardware_cache[1]
+    rows: list[tuple[str, str, float, float]] = []
+    if shutil.which("nvidia-smi") is not None:
         try:
-            total_gb = int(total_mib) / 1024
-            used_gb = int(used_mib) / 1024
-        except ValueError:
-            continue
-        free_gb = max(total_gb - used_gb, 0.0)
-        lines.append(
-            f"- GPU {index}: {name}, {total_gb:.0f} GB memory "
-            f"({free_gb:.0f} GB free, {used_gb:.0f} GB in use by running jobs)"
-        )
-    return lines
+            proc = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=index,name,memory.total,memory.used",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            proc = None
+        for row in (proc.stdout if proc is not None else "").strip().splitlines():
+            parts = [part.strip() for part in row.split(",")]
+            if len(parts) != 4:
+                continue
+            index, name, total_mib, used_mib = parts
+            try:
+                total_gb = int(total_mib) / 1024
+                used_gb = int(used_mib) / 1024
+            except ValueError:
+                continue
+            rows.append((index, name, total_gb, used_gb))
+    _hardware_cache = (now, rows)
+    return rows
 
 
 def _hub_cache_dirs(project_root: Path | None) -> list[Path]:
@@ -269,21 +275,22 @@ def local_hardware_block() -> str:
     """Describe the compute this machine actually has, so ideas and
     experiments are sized to it.
 
-    Purely informational — it never blocks anything. Cached briefly so prompt
-    rendering does not shell out on every turn; fail-soft to an empty string
-    on machines without GPUs or without ``nvidia-smi``.
+    Purely informational — it never blocks anything. Only the inventory is
+    listed here — device names, total memory, CPU count — because this block
+    sits in the cacheable prompt prefix; the memory free and in use right now
+    is rendered by ``local_hardware_usage_block`` for the per-turn tail.
+    Fail-soft to an empty string on machines without GPUs or ``nvidia-smi``.
     """
-    global _hardware_cache
-    now = time.monotonic()
-    if _hardware_cache is not None and now - _hardware_cache[0] < _HARDWARE_CACHE_SECONDS:
-        return _hardware_cache[1]
-    gpu_lines = _query_local_gpus()
-    if not gpu_lines:
-        _hardware_cache = (now, "")
+    gpus = _query_local_gpus()
+    if not gpus:
         return ""
     cpu_count = os.cpu_count() or 0
     cpu_line = f"- {cpu_count} CPU cores" if cpu_count else ""
-    block = (
+    gpu_lines = [
+        f"- GPU {index}: {name}, {total_gb:.0f} GB memory"
+        for index, name, total_gb, _used_gb in gpus
+    ]
+    return (
         "## Compute available on this machine\n"
         + "\n".join(line for line in (*gpu_lines, cpu_line) if line)
         + "\n\n"
@@ -301,11 +308,26 @@ def local_hardware_block() -> str:
         "reproduction example does not configure the running process. Confirm "
         "the actual mapping before a long run and retain it with the run command."
     )
-    _hardware_cache = (now, block)
-    return block
+
+
+def local_hardware_usage_block() -> str:
+    """The numbers that change from turn to turn: memory free and in use per GPU.
+
+    Rendered apart from the inventory so the inventory can sit in the
+    cacheable prompt prefix while these lines ride in the per-turn tail.
+    """
+    gpus = _query_local_gpus()
+    if not gpus:
+        return ""
+    return "Memory in use right now, by physical GPU index:\n" + "\n".join(
+        f"- GPU {index}: {max(total_gb - used_gb, 0.0):.0f} GB free, "
+        f"{used_gb:.0f} GB in use by running jobs"
+        for index, _name, total_gb, used_gb in gpus
+    )
 
 
 def _hardware_block_for_stage(stage: str, project_root: Path | None = None) -> str:
+    """The static compute and checkpoint inventory for a compute stage."""
     if stage not in _COMPUTE_STAGES:
         return ""
     return "\n\n".join(
@@ -315,9 +337,23 @@ def _hardware_block_for_stage(stage: str, project_root: Path | None = None) -> s
     )
 
 
+def _hardware_usage_for_stage(stage: str) -> str:
+    """The live GPU memory numbers for a compute stage."""
+    if stage not in _COMPUTE_STAGES:
+        return ""
+    return local_hardware_usage_block()
+
+
 def research_runtime_context(stage: str, project_root: Path | None = None) -> str:
     """Live resource facts for a Reviewer's delta, outside its policy hash."""
-    return _hardware_block_for_stage(stage, project_root)
+    return "\n\n".join(
+        block
+        for block in (
+            _hardware_block_for_stage(stage, project_root),
+            _hardware_usage_for_stage(stage),
+        )
+        if block
+    )
 
 
 def active_context_paths(stage: str) -> tuple[str, ...]:
@@ -497,11 +533,12 @@ def _paper_narrative_packaging_block() -> str:
 
 
 def _planner_fragment(stage: str, project_root: Path | None) -> str:
+    # The research notes and the GPU memory in use change between cycles;
+    # ``render_role_prompt_context`` carries them, after this static policy.
     return "\n\n".join(
         block
         for block in (
             _stage_playbook_block(stage),
-            active_research_context(stage, project_root),
             _hardware_block_for_stage(stage, project_root),
             (
                 "## Post-result experiment scale assessment\n"
@@ -569,6 +606,17 @@ def _narrative_editor_block() -> str:
     )
 
 
+def _engineer_notes_stage(stage: str, operation: str) -> str:
+    """The stage whose research notes the Engineer reads for ``operation``."""
+    return "paper" if operation == "narrative_edit" else stage
+
+
+def _engineer_compute_stage(stage: str, operation: str) -> str:
+    """The stage whose compute inventory the Engineer sees for ``operation``."""
+    scientific_revision = stage == "review" and operation != "narrative_edit"
+    return "experiment" if scientific_revision else stage
+
+
 def _engineer_fragment(
     stage: str,
     project_root: Path | None,
@@ -578,10 +626,8 @@ def _engineer_fragment(
     scientific_revision = stage == "review" and not narrative_edit
     # The research notes supply evidence roles; current repair feedback arrives through
     # the normal round context. Do not preload REVIEW.md or historical reports.
-    context = active_research_context(
-        "paper" if narrative_edit else stage,
-        project_root,
-    )
+    # The notes change between rounds, so ``render_role_prompt_context``
+    # carries them after this static policy.
     stage_policy = (
         "## Engineer responsibility\n"
         "Execute the current playbook directly. Use code, explicit configuration, raw "
@@ -611,8 +657,9 @@ def _engineer_fragment(
         block
         for block in (
             _stage_playbook_block(stage),
-            context,
-            _hardware_block_for_stage("experiment" if scientific_revision else stage, project_root),
+            _hardware_block_for_stage(
+                _engineer_compute_stage(stage, operation), project_root
+            ),
             narrative_packaging,
             (
                 "## On-demand method figure\n"
@@ -763,15 +810,42 @@ def render_role_prompt_context(
     scope: str,
     project_root: Path | None,
 ) -> str:
-    """Keep changing research evidence in the round delta, not the static policy."""
-    if role == "reviewer" and operation == "evaluate":
-        return "\n\n".join(
-            block for block in (
-                active_research_context(stage, project_root),
-                research_runtime_context(stage, project_root),
-            ) if block
+    """Keep changing research evidence in the round delta, not the static policy.
+
+    Everything here changes between turns of one campaign — the research
+    notes, the GPU memory in use — so a role places it after the policy that
+    ``render_role_prompt_fragment`` renders once per stage.
+    """
+    normalized_role = str(role or "").strip().lower()
+    normalized_operation = str(operation or "").strip().lower()
+    normalized_stage = str(stage or "").strip().lower()
+    if normalized_role == "reviewer":
+        if normalized_operation != "evaluate":
+            return ""
+        blocks = (
+            active_research_context(normalized_stage, project_root),
+            research_runtime_context(normalized_stage, project_root),
         )
-    return ""
+    elif normalized_role == "planner":
+        blocks = (
+            active_research_context(normalized_stage, project_root),
+            _hardware_usage_for_stage(normalized_stage),
+        )
+    elif normalized_role == "engineer":
+        blocks = (
+            active_research_context(
+                _engineer_notes_stage(normalized_stage, normalized_operation),
+                project_root,
+            ),
+            _hardware_usage_for_stage(
+                _engineer_compute_stage(normalized_stage, normalized_operation)
+            ),
+        )
+    elif normalized_role == "manager":
+        blocks = (active_research_context(normalized_stage, project_root),)
+    else:
+        return ""
+    return "\n\n".join(block for block in blocks if block)
 
 
 def render_role_prompt_fragment(
@@ -803,10 +877,9 @@ def render_role_prompt_fragment(
             normalized_operation,
         )
     if normalized_role == "manager":
+        # The research notes ride in ``render_role_prompt_context``.
         return (
             _stage_playbook_block(normalized_stage)
-            + "\n\n"
-            + active_research_context(normalized_stage, project_root)
             + "\n\n## Forward-only stage authority\n"
             "Research stages never roll back. Hold the current stage and schedule "
             "repairs there, or advance when the stage's work is complete."
@@ -821,6 +894,7 @@ __all__ = [
     "active_research_context",
     "active_context_paths",
     "local_hardware_block",
+    "local_hardware_usage_block",
     "local_model_inventory_block",
     "research_runtime_context",
     "render_role_prompt_fragment",

@@ -115,6 +115,23 @@ class RolePromptCatalog:
                 for part in (vertical_banner.strip(), vertical_fragment.strip())
                 if part
             )
+        # What changes between turns (research notes, GPU memory in use) is
+        # rendered by the vertical's context provider, never by its fragment,
+        # so the banner above can sit in the provider-cacheable prefix.
+        role_context = ""
+        if request.include_role_context and contract.role_prompt_context is not None:
+            rendered_context = contract.role_prompt_context(
+                role=banner_role,
+                operation=request.operation,
+                stage=stage,
+                scope=scope,
+                project_root=altitude_root,
+            )
+            role_context = (
+                rendered_context.strip()
+                if isinstance(rendered_context, str)
+                else ""
+            )
         # A controller-owned external gate is a stronger objective contract than
         # a generic vertical's optimization style. Keep the stage/checklist state,
         # but suppress a vertical banner that can otherwise redefine the task.
@@ -204,6 +221,7 @@ class RolePromptCatalog:
             requires_independent_review=contract.requires_independent_review,
             search_altitude=search_altitude,
             fragment_ids=tuple(fragment_ids),
+            role_context=role_context,
         )
 
 

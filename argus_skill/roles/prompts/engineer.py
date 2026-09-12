@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ...core.model_visible_text import sanitize_model_visible_text
@@ -96,21 +97,40 @@ def append_live_guidance(prompt: str, guidance: list[str]) -> str:
     )
 
 
+_OPERATOR_CONTEXT_MARKER = "\n\n## OperatorContext\n"
+# ``build_operator_context_block`` closes every block with its revision line,
+# which is how the trailing block is told apart from one the mission text
+# itself quotes.
+_OPERATOR_CONTEXT_END = re.compile(r"(?m)^operator_context_revision=\d+\s*\Z")
+
+
 def assemble_round_prompt(
     prompt: str,
     *,
+    role_context: str = "",
     checkpoint_block: str = "",
     background_advisory: str = "",
     external_work_advisory: str = "",
 ) -> str:
-    """Append all dynamic Engineer round fragments in one stable order."""
-    marker = "\n\n## OperatorContext\n"
-    stable_prompt, separator, operator_tail = prompt.partition(marker)
-    if separator:
+    """Append all dynamic Engineer round fragments in one stable order.
+
+    Everything that changes between rounds goes after the prompt the builder
+    produced, ahead only of the trailing OperatorContext block, so the static
+    text stays a byte-identical prefix. The mission text can itself quote an
+    OperatorContext block, so the split point is the LAST marker, and only
+    when what follows it is a complete block; otherwise nothing is split.
+    """
+    stable_prompt, separator, operator_tail = prompt.rpartition(
+        _OPERATOR_CONTEXT_MARKER
+    )
+    if separator and _OPERATOR_CONTEXT_END.search(operator_tail):
         prompt = stable_prompt
+    else:
+        separator, operator_tail = "", ""
     tail = [
         sanitize_model_visible_text(block)
         for block in (
+            role_context,
             checkpoint_block,
             background_advisory,
             external_work_advisory,
@@ -198,6 +218,12 @@ def build_mission_prompt(
         require_post_task_learning=require_post_task_learning,
         project_skill_dir=project_skill_dir,
     )
+    # Section order in both shapes below: what is the same for every mission
+    # of this role and vertical first (contract, banner, the rules and the
+    # decision footer), then what is the same across the rounds of one
+    # mission (recalled Skills, the request, the task), then what changes
+    # per round. The provider caches the prompt prefix, so the tail is where
+    # change belongs; the Reviewer prompt has the same shape.
     if compact_team and include_static:
         sections = [EFFECTIVE_TASK_CONTRACT]
         if shell_summary:
@@ -207,9 +233,6 @@ def build_mission_prompt(
                 "## Active vertical role\n"
                 + sanitize_model_visible_text(role_banner.strip())
             )
-        if skill_text:
-            sections.append(skill_text)
-        sections.append(task)
         sections.append(_PERFORMANCE_DIAGNOSTIC_RULE)
         sections.append(_long_experiment_rule())
         sections.append(
@@ -235,6 +258,9 @@ def build_mission_prompt(
                 "NEXT_OWNER=reviewer"
             )
         )
+        if skill_text:
+            sections.append(skill_text)
+        sections.append(task)
         from ...core.operator_context import append_operator_context
 
         return append_operator_context("\n\n".join(sections), operator_context)
@@ -248,40 +274,6 @@ def build_mission_prompt(
             "## Active vertical role\n"
             + sanitize_model_visible_text(role_banner.strip())
         )
-    if skill_text:
-        sections.append(skill_text)
-    unique_original_request = _deduplicated_original_request(
-        original_request,
-        task,
-    )
-    if unique_original_request:
-        sections.append(
-            "## Original operator request\n"
-            "Higher-priority live operator instructions may update this; "
-            "lower-authority guidance may not silently change it.\n\n"
-            + unique_original_request
-        )
-    sections.append("## Current mission task\n" + task)
-    # The Engineer is the role that can most easily satisfy a task while
-    # missing the requirement the task exists to serve — the mission text
-    # describes this increment, not what the operator agreed "done" means.
-    from ...core.project_contract import contract_briefing, load_contract_for_cwd
-
-    contract_block = contract_briefing(
-        load_contract_for_cwd(),
-        authoritative_objective=original_request,
-    )
-    if contract_block:
-        sections.append(contract_block)
-    if project_root is not None:
-        from ...wiki.context import render_knowledge_wiki_block
-
-        knowledge_block = render_knowledge_wiki_block(
-            project_root,
-            role="Engineer",
-        )
-        if knowledge_block:
-            sections.append(sanitize_model_visible_text(knowledge_block))
     if next_action:
         delta_sections.append(
             "## Reviewer guidance from prior round\n"
@@ -334,6 +326,40 @@ def build_mission_prompt(
             "NEXT_OWNER=reviewer"
         )
     )
+    if skill_text:
+        sections.append(skill_text)
+    unique_original_request = _deduplicated_original_request(
+        original_request,
+        task,
+    )
+    if unique_original_request:
+        sections.append(
+            "## Original operator request\n"
+            "Higher-priority live operator instructions may update this; "
+            "lower-authority guidance may not silently change it.\n\n"
+            + unique_original_request
+        )
+    sections.append("## Current mission task\n" + task)
+    # The Engineer is the role that can most easily satisfy a task while
+    # missing the requirement the task exists to serve — the mission text
+    # describes this increment, not what the operator agreed "done" means.
+    from ...core.project_contract import contract_briefing, load_contract_for_cwd
+
+    contract_block = contract_briefing(
+        load_contract_for_cwd(),
+        authoritative_objective=original_request,
+    )
+    if contract_block:
+        sections.append(contract_block)
+    if project_root is not None:
+        from ...wiki.context import render_knowledge_wiki_block
+
+        knowledge_block = render_knowledge_wiki_block(
+            project_root,
+            role="Engineer",
+        )
+        if knowledge_block:
+            sections.append(sanitize_model_visible_text(knowledge_block))
     static_text = "\n\n".join(sections)
     delta_text = "\n\n".join(delta_sections)
     if include_static:
@@ -380,6 +406,7 @@ def mission_request(
     altitude_root: Path | str | None = None,
     stage: str | None = None,
     operation: str = MISSION,
+    include_role_context: bool = False,
 ) -> RolePromptRequest:
     return RolePromptRequest(
         role=RoleName.ENGINEER,
@@ -390,6 +417,7 @@ def mission_request(
         altitude_root=altitude_root,
         vertical=vertical,
         stage=stage,
+        include_role_context=include_role_context,
     )
 
 

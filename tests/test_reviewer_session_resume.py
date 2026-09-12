@@ -210,6 +210,9 @@ def test_live_gpu_and_checkpoint_changes_keep_reviewer_session(tmp_path: Path, m
     write_pipeline_state(tmp_path, state)
     gpu = ["GPU 0: 8 GB free"]
     models = ["cached-checkpoint-old"]
+    # The live-usage lines come from this machine's real GPUs; keep them out
+    # so the assertions below only see the stand-in readings.
+    monkeypatch.setattr(prompt_policy, "_query_local_gpus", lambda: [])
     monkeypatch.setattr(prompt_policy, "local_hardware_block", lambda: gpu[0])
     monkeypatch.setattr(prompt_policy, "local_model_inventory_block", lambda _root=None: models[0])
     backend = MemoryBackend()
