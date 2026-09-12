@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ..event_catalog import EventType, canonical_event_type
+from ..file_lock import exclusive_file_lock
 
 MISSION_VIEW_FILE = "mission-view.json"
 MISSION_VIEW_LOCK_FILE = "mission-view.lock"
@@ -31,12 +32,6 @@ _THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
     weakref.WeakValueDictionary()
 )
 _THREAD_LOCKS_GUARD = threading.Lock()
-
-try:  # pragma: no cover - production daemons are POSIX
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None  # type: ignore[assignment]
-
 
 def empty_mission_view() -> dict[str, Any]:
     return {
@@ -116,18 +111,9 @@ def _locked(root: Path) -> Iterator[None]:
     with _THREAD_LOCKS_GUARD:
         thread_lock = _THREAD_LOCKS.setdefault(key, threading.Lock())
     with thread_lock:
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
-        try:
-            if fcntl is not None:
-                fcntl.flock(fd, fcntl.LOCK_EX)
-            yield
-        finally:
-            if fcntl is not None:
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-                except OSError:
-                    pass
-            os.close(fd)
+        with lock_path.open("a+b") as handle:
+            with exclusive_file_lock(handle, lock_name="Mission View"):
+                yield
 
 
 def _read_unlocked(root: Path) -> dict[str, Any]:
@@ -235,9 +221,9 @@ def _read_unlocked(root: Path) -> dict[str, Any]:
 
 
 def load_mission_view(root: Path | str) -> dict[str, Any]:
-    path = Path(root).expanduser()
-    with _locked(path):
-        return _read_unlocked(path)
+    from ._replay import load_reconciled_view
+
+    return load_reconciled_view(Path(root).expanduser())
 
 
 def _write_unlocked(root: Path, view: dict[str, Any]) -> None:
@@ -249,12 +235,12 @@ def _write_unlocked(root: Path, view: dict[str, Any]) -> None:
             json.dump(view, handle, ensure_ascii=False, separators=(",", ":"))
             handle.write("\n")
             handle.flush()
-            try:
-                os.fsync(handle.fileno())
-            except OSError:
-                pass
+            os.fsync(handle.fileno())
         os.chmod(tmp_name, 0o600)
         os.replace(tmp_name, target)
+        from ._replay import sync_directory
+
+        sync_directory(root)
     finally:
         try:
             os.unlink(tmp_name)

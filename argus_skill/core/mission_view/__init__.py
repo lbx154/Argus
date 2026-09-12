@@ -18,7 +18,11 @@ This package was split out of a single ~1.5k-line module. It is organized as:
 - ``_dispatch``: the stable ``event_type -> family reducer`` table plus the
   public ``reduce_mission_view_event`` / ``update_mission_view_event``
   entry points.
-- ``_snapshot``: live daemon/session merge and disk bootstrap
+- ``_replay``: bounded event-log reconciliation; the consumed position and view
+  are one checkpoint. Readers acquire events.lock before mission-view.lock.
+  Projection failures are retried from that position; ordinary polling reads
+  no event history. Direct, unlogged projection producers retain their own mode.
+- ``_snapshot``: live daemon/session merge and legacy projection compatibility
   (``snapshot_mission_view`` / ``merge_mission_view_snapshot``).
 
 The public API (every name importable as ``argus_skill.core.mission_view.X``)

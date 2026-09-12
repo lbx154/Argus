@@ -193,6 +193,17 @@ def test_unknown_vertical_events_remain_extensible_and_legacy_aliases_are_explic
     assert aliased["canonical_type"] == "life.mission.started"
 
 
+def test_legacy_validation_only_relaxes_missing_payload_fields() -> None:
+    legacy = {"type": "round.review.completed", "status": "continue"}
+    assert validate_event_envelope(legacy).valid is False
+    assert validate_event_envelope(legacy, allow_missing_fields=True).valid is True
+    for fields in ({"ts": "unparseable"}, {"round_index": []}, {"status": "invalid-status"}):
+        assert validate_event_envelope(
+            {**legacy, **fields}, allow_missing_fields=True,
+        ).valid is False
+    assert validate_event_envelope({}, allow_missing_fields=True).valid is False
+
+
 def test_event_sink_persists_versioned_envelopes_and_validation_evidence(
     tmp_path: Path,
 ) -> None:

@@ -519,7 +519,13 @@ def validate_event_envelope(
     event: Mapping[str, Any],
     *,
     require_known: bool = False,
+    allow_missing_fields: bool = False,
 ) -> EventValidation:
+    """Validate provided fields; legacy replay may omit newer required fields.
+
+    The default remains strict for producers. Compatibility only relaxes absent
+    payload fields, never the event type or the types/values actually supplied.
+    """
     raw_type = str(event.get("type") or "").strip()
     canonical = canonical_event_type(raw_type)
     errors: list[str] = []
@@ -530,7 +536,7 @@ def validate_event_envelope(
     spec = event_spec(raw_type)
     if require_known and spec is None:
         errors.append(f"unknown event type: {raw_type}")
-    if spec is not None:
+    if spec is not None and not allow_missing_fields:
         missing = [
             field
             for field in spec.required_fields

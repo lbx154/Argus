@@ -21,15 +21,18 @@ The design is intentionally minimal:
   rather than being deleted, so no event is ever lost. ``.1`` always holds
   the most-recent previous roll (readers/tailers that expect it keep
   working); the full lifetime history is the union of ``events.jsonl*``.
-* Concurrency: a process-local lock plus a POSIX file lock serializes append,
-  rotation, and Mission View projection across the daemon and report tools.
+* Concurrency: a process-local lock plus a portable file lock serializes append
+  and rotation. Projection runs after releasing that lock and atomically records
+  its consumed log position with the view, so failed projection is replayable.
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Protocol
@@ -50,6 +53,7 @@ ROLL_BYTES = 100 * 1024 * 1024  # 100 MiB
 EVENT_FILE = "events.jsonl"
 ROLL_FILE = "events.jsonl.1"
 EVENT_LOCK_FILE = "events.lock"
+log = logging.getLogger(__name__)
 
 
 def event_log_paths(log_path: Path) -> list[Path]:
@@ -105,11 +109,6 @@ def iter_call_events(log_path: Path, call_id: str) -> Iterator[dict[str, Any]]:
             break
     for generation in reversed(matched_generations):
         yield from generation
-
-try:  # pragma: no cover - production daemons are POSIX
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None  # type: ignore[assignment]
 
 # Idle-poll chatter that pollutes the persistent log without telling
 # operators anything actionable. We keep these on the in-process sink
@@ -176,7 +175,6 @@ class JsonlEventSink:
         self._dir = Path(life_dir)
         self._path = self._dir / EVENT_FILE
         self._roll_path = self._dir / ROLL_FILE
-        self._file_lock_path = self._dir / EVENT_LOCK_FILE
         self._roll_bytes = max(1024 * 1024, int(roll_bytes))
         self._lock = threading.Lock()
         self._dir.mkdir(parents=True, exist_ok=True)
@@ -256,6 +254,10 @@ class JsonlEventSink:
     def _append(self, event: dict[str, Any]) -> bool:
         try:
             payload = self._normalize(event)
+            # A fixed final envelope field lets an unlogged compatibility view
+            # notice canonical ownership even if its projection callback fails.
+            payload.pop("log_writer_version", None)
+            payload["log_writer_version"] = 1
             line = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         except Exception:  # noqa: BLE001
             return False
@@ -274,41 +276,49 @@ class JsonlEventSink:
                 )
             except Exception:  # noqa: BLE001
                 pass
-        with self._lock:
-            lock_fd = os.open(str(self._file_lock_path), os.O_CREAT | os.O_RDWR, 0o600)
-            try:
-                if fcntl is not None:
-                    fcntl.flock(lock_fd, fcntl.LOCK_EX)
-                self._maybe_roll()
-                with self._path.open("a", encoding="utf-8") as fh:
-                    fh.write(line + "\n")
-                try:
-                    from ..core.mission_view import (
-                        mission_view_handles_event,
-                        update_mission_view_event,
-                    )
+        from ..core.mission_view._replay import events_locked, sync_directory
 
-                    if mission_view_handles_event(payload.get("type")):
-                        update_mission_view_event(self._dir, payload)
-                except Exception:  # noqa: BLE001 - projection must not break logging
-                    pass
+        with self._lock:
+            try:
+                with events_locked(self._dir):
+                    self._maybe_roll()
+                    with self._path.open("a+b") as fh:
+                        if fh.tell():
+                            fh.seek(-1, os.SEEK_END)
+                            if fh.read(1) != b"\n":
+                                # Preserve an interrupted row, but do not join
+                                # the next valid event onto its partial JSON.
+                                fh.write(b"\n")
+                        fh.write((line + "\n").encode("utf-8"))
+                        fh.flush()
+                        os.fsync(fh.fileno())
+                    sync_directory(self._dir)
             except Exception:  # noqa: BLE001
                 # Disk full / read-only / permission — keep silent so the
                 # supervisor doesn't crash. Operators see the warning in
                 # the daemon log via _DaemonSink.handle_event downstream.
                 return False
-            finally:
-                if fcntl is not None:
-                    try:
-                        fcntl.flock(lock_fd, fcntl.LOCK_UN)
-                    except OSError:
-                        pass
-                os.close(lock_fd)
+        # Never invoke the projection API or downstream callbacks while owning
+        # the append lock. Another writer may win first; reconciliation consumes
+        # the durable stream order, independently of callback arrival order.
+        try:
+            from ..core.mission_view import (
+                mission_view_handles_event,
+                update_mission_view_event,
+            )
+
+            if mission_view_handles_event(payload.get("type")):
+                update_mission_view_event(self._dir, payload, logged=True)
+        except Exception:  # noqa: BLE001 - canonical append remains successful
+            log.warning("Mission View projection deferred to log replay", exc_info=True)
         return valid
 
     @staticmethod
     def _normalize(event: dict[str, Any]) -> dict[str, Any]:
         out = normalize_event_envelope(event, timestamp=time.time())
+        # Preserve the existing explicit id convention used by timeline rows;
+        # otherwise give this durable event a stable identity before delivery.
+        out.setdefault("event_id", str(out.get("id") or uuid.uuid4().hex))
         # Drop non-serialisable values rather than crash.
         for k, v in list(out.items()):
             try:
