@@ -295,8 +295,18 @@ export function plainProgress(done: number, total: number, locale: Locale): stri
 
 type Render = string | ((match: RegExpMatchArray, locale: Locale) => string);
 
+/** Runtime labels can remain English inside an otherwise localized mission view. */
+const ACTIVITY_PHRASES: Array<[RegExp, string]> = [
+  [/^Reporting progress$/i, 'progress_message'],
+  [/^(?:Running a command|running project command)$/i, 'progress_command'],
+  [/^Using a tool$/i, 'progress_tool'],
+  [/^inspecting project state$/i, 'progress_inspecting'],
+  [/^Working$/i, 'live_activity'],
+];
+
 /** Legacy English titles and labels (the TS mirror reducer and older snapshots), matched whole. */
 const PHRASES: Array<[RegExp, Render]> = [
+  ...ACTIVITY_PHRASES,
   [/^(?:Review not performed|No review this round)$/i, 'round_not_judged'],
   [/^Goal framed$/i, 'goal_framed'],
   [/^(?:Grounding project|Project grounding started)$/i, 'grounding_started'],
@@ -308,10 +318,6 @@ const PHRASES: Array<[RegExp, Render]> = [
   [/^Project reviewed$/i, 'project_finished'],
   [/^Research branch added$/i, 'research_route_added'],
   [/^Task added$/i, 'task_added'],
-  [/^Reporting progress$/i, 'progress_message'],
-  [/^(?:Running a command|running project command)$/i, 'progress_command'],
-  [/^(?:Using a tool|using a tool)$/i, 'progress_tool'],
-  [/^inspecting project state$/i, 'progress_inspecting'],
   [/^(?:Engineer handoff ready|Work ready for review)$/i, 'engineer_round_finished'],
   [/^(?:Review started|Reviewing benchmark evidence)$/i, 'checking_started'],
   [/^(?:Continuing before review|Continued before review)$/i, 'continuing_before_check'],
@@ -327,7 +333,6 @@ const PHRASES: Array<[RegExp, Render]> = [
   [/^Awaiting Planner$/i, 'planner_waiting'],
   [/^Ready for a new mission$/i, 'mission_ready'],
   [/^Waiting$/i, 'waiting'],
-  [/^Working$/i, 'live_activity'],
   [/^Capability unlocked$/i, 'capability_unlocked'],
   [/^Capability upgraded$/i, 'capability_upgraded'],
   [/^Capability promoted to source$/i, 'capability_promoted'],
@@ -364,8 +369,10 @@ function uiLanguage(locale: Locale): string {
 }
 
 /**
- * A title or short label in plain words. When the backend names what happened
- * with a kind and already wrote the sentence in the reader's language, that
+ * A title or short label in plain words. Known generic runtime activities are
+ * localized first only when no specific kind is supplied. When the backend
+ * names what happened with a kind and already wrote a specific sentence in
+ * the reader's language, that
  * sentence is used as it came; a kind in another language is rendered from the
  * table; text without a kind is matched against the legacy phrases; anything
  * else is returned unchanged.
@@ -373,6 +380,11 @@ function uiLanguage(locale: Locale): string {
 export function plainStatus(raw: string | null | undefined, locale: Locale, source?: PlainSource | string | null): string {
   const text = String(raw ?? '').trim();
   const origin: PlainSource = typeof source === 'string' ? { kind: source } : source ?? {};
+  if (!origin.kind || origin.kind === 'live_activity') {
+    for (const [pattern, kind] of ACTIVITY_PHRASES) {
+      if (pattern.test(text)) return pick(PLAIN_BY_KIND[kind], locale);
+    }
+  }
   const own = origin.kind ? PLAIN_BY_KIND[origin.kind] : undefined;
   if (origin.kind) {
     const otherLanguage = Boolean(origin.language) && origin.language !== uiLanguage(locale);

@@ -622,8 +622,9 @@ def test_vault_tampering_and_file_permissions(settings):
         Vault(settings.key_file, vault.token_path)
 
 
-def test_trial_enforces_high_and_preserves_parallel_local_tool_history():
-    data = {**PAYLOAD, "reasoning_effort": "low", "temperature": 0.2, "messages": [
+@pytest.mark.parametrize("effort", ["low", "medium", "high"])
+def test_trial_preserves_requested_effort_and_parallel_local_tool_history(effort):
+    data = {**PAYLOAD, "reasoning_effort": effort, "temperature": 0.2, "messages": [
         {"role": "system", "content": "Use local tools."},
         {"role": "user", "content": [{"type": "text", "text": "Read both files."}]},
         {"role": "assistant", "content": None, "tool_calls": [
@@ -633,9 +634,10 @@ def test_trial_enforces_high_and_preserves_parallel_local_tool_history():
         {"role": "tool", "tool_call_id": "call_a", "content": "File A"},
         {"role": "tool", "tool_call_id": "call_b", "content": "File B"},
     ], "tools": [{"type": "function", "function": {"name": "view", "parameters": {"type": "object"}}}],
-       "tool_choice": {"type": "function", "function": {"name": "view"}}}
+       "tool_choice": {"type": "function", "function": {"name": "view"}},
+       "parallel_tool_calls": True}
     payload, _ = prepare(data, "gpt-5.5")
-    assert payload["reasoning"] == {"effort": "high"} and payload["model"] == "gpt-5.5"
+    assert payload["reasoning"] == {"effort": effort} and payload["model"] == "gpt-5.5"
     assert payload["max_output_tokens"] == 100 and payload["store"] is False
     assert "temperature" not in payload
     assert payload["input"][-2:] == [
@@ -644,6 +646,20 @@ def test_trial_enforces_high_and_preserves_parallel_local_tool_history():
     ]
     assert payload["input"][2]["call_id"] == "call_a"
     assert payload["tool_choice"] == {"type": "function", "name": "view"}
+    assert payload["parallel_tool_calls"] is True
+
+
+@pytest.mark.parametrize(("override", "expected"), [
+    ({}, "high"),
+    ({"reasoning_effort": None}, "high"),
+    ({"reasoning_effort": "none"}, "none"),
+    ({"reasoning_effort": "xhigh"}, "xhigh"),
+])
+def test_reasoning_default_and_existing_wire_values_are_not_remapped(override, expected):
+    payload, _ = prepare({**PAYLOAD, **override}, "gpt-5.5")
+    assert payload["reasoning"] == {"effort": expected}
+    assert "reasoning_effort" not in payload
+    assert payload["model"] == "gpt-5.5" and payload["store"] is False
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -708,7 +724,8 @@ def test_custom_patch_tool_round_trip_preserves_raw_input_and_billing(settings, 
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_tool_calls_and_reasoning_usage_reach_client_without_provider_metadata(settings, stream):
+@pytest.mark.parametrize("effort", [None, "low", "medium"])
+def test_tool_calls_and_reasoning_usage_reach_client_without_provider_metadata(settings, stream, effort):
     data = response_data()
     data["output"] = [
         {"type": "reasoning", "encrypted_content": "private-provider-state"},
@@ -720,13 +737,19 @@ def test_tool_calls_and_reasoning_usage_reach_client_without_provider_metadata(s
                      "output_tokens_details": {"reasoning_tokens": 10}}
 
     def upstream(request):
-        assert json.loads(request.content)["reasoning"] == {"effort": "high"}
+        payload = json.loads(request.content)
+        assert payload["reasoning"] == {"effort": effort or "high"}
+        assert payload["stream"] is stream
+        assert payload["max_output_tokens"] == 100 and payload["store"] is False
         return (httpx.Response(200, text="data: " + json.dumps({"type": "response.completed", "response": data}) + "\n\n")
                 if stream else httpx.Response(200, json=data))
 
     with TestClient(create_app(settings, transport=httpx.MockTransport(upstream))) as client:
         auth = issued_auth(client)
-        result = client.post("/v1/chat/completions", headers=auth, json={**PAYLOAD, "stream": stream})
+        body = {**PAYLOAD, "stream": stream}
+        if effort is not None:
+            body["reasoning_effort"] = effort
+        result = client.post("/v1/chat/completions", headers=auth, json=body)
         assert result.status_code == 200 and "private-provider-state" not in result.text
         body = json.loads(result.text.splitlines()[0][6:]) if stream else result.json()
         choice = body["choices"][0]

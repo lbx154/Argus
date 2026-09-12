@@ -5,6 +5,7 @@ import { Button, RawDisclosure, Spinner } from '../components/primitives';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { Modal, ModalHeader } from '../components/Modal';
 import { useI18n } from '../i18n';
+import { dateOf } from '../lib/format';
 import { plainDetail, plainEventName, plainStatus } from '../lib/plainStatus';
 import { readableRecord } from '../map/submap';
 import { questionAboutStep } from './model';
@@ -58,14 +59,21 @@ export default function ResearchBrief(props: ResearchBriefProps) {
   }, [props.view.mission.id]);
   const result = useResearchBrief({ ...props, locale: zh ? 'zh-CN' : 'en-US' });
   const { task, evidence, brief, card } = result;
-  const title = (brief && !result.needsUpdate ? card?.title : undefined) || task?.title || props.view.mission.title || text('当前任务', 'Current task');
+  const title = (brief ? card?.title : undefined) || task?.title || props.view.mission.title || text('当前任务', 'Current task');
   const objective = task?.objective || props.view.mission.objective || props.snapshot.session.objective;
-  const generatedAt = typeof card?.generated_at === 'number' && Number.isFinite(card.generated_at)
-    ? new Date(card.generated_at * 1000).toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const generatedDate = dateOf({ ts: card?.generated_at });
+  const generatedAt = generatedDate?.toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) ?? '';
   const unavailable = result.legacy || result.generationUnavailable || (!result.loading && !result.generationAvailable);
   const hasProblem = !!result.readError || !!result.generationError || unavailable;
-  const explanationStatus = result.generating ? <span role="status" className="inline-flex items-center gap-1.5 text-xs text-ink-faint"><Spinner />{text('正在整理说明', 'Preparing an explanation')}</span>
-    : generatedAt ? <span className="text-[11px] text-ink-faint">{generatedAt}{result.needsUpdate ? text(' · 待更新', ' · update pending') : ''}</span> : null;
+  const explanationStatus = (brief && (generatedAt || result.needsUpdate)) || result.generating
+    ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="research-brief-status">
+      {brief && (generatedAt || result.needsUpdate) ? <span className="text-[11px] text-ink-faint">
+        {result.needsUpdate ? text('上次说明 · ', 'Previous explanation · ') : ''}
+        {generatedAt ? <time dateTime={generatedDate?.toISOString()} title={generatedDate?.toLocaleString(locale)}>{generatedAt}</time> : null}
+        {result.needsUpdate ? text(`${generatedAt ? ' · ' : ''}待更新`, `${generatedAt ? ' · ' : ''}update pending`) : ''}
+      </span> : null}
+      {result.generating ? <span role="status" className="inline-flex items-center gap-1.5 text-xs text-ink-faint"><Spinner />{text('正在整理说明', 'Preparing an explanation')}</span> : null}
+    </div> : null;
 
   const boundary = text('背景教学不计作研究进展；子任务完成不表示整个目标已经解决。', 'Background explanations are not research progress; finishing one task does not establish the overall goal.');
   const explanation = <>

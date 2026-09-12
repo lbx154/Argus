@@ -62,6 +62,47 @@ it('opens readable source text before the folded original JSON without generatin
   expect(generate).not.toHaveBeenCalled();
 });
 
+it('retains the same explanation title and generation time when new evidence makes it stale, while exposing original records', () => {
+  const props = inputs(), queryClient = cachedClient();
+  const copy = completedCopy(source.tasks[0], ['start-a'], 1789216023);
+  copy.cards.a.title = '先检查这个有限情形的边界';
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US'), copy);
+  const generate = vi.spyOn(api, 'generateMapCopy');
+  act(() => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} readOnly /></QueryClientProvider>); });
+  const body = renderer!.root.findByProps({ 'data-testid': 'research-brief-body' });
+  const displayed = body.findAllByType(MarkdownContent).map(item => item.props.children);
+  expect(displayed[0]).toBe(copy.cards.a.title);
+  expect(displayed).toContain(copy.cards.a.reader_brief!.why);
+  const status = renderer!.root.findByProps({ 'data-testid': 'research-brief-status' });
+  expect(status.findAllByType('span').some(item => item.children.includes('Previous explanation · '))).toBe(true);
+  expect(status.findByType('time').props.dateTime).toBe('2026-09-12T12:27:03.000Z');
+  expect(status.findAllByType('span').some(item => item.children.includes(' · update pending'))).toBe(true);
+
+  const open = renderer!.root.findAllByType('button').find(item => item.children.includes('View evidence'))!;
+  act(() => open.props.onClick());
+  const dialog = renderer!.root.findByProps({ role: 'dialog' });
+  expect(dialog.findAllByType(MarkdownContent).map(item => item.props.children)).toContain(source.tasks[0].objective);
+  expect(dialog.findByProps({ 'data-event-id': 'main-a' }).findByType('pre').children.join('')).toContain('A result was reported');
+  expect(generate).not.toHaveBeenCalled();
+});
+
+it('does not carry another task’s retained title or explanation across a task switch', () => {
+  const props = inputs(), queryClient = cachedClient();
+  const copy = completedCopy(source.tasks[0], ['start-a']);
+  copy.cards.a.title = '只属于任务甲的中文说明';
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US'), copy);
+  act(() => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} readOnly /></QueryClientProvider>); });
+  const next = inputs('b');
+  queryClient.setQueryData(briefLiveKey(next.sid, briefSelection(next.snapshot, next.view)), currentBriefData(source, next.sid, 'b'));
+  act(() => renderer!.update(<QueryClientProvider client={queryClient}><ResearchBrief {...next} active={false} readOnly /></QueryClientProvider>));
+  const body = renderer!.root.findByProps({ 'data-testid': 'research-brief-body' });
+  const displayed = body.findAllByType(MarkdownContent).map(item => item.props.children);
+  expect(displayed).toContain(source.tasks[1].title);
+  expect(displayed).not.toContain(copy.cards.a.title);
+  expect(displayed).not.toContain(copy.cards.a.reader_brief!.why);
+  expect(renderer!.root.findAllByProps({ 'data-testid': 'research-brief-status' })).toHaveLength(0);
+});
+
 it('fills a referenced draft when asked and does not send a model request', () => {
   const props = inputs(), queryClient = cachedClient(), onAsk = vi.fn();
   const generate = vi.spyOn(api, 'generateMapCopy');

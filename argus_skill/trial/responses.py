@@ -31,7 +31,8 @@ def request_payload(chat: dict) -> dict:
     payload = {
         "model": chat["model"], "input": items, "stream": chat["stream"],
         "max_output_tokens": chat["max_tokens"], "store": False,
-        "reasoning": {"effort": REASONING_EFFORT},
+        # Completion validates the requested effort before this wire conversion.
+        "reasoning": {"effort": chat.get("reasoning_effort") or REASONING_EFFORT},
     }
     if chat.get("tools"):
         payload["tools"] = [{**tool[tool["type"]], "type": tool["type"]} for tool in chat["tools"]]
@@ -46,8 +47,8 @@ def request_payload(chat: dict) -> dict:
         )
     if "parallel_tool_calls" in chat:
         payload["parallel_tool_calls"] = chat["parallel_tool_calls"]
-    # GPT-5.5 high does not accept chat sampling/penalty parameters. Reasoning,
-    # model and storage are server-controlled even for already-installed clients.
+    # Retain the trial's omission of chat sampling/penalty parameters.
+    # Model and storage remain server-controlled.
     return payload
 
 

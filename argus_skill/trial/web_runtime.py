@@ -11,7 +11,7 @@ from .socket_forward import start_forward
 
 def configure_provider(root: Path, config: dict) -> None:
     from ..core.knob_store import write_persisted_knobs
-    from ..core.knobs import KNOBS
+    from ..core.knobs import KNOBS, resolve_knob
     from . import CLIENT_MODEL, REASONING_EFFORT
 
     backend = os.environ.get("ARGUS_TRIAL_HARNESS", "copilot")
@@ -46,7 +46,8 @@ def configure_provider(root: Path, config: dict) -> None:
         for name in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "SUPERVISOR", "CURATOR"):
             knobs[f"ARGUS_SKILL_{name}_BACKEND"] = "pi"
     knobs.update({knob.name: REASONING_EFFORT for knob in KNOBS
-                  if knob.name.endswith("_REASONING_EFFORT")})
+                  if knob.name.endswith("_REASONING_EFFORT") and knob.name != "ARGUS_SKILL_MAP_REASONING_EFFORT"})
+    knobs["ARGUS_SKILL_MAP_REASONING_EFFORT"] = resolve_knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "medium").value
     os.environ.update(knobs)
     if not write_persisted_knobs(knobs):
         raise RuntimeError("Could not persist the trial provider configuration")
