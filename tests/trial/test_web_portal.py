@@ -1595,6 +1595,13 @@ def test_team_training_notice_requires_submission_and_keeps_external_choice_sepa
     with TestClient(app, base_url=ORIGIN, follow_redirects=False) as client:
         page = client.get("/invite")
         assert "内部模型训练" in page.text and "调用参数和执行结果" in page.text
+        assert "统筹、规划、执行、审查四个角色" in page.text
+        assert "系统提示和开发者指令" in page.text
+        assert "无工具调用、失败或未结束的过程也会保留" in page.text
+        assert "结构化隐藏推理和签名字段会被移除" in page.text
+        assert "不采集隐藏推理、系统提示或凭证" not in page.text
+        assert "疑似敏感的样本会被排除或隔离" not in page.text
+        assert 'id="data-notice" type="checkbox" required' in page.text
         assert 'id="external-sharing-notice" type="checkbox">' in page.text
         with analytics._db() as db:
             assert db.execute("SELECT count(*) FROM consents").fetchone()[0] == 0
