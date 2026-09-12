@@ -7,6 +7,10 @@ installations do not enable this service automatically.
 
 ## Mission map
 
+The configured hosted frontend is shared by authenticated invitation and
+administrator workspaces. Their project APIs remain separately routed; sharing
+the interface does not merge projects, credentials, or conversation records.
+
 The map shows the latest page of each mission as a single card by default.
 **History** expands its earlier pages without creating new tasks or removing
 events. Grouping follows durable task IDs, not similar titles. **Locate current**

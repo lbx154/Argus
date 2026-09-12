@@ -752,7 +752,8 @@ def test_model_configuration_is_readable_without_allowing_changes(provisioned):
             }).status_code == 403
 
 
-def test_hosted_frontend_is_authenticated_and_keeps_apis_tenant_scoped(provisioned, tmp_path):
+@pytest.mark.parametrize("role", ["trial", "admin"])
+def test_hosted_frontend_is_authenticated_and_keeps_apis_tenant_scoped(provisioned, tmp_path, role):
     config, vault, _ = provisioned
     frontend = tmp_path / "frontend"
     (frontend / "assets").mkdir(parents=True)
@@ -768,7 +769,13 @@ def test_hosted_frontend_is_authenticated_and_keeps_apis_tenant_scoped(provision
     with client_for(provisioned, upstream) as client:
         assert client.get("/").status_code == 303
         assert client.get("/assets/app.js").status_code == 401
-        login(client, vault, readonly=True)
+        if role == "admin":
+            response = client.post("/admin/login", headers={"Origin": ORIGIN}, json={
+                "admin_login_token": config["admin_login_token"], "readonly": True,
+            })
+            assert response.status_code == 200
+        else:
+            login(client, vault, readonly=True)
         response = client.get("/")
         nonce = response.headers["content-security-policy"].split("'nonce-", 1)[1].split("'", 1)[0]
         assert f'<script nonce="{nonce}">' in response.text
@@ -776,7 +783,8 @@ def test_hosted_frontend_is_authenticated_and_keeps_apis_tenant_scoped(provision
         assert not calls
         assert client.get("/assets/previous.js").text == "old-container-response"
         assert client.get("/api/projects/p/status").status_code == 200
-        assert all(call.headers["authorization"] == "Bearer internal-trial-01-secret" for call in calls)
+        backend = config["admin"] if role == "admin" else config["tenants"]["trial-01"]
+        assert all(call.headers["authorization"] == f"Bearer {backend['token']}" for call in calls)
         assert client.post("/assets/app.js", headers={"Origin": ORIGIN}).status_code == 403
 
 

@@ -895,7 +895,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             if identity["readonly"]:
                 raise HTTPException(403, "Read-only session")
         if (
-            frontend is not None and identity["role"] == "trial"
+            frontend is not None
             and request.method in SAFE_METHODS and canonical_path(path)
         ):
             if path in {"/", "/index.html"}:
