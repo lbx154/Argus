@@ -89,6 +89,9 @@ def main() -> None:
         "ARGUS_SKILL_HOME": str(root), "ARGUS_SKILL_SOURCE_ROOT": str(source),
         "ARGUS_SKILL_PYTHON": sys.executable, "PYTHONPATH": str(source),
     })
+    from .plugins import configure_plugins
+
+    configure_plugins(root)
     vault = Vault(settings.key_file, settings.state_dir / "github-token.enc")
 
     if args.tenant:

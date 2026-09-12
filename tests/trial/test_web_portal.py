@@ -623,6 +623,73 @@ def test_preview_page_keeps_its_sandbox_policy(provisioned):
         assert other.headers["content-security-policy"].startswith("default-src 'self'")
 
 
+@pytest.mark.parametrize("route", [
+    "launch", "preferences", "config", "manage/health", "manage/repair", "manage/shelx",
+    "projects/open", "projects/settings", "projects/upload", "projects/import-structure",
+    "projects/restart_engine", "projects/mcp_status", "threads/send", "threads/interrupt",
+    "threads/steer", "threads/rename", "threads/compact", "threads/fork", "approvals/decide",
+    "system/pick_folder", "ui/diagnostics", "wb/refine/analysis/jobs",
+    "wb/refine/analysis/jobs/job-one/cancel", "wb/refine/analysis/jobs/job-one/release",
+])
+def test_workbench_writes_use_invitation_authority_and_respect_kiosk(provisioned, route):
+    config, vault, _ = provisioned
+    calls = []
+
+    def upstream(request):
+        calls.append(request)
+        return httpx.Response(200, stream=Chunks([b'{"ok":true}']),
+                              headers={"Set-Cookie": "argus_plugin_access=backend-secret"})
+
+    path = "/api/plugins/crystalpilot/" + route
+    with client_for(provisioned, upstream) as client:
+        assert client.post(path, headers={"Origin": ORIGIN}, json={}).status_code == 401
+        for tenant in ("trial-01", "trial-02", "trial-11"):
+            login(client, vault, tenant=tenant)
+            count = len(calls)
+            assert client.post(path, json={}).status_code == 403
+            assert client.post(path, headers={"Origin": "https://evil.test"}, json={}).status_code == 403
+            assert len(calls) == count
+            result = client.post(path, headers={"Origin": ORIGIN}, json={})
+            assert result.status_code == 200 and "set-cookie" not in result.headers
+            assert calls[-1].url.host == tenant
+            assert calls[-1].headers["authorization"] == "Bearer " + config["tenants"][tenant]["token"]
+            assert "cookie" not in calls[-1].headers
+        login(client, vault, readonly=True)
+        count = len(calls)
+        assert client.post(path, headers={"Origin": ORIGIN}, json={}).status_code == 403
+        assert len(calls) == count
+
+
+@pytest.mark.parametrize("route", [
+    "crystalpilot/manage/install", "crystalpilot/manage/update", "crystalpilot/manage/disable",
+    "crystalpilot/manage/uninstall", "crystalpilot/manage/configure", "crystalpilot/manage/enable",
+    "crystalpilot/unknown", "unreviewed/launch",
+])
+def test_public_plugin_access_does_not_enable_arbitrary_administration(provisioned, route):
+    _, vault, _ = provisioned
+    calls = []
+    with client_for(provisioned, lambda request: calls.append(request)) as client:
+        login(client, vault)
+        assert client.post("/api/plugins/" + route, headers={"Origin": ORIGIN}).status_code == 403
+        assert calls == []
+
+
+def test_workbench_page_can_initialize_without_relaxing_global_script_policy(provisioned):
+    _, vault, _ = provisioned
+    document = b'<html><script>document.documentElement.dataset.palette="kimi"</script></html>'
+    with client_for(provisioned, lambda request: httpx.Response(
+        200, stream=Chunks([document]), headers={"Content-Type": "text/html"},
+    )) as client:
+        login(client, vault)
+        page = client.get("/plugins/crystalpilot/")
+        assert page.status_code == 200
+        policy = page.headers["content-security-policy"]
+        nonce = policy.split("'nonce-", 1)[1].split("'", 1)[0]
+        assert f'<script nonce="{nonce}">' in page.text
+        assert "'unsafe-inline'" not in policy.split("script-src", 1)[1].split(";", 1)[0]
+        assert "nonce-" not in client.get("/unrelated").headers["content-security-policy"]
+
+
 def test_quota_isolation_persistence_and_no_recovery(provisioned, monkeypatch):
     _, vault, store = provisioned
     first = store.reserve("trial-01", 500)

@@ -1,6 +1,7 @@
 """Optional plugin center plus dynamically activated, authenticated workbenches."""
 
 import logging
+import os
 import threading
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
@@ -41,6 +42,10 @@ class PluginSurface:
         if key not in self.apps:
             host = FastAPI()
             plugin.mount(host, self.ctx)
+            if os.environ.get("ARGUS_TRIAL_HARNESS") and name == "crystalpilot":
+                from ...trial.plugins import workspace_boundary
+
+                host.middleware("http")(workspace_boundary)
             self.apps[key] = host
         await self.apps[key](scope, receive, send)
 
@@ -69,12 +74,27 @@ def register_plugin_routes(app, ctx):
 
     @app.get("/api/plugins", dependencies=[Depends(ctx.require_auth)])
     def list_plugins():
-        return {"plugins": manager.plugin_rows(ctx.global_root)}
+        rows = manager.plugin_rows(ctx.global_root)
+        if os.environ.get("ARGUS_TRIAL_HARNESS"):
+            from ...trial.plugins import SETUP_ACTIONS
+
+            for row in rows:
+                if row.get("setup"):
+                    row["setup"] = {
+                        **row["setup"],
+                        "actions": [a for a in row["setup"]["actions"] if a in SETUP_ACTIONS],
+                    }
+        return {"plugins": rows}
 
     @app.post("/api/plugins/{plugin_id}/manage/{action}", dependencies=[Depends(ctx.require_auth)])
     def manage(
         plugin_id: str, action: str, request: Request, payload: dict = Body(default_factory=dict)
     ):
+        if os.environ.get("ARGUS_TRIAL_HARNESS"):
+            from ...trial.plugins import SETUP_ACTIONS
+
+            if action not in SETUP_ACTIONS:
+                raise HTTPException(403, "Plugin installation is managed by the service")
         origin = request.headers.get("origin")
         from urllib.parse import urlparse
 
