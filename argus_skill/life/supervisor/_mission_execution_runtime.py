@@ -279,7 +279,9 @@ class MissionExecutionRuntimeMixin:
         metadata = json.loads(sidecar.read_text(encoding="utf-8"))
         repository = Path(metadata["repository"]).expanduser().resolve(strict=True)
         worktree = Path(metadata["worktree"]).expanduser().resolve(strict=True)
-        if worktree != Path(state.execution_workdir).resolve(strict=True):
+        execution_workdir = state.execution_workdir
+        assert execution_workdir is not None, "maintenance settlement requires prepared workdir"
+        if worktree != execution_workdir.resolve(strict=True):
             raise ValueError("maintenance worktree does not match its runtime record")
 
         runtime_dir = worktree / ".argus-self-maintenance-runtime"
@@ -688,7 +690,8 @@ class MissionExecutionRuntimeMixin:
                     materialize_learned_data_domain,
                 )
 
-                vertical_root = Path(state.vertical_root)
+                vertical_root = state.vertical_root
+                assert vertical_root is not None, "execution requires prepared vertical root"
                 materialize_learned_data_domain(
                     self._budget_global_root(),
                     vertical_root,
@@ -835,7 +838,8 @@ class MissionExecutionRuntimeMixin:
                     None,
                 )
                 if overrides_runner_policy_root:
-                    self.runner._artifact_root = Path(state.vertical_root)
+                    assert state.vertical_root is not None, "execution requires prepared vertical root"
+                    self.runner._artifact_root = state.vertical_root
                 try:
                     state.outcome = self.runner.execute(**execute_kwargs)
                 finally:
@@ -897,7 +901,9 @@ class MissionExecutionRuntimeMixin:
                 # after Engineer has returned. There is no interrupted backend
                 # call to attach a stop kind; the typed pause remains resumable.
                 state.stop_kind = "daemon_shutdown"
-        usage_summary = state.cost_sink.usage_summary()
+        cost_sink = state.cost_sink
+        assert cost_sink is not None, "outcome derivation requires prepared cost sink"
+        usage_summary = cost_sink.usage_summary()
         state.usage_summary = usage_summary
         state.usd = usage_summary.cost_usd
         state.known_usd = usage_summary.known_cost_usd
@@ -905,10 +911,12 @@ class MissionExecutionRuntimeMixin:
             # Deterministic/memory runners used by tests do not own real
             # ``run_exec`` calls. Persist their aggregate once so subsequent
             # budget checks still exercise the same ledger-only read path.
-            UsageLedger(state.usage_root, migrate_legacy=False).append(
+            usage_root = state.usage_root
+            assert usage_root is not None, "aggregate metering requires prepared usage root"
+            UsageLedger(usage_root, migrate_legacy=False).append(
                 UsageRecord(
                     call_id=f"memory-mission:{item.id}:{int(state.t0 * 1_000_000)}",
-                    project_id=state.usage_root.name,
+                    project_id=usage_root.name,
                     mission_id=state.usage_attempt_id,
                     provider="memory",
                     model="",
@@ -984,7 +992,8 @@ class MissionExecutionRuntimeMixin:
                 state.stop_reason = "external-work pause lacks a structured wait request"
                 return None
             wait_kind, work_id = wait_request
-            workdir = Path(state.execution_workdir)
+            workdir = state.execution_workdir
+            assert workdir is not None, "external-work pause requires prepared workdir"
             external_work = inspect_external_work(workdir, work_id)
             if external_work is None or not external_work.waitable:
                 self.memory.backlog.update(
@@ -1004,6 +1013,8 @@ class MissionExecutionRuntimeMixin:
                         "workdir": str(workdir),
                     },
                 }
+            usage_summary = state.usage_summary
+            assert usage_summary is not None, "pause settlement requires metered outcome"
             pause_outcome = mission_outcome_dimensions(
                 status=state.status,
                 success=False,
@@ -1041,7 +1052,7 @@ class MissionExecutionRuntimeMixin:
                 "external_wait": pause_outcome["external_wait"],
                 "cost_usd": state.usd,
                 "known_cost_usd": state.known_usd,
-                "pricing_status": state.usage_summary.pricing_status,
+                "pricing_status": usage_summary.pricing_status,
                 "spent_usd": state.known_usd,
             })
             return {
@@ -1052,7 +1063,7 @@ class MissionExecutionRuntimeMixin:
                 "external_wait": pause_outcome["external_wait"],
                 "cost_usd": state.usd,
                 "known_cost_usd": state.known_usd,
-                "pricing_status": state.usage_summary.pricing_status,
+                "pricing_status": usage_summary.pricing_status,
             }
         pause_status = pause_status_for_stop_kind(state.stop_kind)
         if state.status == "budget_exhausted":
@@ -1064,6 +1075,8 @@ class MissionExecutionRuntimeMixin:
             parked = self._maybe_park_permanent_provider_failure(state)
             if parked is not None:
                 return parked
+        usage_summary = state.usage_summary
+        assert usage_summary is not None, "pause settlement requires metered outcome"
         pause_outcome = mission_outcome_dimensions(
             status=pause_status,
             success=False,
@@ -1102,7 +1115,7 @@ class MissionExecutionRuntimeMixin:
             "recoverable": True,
             "cost_usd": state.usd,
             "known_cost_usd": state.known_usd,
-            "pricing_status": state.usage_summary.pricing_status,
+            "pricing_status": usage_summary.pricing_status,
             "spent_usd": state.known_usd,
             "context_packet": (
                 str(state.context_packet_path.parent / "latest.json")
@@ -1118,7 +1131,7 @@ class MissionExecutionRuntimeMixin:
             "recoverable": True,
             "cost_usd": state.usd,
             "known_cost_usd": state.known_usd,
-            "pricing_status": state.usage_summary.pricing_status,
+            "pricing_status": usage_summary.pricing_status,
             "context_packet": (
                 str(state.context_packet_path.parent / "latest.json")
                 if state.context_packet_path is not None
@@ -1175,6 +1188,8 @@ class MissionExecutionRuntimeMixin:
         from ...core.operator_decision import build_operator_decision
         from .pending_notify import notify_pending_question
 
+        usage_summary = state.usage_summary
+        assert usage_summary is not None, "provider parking requires metered outcome"
         question = (
             "The model configuration for this task has failed the same way "
             f"{streak} times in a row: {state.stop_reason} "
@@ -1262,7 +1277,7 @@ class MissionExecutionRuntimeMixin:
             "recoverable": True,
             "cost_usd": state.usd,
             "known_cost_usd": state.known_usd,
-            "pricing_status": state.usage_summary.pricing_status,
+            "pricing_status": usage_summary.pricing_status,
             "spent_usd": state.known_usd,
         })
         return {
@@ -1273,7 +1288,7 @@ class MissionExecutionRuntimeMixin:
             "recoverable": True,
             "cost_usd": state.usd,
             "known_cost_usd": state.known_usd,
-            "pricing_status": state.usage_summary.pricing_status,
+            "pricing_status": usage_summary.pricing_status,
         }
 
 

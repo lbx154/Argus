@@ -98,6 +98,8 @@ class MissionExecutionSettlementMixin:
                     + (": " + "; ".join(guard_errors) if guard_errors else "")
                 )
         elif state.repair_capability is not None and state.repair_store is not None:
+            repair_identity = state.repair_identity
+            assert repair_identity is not None, "claimed repair requires its campaign identity"
             reviewer_status = str(
                 getattr(outcome, "final_review_status", "") or ""
             ).strip().lower()
@@ -110,7 +112,7 @@ class MissionExecutionSettlementMixin:
                 repair_settlement = state.repair_store.close_repair_capability(
                     capability_id=str(state.repair_capability["capability_id"]),
                     nonce=str(state.repair_capability["nonce"]),
-                    identity=state.repair_identity,
+                    identity=repair_identity,
                     accepted=reviewer_accepted,
                     reason=(
                         str(getattr(outcome, "stop_reason", "") or "")
@@ -189,6 +191,7 @@ class MissionExecutionSettlementMixin:
             from ...skills.stage_machine import current_stage
 
             policy_root = state.vertical_root
+            assert policy_root is not None, "stage settlement requires prepared vertical root"
             live_stage = current_stage(policy_root) or state.pipeline_stage_at_start
             guard_reason = (
                 f"dynamic plan {item.plan_id} still has unfinished current-stage "
@@ -312,6 +315,8 @@ class MissionExecutionSettlementMixin:
             and stage_action in {"advance", "rollback"}
         )
         if staged_item_continues:
+            usage_summary = state.usage_summary
+            assert usage_summary is not None, "stage settlement requires metered outcome"
             self.memory.backlog.update(
                 item.id,
                 status="pending",
@@ -328,7 +333,7 @@ class MissionExecutionSettlementMixin:
                 "stage_transition": stage_transition,
                 "cost_usd": state.usd,
                 "known_cost_usd": state.known_usd,
-                "pricing_status": state.usage_summary.pricing_status,
+                "pricing_status": usage_summary.pricing_status,
             }
 
         bounded_stage_hold = (
@@ -340,6 +345,8 @@ class MissionExecutionSettlementMixin:
             and stage_action == "hold"
         )
         if bounded_stage_hold:
+            usage_summary = state.usage_summary
+            assert usage_summary is not None, "stage settlement requires metered outcome"
             hold_reason = str(
                 stage_transition.get("reason")
                 or "Manager held the current stage"
@@ -373,7 +380,7 @@ class MissionExecutionSettlementMixin:
                 "stage_transition": stage_transition,
                 "cost_usd": state.usd,
                 "known_cost_usd": state.known_usd,
-                "pricing_status": state.usage_summary.pricing_status,
+                "pricing_status": usage_summary.pricing_status,
             }
 
         # Planner-authored bounded DAG nodes are separate acceptance units: once
@@ -427,9 +434,11 @@ class MissionExecutionSettlementMixin:
                 vertical_iteration_assessment,
             )
 
+            vertical_root = state.vertical_root
+            assert vertical_root is not None, "iteration requires prepared vertical root"
             vertical = load_vertical(
-                resolve_vertical(state.vertical_root),
-                project_root=state.vertical_root,
+                resolve_vertical(vertical_root),
+                project_root=vertical_root,
             )
             assessment = vertical_iteration_assessment(
                 vertical,
@@ -438,7 +447,7 @@ class MissionExecutionSettlementMixin:
                 project_root=Path(
                     state.execution_workdir or self._project_workdir()
                 ),
-                state_root=Path(state.vertical_root),
+                state_root=vertical_root,
                 mission=item,
                 outcome=outcome,
             )
@@ -634,8 +643,10 @@ class MissionExecutionSettlementMixin:
                         "authority_impact": "technical",
                         "auto_continued": True,
                     })
-                    outcome.final_planner_report = planner_report
-                    outcome.operator_question = ""
+                    # Runner and guard outcomes have different concrete shapes;
+                    # keep policy write-back as explicit duck-typed adaptation.
+                    setattr(outcome, "final_planner_report", planner_report)
+                    setattr(outcome, "operator_question", "")
                     self._emit({
                         "type": EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED,
                         "item_id": item.id,
@@ -789,8 +800,8 @@ class MissionExecutionSettlementMixin:
             )
             if forbid_operator_parking:
                 operator_question = ""
-                outcome.operator_question = ""
-                outcome.operator_options = []
+                setattr(outcome, "operator_question", "")
+                setattr(outcome, "operator_options", [])
 
         maintenance_reviewed = bool(
             "framework_maintenance" in state.item_tags
@@ -1107,6 +1118,8 @@ class MissionExecutionSettlementMixin:
         """
         item = state.item
         outcome = state.outcome
+        cost_sink = state.cost_sink
+        assert cost_sink is not None, "outcome publication requires prepared cost sink"
         success = state.success
         status = state.status
 
@@ -1137,7 +1150,7 @@ class MissionExecutionSettlementMixin:
             ),
             source_campaign=str(state.execution_workdir or self._project_workdir()),
         )
-        state.usage_summary = state.cost_sink.usage_summary()
+        state.usage_summary = cost_sink.usage_summary()
         state.usd = state.usage_summary.cost_usd
         state.known_usd = state.usage_summary.known_cost_usd
 
@@ -1319,7 +1332,6 @@ class MissionExecutionSettlementMixin:
             )
         except Exception:  # noqa: BLE001 - metrics never own settlement
             log.debug("goal mission metric skipped", exc_info=True)
-        cost_sink = state.cost_sink
         scientist_totals = cost_sink.scientist_totals()
         scientist_usage_by_model = cost_sink.scientist_usage_by_model_snapshot()
         self._capture_failure_experience(state)

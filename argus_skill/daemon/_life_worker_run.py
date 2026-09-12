@@ -36,6 +36,9 @@ _RUNNING_STALL_POLL_SECONDS = 1.0
 class LifeWorkerRunMixin:
     """``run_forever``'s post-boot phases: main loop and shutdown."""
 
+    # Constructed by LifeWorker; every run/lock wait observes this same signal.
+    _stop: threading.Event
+
     def _fail_stalled_running_items(self, rf_state: _RunForeverState) -> list[str]:
         """Fail durable running claims whose executor thread is no longer alive."""
         from ..core.event_catalog import EventType

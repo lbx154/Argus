@@ -244,7 +244,7 @@ def manager_pipeline_boundary(
     kwargs: dict[str, Any] = {}
     if callable(factory) and cancelled is not None:
         try:
-            parameters = signature(factory).parameters.values()
+            parameters = tuple(signature(factory).parameters.values())
         except (TypeError, ValueError):
             parameters = ()
         if any(
