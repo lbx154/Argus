@@ -22,8 +22,9 @@ from ..core.session import (
     update_session_meta,
 )
 from ..daemon.life_worker import read_continuous_state
+from ..daemon.state import read_daemon_status
 from . import project_state
-from ._server_module import server_module as _srv
+from .daemon_services import DaemonStatusReader
 
 _global_root = project_state.resolve_global_root
 project_life_dir = project_state.project_life_dir
@@ -69,6 +70,7 @@ def delete_project(
     *,
     global_root: Path | str | None = None,
     lifecycle_root: Path | str | None = None,
+    read_status: DaemonStatusReader = read_daemon_status,
 ) -> dict[str, Any] | None:
     """Reversibly remove a stopped session by moving it to projects_trash."""
     from .manager_state import manager_context_lock, release_manager_context
@@ -81,7 +83,7 @@ def delete_project(
                 life_dir = project_life_dir(sid, global_root=root)
                 if life_dir is None:
                     return None
-                status = _srv().read_daemon_status(life_dir)
+                status = read_status(life_dir)
                 if status.alive:
                     return {
                         "ok": False,

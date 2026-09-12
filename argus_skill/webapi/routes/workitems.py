@@ -14,6 +14,8 @@ from typing import Any
 from fastapi import Depends, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
+from ...manager.front_door import ManagerHandoffError, ManagerHandoffSupersededError
+from .. import mission_items
 from .context import ServerContext
 from .models import (
     AbortMissionIn,
@@ -37,18 +39,19 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
         try:
             response = ctx.not_found_if_none(
                 await run_in_threadpool(
-                    server_mod.enqueue_task_command,
+                    mission_items.enqueue_task_command,
                     sid,
                     body.text,
                     autostart_daemon=body.autostart_daemon,
                     global_root=project_root,
-                    lifecycle_root=server_mod._global_root(ctx.global_root),
+                    lifecycle_root=ctx.roots[0],
+                    start_daemon=ctx.daemon_services.start,
                 ),
                 sid,
             )
-        except server_mod.ManagerHandoffSupersededError as exc:
+        except ManagerHandoffSupersededError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except server_mod.ManagerHandoffError as exc:
+        except ManagerHandoffError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -59,7 +62,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
         if not body.text.strip():
             raise HTTPException(status_code=400, detail="empty nudge text")
         ctx.not_found_if_none(
-            server_mod.enqueue_nudge(
+            mission_items.enqueue_nudge(
                 sid, body.text, global_root=ctx.project_root_or_404(sid)
             ),
             sid,
@@ -91,7 +94,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
             raise HTTPException(status_code=409, detail=result["error"])
         if result.get("resolved") and result.get("resume_requested", True):
             result["daemon"] = await run_in_threadpool(
-                server_mod.start_project_daemon,
+                ctx.daemon_services.start,
                 sid,
                 global_root=project_root,
                 reclaim_idle=True,
@@ -125,7 +128,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
             and result.get("resume_requested", True)
         ):
             result["daemon"] = await run_in_threadpool(
-                server_mod.start_project_daemon,
+                ctx.daemon_services.start,
                 sid,
                 global_root=project_root,
                 resume_continuous=bool(result.get("continuous")),
@@ -139,7 +142,12 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
     )
     def _status(sid: str) -> dict[str, Any]:
         return ctx.not_found_if_none(
-            server_mod.get_status(sid, global_root=ctx.project_root_or_404(sid)), sid
+            mission_items.get_status(
+                sid,
+                global_root=ctx.project_root_or_404(sid),
+                read_status=ctx.daemon_services.read_status,
+            ),
+            sid,
         )
 
     @app.get(
@@ -149,7 +157,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
     def _journal(sid: str, n: int = Query(10, ge=1, le=500)) -> dict[str, Any]:
         return {
             "journal": ctx.not_found_if_none(
-                server_mod.get_journal(
+                mission_items.get_journal(
                     sid, n=n, global_root=ctx.project_root_or_404(sid)
                 ),
                 sid,
@@ -163,7 +171,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
     def _transcript(sid: str, n: int = Query(20, ge=1, le=500)) -> dict[str, Any]:
         return {
             "turns": ctx.not_found_if_none(
-                server_mod.get_transcript(
+                mission_items.get_transcript(
                     sid, n=n, global_root=ctx.project_root_or_404(sid)
                 ),
                 sid,
@@ -175,7 +183,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
         dependencies=[Depends(ctx.require_auth)],
     )
     def _backlog_item(sid: str, item_id: str) -> dict[str, Any]:
-        item = server_mod.get_backlog_item(
+        item = mission_items.get_backlog_item(
             sid, item_id, global_root=ctx.project_root_or_404(sid)
         )
         if item is None:
@@ -188,7 +196,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
             raise HTTPException(status_code=400, detail="empty note text")
         return {
             "result": ctx.not_found_if_none(
-                server_mod.add_project_note(
+                mission_items.add_project_note(
                     sid, body.text, global_root=ctx.project_root_or_404(sid)
                 ),
                 sid,
@@ -224,7 +232,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
     def _dispose(sid: str, item_id: str, body: DisposeIn) -> dict[str, Any]:
         if body.op not in ("done", "skip", "rm"):
             raise HTTPException(status_code=400, detail="op must be done|skip|rm")
-        item = server_mod.dispose_backlog(
+        item = mission_items.dispose_backlog(
             sid,
             item_id,
             body.op,
@@ -239,7 +247,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
         request = body or AbortMissionIn()
         project_root = ctx.project_root_or_404(sid)
         result = ctx.not_found_if_none(
-            server_mod.abort_project_mission(
+            mission_items.abort_project_mission(
                 sid,
                 reason=request.reason,
                 requested_by="operator",
@@ -253,7 +261,7 @@ def register_workitem_routes(app, ctx: ServerContext, server_mod) -> None:
 
     @app.post("/api/projects/{sid}/backlog/{item_id}/stop", dependencies=[Depends(ctx.require_auth)])
     def _stop_item(sid: str, item_id: str) -> dict[str, Any]:
-        item = server_mod.stop_backlog_iteration(
+        item = mission_items.stop_backlog_iteration(
             sid, item_id, global_root=ctx.project_root_or_404(sid)
         )
         if item is None:

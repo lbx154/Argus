@@ -230,8 +230,7 @@ def test_final_review_uses_existing_request_id_without_content_hashes(
     created = server.create_daemon(workdir=str(workspace), global_root=state)
     sid = created["sid"]
     monkeypatch.setattr(
-        server,
-        "enqueue_task_command",
+        "argus_skill.webapi.mission_items.enqueue_task_command",
         lambda *args, **kwargs: {"ok": True},
     )
     client = TestClient(server.create_app(global_root=state))

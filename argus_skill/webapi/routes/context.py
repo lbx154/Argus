@@ -21,6 +21,7 @@ from typing import Any, Callable
 from fastapi import Header, HTTPException
 
 from ...core import paths as core_paths
+from ..daemon_services import DaemonServices
 from ..index_cache import IndexCache, resolve_snapshot_ttl_seconds
 
 
@@ -38,11 +39,13 @@ class ServerContext:
         list_project_costs: Callable[..., list[dict[str, Any]]],
         list_trashed_projects: Callable[..., list[dict[str, Any]]],
         project_life_dir: Callable[..., Path | None],
+        daemon_services: DaemonServices,
     ) -> None:
         self.global_root = global_root
         self.token = token
         self.roots = roots
         self.api_meta = api_meta
+        self.daemon_services = daemon_services
         self._list_projects = list_projects
         self._list_project_costs = list_project_costs
         self._list_trashed_projects = list_trashed_projects

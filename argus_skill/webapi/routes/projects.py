@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import Depends, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
+from .. import project_crud
 from .context import ServerContext
 from .models import LaunchCwdIn, ProjectUpdateIn, WorkdirIn
 
@@ -85,7 +86,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
         entry = next(
             (
                 item
-                for item in server_mod.list_trashed_projects(global_root=ctx.roots[index])
+                for item in project_crud.list_trashed_projects(global_root=ctx.roots[index])
                 if item["trash_path"] == relative
             ),
             None,
@@ -101,7 +102,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
                 detail="a session with this id already exists",
             )
         result = await run_in_threadpool(
-            server_mod.restore_trashed_project,
+            project_crud.restore_trashed_project,
             relative,
             global_root=ctx.roots[index],
             existing_roots=ctx.roots,
@@ -149,7 +150,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
     async def _update_project(sid: str, body: ProjectUpdateIn) -> dict[str, Any]:
         return ctx.not_found_if_none(
             await run_in_threadpool(
-                server_mod.update_project,
+                project_crud.update_project,
                 sid,
                 name=body.name,
                 global_root=ctx.project_root_or_404(sid),
@@ -161,10 +162,11 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
     async def _delete_project(sid: str) -> dict[str, Any]:
         result = ctx.not_found_if_none(
             await run_in_threadpool(
-                server_mod.delete_project,
+                project_crud.delete_project,
                 sid,
                 global_root=ctx.project_root_or_404(sid),
-                lifecycle_root=server_mod._global_root(ctx.global_root),
+                lifecycle_root=ctx.roots[0],
+                read_status=ctx.daemon_services.read_status,
             ),
             sid,
         )

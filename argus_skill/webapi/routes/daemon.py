@@ -74,7 +74,7 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
 
         def start_and_resume() -> dict[str, Any]:
             result = ctx.not_found_if_none(
-                server_mod.start_project_daemon(
+                ctx.daemon_services.start(
                     sid,
                     global_root=project_root,
                     resume_continuous=True,
@@ -229,7 +229,7 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
         response: dict[str, Any] = {"ok": True}
         if body.enabled:
             response["daemon"] = await run_in_threadpool(
-                server_mod.start_project_daemon,
+                ctx.daemon_services.start,
                 sid,
                 global_root=project_root,
                 resume_continuous=True,

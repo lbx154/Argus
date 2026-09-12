@@ -32,9 +32,24 @@ from argus_skill.webapi import (
     project_state,
     server,
 )
+from argus_skill.webapi.daemon_services import DaemonServices
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
+
+
+def _daemon_services(*, alive: bool = False) -> DaemonServices:
+    return DaemonServices(
+        read_status=lambda path: server.DaemonStatus(
+            alive=alive,
+            pid=123 if alive else None,
+            started_at_iso=None,
+            uptime_seconds=5.0 if alive else None,
+            life_dir=Path(path),
+            pid_path=Path(path) / "daemon.pid",
+        ),
+        start=daemon_lifecycle.start_project_daemon,
+    )
 
 
 def _make_project(root: Path, sid: str = "s-cmd00001") -> Path:
@@ -1625,17 +1640,16 @@ def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> No
     root, sid, _life = ctx
     starts = []
     stops = []
-    monkeypatch.setattr(
-        server,
-        "start_project_daemon",
-        lambda project_id, **kwargs: starts.append(project_id) or {"rc": 0, "already_alive": False},
+    services = DaemonServices(
+        read_status=server.read_daemon_status,
+        start=lambda project_id, **kwargs: starts.append(project_id) or {"rc": 0, "already_alive": False},
     )
     monkeypatch.setattr(
         server,
         "stop_project_daemon",
         lambda project_id, **kwargs: stops.append(project_id) or {"rc": 0},
     )
-    client = TestClient(server.create_app(global_root=root))
+    client = TestClient(server.create_app(global_root=root, daemon_services=services))
 
     body = {"command_id": "cmd-start", "expected_revision": 0}
     first = client.post(f"/api/projects/{sid}/daemon/start", json=body).json()
@@ -1698,7 +1712,7 @@ def test_project_update_preserves_legacy_continuous_objective(ctx) -> None:
     assert meta["objective"] == "Keep studying"
 
 
-def test_project_delete_moves_stopped_session_to_trash(ctx, monkeypatch) -> None:
+def test_project_delete_moves_stopped_session_to_trash(ctx) -> None:
     root, sid, life = ctx
     workdir = root / "workspaces" / sid
     workdir.mkdir(parents=True)
@@ -1706,19 +1720,8 @@ def test_project_delete_moves_stopped_session_to_trash(ctx, monkeypatch) -> None
     meta = json.loads((life / "session.json").read_text(encoding="utf-8"))
     meta["workdir"] = str(workdir)
     (life / "session.json").write_text(json.dumps(meta), encoding="utf-8")
-    monkeypatch.setattr(
-        server,
-        "read_daemon_status",
-        lambda path: server.DaemonStatus(
-            alive=False,
-            pid=None,
-            started_at_iso=None,
-            uptime_seconds=None,
-            life_dir=Path(path),
-            pid_path=Path(path) / "daemon.pid",
-        ),
-    )
-    client = TestClient(server.create_app(global_root=root))
+    services = _daemon_services(alive=False)
+    client = TestClient(server.create_app(global_root=root, daemon_services=services))
 
     r = client.delete(f"/api/projects/{sid}")
 
@@ -1732,7 +1735,7 @@ def test_project_delete_moves_stopped_session_to_trash(ctx, monkeypatch) -> None
     assert not life.exists()
 
 
-def test_project_delete_releases_warm_manager_runner(ctx, monkeypatch) -> None:
+def test_project_delete_releases_warm_manager_runner(ctx) -> None:
     root, sid, _life = ctx
     closed: list[str] = []
     state = manager_state._chat_state_for(sid)
@@ -1742,41 +1745,19 @@ def test_project_delete_releases_warm_manager_runner(ctx, monkeypatch) -> None:
         ),
         reset_chat_session=lambda: closed.append("session"),
     )
-    monkeypatch.setattr(
-        server,
-        "read_daemon_status",
-        lambda path: server.DaemonStatus(
-            alive=False,
-            pid=None,
-            started_at_iso=None,
-            uptime_seconds=None,
-            life_dir=Path(path),
-            pid_path=Path(path) / "daemon.pid",
-        ),
-    )
+    services = _daemon_services(alive=False)
 
-    response = TestClient(server.create_app(global_root=root)).delete(f"/api/projects/{sid}")
+    response = TestClient(server.create_app(global_root=root, daemon_services=services)).delete(f"/api/projects/{sid}")
 
     assert response.status_code == 200
     assert closed == ["acp", "session"]
     assert sid not in manager_state._STATES
 
 
-def test_project_trash_can_be_listed_and_restored(ctx, monkeypatch) -> None:
+def test_project_trash_can_be_listed_and_restored(ctx) -> None:
     root, sid, life = ctx
-    monkeypatch.setattr(
-        server,
-        "read_daemon_status",
-        lambda path: server.DaemonStatus(
-            alive=False,
-            pid=None,
-            started_at_iso=None,
-            uptime_seconds=None,
-            life_dir=Path(path),
-            pid_path=Path(path) / "daemon.pid",
-        ),
-    )
-    client = TestClient(server.create_app(global_root=root))
+    services = _daemon_services(alive=False)
+    client = TestClient(server.create_app(global_root=root, daemon_services=services))
     deleted = client.delete(f"/api/projects/{sid}").json()
 
     entries = client.get("/api/trash").json()["entries"]
@@ -1790,21 +1771,10 @@ def test_project_trash_can_be_listed_and_restored(ctx, monkeypatch) -> None:
     assert client.get("/api/trash").json()["entries"] == []
 
 
-def test_trash_restore_rejects_date_bucket(ctx, monkeypatch) -> None:
+def test_trash_restore_rejects_date_bucket(ctx) -> None:
     root, sid, _life = ctx
-    monkeypatch.setattr(
-        server,
-        "read_daemon_status",
-        lambda path: server.DaemonStatus(
-            alive=False,
-            pid=None,
-            started_at_iso=None,
-            uptime_seconds=None,
-            life_dir=Path(path),
-            pid_path=Path(path) / "daemon.pid",
-        ),
-    )
-    client = TestClient(server.create_app(global_root=root))
+    services = _daemon_services(alive=False)
+    client = TestClient(server.create_app(global_root=root, daemon_services=services))
     deleted = client.delete(f"/api/projects/{sid}").json()
     bucket = str(Path(deleted["trash_path"]).parent)
 
@@ -1813,27 +1783,15 @@ def test_trash_restore_rejects_date_bucket(ctx, monkeypatch) -> None:
 
 def test_trash_restore_rejects_duplicate_sid_in_another_root(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     primary = tmp_path / "primary"
     secondary = tmp_path / "secondary"
     sid = "s-duplicate"
     _make_project(primary, sid)
     _make_project(secondary, sid)
-    monkeypatch.setattr(
-        server,
-        "read_daemon_status",
-        lambda path: server.DaemonStatus(
-            alive=False,
-            pid=None,
-            started_at_iso=None,
-            uptime_seconds=None,
-            life_dir=Path(path),
-            pid_path=Path(path) / "daemon.pid",
-        ),
-    )
-    assert server.delete_project(sid, global_root=secondary)["ok"] is True
-    client = TestClient(server.create_app(global_root=primary, session_roots=[secondary]))
+    services = _daemon_services(alive=False)
+    assert server.delete_project(sid, global_root=secondary, read_status=services.read_status)["ok"] is True
+    client = TestClient(server.create_app(global_root=primary, session_roots=[secondary], daemon_services=services))
     entry = client.get("/api/trash").json()["entries"][0]
 
     response = client.post(f"/api/trash/{quote(entry['trash_id'], safe='')}/restore")
@@ -1844,19 +1802,8 @@ def test_trash_restore_rejects_duplicate_sid_in_another_root(
 
 def test_project_delete_refuses_live_daemon(ctx, monkeypatch) -> None:
     root, sid, life = ctx
-    monkeypatch.setattr(
-        server,
-        "read_daemon_status",
-        lambda path: server.DaemonStatus(
-            alive=True,
-            pid=123,
-            started_at_iso=None,
-            uptime_seconds=5.0,
-            life_dir=Path(path),
-            pid_path=Path(path) / "daemon.pid",
-        ),
-    )
-    client = TestClient(server.create_app(global_root=root))
+    services = _daemon_services(alive=True)
+    client = TestClient(server.create_app(global_root=root, daemon_services=services))
 
     r = client.delete(f"/api/projects/{sid}")
 

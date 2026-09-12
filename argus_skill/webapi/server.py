@@ -69,7 +69,7 @@ from ..daemon.life_worker import (
     _active_workspace_owner,  # noqa: F401 - monkeypatched via server._active_workspace_owner; read by daemon_lifecycle._srv()
     _max_active_daemons,  # noqa: F401 - monkeypatched via server._max_active_daemons; read by daemon_lifecycle._srv()
     read_continuous_state,  # noqa: F401 - used via server.read_continuous_state in tests/webapi/test_commands_m1.py
-    read_daemon_status,  # noqa: F401 - monkeypatched via server.read_daemon_status; read by *._srv() in daemon_lifecycle/daemon_upgrade/mission_items/project_crud
+    read_daemon_status,  # also retained for daemon_lifecycle/daemon_upgrade compatibility
     stop_daemon,  # noqa: F401 - monkeypatched via server.stop_daemon; read by daemon_lifecycle/daemon_upgrade._srv()
     write_continuous_config,  # noqa: F401 - compatibility export
 )
@@ -324,6 +324,7 @@ from . import (
     mission_items,
     project_crud,
 )
+from .daemon_services import DaemonServices
 
 _SCHEDULED_DAEMON_UPGRADES = daemon_upgrade._SCHEDULED_DAEMON_UPGRADES
 _SCHEDULED_DAEMON_UPGRADES_LOCK = daemon_upgrade._SCHEDULED_DAEMON_UPGRADES_LOCK
@@ -521,6 +522,7 @@ def create_app(
     global_root: Path | str | None = None,
     auth_token: str | None = None,
     session_roots: list[Path | str] | None = None,
+    daemon_services: DaemonServices | None = None,
 ):
     """Build the FastAPI app. Requires the ``[web]`` extra (fastapi).
 
@@ -529,12 +531,17 @@ def create_app(
     upgrade needs ``?token=<token>`` (browsers cannot set WS headers). With no
     token configured the API is unauthenticated — safe only behind the default
     ``127.0.0.1`` bind.
+
+    ``daemon_services`` overrides project status/deletion and direct daemon
+    starts for this app only. Defaults are captured when the app is built.
     """
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from starlette.middleware.gzip import GZipMiddleware
+    from starlette.responses import JSONResponse
 
     from . import server as server_mod
+    from .index_cache import CacheWaitTimeout
 
     token = auth_token if auth_token is not None else os.environ.get("ARGUS_SKILL_WEB_TOKEN")
     primary_root = _global_root(global_root).expanduser().resolve()
@@ -559,6 +566,14 @@ def create_app(
         title="argus-skill web API",
         version=str(api_meta["runtime"]["package_version"]),
     )
+
+    @app.exception_handler(CacheWaitTimeout)
+    async def _cache_wait_timeout(_request, exc: CacheWaitTimeout):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": str(exc)},
+            headers={"Retry-After": "1"},
+        )
 
     @app.middleware("http")
     async def _add_protocol_headers(request, call_next):  # noqa: ANN001
@@ -657,6 +672,12 @@ def create_app(
         list_project_costs=list_project_costs,
         list_trashed_projects=list_trashed_projects,
         project_life_dir=project_life_dir,
+        daemon_services=(
+            daemon_services if daemon_services is not None else DaemonServices(
+                read_status=read_daemon_status,
+                start=start_project_daemon,
+            )
+        ),
     )
 
     # Route registration is split by API domain so create_app() stays a thin
@@ -665,11 +686,10 @@ def create_app(
     # continuous), artifacts/read-only (artifact + git-diff file serving),
     # Manager streaming/messages (chat, SSE stream, live event WebSocket), and
     # config/diagnostics (meta, metrics, per-project config/identity/doctor,
-    # operator config/budget/identity/reset/skills). Each registrar receives
-    # this same ``ctx`` (shared auth/project-root helpers) and the ``server``
-    # module itself so every endpoint keeps delegating to the exact same
-    # module-level functions as before — endpoint paths, payloads, and
-    # ordering are unchanged.
+    # operator config/budget/identity/reset/skills). Registrars share this
+    # app's auth/root helpers and narrow daemon services through ``ctx``.
+    # Project/work-item operations call their owning modules directly. The
+    # remaining legacy services still receive the server compatibility facade.
     register_project_routes(app, ctx, server_mod)
     register_workitem_routes(app, ctx, server_mod)
     register_counterexample_routes(app, ctx, server_mod)

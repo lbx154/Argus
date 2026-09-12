@@ -297,6 +297,35 @@ def test_the_adjudication_round_does_not_load_a_vertical_at_all() -> None:
     assert offenders == []
 
 
+def test_project_services_do_not_resolve_dependencies_through_the_web_server() -> None:
+    """Per-app dependencies flow from create_app into the extracted services.
+
+    Calling back into the server module would make two app instances share
+    whichever dependencies were last patched globally. Keep this boundary
+    explicit while the remaining daemon lifecycle services are migrated.
+    """
+    forbidden = {"argus_skill.webapi.server", "argus_skill.webapi._server_module"}
+    offenders = []
+    for name in ("project_crud.py", "mission_items.py", "daemon_services.py"):
+        path = ARGUS / "webapi" / name
+        imports = _imported_modules(path)
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if (node.level == 1 and node.module is None) or (
+                node.level == 0 and node.module == "argus_skill.webapi"
+            ):
+                imports.extend(
+                    (node.lineno, f"argus_skill.webapi.{alias.name}")
+                    for alias in node.names
+                )
+        offenders.extend(
+            f"webapi/{name}:{line} -> {module}"
+            for line, module in imports if module in forbidden
+        )
+    assert offenders == []
+
+
 def test_the_operator_cli_is_the_only_admitted_domain_dependency() -> None:
     """One documented exception exists; it must not quietly become a habit.
 

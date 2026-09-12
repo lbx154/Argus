@@ -25,10 +25,12 @@ from ..core.session import (
 )
 from ..core.transcript import read_turns
 from ..daemon.life_worker import read_continuous_state
+from ..daemon.state import read_daemon_status
 from ..life.memory import BacklogItem, LifeMemory
 from ..life.role_activity import role_activity
 from . import project_state
-from ._server_module import server_module as _srv
+from .daemon_lifecycle import start_project_daemon
+from .daemon_services import DaemonStatusReader, ProjectDaemonStarter
 from .diagnostics import run_diagnostics
 
 _global_root = project_state.resolve_global_root
@@ -141,6 +143,7 @@ def enqueue_task_command(
     autostart_daemon: bool,
     global_root: Path | str | None = None,
     lifecycle_root: Path | str | None = None,
+    start_daemon: ProjectDaemonStarter = start_project_daemon,
 ) -> dict[str, Any] | None:
     """Atomically enqueue and optionally start before deletion can move the project."""
     root = _global_root(global_root)
@@ -151,7 +154,7 @@ def enqueue_task_command(
             return None
         response: dict[str, Any] = {"item": item}
         if autostart_daemon:
-            response["daemon"] = _srv().start_project_daemon(
+            response["daemon"] = start_daemon(
                 sid,
                 global_root=root,
                 resume_continuous=False,
@@ -172,7 +175,12 @@ def enqueue_nudge(
     return True
 
 
-def get_status(sid: str, *, global_root: Path | str | None = None) -> dict[str, Any] | None:
+def get_status(
+    sid: str,
+    *,
+    global_root: Path | str | None = None,
+    read_status: DaemonStatusReader = read_daemon_status,
+) -> dict[str, Any] | None:
     """Composite of the Python /status view: identity, pending backlog + pending
     questions, recent journal, continuous, inbox count, daemon, active role."""
     life_dir = project_life_dir(sid, global_root=global_root)
@@ -205,7 +213,7 @@ def get_status(sid: str, *, global_root: Path | str | None = None) -> dict[str, 
     inbox_pending = _safe(lambda: count_pending_inbox_messages(life_dir), 0)
     daemon = _safe(
         lambda: _daemon_dict(
-            _srv().read_daemon_status(life_dir), life_dir=life_dir
+            read_status(life_dir), life_dir=life_dir
         ),
         {"alive": False, "pid": None},
     )

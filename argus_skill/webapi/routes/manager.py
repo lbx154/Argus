@@ -209,7 +209,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
         result["daemon_control_available"] = daemon_view["control_available"]
         if starts_executor and not result.get("daemon_alive"):
             spawned = await run_in_threadpool(
-                server_mod.start_project_daemon, sid, global_root=project_root,
+                ctx.daemon_services.start, sid, global_root=project_root,
                 resume_continuous=bool(result.get("continuous")),
                 reclaim_idle=True,
             )
@@ -284,7 +284,7 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                     and not result.get("daemon_alive")
                 ):
                     try:
-                        spawned = server_mod.start_project_daemon(
+                        spawned = ctx.daemon_services.start(
                             sid,
                             global_root=project_root,
                             resume_continuous=bool(result.get("continuous")),
