@@ -189,7 +189,7 @@ def test_login_page_and_unauthenticated_routes(provisioned):
         nonce = page.headers["content-security-policy"].split("'nonce-", 1)[1].split("'", 1)[0]
         assert f"<script nonce='{nonce}'>" in page.text
         assert page.headers["cache-control"] == "no-store"
-        assert page.headers["referrer-policy"] == "no-referrer"
+        assert page.headers["referrer-policy"] == "same-origin"
         assert page.headers["x-frame-options"] == "DENY"
         for path in ("/api/projects", "/assets/app.js", "/invite/status", "/openapi.json",
                      "/compute", "/compute/jobs"):
@@ -1499,7 +1499,7 @@ def test_compute_dashboard_and_external_script_authentication(provisioned, reado
         assert '<script src="/invite/compute.js"' in page.text
         for response in (page, script):
             assert response.headers["cache-control"] == "no-store"
-            assert response.headers["referrer-policy"] == "no-referrer"
+            assert response.headers["referrer-policy"] == "same-origin"
             assert "script-src 'self'" in response.headers["content-security-policy"]
             assert vault.credential("trial-01") not in response.text
         assert not calls

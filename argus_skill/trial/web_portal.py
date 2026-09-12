@@ -95,7 +95,9 @@ CSP = (
 )
 SECURITY_HEADERS = {
     "cache-control": "no-store",
-    "referrer-policy": "no-referrer",
+    # Preserve Origin on same-origin HTML form POSTs while omitting the
+    # referrer entirely for cross-origin navigation.
+    "referrer-policy": "same-origin",
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY",
     "content-security-policy": CSP,
