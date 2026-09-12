@@ -6,8 +6,10 @@ import { MarkdownContent } from '../components/MarkdownContent';
 import { Modal, ModalHeader } from '../components/Modal';
 import { useI18n } from '../i18n';
 import { dateOf } from '../lib/format';
-import { questionAboutStep } from './model';
-import { useResearchBrief } from './useResearchBrief';
+import { briefRequest, questionAboutStep } from './model';
+import { useResearchBrief, type ResearchBriefOptions } from './useResearchBrief';
+import { readerPreview } from '../map/copyMode';
+import { MapReaderContent } from '../map/MapReaderContent';
 import { ReaderExplanation, ReaderExplanationStatus, ShortText } from './ReaderExplanation';
 import { ReaderEvidence } from './ReaderEvidence';
 import { selectReaderEvidence } from './evidence';
@@ -22,19 +24,47 @@ export interface ResearchBriefProps {
   onAsk?: (draft: string) => void;
 }
 
+type ReadingSelection = Pick<ResearchBriefOptions, 'sid' | 'snapshot' | 'view' | 'locale' | 'preview'>;
+
+/** Observe the selected task's existing queries; opening a reader adds no work. */
+function SelectedResearchReading({ selection }: { selection: ReadingSelection }) {
+  const { locale } = useI18n();
+  const zh = locale === 'zh-CN';
+  const result = useResearchBrief({ ...selection, active: false, readOnly: true });
+  const taskId = selection.view.mission.id;
+  const task = result.task || { id: taskId, title: selection.view.mission.title,
+    objective: selection.view.mission.objective, status: selection.view.mission.status };
+  const title = (result.brief ? result.card?.title : undefined) || task.title;
+  return <>
+    <ModalHeader title={zh ? '读懂这一步' : 'Understand this step'} sub={title} />
+    <div className="px-6 pb-6" data-testid="research-brief-reading" data-project-id={selection.sid} data-task-id={taskId}>
+      <MapReaderContent cardKey={taskId} taskId={taskId} task={task} card={result.card}
+        originalDetail={task.objective || selection.snapshot.session.objective || ''}
+        selection={{ request: briefRequest(task, result.evidence), evidence: result.loadedEvents ?? [],
+          pending: result.needsUpdate, generating: result.generating,
+          error: result.generationError,
+          unavailable: result.legacy || result.generationUnavailable || (!result.loading && !result.generationAvailable) }} />
+      {result.readError ? <p className="mt-2 text-xs text-ink-faint" role="status">{zh
+        ? '记录暂时读取失败；已显示内容仍保留。'
+        : 'Records could not be refreshed; previously loaded content is retained.'}</p> : null}
+    </div>
+  </>;
+}
+
 export default function ResearchBrief(props: ResearchBriefProps) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const text = (chinese: string, english: string) => zh ? chinese : english;
   const compact = props.compact === true;
-  const [readingOpen, setReadingOpen] = useState(false);
+  const [readingSelection, setReadingSelection] = useState<ReadingSelection | null>(null);
+  const selectedReading = readingSelection?.sid === props.sid ? readingSelection : null;
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    setReadingOpen(false);
     setEvidenceOpen(false);
     if (body.current) body.current.scrollTop = 0;
-  }, [props.view.mission.id]);
+  }, [props.sid, props.view.mission.id]);
+  useEffect(() => setReadingSelection(null), [props.sid]);
   const result = useResearchBrief({ ...props, locale: zh ? 'zh-CN' : 'en-US' });
   const { task, evidence, brief, card } = result;
   const title = (brief ? card?.title : undefined) || task?.title || props.view.mission.title || text('当前任务', 'Current task');
@@ -49,7 +79,7 @@ export default function ResearchBrief(props: ResearchBriefProps) {
   const explanationStatus = <ReaderExplanationStatus generatedAt={card?.generated_at} pending={result.needsUpdate} generating={result.generating} hasExplanation={!!brief} />;
 
   const explanation = <>
-    {brief ? <ReaderExplanation brief={brief} identity={task?.id || props.view.mission.id} detail={card?.detail} readingUnavailable={result.readingUnavailable} teachingUnavailable={result.teachingUnavailable} /> : <div className="mt-3 text-[13px] leading-6 text-ink-dim">
+    {brief ? <ReaderExplanation brief={brief} identity={task?.id || props.view.mission.id} detail={card?.detail} learningPath={card?.learning_path} readingUnavailable={result.readingUnavailable} teachingUnavailable={result.teachingUnavailable} /> : <div className="mt-3 text-[13px] leading-6 text-ink-dim">
       <ShortText value={objective || text('任务目标尚未记录。', 'The task objective has not been recorded yet.')} expandLabel={text('完整任务目标', 'Full task objective')} />
       <p className="mt-1 text-xs text-ink-faint">{result.loading ? text('正在读取任务记录。', 'Loading task records.')
         : result.generating ? text('正在根据任务记录整理说明，可以先阅读原始目标。', 'Preparing an explanation from the task records; you can read the original objective meanwhile.')
@@ -76,15 +106,16 @@ export default function ResearchBrief(props: ResearchBriefProps) {
     </> : null}
     <footer className={compact ? 'shrink-0' : 'mt-2 shrink-0 border-t border-line/50 pt-2'} data-testid="research-brief-footer">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        {compact ? <Button className="inline-flex items-center gap-1 text-xs" onClick={() => setReadingOpen(true)}><BookOpen size={12} />{text('阅读说明', 'Read explanation')}</Button> : null}
+        <Button className="inline-flex items-center gap-1 text-xs" onClick={() => setReadingSelection({
+          sid: props.sid, snapshot: props.snapshot, view: props.view, locale: zh ? 'zh-CN' : 'en-US', preview: readerPreview(),
+        })}><BookOpen size={12} />{text('阅读说明', 'Read explanation')}</Button>
         <Button className="inline-flex items-center gap-1 text-xs" onClick={() => setEvidenceOpen(true)}><BookOpen size={12} />{text('查看依据', 'View evidence')}</Button>
         {props.onAsk && task && !props.readOnly ? <Button className="inline-flex items-center gap-1 text-xs" onClick={() => props.onAsk?.(questionAboutStep(props.sid, task, evidence, zh))}><MessageCircle size={12} />{compact && !zh ? <>Ask<span className="sr-only"> about latest progress</span></> : text('询问最新进展', 'Ask about latest progress')}</Button> : null}
       </div>
     </footer>
   </section>
-    <Modal open={readingOpen} onClose={() => setReadingOpen(false)} label={text('任务说明', 'Task explanation')}>
-      <ModalHeader title={text('读懂这一步', 'Understand this step')} sub={title || props.view.mission.title} />
-      <div className="px-6 pb-6" data-testid="research-brief-reading">{explanationStatus}{explanation}</div>
+    <Modal open={!!selectedReading} onClose={() => setReadingSelection(null)} label={text('任务说明', 'Task explanation')}>
+      {selectedReading ? <SelectedResearchReading selection={selectedReading} /> : null}
     </Modal>
     <Modal open={evidenceOpen} onClose={() => setEvidenceOpen(false)} label={text('这一步的依据', 'Evidence for this step')}>
       <ModalHeader title={text('这一步的依据', 'Evidence for this step')} sub={card?.title || task?.title || props.view.mission.title} />

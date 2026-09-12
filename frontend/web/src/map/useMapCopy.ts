@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { mapCopyKey, readerPreview } from './copyMode';
 import type { Dataset } from "./model";
 import { buildSubmap, type SubmapStep } from "./submap";
-import { briefEvidence, briefRequest } from '../research-brief/model';
+import { briefEvidence, briefInputSignature, briefRequest } from '../research-brief/model';
 import {
   mergeMapCopy,
   needsCardCopy,
@@ -27,6 +27,22 @@ export function focusedCopyRequests(data: Dataset, steps: SubmapStep[], focused:
   return requestsFor(data, steps, focused).filter(card => card.task_id === focused && card.key === readingKey
     // A layout retained during a focus change must not lend another task's evidence.
     && card.event_ids.every(id => !owners.get(id) || owners.get(id) === focused));
+}
+
+/** A failed explanation belongs to its selected sources, not live cursors or task revision noise. */
+export function mapCopyInputSignature(data: Dataset, cards: CardRequest[]): string {
+  const events = new Map(data.events.map(event => [event.id, event]));
+  return JSON.stringify(cards.map(card => {
+    const task = data.tasks.find(item => item.id === card.task_id);
+    const dynamic = [card.task_id, `${card.task_id}:active`, `${card.task_id}:outcome`].includes(card.key);
+    // Historical steps receive the task's contract and their own events, not
+    // the mutable status, result or attempt of today's task.
+    const sourceTask = !task || dynamic ? task : {
+      ...task, status: '', summary: undefined, outcome: undefined, pending_question: undefined,
+      started_ts: undefined, finished_ts: undefined, attempt: undefined,
+    };
+    return [card, briefInputSignature(sourceTask, card.event_ids.flatMap(id => events.get(id) ? [events.get(id)!] : []))];
+  }));
 }
 
 /**
@@ -62,7 +78,7 @@ export function useMapCopy(
   allowGeneration = true,
   visibleSteps?: SubmapStep[],
   sessionId?: string,
-  paused = false,
+  _paused = false,
   prewarm = false,
   readingKey: string | null = focused,
 ) {
@@ -96,10 +112,7 @@ export function useMapCopy(
   const [pulse, setPulse] = useState(0);
   const [generating, setGenerating] = useState(false);
   const mounted = useRef(true);
-  const inflight = useRef<Promise<MapCopy> | null>(null);
-  const pausedRef = useRef(paused);
-  pausedRef.current = paused;
-  const retryAt = useRef(0);
+  const inflight = useRef<Promise<unknown> | null>(null);
   const eventIndex = useMemo(
     () => new Map(data.events.map((e) => [e.id, e])),
     [data.events],
@@ -128,14 +141,55 @@ export function useMapCopy(
   const cards = [...foreground, ...background]
     .filter((c) => needsCardCopy(c, data, copy.data, eventIndex) || needsRelatedCheck(c))
     .slice(0, 8);
-  const signature = JSON.stringify([
-    context,
-    cards,
-    cards.map((c) => data.tasks.find((t) => t.id === c.task_id)?.revision),
-    cards.map((c) => needsRelatedCheck(c) ? relatedCheckKey(c) : null),
-    copy.data?.model_revision,
-    copy.data?.version,
-  ]);
+  const inputSignature = mapCopyInputSignature(data, cards);
+  const generationScope = ['map-copy-generation', source, name, locale, sessionId];
+  const generationKey = [...generationScope, preview, copy.data?.version ?? null,
+    copy.data?.model_revision ?? null, inputSignature,
+    cards.map(card => needsRelatedCheck(card) ? relatedCheckKey(card) : null)];
+  const signature = JSON.stringify(generationKey);
+  const activeGenerations = useIsFetching({ queryKey: generationScope });
+  const generationOptions = {
+    queryKey: generationKey,
+    queryFn: async () => {
+      const requestedModelRevision = copy.data?.model_revision;
+      const checkingRelatedSources = cards.some(needsRelatedCheck);
+      // Finish and save against this request's source even after its reader unmounts.
+      const result = await api.generateMapCopy(source, name, { cards, locale }, undefined, sessionId, preview);
+      // Only this submitted request confirms its captured cards and cursor.
+      // A late response can still populate its own source cache after navigation.
+      if (contextRef.current === context && !result.retry_after && result.available !== false) {
+        for (const card of cards) {
+          if (result.cards[card.key]) relatedChecks.current.cards.set(card.key, relatedCheckKey(card, result));
+        }
+      }
+      queryClient.setQueryData<MapCopy>(key, previous => mergeMapCopy(previous, result, requestedModelRevision));
+      return { available: cards.every(card => !needsCardCopy(card, data, result, eventIndex))
+          && (!checkingRelatedSources || (!result.retry_after && result.available !== false)),
+        retryAfter: typeof result.retry_after === 'number' && result.retry_after > 0 ? result.retry_after : null };
+    },
+    staleTime: Infinity, gcTime: 2 * 60 * 60 * 1000,
+    retry: false, retryOnMount: false, refetchOnWindowFocus: false, refetchOnReconnect: false,
+  } as const;
+  // Observe attempts through the same Query cache as the brief. Failures stay
+  // settled across remounts; a successful server-directed wait may refresh later.
+  const generation = useQuery({ ...generationOptions, enabled: false });
+  const retryAfter = generation.isSuccess && generation.data.available === false
+    ? generation.data.retryAfter : null;
+  const startGeneration = () => {
+    const request = queryClient.fetchQuery({ ...generationOptions, staleTime: 0 });
+    inflight.current = request;
+    setGenerating(true);
+    void request.then(() => undefined, () => undefined).finally(() => {
+      if (inflight.current === request) {
+        inflight.current = null;
+        if (mounted.current) {
+          setGenerating(false);
+          setPulse(value => value + 1);
+        }
+      }
+    });
+    return request;
+  };
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -143,75 +197,32 @@ export function useMapCopy(
     };
   }, []);
   useEffect(() => {
-    retryAt.current = 0;
-  }, [context, paused, readingKey]);
-  useEffect(() => {
     if (
       !allowGeneration ||
       !copy.data?.available ||
       !cards.length ||
-      !Number.isFinite(retryAt.current) ||
+      generation.isError || (generation.isSuccess && !retryAfter) || activeGenerations > 0 ||
       inflight.current
     )
       return;
-    const requestedModelRevision = copy.data?.model_revision;
-    const timer = setTimeout(
-      () => {
-        let submitted = false;
-        const request = queryClient.fetchQuery({
-          queryKey: ["map-copy-generation", ...key],
-          queryFn: () => {
-            submitted = true;
-            return api.generateMapCopy(source, name, { cards, locale }, undefined, sessionId, preview);
-          },
-          staleTime: 0, gcTime: 0, retry: false,
-        });
-        inflight.current = request;
-        setGenerating(true);
-        void request
-          .then((result) => {
-            // Another reader can share the source's in-flight promise. Its
-            // response contains the whole cache, but only our own submitted
-            // cards have had their related sources checked by this request.
-            if (submitted && contextRef.current === context && !result.retry_after && result.available !== false) {
-              for (const card of cards) {
-                if (result.cards[card.key]) relatedChecks.current.cards.set(card.key, relatedCheckKey(card, result));
-              }
-            }
-            // Reconcile against the source captured by this request. Progress or zoom
-            // can change while it runs, but must not discard completed card text.
-            queryClient.setQueryData<MapCopy>(key, (previous) =>
-              mergeMapCopy(previous, result, requestedModelRevision),
-            );
-            if (contextRef.current === context)
-              retryAt.current = result.retry_after
-                ? Date.now() + result.retry_after * 1000
-                : 0;
-          })
-          .catch(() => {
-            if (contextRef.current === context)
-              retryAt.current = pausedRef.current ? Infinity : Date.now() + 60000;
-          })
-          .finally(() => {
-            if (inflight.current === request) {
-              inflight.current = null;
-              // A source/mode switch was waiting for this request to finish.
-              // Reevaluate the current reader while retaining the result in its original cache.
-              if (mounted.current) {
-                setGenerating(false);
-                setPulse((n) => n + 1);
-              }
-            }
-          });
-      },
-      Math.max(700, retryAt.current - Date.now()),
-    );
+    const timer = setTimeout(() => {
+      if (queryClient.isFetching({ queryKey: generationScope }) === 0)
+        void startGeneration();
+    }, retryAfter ? Math.max(700, generation.dataUpdatedAt + retryAfter * 1000 - Date.now()) : 700);
     // Cancel an unstarted debounce only. The active request is source-scoped;
     // cancelling it on every live event leaves completed results stuck on disk.
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, pulse, copy.data?.available, allowGeneration, paused]);
-  return { copy: copy.data, generating, ready: copy.isFetched,
+  }, [signature, pulse, copy.data?.available, allowGeneration, activeGenerations, generation.status, generation.dataUpdatedAt]);
+  const busy = generating || generation.isFetching || activeGenerations > 0;
+  const retry = async () => {
+    if (!allowGeneration || !copy.data?.available || !cards.length || busy || inflight.current) return;
+    await startGeneration().catch(() => undefined);
+  };
+  return { copy: copy.data, generating: busy, ready: copy.isFetched,
+    generationError: cards.length && !generation.isFetching ? generation.error : null,
+    generationUnavailable: !!cards.length && !generation.isFetching && !retryAfter && generation.data?.available === false,
+    retry,
     readingRequest: foreground.find(card => card.key === readingKey),
-    readingNeedsUpdate: cards.some(card => card.key === readingKey) };
+    readingNeedsUpdate: generation.data?.available !== true && cards.some(card => card.key === readingKey) };
 }

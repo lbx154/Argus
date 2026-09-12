@@ -4,7 +4,7 @@ import { PendingBanner } from '../components/PendingBanner';
 import { ComposerRuntime } from '../components/ComposerRuntime';
 import { Button } from '../components/primitives';
 import { Modal, ModalHeader } from '../components/Modal';
-import { MapReaderContent } from './MapReaderContent';
+import { MapReaderContent, type MapReaderSelection } from './MapReaderContent';
 import { Activity, PackageCheck, MessageCircle, SlidersHorizontal } from 'lucide-react';
 import { AgentActivity } from '../components/AgentActivity';
 import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
@@ -210,7 +210,8 @@ export function MapCanvas({
     tracedTask.id, ...dependencies.upstream.map((task) => task.id),
     ...dependencies.downstream.map((task) => task.id),
   ]) : null, [tracedTask, dependencies]);
-  const { copy, ready: copyReady, generating: copyGenerating, readingRequest, readingNeedsUpdate } = useMapCopy(
+  const { copy, ready: copyReady, generating: copyGenerating, readingRequest, readingNeedsUpdate,
+    generationError: copyGenerationError, generationUnavailable: copyGenerationUnavailable, retry: retryCopy } = useMapCopy(
     data,
     readingTask?.id || focusedNode?.data.task.id || null,
     zh,
@@ -226,6 +227,11 @@ export function MapCanvas({
     const ids = new Set([...readingRequest.event_ids, ...(copy?.cards[readingRequest.key]?.event_ids || [])]);
     return data.events.filter(event => event.item_id === readingRequest.task_id && ids.has(event.id));
   }, [readingRequest, copy, data.events]);
+  const readerSelection = useMemo<MapReaderSelection | undefined>(() => readingRequest ? {
+    request: readingRequest, evidence: readingEvidence, pending: readingNeedsUpdate, generating: copyGenerating,
+    error: copyGenerationError, unavailable: copyGenerationUnavailable, retry: readOnly ? undefined : retryCopy,
+  } : undefined, [readingRequest, readingEvidence, readingNeedsUpdate, copyGenerating,
+    copyGenerationError, copyGenerationUnavailable, readOnly, retryCopy]);
   const links = useMemo(
     () => connectMap(graph, copy?.relations || [], zh),
     [graph, copy?.relations, zh],
@@ -686,9 +692,7 @@ export function MapCanvas({
             [n.data.task.id, ...n.data.layout.steps.map((s) => s.id)]
               .filter((id) => copy.cards[id]).map((id) => [id, copy.cards[id]]),
           ) } : undefined,
-          readerCopy: readingCopy?.nodeId === n.id && readingRequest ? {
-            request: readingRequest, evidence: readingEvidence, pending: readingNeedsUpdate, generating: copyGenerating,
-          } : undefined,
+          readerCopy: readingCopy?.nodeId === n.id ? readerSelection : undefined,
           focused: n.id === camera.focusId,
           detailed: camera.detailed && n.id === camera.focusId,
           canvasSize: camera.canvasSize,
@@ -732,10 +736,7 @@ export function MapCanvas({
       cardSearchText,
       copy,
       readingCopy,
-      readingRequest,
-      readingEvidence,
-      readingNeedsUpdate,
-      copyGenerating,
+      readerSelection,
       zh,
       growth,
       flight,
@@ -1545,7 +1546,7 @@ export function MapCanvas({
             {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
             <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} card={copy?.cards[readingTask.id]} task={readingTask}
               originalDetail={readingTask.objective || readingTask.summary || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
-              selection={{ request: readingRequest, evidence: readingEvidence, pending: readingNeedsUpdate, generating: copyGenerating }}
+              selection={readerSelection}
               artifacts={artifactScope.artifacts} onOpenArtifact={artifactScope.onOpenArtifact} />
             {!readOnly ? <Button className="mt-3 text-xs" onClick={() => quote({ source: data.id, task_id: readingTask.id,
               task_title: copy?.cards[readingTask.id]?.title || readingTask.title,

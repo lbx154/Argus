@@ -2,10 +2,20 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import { emptyMissionView, reduceMissionViewEvent } from '../../../core/src/missionView';
+import type { MissionView, Snapshot } from '../../../core/src/types';
 import { compactMissionDag, MissionControl } from '../components/MissionControl';
 import { I18nProvider } from '../i18n';
 import { AGENT_ROLES } from '../lib/agentRoles';
-import type { Snapshot } from '../api';
+
+function missionSnapshot(view: MissionView, status: string, alive = true): Snapshot {
+  return {
+    session: { id: 's-research', display_name: 'Research', objective: 'Complete the overall research goal', cwd: '/workspace', last_active: 100 },
+    daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 20, backend: 'pi', global_daily_cap_usd: null },
+    roles: [],
+    backlog: [{ id: view.mission.id, title: view.mission.title, objective: view.mission.objective, status, priority: 1 }],
+    recent_events: [],
+  };
+}
 
 describe('MissionControl', () => {
   it('gives an idle project one useful entry while retaining real history and unreadable state', () => {
@@ -215,8 +225,68 @@ describe('MissionControl', () => {
 
     const markup = renderToStaticMarkup(<MissionControl view={complete} />);
 
-    expect(markup).toContain('Work completed — finished in 2m.');
+    expect(markup).toContain('This task: Work completed — finished in 2m.');
     expect(markup).toContain('The benchmark route is now stable.');
+  });
+
+  it.each(['en', 'zh-CN'] as const)('keeps a completed task and continuing runtime distinct in %s', (locale) => {
+    const view = emptyMissionView();
+    Object.assign(view.mission, {
+      id: 'evidence-check', title: 'Check this case', objective: 'Verify the recorded special case',
+      status: 'complete', elapsed_seconds: 125,
+    });
+    view.routing.continuous = true;
+    view.outcome.execution_status = 'completed';
+    const snapshot = missionSnapshot(view, 'done');
+    vi.stubGlobal('localStorage', { getItem: () => locale });
+    try {
+      const markup = renderToStaticMarkup(<I18nProvider><MissionControl view={view} snapshot={snapshot} /></I18nProvider>);
+      expect(markup).toContain(locale === 'zh-CN'
+        ? '本次任务：工作已完成 — 用时 2m。 等待下一步工作'
+        : 'This task: Work completed — finished in 2m. Waiting for the next step');
+      expect(markup).toContain('class="mission-status-line" data-tone="waiting"');
+      expect(markup).not.toContain(locale === 'zh-CN' ? '整体目标已完成' : 'Overall goal completed');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each(['en', 'zh-CN'] as const)('asks for the current paused task’s reply without promising automatic continuation in %s', (locale) => {
+    const view = emptyMissionView();
+    Object.assign(view.mission, {
+      id: 'submission-facts', title: 'Confirm submission facts', objective: 'Collect real author information',
+      status: 'ended',
+    });
+    view.outcome = { execution_status: 'ended', review_status: 'not_assessed', stage_certification: 'not_assessed', interruption_kind: 'operator_input_required', resumable: true };
+    const snapshot = missionSnapshot(view, 'paused_external_work');
+    snapshot.backlog[0].pending_question = 'Who are the authors?';
+    vi.stubGlobal('localStorage', { getItem: () => locale });
+    try {
+      const markup = renderToStaticMarkup(<I18nProvider><MissionControl view={view} snapshot={snapshot} /></I18nProvider>);
+      expect(markup).toContain(locale === 'zh-CN' ? '当前任务等待你的回复' : 'This task is waiting for your reply');
+      expect(markup).toContain(locale === 'zh-CN'
+        ? '请先回复这项任务的问题，再决定它的下一步。'
+        : 'Reply to this task’s question first, then decide its next step.');
+      expect(markup).not.toContain(locale === 'zh-CN'
+        ? 'Argus 会从已保存的进度继续。'
+        : 'Argus will continue from the saved progress.');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([true, false])('preserves the existing resume guidance without a current pending question (daemon alive: %s)', (alive) => {
+    const view = emptyMissionView();
+    Object.assign(view.mission, { id: 'current', title: 'Continue checks', status: 'ended' });
+    view.outcome = { execution_status: 'ended', review_status: 'not_assessed', stage_certification: 'not_assessed', interruption_kind: 'operator_pause', resumable: true };
+    const snapshot = missionSnapshot(view, 'paused_operator', alive);
+    snapshot.backlog.push({ id: 'history', title: 'An older question', objective: '', status: 'paused_external_work', pending_question: 'Old question', priority: 1 });
+    const markup = renderToStaticMarkup(<MissionControl view={view} snapshot={snapshot} />);
+    expect(markup).toContain(alive
+      ? 'Argus will continue from the saved progress.'
+      : 'The progress is saved. Run Argus again and it continues from where it stopped.');
+    expect(markup).not.toContain('This task is waiting for your reply');
+    expect(markup).not.toContain('Reply to this task’s question first');
   });
 
   it('renders escaped objective Markdown without exposing transport slashes', () => {

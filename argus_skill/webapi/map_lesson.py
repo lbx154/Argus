@@ -108,7 +108,7 @@ Retained sources:
 
 
 def generate_source_first(documents: list[dict], tasks: list[dict], locale: str, *,
-                          config: MapModel, project_root, global_root) -> dict:
+                          config: MapModel, project_root, global_root, learning_path: bool = False) -> dict:
     from .map_narrative import SOURCE_SNAPSHOT_VERSION, _reader_brief
 
     deadline = time.monotonic() + 170
@@ -117,10 +117,17 @@ def generate_source_first(documents: list[dict], tasks: list[dict], locale: str,
         "task": document.get("task", {}), "events": document.get("events", []),
         "related_tasks": [task for task in tasks if task.get("id") != document["task_id"]],
     }) for document in documents}
-    first_prompt, first_schema = outline_request(contexts, locale, [task["id"] for task in tasks])
+    if learning_path:
+        from . import map_learning
+
+        prepare = map_learning.plan_request
+        compose = map_learning.lesson_request
+    else:
+        prepare, compose = outline_request, lesson_request
+    first_prompt, first_schema = prepare(contexts, locale, [task["id"] for task in tasks])
     outline = run_map_model(first_prompt, first_schema, config, project_root=project_root,
                             global_root=global_root, deadline=deadline)
-    second_prompt, second_schema = lesson_request(contexts, outline, locale)
+    second_prompt, second_schema = compose(contexts, outline, locale)
     result = run_map_model(second_prompt, second_schema, config.for_review(), project_root=project_root,
                            global_root=global_root, deadline=deadline)
     cards = []
@@ -130,13 +137,16 @@ def generate_source_first(documents: list[dict], tasks: list[dict], locale: str,
         card = checked_text_fields({field: candidate[field] for field in CARD_TEXT_LIMITS},
                                     CARD_TEXT_LIMITS, "invalid lesson text")
         card["reader_brief"] = _reader_brief(candidate["reader_brief"])
+        if learning_path:
+            card["learning_path"] = copy.deepcopy(map_learning.checked_learning_path(candidate["learning_path"]))
         card["key"] = key
         card["source_snapshot"] = {
             "version": SOURCE_SNAPSHOT_VERSION, "card_key": key, "task_id": document["task_id"],
             "captured_at": captured_at, **copy.deepcopy(contexts[key]),
         }
         card["teaching_process"] = {
-            "kind": "source_outline_then_lesson", "version": PROCESS_VERSION,
+            "kind": "learning_plan_then_lesson" if learning_path else "source_outline_then_lesson",
+            "version": map_learning.PROCESS_VERSION if learning_path else PROCESS_VERSION,
             "outline_model_revision": config.revision,
             "lesson_model_revision": config.for_review().revision,
             "outline": copy.deepcopy(outline["outlines"][key]),

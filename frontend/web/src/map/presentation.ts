@@ -27,6 +27,17 @@ export interface ReaderBrief {
   next: string;
 }
 
+/** A sequence of background explanations, separate from the run's evidence. */
+export interface ReaderLearningPath {
+  question: string;
+  steps: Array<{
+    title: string;
+    explanation: string;
+    example: string;
+    check: { question: string; answer: string };
+  }>;
+}
+
 /** The bounded task/event material actually supplied to the explanation models. */
 export interface CardSourceSnapshot {
   version: 1 | 2;
@@ -50,6 +61,7 @@ export interface CardCopy {
   detail: string;
   /** Optional for existing cached cards created before presentation schema 10. */
   reader_brief?: ReaderBrief;
+  learning_path?: ReaderLearningPath | null;
   /** A teaching-text check is separate from the research task's review. */
   teaching_review?: {
     status?: 'accepted' | 'corrected' | 'unavailable';

@@ -15,6 +15,9 @@ export interface MapReaderSelection {
   evidence: MapEvent[];
   pending: boolean;
   generating: boolean;
+  error?: unknown;
+  unavailable?: boolean;
+  retry?: () => Promise<unknown>;
 }
 
 /** Only this card's copy and event range enter the reader; no task-root fallback. */
@@ -33,13 +36,16 @@ export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, 
     <p className="text-xs text-ink-faint">{root
       ? zh ? '任务说明；来源按保存的材料核对。' : 'Task explanation with retained sources.'
       : zh ? '环节说明；来源按保存的材料核对。' : 'Step explanation with retained sources.'}</p>
-    <ReaderExplanationStatus generatedAt={card?.generated_at} pending={selected?.pending} generating={selected?.generating} hasExplanation={!!card} />
+    <ReaderExplanationStatus generatedAt={card?.generated_at} pending={selected?.pending} generating={selected?.generating} hasExplanation={!!card}
+      error={selected?.error} unavailable={selected?.unavailable} retry={selected?.retry} />
     <ReaderEvidenceSummary selection={sources} />
-    {brief ? <ReaderExplanation brief={brief} identity={cardKey} detail={card?.detail}
+    {brief ? <ReaderExplanation brief={brief} identity={cardKey} detail={card?.detail} learningPath={card?.learning_path}
       readingUnavailable={card?.teaching_review?.reading_review?.status === 'unavailable'}
       teachingUnavailable={card?.teaching_review?.status === 'unavailable'} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
       : <>
-        <p className="my-2 text-xs text-ink-faint">{zh ? '阅读说明待整理；可以先读已保留的详细记录。' : 'A reading explanation is pending. The retained detailed record is available below.'}</p>
+        <p className="my-2 text-xs text-ink-faint">{selected?.error || selected?.unavailable
+          ? zh ? '可以先读已保留的详细记录。' : 'The retained detailed record is available below.'
+          : zh ? '阅读说明待整理；可以先读已保留的详细记录。' : 'A reading explanation is pending. The retained detailed record is available below.'}</p>
         <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{cleanDeliverySummary(card?.detail || originalDetail)}</MarkdownContent></div>
       </>}
     <RawDisclosure label={zh ? '当前加载的任务与环节记录' : 'Currently loaded task and step record'}>

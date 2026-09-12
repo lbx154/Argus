@@ -284,10 +284,13 @@ export function MissionControl({
     : needsAttention
     ? t(attentionKey)
     : missionDone
-      ? t('mission.statusDone', {
-          outcome,
-          elapsed: formatMissionElapsed(view.mission.elapsed_seconds),
-        })
+      ? [
+          t('mission.statusDone', {
+            outcome,
+            elapsed: formatMissionElapsed(view.mission.elapsed_seconds),
+          }),
+          runtime?.state === 'waiting' ? workStatusLabel(runtime, locale) : '',
+        ].filter(Boolean).join(' ')
       : runtime ? workStatusLabel(runtime, locale)
       : missionRunning && currentWork
         ? t('mission.statusActive', {
@@ -297,7 +300,7 @@ export function MissionControl({
         : t('mission.statusWaiting');
   const statusTone = !connected ? 'waiting' : healthNeedsAttention || deliveryFailed || missionFailed || stepFailed
     ? 'error'
-    : missionPaused
+    : missionPaused || runtime?.state === 'waiting'
       ? 'waiting'
       : missionDone
         ? 'done'
@@ -324,9 +327,11 @@ export function MissionControl({
   const stopReason = explainStop
     ? reviewNote?.text || (interruption && interruption !== 'none' ? plainStopSentence(interruption, locale) : '')
     : '';
-  const nextStep = explainStop && view.outcome.resumable
-    ? t(snapshot?.daemon.alive ? 'mission.nextResumeLive' : 'mission.nextResume')
-    : '';
+  const nextStep = runtime?.reason === 'operator_input'
+    ? t('mission.nextAfterReply')
+    : explainStop && view.outcome.resumable
+      ? t(snapshot?.daemon.alive ? 'mission.nextResumeLive' : 'mission.nextResume')
+      : '';
   useEffect(() => setReplayIndex(Math.max(0, view.timeline.length - 1)), [view.timeline.length]);
   useEffect(() => {
     if (activeNode?.id) setSelectedTaskId(activeNode.id);

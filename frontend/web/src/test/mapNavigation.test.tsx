@@ -10,6 +10,7 @@ import { MapReaderContent } from "../map/MapReaderContent";
 import type { MacroNode } from "../map/MacroTaskNode";
 import type { Dataset } from "../map/model";
 import type { MapCopy } from "../map/presentation";
+import * as mapCopyHook from "../map/useMapCopy";
 
 const fitCamera = vi.hoisted(() => vi.fn<(ids?: ReadonlySet<string>) => void>());
 const initialization = vi.hoisted(() => ({ ready: false }));
@@ -134,6 +135,45 @@ it("keeps the explicitly opened task reader when new copy changes relations and 
 
   act(() => renderer.root.findAllByType(Modal).find(modal => modal.props.label === 'Task explanation')!.props.onClose());
   expect(renderer.root.findAllByProps({ 'data-testid': 'map-task-reading' })).toHaveLength(0);
+});
+
+it.each([false, true])('shares selected error status between task and step readers with readOnly=%s', readOnly => {
+  act(() => renderer.unmount());
+  const retry = vi.fn().mockResolvedValue(undefined);
+  const failure = new Error('Explanation did not finish');
+  const generation = {
+    copy: undefined, ready: true, generating: false, readingNeedsUpdate: true,
+    readingRequest: { key: 'failed', task_id: 'failed', kind: 'task', event_ids: ['failure'] },
+    generationError: failure, generationUnavailable: false, retry,
+  };
+  const hook = vi.spyOn(mapCopyHook, 'useMapCopy').mockReturnValue(generation);
+  act(() => { renderer = create(<QueryClientProvider client={client}><MapCanvas {...props} readOnly={readOnly} /></QueryClientProvider>, {
+    createNodeMock: (element) => element.props.className?.split(' ').includes('map-canvas-wrap') ? { clientWidth: 1440 } : null,
+  }); });
+  act(() => nodes().find(node => node.id === 'failed')!.data.open('failed'));
+  act(() => nodes().find(node => node.id === 'failed')!.data.readCopy!('failed', 'failed'));
+  const reader = renderer.root.findByProps({ 'data-testid': 'map-task-reading' }).findByType(MapReaderContent);
+  const selected = reader.props.selection;
+  expect(selected.error).toBe(failure);
+  expect(selected.retry).toBe(readOnly ? undefined : retry);
+  expect(nodes().find(node => node.id === 'failed')!.data.readerCopy).toEqual(selected);
+  expect(nodes().filter(node => node.id !== 'failed').every(node => !node.data.readerCopy)).toBe(true);
+  expect(reader.findByProps({ role: 'status' }).children).toEqual(['The explanation could not be prepared. This request will not be repeated automatically.']);
+  const buttons = reader.findAll(node => node.type === 'button' && node.children.includes('Retry'));
+  expect(buttons).toHaveLength(readOnly ? 0 : 1);
+  if (!readOnly) {
+    act(() => buttons[0].props.onClick());
+    expect(retry).toHaveBeenCalledOnce();
+  }
+  hook.mockReturnValue({ ...generation, readingRequest: { ...generation.readingRequest, key: 'failure', kind: 'result' },
+    generationError: null, generationUnavailable: true });
+  act(() => nodes().find(node => node.id === 'failed')!.data.readCopy!('failed', 'failure'));
+  expect(renderer.root.findAllByProps({ 'data-testid': 'map-task-reading' })).toHaveLength(0);
+  const step = nodes().find(node => node.id === 'failed')!.data.readerCopy!;
+  expect(step.request.key).toBe('failure');
+  expect(step.error).toBeNull();
+  expect(step.unavailable).toBe(true);
+  expect(step.retry).toBe(readOnly ? undefined : retry);
 });
 
 it("does not count a partial research execution as a completed overall goal", () => {

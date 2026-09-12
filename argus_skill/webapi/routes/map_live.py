@@ -122,7 +122,7 @@ def register_map_live_routes(app, ctx, read_dataset):
         name: str,
         locale: Literal["zh-CN", "en-US"] = "zh-CN",
         session_id: str | None = None,
-        preview: bool = False,
+        preview: map_narrative.Preview = False,
     ):
         value = load(source, name)
         root, project_root = owner(source, name, session_id)
@@ -145,7 +145,7 @@ def register_map_live_routes(app, ctx, read_dataset):
         source: Literal["project", "dataset"], name: str, body: MapCopyIn,
         session_id: str | None = None,
         stream: bool = False,
-        preview: bool = False,
+        preview: map_narrative.Preview = False,
     ):
         value = await run_in_threadpool(load, source, name, body.cards)
         root, project_root = owner(source, name, session_id)
@@ -157,7 +157,7 @@ def register_map_live_routes(app, ctx, read_dataset):
             try:
                 return map_narrative.enrich(
                     root, value, cards, body.locale, project_root=project_root,
-                    **({"preview": True} if preview else {}),
+                    **({"preview": preview} if preview else {}),
                 )
             except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
                 raise _copy_error(exc) from exc

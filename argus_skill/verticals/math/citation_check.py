@@ -209,6 +209,10 @@ def _resolve_arxiv(source_id: str, rest: str, fetch: Fetcher) -> Resolution:
     status, body = _try(fetch, endpoint)
     if status <= 0:
         return _unreachable(source_id, "arxiv", endpoint, body)
+    if status != 200:
+        return _unreachable(
+            source_id, "arxiv", endpoint, f"the arXiv API returned HTTP {status}",
+        )
     # The API answers 200 for a well-formed request about a paper that does not
     # exist, and says so in the feed rather than in the status line: an entry
     # titled "Error" for a malformed identifier, and no entry at all for a

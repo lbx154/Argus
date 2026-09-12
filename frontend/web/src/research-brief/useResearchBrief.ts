@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
-import { readerPreview } from '../map/copyMode';
+import { readerPreview, type ReaderPreview } from '../map/copyMode';
 import type { MissionView, Snapshot } from '../../../core/src/types';
 import { mergeMapProgress } from '../map/incremental';
 import type { Dataset } from '../map/model';
@@ -18,14 +18,15 @@ export interface ResearchBriefOptions {
   active: boolean;
   readOnly?: boolean;
   locale: string;
+  /** A reader opened earlier keeps the cache mode selected at that time. */
+  preview?: ReaderPreview;
 }
 
-export function useResearchBrief({ sid, snapshot, view, active, readOnly = false, locale }: ResearchBriefOptions) {
+export function useResearchBrief({ sid, snapshot, view, active, readOnly = false, locale, preview = readerPreview() }: ResearchBriefOptions) {
   const client = useQueryClient();
   const taskId = view.mission.id;
   const selection = briefSelection(snapshot, view);
   const liveKey = briefLiveKey(sid, selection);
-  const preview = readerPreview();
   const copyKey = briefCopyKey(sid, locale, preview);
   const enabled = active && !!sid && !!taskId && snapshot.session.id === sid;
   const live = useQuery({
@@ -103,6 +104,19 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
     staleTime: Infinity, gcTime: 2 * 60 * 60 * 1000,
     retry: false, retryOnMount: false, refetchOnWindowFocus: false, refetchOnReconnect: false,
   });
+
+  // A successful coalescing response asks us to wait for fresh input; it is
+  // different from a failed generation, which requires an explicit retry.
+  const retryAfter = generation.data?.retryAfter;
+  useEffect(() => {
+    if (!canGenerate || !needsUpdate || generation.isFetching || generation.isError
+      || generation.data?.available !== false || typeof retryAfter !== 'number'
+      || !Number.isFinite(retryAfter) || retryAfter <= 0) return;
+    const timer = setTimeout(() => { void generation.refetch({ cancelRefetch: false }); },
+      Math.max(0, generation.dataUpdatedAt + retryAfter * 1000 - Date.now()));
+    return () => clearTimeout(timer);
+  }, [canGenerate, needsUpdate, generation.isFetching, generation.isError, generation.data?.available,
+    generation.dataUpdatedAt, retryAfter, generation.refetch]);
 
   const retry = async () => {
     if (!enabled) return;
