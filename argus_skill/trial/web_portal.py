@@ -123,6 +123,10 @@ PROJECT_WRITES = re.compile(
     r"reviews/final|map-notes)$"
 )
 WS_ROUTE = re.compile(r"^/api/projects/[^/]+/stream$")
+# The website preview page ships its own content-security-policy that sandboxes
+# the delivered site and denies it every network destination; its policy is kept
+# on the response so the site's own styles and scripts run inside the sandbox.
+PREVIEW_PAGE_ROUTE = re.compile(r"^/api/projects/[^/]+/artifact/preview/page$")
 # The websocket library can log its token-bearing upgrade URL at DEBUG.
 WS_LOGGER = logging.Logger("argus.trial.private.websocket", level=logging.CRITICAL + 1)
 
@@ -996,6 +1000,8 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             return RedirectResponse(target, status_code=upstream.status_code)
         headers = filtered_headers(upstream.headers, RESPONSE_HEADERS)
         headers = {key: value for key, value in headers.items() if credential not in value}
+        if PREVIEW_PAGE_ROUTE.fullmatch(path) and "content-security-policy" in upstream.headers:
+            headers["content-security-policy"] = upstream.headers["content-security-policy"]
         return ProxyResponse(upstream, headers, capture)
 
     @app.websocket("/{path:path}")

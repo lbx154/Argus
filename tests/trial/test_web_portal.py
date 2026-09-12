@@ -596,6 +596,33 @@ def test_tenant_routing_and_header_isolation(provisioned):
         assert second.url.path == "/api/projects/trial-01-project/snapshot"
 
 
+def test_preview_page_keeps_its_sandbox_policy(provisioned):
+    _, vault, _ = provisioned
+    sandbox = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' data:"
+
+    def upstream(request):
+        csp = sandbox if "artifact/preview/page" in request.url.path else "should-be-dropped"
+        return httpx.Response(200, stream=Chunks([b"<html></html>"]), headers={
+            "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": csp,
+        })
+
+    with client_for(provisioned, upstream) as client:
+        login(client, vault)
+        auth = {"Authorization": "Bearer browser-secret"}
+        page = client.get(
+            "/api/projects/trial-01-project/artifact/preview/page?path=index.html", headers=auth
+        )
+        assert page.status_code == 200
+        # The sandboxed preview page keeps the policy that lets its own styles
+        # and scripts run while denying it every network destination.
+        assert page.headers["content-security-policy"] == sandbox
+        # Any other proxied response cannot set the page policy; the portal's own
+        # default applies, so a tenant response can never widen it.
+        other = client.get("/api/projects/trial-01-project/snapshot", headers=auth)
+        assert other.headers["content-security-policy"] != sandbox
+        assert other.headers["content-security-policy"].startswith("default-src 'self'")
+
+
 def test_quota_isolation_persistence_and_no_recovery(provisioned, monkeypatch):
     _, vault, store = provisioned
     first = store.reserve("trial-01", 500)
