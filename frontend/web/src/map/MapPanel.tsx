@@ -184,12 +184,18 @@ export function MapCanvas({
   const focusedNode = nodes.find((n) => n.id === camera.focusId);
   const [readingCopy, setReadingCopy] = useState<{ nodeId: string; key: string } | null>(null);
   const readCopy = useCallback((nodeId: string, key: string | null) => {
-    setReadingCopy(previous => key ? { nodeId, key } : previous?.nodeId === nodeId ? null : previous);
-  }, []);
+    // An explicit task modal outlives changes to its background card's focus.
+    // Step readers still close when their owning card leaves detailed mode.
+    setReadingCopy(previous => key ? { nodeId, key }
+      : previous?.nodeId === nodeId && !data.tasks.some(task => task.id === previous.key) ? null : previous);
+  }, [data.tasks]);
   useEffect(() => {
-    setReadingCopy(previous => previous?.nodeId === camera.focusId ? previous : null);
-  }, [camera.focusId]);
-  const readingKey = readingCopy?.nodeId === camera.focusId ? readingCopy.key : null;
+    setReadingCopy(previous => previous && (previous.nodeId === camera.focusId
+      || data.tasks.some(task => task.id === previous.key)) ? previous : null);
+  }, [camera.focusId, data.tasks]);
+  const readingTask = readingCopy ? data.tasks.find(task => task.id === readingCopy.key) : undefined;
+  const readingNode = readingCopy ? nodes.find(node => node.id === readingCopy.nodeId) : undefined;
+  const readingKey = readingTask?.id ?? (readingCopy?.nodeId === camera.focusId ? readingCopy.key : null);
   const attention = useMemo(() => attentionTasks(data.tasks), [data.tasks]);
   const attentionIndex = attention.findIndex((task) => task.id === focusedNode?.data.task.id);
   const [traceId, setTraceId] = useState<string | null>(null);
@@ -204,7 +210,7 @@ export function MapCanvas({
   ]) : null, [tracedTask, dependencies]);
   const { copy, ready: copyReady, generating: copyGenerating, readingRequest, readingNeedsUpdate } = useMapCopy(
     data,
-    focusedNode?.data.task.id || null,
+    readingTask?.id || focusedNode?.data.task.id || null,
     zh,
     !readOnly && !data.history_loading,
     focusedNode?.data.layout.steps,
@@ -218,8 +224,6 @@ export function MapCanvas({
     const ids = new Set([...readingRequest.event_ids, ...(copy?.cards[readingRequest.key]?.event_ids || [])]);
     return data.events.filter(event => event.item_id === readingRequest.task_id && ids.has(event.id));
   }, [readingRequest, copy, data.events]);
-  const readingTask = readingRequest && readingRequest.key === readingRequest.task_id
-    ? data.tasks.find(task => task.id === readingRequest?.task_id) : undefined;
   const links = useMemo(
     () => connectMap(graph, copy?.relations || [], zh),
     [graph, copy?.relations, zh],
@@ -1532,7 +1536,7 @@ export function MapCanvas({
         {readingTask && readingRequest ? <>
           <ModalHeader title={zh ? "任务说明" : "Task explanation"} sub={copy?.cards[readingTask.id]?.title || readingTask.title} />
           <div className="px-6 pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
-            {focusedNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{focusedNode.data.completionScope}</p> : null}
+            {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
             <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} card={copy?.cards[readingTask.id]} task={readingTask}
               originalDetail={readingTask.objective || readingTask.summary || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
               selection={{ request: readingRequest, evidence: readingEvidence, pending: readingNeedsUpdate, generating: copyGenerating }}
