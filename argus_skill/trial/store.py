@@ -85,6 +85,12 @@ class Store:
                 (self.clock() + TPM_WINDOW_SECONDS,),
             )
             db.execute("UPDATE trial_requests SET state='interrupted' WHERE state='active'")
+            # Older gateways kept the byte-based admission estimate even after
+            # receiving usage. Restore the remaining window to reported tokens
+            # without changing lifetime charges or extending its expiry.
+            db.execute("""UPDATE trial_tpm_reservations SET tokens=(
+                SELECT charged FROM trial_requests WHERE id=request_id
+            ) WHERE request_id IN (SELECT id FROM trial_requests WHERE state='settled')""")
 
     def issue(self, key_id: str, credential: str):
         digest = hashlib.sha256(credential.encode()).hexdigest()
@@ -217,9 +223,17 @@ class Store:
                 raise TrialError(429, "trial_busy", "All 10 trial request slots are busy. Try again later.")
             tpm_used = db.execute("SELECT coalesce(sum(tokens),0) FROM trial_tpm_reservations").fetchone()[0]
             if tpm_used + amount > GLOBAL_TPM:
+                remaining = tpm_used
+                retry_after = TPM_WINDOW_SECONDS
+                for row in db.execute("""SELECT tokens,retain_until FROM trial_tpm_reservations
+                        WHERE retain_until IS NOT NULL ORDER BY retain_until"""):
+                    remaining -= row["tokens"]
+                    if remaining + amount <= GLOBAL_TPM:
+                        retry_after = max(1, math.ceil(row["retain_until"] - now))
+                        break
                 raise TrialError(
                     429, "trial_tpm_exceeded", "Global trial TPM limit reached. Try again later.",
-                    TPM_WINDOW_SECONDS,
+                    retry_after,
                 )
             db.execute("UPDATE trial_keys SET used=used+? WHERE key_id=?", (amount, key_id))
             cursor = db.execute(
@@ -246,12 +260,11 @@ class Store:
                 "UPDATE trial_requests SET charged=?, state=? WHERE id=?",
                 (charge, "unknown" if actual is None else "settled", request_id),
             )
-            # Keep the whole admission estimate through the request and for a
-            # full rolling minute after completion. This covers long streams
-            # whose output crosses minute boundaries. Only proven zero-use
-            # failures refund TPM; lifetime quota still settles to actual usage.
+            # Active requests reserve an upper estimate. Once authoritative
+            # usage arrives, count those tokens for a full minute after finish.
+            # Unknown/disconnected calls keep their estimate; neither path
+            # clears the rolling window or changes lifetime accounting.
             db.execute(
                 "UPDATE trial_tpm_reservations SET tokens=?, retain_until=? WHERE request_id=?",
-                (0 if actual == 0 else max(charge, row["reserved"]),
-                 self.clock() + TPM_WINDOW_SECONDS, request_id),
+                (charge, self.clock() + TPM_WINDOW_SECONDS, request_id),
             )

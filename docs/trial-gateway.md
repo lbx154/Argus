@@ -87,8 +87,8 @@ are absent from the gateway even if an old static page remains on disk.
 | Scope | Limit | Rejection |
 |---|---|---|
 | Each key | 1,000,000 lifetime input + output tokens | 402 `trial_quota_exceeded` |
-| All keys | 10 active model requests | 429 `trial_busy` |
-| All keys | 10,000,000 tokens per rolling 60 seconds | 429 `trial_tpm_exceeded` |
+| All keys | 10 active model requests | Wait for a slot; 429 `trial_busy` if admission times out |
+| All keys | 10,000,000 tokens per rolling 60 seconds | Wait for budget; 429 `trial_tpm_exceeded` if admission times out |
 
 Idle apps do not use slots. Limits are checked in one SQLite transaction before
 forwarding. Admission reserves conservative UTF-8 input bytes plus protocol/tool
@@ -100,8 +100,16 @@ the reservation. No prompt is truncated. The byte reservation is conservative,
 not an exact tokenizer; enforcement assumes the provider honors the output cap
 and token accounting. Any reported overrun is recorded rather than hidden.
 
-TPM holds the full reservation throughout execution and for 60 seconds after
-completion, including across restart. Proven zero-use failures release it.
+TPM holds the admission estimate while a request executes. On completion, it
+replaces that estimate with reported input plus output tokens and retains those
+tokens for 60 seconds. Unknown usage retains the estimate; proven zero-use
+failures release it. Restart preserves the window and reconciles estimates from
+older gateways for calls whose usage was already recorded.
+
+Slot and TPM waits share a bounded admission timeout (300 seconds by default).
+Queued requests do not spend the key's allowance until admitted, and cancellation
+releases their slot. TPM expiry and completed calls allow waiting requests to
+proceed without making the agent restart its task or accumulate retry backoff.
 The ledger is authoritative; client changes do not increase quotas. Exactly one
 gateway process owns it, enforced by a process lock. Limits cover traffic through
 this gateway; unrelated use of the same upstream account is outside its meter.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 
 import httpx
 import portalocker
@@ -10,6 +11,7 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
+from argus_skill.trial import store as store_module
 from argus_skill.trial.gateway import Settings, create_app, prepare, usage_total
 from argus_skill.trial.responses import completion
 from argus_skill.trial.secrets import Vault, write_private
@@ -153,22 +155,249 @@ def test_auth_and_model_routes(settings):
         assert client.get("/admin/token").status_code == 404
 
 
-def test_global_tpm_error_is_exposed_without_spending_key_allowance(settings):
-    app = create_app(settings)
+def test_global_tpm_timeout_is_exposed_without_spending_key_allowance(settings, monkeypatch):
+    monkeypatch.setattr(store_module, "GLOBAL_TPM", 100_000)
+    app = create_app(replace(settings, timeout=1.1), transport=httpx.MockTransport(upstream))
     with TestClient(app) as client:
         auth = issued_auth(client)
-        for i in range(10):
-            key_id = KEY_ID if i == 0 else f"trial-{i}"
-            if i:
-                app.state.store.issue(key_id, f"key-{i}")
-            request = app.state.store.reserve(key_id, 1_000_000)
-            app.state.store.settle(request, 1)
+        store = app.state.store
+        store.clock = lambda: 1000
+        issued_auth(client, "b" * 64)
+        blocker = store.reserve("b" * 64, 100_000)
+        store.settle(blocker, 100_000)
+        store.clock = lambda: 1043
+        attempts = 0
+        reserve = store.reserve
+
+        def tracked_reserve(key_id, amount):
+            nonlocal attempts
+            attempts += 1
+            return reserve(key_id, amount)
+
+        monkeypatch.setattr(store, "reserve", tracked_reserve)
         response = client.post("/v1/chat/completions", headers=auth, json=PAYLOAD)
         assert response.status_code == 429
         assert response.json()["error"]["code"] == "trial_tpm_exceeded"
-        assert response.headers["retry-after"] == "60"
+        assert response.headers["retry-after"] == "17"
+        assert attempts >= 2
         status = client.get("/trial/status", headers=auth).json()
-        assert status["tokens_used"] == 1 and status["global_tpm_remaining"] == 0
+        assert status["tokens_used"] == 0 and status["global_tpm_remaining"] == 0
+        assert status["active_requests"] == 0
+        assert app.state.request_slots._value == 10
+
+
+@pytest.mark.parametrize("release_capacity", ["settle", "expire"])
+def test_global_tpm_wait_succeeds_when_capacity_returns(settings, monkeypatch, release_capacity):
+    monkeypatch.setattr(store_module, "GLOBAL_TPM", 100_000)
+
+    async def run():
+        app = create_app(replace(settings, timeout=2), transport=httpx.MockTransport(upstream))
+        async with app.router.lifespan_context(app):
+            store = app.state.store
+            now = [1000]
+            store.clock = lambda: now[0]
+            credential = app.state.vault.credential(KEY_ID)
+            store.issue(KEY_ID, credential)
+            store.issue("blocker", "blocker-credential")
+            blocker = store.reserve("blocker", 100_000)
+            if release_capacity == "expire":
+                store.settle(blocker, 100_000)
+            waiting = asyncio.Event()
+            reserve = store.reserve
+
+            def tracked_reserve(key_id, amount):
+                try:
+                    return reserve(key_id, amount)
+                except TrialError as exc:
+                    assert exc.code == "trial_tpm_exceeded"
+                    waiting.set()
+                    raise
+
+            monkeypatch.setattr(store, "reserve", tracked_reserve)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url="http://test",
+                headers={"Authorization": "Bearer " + credential},
+            ) as client:
+                task = asyncio.create_task(client.post("/v1/chat/completions", json=PAYLOAD))
+                await asyncio.wait_for(waiting.wait(), 0.8)
+                assert not task.done()
+                assert store.status(KEY_ID)["tokens_used"] == 0
+                assert app.state.request_slots._value == 9
+                if release_capacity == "settle":
+                    store.settle(blocker, 1)
+                else:
+                    now[0] += 61
+                response = await asyncio.wait_for(task, 1.5)
+                assert response.status_code == 200
+                status = store.status(KEY_ID)
+                assert status["tokens_used"] == 15 and status["active_requests"] == 0
+                with store.transaction() as db:
+                    assert db.execute("SELECT COUNT(*) FROM trial_requests WHERE key_id=?", (KEY_ID,)).fetchone()[0] == 1
+                assert app.state.request_slots._value == 10
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("end_wait", ["cancel", "disable"])
+def test_aborted_tpm_wait_does_not_spend_or_leak_slot(settings, monkeypatch, end_wait):
+    monkeypatch.setattr(store_module, "GLOBAL_TPM", 100_000)
+
+    async def run():
+        upstream_calls = 0
+
+        def handler(request):
+            nonlocal upstream_calls
+            upstream_calls += 1
+            return upstream(request)
+
+        app = create_app(replace(settings, timeout=2), transport=httpx.MockTransport(handler))
+        async with app.router.lifespan_context(app):
+            store = app.state.store
+            credential = app.state.vault.credential(KEY_ID)
+            store.issue(KEY_ID, credential)
+            store.issue("blocker", "blocker-credential")
+            blocker = store.reserve("blocker", 100_000)
+            waiting = asyncio.Event()
+            reserve = store.reserve
+
+            def tracked_reserve(key_id, amount):
+                try:
+                    return reserve(key_id, amount)
+                except TrialError as exc:
+                    if exc.code == "trial_tpm_exceeded":
+                        waiting.set()
+                    raise
+
+            monkeypatch.setattr(store, "reserve", tracked_reserve)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url="http://test",
+                headers={"Authorization": "Bearer " + credential},
+            ) as client:
+                task = asyncio.create_task(client.post("/v1/chat/completions", json=PAYLOAD))
+                await asyncio.wait_for(waiting.wait(), 0.8)
+                assert app.state.request_slots._value == 9
+                if end_wait == "cancel":
+                    task.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await task
+                else:
+                    store.set_access(KEY_ID, enabled=False)
+                    response = await asyncio.wait_for(task, 1.5)
+                    assert response.status_code == 403
+                    assert response.json()["error"]["code"] == "trial_access_disabled"
+                status = store.status(KEY_ID)
+                assert status["tokens_used"] == 0 and status["active_requests"] == 1
+                with store.transaction() as db:
+                    assert db.execute("SELECT COUNT(*) FROM trial_requests WHERE key_id=?", (KEY_ID,)).fetchone()[0] == 0
+                assert app.state.request_slots._value == 10
+                assert upstream_calls == 0
+                store.set_access(KEY_ID, enabled=True)
+                store.settle(blocker, 1)
+                assert (await client.post("/v1/chat/completions", json=PAYLOAD)).status_code == 200
+                assert upstream_calls == 1
+                assert app.state.request_slots._value == 10
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("waiting_for", ["slot", "tpm"])
+def test_disconnected_admission_wait_does_not_spend_or_leak_slot(settings, monkeypatch, waiting_for):
+    monkeypatch.setattr(store_module, "GLOBAL_TPM", 100_000)
+
+    async def run():
+        def handler(request):
+            pytest.fail("A disconnected admission must not contact the provider")
+
+        app = create_app(replace(settings, timeout=2), transport=httpx.MockTransport(handler))
+        async with app.router.lifespan_context(app):
+            store = app.state.store
+            credential = app.state.vault.credential(KEY_ID)
+            store.issue(KEY_ID, credential)
+            if waiting_for == "slot":
+                app.state.request_slots = asyncio.Semaphore(0)
+            else:
+                store.issue("blocker", "blocker-credential")
+                store.reserve("blocker", 100_000)
+            waiting = asyncio.Event()
+            if waiting_for == "tpm":
+                reserve = store.reserve
+
+                def tracked_reserve(key_id, amount):
+                    try:
+                        return reserve(key_id, amount)
+                    except TrialError as exc:
+                        assert exc.code == "trial_tpm_exceeded"
+                        waiting.set()
+                        raise
+
+                monkeypatch.setattr(store, "reserve", tracked_reserve)
+            sent_body = False
+            disconnected = asyncio.Event()
+            messages = []
+
+            async def receive():
+                nonlocal sent_body
+                if not sent_body:
+                    sent_body = True
+                    return {"type": "http.request", "body": json.dumps(PAYLOAD).encode()}
+                if waiting_for == "slot":
+                    waiting.set()
+                await disconnected.wait()
+                return {"type": "http.disconnect"}
+
+            async def send(message):
+                messages.append(message)
+
+            scope = {
+                "type": "http", "asgi": {"version": "3.0", "spec_version": "2.0"},
+                "http_version": "1.1", "method": "POST", "scheme": "http",
+                "path": "/v1/chat/completions", "raw_path": b"/v1/chat/completions",
+                "query_string": b"", "root_path": "", "server": ("test", 80),
+                "client": ("127.0.0.1", 1),
+                "headers": [(b"authorization", ("Bearer " + credential).encode()), (b"content-type", b"application/json")],
+            }
+            task = asyncio.create_task(app(scope, receive, send))
+            await asyncio.wait_for(waiting.wait(), 0.8)
+            disconnected.set()
+            await asyncio.wait_for(task, 1.5)
+            assert messages[0]["status"] == 499
+            status = store.status(KEY_ID)
+            assert status["tokens_used"] == 0
+            assert status["active_requests"] == (0 if waiting_for == "slot" else 1)
+            with store.transaction() as db:
+                assert db.execute("SELECT COUNT(*) FROM trial_requests WHERE key_id=?", (KEY_ID,)).fetchone()[0] == 0
+            assert app.state.request_slots._value == (0 if waiting_for == "slot" else 10)
+
+    asyncio.run(run())
+
+
+def test_slot_and_tpm_wait_share_one_admission_deadline(settings, monkeypatch):
+    monkeypatch.setattr(store_module, "GLOBAL_TPM", 100_000)
+
+    async def run():
+        app = create_app(replace(settings, timeout=0.5), transport=httpx.MockTransport(upstream))
+        async with app.router.lifespan_context(app):
+            store = app.state.store
+            credential = app.state.vault.credential(KEY_ID)
+            store.issue(KEY_ID, credential)
+            store.issue("blocker", "blocker-credential")
+            store.reserve("blocker", 100_000)
+            app.state.request_slots = asyncio.Semaphore(0)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url="http://test",
+                headers={"Authorization": "Bearer " + credential},
+            ) as client:
+                task = asyncio.create_task(client.post("/v1/chat/completions", json=PAYLOAD))
+                await asyncio.sleep(0.3)
+                assert not task.done()
+                app.state.request_slots.release()
+                response = await asyncio.wait_for(task, 0.35)
+                assert response.status_code == 429
+                assert response.json()["error"]["code"] == "trial_tpm_exceeded"
+                assert store.status(KEY_ID)["tokens_used"] == 0
+                assert app.state.request_slots._value == 1
+
+    asyncio.run(run())
 
 
 def test_no_login_fails_closed_without_charging(settings):
