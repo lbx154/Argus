@@ -13,7 +13,7 @@ import { adminAPI, AdminAPIError } from './api';
 import { episodeRole, mergeObservationPages, normalizeRole, parseTaskLink, projectKey, projectName, taskName } from './model';
 import type { CollaborationProject, ObservedEpisode, Purpose, RoleSummary } from './types';
 import { ObservationViewer } from './ObservationViewer';
-import { automaticProjectSelection, openMatchingUserProject } from './navigation';
+import { adminProjectURL, automaticProjectSelection, openMatchingUserProject } from './navigation';
 import { dateLabel, roleName, stateLabel, useAdminText } from './copy';
 import './admin-data.css';
 
@@ -108,6 +108,8 @@ export default function AdminDataApp() {
     setEpisodeId(null);
     setActiveRole(null);
     setTaskId(next.taskId);
+    const chosen = projects.find(project => projectKey(project) === next.key);
+    if (chosen) updateLink(chosen, next.taskId);
   }, [overviewData, selectedKey, entry, respectEntry, query, directories.map(directory => directory.dataUpdatedAt).join(',')]);
 
   const scopeKey = [purpose, currentProject?.tenant_id, currentProject?.sid, taskId || null] as const;
@@ -133,10 +135,7 @@ export default function AdminDataApp() {
   }, onSuccess: value => { saveDownload(value.blob, value.filename); setExportNotice(text('全部保留过程已下载。', 'All retained process data downloaded.')); void queryClient.invalidateQueries({ queryKey: ['admin-data', 'audit'] }); } });
 
   const updateLink = (project: CollaborationProject, nextTask = '') => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('tenant', project.tenant_id); url.searchParams.set('sid', project.sid);
-    if (nextTask) url.searchParams.set('task_id', nextTask); else url.searchParams.delete('task_id');
-    url.searchParams.delete('task'); window.history.replaceState(window.history.state, '', url);
+    window.history.replaceState(window.history.state, '', adminProjectURL(window.location.href, project, nextTask));
   };
   const chooseProject = (project: CollaborationProject) => {
     setRespectEntry(false); setSelectedKey(projectKey(project)); setTaskId(''); setActiveRole(null); setEpisodeId(null); setSidebarOpen(false); updateLink(project);

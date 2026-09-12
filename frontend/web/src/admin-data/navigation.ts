@@ -1,6 +1,16 @@
 import { projectKey, type TaskDeepLink } from './model';
 import type { CollaborationProject, ProjectIdentity, WorkspaceIdentity } from './types';
 
+export function adminProjectURL(currentURL: string, project: ProjectIdentity, taskId = ''): string {
+  const url = new URL(currentURL);
+  url.searchParams.set('tenant', project.tenant_id);
+  url.searchParams.set('sid', project.sid);
+  if (taskId) url.searchParams.set('task_id', taskId);
+  else url.searchParams.delete('task_id');
+  url.searchParams.delete('task');
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 /** A project change clears the old task; only the initial explicit link restores one. */
 export function automaticProjectSelection(
   projects: readonly CollaborationProject[], selectedKey: string, entry: TaskDeepLink, respectEntry: boolean,
