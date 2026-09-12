@@ -185,7 +185,7 @@ function renderObservation(target,episode){
       body.append(textNode('h4',result?(result.payload?.isError?'工具报告错误':'真实返回内容'):'尚未保留对应返回'),textNode('pre',result?json(result.payload?.content):'调用记录已保留，当前没有对应的返回记录。'));
       body.append(textNode('small','调用编号：'+payload.toolCallId));item.append(heading,body);section.append(item);continue;
     }
-    const labels={session_message:'历史会话消息',context:'模型输入',provider_request:'模型请求',agent_end:'模型输出',tool_result:'工具返回（未匹配到调用）',settled:'本段过程结束',quarantine:'过程状态记录'};
+    const labels={tool_execution_start:'工具执行开始',tool_execution_update:'工具执行进度',tool_execution_end:'工具执行结束',message_delta:'模型公开输出片段',message_end:'模型消息',session_message:'历史会话消息',context:'模型输入',provider_request:'模型请求',agent_end:'模型输出',tool_result:'工具返回（未匹配到调用）',settled:'本段过程结束',quarantine:'过程状态记录'};
     const title=labels[event.kind]||'过程事件 · '+event.kind;
     const body=Array.isArray(payload.messages)?messageText(payload.messages):json(payload);
     const item=detailsBlock(title,body,'message-summary'+(event.kind==='agent_end'?' result-message':''));

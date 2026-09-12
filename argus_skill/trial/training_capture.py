@@ -210,6 +210,7 @@ class TrainingCapture:
 
         if type(episode_id) is not int or kind not in {
             "context", "provider_request", "tool_call", "tool_result", "agent_end", "settled", "quarantine", "capture_warning",
+            "message_delta", "message_end", "tool_execution_start", "tool_execution_update", "tool_execution_end",
         }:
             raise ValueError("Invalid training capture event")
         with self.analytics._db() as db:
@@ -431,7 +432,9 @@ class TrainingCapture:
             return result
 
         clean = dict(payload)
-        if kind in {"context", "provider_request", "agent_end"} and isinstance(payload.get("messages"), list):
+        if kind == "message_delta" and payload.get("type") not in {"text_delta", "toolcall_delta"}:
+            raise ValueError("invalid_public_payload")
+        if kind in {"context", "provider_request", "agent_end", "message_end"} and isinstance(payload.get("messages"), list):
             messages = []
             for message in payload["messages"]:
                 if not isinstance(message, dict):
@@ -448,6 +451,9 @@ class TrainingCapture:
             clean["messages"] = messages
         if kind == "tool_result" and "content" in clean:
             clean["content"] = blocks(clean["content"])
+        result_key = {"tool_execution_update": "partialResult", "tool_execution_end": "result"}.get(kind)
+        if result_key and isinstance(clean.get(result_key), dict) and "content" in clean[result_key]:
+            clean[result_key] = {**clean[result_key], "content": blocks(clean[result_key]["content"])}
         return clean, excluded
 
     @staticmethod

@@ -190,10 +190,14 @@ await handlers.get('agent_start')({},ctx);
 const user={role:'user',content:'Explain the experiment.',timestamp:Date.now()};
 const assistant={role:'assistant',content:[{type:'thinking',thinking:'PRIVATE_NEVER_CAPTURE'},
  {type:'toolCall',id:'actual-call',name:'bash',arguments:{command:'printf 5'},thoughtSignature:'PRIVATE_SIGNATURE'}],
- timestamp:Date.now(),stopReason:'toolUse'};
+ timestamp:Date.now(),stopReason:'toolUse',api:'openai-completions',provider:'argus',model:'unit-test',
+ responseModel:'unit-test-version',responseId:'actual-response',providerThinkingLevel:'low',endTurn:false,
+ usage:{input:30,output:10,reasoning:2,totalTokens:40,cost:{input:0.1,output:0.2,total:0.3},apiKey:'PRIVATE_USAGE_AUTH'},
+ headers:{authorization:'PRIVATE_MESSAGE_AUTH'},deferred:{data:{token:'PRIVATE_DEFERRED'}}};
 const result={role:'toolResult',toolName:'bash',toolCallId:'actual-call',content:[{type:'text',text:'5'}],isError:false,timestamp:Date.now()};
 await handlers.get('context')({messages:[user,assistant,result]});
-await handlers.get('before_provider_request')({payload:{model:'unit-test',tools:[],messages:[
+await handlers.get('before_provider_request')({payload:{model:'unit-test',tools:[],temperature:0.3,top_p:0.9,max_tokens:512,
+ reasoning_effort:'low',stream:true,stream_options:{include_usage:true},headers:{authorization:'PRIVATE_PROVIDER_AUTH'},apiKey:'PRIVATE_KEY',messages:[
  {role:'system',content:'APPLICATION_SYSTEM_INSTRUCTIONS'}, {role:'user',content:'Explain the experiment.'},
  {role:'assistant',content:'Provider-transformed public content',tool_calls:[{id:'actual-call',type:'function',function:{name:'bash',arguments:'{"command":"printf 5"}'}}]},
  {role:'tool',tool_call_id:'actual-call',content:'5'}]}});
@@ -206,6 +210,15 @@ console.log(JSON.stringify(receipts));
     assert receipts[-1]["value"]["payload"]["messages"][2]["content"] == "Provider-transformed public content"
     context = next(item["value"]["payload"] for item in receipts if item["value"].get("kind") == "context")
     assert context["messages"][1]["content"][0]["type"] == "toolCall"
+    observed = context["messages"][1]
+    assert observed["model"] == "unit-test" and observed["api"] == "openai-completions"
+    assert observed["provider"] == "argus" and observed["responseId"] == "actual-response"
+    assert observed["usage"] == {"input": 30, "output": 10, "reasoning": 2, "totalTokens": 40,
+                                 "cost": {"input": 0.1, "output": 0.2, "total": 0.3}}
+    provider = receipts[-1]["value"]["payload"]
+    assert provider["temperature"] == 0.3 and provider["top_p"] == 0.9 and provider["max_tokens"] == 512
+    assert provider["reasoning_effort"] == "low" and provider["stream_options"] == {"include_usage": True}
+    assert "headers" not in provider and "apiKey" not in provider
 
 
 def test_extension_keeps_text_only_planning_and_large_failed_custom_tool_results():
@@ -264,7 +277,7 @@ def public_library_directory():
 
 
 @pytest.mark.skipif(not os.environ.get("ARGUS_TEST_PI_DIR"), reason="Set ARGUS_TEST_PI_DIR to the pinned local Pi source for real CLI integration")
-@pytest.mark.parametrize("launch_mode", ["direct", "backend", "planner"])
+@pytest.mark.parametrize("launch_mode", ["direct", "backend", "planner", "planner_read_only"])
 def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_path, monkeypatch, launch_mode, public_library_directory):
     """Real pinned Pi + real bash + fake SSE provider, isolated from production."""
     provider_requests = []
@@ -308,6 +321,9 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
                         "name": "read", "arguments": json.dumps({"path": str(asset), "offset": None, "limit": None,
                                                                     "pages": None, "cells": None, "includeOutputs": None})}}]}
                 finish = "tool_calls"
+            elif launch_mode == "planner_read_only":
+                delta = {"role": "assistant", "content": "PROJECT_DONE=yes\nREASON=Read the actual evidence file and completed the requested inspection."}
+                finish = "stop"
             elif len(provider_requests) == 2:
                 delta = {"role": "assistant", "reasoning_content": "PRIVATE_SYNTHETIC_THINKING", "tool_calls": [{
                     "index": 0, "id": "call-real-bash", "type": "function", "function": {
@@ -384,7 +400,7 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
             monkeypatch.setenv("ARGUS_SKILL_HOME", str(project.parent.parent))
             monkeypatch.setenv("ARGUS_SKILL_PI_SESSION_DIR", str(tmp_path / "sessions"))
             monkeypatch.setenv("ARGUS_TRIAL_HARNESS", "argus-pi")
-            monkeypatch.setenv("ARGUS_SKILL_SAFE_MODE", "0")
+            monkeypatch.setenv("ARGUS_SKILL_SAFE_MODE", "1" if launch_mode == "planner_read_only" else "0")
             monkeypatch.delenv(runtime.LEASE_ENV, raising=False)
             backend = AgentCliBackend(backend="pi", runner_bin=str(cli), known_secret_values_override=())
             backend.set_usage_context(project_root=project, global_root=project.parent.parent, mission_id=mission + ":attempt:1")
@@ -398,19 +414,30 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
                 return original_spawn(command, **kwargs)
 
             monkeypatch.setattr(_run_exec, "spawn_owned_process", observe_spawn)
-            result = backend.run_exec(prompt=prompt, options=RunnerOptions(
-                model="argus/test-model", reasoning_effort="low", working_dir=str(workspace),
-                disable_tools=launch_mode == "planner", isolate_workdir=launch_mode == "planner",
-                extra_args=None if launch_mode == "planner" else ["--tools", "read,write,edit,grep,find,ls,bash"],
-            ), run_label="planner-bounded-plan" if launch_mode == "planner" else "engineer-test")
-            assert result.exit_code == 0, result.fatal_error
+            if launch_mode == "planner_read_only":
+                from argus_skill.planner import Planner
+                from argus_skill.planner.planner import PlannerConfig
+
+                prompt = f"Read the actual evidence file {asset} and report the grounded inspection."
+                verdict = Planner(backend, memory_maintenance_enabled=False).plan_next(
+                    continuous_objective=prompt,
+                    config=PlannerConfig(model="argus/test-model", reasoning_effort="low", working_dir=str(workspace)),
+                )
+                assert verdict.project_done and not verdict.error, verdict
+            else:
+                result = backend.run_exec(prompt=prompt, options=RunnerOptions(
+                    model="argus/test-model", reasoning_effort="low", working_dir=str(workspace),
+                    disable_tools=launch_mode == "planner", isolate_workdir=launch_mode == "planner",
+                    extra_args=None if launch_mode == "planner" else ["--tools", "read,write,edit,grep,find,ls,bash"],
+                ), run_label="planner-bounded-plan" if launch_mode == "planner" else "engineer-test")
+                assert result.exit_code == 0, result.fatal_error
             assert launched["extension_present"] and launched["lease"]
             lease = launched["lease"]
             for log in project.rglob("*.jsonl"):
                 assert lease not in log.read_text(errors="replace")
-        if launch_mode != "planner":
+        if launch_mode not in {"planner", "planner_read_only"}:
             assert (workspace / "result.txt").read_text() == "5"
-        assert len(provider_requests) == (1 if launch_mode == "planner" else 3)
+        assert len(provider_requests) == (1 if launch_mode == "planner" else 2 if launch_mode == "planner_read_only" else 3)
         with training.analytics._db() as db:
             row = db.execute("SELECT id,state,reason,runtime_metadata FROM training_tool_episodes").fetchone()
             events = training.capture.events(db, row["id"])
@@ -420,24 +447,36 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
         requests = [event["payload"] for event in events if event["kind"] == "provider_request"]
         assert len(requests) == len(provider_requests)
         assert requests[0]["tools"] == provider_requests[0].get("tools", [])
-        assert len(requests[0]["tools"]) == (0 if launch_mode == "planner" else 7)
+        assert len(requests[0]["tools"]) == (0 if launch_mode == "planner" else 4 if launch_mode == "planner_read_only" else 7)
+        if launch_mode == "planner_read_only":
+            assert {tool["function"]["name"] for tool in requests[0]["tools"]} == {"read", "grep", "find", "ls"}
         instructions = [message for message in requests[0]["messages"] if message["role"] in {"system", "developer"}]
         assert instructions == [message for message in provider_requests[0]["messages"]
                                 if message["role"] in {"system", "developer"}]
         assert instructions
         calls = [event["payload"] for event in events if event["kind"] == "tool_call"]
         results = [event["payload"] for event in events if event["kind"] == "tool_result"]
-        assert [call["toolName"] for call in calls] == ([] if launch_mode == "planner" else ["read", "bash"])
+        expected_tools = [] if launch_mode == "planner" else ["read"] if launch_mode == "planner_read_only" else ["read", "bash"]
+        assert [call["toolName"] for call in calls] == expected_tools
+        for kind in ("tool_execution_start", "tool_execution_end"):
+            assert [event["payload"]["toolName"] for event in events if event["kind"] == kind] == expected_tools
+        assert any(event["kind"] == "message_end" for event in events)
+        assert any(event["kind"] == "message_delta" and event["payload"]["type"] == "text_delta" for event in events)
         if results:
             assert results[0]["content"][0]["text"] == public_body
         ending = next(event["payload"] for event in events if event["kind"] == "agent_end")
         assert ending["messages"][-1]["content"][0]["text"].strip()
+        assert ending["messages"][-1]["model"] == "test-model"
+        assert ending["messages"][-1]["provider"] == "argus"
+        assert ending["messages"][-1]["usage"]["output"] == 10
         context = next(event["payload"] for event in events if event["kind"] == "context")
-        assert context["messages"][0]["content"][0]["text"] == prompt
+        assert prompt in context["messages"][0]["content"][0]["text"]
         metadata = json.loads(row["runtime_metadata"])
         assert metadata["mission_id"] == mission and metadata["capture_policy"] == "retain-observed-v2"
         if launch_mode == "planner":
             assert metadata["run_label"] == "planner-bounded-plan"
+        elif launch_mode == "planner_read_only":
+            assert metadata["run_label"] == "planner.cycle0"
         assert "source_sha256" not in metadata
     finally:
         server.shutdown()
@@ -446,3 +485,61 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
         workspace_socket.server_close()
         http.shutdown()
         http.server_close()
+
+
+def test_visible_stream_prefix_and_tool_execution_phases_survive_interruption(training):
+    """Synthetic event source through the real extension and persistent receiver."""
+    script = r'''
+import {trainingExtension} from __EXTENSION__;
+const handlers=new Map(),receipts=[];
+trainingExtension(async(action,value)=>{
+ if(action==='authorize')return {enabled:true};
+ if(action==='begin')return {episode_id:1,profile:'pi-0.85.1-hosted-workspace-v1'};
+ receipts.push(value);return {state:'capturing'};
+})({on:(name,handler)=>handlers.set(name,handler),getActiveTools:()=>['lookup'],getAllTools:()=>[]});
+await handlers.get('agent_start')({}, {sessionManager:{getSessionId:()=> 'synthetic-planner'}});
+await handlers.get('context')({messages:[{role:'user',content:'Inspect project evidence.'}]});
+await handlers.get('message_start')({message:{role:'assistant'}});
+for(const delta of ['Visible ', 'Visible '])await handlers.get('message_update')({assistantMessageEvent:{
+ type:'text_delta',contentIndex:0,delta,partial:{content:[{type:'thinking',thinking:'PRIVATE_PARTIAL_SNAPSHOT'}]}}});
+await handlers.get('message_update')({assistantMessageEvent:{type:'thinking_delta',contentIndex:1,delta:'PRIVATE_THINKING_DELTA'}});
+await handlers.get('message_update')({assistantMessageEvent:{type:'toolcall_delta',contentIndex:2,delta:'{"query":"evidence"}'}});
+await handlers.get('message_end')({message:{role:'assistant',content:[
+ {type:'thinking',thinking:'PRIVATE_FINAL_THINKING'}, {type:'text',text:'Visible Visible '}]}});
+const call={toolCallId:'actual-lookup',toolName:'lookup',input:{query:'evidence'}};
+await handlers.get('tool_call')(call);
+await handlers.get('tool_execution_start')({...call,args:call.input});
+await handlers.get('tool_execution_update')({...call,args:call.input,partialResult:{content:[{type:'text',text:'First row'}],details:{rows:1}}});
+await handlers.get('tool_execution_end')({...call,result:{content:[{type:'text',text:'Lookup failed after first row'}],details:{rows:1}},isError:true});
+await handlers.get('tool_result')({...call,content:[{type:'text',text:'Lookup failed after first row'}],isError:true});
+await handlers.get('message_start')({message:{role:'assistant'}});
+await handlers.get('message_update')({assistantMessageEvent:{type:'text_delta',contentIndex:0,delta:'Unfinished public reply'}});
+console.log(JSON.stringify(receipts));
+'''.replace("__EXTENSION__", json.dumps(Path(runtime.EXTENSION).as_uri()))
+    process = subprocess.run(["node", "--input-type=module"], input=script, text=True,
+                             capture_output=True, check=True, timeout=10)
+    assert "PRIVATE_" not in process.stdout
+    receipts = json.loads(process.stdout)
+    assert all("partial" not in receipt["payload"] for receipt in receipts if receipt["kind"] == "message_delta")
+    episode = training.capture.begin(
+        "tenant-one", "s-project", "synthetic-planner", observer_verified=True, allowed_tools=["lookup"],
+        runtime_profile=HOSTED_PROFILE,
+        runtime_metadata={"capture_policy": "retain-observed-v2", "run_label": "planner.cycle0", "mission_id": None},
+    )["episode_id"]
+    for receipt in receipts:
+        training.capture.event("tenant-one", "s-project", episode, receipt["kind"], receipt["payload"])
+    training.capture.event("tenant-one", "s-project", episode, "quarantine", {"reason": "runtime_call_unsettled"})
+    with training.analytics._db() as db:
+        observed = training.capture.events(db, episode)
+        assert db.execute("SELECT state FROM training_tool_episodes WHERE id=?", (episode,)).fetchone()[0] == "interrupted"
+    deltas = [event["payload"] for event in observed if event["kind"] == "message_delta"]
+    assert [item["delta"] for item in deltas if item["type"] == "text_delta"] == [
+        "Visible ", "Visible ", "Unfinished public reply",
+    ]
+    assert [event["kind"] for event in observed if event["kind"].startswith("tool_execution_")] == [
+        "tool_execution_start", "tool_execution_update", "tool_execution_end",
+    ]
+    ending = next(event["payload"] for event in observed if event["kind"] == "tool_execution_end")
+    assert ending["isError"] is True and ending["result"]["details"] == {"rows": 1}
+    assert observed[-2]["kind"] == "message_delta" and observed[-1]["kind"] == "quarantine"
+    assert "PRIVATE_" not in json.dumps(observed)
