@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from .analytics import AnalyticsError
+from .collaboration_data import CollaborationData
 from .training_data import TrainingData
 
 
@@ -17,6 +18,8 @@ def register_training_routes(app, analytics, session, *, journal=None, controls=
     controls = controls or ResearchControls(analytics)
     training = TrainingData(analytics, journal, controls)
     app.state.training_data = training
+    collaboration = CollaborationData(training)
+    app.state.collaboration_data = collaboration
 
     def identity(request, *, admin=False, mutation=False):
         value = session(request)
@@ -76,6 +79,25 @@ def register_training_routes(app, analytics, session, *, journal=None, controls=
     async def training_audit(request: Request, limit: int = Query(40, ge=1, le=100)):
         identity(request, admin=True)
         return await operation(training.review_audit, limit)
+
+    @app.get("/admin/api/training/collaboration")
+    async def collaboration_overview(request: Request, purpose: str = "internal_training",
+                                     offset: int = Query(0, ge=0, le=2_147_483_647),
+                                     tenant: str | None = None,
+                                     query: str = Query("", max_length=160)):
+        identity(request, admin=True)
+        result = await operation(
+            collaboration.overview, purpose, offset=offset, tenant=tenant, query=query,
+        )
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @app.get("/admin/api/training/collaboration/{tenant}/{sid}")
+    async def collaboration_detail(request: Request, tenant: str, sid: str,
+                                   purpose: str = "internal_training",
+                                   task_id: str | None = Query(None, max_length=80)):
+        identity(request, admin=True)
+        result = await operation(collaboration.detail, purpose, tenant, sid, task_id)
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
     @app.post("/admin/api/training/export")
     async def export(request: Request):
