@@ -21,12 +21,16 @@ def outline(learning_path=False):
         "status_and_next": "No later assignment is supplied",
     }
     if learning_path:
-        value.pop("background_question")
-        value.pop("essential_concepts")
-        value.update(underlying_question="A supplied underlying question", learning_steps=[{
-            "title": "A supplied operation", "starts_from": "Counting", "new_idea": "Compare quantities",
-            "operation_and_example": "Compare two supplied quantities", "reader_can_answer": "Which is larger?",
-        }])
+        value = {
+            "target_statement": "A supplied result for a transport test",
+            "question": "A supplied underlying question",
+            "objects": "Two supplied quantities", "operation": "Count the supplied objects",
+            "comparison": "Compare the counts", "proof_role": "A source-attributed auxiliary method",
+            "core_case": {"given": "Two supplied groups", "worked_result": "Their supplied counts",
+                          "new_given": "A third supplied group", "new_result": "Its supplied count",
+                          "limit": "Transport fixture, not a teaching assessment"},
+            "prerequisites": ["What is being counted?", "Which counts are being compared?"],
+        }
     return value
 
 
@@ -153,3 +157,35 @@ def test_learning_check_requires_an_answer_and_at_most_five_steps():
     with pytest.raises(ValueError, match="invalid learning path"):
         map_learning.checked_learning_path(value)
     assert map_learning.checked_learning_path(None) is None
+
+
+def test_previous_learning_preview_is_retained_on_failure_then_replaced_by_new_generation(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(map_narrative, "resolve_map_model", model)
+    monkeypatch.setattr(map_narrative, "configured", lambda: True)
+    monkeypatch.setattr(map_lesson, "run_map_model", run_stub(calls, learning_path=True))
+    request = [{"key": "a", "task_id": "a", "kind": "task", "event_ids": ["e"]}]
+
+    def generate():
+        return map_narrative.enrich(tmp_path, dataset(), request, "en-US", project_root=tmp_path,
+                                    preview="learning-path")
+
+    with monkeypatch.context() as previous_version:
+        previous_version.setattr(map_learning, "PREVIEW_VERSION", 25)
+        previous_version.setattr(map_learning, "PROCESS_VERSION", 2)
+        generate()
+    path = map_narrative.cache_path(tmp_path, map_narrative.copy_source("live:s", "en-US", preview="learning-path"))
+    prior = json.loads(path.read_text())
+    calls.clear()
+    monkeypatch.setattr(map_lesson, "run_map_model", run_stub(calls, learning_path=True, fail_second=True))
+    with pytest.raises(OSError, match="second-stage failure"):
+        generate()
+    failed = json.loads(path.read_text())
+    assert len(calls) == 2 and failed["cards"] == prior["cards"]
+    assert failed["generated_at"] == prior["generated_at"]
+    calls.clear()
+    monkeypatch.setattr(map_lesson, "run_map_model", run_stub(calls, learning_path=True))
+    result = generate()
+    assert len(calls) == 2 and result["cached"] is False
+    assert result["cards"]["a"]["version"] == 26
+    assert result["cards"]["a"]["teaching_process"]["version"] == 3

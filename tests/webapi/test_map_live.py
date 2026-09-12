@@ -128,7 +128,7 @@ def _copy_stream_frames(response):
 
 
 @pytest.mark.parametrize("preview_cache_present", [False, True])
-@pytest.mark.parametrize("mode,version", [("source-first", 24), ("learning-path", 25)])
+@pytest.mark.parametrize("mode,version", [("source-first", 24), ("learning-path", 26)])
 def test_copy_preview_get_reads_only_its_cache_and_reports_its_version(tmp_path, monkeypatch, preview_cache_present, mode, version):
     sid, _ = sample(tmp_path)
     reads = []
