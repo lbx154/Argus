@@ -1281,6 +1281,7 @@ def _dispatch_team_mission(
     *,
     attachment_context_refs: list[dict[str, str]] | None = None,
     reference_deps: list[str] | None = None,
+    public_objective: str | None = None,
 ) -> tuple[Any, bool, int | None]:
     """Apply the Manager's lifetime decision, resume a done lifecycle, and
     enqueue the operator's TEAM mission. Raises on failure — the caller
@@ -1311,6 +1312,7 @@ def _dispatch_team_mission(
         body,
         chat_state,
         root_task_id=root_task_id,
+        public_objective=public_objective,
     )
     emitter.phase(
         "正在确认这个项目能否恢复…"

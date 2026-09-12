@@ -473,6 +473,51 @@ def test_empty_legacy_event_file_keeps_existing_projection(tmp_path):
     assert view["projection_sync"]["status"] == "current"
 
 
+@pytest.mark.parametrize("old_revision", [None, 0])
+@pytest.mark.parametrize("replay_budget", [1, _replay.REPLAY_BYTES])
+def test_old_checkpoint_replays_completed_objective_with_current_semantics(tmp_path, monkeypatch, old_revision, replay_budget):
+    objective = "Compare both groups at the same batch size."
+    wrapped = "[BOUNDED TASK CONTEXT] Prior goal\n[CURRENT OPERATOR MESSAGE]\n" + objective
+    sink = JsonlEventSink(None, life_dir=tmp_path)
+    sink._roll_bytes = 1
+    assert sink.append(_start())
+    assert sink.append({"type": "life.manager.intent.completed", "item_id": "mission", "ts": 2,
+                        "objective": wrapped, "execution_task": objective,
+                        "vertical": "research", "kind": "research", "stages": []})
+    assert sink.append(_review(index=3))
+    logs = {path: path.read_bytes() for path in event_log_paths(tmp_path / "events.jsonl")}
+    view_file = tmp_path / "mission-view.json"
+    old = json.loads(view_file.read_text())
+    assert old["mission"]["objective"] == objective
+    assert old["last_event_ts"] > 2
+    old["mission"].update(title=wrapped, objective=wrapped)
+    old["_event_cursor"].pop("projection_revision", None)
+    if old_revision is not None:
+        old["_event_cursor"]["projection_revision"] = old_revision
+    view_file.write_text(json.dumps(old))
+
+    monkeypatch.setattr(_replay, "REPLAY_BYTES", replay_budget)
+    for attempt in range(6):
+        view = mission_view.load_mission_view(tmp_path)
+        if view["projection_sync"]["status"] == "current":
+            break
+    else:
+        pytest.fail("Old checkpoint kept restarting instead of completing bounded replay")
+    assert attempt > 0 if replay_budget == 1 else attempt == 0
+    assert view["schema_version"] == old["schema_version"]
+    assert view["mission"]["title"] == view["mission"]["objective"] == objective
+    assert view["review"]["rejected_attempts"] == 1
+    assert {path: path.read_bytes() for path in logs} == logs
+    checkpoint = view_file.read_bytes()
+
+    def no_replay(*_args, **_kwargs):
+        pytest.fail("A current checkpoint must not replay unchanged events again")
+
+    monkeypatch.setattr(_replay, "reduce_mission_view_event", no_replay)
+    assert _snapshot(tmp_path)["mission"]["objective"] == objective
+    assert view_file.read_bytes() == checkpoint
+
+
 @pytest.mark.parametrize("field,value", [("version", True), ("source_name", ".."), ("source_name", "other.jsonl")])
 def test_invalid_cursor_version_and_source_names_are_rejected(tmp_path, field, value):
     JsonlEventSink(None, life_dir=tmp_path).append(_start())
@@ -488,10 +533,13 @@ def test_invalid_cursor_version_and_source_names_are_rejected(tmp_path, field, v
         _snapshot(tmp_path)
 
 
-def test_invalid_cursor_and_missing_history_are_explicit_errors(tmp_path):
+@pytest.mark.parametrize("legacy_revision", [False, True])
+def test_invalid_cursor_and_missing_history_are_explicit_errors(tmp_path, legacy_revision):
     JsonlEventSink(None, life_dir=tmp_path).append(_start())
     view_file = tmp_path / "mission-view.json"
     valid = json.loads(view_file.read_text())
+    if legacy_revision:
+        valid["_event_cursor"].pop("projection_revision", None)
     invalid = dict(valid)
     invalid["_event_cursor"] = {"version": 2}
     view_file.write_text(json.dumps(invalid))

@@ -30,6 +30,8 @@ from ._view_state import (
 REPLAY_BYTES = 8 * 1024 * 1024
 MAX_EVENT_BYTES = 16 * 1024 * 1024
 CURSOR_KEY = "_event_cursor"
+# Internal reducer semantics, independent of the public Mission View schema.
+PROJECTION_REVISION = 1
 
 
 class MissionViewReplayError(RuntimeError):
@@ -225,19 +227,23 @@ def reconcile_unlocked(root: Path, view: dict[str, Any], *, force_logged: bool =
     if unlogged and not force_logged and not _canonical_append_after_direct_update(root, view):
         return view
     cursor = None if unlogged else _cursor(view)
+    # A consumed log position proves delivery, not that the persisted fields
+    # were produced by today's reducers. Rebuild old projections once using
+    # the same bounded replay and atomic checkpoint path as legacy imports.
+    projection_changed = bool(cursor and cursor.get("projection_revision") != PROJECTION_REVISION)
     source = cursor.get("source") if cursor else None
     current = root / "events.jsonl"
     current_stat = _stat(current)
     paths: list[Path] | None = None
     reason = ""
 
-    if cursor and source is None and current_stat is None:
+    if not projection_changed and cursor and source is None and current_stat is None:
         # A normal writer always creates events.jsonl. Checking the first
         # retained generations also notices legacy archives without enumerating
         # the directory or rewriting an idle, empty project's checkpoint.
         if not (root / "events.jsonl.1").exists() and not (root / "events.jsonl.2").exists():
             return view
-    if source and current_stat is None and view.get("projection_sync", {}).get("status") == "current":
+    if not projection_changed and source and current_stat is None and view.get("projection_sync", {}).get("status") == "current":
         archived_stat = _stat(root / source["name"])
         if (
             archived_stat is not None
@@ -248,7 +254,8 @@ def reconcile_unlocked(root: Path, view: dict[str, Any], *, force_logged: bool =
             return view
     if source and cursor is not None and current_stat is not None and _identity(current_stat) == (source["device"], source["inode"]):
         if (
-            current_stat.st_size == source["size"]
+            not projection_changed
+            and current_stat.st_size == source["size"]
             and current_stat.st_mtime_ns == source["mtime_ns"]
             and (
                 (source["offset"] == source["size"] and not cursor.get("skipping_oversized_row"))
@@ -259,7 +266,7 @@ def reconcile_unlocked(root: Path, view: dict[str, Any], *, force_logged: bool =
             # common polling path (also covers an unchanged partial last line).
             return view
         if _matches_content(current, source):
-            paths = [current]
+            paths = _paths(root) if projection_changed else [current]
         else:
             reason = "log_truncated" if current_stat.st_size < source["offset"] else "log_replaced"
     if paths is None:
@@ -276,14 +283,15 @@ def reconcile_unlocked(root: Path, view: dict[str, Any], *, force_logged: bool =
                 # boundary retain the same logical prefix and can resume safely.
                 matches = [path for path in paths if _matches_content(path, source)]
             if len(matches) == 1:
-                paths = paths[paths.index(matches[0]):]
+                if not projection_changed:
+                    paths = paths[paths.index(matches[0]):]
             else:
                 reason = "log_history_changed"
 
     if reason and not paths:
         raise MissionViewReplayError("Mission View cursor refers to missing event history")
 
-    if cursor is None or reason:
+    if cursor is None or reason or projection_changed:
         previous = view
         has_history = any(path.stat().st_size for path in paths)
         view = empty_mission_view() if has_history or reason else previous
@@ -292,7 +300,7 @@ def reconcile_unlocked(root: Path, view: dict[str, Any], *, force_logged: bool =
                 "mission": dict(previous.get("mission") or {}),
                 "stage": dict(previous.get("stage") or {"id": "", "label": ""}),
             }
-        cursor = {"version": 1, "source": None, "last_event_id": ""}
+        cursor = {"version": 1, "projection_revision": PROJECTION_REVISION, "source": None, "last_event_id": ""}
         source = None
     skipped = int(view.get("projection_sync", {}).get("skipped_rows", 0))
     oversized = int(view.get("projection_sync", {}).get("oversized_rows", 0))

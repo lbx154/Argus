@@ -650,6 +650,9 @@ class PreparedManagerHandoff:
     lifetime: str = "bounded"
     continuous: bool | None = None
     open_ended: bool | None = None
+    # The model may need bounded conversation/attachment context in body. That
+    # input is not the public operator objective carried by lifecycle events.
+    public_objective: str | None = None
 
     @property
     def execution_task(self) -> str:
@@ -679,6 +682,7 @@ class PreparedManagerHandoff:
         *,
         continuous_generation: int | None = None,
     ) -> None:
+        execution_task = require_manager_execution_task(division)
         workflow_mode = str(
             getattr(division, "workflow_mode", "staged") or "staged"
         ).strip().lower()
@@ -702,8 +706,8 @@ class PreparedManagerHandoff:
             "intent_id": self.intent_id,
             "item_id": self.root_task_id,
             "source": "user",
-            "objective": self.body,
-            "execution_task": self.execution_task,
+            "objective": execution_task,
+            "execution_task": execution_task,
             "vertical": getattr(division, "vertical", ""),
             "domain": getattr(division, "domain", ""),
             "route": "team",
@@ -757,7 +761,7 @@ class PreparedManagerHandoff:
             "intent_id": self.intent_id,
             "item_id": self.root_task_id,
             "source": "user",
-            "objective": self.body,
+            "objective": self.body if self.public_objective is None else self.public_objective,
             "error": f"{type(exc).__name__}: {exc}",
             "phase": phase,
             "cause": raw_cause,
@@ -791,7 +795,9 @@ def prepare_manager_execution_task(
     *,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
+    public_objective: str | None = None,
 ) -> PreparedManagerHandoff:
+    public_objective = body if public_objective is None else public_objective.strip()
     intent_id = f"intent-{time.time_ns()}"
     lifetime = str(
         chat_state.get("_frontdoor_lifetime", "bounded") or "bounded"
@@ -808,7 +814,7 @@ def prepare_manager_execution_task(
         "intent_id": intent_id,
         "item_id": root_task_id,
         "source": "user",
-        "objective": body,
+        "objective": public_objective,
         "text": "manager interpreting user task",
     })
     try:
@@ -844,6 +850,7 @@ def prepare_manager_execution_task(
             lifetime=lifetime,
             continuous=configured_continuous,
             open_ended=configured_open_ended,
+            public_objective=public_objective,
         )
     except Exception as exc:
         prepared = PreparedManagerHandoff(
@@ -856,6 +863,7 @@ def prepare_manager_execution_task(
             lifetime=lifetime,
             continuous=configured_continuous,
             open_ended=configured_open_ended,
+            public_objective=public_objective,
         )
         prepared.failed(exc)
         from .classification_contract import MANAGER_CONTRACT_MISMATCH_THRESHOLD

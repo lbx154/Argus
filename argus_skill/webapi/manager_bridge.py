@@ -611,6 +611,7 @@ def _manager_message(
                 emitter,
                 attachment_context_refs=message_attachment_refs,
                 reference_deps=reference_deps,
+                public_objective=operator_text,
             )
         except Exception as exc:  # noqa: BLE001
             if _cancelled():

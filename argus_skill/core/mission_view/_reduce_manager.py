@@ -74,7 +74,9 @@ def reduce_manager_event(
 
     elif event_type == EventType.LIFE_MANAGER_INTENT_COMPLETED:
         item_id = _text(event, "item_id") or _text(event, "intent_id")
-        objective = _text(event, "objective", 2000) or _text(event, "execution_task", 2000)
+        # Older completed events put model-facing conversation context in
+        # objective even though the committed execution_task was clean.
+        objective = _text(event, "execution_task", 2000) or _text(event, "objective", 2000)
         remember_language(view, objective)
         chinese = session_is_chinese(view, objective)
         mission.update({

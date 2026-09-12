@@ -9,9 +9,13 @@ incomplete-observation feedback and Manager handoff fixes are committed in
 `63738a4a8` is merged. The complete read-only live capture at 23:02:54 UTC observed
 clean source `98daa0d01a3b5d53297edee848df8aee4153e448`, all 11 APIs ready and stable
 identities throughout capture; that source is merged in `6f05afb10`. The merged frontend passed 937 tests and its standard generated-contract/type/build checks.
-The combined candidate still awaits
-its isolated full Python run and freeze. Manager's four-phase model acceptance
-remains partial. This thread has not deployed these follow-ups.
+Frozen `ec91af13e` then passed the complete Python suite: 10,045 passed,
+56 skipped and no failures. Its image/API/UDS, byte comparisons and browser
+control checks passed. The browser inspection found a public-objective event
+leak, and a delayed local embedding fixture found a cancellation delay; both
+follow-ups are tracked below and require separate final-candidate validation.
+Manager's four-phase real-model acceptance remains partial. This thread has
+not deployed these follow-ups.
 
 ## Required outcomes
 
@@ -243,3 +247,37 @@ The original browser probe measured replacement-message admission only. Its
 replacement is being extended to observe canonical goal/backlog updates and
 queue claim separately from daemon wake requests. A fixture wake callback does
 not establish a real Supervisor/Engineer start.
+
+
+## Public objectives and interruptible recall
+
+The ec91 browser screenshots showed internal `[BOUNDED TASK CONTEXT]` and
+`[CURRENT OPERATOR MESSAGE]` text in the task explanation until reload.
+Stored continuous and backlog goals were correct: `life.manager.intent` events
+had published the model-facing routing body as their public objective. This
+is a producer contract defect, not a classifier-fixture or CSS problem.
+The repair gives the prepared handoff a separate public operator objective;
+started/failed events use that field, completed events use the normalized
+execution task, and the model still receives its full routing context. Python
+and TypeScript projections prefer a historical completed event's
+`execution_task` when available. The frontend follow-up passed 942 tests and
+standard build/type/generated-contract checks; per-commit final evidence
+remains in the private validation receipts.
+
+With optional external embedding enabled and a cold cache, the ec91 local
+HTTP fixture observed a stop-to-prelude-return delay of 6,206.8 ms and a total
+stop-to-loop-abort delay of 6,215.0 ms. A second embedding HTTP request began
+after stop. The main model was never invoked. The fixture used two independent
+3-second waits for knowledge and experience retrieval; these measured values
+must not be described as the static combined budget ceiling. Default lexical
+retrieval does not use that network wait. The interruption repair must respond
+to both the request scope and the Supervisor stop event, skip subsequent
+requests/reservations after cancellation and retain accounting for any request
+already sent. This audit made no external provider call.
+
+The backend public-objective follow-up passed 281 focused checks. Persisted
+Mission View cursors now carry an internal `projection_revision`; a prior
+cursor is rebuilt through the existing bounded replay path, including rotated
+logs. This fixes the otherwise unchanged-file fast path that would have kept
+an old polluted projection. The public schema stays at 7; missing-history
+errors remain explicit, and repeated reads after reconstruction are stable.
