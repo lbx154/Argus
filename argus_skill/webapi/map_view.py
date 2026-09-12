@@ -32,6 +32,10 @@ TASK_FIELDS = (
     "parallel_safe",
     "owns_paths",
     "acceptance_check",
+    "goal_contribution",
+    "plan_hypothesis",
+    "non_goals",
+    "outcome",
 )
 EVENT_PREFIXES = (
     "life.mission.",
@@ -76,7 +80,23 @@ def text(value, limit=6000):
 
 
 def task_content_revision(task: dict) -> str:
-    return digest({k: task.get(k) for k in ("title", "objective", "acceptance_check")})
+    return digest({k: task.get(k) for k in (
+        "title", "objective", "acceptance_check", "goal_contribution", "plan_hypothesis", "non_goals",
+    )})
+
+
+def public_outcome(value) -> dict:
+    """Keep existing outcome dimensions, without promoting reports to verdicts."""
+    if not isinstance(value, dict):
+        return {}
+    result = {
+        key: text(value[key], 120)
+        for key in ("execution_status", "review_status", "stage_certification", "interruption_kind")
+        if isinstance(value.get(key), str)
+    }
+    if isinstance(value.get("resumable"), bool):
+        result["resumable"] = value["resumable"]
+    return result
 
 
 def with_revisions(value: dict) -> dict:
@@ -241,6 +261,10 @@ def normalize_events(
                     e[key] = row[key]
             if isinstance(row.get("attempt"), int):
                 e["attempt"] = row["attempt"]
+            if isinstance(row.get("review_source"), str):
+                e["review_source"] = text(row["review_source"], 120)
+            if isinstance(row.get("outcome"), dict):
+                e["outcome"] = public_outcome(row["outcome"])
             outcome = row.get("outcome")
             certification = row.get("stage_certification") or (
                 outcome.get("stage_certification") if isinstance(outcome, dict) else None
@@ -408,7 +432,9 @@ def read_map(
         raw = item.to_jsonable()
         task = {k: raw[k] for k in TASK_FIELDS if k in raw}
         for k, v in list(task.items()):
-            if isinstance(v, str):
+            if k == "outcome":
+                task[k] = public_outcome(v)
+            elif isinstance(v, str):
                 task[k] = text(v)
             elif isinstance(v, list):
                 # owns_paths (and deps) are operator-visible strings too.

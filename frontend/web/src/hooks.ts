@@ -291,6 +291,14 @@ export function snapshotRefreshEventKey(events: EventMsg[]): string {
 /** Subscribe to a project's live event feed: REST replay seed + WS tail with
  *  auto-reconnect. Dedupes by event key so reconnect backfill never doubles. */
 export function useEventStream(sid: string | null, reconnectKey = 0): StreamHandle {
+  const [browserOnline, setBrowserOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
+  useEffect(() => {
+    const sync = () => setBrowserOnline(navigator.onLine !== false);
+    window.addEventListener('online', sync);
+    window.addEventListener('offline', sync);
+    sync();
+    return () => { window.removeEventListener('online', sync); window.removeEventListener('offline', sync); };
+  }, []);
   const [state, dispatch] = useReducer(streamReducer, {
     sid: null,
     events: [],
@@ -364,6 +372,6 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
 
   return {
     events: state.sid === sid ? state.events : [],
-    connected: connection.sid === sid && connection.connected,
+    connected: browserOnline && connection.sid === sid && connection.connected,
   };
 }

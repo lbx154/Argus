@@ -388,7 +388,10 @@ function argument(parsed: Record<string, unknown> | null, raw: string, keys: str
 
 /** The file, page or pattern a call was about — the word that makes "Read 5 files" specific. */
 export function stepTarget(step: FeedStep): string {
-  const ev = step.ev;
+  return toolTarget(step.ev);
+}
+
+export function toolTarget(ev: EventMsg): string {
   const text = field(ev, 'text');
   if (progressKind(ev) === 'file_change') {
     const patch = text.match(PATCH_FILE);
@@ -415,6 +418,19 @@ export function stepTarget(step: FeedStep): string {
   const patch = args.match(PATCH_FILE);
   if (patch) return basename(patch[1].trim());
   return '';
+}
+
+/** A tool action in the main status line; its full arguments stay in the record. */
+export function readableToolProgress(event: EventMsg, locale: Locale): { title: string; detail: string } | null {
+  const kind = progressKind(event);
+  if (!['tool_use', 'file_change'].includes(kind)) return null;
+  const action = toolAction(toolName(event), kind);
+  const labels: Record<ToolAction, [string, string]> = {
+    read: ['查看资料', 'Reading material'], search: ['查找相关信息', 'Searching for relevant information'],
+    fetch: ['读取资料页面', 'Reading a source page'], edit: ['更新项目文件', 'Updating project files'],
+    tool: ['执行一个工作步骤', 'Carrying out a work step'],
+  };
+  return { title: labels[action][locale === 'zh-CN' ? 0 : 1], detail: toolTarget(event) };
 }
 
 function makeGroup(run: FeedStep[]): FeedGroup {

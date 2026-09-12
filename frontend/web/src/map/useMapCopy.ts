@@ -15,6 +15,14 @@ import {
 /** How many step cards one canvas is willing to warm up for later readers. */
 export const PREWARM_LIMIT = 600;
 
+/** Existing history stays readable; generation follows what the reader opens. */
+export function focusedCopyRequests(data: Dataset, steps: SubmapStep[], focused: string | null): CardRequest[] {
+  const current = focused ? [focused] : data.tasks.filter(task => ['running', 'in_progress', 'claimed', 'active'].includes(task.status)).map(task => task.id);
+  if (!current.length && data.tasks.length) current.push(data.tasks[data.tasks.length - 1].id);
+  const wanted = new Set(current);
+  return requestsFor(data, steps, focused).filter(card => wanted.has(card.task_id));
+}
+
 /**
  * Step cards of every task that is not open right now. Written text for a card
  * is shared through the server cache, so warming it in the background while
@@ -49,7 +57,7 @@ export function useMapCopy(
   visibleSteps?: SubmapStep[],
   sessionId?: string,
   paused = false,
-  prewarm = true,
+  prewarm = false,
 ) {
   const locale = zh ? "zh-CN" : "en-US";
   const source = data.kind === "live" ? "project" : "dataset";
@@ -86,7 +94,7 @@ export function useMapCopy(
     () => new Map(data.events.map((e) => [e.id, e])),
     [data.events],
   );
-  const foreground = requestsFor(data, steps, focused);
+  const foreground = prewarm ? requestsFor(data, steps, focused) : focusedCopyRequests(data, steps, focused);
   // Background warming only starts once everything on screen has its text.
   const background = useMemo(
     () => (prewarm ? prewarmRequests(data, zh, focused) : []),

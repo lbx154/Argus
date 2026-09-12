@@ -5,6 +5,7 @@ import { api, isConnectionError, type EventMsg, type MessageRouteOverride } from
 import { initialMessageRoute, MESSAGE_ROUTE_KEY } from './lib/messageRoute';
 import { TopBar } from './components/TopBar';
 import { WorkspaceShell } from './components/WorkspaceShell';
+import ResearchBrief from './research-brief';
 import { EventStream, latestConversationDelivery } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
 import { ComposerRuntime } from './components/ComposerRuntime';
@@ -958,6 +959,7 @@ export default function App() {
           <>
             <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
               {workspaceView !== 'map' && <TopBar
+                events={activityEvents}
                 snap={snap}
                 streamOk={connected}
                 onStart={requestStartDaemon}
@@ -990,8 +992,15 @@ export default function App() {
               /></Suspense>}
               <div className={`${workspaceView === 'workbench' || workspaceView === 'map' ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`}>
                 <GuardianBanner alert={guardianAlert} />
+                {missionView?.mission.id && activeSid ? <div className="max-h-[38vh] shrink-0 overflow-y-auto scroll-thin">
+                  <ResearchBrief key={activeSid} sid={activeSid} snapshot={snap} view={missionView}
+                    active={workspaceView === 'mission' || workspaceView === 'activity'} readOnly={kiosk}
+                    onAsk={draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); }} />
+                </div> : null}
                 {standardWorkspaceView === 'mission' && missionView ? (
                   <MissionControl
+                    events={activityEvents}
+                    connected={connected && !snapQ.isError}
                     view={missionView}
                     sid={snap.session.id}
                     snapshot={snap}
@@ -1003,8 +1012,10 @@ export default function App() {
                   />
                 ) : (
                   <EventStream
+                    snapshot={snap}
+                    missionView={missionView}
                     events={activityEvents}
-                    connected={connected}
+                    connected={connected && !snapQ.isError}
                     showReasoning={showReasoning}
                     onToggleReasoning={() => setShowReasoning((value) => !value)}
                     embedded
@@ -1076,6 +1087,7 @@ export default function App() {
             }`}>
               <div className="lg:hidden">
                 <TopBar
+                  events={activityEvents}
                   snap={snap}
                   streamOk={connected}
                   onStart={requestStartDaemon}
@@ -1088,6 +1100,8 @@ export default function App() {
                 />
               </div>
               <ResearchCanvas
+                snapshot={snap}
+                connected={connected && !snapQ.isError}
                 sid={loadedSid}
                 artifacts={artifactsQ.data}
                 error={artifactsQ.isError}

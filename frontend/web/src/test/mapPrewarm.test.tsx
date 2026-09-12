@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { api } from "../api";
 import type { Dataset, MapEvent, MapTask } from "../map/model";
 import type { CardRequest, MapCopy } from "../map/presentation";
-import { prewarmRequests, useMapCopy } from "../map/useMapCopy";
+import { focusedCopyRequests, prewarmRequests, useMapCopy } from "../map/useMapCopy";
 
 const task = (id: string, status: string): MapTask => ({
   id, title: id, objective: id, status, deps: [], revision: "1",
@@ -92,10 +92,11 @@ it("writes the cards on screen before warming steps of other tasks", async () =>
   expect(requested(generate).flat().map((c) => c.key)).toContain("c:brief");
 });
 
-it("stops at the visible cards when warming is turned off", async () => {
+it("generates current work without rebuilding unopened history when warming is off", async () => {
   const generate = vi.spyOn(api, "generateMapCopy").mockResolvedValue(empty);
   act(() => { renderer = create(tree(null, false)); });
   await act(async () => { await vi.advanceTimersByTimeAsync(700); });
   const [first] = requested(generate);
-  expect(first.map((c) => c.key)).toEqual(["a", "b", "c"]);
+  expect(first.map((c) => c.key)).toEqual(["a"]);
+  expect(focusedCopyRequests(data, [], 'b').map(card => card.task_id)).toEqual(['b']);
 });

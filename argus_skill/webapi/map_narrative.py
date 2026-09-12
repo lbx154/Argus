@@ -13,7 +13,9 @@ from ..core.file_lock import exclusive_file_lock
 from .map_model import MapModel, resolve_map_model, run_map_model
 from .map_view import digest, task_content_revision, text
 
-PROMPT_VERSION = 9
+PROMPT_VERSION = 10
+BRIEF_LIMITS = {"why": 500, "scope": 700, "next": 500}
+CONCEPT_LIMITS = {"name": 80, "explanation": 600, "example": 400, "connection": 400}
 _LOCK = threading.Lock()
 _SOURCES: WeakValueDictionary = WeakValueDictionary()
 
@@ -89,7 +91,14 @@ def card_evidence(dataset: dict, cards: list[dict]) -> list[dict]:
                         "status",
                         "acceptance_check",
                         "pending_question",
-                    ) if dynamic else ("title", "objective", "acceptance_check"))
+                        "goal_contribution",
+                        "plan_hypothesis",
+                        "non_goals",
+                        "outcome",
+                    ) if dynamic else (
+                        "title", "objective", "acceptance_check", "goal_contribution",
+                        "plan_hypothesis", "non_goals",
+                    ))
                 },
                 "events": [
                     {**e, "text": e["text"][:2500], "next_action": e.get("next_action", "")[:1500]}
@@ -112,6 +121,27 @@ def read_cache(root: Path, source: str) -> dict:
         return {}
 
 
+def _reader_brief(value) -> dict:
+    """Validate bounded presentation text; never manufacture missing sections."""
+    if not isinstance(value, dict) or set(value) != {*BRIEF_LIMITS, "concept"}:
+        raise ValueError("invalid reader brief")
+
+    def strings(source, limits):
+        if not isinstance(source, dict) or set(source) != set(limits):
+            raise ValueError("invalid reader brief concept")
+        result = {}
+        for key, limit in limits.items():
+            item = source[key]
+            if not isinstance(item, str) or not item.strip() or len(item) > limit:
+                raise ValueError("invalid reader brief text")
+            result[key] = text(item, limit).strip()
+        return result
+
+    result = strings({key: value[key] for key in BRIEF_LIMITS}, BRIEF_LIMITS)
+    result["concept"] = None if value["concept"] is None else strings(value["concept"], CONCEPT_LIMITS)
+    return result
+
+
 def schema(keys: list[str], task_ids: list[str]) -> dict:
     def obj(props):
         return {
@@ -122,12 +152,20 @@ def schema(keys: list[str], task_ids: list[str]) -> dict:
         }
 
     string = {"type": "string"}
+    def bounded(limits):
+        return {key: {"type": "string", "minLength": 1, "maxLength": limit} for key, limit in limits.items()}
+
+    brief = obj({
+        **bounded(BRIEF_LIMITS),
+        "concept": {"anyOf": [obj(bounded(CONCEPT_LIMITS)), {"type": "null"}]},
+    })
     return obj(
         {
             # Required object properties force one result for every requested ID.
             # An array with enum keys still permits omitted or duplicated cards.
             "cards": obj(
-                {key: obj({"title": string, "summary": string, "detail": string}) for key in keys}
+                {key: obj({"title": string, "summary": string, "detail": string, "reader_brief": brief})
+                 for key in keys}
             ),
             "relations": {
                 "type": "array",
@@ -154,6 +192,12 @@ def generate(
 - title：任务卡的标题写这件事本身，一句让外人一眼明白"这一步在做什么"的话；不复述文件路径、命令或内部交接步骤。按事情的本来面目称呼它：做幻灯片就说幻灯片，回答问题就说回答了什么，不把每件事都写成"研究"或"实验"。子卡标题不会被改动。
 - summary：两三句（中文 35-90 字）。先说结论或结果，再说是怎么得到的，最后一句说明它对整件事意味着什么。写"发现X不成立"，不写"进行了X的检查"。
 - detail：150-500 字，可用简洁 Markdown。按"这一步要解决什么问题、做了什么、得到了什么、这意味着什么或下一步是什么"的顺序来写，像给同事讲一段工作笔记。有依据才写具体数字；定位产物所需的路径可以放在这里。
+- reader_brief：给没有本领域背景的读者一份短阅读简报，含以下字段；每项用一至三句完整的短句，不重复 detail：
+  - why：本步为什么值得做、它怎样帮助原任务。依据 objective、goal_contribution、plan_hypothesis；假设仍是待验证假设，不能写成已成立。没有目的记录就明确说目的未记录。
+  - concept：至多解释一个本步实际出现、最妨碍读者理解的概念，结构为 name、explanation、example、connection。explanation 用日常词先解释，再给必要术语；example 给一个标明“示意例子”的小例子，connection 说明它为什么出现在本步。背景教学和示意例子不是本次研究发现、实验结果或证明证据。没有适合且能准确解释的概念就返回 null，不硬凑百科。
+  - scope：说明记录正在讨论或声称支持的具体范围，以及还没有解决什么。优先保留 non_goals、条件、失败与未核验项；子任务 done、一次调用结束、结构检查通过不等于整个目标解决。研究者报告、执行者自检和独立审阅的判断必须分开说；review_skipped=true 表示没有审阅，review_source=engineer_self_review 表示执行者自检。没有明确的独立复核记录就说“尚未见独立复核记录”，不把角色名、旧成果或语气当成复核证据。
+  - next：只写所选事件的 next_action、明确的交接说明或任务记录中的下一步，说明必要条件；没有下一步来源就明确说“下一步尚未记录”（英文用同义句）。不要替研究者新规划，不把 pending_question 说成已回答，不预测发现或完成时间。
+简报只依据本次提供的任务和所选事件；没有读取产物原文、外部论文或完整依赖图，不声称已查阅或核验它们。路径可用于定位，但引用标题/链接不等于已核验来源。event_ids 由系统绑定所选记录；不能捏造新证据或让简报改变任务、审阅与成果状态。历史子卡只解释其所选事件当时的事实，不能把当前任务结论套到旧轮次。
 写法上的要求：
 - 用完整、平实的句子，让没有背景的人也能读懂；专业概念第一次出现时用半句话说明它是什么。
 - 记录里的"工作段落"是执行者自己说的话加上随后的操作（查看、查找、修改文件、运行命令）：把它讲成一段过程，说清这一步在查什么、改什么、为什么，不罗列工具名和文件清单。
@@ -177,6 +221,8 @@ def generate(
         isinstance(card, dict) for card in value["cards"].values()
     ):
         raise ValueError("invalid card map")
+    for card in value["cards"].values():
+        card["reader_brief"] = _reader_brief(card.get("reader_brief"))
     value["cards"] = [{**card, "key": key} for key, card in value["cards"].items()]
     return value
 
@@ -198,13 +244,13 @@ def enrich(
         cache = read_cache(root, source)
         metadata["cache_revision"] = cache.get("cache_revision", 0)
         existing = cache.get("cards", {})
-        # Migrate unchanged records without another model call. Model selection
-        # governs new copy; it does not invalidate already published evidence.
+        # Old copy remains readable without generation. A requested refresh
+        # upgrades legacy text lacking a brief rather than certifying it as v10.
         migrated = False
         for document in documents:
             saved = existing.get(document["key"], {})
             if (
-                saved and "input_revision" not in saved
+                saved and "input_revision" not in saved and "reader_brief" in saved
                 and all(isinstance(saved.get(k), str) and saved[k].strip()
                         for k in ("title", "summary", "detail"))
                 and saved.get("task_revision") == document["task_revision"]
@@ -268,11 +314,15 @@ def enrich(
                 for k in ("title", "summary", "detail")
             ):
                 raise ValueError("invalid card copy")
+            if "reader_brief" in card:
+                card["reader_brief"] = _reader_brief(card["reader_brief"])
         for card in generated:
             existing[card["key"]] = {
                 k: text(card[k], limit)
                 for k, limit in (("title", 80), ("summary", 250), ("detail", 4000))
             }
+            if "reader_brief" in card:
+                existing[card["key"]]["reader_brief"] = card["reader_brief"]
             document = next(d for d in documents if d["key"] == card["key"])
             existing[card["key"]].update(
                 copy_revision=cache.get("cache_revision", 0) + 1,

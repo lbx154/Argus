@@ -212,10 +212,11 @@ describe('shared frontend core', () => {
     ])).toEqual(first);
   });
 
-  it('closes orphaned provider requests at mission completion', () => {
+  it('closes a task’s orphaned provider request at its own completion', () => {
     const orphaned = {
       type: 'provider.request.started',
       call_id: 'orphaned-manager-call',
+      item_id: 'mission-1',
       run_label: 'manager-classify-grounded',
     };
     expect(activeProviderRequest([

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ArtifactInfo, EventMsg } from '../api';
+import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
 import { api } from '../api';
 import { useArtifact } from '../hooks';
@@ -16,6 +16,9 @@ import { PdfPreview } from './PdfPreview';
 import { isMarkdownArtifact } from '../lib/artifactPresentation';
 import { theme } from '../lib/theme';
 import { plainProgress, plainRouteStatus, plainStage, plainStatus } from '../lib/plainStatus';
+import { WorkStatusBar } from './WorkStatusBar';
+import { currentWorkStatus, eventTaskId } from '../lib/workStatus';
+import { readableRecord } from '../map/submap';
 
 export const LIVE_PROGRESS_PATH = '__argus_live_progress__';
 
@@ -124,7 +127,9 @@ function eventRole(event: EventMsg): string {
 export function selectLiveMissionStatus(
   view?: MissionView | null,
   events: EventMsg[] = [],
+  snapshot?: Snapshot,
 ): LiveMissionStatus | null {
+  if (snapshot && currentWorkStatus(snapshot, view, events).state !== 'running') return null;
   if (missionIsComplete(view)) return null;
   const role = String(view?.active_role ?? '');
   if (!role) return null;
@@ -132,10 +137,12 @@ export function selectLiveMissionStatus(
   let detail = '';
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
+    if (view?.mission.id && eventTaskId(event) !== view.mission.id) continue;
+    if (view?.mission.started_at && Number(event.ts || 0) < view.mission.started_at) continue;
     if (eventRole(event) !== role) continue;
     const kind = String(event.kind ?? '');
-    if (kind === 'reasoning') continue;
-    const raw = String(event.text ?? event.action_summary ?? '').trim();
+    if (!['agent_message', 'assistant_message', 'message'].includes(kind)) continue;
+    const raw = readableRecord(String(event.text ?? '').trim());
     if (!raw || raw.startsWith('{')) continue;
     detail = raw.split('\n')[0].slice(0, 240);
     break;
@@ -166,16 +173,18 @@ export function liveProgressSummary(view: MissionView): {
 
 function LiveProgressPreview({
   view,
-  liveStatus,
   artifacts = [],
   onOpenArtifact,
   routeVisible,
+  snapshot,
+  connected,
 }: {
   view: MissionView;
-  liveStatus: LiveMissionStatus | null;
   artifacts?: ArtifactInfo[];
   onOpenArtifact: (path: string) => void;
   routeVisible: boolean;
+  snapshot?: Snapshot;
+  connected: boolean;
 }) {
   const { locale, t } = useI18n();
   const completed = view.dag.filter((node) => ['done', 'completed'].includes(node.status)).length;
@@ -184,6 +193,7 @@ function LiveProgressPreview({
     .sort((left, right) => Number(right.mtime ?? 0) - Number(left.mtime ?? 0))
     .slice(0, 4);
   const running = (status: string) => ['running', 'in_progress', 'claimed'].includes(status);
+  const liveExecution = connected && snapshot?.daemon.alive !== false;
   const statusTone = (status: string) => (
     status === 'done' ? 'text-ok'
     : running(status) ? 'text-blue-sky'
@@ -196,7 +206,6 @@ function LiveProgressPreview({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-5 text-sm text-ink-dim scroll-thin">
       <section className="rounded-lg border border-blue-deep/30 bg-blue-deep/10 p-4">
-        {liveStatus?.detail ? <p className="mb-3 leading-6 text-ink-dim">{liveStatus.detail}</p> : null}
         <dl className="grid grid-cols-2 gap-3 text-xs">
           <div><dt className="text-ink-faint">{t('mission.stage')}</dt><dd className="mt-1 text-sm font-medium text-blue-sky">{plainStage(view.stage.id, locale) !== view.stage.id ? plainStage(view.stage.id, locale) : view.stage.label || view.stage.id || '—'}</dd></div>
           <div><dt className="text-ink-faint">{t('research.totalTime')}</dt><dd className="mt-1 text-sm text-ink">{formatMissionElapsed(view.mission.campaign_elapsed_seconds)}</dd></div>
@@ -212,12 +221,14 @@ function LiveProgressPreview({
             {view.dag.map((node) => (
               <li key={node.id} className="rounded-md border border-line/60 bg-panel px-3 py-2.5">
                 <div className="flex items-start gap-2">
-                  <span className={`mt-0.5 shrink-0 text-xs ${statusTone(node.status)}`} aria-hidden="true">
-                    {node.status === 'done' ? '✓' : running(node.status) ? '●' : '○'}
+                  <span className={`mt-0.5 shrink-0 text-xs ${statusTone(!liveExecution && running(node.status) ? 'waiting' : node.status)}`} aria-hidden="true">
+                    {node.status === 'done' ? '✓' : liveExecution && running(node.status) ? '●' : '○'}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium leading-5 text-ink">{node.title}</div>
-                    <div className={`mt-0.5 text-xs ${statusTone(node.status)}`}>{plainRouteStatus(node.status, locale)}</div>
+                    <div className="text-sm font-medium leading-5 text-ink"><MarkdownContent>{node.title}</MarkdownContent></div>
+                    <div className={`mt-0.5 text-xs ${statusTone(!liveExecution && running(node.status) ? 'waiting' : node.status)}`}>{!liveExecution && running(node.status)
+                      ? connected ? (locale === 'zh-CN' ? '当前未在运行' : 'Not currently running') : (locale === 'zh-CN' ? '断连前记录：进行中' : 'Last received state: in progress')
+                      : plainRouteStatus(node.status, locale)}</div>
                   </div>
                 </div>
               </li>
@@ -228,7 +239,8 @@ function LiveProgressPreview({
 
       {reviewedArtifacts.length ? (
         <section className="mt-5">
-          <div className="text-xs font-semibold text-ink-faint">{t('research.verifiedOutputs')}</div>
+          <div className="text-xs font-semibold text-ink-faint">{locale === 'zh-CN' ? '已生成的文件' : 'Files produced so far'}</div>
+          <p className="mt-1 text-xs text-ink-faint">{locale === 'zh-CN' ? '文件已生成，结论是否成立仍以核验记录为准。' : 'A saved file is not a verification of its conclusions.'}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {reviewedArtifacts.map((item) => (
               <button
@@ -262,6 +274,8 @@ export function ResearchCanvas({
   requestedPath,
   requestedPathToken,
   routeVisible = true,
+  snapshot,
+  connected = true,
 }: {
   sid: string | null;
   artifacts?: ArtifactInfo[];
@@ -277,6 +291,8 @@ export function ResearchCanvas({
   requestedPathToken?: number;
   /** The mission column shows the route itself; the panel repeats it only on the other views. */
   routeVisible?: boolean;
+  snapshot?: Snapshot;
+  connected?: boolean;
 }) {
   const { t, locale } = useI18n();
   const previewArtifacts = useMemo(
@@ -328,8 +344,8 @@ export function ResearchCanvas({
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState('');
   const liveStatus = useMemo(
-    () => selectLiveMissionStatus(missionView, activityEvents),
-    [activityEvents, missionView],
+    () => connected ? selectLiveMissionStatus(missionView, activityEvents, snapshot) : null,
+    [activityEvents, missionView, snapshot, connected],
   );
 
   useEffect(() => {
@@ -452,7 +468,7 @@ export function ResearchCanvas({
         ) : null}
       </header>
 
-      {liveStatus ? (
+      {snapshot ? <WorkStatusBar snapshot={snapshot} view={missionView} events={activityEvents} connected={connected} compact /> : liveStatus ? (
         <div className="shrink-0 border-b border-line/50 bg-blue-deep/10 px-4 py-3">
           <div className="flex items-center gap-2 text-xs">
             <span data-role-dot={liveStatus.role} className="h-2 w-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none" style={{ background: theme.role[liveStatus.role] ?? theme.inkFaint }} aria-hidden="true" />
@@ -468,7 +484,7 @@ export function ResearchCanvas({
 
       <div className="relative flex min-h-0 flex-1 flex-col bg-bg">
         {showLiveProgress && missionView ? (
-          <LiveProgressPreview view={missionView} liveStatus={liveStatus} artifacts={artifacts} onOpenArtifact={selectPreviewPath} routeVisible={routeVisible} />
+          <LiveProgressPreview view={missionView} artifacts={artifacts} onOpenArtifact={selectPreviewPath} routeVisible={routeVisible} snapshot={snapshot} connected={connected} />
         ) : null}
         {!showLiveProgress && error ? (
           <div className="m-auto max-w-sm px-6 text-center text-sm text-warn">

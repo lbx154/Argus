@@ -19,6 +19,14 @@ export function attentionReason(task: MapTask, events: MapEvent[], zh: boolean):
     (zh ? "这项任务没有完成，记录里没有写明原因。" : "This task did not finish, and the record does not say why.");
 }
 
+/** Background explanation of recorded work, never an additional research result. */
+export interface ReaderBrief {
+  why: string;
+  concept: { name: string; explanation: string; example: string; connection: string } | null;
+  scope: string;
+  next: string;
+}
+
 export interface CardCopy {
   copy_revision?: number;
   version?: number;
@@ -26,6 +34,8 @@ export interface CardCopy {
   title: string;
   summary: string;
   detail: string;
+  /** Optional for existing cached cards created before presentation schema 10. */
+  reader_brief?: ReaderBrief;
   generated_at: number;
   task_revision?: string;
   task_content_revision?: string;

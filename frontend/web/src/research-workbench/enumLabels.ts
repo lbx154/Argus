@@ -21,6 +21,15 @@ const STATUS_LABELS: Record<string, readonly [string, string]> = {
   rejected: ['需要修改', 'Needs changes'],
   continue: ['需要修改', 'Needs changes'],
   replan: ['需要重新规划', 'Needs replanning'],
+  replan_requested: ['需要重新规划', 'Needs replanning'],
+  incomplete: ['尚未完成', 'Incomplete'],
+  research_incomplete: ['研究尚未完成', 'Research incomplete'],
+  paused_no_breakthrough: ['暂未取得突破，已暂停', 'Paused without a breakthrough'],
+  exhausted_current_methods: ['当前方法已尝试完', 'Current methods exhausted'],
+  no_progress: ['暂无新进展，已暂停', 'Paused without new progress'],
+  max_rounds: ['已到本次轮次上限', 'Round limit reached'],
+  infra_blocked: ['等待运行条件恢复', 'Waiting for the runtime to recover'],
+  supervisor_error: ['执行异常', 'Execution failed'],
   skipped: ['已跳过', 'Skipped'],
   paused: ['已暂停', 'Paused'],
   stopped: ['已暂停', 'Paused'],
@@ -73,6 +82,7 @@ function label(
 }
 
 export function statusLabel(value: string | null | undefined, text: WorkbenchText): string {
+  if (String(value ?? '').startsWith('paused_') && !STATUS_LABELS[String(value)]) return text('已暂停', 'Paused');
   return label(value, STATUS_LABELS, ['状态已更新', 'Status updated'], text);
 }
 

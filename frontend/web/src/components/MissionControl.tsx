@@ -5,6 +5,7 @@ import type {
   GitDiffView,
   MissionTimelineItem,
   MissionView,
+  EventMsg,
 } from '../../../core/src/types';
 import {
   displayObjective,
@@ -14,6 +15,7 @@ import { theme } from '../lib/theme';
 import { errorText } from '../lib/format';
 import { plainDetail, plainStatus, plainStopSentence } from '../lib/plainStatus';
 import { MarkdownContent } from './MarkdownContent';
+import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { useI18n } from '../i18n';
 import { api, type ArtifactInfo, type Snapshot } from '../api';
 import {
@@ -185,6 +187,8 @@ export function MissionControl({
   onOpenDelivery,
   gitDiff,
   onNotify,
+  connected = true,
+  events = [],
 }: {
   view: MissionView;
   sid?: string;
@@ -194,6 +198,8 @@ export function MissionControl({
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
   gitDiff?: GitDiffView;
   onNotify?: (tone: 'success' | 'error', message: string) => void;
+  connected?: boolean;
+  events?: EventMsg[];
 }) {
   const { locale, t } = useI18n();
   // Role work reaches AgentActivity with its reasons already in plain words;
@@ -242,14 +248,15 @@ export function MissionControl({
   );
   const hasCapabilities = Boolean(activeSkills.length || retainedWikiPages.length || hasSavedKnowledge);
   const missionStatus = view.mission.status.toLowerCase();
-  const missionRunning = ['working', 'grounding', 'framed'].includes(missionStatus);
+  const runtime = snapshot ? currentWorkStatus(snapshot, view, events) : null;
+  const missionRunning = runtime ? runtime.state === 'running' : ['working', 'grounding', 'framed'].includes(missionStatus);
   const healthNeedsAttention = ['degraded', 'red', 'critical'].includes(view.health?.toLowerCase() ?? '');
   const missionFailed = ['failed', 'error'].includes(view.mission.status.toLowerCase());
   // Historical failures remain in the route; they do not replace the status
   // of a different task that is currently running or being reviewed.
   const stepFailed = view.dag.some((node) => node.status.toLowerCase() === 'failed'
-    && (node.id === view.mission.id || (!missionRunning && !activeNode)));
-  const missionPaused = ['hold', 'paused'].includes(view.stage.id.toLowerCase());
+    && (node.id === view.mission.id || (!view.mission.id && !missionRunning && !activeNode)));
+  const missionPaused = runtime?.state === 'paused' || ['hold', 'paused'].includes(view.stage.id.toLowerCase());
   const deliveryFailed = view.outcome.execution_status?.toLowerCase() === 'failed'
     && view.stage.id.toLowerCase() === 'delivery';
   const needsAttention = healthNeedsAttention || deliveryFailed || missionFailed || stepFailed || missionPaused;
@@ -263,25 +270,30 @@ export function MissionControl({
           ? 'mission.attentionStepFailed'
           : 'mission.attentionPaused';
   const activeWork = view.role_work
-    .filter((item) => ACTIVE_WORK_STATUSES.includes(item.status.toLowerCase()))
+    .filter((item) => ACTIVE_WORK_STATUSES.includes(item.status.toLowerCase())
+      && (!view.mission.id || (item.item_id || item.mission_id) === view.mission.id))
     .sort((left, right) => right.ts - left.ts);
   const currentWork = activeWork.find((item) => item.role === view.active_role) ?? activeWork[0];
   const missionDone = TERMINAL_MISSION_STATUSES.includes(missionStatus);
   const outcome = outcomeLabels(view.outcome, t)[0] ?? statusLabel(view.mission.status, t);
-  const statusNarrative = needsAttention
+  const statusNarrative = !connected ? (locale === 'zh-CN' ? '实时连接已断开，以下是已收到的记录。' : 'Live connection lost; these are the records already received.')
+    : runtime?.state === 'paused' ? workStatusLabel(runtime, locale)
+    : runtime?.state === 'unknown' ? workStatusLabel(runtime, locale)
+    : needsAttention
     ? t(attentionKey)
     : missionDone
       ? t('mission.statusDone', {
           outcome,
           elapsed: formatMissionElapsed(view.mission.elapsed_seconds),
         })
+      : runtime ? workStatusLabel(runtime, locale)
       : missionRunning && currentWork
         ? t('mission.statusActive', {
             role: roleLabel(view.active_role || currentWork.role, t),
             work: currentWork.title,
           })
         : t('mission.statusWaiting');
-  const statusTone = healthNeedsAttention || deliveryFailed || missionFailed || stepFailed
+  const statusTone = !connected ? 'waiting' : healthNeedsAttention || deliveryFailed || missionFailed || stepFailed
     ? 'error'
     : missionPaused
       ? 'waiting'
@@ -297,7 +309,9 @@ export function MissionControl({
   // when there is one; otherwise the kind of interruption has to do.
   // The backend records why a round produced no judgment on the timeline row
   // itself; the reviewer's raw reason is the fallback for older snapshots.
-  const causedRow = [...view.timeline].reverse().find((item) => item.cause && item.detail);
+  const causedRow = [...view.timeline].reverse().find((item) => item.cause && item.detail
+    && (!view.mission.id || item.item_id === view.mission.id)
+    && (!view.mission.started_at || item.ts >= view.mission.started_at));
   const reviewNote = causedRow
     ? plainDetail(causedRow.detail, locale, { cause: causedRow.cause, technical: causedRow.technical, language: view.language })
     : ['skipped', 'blocked', 'rejected', 'continue'].includes(String(view.review.status || '').toLowerCase())

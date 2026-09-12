@@ -179,6 +179,8 @@ const STATUSES: Record<string, Pair> = {
   stopped: ['已停止', 'Stopped'],
   cancelled: ['已停止', 'Stopped'],
   aborted: ['已停止', 'Stopped'],
+  paused_external_work: ['等待外部工作完成', 'Waiting for external work'],
+  superseded: ['已由新方案替代', 'Replaced by a newer plan'],
 };
 
 /** Why a round produced no judgment or a task stopped, by the backend's cause code. */
@@ -220,6 +222,7 @@ const STAGES: Record<string, Pair> = {
   review: ['最终审核', 'Final review'],
   delivery: ['成果交付', 'Delivery'],
   optimize: ['优化', 'Optimization'],
+  solve: ['推导与验证', 'Derivation and verification'],
   hold: ['已暂停', 'Paused'],
   paused: ['已暂停', 'Paused'],
 };

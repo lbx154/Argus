@@ -1,19 +1,16 @@
 import { WorkspaceHeader } from './WorkspaceShell';
-import type { Snapshot, Role } from '../api';
+import type { Snapshot, EventMsg } from '../api';
 import type { MissionView } from '../../../core/src/types';
 import { theme } from '../lib/theme';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
 import { DaemonSpendBadge } from './DaemonSpendBadge';
 import { useI18n } from '../i18n';
+import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 
 export type ThemeMode = 'light' | 'dark';
 
 const ACTIVE_STATUSES = new Set(['running', 'in_progress', 'claimed']);
-
-function currentRole(roles: Role[]): Role | undefined {
-  return roles.find((role) => role.active) ?? roles.find((role) => role.role === 'manager');
-}
 
 export function TopBar({
   snap,
@@ -28,6 +25,7 @@ export function TopBar({
   snapshotStale = false,
   readOnly = false,
   missionView,
+  events = [],
 }: {
   snap: Snapshot;
   streamOk: boolean;
@@ -41,21 +39,17 @@ export function TopBar({
   snapshotStale?: boolean;
   readOnly?: boolean;
   missionView?: MissionView | null;
+  events?: EventMsg[];
 }) {
-  const { t } = useI18n();
-  const role = currentRole(snap.roles);
+  const { t, locale } = useI18n();
+  const work = currentWorkStatus(snap, missionView, events);
   const missionTerminal = ['complete', 'completed', 'done', 'success'].includes(
     String(missionView?.mission.status || '').toLowerCase(),
   );
-  const missionRole = snap.daemon.alive && !missionTerminal
-    ? missionView?.roles.find((candidate) => candidate.role === missionView.active_role)
-    : undefined;
-  const roleName = missionRole?.role || role?.role || 'manager';
-  const roleActive = snap.daemon.alive && (
-    missionRole ? missionRole.status === 'active' : Boolean(role?.active)
-  );
+  const roleName = work.role || 'manager';
+  const roleActive = work.state === 'running' && streamOk && !snapshotStale;
   const activeItem = snap.backlog.find((item) => ACTIVE_STATUSES.has(item.status));
-  const focus = missionRole?.label
+  const focus = work.title
     || activeItem?.title
     || activeItem?.objective
     || (missionTerminal ? missionView?.mission.summary || missionView?.mission.title : '')
@@ -100,7 +94,7 @@ export function TopBar({
             className="h-2 w-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none"
             style={{ background: theme.role[roleName] || 'rgb(var(--ink-faint))' }}
           /> : null}
-          {roleActive ? <span className="shrink-0 text-[10px] font-semibold capitalize text-ink-dim">{roleName}</span> : null}
+          <span className="shrink-0 text-[10px] font-medium text-ink-dim">{!streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale') : workStatusLabel(work, locale)}</span>
           <span className="truncate text-[10px] text-ink-faint" title={focus}>{focus}</span>
         </div> : null}
       </div>

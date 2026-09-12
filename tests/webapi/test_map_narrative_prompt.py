@@ -9,7 +9,10 @@ def _capture_prompt(monkeypatch) -> str:
     def fake_run(prompt, output_schema, config, **kwargs):
         captured["prompt"] = prompt
         return {
-            "cards": {"k": {"title": "t", "summary": "s", "detail": "d"}},
+            "cards": {"k": {"title": "t", "summary": "s", "detail": "d", "reader_brief": {
+                "why": "A recorded purpose", "concept": None,
+                "scope": "Independent review is not recorded", "next": "Next step not recorded",
+            }}},
             "relations": [],
         }
 
@@ -26,7 +29,7 @@ def _capture_prompt(monkeypatch) -> str:
 
 
 def test_prompt_version_bumped_for_readability_rules():
-    assert map_narrative.PROMPT_VERSION == 9
+    assert map_narrative.PROMPT_VERSION == 10
 
 
 def test_prompt_speaks_of_any_kind_of_work_not_only_research(monkeypatch):

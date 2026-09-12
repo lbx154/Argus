@@ -1,9 +1,20 @@
 import type { BacklogItem, EventMsg, Snapshot } from './types';
-import { statusLabel } from './enumLabels';
-import { eventDetail, eventRole, eventTitle } from './utils';
+import { isStructuredAgentPayload } from '../../../core/src/events';
+import { currentWorkStatus, eventTaskId, workStatusLabel } from '../lib/workStatus';
+import { readableRecord } from '../map/submap';
+import { eventDetail, eventTitle } from './utils';
 
 const DONE = new Set(['done', 'completed', 'accepted', 'success']);
 const ACTIVE = new Set(['running', 'in_progress', 'claimed', 'active', 'working']);
+const NEEDS_WORK = /continue|replan|reject|blocked|fail|error|incomplete|revoked/;
+const PUBLIC_MESSAGE_KINDS = new Set(['assistant_message', 'agent_message', 'message']);
+const WORK_EVENTS = new Set([
+  'life.planner.task_added', 'life.mission.started', 'life.mission.completed', 'life.mission.failed',
+  'life.phase.started', 'life.manager.stage_decision', 'round.start',
+  'round.main.completed', 'round.review.started', 'round.review.completed',
+  'round.review.deferred', 'round.backend_failure.backoff',
+  'work.segment', 'work.segment.started', 'work.segment.completed',
+]);
 
 export interface ProgressCheckpoint {
   id: string;
@@ -13,146 +24,183 @@ export interface ProgressCheckpoint {
 }
 
 export interface ProgressEstimate {
-  confirmed: number;
-  estimate: number | null;
-  range: [number, number] | null;
-  confidence: 'low' | 'medium' | 'high';
-  basis: string;
+  /** Exact fraction of recorded work items, never an estimate of the research goal. */
+  workCompletion: number | null;
+  workScope: string;
   currentTask: string;
-  currentRole: string;
+  currentTaskId: string;
+  currentObjective: string;
   currentStep: string;
   currentDetail: string;
-  elapsedSeconds: number;
-  eta: { minSeconds: number; maxSeconds: number; basis: string } | null;
+  currentEvent: EventMsg | null;
+  runtime: ReturnType<typeof currentWorkStatus>;
+  elapsedSeconds: number | null;
   etaUnavailableReason: string;
   checkpoints: ProgressCheckpoint[];
   completedTasks: number;
   totalTasks: number;
   pendingTasks: number;
-  currentFraction: number;
+  openEnded: boolean;
+  review: {
+    state: 'pending' | 'running' | 'passed' | 'needs_work' | 'skipped' | 'self_checked';
+    label: string;
+    detail: string;
+    scope: string;
+  };
+  acceptanceCriteria: string;
+  nextAction: string;
+  /** Only the current task's activity is suitable for its progress timeline. */
+  taskEvents: EventMsg[];
 }
 
-function median(values: number[]): number | null {
-  if (!values.length) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+function isWorkEvent(event: EventMsg): boolean {
+  const type = String(event.type ?? '');
+  const kind = String(event.kind ?? '');
+  return kind !== 'reasoning' && !isStructuredAgentPayload(event) && (WORK_EVENTS.has(type) || type === 'engineer.progress'
+    && (PUBLIC_MESSAGE_KINDS.has(kind) || ['tool_use', 'tool_result', 'command_execution', 'file_change'].includes(kind)));
 }
 
-function latestUsefulEvent(events: EventMsg[]): EventMsg | null {
-  return [...events].reverse().find((event) => {
-    const kind = String(event.kind ?? '');
-    const type = String(event.type ?? '');
-    return kind !== 'reasoning' && !type.startsWith('provider.') && !['ui.operator', 'ui.argus'].includes(type);
-  }) ?? null;
+function readableWorkEvent(event: EventMsg): EventMsg {
+  if (event.type !== 'engineer.progress' || !PUBLIC_MESSAGE_KINDS.has(String(event.kind ?? ''))) return event;
+  return {
+    ...event,
+    text: readableRecord(String(event.text ?? '')),
+    action_summary: readableRecord(String(event.action_summary ?? '')),
+    title: readableRecord(String(event.title ?? '')),
+  };
 }
 
-function currentBacklogItem(snapshot: Snapshot): BacklogItem | null {
+function currentBacklogItem(snapshot: Snapshot, taskId: string): BacklogItem | null {
+  if (taskId) return snapshot.backlog.find((item) => item.id === taskId) ?? null;
   return snapshot.backlog.find((item) => ACTIVE.has(item.status))
     ?? snapshot.backlog.find((item) => item.status === 'pending')
     ?? snapshot.backlog.at(-1)
     ?? null;
 }
 
+function positiveTime(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
 export function deriveProgressEstimate(snapshot: Snapshot, events: EventMsg[], nowSeconds = Date.now() / 1_000, locale: 'en' | 'zh-CN' = 'zh-CN'): ProgressEstimate {
   const text = (zh: string, en: string) => locale === 'zh-CN' ? zh : en;
   const view = snapshot.mission_view;
+  const runtime = currentWorkStatus(snapshot, view, events, nowSeconds);
+  const current = currentBacklogItem(snapshot, runtime.taskId || view?.mission.id || '');
+  const taskId = current?.id || view?.mission.id || '';
+  const matchesView = Boolean(taskId && taskId === view?.mission.id);
   const dag = view?.dag?.length ? view.dag : snapshot.backlog;
-  const total = dag.length;
   const completed = dag.filter((item) => DONE.has(item.status)).length;
-  const pending = dag.filter((item) => /pending|queued|waiting/.test(item.status)).length;
-  const current = currentBacklogItem(snapshot);
-  const activeRole = view?.active_role || snapshot.roles.find((role) => role.active)?.role || '';
-  const missionStarted = current?.started_ts || view?.mission.started_at || snapshot.daemon.uptime_seconds && nowSeconds - snapshot.daemon.uptime_seconds || nowSeconds;
-  const eventWindow = events.filter((event) => Number(event.ts ?? 0) >= Number(missionStarted || 0));
-  const latest = latestUsefulEvent(eventWindow);
-  const missionStatus = String(view?.mission.status ?? '').toLowerCase();
-  const explicitlyComplete = ['complete', 'completed', 'done'].includes(missionStatus);
-  const explicitlyIncomplete = ['incomplete', 'failed', 'blocked', 'aborted', 'stopped', 'cancelled'].includes(missionStatus);
-  const missionComplete = explicitlyComplete || (!explicitlyIncomplete && Boolean(total && completed === total));
-  const daemonStopped = !snapshot.daemon.alive;
-  const terminalAt = current?.finished_ts || view?.mission.completed_at || (daemonStopped ? Number(latest?.ts ?? missionStarted) : null);
-  const elapsed = Math.max(0, Number(terminalAt ?? nowSeconds) - Number(missionStarted || nowSeconds));
-  const hasActiveTask = Boolean(current && ACTIVE.has(current.status) && snapshot.daemon.alive);
-  const commands = eventWindow.filter((event) => String(event.kind ?? '') === 'command_execution').length;
-  const fileActions = eventWindow.filter((event) => /^(read|write|edit):/i.test(eventDetail(event, 80)) || String(event.kind ?? '') === 'file_change').length;
-  const engineerHandoff = Boolean(view?.role_work?.some((item) => item.role === 'engineer' && /handoff|main completed/i.test(`${item.kind} ${item.title}`) && item.ts >= Number(missionStarted || 0)));
-  const reviewStarted = eventWindow.some((event) => /review.*started/i.test(String(event.type ?? '')));
-  const reviewCompleted = eventWindow.some((event) => /review.*completed/i.test(String(event.type ?? '')));
-  const blocked = Boolean(current && /failed|blocked|error/.test(current.status));
-  const replan = Boolean(view?.review?.status && /replan|blocked|rejected|continue/.test(view.review.status));
+  const pending = dag.filter((item) => /^(pending|queued|waiting)$/.test(item.status)).length;
+  const openEnded = Boolean(view?.routing?.open_ended || view?.routing?.lifetime === 'standing' || snapshot.continuous?.open_ended);
+  const startedAt = positiveTime(current?.started_ts) ?? (matchesView ? positiveTime(view?.mission.started_at) : null);
+  const finishedAt = positiveTime(current?.finished_ts) ?? (matchesView ? positiveTime(view?.mission.completed_at) : null);
+  const parallelTasks = snapshot.backlog.filter((item) => ACTIVE.has(item.status)).length > 1;
+  const taskEvents = events.filter((event) => {
+    if (!taskId || (startedAt !== null && Number(event.ts ?? 0) < startedAt)) return false;
+    const id = eventTaskId(event);
+    // Legacy unscoped progress is usable only when one task could own it.
+    // Positive review evidence below always requires an explicit task identity.
+    return id ? id === taskId : !parallelTasks && startedAt !== null;
+  }).sort((left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0));
+  const activityEvents = taskEvents.filter(isWorkEvent).map(readableWorkEvent).filter((event) =>
+    !PUBLIC_MESSAGE_KINDS.has(String(event.kind ?? '')) || Boolean(event.text || event.action_summary || event.title));
+  const latest = activityEvents.at(-1);
+  const running = runtime.state === 'running';
+  const elapsedEnd = finishedAt ?? (snapshot.daemon.alive ? nowSeconds : positiveTime(taskEvents.at(-1)?.ts) ?? startedAt);
+  const elapsedSeconds = startedAt === null || elapsedEnd === null ? null : Math.max(0, elapsedEnd - startedAt);
 
-  let fraction = 0;
-  if (current && DONE.has(current.status)) fraction = 1;
-  else if (current && ACTIVE.has(current.status) && snapshot.daemon.alive) {
-    fraction = .14;
-    if (commands || fileActions) fraction = Math.min(.58, .27 + Math.log2(1 + commands + fileActions) * .055);
-    if (engineerHandoff) fraction = .70;
-    if (reviewStarted || activeRole === 'reviewer') fraction = .80;
-    if (reviewCompleted) fraction = .93;
-  }
-
-  const confirmed = missionComplete ? 1 : explicitlyIncomplete && total && completed === total ? .95 : total ? completed / total : 0;
-  const activeInDag = current && dag.some((item) => item.id === current.id) && hasActiveTask && !replan;
-  const estimate = missionComplete ? 1 : replan ? confirmed : total ? Math.min(1, (completed + (activeInDag ? fraction : 0)) / total) : null;
-  const uncertainty = total ? Math.max(.05, Math.min(.18, .45 / total)) : 0;
-  const range: [number, number] | null = missionComplete ? [1, 1] : replan ? [confirmed, confirmed] : estimate == null ? null : [
-    Math.max(confirmed, estimate - uncertainty * .45),
-    Math.min(.99, Math.max(estimate, estimate + uncertainty)),
+  const latestRoundStart = [...taskEvents].reverse().find((event) => eventTaskId(event) === taskId && event.type === 'round.start');
+  const round = Math.max(matchesView ? Number(view?.round.current ?? 0) : 0, Number(latestRoundStart?.round_index ?? 0));
+  const roundStart = [...taskEvents].reverse().find((event) => eventTaskId(event) === taskId
+    && event.type === 'round.start' && Number(event.round_index) === round);
+  const belongsToRound = (event: EventMsg) => {
+    if (eventTaskId(event) !== taskId || round <= 0) return false;
+    if (roundStart && Number(event.ts ?? 0) < Number(roundStart.ts ?? 0)) return false;
+    const eventRound = Number(event.round_index ?? 0);
+    if (eventRound > 0) return eventRound === round;
+    return roundStart != null && Number(event.ts ?? 0) >= Number(roundStart.ts ?? 0);
+  };
+  const roundEvents = taskEvents.filter(belongsToRound);
+  const reviewEvent = [...roundEvents].reverse().find((event) => event.type === 'round.review.completed');
+  const reviewStarted = [...roundEvents].reverse().find((event) => event.type === 'round.review.started');
+  const newReviewStarted = Boolean(reviewStarted && (!reviewEvent || Number(reviewStarted.ts) > Number(reviewEvent.ts)));
+  const reviewing = running && runtime.role === 'reviewer' && newReviewStarted;
+  const currentReview = newReviewStarted ? undefined : reviewEvent;
+  const rawReviewStatus = String(currentReview?.status ?? '').toLowerCase();
+  const viewReviewStatus = matchesView ? String(view?.review.status ?? '').toLowerCase() : '';
+  const reviewSkipped = currentReview?.review_skipped === true || rawReviewStatus === 'skipped';
+  const selfReview = currentReview?.review_source === 'engineer_self_review';
+  const independentReview = !currentReview?.review_source || currentReview.review_source === 'reviewer';
+  // Snapshot review/achievement can survive a new round. Only a verdict tied
+  // to this task and round confirms that this round passed review.
+  const passed = !reviewSkipped && independentReview && rawReviewStatus === 'done';
+  const needsWork = !reviewSkipped && (NEEDS_WORK.test(rawReviewStatus)
+    || (!currentReview && !reviewing && NEEDS_WORK.test(viewReviewStatus)));
+  const reviewState: ProgressEstimate['review']['state'] = reviewing ? 'running'
+    : reviewSkipped ? 'skipped' : passed ? 'passed'
+    : selfReview && rawReviewStatus === 'done' ? 'self_checked'
+    : needsWork ? 'needs_work' : 'pending';
+  const reviewLabels = {
+    pending: text('结论待核对', 'Conclusion awaiting review'),
+    running: text('正在核对证据', 'Checking the evidence'),
+    passed: text('本轮工作通过核对', 'This round passed review'),
+    needs_work: text('仍需补充或修改', 'More work is needed'),
+    skipped: text('本轮未做审查', 'This round was not reviewed'),
+    self_checked: text('执行者已自查，待独立核对', 'Self-checked; independent review pending'),
+  };
+  const reviewDefaults = {
+    pending: text('尚无能对应到当前工作项和轮次的通过记录。', 'No passing review is linked to the current work item and round.'),
+    running: text('审阅者正在核对本轮结果及其证据。', 'The Reviewer is checking this round’s results and evidence.'),
+    passed: text('通过记录仅适用于本轮提交的工作与证据。', 'The passing verdict applies to the work and evidence submitted in this round.'),
+    needs_work: text('审查发现仍有待处理的问题，需要继续工作。', 'The review found issues that require further work.'),
+    skipped: text('执行结束并不代表证据已经通过核对。', 'The end of execution does not establish that the evidence passed review.'),
+    self_checked: text('这条记录来自执行者自查，尚无本轮独立审查通过记录。', 'This record is a self-check by the worker; no independent passing review is recorded for this round.'),
+  };
+  const review = {
+    state: reviewState,
+    label: reviewLabels[reviewState],
+    detail: String(currentReview?.reason || (needsWork && view?.review.reason) || reviewDefaults[reviewState]),
+    scope: text(`当前工作项${round > 0 ? ` · 第 ${round} 轮` : ''}。整体目标是否成立，仍须核对其完整验收条件。`,
+      `Current work item${round > 0 ? ` · Round ${round}` : ''}. The overall goal still requires checking its full acceptance criteria.`),
+  };
+  const handoff = [...roundEvents].reverse().find((event) => event.type === 'round.main.completed');
+  const reviewCheckpointStatus: ProgressCheckpoint['status'] = reviewState === 'passed' ? 'done'
+    : reviewState === 'running' ? 'active' : reviewState === 'needs_work' ? 'blocked' : 'pending';
+  const checkpoints: ProgressCheckpoint[] = [
+    { id: 'plan', label: text('工作项已记录', 'Work item recorded'), detail: current?.title || view?.mission.title || text('等待任务', 'Waiting for a task'), status: current || matchesView ? 'done' : 'pending' },
+    { id: 'start', label: text('开始执行', 'Execution started'), detail: startedAt !== null ? text('有任务启动时间记录', 'A task start time is recorded') : text('尚无启动记录', 'No start is recorded'), status: startedAt !== null ? 'done' : 'pending' },
+    { id: 'handoff', label: text('本轮执行已结束', 'Round execution ended'), detail: handoff ? text('已记录本轮执行结束，结果是否可用仍需核对', 'The round’s execution ended; its results still need to be checked') : text('尚无本轮执行结束记录', 'No end of execution is recorded for this round'), status: handoff ? 'done' : running && runtime.role === 'engineer' ? 'active' : 'pending' },
+    { id: 'review', label: text('核对本轮证据', 'Check this round’s evidence'), detail: review.label, status: reviewCheckpointStatus },
   ];
-
-  const durations = snapshot.backlog
-    .map((item) => item.started_ts && item.finished_ts ? item.finished_ts - item.started_ts : 0)
-    .filter((duration) => duration >= 5 && duration <= 7 * 86_400);
-  const typicalDuration = median(durations);
-  let eta: ProgressEstimate['eta'] = null;
-  let etaUnavailableReason = '';
-  if (missionComplete) etaUnavailableReason = text('项目已完成，无需预计完成时间', 'Project complete; no finish-time estimate is needed');
-  else if (daemonStopped) etaUnavailableReason = text('Argus 已停止，预计完成时间暂停更新', 'Argus stopped; the expected finish time is paused');
-  else if (!hasActiveTask) etaUnavailableReason = text('当前没有执行中的任务，暂时无法预计完成时间', 'No active task; the expected finish time is unavailable');
-  else if (replan) etaUnavailableReason = text('Reviewer 正在改变任务范围，暂时无法预计完成时间', 'The Reviewer is changing scope, so the expected finish time is unavailable');
-  else if (!typicalDuration) etaUnavailableReason = text('同类已完成任务不足，正在建立时间基线', 'Not enough completed tasks to establish a time baseline');
-  else if (!total || estimate == null) etaUnavailableReason = text('任务路线尚未稳定，暂不预计完成时间', 'The task route is not stable enough to estimate a finish time');
-  else {
-    const remainingEquivalent = Math.max(0, total - completed - (activeInDag ? fraction : 0));
-    const center = remainingEquivalent * typicalDuration;
-    eta = {
-      minSeconds: Math.max(60, center * .68),
-      maxSeconds: Math.max(180, center * (durations.length >= 3 ? 1.45 : 1.75)),
-      basis: text(`${durations.length} 个已完成任务的中位耗时`, `Median duration of ${durations.length} completed tasks`),
-    };
-  }
-
-  const confidence: ProgressEstimate['confidence'] = total >= 4 && durations.length >= 3 ? 'high' : total >= 2 && durations.length >= 1 ? 'medium' : 'low';
-  const plannerDone = snapshot.roles.find((role) => role.role === 'planner')?.status === 'done' || Boolean(current);
-  let checkpoints: ProgressCheckpoint[] = [
-    { id: 'plan', label: text('规划任务', 'Plan task'), detail: plannerDone ? text('Planner 已形成当前任务', 'Planner created the current task') : text('等待 Planner', 'Waiting for Planner'), status: plannerDone ? 'done' : activeRole === 'planner' ? 'active' : 'pending' },
-    { id: 'start', label: text('启动执行', 'Start execution'), detail: current?.started_ts ? text('任务已领取并启动', 'Task claimed and started') : text('等待执行', 'Waiting to execute'), status: current?.started_ts ? 'done' : current?.status === 'pending' ? 'pending' : blocked ? 'blocked' : 'active' },
-    { id: 'work', label: text('运行与产出', 'Execution and outputs'), detail: text(`${commands} 条命令 · ${fileActions} 次文件动作`, `${commands} commands · ${fileActions} file actions`), status: engineerHandoff ? 'done' : commands || fileActions ? 'active' : blocked ? 'blocked' : 'pending' },
-    { id: 'handoff', label: text('提交 Reviewer', 'Ready for review'), detail: engineerHandoff ? text('已提交 Reviewer', 'Submitted to Reviewer') : text('等待可审读的结果', 'Waiting for results the Reviewer can read'), status: engineerHandoff ? 'done' : activeRole === 'reviewer' ? 'done' : 'pending' },
-    { id: 'review', label: text('Reviewer 认证', 'Reviewer certification'), detail: reviewCompleted ? text('本轮审查已完成', 'Round review complete') : reviewStarted || activeRole === 'reviewer' ? text('Reviewer 正在检查', 'Reviewer is checking') : text('等待审查', 'Waiting for review'), status: reviewCompleted ? 'done' : reviewStarted || activeRole === 'reviewer' ? 'active' : blocked ? 'blocked' : 'pending' },
-  ];
-  if (missionComplete) checkpoints = checkpoints.map((checkpoint) => ({ ...checkpoint, status: 'done' as const, detail: checkpoint.status === 'done' ? checkpoint.detail : text('项目已完成', 'Project complete') }));
-  else if (replan) checkpoints = checkpoints.map((checkpoint) => checkpoint.status === 'done' ? checkpoint : { ...checkpoint, status: 'blocked' as const, detail: text('等待 Reviewer 重新规划任务范围', 'Waiting for Reviewer to replan scope') });
-  else if (daemonStopped) checkpoints = checkpoints.map((checkpoint) => checkpoint.status === 'active' ? { ...checkpoint, status: 'blocked' as const, detail: text('Argus 已停止', 'Argus stopped') } : checkpoint);
+  const workItemComplete = Boolean(current && DONE.has(current.status)) || (matchesView && ['complete', 'completed', 'done'].includes(view?.mission.status ?? ''));
+  const etaUnavailableReason = !snapshot.daemon.alive
+    ? text('运行已停止，无法预计完成时间。', 'Execution has stopped; a finish time is unavailable.')
+    : openEnded ? text('开放研究的剩余工作量尚不确定，无法可靠预计整体完成时间。', 'Open research has no known remaining workload, so its overall finish time cannot be reliably estimated.')
+    : needsWork ? text('审查要求继续补充或调整工作范围，暂无法预计完成时间。', 'Review requires further work or a scope change; a finish time is unavailable.')
+    : workItemComplete ? text('当前工作项已结束；这不提供整体目标的完成时间。', 'The current work item has ended; this does not establish when the overall goal will be reached.')
+    : text('当前记录没有可比较的固定工作量基线，暂无法可靠预计完成时间。', 'The current records contain no comparable, fixed-workload baseline for a reliable finish-time estimate.');
 
   return {
-    confirmed,
-    estimate,
-    range,
-    confidence,
-    basis: replan ? text('Reviewer 正在重新规划，仅显示确定完成部分', 'Reviewer is replanning; only confirmed completion is shown') : total ? text('根据任务状态和事件里程碑估算', 'Estimated from task status and event milestones') : text('任务路线尚未建立', 'Task route not established'),
+    workCompletion: dag.length ? completed / dag.length : null,
+    workScope: text('仅统计已记录的工作项；清单可随研究增减，完成比例不代表整体目标已成立。', 'Counts recorded work items only. The list can change during research; its completion fraction does not establish the overall goal.'),
     currentTask: current?.title || view?.mission.title || text('等待新任务', 'Waiting for a new task'),
-    currentRole: daemonStopped ? 'stopped' : activeRole || eventRole(latest ?? {}) || 'idle',
-    currentStep: missionComplete ? text('项目已完成', 'Project complete') : replan ? text(`Reviewer 要求重新规划 · ${statusLabel(view?.review?.status || 'replan', text)}`, `Reviewer requested replanning · ${statusLabel(view?.review?.status || 'replan', text)}`) : daemonStopped ? text(`已停止 · 最后执行到 ${latest ? eventTitle(latest, locale) : statusLabel(current?.status, text)}`, `Stopped · last step: ${latest ? eventTitle(latest, locale) : statusLabel(current?.status, text)}`) : latest ? eventTitle(latest, locale) : current?.status ? statusLabel(current.status, text) : text('等待动态', 'Waiting for activity'),
+    currentTaskId: taskId,
+    currentObjective: current?.objective || (matchesView ? view?.mission.objective : '') || '',
+    currentStep: running && latest ? eventTitle(latest, locale) : workStatusLabel(runtime, locale),
     currentDetail: latest ? eventDetail(latest, 700) : current?.objective || '',
-    elapsedSeconds: elapsed,
-    eta,
+    currentEvent: latest ?? null,
+    runtime,
+    elapsedSeconds,
     etaUnavailableReason,
     checkpoints,
     completedTasks: completed,
-    totalTasks: total,
+    totalTasks: dag.length,
     pendingTasks: pending,
-    currentFraction: replan ? 0 : fraction,
+    openEnded,
+    review,
+    acceptanceCriteria: current?.acceptance_check || dag.find((item) => item.id === taskId)?.acceptance_check || '',
+    nextAction: current?.pending_question || String(currentReview?.next_action || ''),
+    taskEvents: activityEvents,
   };
 }
