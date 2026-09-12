@@ -48,6 +48,156 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+it('refreshes changed related sources only after opening an editable reader, retaining the old explanation while pending', async () => {
+  const neighbor = { id: 'neighbor', title: 'Neighbor', objective: 'Old neighboring goal', status: 'pending', deps: [] };
+  const retained: MapCopy = { ...empty, cards: { task: {
+    title: 'Retained explanation', summary: 'Retained summary', detail: 'Retained conditions', generated_at: 1, copy_revision: 1,
+    task_revision: '1', task_status: 'done', reader_brief: { why: 'Why', scope: 'Scope', next: neighbor.objective, concept: null },
+    source_snapshot: { version: 2, card_key: 'task', task_id: 'task', captured_at: 1,
+      task: {}, events: [], source_ids: [], related_tasks: [{ ...neighbor }] },
+  } } };
+  const before = structuredClone(retained);
+  client.setQueryData(key, retained);
+  let current = { ...data, tasks: [...data.tasks, neighbor] };
+  let state!: ReturnType<typeof useMapCopy>;
+  function Reader({ open, allowed }: { open: boolean; allowed: boolean }) {
+    state = useMapCopy(current, 'task', false, allowed, undefined, 'session', false, false, open ? 'task' : null);
+    return null;
+  }
+  const reading = (open: boolean, allowed = true) => <QueryClientProvider client={client}><Reader open={open} allowed={allowed} /></QueryClientProvider>;
+  let finish!: (copy: MapCopy) => void;
+  const generate = vi.spyOn(api, 'generateMapCopy').mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  act(() => { renderer = create(reading(false)); });
+  current = { ...current, tasks: [...data.tasks, { ...neighbor, objective: 'New neighboring goal', status: 'cancelled' }] };
+  act(() => { renderer!.update(reading(false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(generate).not.toHaveBeenCalled();
+  act(() => { renderer!.update(reading(true, false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(generate).not.toHaveBeenCalled();
+  act(() => { renderer!.update(reading(true)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(state.readingNeedsUpdate).toBe(true);
+  expect(state.generating).toBe(true);
+  expect(state.copy?.cards.task).toEqual(before.cards.task);
+  const updated: MapCopy = { ...retained, cache_revision: 2, cards: { task: {
+    ...retained.cards.task, copy_revision: 2, generated_at: 2,
+    reader_brief: { ...retained.cards.task.reader_brief!, next: 'New neighboring goal' },
+    source_snapshot: { ...retained.cards.task.source_snapshot!, captured_at: 2, related_tasks: [{ ...current.tasks[1] }] },
+  } } };
+  await act(async () => { finish(updated); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(state.readingNeedsUpdate).toBe(false);
+  expect(state.copy?.cards.task.reader_brief?.next).toBe('New neighboring goal');
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(retained).toEqual(before);
+});
+
+it('verifies hidden related sources once per source cursor and keeps late responses bound to the cursor they checked', async () => {
+  const neighbor = { id: 'neighbor', title: 'Neighbor', objective: 'Old neighboring goal', status: 'pending', deps: [] };
+  const retained: MapCopy = { ...empty, cards: { task: {
+    title: 'Retained explanation', summary: 'Retained summary', detail: 'Retained conditions', generated_at: 1, copy_revision: 1,
+    task_revision: '1', task_status: 'done',
+    source_snapshot: { version: 2, card_key: 'task', task_id: 'task', captured_at: 1,
+      task: {}, events: [], source_ids: [], related_tasks: [neighbor] },
+  } } };
+  client.setQueryData(key, retained);
+  let current: Dataset = { ...data, cursor: 'full-source-v1', incremental: false };
+  let state!: ReturnType<typeof useMapCopy>;
+  function Reader({ open = true, allowed = true }: { open?: boolean; allowed?: boolean }) {
+    state = useMapCopy(current, 'task', false, allowed, undefined, 'session', false, false, open ? 'task' : null);
+    return null;
+  }
+  const reading = (open = true, allowed = true) => <QueryClientProvider client={client}><Reader open={open} allowed={allowed} /></QueryClientProvider>;
+  const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue(retained);
+  act(() => { renderer = create(reading(false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  act(() => { renderer!.update(reading(true, false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(generate).not.toHaveBeenCalled();
+  act(() => { renderer!.update(reading()); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(state.readingNeedsUpdate).toBe(false);
+  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+  expect(generate).toHaveBeenCalledTimes(1); // An omitted neighbor still exists; no loop.
+
+  current = { ...current, cursor: 'unrelated-change-v2' };
+  act(() => { renderer!.update(reading()); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(generate).toHaveBeenCalledTimes(2);
+  expect(state.copy?.cards.task).toEqual(retained.cards.task);
+  expect(state.readingNeedsUpdate).toBe(false); // Cached verification needs no new card version.
+
+  let finish!: (copy: MapCopy) => void;
+  generate.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+  current = { ...current, cursor: 'hidden-goal-edit-v3' };
+  act(() => { renderer!.update(reading()); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(3);
+  current = { ...current, cursor: 'hidden-task-deleted-v4' };
+  act(() => { renderer!.update(reading()); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(3);
+  const edited: MapCopy = { ...retained, cache_revision: 2, cards: { task: { ...retained.cards.task, generated_at: 2, copy_revision: 2,
+    source_snapshot: { ...retained.cards.task.source_snapshot!, captured_at: 2,
+      related_tasks: [{ ...neighbor, objective: 'Changed hidden goal' }] },
+  } } };
+  // A coalesced response cannot certify the later deletion as checked.
+  generate.mockResolvedValueOnce({ ...edited, retry_after: 25 });
+  await act(async () => { finish(edited); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(4);
+  const deleted: MapCopy = { ...edited, cache_revision: 3, cards: { task: { ...edited.cards.task, generated_at: 3, copy_revision: 3,
+    source_snapshot: { ...edited.cards.task.source_snapshot!, captured_at: 3, related_tasks: [] },
+  } } };
+  generate.mockResolvedValue(deleted);
+  await act(async () => { await vi.advanceTimersByTimeAsync(24000); });
+  expect(generate).toHaveBeenCalledTimes(4);
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(generate).toHaveBeenCalledTimes(5);
+  expect(state.readingNeedsUpdate).toBe(false);
+  expect(state.copy?.cards.task.source_snapshot?.related_tasks).toEqual([]);
+  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+  expect(generate).toHaveBeenCalledTimes(5);
+});
+
+it('does not treat another reader sharing the source request as verification of its own cached card', async () => {
+  const shared: Dataset = { ...data, cursor: 'full-source-v1', tasks: [
+    ...data.tasks, { ...data.tasks[0], id: 'other' },
+  ] };
+  const retained: MapCopy = { ...empty, cards: Object.fromEntries(shared.tasks.map(task => [task.id, {
+    title: `Explanation for ${task.id}`, summary: 'Summary', detail: 'Conditions', generated_at: 1, copy_revision: 1,
+    task_revision: task.revision, task_status: task.status,
+    source_snapshot: { version: 2 as const, card_key: task.id, task_id: task.id, captured_at: 1,
+      task: {}, events: [], source_ids: [], related_tasks: [{ id: 'hidden', title: 'Hidden', objective: 'Old neighboring goal', status: 'pending', deps: [] }] },
+  }])) };
+  client.setQueryData(key, retained);
+  const states: Record<string, ReturnType<typeof useMapCopy>> = {};
+  function Reader({ task }: { task: string }) {
+    states[task] = useMapCopy(shared, task, false, true, undefined, 'session');
+    return null;
+  }
+  let finish!: (copy: MapCopy) => void;
+  const generate = vi.spyOn(api, 'generateMapCopy')
+    .mockReturnValueOnce(new Promise(resolve => { finish = resolve; }))
+    .mockResolvedValue(retained);
+  act(() => { renderer = create(<QueryClientProvider client={client}><Reader task="task" /><Reader task="other" /></QueryClientProvider>); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(generate.mock.calls[0][2].cards.map(card => card.key)).toEqual(['task']);
+  // The backend returns the entire cache, including an unrequested old card.
+  await act(async () => { finish(retained); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(generate).toHaveBeenCalledTimes(2);
+  expect(generate.mock.calls[1][2].cards.map(card => card.key)).toEqual(['other']);
+  expect(states.task.readingNeedsUpdate).toBe(false);
+  expect(states.other.readingNeedsUpdate).toBe(false);
+  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+  expect(generate).toHaveBeenCalledTimes(2);
+});
+
 it("naturally rechecks an open historical step after saving review settings while retaining its original text and evidence", async () => {
   const task = { id: 'historical', title: 'Recorded task', objective: 'Original objective', status: 'done', deps: [],
     revision: 'later-task-state', content_revision: 'same-goal', started_ts: 20, attempt: 2 };

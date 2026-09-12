@@ -72,6 +72,8 @@ export function useMapCopy(
   const context = JSON.stringify(key);
   const contextRef = useRef(context);
   contextRef.current = context;
+  const relatedChecks = useRef({ context, cards: new Map<string, string>() });
+  if (relatedChecks.current.context !== context) relatedChecks.current = { context, cards: new Map() };
   const queryClient = useQueryClient();
   const copy = useQuery({
     queryKey: key,
@@ -106,13 +108,29 @@ export function useMapCopy(
     () => (prewarm ? prewarmRequests(data, zh, focused) : []),
     [data, zh, focused, prewarm],
   );
+  const taskIds = useMemo(() => new Set(data.tasks.map(task => Array.from(task.id).slice(0, 160).join(''))), [data.tasks]);
+  // Current-range views omit older neighbors, including later edits/deletions
+  // of those neighbors. The feed cursor covers the full source. Ask the server
+  // once per cursor/card version; enrich checks the saved sources before any
+  // model call. A response only verifies its captured context and card version.
+  const relatedCheckKey = (card: CardRequest, result = copy.data) => {
+    const saved = result?.cards[card.key];
+    return JSON.stringify([data.cursor, saved?.copy_revision, saved?.generated_at, saved?.model_revision]);
+  };
+  const needsRelatedCheck = (card: CardRequest) => {
+    const snapshot = copy.data?.cards[card.key]?.source_snapshot;
+    return Boolean(card.key === readingKey && focused && data.cursor && snapshot?.version === 2 &&
+      snapshot.related_tasks?.some(task => !taskIds.has(task.id)) &&
+      relatedChecks.current.cards.get(card.key) !== relatedCheckKey(card));
+  };
   const cards = [...foreground, ...background]
-    .filter((c) => needsCardCopy(c, data, copy.data, eventIndex))
+    .filter((c) => needsCardCopy(c, data, copy.data, eventIndex) || needsRelatedCheck(c))
     .slice(0, 8);
   const signature = JSON.stringify([
     context,
     cards,
     cards.map((c) => data.tasks.find((t) => t.id === c.task_id)?.revision),
+    cards.map((c) => needsRelatedCheck(c) ? relatedCheckKey(c) : null),
     copy.data?.model_revision,
     copy.data?.version,
   ]);
@@ -137,15 +155,27 @@ export function useMapCopy(
     const requestedModelRevision = copy.data?.model_revision;
     const timer = setTimeout(
       () => {
+        let submitted = false;
         const request = queryClient.fetchQuery({
           queryKey: ["map-copy-generation", ...key],
-          queryFn: () => api.generateMapCopy(source, name, { cards, locale }, undefined, sessionId),
+          queryFn: () => {
+            submitted = true;
+            return api.generateMapCopy(source, name, { cards, locale }, undefined, sessionId);
+          },
           staleTime: 0, gcTime: 0, retry: false,
         });
         inflight.current = request;
         setGenerating(true);
         void request
           .then((result) => {
+            // Another reader can share the source's in-flight promise. Its
+            // response contains the whole cache, but only our own submitted
+            // cards have had their related sources checked by this request.
+            if (submitted && contextRef.current === context && !result.retry_after && result.available !== false) {
+              for (const card of cards) {
+                if (result.cards[card.key]) relatedChecks.current.cards.set(card.key, relatedCheckKey(card, result));
+              }
+            }
             // Reconcile against the source captured by this request. Progress or zoom
             // can change while it runs, but must not discard completed card text.
             queryClient.setQueryData<MapCopy>(key, (previous) =>
