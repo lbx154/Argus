@@ -6,24 +6,20 @@ from training-quality validation; interruption and format mismatch never erase
 the events already received. Private structured thinking/signature blocks are
 excluded. Per-event IPC gaps are recorded while later collection continues.
 
-The hosted-workspace profile is integrated through training_runtime.py and the
-private tenant-bound training_bridge.py. Its read-only Pi extension checks the
-actual outgoing provider payload, preserves provider schemas and model arguments,
-and validates the pinned Pi strict-schema/optional-null execution transformations.
-Legacy public episodes omitted system messages and structured private thinking.
-Their existing validation and approved source records remain unchanged.
+Hosted capture is integrated through training_runtime.py and the private
+tenant-bound training_bridge.py. The Pi extension observes actual provider
+payloads and tool execution. V2 retains those observations without requiring
+provider/context equality or a successful tool episode.
 
 The legacy PI_EXTENSION_SOURCE remains a separately authorized, non-document
 tool profile for existing integrations. Neither profile exposes a public capture
 endpoint or accepts a client's claim that an observer is verified. Every event
 reauthorizes before projection and persistence; outages leave runtime work alone.
 
-Verified local Pi 0.85.1 sources: coding-agent/docs/extensions.md,
-src/core/extensions/types.ts, extensions/runner.ts, agent-session.ts and sdk.ts.
-context is before convertToLlm; mutable tool hooks run in load order. Hence the
-verified runtime profile is mandatory, not an inferred property of event order.
-No system prompt or private blocks are stored. Human context review must confirm
-the non-system episode is self-contained before it can become an SFT sample.
+Legacy Pi 0.85.1 episodes omitted application instructions and required strict
+schema/context validation before SFT use. Their validator, source bytes and
+existing review receipts remain compatible; raw collection does not silently
+promote new observations into that approved dataset.
 """
 from __future__ import annotations
 

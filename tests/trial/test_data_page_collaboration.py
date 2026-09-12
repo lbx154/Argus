@@ -70,6 +70,8 @@ assert.equal(activeRole,'manager');
 assert.match(el('role-messages').textContent,/Recorded manager coordination/);
 document.querySelectorAll('.role-card')[1].onclick();
 assert.match(el('role-messages').textContent,/Recorded planner decomposition/);
+assert.match(el('role-messages').textContent,/项目级过程 · 未关联具体任务/);
+assert.equal(preview.candidates.find(candidate=>candidate.episode.role==='planner').task_id,null);
 document.querySelectorAll('.role-card')[3].onclick();
 assert.match(el('role-messages').textContent,/The run ended before review completed/);
 assert.doesNotMatch(el('role-messages').textContent,/40000 checks passed/);

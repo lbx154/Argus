@@ -161,11 +161,12 @@ function messageText(messages){
 }
 function observationCandidate(episode,task){
   const context=(episode.events||[]).find(event=>['context','provider_request'].includes(event.kind))?.payload||{};
-  return {tenant_id:task.tenant_id,sid:task.sid,task_id:episode.task_id??task.task_id,event_id:'episode-'+episode.episode_id,
+  return {tenant_id:task.tenant_id,sid:task.sid,task_id:episode.task_id??null,event_id:'episode-'+episode.episode_id,
     episode,quality_approved:episode.quality?.state==='approved',sample:{messages:context.messages||[],tools:context.tools||[]}};
 }
 function renderObservation(target,episode){
   target.replaceChildren();const events=episode?.events||[];
+  if(episode)target.append(textNode('p',observationAssociation(episode),'subtle-copy'));
   if(episode?.runtime?.recovery)target.append(textNode('p','从原始会话日志恢复；原始模型请求和工具定义未保留。','retained-notice'));
   if(!events.length){target.append(textNode('div','此段过程已建立记录，目前没有保留的事件内容。','empty-state'));return;}
   const results=new Map(events.filter(event=>event.kind==='tool_result').map(event=>[event.payload?.toolCallId,event]));
