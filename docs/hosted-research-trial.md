@@ -15,6 +15,10 @@ team workers retain their actual state even on an earlier page or while the
 parent mission is paused. This display change does not alter recorded training
 data.
 
+Frontend-only releases preserve embedded HTML previews on older tenant APIs,
+with a visible limitation notice. The standalone interactive preview is used
+when the preview response advertises `served_page: true`.
+
 ## Data and metric contracts
 
 The dashboard separates successful HTTP message submissions, explicitly accepted

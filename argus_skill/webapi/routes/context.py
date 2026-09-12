@@ -85,6 +85,23 @@ class ServerContext:
         if authorization != expected:
             raise HTTPException(status_code=401, detail="invalid or missing bearer token")
 
+    def authorize_read(self, authorization: str | None, token_param: str | None) -> None:
+        """Accept the bearer header or, for a document a sandboxed iframe loads
+        by URL, the same token as a query value. An iframe cannot set a header,
+        so a token-protected deployment (a hosted portal supplies the header
+        itself) still reaches a read-only, self-sandboxing preview page. The
+        comparison is constant time; every other route keeps header-only auth."""
+        if not self.token:
+            return
+        import hmac
+
+        expected = "Bearer " + str(self.token)
+        if authorization is not None and hmac.compare_digest(authorization, expected):
+            return
+        if token_param is not None and hmac.compare_digest(str(token_param), str(self.token)):
+            return
+        raise HTTPException(status_code=401, detail="invalid or missing bearer token")
+
     def root_for_project(self, sid: str) -> Path | None:
         for root in self.roots:
             if self._project_life_dir(sid, global_root=root) is not None:

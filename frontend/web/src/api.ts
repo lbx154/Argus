@@ -447,6 +447,18 @@ async function getBlob(path: string, signal?: AbortSignal): Promise<Blob> {
 }
 
 const P = (sid: string, path = '') => `/api/projects/${encodeURIComponent(sid)}${path}`;
+
+/** URL of the served, self-sandboxing preview page for an HTML result. A
+ * sandboxed iframe loads it by URL so the delivered site keeps its own styles
+ * and scripts; the token rides in the query only when the app itself holds one,
+ * since an iframe cannot send an auth header (a hosted portal adds it upstream,
+ * and a localhost app needs none). */
+export function previewPageUrl(sid: string, path: string): string {
+  const params = new URLSearchParams({ path });
+  const t = authToken();
+  if (t) params.set('token', t);
+  return P(sid, `/artifact/preview/page?${params.toString()}`);
+}
 const commandId = (): string => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 let apiMetaPromise: Promise<ApiMeta> | undefined;
 
@@ -686,7 +698,7 @@ export const api = {
     return getJson<ArtifactInfo>(P(sid, `/artifact?${q}`), signal);
   },
   artifactPreview: (sid: string, path: string, signal?: AbortSignal) =>
-    getJson<{ html: string; warnings: string[]; file_count: number }>(
+    getJson<{ html: string; warnings: string[]; file_count: number; served_page?: boolean }>(
       P(sid, `/artifact/preview?${new URLSearchParams({ path })}`), signal),
   artifactBundle: (sid: string, path: string, signal?: AbortSignal) =>
     getBlob(P(sid, `/artifact/bundle?${new URLSearchParams({ path })}`), signal),

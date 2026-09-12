@@ -8,10 +8,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, HTTPException, Query, Response
+from fastapi import Depends, Header, HTTPException, Query, Response
 from starlette.responses import FileResponse
 
 from .context import ServerContext
+
+# The preview page sandboxes itself and denies every network destination, so
+# the delivered site's own inline style and script run while it can neither
+# reach back into Argus nor call out. Fonts, images and media stay confined to
+# the data/blob values the packager already inlined.
+PREVIEW_PAGE_CSP = (
+    "sandbox allow-scripts allow-downloads; default-src 'none'; "
+    "script-src 'unsafe-inline' data: blob:; style-src 'unsafe-inline' data:; "
+    "img-src data: blob:; font-src data:; media-src data: blob:; "
+    "connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
+)
 
 
 def register_artifact_routes(app, ctx: ServerContext, server_mod) -> None:
@@ -101,7 +112,29 @@ def register_artifact_routes(app, ctx: ServerContext, server_mod) -> None:
     def _artifact_preview(sid: str, response: Response, path: str = Query(..., min_length=1)):
         response.headers["Cache-Control"] = "private, no-store"
         _, preview = html_package(sid, path)
-        return preview
+        return {**preview, "served_page": True}
+
+    # A page loaded into a sandboxed iframe carries its own policy, so its own
+    # inline styles and scripts run and the delivered website behaves the way it
+    # was built to. The policy sandboxes the document and cuts off every network
+    # destination, so nothing here can reach the project directory, the app, or
+    # the outside; a token may ride in the query because an iframe cannot send a
+    # header (a hosted portal supplies the header on the caller's behalf).
+    @app.get("/api/projects/{sid}/artifact/preview/page")
+    def _artifact_preview_page(
+        sid: str,
+        path: str = Query(..., min_length=1),
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        ctx.authorize_read(authorization, token)
+        _, preview = html_package(sid, path)
+        return Response(preview["html"], media_type="text/html; charset=utf-8", headers={
+            "Content-Security-Policy": PREVIEW_PAGE_CSP,
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+            "Referrer-Policy": "no-referrer",
+        })
 
     @app.get("/api/projects/{sid}/artifact/bundle", dependencies=[Depends(ctx.require_auth)])
     def _artifact_bundle(sid: str, path: str = Query(..., min_length=1)):
