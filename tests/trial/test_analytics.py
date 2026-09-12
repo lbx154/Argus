@@ -108,6 +108,89 @@ def test_request_metadata_never_stores_query_or_dynamic_path_content(setup):
     assert analytics.dashboard()["recent_task_requests"][0]["elapsed_ms"] == 25.5
 
 
+def test_http_completion_preserves_headers_and_settles_only_its_own_new_row(setup):
+    analytics, now, _ = setup
+    consent(analytics)
+    consent(analytics, "trial-02")
+    event = analytics.record_request(
+        "trial-01", "POST", "/api/map-copy/project/PRIVATE-NAME?stream=true&token=PRIVATE-QUERY",
+        200, 55, header_elapsed_ms=55, response_type="sse",
+    )
+    with analytics._db() as db:
+        pending = dict(db.execute("SELECT * FROM events WHERE id=?", (event,)).fetchone())
+    assert pending["path"] == "/api/map-copy/project/:name"
+    assert pending["header_elapsed_ms"] == 55
+    assert pending["completed"] is None and pending["finished_at"] is None
+    assert pending["response_type"] == "sse"
+    assert "PRIVATE" not in json.dumps(pending)
+    assert not analytics.finish_request("trial-02", event, 142_500, True)
+    assert not analytics.finish_request("trial-01", event, 54, True)
+    now[0] += 142.5
+    assert analytics.finish_request("trial-01", event, 142_500, True)
+    assert not analytics.finish_request("trial-01", event, 150_000, False)
+    with analytics._db() as db:
+        finished = dict(db.execute("SELECT * FROM events WHERE id=?", (event,)).fetchone())
+        assert db.execute("SELECT count(*) FROM events").fetchone()[0] == 1
+    assert finished["elapsed_ms"] == 142_500
+    assert finished["header_elapsed_ms"] == 55
+    assert finished["finished_at"] == now[0] and finished["completed"] == 1
+    assert finished["ts"] == pending["ts"]
+
+
+def test_http_disconnect_and_consent_revocation_are_not_completed_responses(setup):
+    analytics, now, _ = setup
+    consent(analytics)
+    first = analytics.record_request(
+        "trial-01", "POST", "/api/map-copy/dataset/PRIVATE", 200, 10,
+        header_elapsed_ms=10, response_type="sse",
+    )
+    now[0] += 2
+    assert analytics.finish_request("trial-01", first, 2_000, False)
+    second = analytics.record_request("trial-01", "GET", "/", 200, 1, header_elapsed_ms=1)
+    with analytics._db() as db:
+        row = db.execute("SELECT path,elapsed_ms,completed FROM events WHERE id=?", (first,)).fetchone()
+        assert tuple(row) == ("/api/map-copy/dataset/:name", 2_000, 0)
+        db.execute("DELETE FROM consents WHERE tenant_id='trial-01'")
+    assert not analytics.finish_request("trial-01", second, 5, True)
+    with analytics._db() as db:
+        assert db.execute("SELECT completed FROM events WHERE id=?", (second,)).fetchone()[0] is None
+
+
+def test_http_timing_migration_does_not_invent_completion_for_old_rows(setup):
+    analytics, now, base = setup
+    state = base / "legacy-http"
+    state.mkdir()
+    with closing(sqlite3.connect(state / "analytics.sqlite3")) as db, db:
+        db.execute("""CREATE TABLE events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,tenant_id TEXT NOT NULL,ts REAL NOT NULL,
+            consent_version TEXT NOT NULL,method TEXT NOT NULL,path TEXT NOT NULL,status INTEGER NOT NULL,
+            elapsed_ms REAL NOT NULL,task_type TEXT)""")
+        db.execute("INSERT INTO events VALUES(1,'trial-01',?,?,'POST','/:other',200,55,NULL)",
+                   (now[0], analytics.notice_version))
+    migrated = Analytics(state, analytics.tenants, analytics.trial_db, analytics.compute_db,
+                         notice_version=analytics.notice_version, clock=lambda: now[0])
+    consent(migrated)
+    assert not migrated.finish_request("trial-01", 1, 142_500, True)
+    with migrated._db() as db:
+        row = dict(db.execute("SELECT * FROM events WHERE id=1").fetchone())
+    assert row["elapsed_ms"] == 55
+    assert all(row[key] is None for key in ("header_elapsed_ms", "finished_at", "completed", "response_type"))
+    assert "null means pending or legacy" in migrated.dashboard()["http_timing_definition"]
+
+
+def test_http_completion_metadata_rejects_untrusted_field_values(setup):
+    analytics, _, _ = setup
+    consent(analytics)
+    with pytest.raises(ValueError, match="header_elapsed_ms"):
+        analytics.record_request("trial-01", "GET", "/", 200, 1, header_elapsed_ms=float("nan"))
+    with pytest.raises(ValueError, match="response_type"):
+        analytics.record_request("trial-01", "GET", "/", 200, 1, response_type="PRIVATE-HEADER")
+    with pytest.raises(ValueError, match="completion"):
+        analytics.finish_request("trial-01", 1, 10, 1)
+    with pytest.raises(ValueError, match="elapsed_ms"):
+        analytics.finish_request("trial-01", 1, float("inf"), True)
+
+
 def test_activity_separates_polling_submission_failure_and_internal_tests(setup):
     from argus_skill.trial.interaction_capture import Capture
 

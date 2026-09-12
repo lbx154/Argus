@@ -821,7 +821,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         # deployment still supplies the old config's notice version.
         analytics.notice_version = COMBINED_NOTICE_VERSION
         analytics.retention_days = min(30, analytics.retention_days)
-        register_analytics(app, analytics, session)
+        register_analytics(app, analytics, session, observe_responses=False)
         register_research(app, analytics, session, journal=Journal(analytics))
         register_training_routes(
             app, analytics, session, journal=app.state.journal,
@@ -1247,6 +1247,12 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             if ws.client_state.name != "DISCONNECTED" and ws.application_state.name != "DISCONNECTED":
                 await ws.close(code=1000)
 
+    if analytics is not None:
+        from .analytics_routes import HttpResponseObservation
+
+        # Outside the portal's BaseHTTPMiddleware layers: observe their actual
+        # terminal ASGI send, not an inner iterator merely reaching EOF.
+        app.add_middleware(HttpResponseObservation)
     return app
 
 

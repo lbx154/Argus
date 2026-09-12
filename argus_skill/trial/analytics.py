@@ -249,6 +249,13 @@ class Analytics:
                 CREATE INDEX IF NOT EXISTS analytics_events_tenant_time
                     ON events(tenant_id, ts);
             """)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(events)")}
+            for name, kind in (
+                ("header_elapsed_ms", "REAL"), ("finished_at", "REAL"),
+                ("completed", "INTEGER"), ("response_type", "TEXT"),
+            ):
+                if name not in columns:
+                    db.execute(f"ALTER TABLE events ADD COLUMN {name} {kind}")
         self.path.chmod(0o600)
         self.prune()
 
@@ -400,6 +407,9 @@ class Analytics:
             return "/api/projects/:sid/" + match[1]
         if re.fullmatch(r"/api/projects/[^/]+", raw):
             return "/api/projects/:sid"
+        match = re.fullmatch(r"/api/map-copy/(project|dataset)/[^/]+", raw)
+        if match:
+            return f"/api/map-copy/{match[1]}/:name"
         if re.fullmatch(r"/compute/(?:api/)?jobs/[0-9]+(?:/logs|/cancel)?", raw):
             return "/compute/jobs/:id"
         return raw if raw in {
@@ -407,8 +417,13 @@ class Analytics:
             "/compute/api/jobs", "/compute/status", "/trial/me",
         } else "/:other"
 
-    def record_request(self, tenant_id, method, path, status, elapsed_ms):
-        """Return monotonic event ID, or None before current-version consent."""
+    def record_request(self, tenant_id, method, path, status, elapsed_ms, *,
+                       header_elapsed_ms=None, response_type=None):
+        """Record headers; terminal callbacks replace elapsed_ms with full duration.
+
+        Legacy callers/rows leave completion and header timing unknown. A new
+        pending row has header_elapsed_ms but no finished_at/completed yet.
+        """
         self._tenant(tenant_id)
         if not self.consented(tenant_id, self.notice_version):
             return None
@@ -419,6 +434,13 @@ class Analytics:
             raise ValueError("Invalid status")
         if not isinstance(elapsed_ms, (int, float)) or not math.isfinite(elapsed_ms) or elapsed_ms < 0:
             raise ValueError("Invalid elapsed_ms")
+        if header_elapsed_ms is not None and (
+            type(header_elapsed_ms) not in (int, float) or not math.isfinite(header_elapsed_ms)
+            or not 0 <= header_elapsed_ms <= elapsed_ms
+        ):
+            raise ValueError("Invalid header_elapsed_ms")
+        if response_type not in {None, "sse", "json", "other"}:
+            raise ValueError("Invalid response_type")
         route = self._route(path)
         task_type = None
         if method == "POST":
@@ -432,11 +454,28 @@ class Analytics:
             self._prune(db)
             cursor = db.execute(
                 "INSERT INTO events(tenant_id,ts,consent_version,method,path,status,"
-                "elapsed_ms,task_type) VALUES(?,?,?,?,?,?,?,?)",
+                "elapsed_ms,task_type,header_elapsed_ms,response_type) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (tenant_id, self.clock(), self.notice_version, method, route, status,
-                 elapsed_ms, task_type),
+                 elapsed_ms, task_type, header_elapsed_ms, response_type),
             )
             return cursor.lastrowid
+
+    def finish_request(self, tenant_id, event_id, elapsed_ms, completed):
+        """Settle one observed HTTP body once; completed does not mean task success."""
+        self._tenant(tenant_id)
+        if type(event_id) is not int or event_id < 1 or type(completed) is not bool:
+            raise ValueError("Invalid request completion")
+        if type(elapsed_ms) not in (int, float) or not math.isfinite(elapsed_ms) or elapsed_ms < 0:
+            raise ValueError("Invalid elapsed_ms")
+        if not self.consented(tenant_id, self.notice_version):
+            return False
+        with self._db() as db:
+            return bool(db.execute(
+                "UPDATE events SET elapsed_ms=?,finished_at=?,completed=? "
+                "WHERE id=? AND tenant_id=? AND consent_version=? AND finished_at IS NULL "
+                "AND header_elapsed_ms IS NOT NULL AND header_elapsed_ms<=?",
+                (elapsed_ms, self.clock(), int(completed), event_id, tenant_id, self.notice_version, elapsed_ms),
+            ).rowcount)
 
     def _prune(self, db):
         return db.execute(
@@ -595,6 +634,13 @@ class Analytics:
                 "message and compute HTTP submissions are counted separately; not completed work"
             ),
             "task_type_definition": "request categories, not inferred scientific/industry taxonomy",
+            "http_timing_definition": (
+                "header_elapsed_ms measures response headers; once finished_at is set, elapsed_ms "
+                "measures through the terminal HTTP body send, including streams but excluding response "
+                "background work. completed=true means the server's terminal send succeeded, not client "
+                "acknowledgement or application/task success; false means interrupted/failed body iteration "
+                "or send; null means pending or legacy unobserved completion."
+            ),
             "quota_scope": "lifetime, not days; meter used includes conservative reservations",
             "token_breakdown_definition": (
                 "settled=reported usage; reserved=active requests; uncertain=unknown/interrupted "

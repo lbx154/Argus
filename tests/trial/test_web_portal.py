@@ -87,6 +87,176 @@ def test_proxy_observation_keeps_streaming_and_records_real_completion():
     assert stream.closed
 
 
+@pytest.mark.parametrize("mode", [
+    "complete", "disconnect", "iterator_error", "before_body", "terminal_send_error", "close_error", "background_error",
+])
+def test_http_observation_separates_headers_from_eof_and_preserves_capture(tmp_path, mode):
+    from starlette.background import BackgroundTask
+    from starlette.requests import ClientDisconnect
+
+    from argus_skill.trial.analytics import Analytics
+    from argus_skill.trial.analytics_routes import (
+        HTTP_OBSERVATION,
+        HttpResponseObservation,
+        RequestObservation,
+    )
+
+    now = [0.0]
+    analytics = Analytics(
+        tmp_path / "analytics", {"trial-01": {"data_dir": tmp_path / "tenant", "internal_test": True}},
+        tmp_path / "meter.sqlite3", tmp_path / "compute.sqlite3", clock=lambda: 2_000_000_000 + now[0],
+    )
+    analytics.record_consent("trial-01", analytics.notice_version)
+    observation = RequestObservation(
+        analytics, "trial-01", "POST", "/api/map-copy/project/PRIVATE-NAME?stream=true",
+        clock=lambda: now[0],
+    )
+    now[0] = 0.055
+    observation.headers(200, "text/event-stream; charset=utf-8")
+    captured, finished, sent = [], [], []
+    reached_eof = mode in {"complete", "terminal_send_error", "close_error", "background_error"}
+    delivered = mode in {"complete", "background_error"}
+
+    class BodyCapture:
+        def feed(self, chunk):
+            captured.append(chunk)
+
+        def finish(self, *args):
+            finished.append(args)
+
+    class DelayedStream(Chunks):
+        async def __aiter__(self):
+            self.reads += 1
+            yield b'data: {"type":"heartbeat"}\n\n'
+            now[0] = 142.5 if reached_eof else 7
+            if mode == "iterator_error":
+                raise httpx.ReadError("Synthetic interrupted upstream")
+            self.reads += 1
+            yield b'data: {"type":"done","result":{"cards":{}}}\n\n'
+
+    class ClosingResponse(httpx.Response):
+        async def aclose(self):
+            already_closed = self.is_closed
+            await super().aclose()
+            if mode == "close_error" and already_closed:
+                raise OSError("Synthetic upstream close failure")
+
+    stream = DelayedStream([])
+    upstream = ClosingResponse(200, stream=stream, headers={"content-type": "text/event-stream"})
+    response = portal.ProxyResponse(upstream, {"content-type": "text/event-stream"}, BodyCapture())
+    if mode == "background_error":
+        def background():
+            now[0] = 900
+            raise RuntimeError("Synthetic background failure after delivery")
+
+        response.background = BackgroundTask(background)
+    observed_response = HttpResponseObservation(response)
+
+    async def run():
+        disconnect = asyncio.Event()
+
+        async def receive():
+            await disconnect.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            if message["type"] == "http.response.start" and mode == "before_body":
+                now[0] = 0.4
+                raise OSError("Synthetic client disconnect before body")
+            if (message["type"] == "http.response.body" and not message.get("more_body", False)
+                    and mode in {"terminal_send_error", "close_error"}):
+                raise OSError("Synthetic terminal body send failure")
+            if message["type"] == "http.response.body" and message.get("body"):
+                sent.append(message["body"])
+                if len(sent) == 1:
+                    with analytics._db() as db:
+                        pending = db.execute("SELECT completed,finished_at,header_elapsed_ms FROM events").fetchone()
+                    assert tuple(pending) == (None, None, 55)
+                    assert stream.reads == 1  # The whole response was not buffered.
+                    if mode == "disconnect":
+                        now[0] = 7
+                        disconnect.set()
+                        await asyncio.Event().wait()
+
+        scope = {"type": "http", "asgi": {"spec_version": "2.3" if mode == "disconnect" else "2.4"},
+                 HTTP_OBSERVATION: observation}
+        if mode == "iterator_error":
+            with pytest.raises(httpx.ReadError):
+                await observed_response(scope, receive, send)
+        elif mode in {"before_body", "terminal_send_error"}:
+            with pytest.raises(ClientDisconnect):
+                await observed_response(scope, receive, send)
+        elif mode == "close_error":
+            with pytest.raises(OSError, match="upstream close failure"):
+                await observed_response(scope, receive, send)
+        elif mode == "background_error":
+            with pytest.raises(RuntimeError, match="background failure"):
+                await observed_response(scope, receive, send)
+        else:
+            await observed_response(scope, receive, send)
+
+    asyncio.run(run())
+    assert stream.closed
+    with analytics._db() as db:
+        rows = [dict(row) for row in db.execute("SELECT * FROM events")]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["header_elapsed_ms"] == 55
+    expected_elapsed = 142_500 if reached_eof else 400 if mode == "before_body" else 7_000
+    assert row["elapsed_ms"] == expected_elapsed
+    assert row["completed"] == int(delivered)
+    assert row["finished_at"] == 2_000_000_000 + expected_elapsed / 1000
+    assert row["response_type"] == "sse"
+    assert row["path"] == "/api/map-copy/project/:name"
+    assert captured == sent
+    if reached_eof:
+        assert finished == [(200, True, "text/event-stream")]
+        assert len(sent) == 2
+    elif mode == "iterator_error":
+        assert finished == [(200, False, "text/event-stream")]
+
+
+def test_portal_records_map_copy_and_other_responses_once_through_body_completion(provisioned, tmp_path):
+    from argus_skill.trial.analytics import Analytics
+
+    config, vault, _ = provisioned
+    analytics = Analytics(
+        tmp_path / "analytics", {"trial-01": {"data_dir": tmp_path / "tenant", "internal_test": True}},
+        tmp_path / "meter.sqlite3", tmp_path / "compute.sqlite3",
+    )
+    wire = b'data: {"type":"heartbeat"}\n\ndata: {"type":"done","result":{"cards":{}}}\n\n'
+    streams = []
+
+    def upstream(request):
+        stream = Chunks([wire[:20], wire[20:]])
+        streams.append(stream)
+        return httpx.Response(200, stream=stream, headers={"content-type": "text/event-stream"})
+
+    app = portal.create_app(config, analytics=analytics, transport=httpx.MockTransport(upstream))
+    analytics.record_consent("trial-01", analytics.notice_version)
+    with TestClient(app, base_url=ORIGIN) as client:
+        assert client.post("/invite/login", headers={"Origin": ORIGIN}, json={
+            "code": vault.credential("trial-01"), "data_notice_accepted": True,
+            "notice_version": analytics.notice_version,
+        }).status_code == 200
+        for path in ("/api/map-copy/project/PRIVATE-PROJECT", "/api/map-copy/dataset/PRIVATE-DATASET"):
+            response = client.post(path + "?stream=true&input=PRIVATE-QUERY", json={}, headers={"Origin": ORIGIN})
+            assert response.content == wire
+            assert response.headers["content-type"] == "text/event-stream"
+        assert client.get("/trial/data-permissions").status_code == 200  # Non-proxy JSON uses the same end callback.
+        with analytics._db() as db:
+            rows = [dict(row) for row in db.execute("SELECT * FROM events ORDER BY id")]
+        copied = [row for row in rows if row["path"].startswith("/api/map-copy/")]
+        assert len(copied) == 2
+        assert {row["path"] for row in copied} == {"/api/map-copy/project/:name", "/api/map-copy/dataset/:name"}
+        assert all(row["completed"] == 1 and row["finished_at"] is not None for row in rows)
+        assert all(row["elapsed_ms"] >= row["header_elapsed_ms"] for row in rows)
+        assert all(row["response_type"] == "sse" for row in copied)
+        assert any(row["response_type"] == "json" for row in rows)
+        assert "PRIVATE" not in json.dumps(rows)
+    assert all(stream.closed and stream.reads == 2 for stream in streams)
+
+
 @contextmanager
 def client_for(provisioned, handler=None):
     config, _, _ = provisioned
