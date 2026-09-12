@@ -1570,6 +1570,11 @@ class MissionExecutionSettlementMixin:
                 refs.append(str(state.context_packet_path.parent / "latest.json"))
             experience = experience_from_settled_mission(
                 mission_id=item.id,
+                attempt_id=(
+                    state.usage_attempt_id
+                    or str(getattr(item, "started_ts", None) or item.ts)
+                ),
+                created_at=float(getattr(item, "started_ts", None) or item.ts),
                 title=item.title,
                 objective=item.objective,
                 status=state.status,
