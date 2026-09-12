@@ -107,6 +107,7 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
     from ..core.run_gateway import run_exec as gateway_run_exec
     from ..life.memory import LifeMemory
     from ..manager.front_door import _ensure_manager_runner
+    from ..manager.stage_decider import extract_answer
     from ..roles.prompts.manager import build_quick_reply_prompt
 
     try:
@@ -139,7 +140,9 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
         log.exception("ask: inline reply failed")
         return "Could not answer inline just now; nothing was queued."
 
-    reply = str(getattr(result, "stdout", "") or "").strip()
+    if int(getattr(result, "exit_code", 0) or 0) != 0 or getattr(result, "fatal_error", None):
+        return "Could not answer inline just now; nothing was queued."
+    reply = extract_answer(result).strip()
     return reply or "The Manager returned an empty reply; nothing was queued."
 
 
