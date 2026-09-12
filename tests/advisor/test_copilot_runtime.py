@@ -166,11 +166,13 @@ def test_mcp_cancellation_reaches_the_same_host_request_and_closes_resources(tmp
             )))
             assert await asyncio.to_thread(services[0].release.wait, 2)
             assert services[0].cancelled == [services[0].calls[0][2]]
-            pending.cancel()
-            try:
-                await pending
-            except (asyncio.CancelledError, McpError):
-                pass
+            # Consume the server's cancellation response before closing stdio.
+            # Cancelling this local waiter instead races the SDK stdout reader
+            # against ClientSession's closed receive stream and skips checking
+            # whether the actual MCP caller received the terminal response.
+            with pytest.raises(McpError, match="Request cancelled"):
+                await asyncio.wait_for(pending, 2)
+            await asyncio.wait_for(session.send_ping(), 2)
 
     with pytest.raises(RuntimeError, match="caller stopped"):
         with runtime.advisor_run(ctx):
