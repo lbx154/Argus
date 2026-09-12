@@ -259,6 +259,10 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const activeTeamSteps = data.live ? teamSteps.filter((step) => ACTIVE.has(step.status)).map((step) => step.id) : [];
   const teamComplete = teamSteps.filter((step) => step.status === 'done').length;
   const teamRunning = teamSteps.filter((step) => ACTIVE.has(step.status)).length;
+  const teamSummary = (zh ? `子任务 ${teamComplete}/${teamSteps.length} 完成 · ${teamRunning} 进行中` : `Subtasks ${teamComplete}/${teamSteps.length} done · ${teamRunning} running`)
+    + ((data.plannedWidth ?? 0) > teamSteps.length
+      ? zh ? ` · 计划并行 ×${data.plannedWidth}` : ` · planned ×${data.plannedWidth}`
+      : "");
   const isStepActive = (step: SubmapStep) => step.source === 'team'
     ? activeTeamSteps.includes(step.id) : activeStep === step.id;
   const stepStatus = (step: SubmapStep) => step.source === 'team'
@@ -446,6 +450,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             {isLastPart && data.live && !data.paused && ACTIVE.has(task.status)
               ? <LiveLine role={data.phase ?? task.role} since={task.started_ts} zh={zh} />
               : <span className="map-card-recorded">{isLastPart ? taskStateLabel : (zh ? "历史记录 · 非当前执行" : "History · not current execution")}</span>}
+            {!!data.historyCount && teamSteps.length > 0 && <span className="map-card-team-summary">{teamSummary}</span>}
           </div>
           {isLastPart && teamSteps.length > 0 && (
             <span className="map-card-teambar" aria-hidden>
@@ -458,11 +463,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           )}
           <div className="map-card-bottom">
             <span className={teamSteps.length ? 'map-card-team-summary' : undefined} title={range}>
-              {data.historyCount ? "" : !isLastPart ? range : teamSteps.length
-                ? (zh ? `子任务 ${teamComplete}/${teamSteps.length} 完成 · ${teamRunning} 进行中` : `Subtasks ${teamComplete}/${teamSteps.length} done · ${teamRunning} running`)
-                  + ((data.plannedWidth ?? 0) > teamSteps.length
-                    ? zh ? ` · 计划并行 ×${data.plannedWidth}` : ` · planned ×${data.plannedWidth}`
-                    : "")
+              {data.historyCount ? "" : teamSteps.length
+                ? teamSummary
                 : data.plannedWidth && ACTIVE.has(task.status)
                 ? zh ? `并行编队 ×${data.plannedWidth} 展开中` : `Fanning out ×${data.plannedWidth}`
                 : data.partCount > 1

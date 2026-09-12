@@ -11,7 +11,7 @@
 .map-card h3 { font-size: 16px; line-height: 1.45; font-weight: 600; letter-spacing: -.015em; margin-bottom: 10px; }
 .map-card-objective { margin: 0 16px 9px; font-size: 11px; line-height: 1.5; color: rgb(var(--ink-faint)); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .map-card-copy { color: rgb(var(--ink-dim)); font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
-.map-card-stages { display: flex; margin: 0 16px 12px; align-items: center; }
+.map-card-stages { display: flex; flex-direction: column; gap: 4px; margin: 0 16px 12px; align-items: flex-start; }
 .map-card-stages>span { color: rgb(var(--ink-faint)); font-size: 10px; }
 .map-card-stages .map-live-line { margin: 0; }
 .map-history-toggle { position: absolute; left: 16px; bottom: 9px; display: flex; gap: 5px; align-items: center; color: rgb(var(--ink-dim)); background: none; border: 0; font-size: 11px; padding: 3px 0; }

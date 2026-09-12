@@ -547,18 +547,6 @@ export function MapCanvas({
     camera.enter(pendingCard);
     setPendingCard(null);
   }, [pendingCard, nodes, camera.enter]);
-  // Explicit part links use the existing durable task ID and page ordinal.
-  const deepLinkApplied = useRef(false);
-  useEffect(() => {
-    if (deepLinkApplied.current || !nodesReady) return;
-    const params = new URLSearchParams(window.location?.search || "");
-    const taskId = params.get("map_task");
-    const part = Number(params.get("map_part") || 0);
-    const card = scene.allCards.find((card) => card.task.id === taskId && (!part || card.part === part));
-    if (!card) return;
-    deepLinkApplied.current = true;
-    openCard(part ? card.id : card.task.id, !!part);
-  }, [scene.allCards, nodesReady, openCard]);
   const showOverview = useCallback(() => {
     setTraceId(null);
     setFocusFeedback("");

@@ -69,7 +69,7 @@ describe('Team work in the map', () => {
     expect(markup).not.toContain('data-active="true" title="Execute"');
   });
 
-  it('highlights every running worker and its stage without requiring the parent last page', () => {
+  it('highlights every running worker without requiring the parent last page', () => {
     const props = propsFor([
       worker('route', 'running'), worker('review', 'running', 'review'), worker('complete', 'done'),
     ], { part: 1, partCount: 2, paused: true });
@@ -81,6 +81,7 @@ describe('Team work in the map', () => {
     expect(markup).toContain('History · not current execution');
     expect(markup).toContain('data-step-id="route"');
     expect(markup).toContain('data-step-id="review"');
+    expect(markup).toContain('Subtasks 1/3 done · 2 running');
 
     const menu = props.data.menu;
     renderer!.root.findByProps({ 'data-step-id': 'review' }).props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 100, clientY: 100 });

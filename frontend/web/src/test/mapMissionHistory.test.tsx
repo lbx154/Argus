@@ -31,6 +31,11 @@ it("shows one current card while retaining all four pages for explicit history",
   const progressed = layoutScene(graph, [...events, { ...events[35], id: "later", ts: 40, round_index: 40 }],
     false, expanded, [], new Set([task.id]));
   expect(progressed.cards.every((card) => card.historyExpanded)).toBe(true);
+  const nextPage = layoutScene(graph, [...events, ...events.slice(0, 12).map((event, i) => ({
+    ...event, id: `new-${i}`, ts: 50 + i, round_index: 50 + i,
+  }))], false, collapsed, [], new Set());
+  expect(nextPage.cards).toHaveLength(1);
+  expect(nextPage.cards[0]).toMatchObject({ id: task.id, part: 5, historyCount: 4 });
 });
 
 it("never merges separate tasks by title and keeps dependency endpoints visible", () => {
@@ -43,6 +48,11 @@ it("never merges separate tasks by title and keeps dependency endpoints visible"
     expect(scene.cards.some((card) => card.id === link.source)).toBe(true);
     expect(scene.cards.some((card) => card.id === link.target)).toBe(true);
   }
+  const expanded = layoutScene(graph, events, false, scene, undefined, new Set([task.id]));
+  expect(expanded.links).toContainEqual(expect.objectContaining({
+    source: expanded.cards.filter((card) => card.task.id === task.id).at(-1)!.id,
+    target: other.id,
+  }));
 });
 
 it("offers a keyboard-accessible history control without repeating Continued titles", () => {

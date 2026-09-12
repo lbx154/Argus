@@ -5,6 +5,16 @@ compute accounting, an operator dashboard, and consent-aware research replay and
 dataset export. It runs on a Linux operator host; ordinary Argus desktop and Web
 installations do not enable this service automatically.
 
+## Mission map
+
+The map shows the latest page of each mission as a single card by default.
+**History** expands its earlier pages without creating new tasks or removing
+events. Grouping follows durable task IDs, not similar titles. **Locate current**
+opens the latest page; the part controls navigate the complete history. Running
+team workers retain their actual state even on an earlier page or while the
+parent mission is paused. This display change does not alter recorded training
+data.
+
 ## Data and metric contracts
 
 The dashboard separates successful HTTP message submissions, explicitly accepted
