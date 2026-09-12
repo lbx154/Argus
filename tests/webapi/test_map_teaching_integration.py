@@ -2,6 +2,8 @@
 import copy
 from types import SimpleNamespace
 
+import pytest
+
 from argus_skill.webapi import map_narrative
 
 
@@ -26,6 +28,8 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
     original = card()
     replacement = {**original["reader_brief"]["concept"],
                    "example": "Two independent directions give a lower bound of two; an exact count needs a spanning argument"}
+    reading = {"title": "Check what the evidence can tell us",
+               **{field: original["reader_brief"][field] for field in map_narrative.BRIEF_LIMITS}}
 
     def run(prompt, schema, _config, **kwargs):
         observed.append((prompt, kwargs["deadline"]))
@@ -35,6 +39,10 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
             "status": "corrected", "reason": "The exact count needs more evidence", "replacement": replacement,
             "findings": [{"field": "example", "quote": "exactly two", "kind": "unsupported_inference",
                           "reason": "Independence only establishes a lower bound"}],
+        }}, "readings": {"a": {
+            "status": "corrected", "reason": "Describe the action in ordinary words", "replacement": reading,
+            "findings": [{"field": "title", "quote": original["title"], "kind": "undefined_term",
+                          "reason": "Explain what is being checked"}],
         }}}
 
     monkeypatch.setattr(map_narrative, "run_map_model", run)
@@ -44,12 +52,16 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
     saved = result["cards"][0]
     assert saved["reader_brief"]["concept"] == replacement
     assert saved["teaching_review"]["status"] == "corrected"
+    assert saved["title"] == reading["title"]
+    assert saved["teaching_review"]["reading_review"]["status"] == "corrected"
+    assert "reading_replacement" not in saved["teaching_review"]
     assert saved["reader_brief"]["scope"] == original["reader_brief"]["scope"]
     assert result["teaching_reviews"]
     again = map_narrative.generate([document()], [{"id": "a"}], "en-US",
                                    cached_reviews=result["teaching_reviews"], **kwargs)
     assert len(observed) == 3  # A new draft, with no repeated concept review.
     assert again["cards"][0]["reader_brief"]["concept"] == replacement
+    assert again["cards"][0]["title"] == reading["title"]
 
 
 def test_failed_teaching_check_keeps_task_facts_but_does_not_publish_the_unchecked_example(monkeypatch):
@@ -71,6 +83,7 @@ def test_failed_teaching_check_keeps_task_facts_but_does_not_publish_the_uncheck
     assert saved["reader_brief"]["concept"] is None
     assert saved["reader_brief"]["why"] == original["reader_brief"]["why"]
     assert saved["teaching_review"]["status"] == "unavailable"
+    assert saved["teaching_review"]["reading_review"]["status"] == "unavailable"
     assert result["teaching_reviews"] == {}
 
 
@@ -84,7 +97,8 @@ def test_narration_context_keeps_current_cards_and_direct_dependencies_without_u
     assert tasks == before
 
 
-def test_cached_card_does_not_bypass_a_new_model_or_teaching_checker(tmp_path, monkeypatch):
+@pytest.mark.parametrize("with_concept", [True, False])
+def test_cached_card_does_not_bypass_a_new_model_or_teaching_checker(tmp_path, monkeypatch, with_concept):
     config = SimpleNamespace(revision="model-a")
     calls = []
     monkeypatch.setattr(map_narrative, "configured", lambda: True)
@@ -92,7 +106,10 @@ def test_cached_card_does_not_bypass_a_new_model_or_teaching_checker(tmp_path, m
 
     def generate(documents, *_args, **_kwargs):
         calls.append(documents)
-        return {"cards": [{**card(), "key": document["key"], "teaching_review": {
+        value = card()
+        if not with_concept:
+            value["reader_brief"]["concept"] = None
+        return {"cards": [{**value, "key": document["key"], "teaching_review": {
             "status": "accepted", "review_version": map_narrative.TEACHING_REVIEW_VERSION,
         }} for document in documents], "relations": []}
 

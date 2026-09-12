@@ -139,3 +139,54 @@ describe('tool steps behind a Manager reply', () => {
     expect(merged[0]).toMatchObject({ type: 'ui.argus', steps });
   });
 });
+
+describe('task receipt replay and live deduplication', () => {
+  it('retains missing task metadata when the same receipt is already in the live feed', () => {
+    const live = { type: 'ui.argus', text: 'External interrupt: daemon stop requested',
+      ts: 1789216024, message_id: 'mission-result-task-a-paused_daemon_shutdown' };
+    const merged = mergeConversationEvents([live], [{ role: 'argus', text: live.text,
+      ts: 1789216023, message_id: live.message_id, mission_result: true, item_id: 'task-a', success: false }], []);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toEqual({ ...live, mission_result: true, item_id: 'task-a', success: false });
+    expect(live).not.toHaveProperty('mission_result');
+  });
+
+  it('does not overwrite existing live task metadata', () => {
+    const live = { type: 'ui.argus', text: 'A recorded result', ts: 20, message_id: 'receipt-a',
+      mission_result: false, item_id: 'task-a', success: true };
+    const merged = mergeConversationEvents([live], [{ role: 'argus', text: live.text, ts: 19,
+      message_id: live.message_id, mission_result: true, item_id: 'task-a', success: false }], []);
+    expect(merged).toEqual([live]);
+  });
+
+  it.each([
+    { message_id: 'receipt-b', item_id: 'task-b' },
+    { message_id: 'receipt-b', item_id: 'task-a' },
+    { message_id: 'receipt-a', item_id: 'task-b' },
+    { item_id: 'task-a' },
+  ])('keeps identical receipt text separate without compatible durable identity: %j', identity => {
+    const live = { type: 'ui.argus', text: 'External interrupt: daemon stop requested', ts: 20, ...identity };
+    const merged = mergeConversationEvents([live], [{ role: 'argus', text: live.text, ts: 19,
+      message_id: 'receipt-a', mission_result: true, item_id: 'task-a', success: false }], []);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toMatchObject({ message_id: 'receipt-a', item_id: 'task-a', mission_result: true });
+    expect(merged[1]).toEqual(live);
+  });
+
+  it('matches receipt identity before another live copy with the same template text', () => {
+    const text = 'External interrupt: daemon stop requested';
+    const merged = mergeConversationEvents([
+      { type: 'ui.argus', text, ts: 20, message_id: 'receipt-a' },
+      { type: 'ui.argus', text, ts: 21, message_id: 'receipt-b' },
+    ], [{ role: 'argus', text, ts: 19, message_id: 'receipt-a', mission_result: true, item_id: 'task-a', success: false }], []);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toMatchObject({ message_id: 'receipt-a', mission_result: true, item_id: 'task-a', success: false });
+    expect(merged[1]).not.toHaveProperty('mission_result');
+  });
+
+  it('keeps the existing content fallback for ordinary dispatch acknowledgements', () => {
+    const live = { type: 'ui.argus', text: 'Scheduled.', ts: 20, message_id: 'dispatch-a' };
+    expect(mergeConversationEvents([live], [{ role: 'argus', text: live.text, ts: 19, message_id: 'journal-a' }], [])).toEqual([live]);
+  });
+});

@@ -38,11 +38,16 @@ export interface CardCopy {
   reader_brief?: ReaderBrief;
   /** A teaching-text check is separate from the research task's review. */
   teaching_review?: {
-    status: 'accepted' | 'corrected' | 'unavailable';
+    status?: 'accepted' | 'corrected' | 'unavailable';
     kind: 'model_teaching_review';
-    reason: string;
-    reviewed_at: number | null;
+    reason?: string;
+    reviewed_at?: number | null;
     review_version: number;
+    reading_review?: {
+      status: 'accepted' | 'corrected' | 'unavailable';
+      kind: 'model_readability_review';
+      reason?: string;
+    };
   };
   generated_at: number;
   task_revision?: string;

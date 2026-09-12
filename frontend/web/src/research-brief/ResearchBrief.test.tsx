@@ -37,7 +37,8 @@ it('puts scope and next steps before background concepts and keeps evidence in t
   expect(markup.indexOf('What this does and does not establish')).toBeLessThan(markup.indexOf('One useful concept'));
   expect(markup.indexOf('The recorded next step')).toBeLessThan(markup.indexOf('One useful concept'));
   expect(markup).toContain('View evidence');
-  expect(markup).toContain('See an illustrative example');
+  expect(markup).toContain('Illustrative example');
+  expect(markup).toContain('How it connects to this step');
   expect(markup).not.toContain('main-a');
   expect(markup).toContain('data-testid="research-brief-footer"');
 });
@@ -104,6 +105,20 @@ it('keeps evidence and follow-up available when the concept explanation is unava
   expect(markup).toContain('Ask about this step');
   expect(markup).not.toContain('internal_failure_code');
   expect(markup).not.toContain('Counterexample');
+});
+
+it('keeps task facts and a usable concept when the separate reading check is unavailable', () => {
+  const props = inputs(), queryClient = cachedClient();
+  const copy = completedCopy(source.tasks[0], ['start-a', 'main-a']);
+  copy.cards.a.teaching_review = { status: 'accepted', kind: 'model_teaching_review', review_version: 2,
+    reading_review: { status: 'unavailable', kind: 'model_readability_review' } };
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US'), copy);
+  const markup = renderToStaticMarkup(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} onAsk={() => {}} /></QueryClientProvider>);
+  expect(markup).toContain('The reading explanation still needs checking');
+  expect(markup).toContain('the general problem remains open');
+  expect(markup).toContain('Counterexample');
+  expect(markup).toContain('View evidence');
+  expect(markup).toContain('Ask about this step');
 });
 
 it('contains a record-read failure inside the card and leaves the original goal and neighboring content visible', async () => {

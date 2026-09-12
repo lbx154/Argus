@@ -110,6 +110,7 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
     generationUnavailable: generation.data?.available === false && needsUpdate,
     generationAvailable: copy.data?.available === true,
     teachingUnavailable: !!brief && card?.teaching_review?.status === 'unavailable',
+    readingUnavailable: !!brief && card?.teaching_review?.reading_review?.status === 'unavailable',
     retry,
   };
 }

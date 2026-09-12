@@ -121,7 +121,7 @@ def test_review_cache_invalidates_when_the_actual_review_input_changes(monkeypat
     elif change == "model":
         overrides["model_revision"] = "model-b"
     else:
-        monkeypatch.setattr(teaching, "TEACHING_REVIEW_VERSION", 2)
+        monkeypatch.setattr(teaching, "TEACHING_REVIEW_VERSION", teaching.TEACHING_REVIEW_VERSION + 1)
     run = Mock(return_value={"reviews": {"a": accepted()}})
     _, _, updates = invoke(candidates, run, **overrides)
     run.assert_called_once()
@@ -208,3 +208,158 @@ def test_batch_limit_does_not_start_another_model_call():
     run.assert_called_once()
     extra = str(teaching.MAX_REVIEW_CARDS)
     assert usable[extra] is None and receipts[extra]["error_code"] == "review_batch_limit"
+
+
+def reading():
+    return {
+        "title": "Check the isometry criterion for the new objects",
+        "why": "The isometry criterion might let the existing method cover a new class.",
+        "scope": "Only the task start is recorded; no current proof or independent review is recorded.",
+        "next": "The recorded plan is to check the source conditions and write the result or obstruction.",
+    }
+
+
+def reading_correction():
+    return {
+        "status": "corrected", "reason": "Explain the purpose before using a specialist criterion name.",
+        "findings": [{"field": "title", "quote": "isometry criterion", "kind": "undefined_term",
+                      "reason": "The reader needs to know what is being checked without knowing this term."}],
+        "replacement": {
+            **reading(),
+            "title": "Check whether the earlier method applies to these new objects",
+            "why": "The task asks whether a method already used for one class of objects could work for another. This remains a possibility to check.",
+        },
+    }
+
+
+def unavailable_decision():
+    return {"status": "unavailable", "reason": "A faithful explanation cannot be confirmed from these records.",
+            "findings": [], "replacement": None}
+
+
+def test_supplied_reading_correction_is_atomic_and_separate_from_concept_acceptance():
+    draft = reading()
+    before = copy.deepcopy(draft)
+    decision = reading_correction()
+    run = Mock(return_value={"reviews": {"a": accepted()}, "readings": {"a": decision}})
+    usable, receipts, updates = invoke({"a": concept()}, run, reading={"a": draft})
+    run.assert_called_once()
+    assert usable["a"] == concept() and receipts["a"]["status"] == "accepted"
+    assert receipts["a"]["reading_review"]["status"] == "corrected"
+    assert receipts["a"]["reading_review"]["kind"] == "model_readability_review"
+    assert receipts["a"]["reading_replacement"] == decision["replacement"]
+    assert receipts["a"]["reading_replacement"]["scope"] == before["scope"]
+    assert receipts["a"]["reading_replacement"]["next"] == before["next"]
+    assert draft == before and len(updates) == 1
+
+
+def test_null_concept_still_checks_reading_without_inventing_a_concept_verdict():
+    run = Mock(return_value={"reviews": {}, "readings": {"a": accepted()}})
+    usable, receipts, updates = invoke({"a": None}, run, reading={"a": reading()})
+    run.assert_called_once()
+    prompt, schema = run.call_args.args
+    passages = json.loads(prompt.split("Teaching passages:\n", 1)[1])
+    assert passages["a"]["concept"] is None and passages["a"]["reading"] == reading()
+    assert schema["properties"]["reviews"]["properties"] == {}
+    assert usable["a"] is None and "status" not in receipts["a"]
+    assert receipts["a"]["reading_review"]["status"] == "accepted"
+    assert receipts["a"]["reading_replacement"] == reading() and len(updates) == 1
+
+
+@pytest.mark.parametrize("field", ["title", "why", "scope", "next"])
+def test_each_actual_reading_field_participates_in_the_review_cache_key(field):
+    first = {"a": reading()}
+    response = {"reviews": {"a": accepted()}, "readings": {"a": accepted()}}
+    _, _, cache = invoke({"a": concept()}, Mock(return_value=response), reading=first)
+    changed = copy.deepcopy(first)
+    changed["a"][field] += " Changed."
+    run = Mock(return_value=response)
+    _, receipts, updates = invoke({"a": concept()}, run, reading=changed, cached_reviews=cache)
+    run.assert_called_once()
+    assert set(updates).isdisjoint(cache)
+    assert receipts["a"]["reading_replacement"][field] == changed["a"][field]
+
+
+def test_a_concept_only_acceptance_is_not_reused_as_a_first_screen_check():
+    _, _, cache = invoke({"a": concept()}, Mock(return_value={"reviews": {"a": accepted()}}))
+    run = Mock(return_value={"reviews": {"a": accepted()}, "readings": {"a": reading_correction()}})
+    _, receipts, updates = invoke({"a": concept()}, run, reading={"a": reading()}, cached_reviews=cache)
+    run.assert_called_once()
+    assert receipts["a"]["reading_review"]["status"] == "corrected"
+    assert set(updates).isdisjoint(cache)
+
+
+def test_cached_reading_replacement_is_reused_without_a_call_or_mutating_the_cache():
+    response = {"reviews": {}, "readings": {"a": reading_correction()}}
+    _, _, cache = invoke({"a": None}, Mock(return_value=response), reading={"a": reading()})
+    before = copy.deepcopy(cache)
+    run = Mock(side_effect=AssertionError("Identical reading was already checked"))
+    _, receipts, updates = invoke({"a": None}, run, reading={"a": reading()}, cached_reviews=cache)
+    run.assert_not_called()
+    assert receipts["a"]["reading_replacement"] == reading_correction()["replacement"]
+    assert updates == {}
+    receipts["a"]["reading_replacement"]["title"] = "Local mutation"
+    receipts["a"]["reading_review"]["findings"].clear()
+    assert cache == before
+
+
+def test_unavailable_reading_does_not_remove_a_separately_corrected_concept():
+    draft = reading()
+    run = Mock(return_value={"reviews": {"a": correction()}, "readings": {"a": unavailable_decision()}})
+    usable, receipts, updates = invoke({"a": concept()}, run, reading={"a": draft})
+    assert usable["a"] == correction()["replacement"]
+    assert receipts["a"]["status"] == "corrected"
+    assert receipts["a"]["reading_review"]["status"] == "unavailable"
+    assert "reading_replacement" not in receipts["a"]
+    assert draft == reading() and len(updates) == 1
+
+
+def test_unavailable_concept_does_not_discard_a_reading_correction():
+    run = Mock(return_value={"reviews": {"a": unavailable_decision()}, "readings": {"a": reading_correction()}})
+    usable, receipts, _ = invoke({"a": concept()}, run, reading={"a": reading()})
+    assert usable["a"] is None and receipts["a"]["status"] == "unavailable"
+    assert receipts["a"]["reading_review"]["status"] == "corrected"
+    assert receipts["a"]["reading_replacement"] == reading_correction()["replacement"]
+
+
+def test_invalid_reading_finding_keeps_valid_concept_but_does_not_replace_task_facts():
+    decision = reading_correction()
+    decision["findings"][0]["quote"] = "Words absent from the original title"
+    run = Mock(return_value={"reviews": {"a": accepted()}, "readings": {"a": decision}})
+    usable, receipts, updates = invoke({"a": concept()}, run, reading={"a": reading()})
+    assert usable["a"] == concept() and receipts["a"]["status"] == "accepted"
+    assert receipts["a"]["reading_review"]["status"] == "unavailable"
+    assert receipts["a"]["reading_review"]["error_code"] == "finding_does_not_quote_candidate"
+    assert "reading_replacement" not in receipts["a"] and updates == {}
+    run.assert_called_once()
+
+
+def test_failed_model_call_preserves_original_reading_and_records_no_false_acceptance():
+    draft = reading()
+    run = Mock(side_effect=TimeoutError("Shared deadline elapsed"))
+    usable, receipts, updates = invoke({"a": None}, run, reading={"a": draft})
+    assert usable["a"] is None and "status" not in receipts["a"]
+    assert receipts["a"]["reading_review"]["status"] == "unavailable"
+    assert "reading_replacement" not in receipts["a"]
+    assert draft == reading() and updates == {}
+    run.assert_called_once()
+
+
+def test_reading_candidates_are_not_truncated_or_silently_missing_fields():
+    for draft in [{**reading(), "scope": "x" * (teaching.READING_LIMITS["scope"] + 1)},
+                  {key: value for key, value in reading().items() if key != "next"}]:
+        run = Mock(side_effect=AssertionError("Incomplete reading cannot be reviewed"))
+        _, receipts, updates = invoke({"a": None}, run, reading={"a": draft})
+        assert receipts["a"]["reading_review"]["error_code"] == "invalid_reading"
+        assert "reading_replacement" not in receipts["a"] and updates == {}
+        run.assert_not_called()
+
+
+def test_different_first_screens_do_not_alias_just_because_the_concept_matches():
+    readings = {"a": reading(), "b": {**reading(), "title": "A different current task"}}
+    response = {"reviews": {key: accepted() for key in readings}, "readings": {key: accepted() for key in readings}}
+    run = Mock(return_value=response)
+    _, receipts, updates = invoke({"a": concept(), "b": concept()}, run, reading=readings)
+    run.assert_called_once()
+    assert receipts["a"]["input_revision"] != receipts["b"]["input_revision"]
+    assert len(updates) == 2

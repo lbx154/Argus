@@ -73,10 +73,15 @@ export default function ResearchBrief(props: ResearchBriefProps) {
       <div><h3 className="mb-0.5 text-xs font-medium text-ink">{text('这一步为什么有用', 'Why this step helps')}</h3><ShortText key={`why:${task?.id}`} value={brief.why} expandLabel={text('完整说明', 'Full explanation')} /></div>
       <div><h3 className="mb-0.5 text-xs font-medium text-ink">{text('结论到哪里为止', 'What this does and does not establish')}</h3><ShortText key={`scope:${task?.id}`} value={brief.scope} expandLabel={text('完整适用范围', 'Full scope')} clamp={false} /></div>
       <div><h3 className="mb-0.5 text-xs font-medium text-ink">{text('记录中的下一步', 'The recorded next step')}</h3><ShortText key={`next:${task?.id}`} value={brief.next} expandLabel={text('完整下一步', 'Full next step')} /></div>
-      {result.teachingUnavailable ? <p className="text-xs text-ink-faint sm:col-span-2">{text('这个概念的说明还没核对清楚，可以继续问这一步。', 'The explanation of this concept has not been checked clearly yet. You can keep asking about this step.')}</p> : null}
+      {result.readingUnavailable ? <p className="text-xs text-ink-faint sm:col-span-2">{text('阅读说明还需要核对，可以先查看依据或继续问这一步。', 'The reading explanation still needs checking. You can view its evidence or keep asking about this step.')}</p>
+        : result.teachingUnavailable ? <p className="text-xs text-ink-faint sm:col-span-2">{text('这个概念的说明还没核对清楚，可以继续问这一步。', 'The explanation of this concept has not been checked clearly yet. You can keep asking about this step.')}</p> : null}
       {brief.concept ? <div><h3 className="mb-0.5 text-xs font-medium text-ink">{text('认识一个概念', 'One useful concept')} · {brief.concept.name}</h3>
         <ShortText key={`concept:${task?.id}:${brief.concept.name}`} value={brief.concept.explanation} expandLabel={text('完整定义', 'Full definition')} />
-        <details className="mt-1 text-xs text-ink-faint"><summary className="cursor-pointer hover:text-ink">{text('看一个示意例子', 'See an illustrative example')}</summary><div className="mt-2 space-y-2 text-[13px] leading-6 text-ink-dim"><MarkdownContent>{brief.concept.example}</MarkdownContent><MarkdownContent>{brief.concept.connection}</MarkdownContent><p className="text-xs text-ink-faint">{text('这是帮助理解的背景说明，不是本次证明或实验结果。', 'This is background for understanding, not a proof or experiment produced by this task.')}</p></div></details>
+        <div className="mt-2 border-l-2 border-line pl-3 text-[13px] leading-6 text-ink-dim" data-testid="concept-example">
+          <p className="mb-0.5 text-xs font-medium text-ink">{text('示意例子', 'Illustrative example')}</p>
+          <MarkdownContent>{brief.concept.example}</MarkdownContent>
+        </div>
+        <RawDisclosure label={text('它与这一步的关系', 'How it connects to this step')}><div className="mt-2 text-[13px] leading-6 text-ink-dim"><MarkdownContent>{brief.concept.connection}</MarkdownContent></div></RawDisclosure>
         {offersDirectionExample(brief.concept) ? <RawDisclosure label={text('动手看两个方向', 'Try two directions')}><DirectionExample /></RawDisclosure> : null}
       </div> : null}
     </div> : <div className="mt-3 text-[13px] leading-6 text-ink-dim">

@@ -198,6 +198,32 @@ function runtimeFixture(alive = true) {
   return { snapshot, missionView, events };
 }
 
+describe('historical task receipts', () => {
+  it('labels only receipt metadata, preserves its recorded time and original text, and leaves current work running', () => {
+    const value = runtimeFixture();
+    const text = 'External interrupt: daemon stop requested\nNext: Argus will diagnose recovery.';
+    const receipt = { type: 'ui.argus', text, ts: 1789216023.4750645,
+      message_id: 'mission-result-old-task-paused_daemon_shutdown', mission_result: true, item_id: 'old-task', success: false };
+    act(() => { renderer = create(<EventStream {...value} events={[receipt, ...value.events]}
+      connected showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
+    const row = renderer!.root.findByProps({ 'data-task-receipt': true });
+    expect(visibleText(row.findByProps({ 'data-task-receipt-header': true }))).toContain('Task report · Recorded then');
+    const time = row.findByType('time');
+    expect(time.props.dateTime).toBe('2026-09-12T12:27:03.475Z');
+    expect(visibleText(time)).toContain('2026');
+    expect(time.props.title).toContain('2026');
+    expect(row.findByProps({ 'data-markdown': true }).children).toEqual([text]);
+    expect(row.findByType(CopyButton).props.text).toBe(text);
+    expect(renderer!.root.findByProps({ 'data-testid': 'work-status' }).props['data-state']).toBe('running');
+  });
+
+  it('does not infer a receipt or interruption status from ordinary message text', () => {
+    mount([{ type: 'ui.argus', text: 'External interrupt: daemon stop requested', ts: 1789216023 }]);
+    expect(renderer!.root.findAllByProps({ 'data-task-receipt': true })).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({ 'data-task-receipt-header': true })).toHaveLength(0);
+  });
+});
+
 describe('project work status and conversation separation', () => {
   it('places work before the dialogue and offers a jump that pauses outer following until Jump to latest', () => {
     const events: EventMsg[] = [

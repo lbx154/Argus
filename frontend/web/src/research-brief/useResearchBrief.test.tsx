@@ -38,9 +38,9 @@ afterEach(() => {
 });
 
 describe('semantic generation and shared cache lifecycle', () => {
-  it('upgrades an unreviewed older explanation without presenting it as the current reading card', async () => {
+  it('upgrades the previous explanation version without presenting it as the current reading card', async () => {
     const old = completedCopy(source.tasks[0], ['start-a', 'main-a']);
-    old.cards.a.version = 11;
+    old.cards.a.version = READER_BRIEF_VERSION - 1;
     client.setQueryData(briefCopyKey('s-research', 'en-US'), old);
     let finish!: (copy: MapCopy) => void;
     const generate = vi.spyOn(api, 'generateMapCopy').mockReturnValue(new Promise(resolve => { finish = resolve; }));

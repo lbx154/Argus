@@ -7,6 +7,11 @@ def _capture_prompt(monkeypatch) -> str:
     captured = {}
 
     def fake_run(prompt, output_schema, config, **kwargs):
+        if "cards" not in output_schema["properties"]:
+            return {"reviews": {}, "readings": {"k": {
+                "status": "accepted", "reason": "Supplied transport verdict",
+                "findings": [], "replacement": None,
+            }}}
         captured["prompt"] = prompt
         return {
             "cards": {"k": {"title": "t", "summary": "s", "detail": "d", "reader_brief": {
@@ -29,7 +34,7 @@ def _capture_prompt(monkeypatch) -> str:
 
 
 def test_prompt_version_bumped_for_readability_rules():
-    assert map_narrative.PROMPT_VERSION == 12
+    assert map_narrative.PROMPT_VERSION == 13
 
 
 def test_prompt_speaks_of_any_kind_of_work_not_only_research(monkeypatch):
@@ -54,6 +59,6 @@ def test_prompt_leads_with_the_finding_not_the_activity(monkeypatch):
 
 def test_prompt_teaches_with_concrete_examples_without_defining_jargon_using_more_jargon(monkeypatch):
     prompt = _capture_prompt(monkeypatch)
-    assert "不要用新的未解释术语定义这个术语" in prompt
-    assert "具体对象、小数字或可跟随的动作" in prompt
-    assert "背景教学和示意例子不是本次研究发现" in prompt
+    assert "引入的新术语必须解释" in prompt
+    assert "给出对象或小数字，展示一次操作或比较" in prompt
+    assert "背景教学不是本次研究发现" in prompt

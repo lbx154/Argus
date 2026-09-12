@@ -16,7 +16,7 @@ import {
   type StepStatus,
 } from '../lib/feedSteps';
 import { theme, toneColor } from '../lib/theme';
-import { clockOf } from '../lib/format';
+import { clockOf, dateOf } from '../lib/format';
 import { PanelHeader, EmptyHint } from './primitives';
 import { MarkdownContent } from './MarkdownContent';
 import { ArgusMark } from './Wordmark';
@@ -243,6 +243,8 @@ function ConversationRow({
 }) {
   const { t, locale } = useI18n();
   const operator = String(ev.type) === 'ui.operator';
+  const taskReceipt = !operator && ev.mission_result === true;
+  const recordedAt = taskReceipt ? dateOf(ev) : null;
   const draft = operator ? splitDraft(r.text) : null;
   const references = draft?.refs ?? [];
   const text = draft && references.length ? draft.text : r.text;
@@ -269,7 +271,7 @@ function ConversationRow({
     );
   });
   return (
-    <article ref={rowRef} className="conversation-row group mx-auto w-full max-w-full px-4 py-3 sm:px-6 lg:max-w-[61.8vw]">
+    <article ref={rowRef} data-task-receipt={taskReceipt || undefined} className="conversation-row group mx-auto w-full max-w-full px-4 py-3 sm:px-6 lg:max-w-[61.8vw]">
       {operator ? (
         <div className="flex items-end justify-end gap-2">
           <CopyButton
@@ -301,15 +303,31 @@ function ConversationRow({
             <ArgusMark size={26} className="text-ink" />
           </span>
           <div className="relative min-w-0 flex-1 text-[15px] leading-relaxed text-ink">
-            <div className="mb-1 flex items-center gap-2">
+            {/* Offset the feed's pt-1.5 so scrolled text cannot peek above a pinned receipt header. */}
+            <div
+              data-task-receipt-header={taskReceipt || undefined}
+              className={taskReceipt
+                ? 'sticky -top-1.5 z-10 mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 bg-panel py-1'
+                : 'mb-1 flex items-center gap-2'}
+            >
               <span className="text-xs font-semibold text-blue">Argus</span>
+              {taskReceipt ? <span className="text-[11px] text-ink-dim">
+                {locale === 'zh-CN' ? '任务回报 · 当时记录' : 'Task report · Recorded then'}
+              </span> : null}
               <CopyButton
                 text={r.text}
                 label={t('copy.message')}
                 copiedLabel={t('copy.copied')}
                 className="ml-auto opacity-60 sm:opacity-0 sm:group-hover:opacity-100"
               />
-              <time className="font-mono text-[10px] tabular-nums text-ink-faint">{clockOf(ev)}{responseLatency}</time>
+              <time
+                className={`font-mono text-[10px] tabular-nums text-ink-faint ${taskReceipt ? 'basis-full sm:basis-auto' : ''}`}
+                dateTime={recordedAt?.toISOString()}
+                title={recordedAt?.toLocaleString(locale, { dateStyle: 'full', timeStyle: 'long' })}
+              >{recordedAt ? recordedAt.toLocaleString(locale, {
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+              }) : clockOf(ev)}{responseLatency}</time>
             </div>
             {steps.length ? <TurnSteps steps={steps} live={ev.live === true} /> : null}
             {r.text ? <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{r.text}</MarkdownContent> : null}
