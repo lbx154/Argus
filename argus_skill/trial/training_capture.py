@@ -1,11 +1,17 @@
-"""Affirmatively authorized Pi capture; no existing Pi/session/agent_io imports.
+"""Affirmatively authorized Pi capture of received agent observations.
+
+The retain-observed-v2 policy appends each public event independently, including
+the application's actual system/developer instructions. Collection is separate
+from training-quality validation; interruption and format mismatch never erase
+the events already received. Private structured thinking/signature blocks are
+excluded. Per-event IPC gaps are recorded while later collection continues.
 
 The hosted-workspace profile is integrated through training_runtime.py and the
 private tenant-bound training_bridge.py. Its read-only Pi extension checks the
 actual outgoing provider payload, preserves provider schemas and model arguments,
 and validates the pinned Pi strict-schema/optional-null execution transformations.
-System messages and structured private thinking/signatures never cross IPC.
-The resulting public episode is explicitly not the full model context.
+Legacy public episodes omitted system messages and structured private thinking.
+Their existing validation and approved source records remain unchanged.
 
 The legacy PI_EXTENSION_SOURCE remains a separately authorized, non-document
 tool profile for existing integrations. Neither profile exposes a public capture
@@ -39,11 +45,12 @@ MAX_RESULT_CHARS = 4096
 PROFILE = "pi-0.85.1-final-observer-v1"
 HOSTED_PROFILE = "pi-0.85.1-hosted-workspace-v1"
 HOSTED_EPISODE_BYTES = 16 * 1024 * 1024
-HOSTED_PAYLOAD_BYTES = 4 * 1024 * 1024
+HOSTED_PAYLOAD_BYTES = 16 * 1024 * 1024
 HOSTED_RESULT_CHARS = 64 * 1024
 HOSTED_TEXT_CHARS = 256 * 1024
 HOSTED_OBSERVATIONS = 512
 HOSTED_TOOLS = frozenset({"read", "write", "edit", "grep", "find", "ls", "bash"})
+OBSERVED_POLICY = "retain-observed-v2"
 DOCUMENT_TOOLS = frozenset({"read", "write", "edit", "grep", "find", "ls", "bash", "powershell"})
 INIT_FAILURE_REASONS = frozenset({
     "capture_init_authorize_failed", "capture_init_authorize_timeout",
@@ -67,6 +74,19 @@ class TrainingCapture:
                 );
                 CREATE INDEX IF NOT EXISTS training_tool_project
                     ON training_tool_episodes(tenant_id,sid,started_at);
+                CREATE TABLE IF NOT EXISTS training_observed_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    episode_id INTEGER NOT NULL,
+                    sequence INTEGER NOT NULL, kind TEXT NOT NULL,
+                    observed_at REAL NOT NULL, payload TEXT NOT NULL,
+                    UNIQUE(episode_id,sequence)
+                );
+                CREATE INDEX IF NOT EXISTS training_observed_episode
+                    ON training_observed_events(episode_id,sequence);
+                CREATE TRIGGER IF NOT EXISTS training_observed_episode_delete
+                AFTER DELETE ON training_tool_episodes BEGIN
+                    DELETE FROM training_observed_events WHERE episode_id=OLD.id;
+                END;
             """)
             columns = {row[1] for row in db.execute("PRAGMA table_info(training_tool_episodes)")}
             if "runtime_profile" not in columns:
@@ -117,6 +137,35 @@ class TrainingCapture:
         with self.controls.capture_lock, self.analytics._db() as db:
             return db.execute("DELETE FROM training_tool_episodes WHERE started_at<?", (cutoff,)).rowcount
 
+    @staticmethod
+    def iter_events(db, episode_id, *, after_sequence=-1, limit=None):
+        """Read stored observations in order; caller supplies the authorized DB scope."""
+        row = db.execute(
+            "SELECT runtime_metadata,record FROM training_tool_episodes WHERE id=?", (episode_id,),
+        ).fetchone()
+        if row is None:
+            raise AnalyticsError(404, "training_episode_not_found")
+        if json.loads(row["runtime_metadata"]).get("capture_policy") == OBSERVED_POLICY:
+            sql = "SELECT id,sequence,kind,observed_at,payload FROM training_observed_events WHERE episode_id=? AND sequence>? ORDER BY sequence"
+            args = (episode_id, after_sequence)
+            if limit is not None:
+                sql += " LIMIT ?"
+                args += (limit,)
+            for event in db.execute(sql, args):
+                yield {"id": f"observation-{event['id']}", "sequence": event["sequence"],
+                       "kind": event["kind"], "observed_at": event["observed_at"], "payload": json.loads(event["payload"])}
+        else:
+            events = json.loads(row["record"])
+            selected = (event for event in events if event.get("sequence", -1) > after_sequence)
+            for index, event in enumerate(selected):
+                if limit is not None and index >= limit:
+                    break
+                yield event
+
+    @classmethod
+    def events(cls, db, episode_id, *, after_sequence=-1, limit=None):
+        return list(cls.iter_events(db, episode_id, after_sequence=after_sequence, limit=limit))
+
     def begin(self, tenant, sid, session_id, *, observer_verified=False, allowed_tools=(),
               runtime_profile=PROFILE, runtime_metadata=None):
         from .training_data import _json, _sensitive
@@ -126,9 +175,10 @@ class TrainingCapture:
         if runtime_profile not in {PROFILE, HOSTED_PROFILE}:
             raise AnalyticsError(409, "training_runtime_profile_unknown")
         hosted = runtime_profile == HOSTED_PROFILE
-        if (not isinstance(allowed_tools, (list, tuple)) or not 1 <= len(allowed_tools) <= 32
+        observed = hosted and (runtime_metadata or {}).get("capture_policy") == OBSERVED_POLICY
+        if (not isinstance(allowed_tools, (list, tuple)) or not (0 if observed else 1) <= len(allowed_tools) <= (1024 if observed else 32)
                 or any(not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name)
-                       or (name not in HOSTED_TOOLS if hosted else name.lower() in DOCUMENT_TOOLS)
+                       or (not observed and (name not in HOSTED_TOOLS if hosted else name.lower() in DOCUMENT_TOOLS))
                        for name in allowed_tools)):
             raise AnalyticsError(409, "training_non_document_tool_allowlist_required")
         if (not isinstance(session_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", session_id)
@@ -140,9 +190,9 @@ class TrainingCapture:
             access = self._authorization(db, tenant, sid)
             if not access["enabled"]:
                 raise AnalyticsError(403, "training_tool_capture_consent_required")
-            if db.execute("SELECT count(*) FROM training_tool_episodes").fetchone()[0] >= MAX_EPISODES:
+            if not observed and db.execute("SELECT count(*) FROM training_tool_episodes").fetchone()[0] >= MAX_EPISODES:
                 raise AnalyticsError(413, "training_capture_capacity")
-            if db.execute(
+            if not observed and db.execute(
                 "SELECT 1 FROM training_tool_episodes WHERE tenant_id=? AND sid=? AND session_id=?",
                 (tenant, sid, session_id),
             ).fetchone():
@@ -159,13 +209,21 @@ class TrainingCapture:
         return {"episode_id": key, "profile": runtime_profile, "allowed_tools": list(allowed_tools)}
 
     def event(self, tenant, sid, episode_id, kind, payload):
-        """Trusted bridge only. Payload is Pi's public projection, not raw events."""
+        """Trusted bridge only; V2 appends observations before quality review."""
         from .training_data import _hash, _json, _sensitive
 
         if type(episode_id) is not int or kind not in {
-            "context", "provider_request", "tool_call", "tool_result", "agent_end", "settled", "quarantine",
+            "context", "provider_request", "tool_call", "tool_result", "agent_end", "settled", "quarantine", "capture_warning",
         }:
             raise ValueError("Invalid training capture event")
+        with self.analytics._db() as db:
+            metadata = db.execute(
+                "SELECT runtime_profile,runtime_metadata FROM training_tool_episodes WHERE id=? AND tenant_id=? AND sid=?",
+                (episode_id, tenant, sid),
+            ).fetchone()
+        if (metadata is not None and metadata["runtime_profile"] == HOSTED_PROFILE
+                and json.loads(metadata["runtime_metadata"]).get("capture_policy") == OBSERVED_POLICY):
+            return self._observed_event(tenant, sid, episode_id, kind, payload)
         self.prune()
         with self.controls.capture_lock, self.analytics._db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -289,6 +347,112 @@ class TrainingCapture:
             self.training.audit("capture", outcome="completed" if state == "complete" else "denied",
                                 actor="system", counts={"quarantined": int(state == "quarantined")})
         return {"episode_id": episode_id, "state": state, "reason": reason, "diagnostic": diagnostic}
+
+    def _observed_event(self, tenant, sid, episode_id, kind, payload):
+        """Append real observations; formatting and quality never erase history.
+
+        V2 stores each event once in its own row. There is no episode/global row
+        count or cumulative payload ceiling. The IPC-sized single-event bound
+        produces a visible warning and allows subsequent events to continue.
+        """
+        from .training_data import _json
+
+        self.prune()
+        original_kind = kind
+        excluded = 0
+        try:
+            if not isinstance(payload, dict):
+                raise ValueError("invalid_public_payload")
+            clean, excluded = self._observed_public_payload(kind, payload)
+            encoded = _json(clean)
+            if len(encoded.encode()) > HOSTED_PAYLOAD_BYTES:
+                raise ValueError("capture_payload_oversized")
+        except (TypeError, ValueError, RecursionError, OverflowError) as exc:
+            reason = str(exc) if str(exc) in {"invalid_public_payload", "capture_payload_oversized"} else "invalid_public_payload"
+            kind, clean = "capture_warning", {"reason": reason, "event_kind": original_kind}
+            encoded = _json(clean)
+        with self.controls.capture_lock, self.analytics._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT * FROM training_tool_episodes WHERE id=? AND tenant_id=? AND sid=?", (episode_id, tenant, sid),
+            ).fetchone()
+            if row is None:
+                raise AnalyticsError(404, "training_episode_not_found")
+            if row["state"] != "capturing":
+                raise AnalyticsError(409, "training_episode_closed")
+            access = self._authorization(db, tenant, sid)
+            if not access["enabled"] or access["grants"] != json.loads(row["grants"]):
+                raise AnalyticsError(403, "training_capture_consent_changed")
+            sequence = db.execute(
+                "SELECT coalesce(max(sequence),-1)+1 FROM training_observed_events WHERE episode_id=?", (episode_id,),
+            ).fetchone()[0]
+            now = self.analytics.clock()
+            db.execute(
+                "INSERT INTO training_observed_events(episode_id,sequence,kind,observed_at,payload) VALUES(?,?,?,?,?)",
+                (episode_id, sequence, kind, now, encoded),
+            )
+            if excluded:
+                db.execute(
+                    "INSERT INTO training_observed_events(episode_id,sequence,kind,observed_at,payload) VALUES(?,?,?,?,?)",
+                    (episode_id, sequence + 1, "capture_warning", now,
+                     _json({"reason": "private_blocks_excluded", "event_kind": original_kind, "count": excluded})),
+                )
+            state = "complete" if kind == "settled" else "interrupted" if kind == "quarantine" else "capturing"
+            reason = clean.get("reason") if kind in {"capture_warning", "quarantine"} else row["reason"]
+            if not isinstance(reason, str):
+                reason = "capture_interrupted" if kind == "quarantine" else None
+            diagnostic = {"kind": kind, "field": "payload", "detector": "observation_warning"} if reason else {}
+            db.execute(
+                "UPDATE training_tool_episodes SET state=?,reason=?,diagnostic=?,updated_at=? WHERE id=?",
+                (state, reason, _json(diagnostic), now, episode_id),
+            )
+        if state != "capturing":
+            self.training.audit("capture", outcome="completed", actor="system")
+        return {"episode_id": episode_id, "state": state, "reason": reason, "diagnostic": diagnostic}
+
+    @staticmethod
+    def _observed_public_payload(kind, payload):
+        """Keep application instructions and IO; omit structured private blocks.
+
+        This deliberately does not scan prose, paths, tool arguments, source
+        code, public skill files, or message contents for sensitive-looking words.
+        System/developer messages are the observed application's actual inputs.
+        """
+        excluded = 0
+        private_types = {"thinking", "analysis", "reasoning", "redacted_thinking", "signature"}
+        private_fields = {"thinking", "analysis", "reasoning", "reasoning_content", "signature", "thinkingSignature"}
+
+        def blocks(content):
+            nonlocal excluded
+            if not isinstance(content, list):
+                return content
+            result = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") in private_types:
+                    excluded += 1
+                else:
+                    result.append(block)
+            return result
+
+        clean = dict(payload)
+        if kind in {"context", "provider_request", "agent_end"} and isinstance(payload.get("messages"), list):
+            messages = []
+            for message in payload["messages"]:
+                if not isinstance(message, dict):
+                    messages.append(message)
+                    continue
+                if message.get("role") in private_types or message.get("channel") in private_types:
+                    excluded += 1
+                    continue
+                selected = {key: value for key, value in message.items() if key not in private_fields}
+                excluded += len(message) - len(selected)
+                if "content" in selected:
+                    selected["content"] = blocks(selected["content"])
+                messages.append(selected)
+            clean["messages"] = messages
+        if kind == "tool_result" and "content" in clean:
+            clean["content"] = blocks(clean["content"])
+        return clean, excluded
 
     @staticmethod
     def _public_blocks(blocks, *, result=False, maximum=MAX_RESULT_CHARS):

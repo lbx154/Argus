@@ -19,7 +19,7 @@ _daemon_launch = None
 
 def _request(path, action, value, lease=None):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        # Capture registration may hash the pinned runtime and poll consent.
+        # Capture registration may poll consent and start the observer.
         # Keep daemon fork admission within its existing four-second ack window.
         client.settimeout(10.0 if action in {"register", "close"} else 1.0)
         client.connect(path)
@@ -165,31 +165,20 @@ def capture_runtime_call(ctx, options):
     """Attach a short-lived producer capability only after live purpose consent.
 
     Collection outages never alter the runtime prompt, tool access, or answer.
-    Resumed calls are not promoted to fresh training episodes; later support
-    requires an explicit history/consent-bound protocol rather than reading logs.
+    All roles use this hook, including text-only, isolated and resumed calls.
+    Dataset quality is decided after their actual observations have been saved.
     """
     lease = None
     path = os.environ.get(SOCKET_ENV)
     enabled = (getattr(ctx.backend, "_backend_name", None) == "pi"
-               and os.environ.get("ARGUS_TRIAL_HARNESS") == "argus-pi"
-               and path and ctx.resume_thread_id is None and not options.disable_tools
-               and not options.isolate_workdir
-               and not getattr(options, "trusted_extensions", None)
-               and not getattr(options, "trusted_tool_names", None)
-               and not getattr(options, "extension_env", None))
-    if enabled:
-        # Ambient extension/resource flags would invalidate the pinned observer
-        # profile. The ordinary call still runs, without a training attestation.
-        extras = [*getattr(ctx.backend, "_default_extra_args", []), *(options.extra_args or [])]
-        enabled = not any(arg in {"-e", "--extension", "--session", "--continue", "-c"}
-                          or arg.startswith(("--extension=", "--session=")) for arg in extras)
+               and os.environ.get("ARGUS_TRIAL_HARNESS") == "argus-pi" and path)
     try:
         if enabled:
             sid = _project(ctx)
             if sid:
                 try:
                     options._training_extension = EXTENSION
-                    command = ctx.backend._runner._build_command(resume_thread_id=None, options=options)
+                    command = ctx.backend._runner._build_command(resume_thread_id=ctx.resume_thread_id, options=options)
                     mission = ctx.usage_mission_id
                     # The supervisor's accounting scope appends an attempt to
                     # the real mission ID. Preserve the actual task binding.

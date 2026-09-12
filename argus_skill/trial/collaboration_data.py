@@ -3,8 +3,9 @@
 This is a display projection, not a new training source. Task association comes
 only from the journal's explicit association or producer-bound mission_id.
 Runtime run labels identify roles; prompt text and temporal adjacency never do.
-No provider streams, runtime files, private reasoning, or quarantined contents
-are read. A role observation is not evidence that another role delegated to it.
+No runtime files or private reasoning are read. V2 retained observations are
+summarized independently of sample approval. A role observation is not evidence
+that another role delegated to it.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ from .training_capture import (
     HOSTED_PROFILE,
     MAX_EPISODE_BYTES,
     MAX_EPISODES,
+    OBSERVED_POLICY,
     PROFILE,
     _hosted_sensitive,
 )
@@ -110,7 +112,8 @@ def _bucket(tenant, sid, task):
         "roles": [],
         "task_outcome": {"state": "unknown", "label": _OUTCOMES["unknown"], "evidence_event_ids": [],
                          "last_lifecycle": None},
-        "collection": {"states": {}, "accepted_episodes": 0, "quarantined_episodes": 0, "gaps": 0},
+        "collection": {"states": {}, "accepted_episodes": 0, "quarantined_episodes": 0, "gaps": 0,
+                       "retained_episodes": 0, "observed_events": 0},
         "quality": {"approved_samples": 0, "candidates": 0}, "last_observed_at": None,
         "segments": [], "episodes": [], "handoffs": [], "gaps": [],
         "unassigned_observations": 0, "global_complete": False,
@@ -166,6 +169,8 @@ class CollaborationData:
                 "tool_pairs": sum(role["tool_pairs"] for task in tasks for role in task["roles"]),
                 "approved_samples": sum(task["quality"]["approved_samples"] for task in tasks),
                 "candidates": sum(task["quality"]["candidates"] for task in tasks),
+                "observed_episodes": sum(task["collection"]["retained_episodes"] for task in tasks),
+                "observed_events": sum(task["collection"]["observed_events"] for task in tasks),
             },
             "purpose": purpose, "limitations": list(LIMITATIONS), "global_complete": False,
             "completeness": self._completeness(
@@ -412,7 +417,7 @@ class CollaborationData:
     def _episode(self, db, row, runtime, purpose, tenant, sid, grant, budget):
         role = _role(runtime.get("run_label"))
         key = _hash(_json(["pi_episode", tenant, sid, row["id"]]).encode())
-        state = row["state"] if row["state"] in {"complete", "capturing", "quarantined"} else "unknown"
+        state = row["state"] if row["state"] in {"complete", "capturing", "quarantined", "interrupted"} else "unknown"
         episode = {
             "episode_id": row["id"], "sample_event_id": key, "role": role, "label": ROLES[role],
             "state": state, "started_at": row["started_at"],
@@ -421,6 +426,19 @@ class CollaborationData:
             "tool_pairs": [], "sample_eligible": False,
             "role_evidence": "runtime.run_label" if role != "unknown" else None,
         }
+        if runtime.get("capture_policy") == OBSERVED_POLICY:
+            from .training_observations import observed_summary
+
+            summary = observed_summary(db, row["id"])
+            episode.update(
+                capture_policy=OBSERVED_POLICY, observed_event_count=summary["event_count"],
+                raw_available=bool(summary["event_count"]), tool_pairs=summary["tool_pairs"],
+                tool_pairs_total=summary["tool_pairs_total"], tool_pairs_truncated=summary["tool_pairs_truncated"],
+                collection_issues=summary["issues"], quality_status="not_evaluated",
+            )
+            if row["reason"]:
+                episode["reason"] = _code(row["reason"], "capture_warning")
+            return episode, 0
         if state != "complete":
             episode["reason"] = _code(row["reason"], "capture_not_settled")
             return episode, 0
@@ -450,13 +468,15 @@ class CollaborationData:
             except (ValueError, TypeError, KeyError, IndexError, RecursionError, OverflowError):
                 episode["reason"] = "malformed_tool_episode"
                 return episode, row["size"]
-            validated = (_hash(_json(sample).encode()), self._pairs(events))
+            validated = (_hash(_json(sample).encode()), self._pairs(events), len(events))
             with self._cache_lock:
                 if len(self._validated) >= MAX_EPISODES:
                     self._validated.pop(next(iter(self._validated)))
                 self._validated[cache_key] = validated
-        sample_hash, pairs = validated
+        sample_hash, pairs, event_count = validated
         episode["sample_eligible"] = True
+        episode["raw_available"] = True
+        episode["observed_event_count"] = event_count
         episode["tool_pairs"] = [dict(pair) for pair in pairs]
         review = db.execute(
             "SELECT * FROM training_sample_reviews WHERE tenant_id=? AND sid=? AND purpose=? AND event_id=?",
@@ -500,6 +520,8 @@ class CollaborationData:
         collection["states"][state] = collection["states"].get(state, 0) + 1
         collection["accepted_episodes"] += int(episode["sample_eligible"])
         collection["quarantined_episodes"] += int(state == "quarantined")
+        collection["retained_episodes"] += int(episode.get("raw_available", False))
+        collection["observed_events"] += episode.get("observed_event_count", 0)
         quality["candidates"] += int(episode["sample_eligible"])
         quality["approved_samples"] += int(episode["quality_approved"])
         task["segments"].append({
@@ -507,7 +529,7 @@ class CollaborationData:
             "sample_event_id": episode["sample_event_id"], "role": episode["role"], "label": episode["label"],
             "source_kind": "tool_episode", "started_at": episode["started_at"], "ended_at": episode["ended_at"],
             "timestamp_basis": "observer_received", "role_evidence": episode["role_evidence"],
-            "status": state, "summary": "工具过程采集", "tool_pairs": len(episode["tool_pairs"]),
+            "status": state, "summary": "角色过程采集", "tool_pairs": episode.get("tool_pairs_total", len(episode["tool_pairs"])),
             "quality_approved": episode["quality_approved"],
         })
         task["last_observed_at"] = max(task["last_observed_at"] or 0, episode["last_observed_at"])

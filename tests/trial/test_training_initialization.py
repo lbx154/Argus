@@ -51,14 +51,20 @@ def test_real_socket_slow_begin_and_late_or_invalid_ack(training, tmp_path, monk
         result = original(*args, **kwargs)
         if mode == "profile":
             result["profile"] = "synthetic-wrong-profile"
-        elif mode == "receipt":
-            result["allowed_tools"] = None
         return result
 
     monkeypatch.setattr(training.capture, "begin", begin)
     bridge = TrainingBridge(training, "tenant-one", lambda peer, **kw: {
         "pid": peer[0], "started": "synthetic-fixture", "source_sha256": {"fixture": "a" * 64},
     })
+    if mode == "receipt":
+        dispatch = bridge.dispatch
+
+        def invalid_reply(data, peer):
+            reply = dispatch(data, peer)
+            return {**reply, "episode_id": None} if data["action"] == "begin" else reply
+
+        monkeypatch.setattr(bridge, "dispatch", invalid_reply)
     lease = bridge.dispatch(registration(), (os.getpid(), os.getuid(), os.getgid()))["lease"]
     server = _Server(str(tmp_path / "capture.sock"), _Handler)
     server.bridge = bridge
@@ -66,16 +72,18 @@ def test_real_socket_slow_begin_and_late_or_invalid_ack(training, tmp_path, monk
     try:
         _run_extension(server.server_address, lease)
         with training.analytics._db() as db:
-            row = db.execute("SELECT state,reason,record FROM training_tool_episodes").fetchone()
+            row = db.execute("SELECT id,state,reason,record FROM training_tool_episodes").fetchone()
+            events = training.capture.events(db, row["id"])
         status = bridge.status()
         if reason is None:
             assert row["state"] == "capturing" and row["reason"] is None
-            assert [item["kind"] for item in json.loads(row["record"])] == ["context"]
+            assert [item["kind"] for item in events] == ["context"]
             assert status["counts"]["events_received"] == 1
             assert status["counts"].get("initialization_failed", 0) == 0
         else:
-            assert dict(row) == {"state": "quarantined", "reason": reason, "record": "[]"}
-            assert status["counts"]["initialization_failed"] == status["counts"]["episodes_quarantined"] == 1
+            assert row["state"] == "interrupted" and row["reason"] == reason
+            assert events[-1]["kind"] == "quarantine"
+            assert status["counts"]["initialization_failed"] == status["counts"]["episodes_interrupted"] == 1
             assert status["last_error_code"] == reason
             assert status["counts"].get("events_received", 0) == 0
     finally:

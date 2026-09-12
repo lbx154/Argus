@@ -3,7 +3,6 @@
 These validate the real collector and tool execution, never count as user data
 or a live model acceptance result. No existing tenant state is opened.
 """
-import io
 import json
 import os
 import re
@@ -12,7 +11,6 @@ import subprocess
 import tempfile
 import threading
 import time
-import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -81,9 +79,11 @@ def test_bridge_binds_parent_producer_and_episode_and_reports_failures(training)
     bridge.dispatch({"action": "close", "lease": lease, "value": {}}, (10, 0, 0))
     with training.analytics._db() as db:
         row = db.execute("SELECT state,reason,runtime_metadata FROM training_tool_episodes").fetchone()
-    assert row["state"] == "quarantined" and row["reason"] == "runtime_call_unsettled"
+    assert row["state"] == "interrupted" and row["reason"] == "runtime_call_unsettled"
     metadata = json.loads(row["runtime_metadata"])
     assert metadata["mission_id"] == "task-real" and len(metadata["capture_id"]) == 32
+    assert metadata["capture_policy"] == "retain-observed-v2"
+    assert "source_sha256" not in metadata and "launch_sha256" not in metadata
     status = bridge.status()
     assert status["counts"]["registered"] == status["counts"]["registration_failed"] == 1
     assert status["counts"]["producer_verification_failed"] == 1
@@ -104,6 +104,45 @@ def test_runtime_outage_and_unconsented_calls_preserve_original_options(monkeypa
     monkeypatch.setattr(runtime, "_request", lambda *args: {"enabled": False})
     with runtime.capture_runtime_call(ctx, options):
         assert getattr(options, "_training_environment", None) is None
+
+
+@pytest.mark.parametrize("role,no_tools,isolated,resumed", [
+    ("planner-bounded-plan", True, True, None),
+    ("planner.cycle0", False, False, None),
+    ("manager.reviewed_facts", True, True, None),
+    ("engineer-r2", False, False, "existing-session"),
+    ("reviewer", False, False, None),
+    ("curator.distill", True, True, None),
+])
+def test_every_role_registers_text_only_isolated_and_resumed_calls(monkeypatch, role, no_tools, isolated, resumed):
+    options = SimpleNamespace(disable_tools=no_tools, isolate_workdir=isolated, extra_args=[],
+                              trusted_extensions=["/actual/plugin.mjs"], trusted_tool_names=["actual_plugin_tool"])
+    launches, requests = [], []
+
+    def build(**kwargs):
+        launches.append(kwargs)
+        assert kwargs["options"]._training_extension == runtime.EXTENSION
+        return ["argus-pi", "--extension", runtime.EXTENSION]
+
+    def request(path, action, value, lease=None):
+        requests.append((action, value))
+        return {"enabled": True, "lease": "synthetic-call-capability"}
+
+    backend = SimpleNamespace(_backend_name="pi", _runner=SimpleNamespace(_build_command=build))
+    ctx = SimpleNamespace(backend=backend, resume_thread_id=resumed, call_id="actual-call", run_label=role,
+                          usage_mission_id="actual-task:attempt:2", usage_project_root=None)
+    monkeypatch.setenv("ARGUS_TRIAL_HARNESS", "argus-pi")
+    monkeypatch.setenv(runtime.SOCKET_ENV, "/synthetic/training.sock")
+    monkeypatch.setattr(runtime, "_project", lambda context: "s-project")
+    monkeypatch.setattr(runtime, "_request", request)
+    with runtime.capture_runtime_call(ctx, options):
+        assert options._training_environment is not None
+        assert options.disable_tools == no_tools and options.isolate_workdir == isolated
+    assert launches[0]["resume_thread_id"] == resumed
+    assert requests[0][1]["run_label"] == role
+    assert requests[0][1]["mission_id"] == "actual-task"
+    assert requests[-1][0] == "close"
+    assert options._training_environment is None and options._training_extension is None
 
 
 def test_parent_binding_rejects_tool_spawned_python_despite_argus_label(monkeypatch):
@@ -136,7 +175,7 @@ def test_parent_binding_rejects_tool_spawned_python_despite_argus_label(monkeypa
         peer._runtime_parent({**table[103], "argv": ["python", "-c", "malicious", "argus_skill"]})
 
 
-def test_extension_excludes_private_blocks_and_provider_reencoding_before_ipc(tmp_path):
+def test_extension_retains_actual_provider_input_and_excludes_structured_private_blocks(tmp_path):
     extension = Path(runtime.EXTENSION).as_uri()
     script = r'''
 import {trainingExtension} from __EXTENSION__;
@@ -154,18 +193,65 @@ const assistant={role:'assistant',content:[{type:'thinking',thinking:'PRIVATE_NE
 const result={role:'toolResult',toolName:'bash',toolCallId:'actual-call',content:[{type:'text',text:'5'}],isError:false,timestamp:Date.now()};
 await handlers.get('context')({messages:[user,assistant,result]});
 await handlers.get('before_provider_request')({payload:{model:'unit-test',tools:[],messages:[
- {role:'system',content:'SYSTEM_NEVER_CAPTURE'}, {role:'user',content:'Explain the experiment.'},
- {role:'assistant',content:'PRIVATE_REENCODED_REASONING',tool_calls:[{id:'actual-call',type:'function',function:{name:'bash',arguments:'{"command":"printf 5"}'}}]},
+ {role:'system',content:'APPLICATION_SYSTEM_INSTRUCTIONS'}, {role:'user',content:'Explain the experiment.'},
+ {role:'assistant',content:'Provider-transformed public content',tool_calls:[{id:'actual-call',type:'function',function:{name:'bash',arguments:'{"command":"printf 5"}'}}]},
  {role:'tool',tool_call_id:'actual-call',content:'5'}]}});
 console.log(JSON.stringify(receipts));
 '''.replace("__EXTENSION__", json.dumps(extension))
     result = subprocess.run(["node", "--input-type=module"], input=script, text=True, capture_output=True, check=True, timeout=10)
     assert "PRIVATE_" not in result.stdout and "SYSTEM_NEVER" not in result.stdout
     receipts = json.loads(result.stdout)
-    assert receipts[-1]["value"]["payload"] == {"reason": "provider_context_mismatch"}
-    assert receipts[-1]["value"]["kind"] == "quarantine"
+    assert receipts[-1]["value"]["kind"] == "provider_request"
+    assert receipts[-1]["value"]["payload"]["messages"][2]["content"] == "Provider-transformed public content"
     context = next(item["value"]["payload"] for item in receipts if item["value"].get("kind") == "context")
     assert context["messages"][1]["content"][0]["type"] == "toolCall"
+
+
+def test_extension_keeps_text_only_planning_and_large_failed_custom_tool_results():
+    script = r'''
+import {trainingExtension} from __EXTENSION__;
+const handlers=new Map(),receipts=[];
+let active=[],nextEpisode=0;
+trainingExtension(async(action,value)=>{
+ receipts.push({action,value});
+ if(action==='authorize')return {enabled:true};
+ if(action==='begin')return {episode_id:++nextEpisode,profile:'pi-0.85.1-hosted-workspace-v1'};
+ return {state:value.kind==='settled'?'complete':'capturing'};
+})({on:(name,handler)=>handlers.set(name,handler),getActiveTools:()=>active,
+ getAllTools:()=>[{name:'project_lookup',description:'Lookup project data',parameters:{type:'object'}}]});
+const ctx={sessionManager:{getSessionId:()=> 'same-actual-session'}};
+const user={role:'user',content:'Plan the project.',timestamp:Date.now()};
+const answer={role:'assistant',content:[{type:'text',text:'First establish an oracle, then optimize and review.'}],stopReason:'stop'};
+await handlers.get('agent_start')({},ctx);
+await handlers.get('context')({messages:[user]});
+await handlers.get('before_provider_request')({payload:{model:'actual-model',messages:[
+ {role:'system',content:'You are the project planner.'},{role:'user',content:user.content}]}});
+await handlers.get('agent_end')({messages:[user,answer]});
+await handlers.get('agent_settled')({});
+active=['project_lookup'];
+await handlers.get('agent_start')({},ctx);
+await handlers.get('context')({messages:[user,answer,{role:'user',content:'Continue.',timestamp:Date.now()}]});
+await handlers.get('tool_call')({toolCallId:'real-tool',toolName:'project_lookup',input:{query:'current state'}});
+await handlers.get('tool_result')({toolCallId:'real-tool',toolName:'project_lookup',input:{query:'current state'},
+ content:[{type:'text',text:'x'.repeat(100000)}],isError:true,details:{truncation:{truncated:true}}});
+await handlers.get('session_before_compact')({});
+await handlers.get('agent_end')({messages:[user,answer]});
+await handlers.get('agent_settled')({});
+console.log(JSON.stringify(receipts));
+'''.replace("__EXTENSION__", json.dumps(Path(runtime.EXTENSION).as_uri()))
+    result = subprocess.run(["node", "--input-type=module"], input=script, text=True,
+                            capture_output=True, check=True, timeout=10)
+    receipts = json.loads(result.stdout)
+    starts = [item["value"] for item in receipts if item["action"] == "begin"]
+    assert [item["allowed_tools"] for item in starts] == [[], ["project_lookup"]]
+    events = [item["value"] for item in receipts if item["action"] == "event"]
+    assert len([item for item in events if item["kind"] == "agent_end"]) == 2
+    assert len([item for item in events if item["kind"] == "settled"]) == 2
+    tool = next(item["payload"] for item in events if item["kind"] == "tool_result")
+    assert tool["isError"] is True and tool["output_complete"] is False
+    assert len(tool["content"][0]["text"]) == 100000
+    assert any(item["kind"] == "capture_warning" for item in events)
+    assert not any(item["kind"] == "quarantine" for item in events)
 
 
 @pytest.fixture
@@ -177,7 +263,7 @@ def public_library_directory():
 
 
 @pytest.mark.skipif(not os.environ.get("ARGUS_TEST_PI_DIR"), reason="Set ARGUS_TEST_PI_DIR to the pinned local Pi source for real CLI integration")
-@pytest.mark.parametrize("launch_mode", ["direct", "backend"])
+@pytest.mark.parametrize("launch_mode", ["direct", "backend", "planner"])
 def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_path, monkeypatch, launch_mode, public_library_directory):
     """Real pinned Pi + real bash + fake SSE provider, isolated from production."""
     provider_requests = []
@@ -212,7 +298,10 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
         def do_POST(self):
             payload = json.loads(self.rfile.read(int(self.headers["content-length"])))
             provider_requests.append(payload)
-            if len(provider_requests) == 1:
+            if launch_mode == "planner":
+                delta = {"role": "assistant", "content": "Establish an independent oracle, implement the algorithm, then review."}
+                finish = "stop"
+            elif len(provider_requests) == 1:
                 delta = {"role": "assistant", "tool_calls": [{
                     "index": 0, "id": "call-real-read", "type": "function", "function": {
                         "name": "read", "arguments": json.dumps({"path": str(asset), "offset": None, "limit": None,
@@ -265,7 +354,8 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
 
     # Exercise the real public Engineer wrapper, including the hosted workdir
     # and generated checkpoint references absent from the original direct test.
-    prompt = hosted_engineer_prompt("Write result.txt containing 5 and read it back.")
+    prompt = ("Plan a rigorously verified scheduling solver." if launch_mode == "planner"
+              else hosted_engineer_prompt("Write result.txt containing 5 and read it back."))
     launched = {}
     try:
         if launch_mode == "direct":
@@ -302,38 +392,45 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
             monkeypatch.setattr(_run_exec, "spawn_owned_process", observe_spawn)
             result = backend.run_exec(prompt=prompt, options=RunnerOptions(
                 model="argus/test-model", reasoning_effort="low", working_dir=str(workspace),
-                extra_args=["--tools", "read,write,edit,grep,find,ls,bash"],
-            ), run_label="engineer-test")
+                disable_tools=launch_mode == "planner", isolate_workdir=launch_mode == "planner",
+                extra_args=None if launch_mode == "planner" else ["--tools", "read,write,edit,grep,find,ls,bash"],
+            ), run_label="planner-bounded-plan" if launch_mode == "planner" else "engineer-test")
             assert result.exit_code == 0, result.fatal_error
             assert launched["extension_present"] and launched["lease"]
             lease = launched["lease"]
             for log in project.rglob("*.jsonl"):
                 assert lease not in log.read_text(errors="replace")
-        assert (workspace / "result.txt").read_text() == "5"
-        assert len(provider_requests) == 3
+        if launch_mode != "planner":
+            assert (workspace / "result.txt").read_text() == "5"
+        assert len(provider_requests) == (1 if launch_mode == "planner" else 3)
         with training.analytics._db() as db:
-            row = db.execute("SELECT state,reason,record FROM training_tool_episodes").fetchone()
+            row = db.execute("SELECT id,state,reason,runtime_metadata FROM training_tool_episodes").fetchone()
+            events = training.capture.events(db, row["id"])
         assert row is not None and row["state"] == "complete", (dict(row) if row else None, bridge.status())
-        assert "PRIVATE_SYNTHETIC_THINKING" not in row["record"]
-        preview = training.preview("internal_training", [{"tenant_id": "tenant-one", "sid": sid}])
-        assert preview["counts"]["tool_candidates"] == 1
-        sample = preview["candidates"][0]
-        assert sample["sample"]["tools"] == provider_requests[0]["tools"]
-        assert len(sample["sample"]["tools"]) == 7
-        assert sample["sample"]["messages"][1]["tool_calls"][0]["function"]["name"] == "read"
-        assert sample["sample"]["messages"][2]["content"] == public_body
-        assert sample["sample"]["messages"][3]["tool_calls"][0]["function"]["arguments"]["timeout"] is None
-        assert sample["task_id"] == mission
-        assert sample["sample"]["messages"][0]["content"] == prompt
-        blob, _ = training.export("internal_training", [{"tenant_id": "tenant-one", "sid": sid}], review={
-            "content_approved": True, "tool_context_approved": True, "approved_event_ids": [sample["event_id"]]})
-        with zipfile.ZipFile(io.BytesIO(blob)) as package:
-            assert len(package.read("sft_train.jsonl").splitlines()) == 1
-            assert all(lease.encode() not in package.read(name) for name in package.namelist())
-        from argus_skill.trial.training_validate import validate_package
-
-        validation = validate_package(blob)
-        assert validation["valid"], validation
+        assert "PRIVATE_SYNTHETIC_THINKING" not in json.dumps(events)
+        assert lease not in json.dumps(events)
+        requests = [event["payload"] for event in events if event["kind"] == "provider_request"]
+        assert len(requests) == len(provider_requests)
+        assert requests[0]["tools"] == provider_requests[0].get("tools", [])
+        assert len(requests[0]["tools"]) == (0 if launch_mode == "planner" else 7)
+        instructions = [message for message in requests[0]["messages"] if message["role"] in {"system", "developer"}]
+        assert instructions == [message for message in provider_requests[0]["messages"]
+                                if message["role"] in {"system", "developer"}]
+        assert instructions
+        calls = [event["payload"] for event in events if event["kind"] == "tool_call"]
+        results = [event["payload"] for event in events if event["kind"] == "tool_result"]
+        assert [call["toolName"] for call in calls] == ([] if launch_mode == "planner" else ["read", "bash"])
+        if results:
+            assert results[0]["content"][0]["text"] == public_body
+        ending = next(event["payload"] for event in events if event["kind"] == "agent_end")
+        assert ending["messages"][-1]["content"][0]["text"].strip()
+        context = next(event["payload"] for event in events if event["kind"] == "context")
+        assert context["messages"][0]["content"][0]["text"] == prompt
+        metadata = json.loads(row["runtime_metadata"])
+        assert metadata["mission_id"] == mission and metadata["capture_policy"] == "retain-observed-v2"
+        if launch_mode == "planner":
+            assert metadata["run_label"] == "planner-bounded-plan"
+        assert "source_sha256" not in metadata
     finally:
         server.shutdown()
         server.server_close()

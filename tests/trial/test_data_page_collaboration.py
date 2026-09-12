@@ -1,45 +1,56 @@
-"""Exercise task/role separation in the shipped data workbench JavaScript."""
+"""Exercise retained four-role observations and simple export in the shipped UI."""
 
-from argus_skill.trial.data_page import SCRIPT
+from argus_skill.trial.data_page import PAGE, SCRIPT
 from tests.trial.test_admin_page import javascript
 
 FIXTURE = r"""
 el('purpose').value='internal_training';el('sample-kind').value='all';el('format').value='hf';
-const candidate={tenant_id:'tenant-one',sid:'same-project',task_id:'task-one',event_id:'a'.repeat(64),
-  quality_approved:true,sample_complete:true,
-  sample:{tools:[{type:'function',function:{name:'bash',parameters:{type:'object'}}}],messages:[
-    {role:'user',content:'## Task authority\nFramework context, not the original user request.'},
-    {role:'assistant',tool_calls:[{id:'real-call',function:{name:'bash',arguments:{command:'python verify.py'}}}]},
-    {role:'tool',tool_call_id:'real-call',content:'40000 checks passed'}]}};
-const taskOne={id:'one',tenant_id:'tenant-one',sid:'same-project',task_id:'task-one',
-  title:'Original task description',mission_title:'验证格点计数猜想',objective:'检查猜想、寻找反例并验证修正公式。',
-  roles:[{role:'engineer',label:'执行',observations:1,episodes:1,tool_pairs:1},
+el('observation-scope').value='project';
+const project={tenant_id:'tenant-one',sid:'project-one',title:'Project request',eligible:true};
+const task={id:'task-record',...project,task_id:'task-one',title:'Original task request',
+  mission_title:'验证格点计数猜想',objective:'寻找反例并验证修正公式。',request:null,
+  roles:[{role:'engineer',label:'执行',observations:2,episodes:1,tool_pairs:1},
     {role:'reviewer',label:'审查',observations:1,episodes:1,tool_pairs:0}],
-  quality:{approved_samples:1,candidates:1},task_outcome:{state:'unknown',label:'任务结果未确认'},
-  collection:{accepted_episodes:1,quarantined_episodes:1},
-  request:{text:'Real user request',association:'authoritative'}};
-const taskTwo={...taskOne,id:'two',task_id:'task-two',title:'Second real task',mission_title:null,roles:[],
-  quality:{approved_samples:0,candidates:0},request:{text:'A separate task'}};
-const projectActivity={...taskTwo,id:'unassigned',task_id:null,title:'未关联到具体任务的项目活动',request:null};
-const overviewResponse={tasks:[taskOne,taskTwo,projectActivity],
-  counts:{tasks:2,roles:2,tool_pairs:1,approved_samples:1}};
-const detail={...taskOne,episodes:[
-  {episode_id:1,sample_event_id:candidate.event_id,role:'engineer',state:'complete',quality_approved:true,
-    tool_pairs:[{call_id:'real-call'}]},
-  {episode_id:2,role:'reviewer',state:'quarantined'}],
-  segments:[{role:'engineer',label:'执行',started_at:100,summary:'工具过程采集',source_kind:'tool_episode'},
-    {role:'reviewer',label:'审查',started_at:120,summary:'工具过程采集',source_kind:'tool_episode'}],
-  handoffs:[],global_complete:false};
-const previewResponse={offset:0,selection_limit:20,total_projects:1,has_more_projects:false,
-  projects:[{tenant_id:'tenant-one',sid:'same-project',title:'Long project request',eligible:true}],
-  candidates:[candidate],counts:{candidates:1,tool_candidates:1,sft:1},reason_counts:{},diagnostics:[]};
-overviewResponse.projects=previewResponse.projects;
+  task_outcome:{state:'unknown',label:'任务结果未确认'},quality:{approved_samples:1,candidates:1},
+  collection:{collected_episodes:2,states:{complete:1,failed:1}},last_observed_at:100};
+const context=(id,text)=>({id:id+'-context',sequence:0,kind:'context',observed_at:100,
+  payload:{messages:[{role:'system',content:'Recorded system input'},{role:'user',content:text}],tools:[]}});
+const ending=(id,text)=>({id:id+'-end',sequence:3,kind:'agent_end',observed_at:110,
+  payload:{messages:[{role:'assistant',content:[{type:'text',text}]}]}});
+const engineer={episode_id:1,task_id:'task-one',role:'engineer',label:'执行',state:'complete',
+  collection:{event_count:4,complete:true,issues:[]},quality:{state:'approved'},events:[
+    context('engineer','## Task authority\nFramework input, not the original task.'),
+    {id:'engineer-call',sequence:1,kind:'tool_call',payload:{toolCallId:'real-call',toolName:'bash',input:{command:'python verify.py'}}},
+    {id:'engineer-result',sequence:2,kind:'tool_result',payload:{toolCallId:'real-call',toolName:'bash',content:[{type:'text',text:'40000 checks passed'}],isError:false}},
+    ending('engineer','Verification completed.')],tool_pairs:[{call_id:'real-call'}]};
+const reviewer={episode_id:2,task_id:'task-one',role:'reviewer',label:'审查',state:'failed',
+  collection:{event_count:2,complete:false,issues:['runtime_failed']},quality:{state:'needs_work'},
+  events:[context('reviewer','Review the result'),ending('reviewer','The run ended before review completed.')],tool_pairs:[]};
+const manager={episode_id:3,task_id:null,role:'manager',label:'统筹',state:'complete',
+  collection:{event_count:2,complete:true,issues:[]},quality:{state:'not_evaluated'},
+  events:[context('manager','Coordinate the project'),ending('manager','Recorded manager coordination')],tool_pairs:[]};
+const planner={episode_id:4,task_id:null,role:'planner',label:'规划',state:'capturing',
+  collection:{event_count:1,complete:false,issues:[]},quality:{state:'not_evaluated'},
+  events:[context('planner','Recorded planner decomposition')],tool_pairs:[]};
+const other={...engineer,episode_id:5,task_id:'task-other',quality:{state:'not_evaluated'},
+  events:[context('other','Other task context'),ending('other','Other task output')]};
+const overviewResponse={tasks:[task],projects:[project],offset:0,total_projects:1,has_more_projects:false,
+  counts:{tasks:1,roles:4,collected_episodes:5,tool_pairs:1,approved_samples:1}};
+const detail={...task,episodes:[engineer,reviewer],segments:[],handoffs:[],global_complete:false};
+let rawResponse={tenant_id:'tenant-one',sid:'project-one',purpose:'internal_training',
+  episodes:[engineer,reviewer,manager,planner,other],pagination:{has_more:false,next_cursor:null}};
 let readonlyIdentity=false;
-api=async path=>path.includes('/preview?')?previewResponse:
-  path.includes('/collaboration?')?overviewResponse:
-  path.includes('/collaboration/')?(path.includes('task-one')?detail:
-    {...(path.includes('task-two')?taskTwo:projectActivity),segments:[],episodes:[],handoffs:[]}):
-  path==='/invite/status'?{role:'admin',readonly:readonlyIdentity}:path.endsWith('/audit')?{events:[]}:{state:'running'};
+api=async path=>{
+  if(path.includes('/observations/')){
+    const taskId=new URLSearchParams(path.split('?')[1]).get('task_id');
+    return {...rawResponse,episodes:taskId?rawResponse.episodes.filter(episode=>episode.task_id===taskId):rawResponse.episodes};
+  }
+  if(path.includes('/collaboration?'))return overviewResponse;
+  if(path.includes('/collaboration/'))return detail;
+  if(path==='/invite/status')return {role:'admin',readonly:readonlyIdentity};
+  if(path.endsWith('/audit'))return {events:[]};
+  return {state:'running'};
+};
 """
 
 
@@ -47,216 +58,149 @@ def run(scenario):
     javascript(FIXTURE + scenario, script=SCRIPT, startup="load();")
 
 
-def test_roles_follow_real_episodes_and_keep_quarantined_review_separate():
+def test_default_project_scope_shows_all_roles_without_quality_or_tool_gate():
     run(r"""
 await load();
-assert.equal(document.querySelectorAll('.role-card').length,2);
-assert.match(el('role-run-title').textContent,/执行/);
-assert.match(el('role-messages').textContent,/40000 checks passed/);
-assert.match(el('task-outcome').textContent,/未确认/);
-assert.match(el('capture-note').textContent,/采集缺口/);
-assert.equal(el('handoffs').textContent,'');
-const reviewer=document.querySelectorAll('.role-card')[1];
-assert.match(reviewer.textContent,/工具详情未保留/);
-assert.doesNotMatch(reviewer.textContent,/0 次可查看调用/);
-reviewer.onclick();
-assert.match(el('role-messages').textContent,/采集缺口/);
-assert.doesNotMatch(el('role-messages').textContent,/40000 checks passed/);
-await document.querySelectorAll('.project-open')[1].onclick();
-assert.equal(activeTask.task_id,'task-two');
-assert.equal(document.querySelectorAll('.sample').length,0);
-assert.equal(document.querySelectorAll('.role-card').length,0);
-assert.doesNotMatch(el('messages').textContent,/40000 checks passed/);
-""")
-
-
-def test_task_heading_uses_recorded_mission_without_model_context_fallback():
-    run(r"""
-taskOne.request=null;
-await load();
-assert.equal(el('task-title').textContent,'验证格点计数猜想');
-assert.equal(el('task-description').textContent,'检查猜想、寻找反例并验证修正公式。');
-assert.doesNotMatch(el('task-description').textContent,/Task authority/);
-assert.doesNotMatch(el('task-goal').textContent,/Framework context/);
-assert.match(el('messages').textContent,/Framework context/);
-assert.match(el('messages').textContent,/模型输入（原始上下文）/);
-taskOne.objective=null;
-await load();
-assert.match(el('task-description').textContent,/该轮原始请求未记录/);
-assert.doesNotMatch(el('task-description').textContent,/Task authority/);
-""")
-
-
-def test_explicit_tasks_and_unassigned_project_activity_have_distinct_counts():
-    run(r"""
-await load();
-assert.equal(document.querySelectorAll('.project-open').length,2);
-assert.match(el('project-count').textContent,/2 个任务 · 1 组项目活动/);
-assert.doesNotMatch(el('projects').textContent,/未关联到具体任务的项目活动/);
-el('task-view').value='activity';el('task-view').onchange();
-assert.equal(document.querySelectorAll('.project-open').length,1);
-assert.match(el('project-count').textContent,/1 条项目活动/);
-assert.match(el('projects').textContent,/未关联到具体任务的项目活动/);
-await document.querySelectorAll('.project-open')[0].onclick();
-assert.equal(activeTask.task_id,null);
-assert.equal(document.querySelectorAll('.sample').length,0);
-""")
-
-
-def test_readonly_session_cannot_record_approval_or_export():
-    run(r"""
-readonlyIdentity=true;
-await load();
-assert.equal(el('approve').disabled,true);
-assert.equal(el('select-sample-project').disabled,true);
-assert.equal(el('content-approved').disabled,true);
-assert.equal(el('download').disabled,true);
-selected.add(key(candidate));
-el('approve').checked=true;el('approve').onchange();
-assert.equal(approved.size,0);
-el('content-approved').checked=true;el('context-approved').checked=true;updateControls();
-assert.equal(el('download').disabled,true);
-assert.equal(el('session-label').textContent,'只读会话');
-""")
-
-
-def test_quarantined_role_with_activity_summaries_explains_missing_tool_contents():
-    run(r"""
-detail.segments.push({role:'reviewer',label:'审查',started_at:121,summary:'读取文件',
-  source_kind:'journal_event',tool_name:'read',status:'observed'});
-await load();
+assert.equal(document.querySelectorAll('.role-card').length,4);
+assert.equal(document.querySelectorAll('.sample').length,5);
+assert.match(el('collaboration-caption').textContent,/项目范围.*4 \/ 4/);
+assert.match(el('metrics').textContent,/已采集过程/);
+document.querySelectorAll('.role-card')[0].onclick();
+assert.equal(activeRole,'manager');
+assert.match(el('role-messages').textContent,/Recorded manager coordination/);
 document.querySelectorAll('.role-card')[1].onclick();
-assert.match(el('role-messages').textContent,/已确认该角色参与。以下是保留的活动摘要；工具参数与返回内容未保留。/);
-assert.match(el('role-messages').textContent,/读取文件/);
+assert.match(el('role-messages').textContent,/Recorded planner decomposition/);
+document.querySelectorAll('.role-card')[3].onclick();
+assert.match(el('role-messages').textContent,/The run ended before review completed/);
 assert.doesNotMatch(el('role-messages').textContent,/40000 checks passed/);
 assert.match(el('task-outcome').textContent,/未确认/);
-assert.equal(preview.candidates[0].quality_approved,true);
+assert.equal(el('handoffs').textContent,'');
+assert.match(el('samples').textContent,/项目级过程 · 未关联具体任务/);
 """)
 
 
-def test_project_preview_limit_keeps_collaboration_and_other_projects_available():
+def test_task_scope_does_not_assign_project_level_runs_to_a_task():
     run(r"""
-taskTwo.sid='second-project';
-const secondProject={tenant_id:'tenant-one',sid:'second-project',title:'Another task',eligible:true};
-overviewResponse.projects=[previewResponse.projects[0],secondProject];
-const secondCandidate={...candidate,sid:'second-project',task_id:'task-two',event_id:'b'.repeat(64)};
-const baseApi=api,previewRequests=[];
-api=async path=>{
-  if(!path.includes('/preview?'))return baseApi(path);
-  previewRequests.push(path);
-  const params=new URLSearchParams(path.split('?')[1]);
-  assert.equal(params.get('tenant'),'tenant-one');
-  assert.ok(params.get('query'));
-  if(params.get('query')==='same-project')throw Error('training_source_size_limit');
-  assert.equal(params.get('query'),'second-project');
-  // A contains-query may return another project; only the exact requested project is retained.
-  return {...previewResponse,projects:[previewResponse.projects[0],secondProject],
-    candidates:[candidate,secondCandidate]};
-};
 await load();
-assert.equal(previewRequests.length,1);
-assert.equal(document.querySelectorAll('.project-open').length,2);
-assert.equal(document.querySelectorAll('.role-card').length,2);
-assert.equal(el('error').textContent,'');
-assert.match(el('sample-preview-status').textContent,/超过单次读取上限/);
-assert.match(el('metrics').textContent,/真实任务/);
-assert.equal(selection().length,0);
-assert.ok(document.querySelectorAll('.project-choice').every(input=>input.disabled));
-await document.querySelectorAll('.project-open')[1].onclick();
-assert.equal(previewRequests.length,2);
-assert.equal(activeTask.sid,'second-project');
+el('observation-scope').value='task';await el('observation-scope').onchange();
+assert.equal(document.querySelectorAll('.sample').length,2);
+assert.deepEqual(preview.candidates.map(candidate=>candidate.episode.episode_id),[1,2]);
+assert.match(document.querySelectorAll('.role-card')[0].textContent,/未采到记录/);
+assert.match(document.querySelectorAll('.role-card')[1].textContent,/未采到记录/);
+assert.doesNotMatch(el('samples').textContent,/项目级过程/);
+el('sample-kind').value='chat';el('sample-kind').oninput();
 assert.equal(document.querySelectorAll('.sample').length,1);
-assert.equal(preview.candidates.length,1);
-assert.equal(preview.candidates[0].sid,'second-project');
-assert.equal(el('error').textContent,'');
-assert.doesNotMatch(el('sample-preview-status').textContent,/读取上限/);
-assert.equal(document.querySelectorAll('.project-open').length,2);
-assert.equal(document.querySelectorAll('.project-choice').filter(input=>!input.disabled).length,1);
+assert.match(el('samples').textContent,/审查/);
 """)
 
 
-def test_old_project_preview_response_cannot_replace_new_task_selection():
+def test_raw_tool_steps_and_message_inputs_remain_visible_without_review():
     run(r"""
-taskTwo.sid='second-project';
-const secondProject={tenant_id:'tenant-one',sid:'second-project',title:'Another task',eligible:true};
-overviewResponse.projects=[previewResponse.projects[0],secondProject];
-const secondCandidate={...candidate,sid:'second-project',task_id:'task-two',event_id:'b'.repeat(64)};
-const firstPreview=deferred(),baseApi=api;
-api=async path=>{
-  if(!path.includes('/preview?'))return baseApi(path);
-  const params=new URLSearchParams(path.split('?')[1]);
-  return params.get('query')==='same-project'?firstPreview.promise:
-    {...previewResponse,projects:[secondProject],candidates:[secondCandidate]};
-};
-const loading=load();
-for(let turn=0;turn<30&&document.querySelectorAll('.role-card').length<2;turn++)await Promise.resolve();
-assert.equal(el('tab-sample-count').textContent,'…');
-assert.match(el('role-messages').textContent,/正在读取此项目的工具详情/);
-await document.querySelectorAll('.project-open')[1].onclick();
-firstPreview.resolve(previewResponse);await loading;
-assert.equal(activeTask.sid,'second-project');
-assert.equal(preview.candidates.length,1);
-assert.equal(preview.candidates[0].sid,'second-project');
-assert.equal(active.event_id,secondCandidate.event_id);
-""")
-
-
-def test_lazy_project_selection_preserves_approved_export_scope_and_resets_purpose():
-    run(r"""
-taskTwo.sid='second-project';
-const secondProject={tenant_id:'tenant-one',sid:'second-project',title:'Another task',eligible:true};
-overviewResponse.projects=[previewResponse.projects[0],secondProject];
-const secondCandidate={...candidate,sid:'second-project',task_id:'task-two',event_id:'b'.repeat(64)};
-const baseApi=api;
-api=async path=>{
-  if(!path.includes('/preview?'))return baseApi(path);
-  const second=new URLSearchParams(path.split('?')[1]).get('query')==='second-project';
-  return {...previewResponse,projects:[second?secondProject:previewResponse.projects[0]],
-    candidates:[second?secondCandidate:candidate]};
-};
 await load();
-let choice=document.querySelectorAll('.project-choice')[0];choice.checked=true;choice.onchange();
-el('approve').checked=true;el('approve').onchange();
-await document.querySelectorAll('.project-open')[1].onclick();
-assert.equal(selection().length,1);
-assert.ok(approved.has(candidate.event_id));
-choice=document.querySelectorAll('.project-choice')[1];choice.checked=true;choice.onchange();
-el('approve').checked=true;el('approve').onchange();
-assert.equal(selection().length,2);
-assert.equal(reviewed().length,2);
-el('content-approved').checked=true;el('context-approved').checked=true;updateControls();
+document.querySelectorAll('.role-card')[2].onclick();
+assert.match(el('role-messages').textContent,/python verify.py/);
+assert.match(el('role-messages').textContent,/40000 checks passed/);
+assert.match(el('role-messages').textContent,/Recorded system input/);
+assert.equal(el('task-title').textContent,'验证格点计数猜想');
+assert.equal(el('task-description').textContent,'寻找反例并验证修正公式。');
+assert.doesNotMatch(el('task-description').textContent,/Task authority/);
+assert.doesNotMatch(el('task-goal').textContent,/Framework input/);
+""")
+
+
+def test_export_sends_only_purpose_and_projects_without_review_prompts():
+    assert 'id="evidence"' not in PAGE
+    assert 'id="content-approved"' not in PAGE
+    assert 'id="context-approved"' not in PAGE
+    assert 'id="rights-approved"' not in PAGE
+    assert 'id="approve"' not in PAGE
+    assert "SHA-256" not in PAGE
+    run(r"""
+await load();
+openDrawer('export');
 assert.equal(el('download').disabled,false);
-let exported;fetch=async(path,options)=>{exported=JSON.parse(options.body);return {
-  ok:true,headers:{get:()=> 'application/zip'},blob:async()=>new Blob(['synthetic'])};};
+let exported,pathUsed;fetch=async(path,options)=>{pathUsed=path;exported=JSON.parse(options.body);return {
+  ok:true,headers:{get:()=> 'application/zip'},blob:async()=>new Blob(['synthetic retained observations'])};};
 await el('download').onclick();
-assert.deepEqual(exported.projects,[{tenant_id:'tenant-one',sid:'same-project'},
-  {tenant_id:'tenant-one',sid:'second-project'}]);
-assert.deepEqual(exported.review.approved_event_ids,[candidate.event_id,secondCandidate.event_id]);
-assert.equal(exported.review.reviewer_kind,'human_operator');
-assert.equal(exported.purpose,'internal_training');
-choice=document.querySelectorAll('.project-choice').find(input=>!input.disabled);choice.checked=true;choice.onchange();
-el('content-approved').checked=true;el('evidence').value='c'.repeat(64);
+assert.equal(pathUsed,'/admin/api/training/export-observations');
+assert.deepEqual(exported,{purpose:'internal_training',projects:[{tenant_id:'tenant-one',sid:'project-one'}]});
+assert.equal(exported.review,undefined);
+assert.match(el('export-status').textContent,/包含未验收、未结束与失败/);
 el('purpose').value='external_sharing';await el('purpose').onchange();
-assert.equal(selected.size,0);assert.equal(approved.size,0);
-assert.equal(el('content-approved').checked,false);assert.equal(el('rights-approved').checked,false);
-assert.equal(el('evidence').value,'');assert.equal(el('download').disabled,true);
+assert.equal(selected.size,0);assert.equal(el('download').disabled,true);
 """)
 
 
-def test_legacy_preview_fallback_keeps_task_metadata_when_unselected_bodies_are_released():
+def test_readonly_can_view_raw_roles_but_cannot_export():
     run(r"""
-taskTwo.sid='second-project';
-const secondProject={tenant_id:'tenant-one',sid:'second-project',title:'Another task',eligible:true};
-const secondCandidate={...candidate,sid:'second-project',task_id:'task-two',event_id:'b'.repeat(64)};
-previewResponse.projects.push(secondProject);previewResponse.candidates.push(secondCandidate);
-const baseApi=api;
-api=async path=>path.includes('/collaboration?')?{state:'legacy'}:baseApi(path);
+readonlyIdentity=true;await load();
+assert.equal(document.querySelectorAll('.sample').length,5);
+openDrawer('export');
+assert.equal(el('download').disabled,true);
+assert.ok(document.querySelectorAll('.project-choice').every(input=>input.disabled));
+assert.equal(el('select-sample-project').disabled,true);
+""")
+
+
+def test_raw_pagination_merges_episode_events_and_keeps_quality_separate():
+    run(r"""
+rawResponse={...rawResponse,episodes:[{...engineer,events:engineer.events.slice(0,2)}],
+  pagination:{has_more:true,next_cursor:'page-two'}};
+const baseApi=api;api=async path=>path.includes('cursor=page-two')?
+  {...rawResponse,episodes:[{...engineer,events:engineer.events.slice(1)},manager],
+    pagination:{has_more:false,next_cursor:null}}:baseApi(path);
 await load();
-assert.equal(document.querySelectorAll('.project-open').length,2);
-await document.querySelectorAll('.project-open')[1].onclick();
-assert.equal(activeTask.sid,'second-project');
-assert.equal(document.querySelectorAll('.project-open').length,2);
-assert.equal(tasksOnPage().filter(task=>task.task_id).length,2);
-assert.equal(preview.candidates.length,1);
-assert.equal(preview.candidates[0].sid,'second-project');
+assert.equal(el('load-more-observations').hidden,false);
+document.querySelectorAll('.role-card')[2].onclick();
+assert.match(el('role-messages').textContent,/尚未保留对应返回/);
+await el('load-more-observations').onclick();
+assert.equal(document.querySelectorAll('.sample').length,2);
+assert.equal(preview.candidates[0].episode.events.length,4);
+assert.equal(el('load-more-observations').hidden,true);
+assert.match(el('role-messages').textContent,/40000 checks passed/);
+assert.equal(preview.candidates[1].episode.quality.state,'not_evaluated');
+""")
+
+
+def test_raw_read_failure_does_not_erase_collaboration_or_block_authorized_export():
+    run(r"""
+const baseApi=api;api=async path=>{if(path.includes('/observations/'))throw Error('temporary_read_failure');return baseApi(path);};
+await load();
+assert.equal(document.querySelectorAll('.project-open').length,1);
+assert.equal(document.querySelectorAll('.role-card').length,4);
+assert.equal(el('error').textContent,'');
+assert.match(el('sample-preview-status').textContent,/temporary_read_failure/);
+openDrawer('export');assert.equal(el('download').disabled,false);
+""")
+
+
+def test_scope_change_ignores_old_raw_response():
+    run(r"""
+const firstPage=deferred(),baseApi=api;
+api=async path=>path.includes('/observations/')&&!path.includes('task_id=')?firstPage.promise:baseApi(path);
+const loading=load();
+for(let turn=0;turn<30&&!activeTask;turn++)await Promise.resolve();
+el('observation-scope').value='task';await el('observation-scope').onchange();
+firstPage.resolve(rawResponse);await loading;
+assert.equal(observationScope,'task');
+assert.deepEqual(preview.candidates.map(candidate=>candidate.episode.episode_id),[1,2]);
+""")
+
+
+def test_recovered_session_message_keeps_its_source_and_missing_observer_context_clear():
+    run(r"""
+const recovered={...manager,runtime:{recovery:{source:'pi_session_jsonl',
+  provider_requests_available:false,tool_schemas_available:false}},events:[
+  {id:'historical-message',sequence:0,kind:'session_message',payload:{messages:[
+    {role:'assistant',content:'Actual retained historical manager message.'}]}}]};
+rawResponse={...rawResponse,episodes:[recovered]};
+await load();
+document.querySelectorAll('.role-card')[0].onclick();
+assert.match(el('role-messages').textContent,/历史会话消息/);
+assert.match(el('role-messages').textContent,/Actual retained historical manager message/);
+assert.match(el('role-messages').textContent,/从原始会话日志恢复；原始模型请求和工具定义未保留/);
+assert.match(el('sample-badges').textContent,/历史会话已恢复/);
+assert.match(el('sample-badges').textContent,/观察器工具轨迹未保留/);
+assert.doesNotMatch(el('sample-badges').textContent,/已采集 · 已结束/);
+assert.equal(toolCount(active),0);
 """)

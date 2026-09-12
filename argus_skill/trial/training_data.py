@@ -384,21 +384,20 @@ class TrainingData:
             "notice": {
                 "internal_training": (
                     "Accepting the combined invitation-trial notice enables forward collection and use of "
-                    "conversation text, hosted workspace code, exact tool schemas and arguments, "
-                    "and bounded public results of read/write/edit/bash tools for internal model "
-                    "training datasets. This purpose remains revocable in data permissions. "
-                    "No system prompts or private reasoning; sensitive content is filtered or quarantined."
+                    "actual application system/developer instructions, conversation text, hosted workspace code, "
+                    "exact tool schemas, arguments and received results for internal model training datasets. "
+                    "All agent roles, text-only runs and incomplete runs are retained separately from quality review. "
+                    "Structured private thinking/signature blocks are excluded. This purpose remains revocable in data permissions."
                 ),
                 "external_sharing": (
                     "Only a separate explicit choice enables forward collection and use of "
-                    "conversation text, hosted workspace code, exact tool schemas and "
-                    "arguments, and bounded public read/write/edit/bash results for "
-                    "third-party datasets, including commercial supply. No system prompts or private reasoning; "
-                    "sensitive content is filtered or quarantined. This purpose remains independently revocable. "
-                    "Human content and rights review is required."
+                    "actual application instructions, conversation text, hosted workspace code, exact tool schemas, "
+                    "arguments and received results for third-party datasets, including commercial supply. "
+                    "Structured private thinking/signature blocks are excluded. This purpose remains independently revocable. "
+                    "Raw observation export is separate from training-quality and rights review."
                 ),
                 "revocation": LIMITATIONS[-1],
-                "review": LIMITATIONS[-3],
+                "review": "Collection and raw export do not automatically approve training quality or third-party rights.",
             },
         }
         if offline:
@@ -797,6 +796,11 @@ class TrainingData:
                 tool_candidates, tool_trajectories, tool_provenance = self.capture.collect(
                     db, tenant, sid, purpose, grant, approved, context_approved,
                 )
+                # V2 observations are retained independently of strict legacy
+                # SFT conversion. Raw viewing/export does not require a review.
+                for origin in tool_provenance:
+                    if origin.get("runtime", {}).get("capture_policy") == "retain-observed-v2":
+                        origin.update(disposition="retained", reason="quality_not_evaluated")
                 used += len(_json(tool_trajectories))
                 examined += sum(len(episode["events"]) for episode in tool_trajectories)
                 if used > MAX_SOURCE_BYTES or examined > MAX_EVENTS:
@@ -936,6 +940,16 @@ class TrainingData:
             candidate["split"] = (
                 "validation" if len(roots) > 1 and int(group[:8], 16) % 10 == 0 else "train"
             )
+
+    def observations(self, purpose, tenant, sid, task_id=None, *, cursor=None, limit=200):
+        from .training_observations import ObservedData
+
+        return ObservedData(self).observations(purpose, tenant, sid, task_id, cursor=cursor, limit=limit)
+
+    def export_observations(self, purpose, projects):
+        from .training_observations import ObservedData
+
+        return ObservedData(self).export_observations(purpose, projects)
 
     def preview(self, purpose, projects=None, *, offset=0, tenant=None, query=""):
         self.audit("preview", purpose)

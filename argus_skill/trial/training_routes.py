@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from .analytics import AnalyticsError
@@ -98,6 +98,38 @@ def register_training_routes(app, analytics, session, *, journal=None, controls=
         identity(request, admin=True)
         result = await operation(collaboration.detail, purpose, tenant, sid, task_id)
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @app.get("/admin/api/training/observations/{tenant}/{sid}")
+    async def retained_observations(request: Request, tenant: str, sid: str,
+                                    purpose: str = "internal_training",
+                                    task_id: str | None = Query(None, max_length=80),
+                                    cursor: str | None = Query(None, max_length=1024),
+                                    limit: int = Query(200, ge=1, le=500)):
+        identity(request, admin=True)
+        result = await operation(
+            training.observations, purpose, tenant, sid, task_id, cursor=cursor, limit=limit,
+        )
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @app.post("/admin/api/training/export-observations")
+    async def export_observations(request: Request):
+        purpose = None
+        try:
+            identity(request, admin=True, mutation=True)
+            data = json_body(await read_body(request, 192 * 1024))
+            purpose = data.get("purpose")
+            if set(data) - {"purpose", "projects"}:
+                raise HTTPException(400, "Unknown export fields")
+        except HTTPException:
+            await operation(training.audit, "export_observations", purpose, outcome="denied")
+            raise
+        content, filename = await operation(
+            training.export_observations, purpose, data.get("projects"),
+        )
+        return StreamingResponse(content, media_type="application/zip", headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+        })
 
     @app.post("/admin/api/training/export")
     async def export(request: Request):

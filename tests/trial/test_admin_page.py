@@ -186,64 +186,25 @@ assert.equal(heading.children.length,0);
 """)
 
 
-def test_data_workbench_browses_sources_filters_formats_and_exports_reviewed_tools():
+def test_data_workbench_keeps_raw_inspection_separate_from_quality_review():
     from argus_skill.trial.data_page import SCRIPT as DATA_SCRIPT
 
     javascript(r"""
-el('purpose').value='internal_training';el('sample-kind').value='all';el('format').value='hf';
-const candidate={tenant_id:'tenant-one',sid:'engineering',task_id:'task-optimize',event_id:'a'.repeat(64),
-  event_ids:['b'.repeat(64)],sample_complete:true,global_complete:false,runtime:{model:'synthetic-model'},
-  source:{session_id:'session-real'},sample:{tools:[{type:'function',function:{name:'calculate',parameters:{type:'object'}}}],
-  messages:[{role:'user',content:'Optimize and verify'},
-    {role:'assistant',tool_calls:[{id:'call-one',function:{name:'calculate',arguments:{size:100}}}]},
-    {role:'tool',tool_call_id:'call-one',name:'calculate',content:'100 verified'},
-    {role:'assistant',content:'Result verified.'}]}};
-const data={offset:0,selection_limit:20,total_projects:1,has_more_projects:false,
-  projects:[{tenant_id:'tenant-one',sid:'engineering',title:'工程优化：加权区间调度',eligible:true}],candidates:[candidate],
-  counts:{projects:1,candidates:1,tool_candidates:1,sft:0,quarantined:1},
-  reason_counts:{unmatched_tool_call_result:1},diagnostics:[{event_id:'quarantined-only',reason:'unmatched_tool_call_result'}],
-  capture_status:{states:[{state:'complete',count:1}]}};
-api=async path=>path.includes('/preview?')?data:path==='/invite/status'?{role:'admin',readonly:false}:
-  path.endsWith('/audit')?{events:[]}:{state:'running'};
-await load();
+const task={tenant_id:'tenant-one',sid:'project',task_id:'task'};
+const episode={episode_id:5,task_id:'task',role:'planner',label:'规划',state:'capturing',
+  collection:{event_count:1,complete:false},quality:{state:'not_evaluated'},events:[
+    {id:'actual-event',sequence:0,kind:'context',payload:{messages:[{role:'user',content:'Actual planning input'}],tools:[]}}]};
+preview={projects:[{...task,eligible:true}],candidates:[],offset:0,has_more_projects:false};
+activeTask=task;activeProject=preview.projects[0];readonly=false;
+const candidate=observationCandidate(episode,task);preview.candidates=[candidate];
+inspect(candidate);
+assert.match(el('messages').textContent,/Actual planning input/);
+assert.match(el('sample-state').textContent,/1 条真实事件/);
+assert.match(el('sample-badges').textContent,/尚未验收/);
+el('format').value='episode';el('format').onchange();
+assert.deepEqual(JSON.parse(el('formats').textContent),episode);
+el('sample-kind').value='chat';el('sample-kind').oninput();
 assert.equal(document.querySelectorAll('.sample').length,1);
-assert.doesNotMatch(el('samples').textContent,/quarantined-only/);
-assert.match(el('diagnostics').textContent,/quarantined-only/);
-assert.match(el('projects').textContent,/工程优化：加权区间调度/);
-assert.match(el('projects').textContent,/engineering · tenant-one/);
-assert.match(el('projects').textContent,/task-optimize/);
-const project=document.querySelectorAll('.project-choice')[0];project.checked=true;project.onchange();
-await document.querySelectorAll('.sample')[0].onclick();
-assert.equal(el('sample-title').textContent,'工程优化：加权区间调度');
-assert.match(el('sample-identity').textContent,/engineering · tenant-one · 任务 task-optimize/);
-assert.match(el('messages').textContent,/call-one/);assert.match(el('messages').textContent,/100 verified/);
-assert.match(el('tools').textContent,/parameters/);assert.match(el('source').textContent,/synthetic-model/);
-assert.match(el('source').textContent,/task-optimize/);
-el('format').value='portable';el('format').onchange();
-let portable=JSON.parse(el('formats').textContent);
-assert.equal(portable.messages[1].tool_calls[0].function.arguments,'{"size":100}');
-assert.equal(portable.messages[2].name,undefined);
-el('task-query').value='different';el('task-query').oninput();
-assert.equal(document.querySelectorAll('.sample').length,0);
-el('task-query').value='optimize';el('task-query').oninput();
-document.querySelectorAll('.sample')[0].onclick();
-el('approve').checked=true;el('approve').onchange();
-el('content-approved').checked=true;el('content-approved').oninput();assert.equal(el('download').disabled,true);
-el('context-approved').checked=true;el('context-approved').oninput();assert.equal(el('download').disabled,false);
-let exported;fetch=async(path,options)=>{exported=JSON.parse(options.body);return {
-  ok:true,headers:{get:()=> 'application/zip'},blob:async()=>new Blob(['synthetic'])};};
-await el('download').onclick();
-assert.equal(exported.review.reviewer_kind,'human_operator');
-assert.equal(exported.review.tool_context_approved,true);
-assert.deepEqual(exported.review.approved_event_ids,[candidate.event_id]);
-assert.deepEqual(exported.projects,[{tenant_id:'tenant-one',sid:'engineering'}]);
-candidate.quality_approved=true;
-candidate.quality_evidence={persisted:true,reviewer_kind:'automated_acceptance',human_reviewed:false,evidence_sha256:'c'.repeat(64)};
-await load();
-const refreshedProject=document.querySelectorAll('.project-choice')[0];
-refreshedProject.checked=true;refreshedProject.onchange();
-assert.match(el('review-summary').textContent,/1 条已有有效审阅凭据/);
-document.querySelectorAll('.sample')[0].onclick();
-assert.match(el('sample-state').textContent,/已有明确质量依据/);
-assert.match(el('source').textContent,/automated_acceptance/);
+el('select-sample-project').onclick();
+assert.equal(el('download').disabled,false);
 """, script=DATA_SCRIPT, startup="load();")

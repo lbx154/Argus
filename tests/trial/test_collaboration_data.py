@@ -69,7 +69,8 @@ def test_original_request_actual_roles_and_no_invented_handoffs(training):
     assert "Add two and three" not in json.dumps(detail)  # No injected role prompts or tool output.
     assert detail["global_complete"] is False
     overview = view.overview(tenant="tenant-one")
-    assert overview["counts"] == {"tasks": 1, "roles": 2, "tool_pairs": 1, "approved_samples": 0, "candidates": 1}
+    assert overview["counts"] == {"tasks": 1, "roles": 2, "tool_pairs": 1, "approved_samples": 0, "candidates": 1,
+                                   "observed_episodes": 1, "observed_events": 5}
     assert not any("episodes" in task for task in overview["tasks"])
 
 

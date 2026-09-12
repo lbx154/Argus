@@ -1,13 +1,12 @@
 """Tenant-bound, private Unix IPC for the read-only hosted Pi observer.
 
 No route is registered on the public portal. SO_PEERCRED, the container's mounted
-tenant filesystem, the parent process identity, and read-only producer hashes
+tenant filesystem and the actual parent/child process identity
 bind an episode to an actual spawned Pi process. A client cannot supply a tenant,
 observer_verified, allowlist, or runtime attestation.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import secrets
@@ -32,15 +31,6 @@ from .training_capture import (
 
 IMAGE_PACKAGE = Path("/opt/argus/argus_skill/trial")
 EXTENSION_NAME = "pi_training_extension.mjs"
-PI_CLI = Path("/opt/argus-pi/packages/coding-agent/dist/bundle/cli.js")
-PI_PACKAGE = Path("/opt/argus-pi/packages/coding-agent/package.json")
-
-
-def _digest(path):
-    with Path(path).open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
-
 def _process(pid):
     """Use start ticks as well as PID so a recycled process cannot inherit a lease."""
     directory = Path("/proc") / str(pid)
@@ -53,14 +43,6 @@ class PeerVerifier:
     def __init__(self, tenant, data_dir, web_uds):
         self.tenant, self.data_dir = tenant, Path(data_dir)
         self.web_uds = str(web_uds)
-        source = Path(__file__).parents[1]
-        self.hashes = {name: _digest(source / name) for name in (
-            "trial/" + EXTENSION_NAME, "trial/training_runtime.py",
-            "agent_cli/_sandbox_commands.py", "agent_cli/_prompt_delivery.py",
-            "agent_cli/agent_cli_runner.py",
-            "adapters/agent_cli_backend/_exec.py",
-            "daemon/process.py", "daemon/spawn_helper.py", "daemon/_life_worker_admission.py",
-        )}
         self.verified = {}
 
     def _runtime_parent(self, proc):
@@ -86,21 +68,14 @@ class PeerVerifier:
         raise AnalyticsError(403, "training_runtime_parent_untrusted")
 
     def _image_identity(self, proc, uid):
-        """Verify the mounted tenant and immutable framework code, without ancestry."""
+        """Bind to the mounted tenant; code digests do not gate collection."""
         mounted = proc["root"] / "tenant"
         if (mounted / ".tenant-volume").read_text().strip() != self.tenant:
             raise AnalyticsError(403, "training_peer_tenant_mismatch")
         expected, actual = self.data_dir.stat(), mounted.stat()
         if (expected.st_dev, expected.st_ino) != (actual.st_dev, actual.st_ino):
             raise AnalyticsError(403, "training_peer_tenant_mismatch")
-        checked = {}
-        for name, digest in self.hashes.items():
-            path = proc["root"] / str(IMAGE_PACKAGE.parent / name).lstrip("/")
-            mode = path.stat()
-            if not stat.S_ISREG(mode.st_mode) or mode.st_uid == uid or mode.st_mode & 0o022 or _digest(path) != digest:
-                raise AnalyticsError(403, "training_observer_image_mismatch")
-            checked[name] = digest
-        return checked
+        return {}
 
     def __call__(self, peer, *, producer=False, parent=None, control_parent=None, registered=None):
         pid, uid, _gid = peer
@@ -119,7 +94,7 @@ class PeerVerifier:
             if not producer and control_parent is None and registered is None:
                 self._runtime_parent(proc)
             return self.verified[cache_key]
-        checked = self._image_identity(proc, uid)
+        self._image_identity(proc, uid)
         if producer:
             if parent is None or proc["parent"] != parent["pid"] or _process(parent["pid"])["started"] != parent["started"]:
                 raise AnalyticsError(403, "training_peer_parent_mismatch")
@@ -129,24 +104,6 @@ class PeerVerifier:
             executable = Path("/proc") / str(pid) / "exe"
             if Path(os.readlink(executable)).name != "node":
                 raise AnalyticsError(403, "training_producer_executable_mismatch")
-            checked["node"] = _digest(executable)
-            package = proc["root"] / str(PI_PACKAGE).lstrip("/")
-            if json.loads(package.read_text()).get("version") != "0.85.1":
-                raise AnalyticsError(403, "training_pi_version_mismatch")
-            cli = proc["root"] / str(PI_CLI).lstrip("/")
-            cli_stat = cli.stat()
-            if cli_stat.st_uid == uid or cli_stat.st_mode & 0o022:
-                raise AnalyticsError(403, "training_pi_image_writable")
-            parts = sorted(cli.parent.rglob("*.js"))
-            if not 1 <= len(parts) <= 256 or sum(part.stat().st_size for part in parts) > 64 * 1024 * 1024:
-                raise AnalyticsError(403, "training_pi_bundle_unbounded")
-            bundle = hashlib.sha256()
-            for part in parts:
-                mode = part.lstat()
-                if not stat.S_ISREG(mode.st_mode) or mode.st_uid == uid or mode.st_mode & 0o022:
-                    raise AnalyticsError(403, "training_pi_image_writable")
-                bundle.update(str(part.relative_to(cli.parent)).encode() + b"\0" + bytes.fromhex(_digest(part)))
-            checked["pi_bundle"] = bundle.hexdigest()
         elif control_parent is not None:
             executable = Path(os.readlink(Path("/proc") / str(pid) / "exe")).name
             if (not executable.startswith("python") or proc["parent"] != control_parent["pid"]
@@ -162,7 +119,7 @@ class PeerVerifier:
                 raise AnalyticsError(403, "training_daemon_process_mismatch")
         else:
             self._runtime_parent(proc)
-        result = {"pid": pid, "started": proc["started"], "source_sha256": checked}
+        result = {"pid": pid, "started": proc["started"]}
         if len(self.verified) >= 1024:
             self.verified.clear()
         self.verified[cache_key] = result
@@ -230,15 +187,15 @@ class TrainingBridge:
             elif action == "init_failed":
                 if not result.get("already_failed"):
                     self.counts["initialization_failed"] += 1
-                    if result.get("state") == "quarantined":
-                        self.counts["episodes_quarantined"] += 1
+                    if result.get("state") in {"quarantined", "interrupted"}:
+                        self.counts["episodes_" + result["state"]] += 1
                 self.last_error_code = result["reason"]
                 self.last_diagnostic = result.get("diagnostic")
             elif action == "event":
                 self.counts["events_received"] += 1
                 self.last_event_at = time.time()
                 state = result.get("state")
-                if state in {"complete", "quarantined"}:
+                if state in {"complete", "quarantined", "interrupted"}:
                     self.counts["episodes_" + state] += 1
                 if result.get("reason"):
                     self.last_error_code = result["reason"]
@@ -293,7 +250,7 @@ class TrainingBridge:
         del self.daemon_tickets[token]
         if action == "daemon_claim":
             metadata = {"launch_id": ticket.launch_id, "pid": child["pid"], "started": child["started"],
-                        "sid": sid, "boot_id": self.boot_id, "chain": chain, "source_sha256": child["source_sha256"]}
+                        "sid": sid, "boot_id": self.boot_id, "chain": chain}
             expires = self.training.analytics.clock() + min(30, self.training.analytics.retention_days) * 86400
             with self.training.analytics._db() as db:
                 db.execute("INSERT OR REPLACE INTO training_runtime_workers VALUES (?,?,?,?,?,?,?)",
@@ -329,9 +286,7 @@ class TrainingBridge:
                 if not isinstance(argv, list) or not 1 <= len(argv) <= 512 or any(not isinstance(arg, str) or len(arg) > 4096 for arg in argv):
                     raise ValueError("Invalid runtime launch")
                 extensions = [argv[index + 1] for index, arg in enumerate(argv[:-1]) if arg in {"-e", "--extension"}]
-                if (extensions != [str(IMAGE_PACKAGE / EXTENSION_NAME)] or "--no-extensions" not in argv
-                        or "--no-context-files" not in argv or "--session" in argv
-                        or any(arg.startswith(("--extension=", "--session=")) for arg in argv)):
+                if str(IMAGE_PACKAGE / EXTENSION_NAME) not in extensions:
                     raise AnalyticsError(403, "training_observer_arguments_mismatch")
                 parent = self._parent(peer, value["sid"])
                 # Registration is metadata-only; grant eligibility is checked
@@ -347,9 +302,8 @@ class TrainingBridge:
                            "run_label": value["run_label"], "profile": HOSTED_PROFILE,
                            "mission_id": value["mission_id"],
                            "parent_pid": parent["pid"], "parent_started": parent["started"],
-                           "source_sha256": parent["source_sha256"],
-                           "launch_sha256": hashlib.sha256(json.dumps(argv, separators=(",", ":")).encode()).hexdigest(),
-                           "provider_projection": "openai-chat-public-v1", "model_context_complete": False}
+                           "capture_policy": "retain-observed-v2",
+                           "provider_projection": "openai-chat-observed-v2", "model_context_complete": False}
                 if parent.get("daemon_launch"):
                     runtime["daemon_launch"] = parent["daemon_launch"]
                 self.leases[token] = Lease(value["sid"], parent, runtime, now + 12 * 3600)
@@ -396,14 +350,18 @@ class TrainingBridge:
                 raise AnalyticsError(409, "training_initialization_failed")
             if action == "authorize" and not value:
                 return self.training.capture.authorize(self.tenant, lease.sid)
-            if action == "begin" and set(value) == {"session_id"}:
+            if action == "begin" and "session_id" in value and not set(value) - {"session_id", "allowed_tools"}:
                 if lease.episode_id is not None:
-                    raise AnalyticsError(409, "training_lease_already_started")
-                runtime = {**lease.runtime, "producer_pid": producer["pid"], "producer_started": producer["started"],
-                           "source_sha256": producer["source_sha256"]}
+                    with self.training.analytics._db() as db:
+                        previous = db.execute("SELECT state FROM training_tool_episodes WHERE id=?",
+                                              (lease.episode_id,)).fetchone()
+                    if previous is not None and previous["state"] == "capturing":
+                        raise AnalyticsError(409, "training_lease_already_started")
+                runtime = {**lease.runtime, "producer_pid": producer["pid"], "producer_started": producer["started"]}
                 result = self.training.capture.begin(
                     self.tenant, lease.sid, value["session_id"], observer_verified=True,
-                    allowed_tools=sorted(HOSTED_TOOLS), runtime_profile=HOSTED_PROFILE, runtime_metadata=runtime,
+                    allowed_tools=value.get("allowed_tools", sorted(HOSTED_TOOLS)),
+                    runtime_profile=HOSTED_PROFILE, runtime_metadata=runtime,
                 )
                 lease.episode_id = result["episode_id"]
                 return result
