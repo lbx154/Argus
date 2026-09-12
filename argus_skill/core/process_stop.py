@@ -23,9 +23,14 @@ def stop_requested() -> bool:
     return _stopping.is_set()
 
 
+def wait_for_stop(timeout: float) -> bool:
+    """Wait up to ``timeout`` seconds, waking immediately on a stop request."""
+    return _stopping.wait(timeout)
+
+
 def clear_stop() -> None:
     """Forget a previous request, for interpreters that host more than one run."""
     _stopping.clear()
 
 
-__all__ = ["clear_stop", "request_stop", "stop_requested"]
+__all__ = ["clear_stop", "request_stop", "stop_requested", "wait_for_stop"]
