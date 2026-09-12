@@ -385,11 +385,11 @@ async function getJson<T>(
   );
 }
 
-async function postJson<T = Record<string, unknown>>(
+async function postResponse(
   path: string,
   body?: unknown,
   signal?: AbortSignal,
-): Promise<T> {
+): Promise<Response> {
   const r = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -397,7 +397,15 @@ async function postJson<T = Record<string, unknown>>(
     signal,
   });
   await ensureResponseOk(r, 'POST', path);
-  return (await r.json()) as T;
+  return r;
+}
+
+async function postJson<T = Record<string, unknown>>(
+  path: string,
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
+  return (await (await postResponse(path, body, signal)).json()) as T;
 }
 
 async function postMultipart<T>(
@@ -515,9 +523,9 @@ export function compatibleApiMeta(): Promise<ApiMeta> {
   return apiMetaPromise;
 }
 
-/** One decoded SSE frame from the streaming Manager endpoint. */
+/** One decoded SSE frame from a streaming Argus endpoint. */
 export interface SSEFrame {
-  type: string; // phase | delta | done | error
+  type: string; // heartbeat | phase | delta | done | error
   [k: string]: unknown;
 }
 
@@ -538,10 +546,10 @@ export interface StreamDone {
  */
 export function parseSSEFrames(buf: string): { frames: SSEFrame[]; rest: string } {
   const frames: SSEFrame[] = [];
-  let idx: number;
-  while ((idx = buf.indexOf('\n\n')) >= 0) {
-    const raw = buf.slice(0, idx);
-    buf = buf.slice(idx + 2);
+  let separator: RegExpExecArray | null;
+  while ((separator = /\r?\n\r?\n/.exec(buf))) {
+    const raw = buf.slice(0, separator.index);
+    buf = buf.slice(separator.index + separator[0].length);
     for (const line of raw.split('\n')) {
       const l = line.trim();
       if (l.startsWith('data:')) {
@@ -554,6 +562,45 @@ export function parseSSEFrames(buf: string): { frames: SSEFrame[]; rest: string 
     }
   }
   return { frames, rest: buf };
+}
+
+/** Share Manager/map framing and wait for a terminal result, never a heartbeat. */
+async function readSSE(
+  response: Response,
+  label: string,
+  onFrame?: (frame: SSEFrame) => void,
+  signal?: AbortSignal,
+): Promise<SSEFrame> {
+  if (!response.body) throw new Error(`${label} returned no response body`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let terminal: SSEFrame | undefined;
+  let reachedEOF = false;
+  try {
+    for (;;) {
+      signal?.throwIfAborted();
+      const { done, value } = await reader.read();
+      reachedEOF = done;
+      signal?.throwIfAborted();
+      buffer += done ? decoder.decode() + '\n\n' : decoder.decode(value, { stream: true });
+      const parsed = parseSSEFrames(buffer);
+      buffer = parsed.rest;
+      for (const frame of parsed.frames) {
+        onFrame?.(frame);
+        if (frame.type === 'done' || frame.type === 'error') terminal = frame;
+      }
+      if (done) {
+        if (!terminal) throw new Error(`${label} ended before a terminal event`);
+        return terminal;
+      }
+    }
+  } finally {
+    // Drain normal responses so the portal records complete collection, rather
+    // than interpreting a cancelled body after `done` as a client disconnect.
+    if (!reachedEOF) await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 
 let activeSnapshotPrewarmSid: string | null = null;
@@ -577,7 +624,14 @@ export const api = {
     return getJson<import('./map/model').Dataset>(P(sid, '/map-history') + (params.size ? `?${params}` : ''), signal);
   },
   mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string) => getJson<import('./map/presentation').MapCopy>(`/api/map-copy/${source}/${encodeURIComponent(name)}?locale=${locale}${sessionId ? `&session_id=${encodeURIComponent(sessionId)}` : ""}`, signal),
-  generateMapCopy: (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string}, signal?: AbortSignal, sessionId?: string) => postJson<import('./map/presentation').MapCopy>(`/api/map-copy/${source}/${encodeURIComponent(name)}${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""}`, body, signal),
+  generateMapCopy: async (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string}, signal?: AbortSignal, sessionId?: string): Promise<import('./map/presentation').MapCopy> => {
+    const params = new URLSearchParams({ stream: 'true' });
+    if (sessionId) params.set('session_id', sessionId);
+    const response = await postResponse(`/api/map-copy/${source}/${encodeURIComponent(name)}?${params}`, body, signal);
+    const terminal = await readSSE(response, 'Explanation stream', undefined, signal);
+    if (terminal.type === 'error') throw new Error(String(terminal.error ?? 'Explanation failed'));
+    return terminal.result as import('./map/presentation').MapCopy;
+  },
   mapDatasets: (signal?: AbortSignal) => getJson<{ datasets: import('./map/model').DatasetSummary[] }>('/api/map-datasets', signal),
   mapDataset: (id: string, signal?: AbortSignal) => getJson<import('./map/model').Dataset>(`/api/map-datasets/${encodeURIComponent(id)}`, signal),
   meta: compatibleApiMeta,
@@ -843,15 +897,7 @@ export const api = {
     const signal = isAbortSignal(signalOrOptions) ? signalOrOptions : signalOrOptions?.signal;
     const attachments = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.attachments;
     const routeOverride = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.routeOverride;
-    const res = await fetch(P(sid, '/message/stream'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(messageBody(text, attachments, routeOverride)),
-      signal,
-    });
-    await ensureResponseOk(res, 'POST', P(sid, '/message/stream'));
-    if (!res.body) throw new Error('Manager stream returned no response body');
-    let sawTerminal = false;
+    const res = await postResponse(P(sid, '/message/stream'), messageBody(text, attachments, routeOverride), signal);
     const dispatch = (f: SSEFrame) => {
       if (signal?.aborted) return;
       if (f.type === 'phase') {
@@ -880,29 +926,13 @@ export const api = {
         );
       }
       else if (f.type === 'done') {
-        sawTerminal = true;
         handlers.onDone?.((f.result ?? {}) as StreamDone);
       }
       else if (f.type === 'error') {
-        sawTerminal = true;
         handlers.onError?.(new Error(String(f.error ?? 'stream error')));
       }
     };
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const parsed = parseSSEFrames(buf);
-      buf = parsed.rest;
-      parsed.frames.forEach(dispatch);
-    }
-    if (!signal?.aborted) {
-      parseSSEFrames(buf + '\n\n').frames.forEach(dispatch);
-      if (!sawTerminal) throw new Error('Manager stream ended before a terminal event');
-    }
+    await readSSE(res, 'Manager stream', dispatch, signal);
   },
   nudge: (sid: string, text: string) => postJson(P(sid, '/nudge'), { text }),
   note: (sid: string, text: string) => postJson(P(sid, '/note'), { text }),
