@@ -992,11 +992,12 @@ export default function App() {
               /></Suspense>}
               <div className={`${workspaceView === 'workbench' || workspaceView === 'map' ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`}>
                 <GuardianBanner alert={guardianAlert} />
-                {missionView?.mission.id && activeSid ? <div className="flex min-h-0 shrink-0 flex-col">
+                {missionView?.mission.id && activeSid ? <div className={`flex min-h-0 flex-col ${compactViewport ? 'shrink-0' : 'shrink'}`}>
                   <ResearchBrief key={activeSid} sid={activeSid} snapshot={snap} view={missionView}
                     active={workspaceView === 'mission' || workspaceView === 'activity'} readOnly={kiosk} compact={compactViewport}
                     onAsk={draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); }} />
                 </div> : null}
+                {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
                 {standardWorkspaceView === 'mission' && missionView ? (
                   <MissionControl
                     events={activityEvents}
@@ -1011,6 +1012,7 @@ export default function App() {
                     onNotify={notify}
                   />
                 ) : (
+                  <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>
                   <EventStream
                     snapshot={snap}
                     missionView={missionView}
@@ -1026,6 +1028,7 @@ export default function App() {
                     onOpenArtifact={focusDeliveryPath}
                     onOpenDelivery={openDelivery}
                   />
+                  </div>
                 )}
                 {!kiosk ? (
                   <div className="composer-dock shrink-0 px-4 pt-3">
