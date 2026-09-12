@@ -12,20 +12,23 @@ write contract that the session/pipeline commits rely on.
 """
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import replace
+from inspect import Parameter, signature
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import portalocker
 
+from ..core.daemon_lock import is_pid_running
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.runner_errors import result_has_unrecoverable_resume_state
 from ..provider_integrations.authorization_retry import BackendLoginRequired
@@ -38,12 +41,50 @@ _SESSION_FILE = ".manager_session.json"
 _SESSION_LOCK = ".manager_session.lock"
 _PIPELINE_LOCK = ".manager_pipeline.lock"
 _PIPELINE_YIELD_FILE = ".manager_pipeline_yield.json"
+_PIPELINE_YIELD_DIR = ".manager_pipeline_yields"
+_LOCK_POLL_SECONDS = 0.2
 
 
-def _acquire_session_lock(fh: Any, *, timeout: float | None = None) -> bool:
+class ManagerLockCancelled(RuntimeError):
+    """A caller cancelled its wait before entering the protected boundary."""
+
+
+def _lock_is_contended(exc: BaseException) -> bool:
+    """Recognize contention without retrying bad descriptors or broken locking.
+
+    Portalocker 3/4 may wrap the OS exception in args or in __cause__.
+    AlreadyLocked is the portable indication, including Windows lock violation.
+    """
+    pending = [exc]
+    seen: set[int] = set()
+    while pending:
+        error = pending.pop()
+        if id(error) in seen:
+            continue
+        seen.add(id(error))
+        if isinstance(error, portalocker.exceptions.AlreadyLocked):
+            return True
+        if isinstance(error, OSError) and error.errno in {errno.EACCES, errno.EAGAIN}:
+            return True
+        pending.extend(arg for arg in error.args if isinstance(arg, BaseException))
+        if error.__cause__ is not None:
+            pending.append(error.__cause__)
+    return False
+
+
+def _check_lock_cancelled(cancelled: Callable[[], bool] | None) -> None:
+    if cancelled is not None and cancelled():
+        raise ManagerLockCancelled("Manager pipeline lock wait cancelled")
+
+
+def _acquire_session_lock(
+    fh: Any, *, timeout: float | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> bool:
     """Acquire ``LOCK_EX``, optionally bounded for explicit diagnostic callers.
 
-    Production Manager locks wait until the OS releases the peer's lock.
+    Production waits for real contention, but cancellation and locking failures
+    propagate. ``False`` is reserved for an explicit diagnostic timeout.
     """
     deadline = (
         time.monotonic() + max(0.0, timeout)
@@ -51,16 +92,19 @@ def _acquire_session_lock(fh: Any, *, timeout: float | None = None) -> bool:
         else None
     )
     while True:
+        _check_lock_cancelled(cancelled)
         try:
             portalocker.lock(
                 fh,
                 portalocker.LOCK_EX | portalocker.LOCK_NB,
             )
             return True
-        except (OSError, portalocker.exceptions.LockException):
+        except (OSError, portalocker.exceptions.LockException) as exc:
+            if not _lock_is_contended(exc):
+                raise
             if deadline is not None and time.monotonic() >= deadline:
                 return False
-            time.sleep(0.2)
+            time.sleep(_LOCK_POLL_SECONDS)
 
 
 class _PipelineLockState:
@@ -96,7 +140,9 @@ _pipeline_lock_delegation: ContextVar[frozenset[str]] = ContextVar(
 
 
 @contextmanager
-def manager_pipeline_lock(root: Path | str):
+def manager_pipeline_lock(
+    root: Path | str, *, cancelled: Callable[[], bool] | None = None,
+):
     """Serialize Manager pipeline commits with daemon mission execution.
 
     Cross-process: an exclusive advisory flock on ``<root>/.manager_pipeline.lock``
@@ -137,6 +183,9 @@ def manager_pipeline_lock(root: Path | str):
       before — no overlap with the in-flight pass;
     * same-thread nesting is re-entrant (the context flows into nested
       ``with`` blocks natively; the gate is an RLock).
+
+    Cancellation only abandons acquisition; it never revokes an acquired lock
+    or interrupts a mission already inside this boundary.
     """
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
@@ -148,12 +197,23 @@ def manager_pipeline_lock(root: Path | str):
         # Our delegation chain already holds the on-disk flock: don't touch
         # it (a second file handle would deadlock — see docstring); serialise
         # against sibling delegated workers on the gate instead.
-        with state.gate:
+        if cancelled is None:
+            state.gate.acquire()
+        else:
+            while True:
+                _check_lock_cancelled(cancelled)
+                if state.gate.acquire(timeout=_LOCK_POLL_SECONDS):
+                    break
+        try:
+            _check_lock_cancelled(cancelled)
             yield
+        finally:
+            state.gate.release()
         return
     with lock_path.open("a+b") as handle:
-        _acquire_session_lock(handle)
+        _acquire_session_lock(handle, cancelled=cancelled)
         try:
+            _check_lock_cancelled(cancelled)
             # Grant the entitlement only after the flock is ours, inside the
             # try: if anything below raises, reset() runs before unlock and
             # no context is left with an orphaned entitlement.
@@ -168,63 +228,130 @@ def manager_pipeline_lock(root: Path | str):
             portalocker.unlock(handle)
 
 
-def request_manager_pipeline_yield(root: Path | str) -> str:
-    """Ask the daemon to leave the next mission boundary open for Manager."""
-    path = Path(root) / _PIPELINE_YIELD_FILE
-    path.parent.mkdir(parents=True, exist_ok=True)
+@contextmanager
+def manager_pipeline_boundary(
+    manager: Any, *, cancelled: Callable[[], bool] | None = None,
+):
+    """Enter a Manager's boundary, adapting legacy no-argument lock factories.
+
+    Production Manager forwards cancellation into lock acquisition. Structural
+    substitutes may only implement ``pipeline_lock()``; inspect that capability
+    before calling, rather than mistaking an internal TypeError for a mismatch.
+    Legacy factories still get cancellation checks before and after acquisition.
+    """
+    _check_lock_cancelled(cancelled)
+    factory = getattr(manager, "pipeline_lock", None)
+    kwargs: dict[str, Any] = {}
+    if callable(factory) and cancelled is not None:
+        try:
+            parameters = signature(factory).parameters.values()
+        except (TypeError, ValueError):
+            parameters = ()
+        if any(
+            parameter.kind == Parameter.VAR_KEYWORD
+            or (parameter.name == "cancelled" and parameter.kind != Parameter.POSITIONAL_ONLY)
+            for parameter in parameters
+        ):
+            kwargs["cancelled"] = cancelled
+    with factory(**kwargs) if callable(factory) else nullcontext():
+        _check_lock_cancelled(cancelled)
+        yield
+
+
+def _read_pipeline_yield(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _write_pipeline_yield(path: Path, payload: dict[str, Any]) -> None:
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def request_manager_pipeline_yield(
+    root: Path | str, *, cancelled: Callable[[], bool] | None = None,
+) -> str:
+    """Publish one caller-owned request for the next mission boundary.
+
+    Each request has its own atomic marker. There is no shared read/modify/write
+    lock on the daemon stop path, and one caller cannot erase another's waiter.
+    """
+    _check_lock_cancelled(cancelled)
+    directory = Path(root) / _PIPELINE_YIELD_DIR
+    directory.mkdir(parents=True, exist_ok=True)
     token = uuid.uuid4().hex
-    payload = {
+    _write_pipeline_yield(directory / f"{token}.json", {
         "schema_version": 1,
         "token": token,
         "pid": os.getpid(),
         "requested_at": time.time(),
-    }
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{token}.tmp")
-    tmp.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+        "state": "waiting",
+    })
     return token
 
 
 def _clear_pipeline_yield_if_token(path: Path, token: str) -> bool:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    payload = _read_pipeline_yield(path)
+    if payload is None or str(payload.get("token") or "") != token:
         return False
-    if not isinstance(payload, dict) or str(payload.get("token") or "") != token:
-        return False
+    # Publish release before garbage collection. A failed unlink must not leave
+    # a live server pid holding the daemon at the boundary forever.
+    if payload.get("state") != "released":
+        try:
+            _write_pipeline_yield(path, {**payload, "state": "released"})
+        except OSError:
+            try:
+                path.unlink(missing_ok=True)
+                return True
+            except OSError:
+                log.warning("could not release Manager boundary yield request", exc_info=True)
+                return False
     try:
         path.unlink(missing_ok=True)
     except OSError:
-        return False
+        log.debug("retaining released Manager boundary marker for later cleanup", exc_info=True)
     return True
 
 
 def clear_manager_pipeline_yield(root: Path | str, token: str) -> bool:
-    return _clear_pipeline_yield_if_token(
-        Path(root) / _PIPELINE_YIELD_FILE,
-        token,
-    )
+    # Generated tokens are hex UUIDs. Legacy marker tokens remain readable but
+    # must never become arbitrary child paths.
+    if len(token) == 32 and all(char in "0123456789abcdef" for char in token):
+        path = Path(root) / _PIPELINE_YIELD_DIR / f"{token}.json"
+        if _clear_pipeline_yield_if_token(path, token):
+            return True
+    return _clear_pipeline_yield_if_token(Path(root) / _PIPELINE_YIELD_FILE, token)
 
 
 def manager_pipeline_yield_requested(root: Path | str) -> bool:
-    """Return whether a live Manager request is waiting for the boundary."""
-    path = Path(root) / _PIPELINE_YIELD_FILE
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        token = str(payload.get("token") or "")
-        pid = int(payload.get("pid") or 0)
-    except (OSError, TypeError, ValueError):
-        return False
-    if not token or pid <= 0:
-        _clear_pipeline_yield_if_token(path, token)
-        return False
-    try:
-        os.kill(pid, 0)
-    except (ProcessLookupError, PermissionError):
-        _clear_pipeline_yield_if_token(path, token)
-        return False
-    return True
+    """Inspect atomic markers without acquiring another control-plane lock."""
+    root = Path(root)
+    legacy = root / _PIPELINE_YIELD_FILE
+    paths = [legacy, *(root / _PIPELINE_YIELD_DIR).glob("*.json")]
+    waiting = False
+    for path in paths:
+        payload = _read_pipeline_yield(path)
+        if payload is None or not payload.get("token"):
+            continue
+        live = False
+        if payload.get("state") != "released":
+            try:
+                live = is_pid_running(int(payload.get("pid") or 0))
+            except (TypeError, ValueError, OverflowError):
+                pass
+        if live:
+            waiting = True
+        else:
+            _clear_pipeline_yield_if_token(path, str(payload["token"]))
+    return waiting
 
 
 @contextmanager

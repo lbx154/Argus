@@ -851,6 +851,7 @@ def enqueue_mission(
             chat_state,
             _persist,
             root_task_id=root_task_id,
+            cancelled=cancelled,
             prepare_persist=_prepare_persist,
             validate_persist=_validate_persist,
             prepared_handoff=prepared_handoff,

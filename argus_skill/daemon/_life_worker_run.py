@@ -14,7 +14,6 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -279,15 +278,16 @@ class LifeWorkerRunMixin:
                 summary: dict = {}
                 self._supervisor_execution_active.set()
                 try:
-                    from ..manager._session_ops import manager_pipeline_yield_requested
+                    from ..manager._session_ops import (
+                        manager_pipeline_boundary,
+                        manager_pipeline_yield_requested,
+                    )
 
                     if manager_pipeline_yield_requested(rf_state.runtime_root):
                         self._stop.wait(0.2)
                         continue
                     manager = getattr(rf_state.runner, "manager", None)
-                    lock_factory = getattr(manager, "pipeline_lock", None)
-                    pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
-                    with pipeline_lock:
+                    with manager_pipeline_boundary(manager, cancelled=self._stop.is_set):
                         supervisors = getattr(
                             rf_state,
                             "supervisors",
