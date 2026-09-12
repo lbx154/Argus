@@ -31,9 +31,11 @@ const revision = (value: unknown) => typeof value === 'string' && value.length >
 
 function sourceSnapshot(card: CardCopy, cardKey: string, taskId: string): CardSourceSnapshot | undefined {
   const value = card.source_snapshot;
-  if (!object(value) || value.version !== 1 || value.card_key !== cardKey || value.task_id !== taskId
+  if (!object(value) || (value.version !== 1 && value.version !== 2) || value.card_key !== cardKey || value.task_id !== taskId
     || !object(value.task) || !Array.isArray(value.events) || !value.events.every(object)
-    || !Array.isArray(value.source_ids) || !value.source_ids.every(id => typeof id === 'string')) return undefined;
+    || !Array.isArray(value.source_ids) || !value.source_ids.every(id => typeof id === 'string')
+    || (value.related_tasks !== undefined && (!Array.isArray(value.related_tasks)
+      || !value.related_tasks.every(task => object(task) && typeof task.id === 'string')))) return undefined;
   return value;
 }
 

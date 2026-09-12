@@ -3,9 +3,13 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import type { Edge } from "@xyflow/react";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { api } from "../api";
+import { Modal } from "../components/Modal";
 import { MapCanvas } from "../map/MapPanel";
+import { MapReaderContent } from "../map/MapReaderContent";
 import type { MacroNode } from "../map/MacroTaskNode";
 import type { Dataset } from "../map/model";
+import type { MapCopy } from "../map/presentation";
 
 const fitCamera = vi.hoisted(() => vi.fn<(ids?: ReadonlySet<string>) => void>());
 const initialization = vi.hoisted(() => ({ ready: false }));
@@ -37,7 +41,10 @@ vi.mock("../map/useSemanticCamera", async () => {
     },
   };
 });
-vi.mock("../map/useMapCopy", () => ({ useMapCopy: () => ({ ready: true }) }));
+vi.mock("../components/Modal", () => ({
+  Modal: ({ open, children, label }: ComponentProps<typeof Modal>) => open ? <div role="dialog" aria-label={label}>{children}</div> : null,
+  ModalHeader: ({ title, sub }: { title: string; sub?: string }) => <header><h2>{title}</h2><p>{sub}</p></header>,
+}));
 vi.mock("../map/MapComposer", () => ({ MapComposer: () => null }));
 vi.mock("../map/viewMemory", () => ({ recalledView: () => ({}), rememberView: () => {} }));
 
@@ -81,6 +88,7 @@ beforeEach(() => {
   initialization.ready = false;
   vi.stubGlobal("window", { addEventListener: vi.fn(), removeEventListener: vi.fn() });
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  client.setQueryData(['map-copy', 'project', 'navigation', 'en-US', 'navigation'], { cards: {}, relations: [], available: false });
   act(() => { renderer = create(<QueryClientProvider client={client}><MapCanvas {...props} /></QueryClientProvider>, {
     createNodeMock: (element) => element.props.className?.split(" ").includes("map-canvas-wrap")
       ? { clientWidth: 1440 } : null,
@@ -90,7 +98,42 @@ afterEach(() => {
   act(() => renderer?.unmount());
   client.clear();
   fitCamera.mockClear();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it("keeps the explicitly opened task reader when new copy changes relations and background focus", async () => {
+  const key = ['map-copy', 'project', 'navigation', 'en-US', 'navigation'];
+  const retained: MapCopy = { version: 22, available: true, relations: [], cards: { failed: {
+    title: 'Retained task explanation', summary: 'A limited finding', detail: 'Retained evidence', generated_at: 1, version: 22,
+    reader_brief: { why: 'Original question', scope: 'Original scope', next: 'Original assignment', concept: null },
+  } } };
+  const generate = vi.spyOn(api, 'generateMapCopy');
+  await act(async () => { client.setQueryData(key, retained); await new Promise(resolve => setTimeout(resolve, 0)); });
+  act(() => nodes().find(node => node.id === 'failed')!.data.open('failed'));
+  act(() => nodes().find(node => node.id === 'failed')!.data.readCopy!('failed', 'failed'));
+  const reader = () => renderer.root.findByProps({ 'data-testid': 'map-task-reading' });
+  expect(reader().props['data-task-id']).toBe('failed');
+  const positions = nodes().map(node => node.position);
+  const updated: MapCopy = { ...retained, cards: { failed: { ...retained.cards.failed, title: 'Updated task explanation', generated_at: 2 } },
+    relations: [{ source: 'parent', target: 'unrelated', kind: 'semantic', label: 'Explains', evidence: 'Recorded relation' }] };
+  await act(async () => { client.setQueryData(key, updated); await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(nodes().map(node => node.position)).not.toEqual(positions);
+
+  // ReactFlow/camera animation is mocked here. Exercise its observable focus
+  // change and the owning node's detailed-mode cleanup explicitly.
+  act(() => {
+    nodes().find(node => node.id === 'failed')!.data.readCopy!('failed', null);
+    button('Fit map').props.onClick();
+  });
+  expect(focused()).toBeUndefined();
+  expect(reader().props['data-task-id']).toBe('failed');
+  expect(reader().findByType(MapReaderContent).props.card.title).toBe('Updated task explanation');
+  expect(reader().findByType(MapReaderContent).props.selection.request.task_id).toBe('failed');
+  expect(generate).not.toHaveBeenCalled();
+
+  act(() => renderer.root.findAllByType(Modal).find(modal => modal.props.label === 'Task explanation')!.props.onClose());
+  expect(renderer.root.findAllByProps({ 'data-testid': 'map-task-reading' })).toHaveLength(0);
 });
 
 it("does not count a partial research execution as a completed overall goal", () => {

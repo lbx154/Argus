@@ -31,6 +31,27 @@ const snapshot = (patch: Partial<CardSourceSnapshot> = {}): CardSourceSnapshot =
 });
 
 describe('selectReaderEvidence retained snapshots', () => {
+  it('keeps version 2 BSD neighboring task material separate from this task and its source events', () => {
+    // Offline fixtures: planned neighboring work is context, not a completed handoff.
+    const related = [
+      { id: 'bsd-p-part', title: 'Compare the normalized p-part', objective: 'State the normalization before comparing p-valuations.', status: 'pending', deps: [taskId] },
+      { id: 'bsd-leading-term', title: 'Explain the leading term', objective: 'Separate algebraic rank, zero order, and leading coefficient.', status: 'blocked', deps: ['bsd-p-part'] },
+    ];
+    const retained = snapshot({ version: 2, related_tasks: related, related_tasks_truncated: true });
+    const selected = selectReaderEvidence({ cardKey, taskId, card: card({ source_snapshot: retained }),
+      task: task({ objective: 'Current goal after generation.', content_revision: 'goal-v2' }),
+      currentEvents: [event({ item_id: related[0].id, text: 'A newer neighboring task result.' })] });
+
+    expect(selected.mode).toBe('snapshot');
+    expect(selected.invalidSnapshot).toBe(false);
+    expect(selected.snapshot?.related_tasks).toBe(related);
+    expect(selected.snapshot?.related_tasks_truncated).toBe(true);
+    expect(selected.usedTask?.record).toBe(retained.task);
+    expect(selected.used.map(row => row.record)).toEqual(retained.events);
+    expect(selected.current).toEqual([]);
+    expect(selected.currentTask?.objective).toBe('Current goal after generation.');
+  });
+
   it('keeps exact retained task and event material when the same event ID and task have newer versions', () => {
     const retained = snapshot({ events_truncated: true });
     const newerSource = event({ revision: 'event-v2', text: 'Revised finding from a later attempt.', ts: 300, attempt: 2 });
