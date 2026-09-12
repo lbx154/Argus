@@ -15,6 +15,7 @@ import { translate, useI18n, type Locale } from '../i18n';
 import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { PdfPreview } from './PdfPreview';
 import { isMarkdownArtifact } from '../lib/artifactPresentation';
+import { downloadBlob } from '../lib/downloadBlob';
 import { theme } from '../lib/theme';
 import { plainProgress, plainRouteStatus, plainStage, plainStatus } from '../lib/plainStatus';
 import { WorkStatusBar } from './WorkStatusBar';
@@ -387,14 +388,7 @@ export function ResearchCanvas({
     setDownloadError('');
     try {
       const blob = await api.artifactBlob(sid, selected.path, true);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = selected.name;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      downloadBlob(blob, selected.name);
     } catch (downloadError) {
       setDownloadError((downloadError as Error).message);
     } finally {

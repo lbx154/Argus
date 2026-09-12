@@ -72,6 +72,26 @@ it('fills a referenced draft when asked and does not send a model request', () =
   expect(generate).not.toHaveBeenCalled();
 });
 
+it('opens the existing explanation from compact chrome while retaining source and follow-up actions', () => {
+  const props = inputs(), queryClient = cachedClient(), onAsk = vi.fn();
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US'), completedCopy(source.tasks[0], ['start-a']));
+  const generate = vi.spyOn(api, 'generateMapCopy');
+  act(() => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} compact onAsk={onAsk} /></QueryClientProvider>); });
+  expect(renderer!.root.findAllByProps({ 'data-testid': 'research-brief-body' })).toHaveLength(0);
+  const footer = renderer!.root.findByProps({ 'data-testid': 'research-brief-footer' });
+  expect(footer.findAllByType('button')).toHaveLength(3);
+  expect(footer.findAllByType('button').some(button => button.children.includes('View evidence'))).toBe(true);
+  const read = footer.findAllByType('button').find(button => button.children.includes('Read explanation'))!;
+  act(() => read.props.onClick());
+  const reading = renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' });
+  const headings = reading.findAllByType('h3').map(heading => heading.children.join(''));
+  expect(headings.indexOf('What this does and does not establish')).toBeLessThan(headings.findIndex(heading => heading.startsWith('One useful concept')));
+  expect(reading.findAllByType(MarkdownContent).map(item => item.props.children).join('\n')).toContain('the general problem remains open');
+  expect(reading.findAllByType('span').some(item => item.children.join('').includes('update pending'))).toBe(true);
+  expect(onAsk).not.toHaveBeenCalled();
+  expect(generate).not.toHaveBeenCalled();
+});
+
 it('keeps evidence and follow-up available when the concept explanation is unavailable', () => {
   const props = inputs(), queryClient = cachedClient();
   const copy = completedCopy(source.tasks[0], ['start-a', 'main-a']);

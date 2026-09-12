@@ -16,6 +16,7 @@ import remarkMath from 'remark-math-extended';
 import rehypeKatex from 'rehype-katex';
 import { PdfPreview } from '../../components/PdfPreview';
 import { isMarkdownArtifact } from '../../lib/artifactPresentation';
+import { downloadBlob } from '../../lib/downloadBlob';
 import { agentRoleColor } from '../../lib/agentRoles';
 import { plainDetail } from '../../lib/plainStatus';
 import { api } from '../api';
@@ -264,12 +265,7 @@ export function ArtifactViewer({
 
   const download = async () => {
     const blob = await api.artifactBlob(sid, artifact.path, true);
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = artifact.name;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, artifact.name);
   };
 
   return (

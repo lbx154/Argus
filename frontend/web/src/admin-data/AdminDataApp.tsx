@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, ArrowLeft, ArrowRight, Check, Database, Download, ExternalLink, FileJson, History, Menu, Moon, RefreshCw, Search, ShieldCheck, Sun, Users, X } from 'lucide-react';
+import { Activity, ArrowLeft, ArrowRight, Check, Database, Download, ExternalLink, FileJson, History, Menu, RefreshCw, Search, ShieldCheck, Users, X } from 'lucide-react';
 import { WorkspaceHeader, WorkspaceShell, WorkspaceSidePanel } from '../components/WorkspaceShell';
+import { AppearanceControls } from '../components/AppearanceControls';
 import { Wordmark } from '../components/Wordmark';
 import { Button, Chip, RawDisclosure, Spinner, StatusDot } from '../components/primitives';
 import { CopyButton } from '../components/CopyButton';
@@ -9,6 +10,7 @@ import { MarkdownContent } from '../components/MarkdownContent';
 import { Modal } from '../components/Modal';
 import { AGENT_ROLES, agentRoleColor, agentRoleDescription } from '../lib/agentRoles';
 import { useWorkbenchTheme } from '../useWorkbenchTheme';
+import { downloadBlob as saveDownload } from '../lib/downloadBlob';
 import { adminAPI, AdminAPIError } from './api';
 import { episodeRole, mergeObservationPages, normalizeRole, parseTaskLink, projectKey, projectName, taskName } from './model';
 import type { CollaborationProject, ObservedEpisode, Purpose, RoleSummary } from './types';
@@ -20,12 +22,7 @@ import './admin-data.css';
 const TENANTS = Array.from({ length: 11 }, (_, index) => `trial-${String(index + 1).padStart(2, '0')}`);
 const retry = (count: number, error: Error) => count < 1 && !(error instanceof AdminAPIError && [401, 403].includes(error.status));
 
-export function saveDownload(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url; link.download = name; link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-}
+export { downloadBlob as saveDownload } from '../lib/downloadBlob';
 
 function useDebounced(value: string) {
   const [debounced, setDebounced] = useState(value);
@@ -34,7 +31,7 @@ function useDebounced(value: string) {
 }
 
 export default function AdminDataApp() {
-  const { locale, text, t, setLocale } = useAdminText();
+  const { locale, text, t } = useAdminText();
   const { themeMode, cycleTheme } = useWorkbenchTheme();
   const queryClient = useQueryClient();
   const [entry] = useState(() => parseTaskLink(window.location.search));
@@ -200,7 +197,7 @@ export default function AdminDataApp() {
       <WorkspaceHeader>
         <button type="button" className="inline-flex admin-data-icon-button lg:hidden" onClick={() => setSidebarOpen(true)} aria-label={text('打开项目列表', 'Open projects')}><Menu size={18} /></button>
         <span className="admin-data-header-title">{text('数据工作台', 'Data workbench')}</span><Chip>{readonly ? text('只读管理员', 'Read-only administrator') : text('管理员', 'Administrator')}</Chip>
-        <div className="ml-auto flex items-center gap-1 sm:gap-2"><button type="button" className="inline-flex admin-data-icon-button" onClick={() => setLocale(locale === 'zh-CN' ? 'en' : 'zh-CN')} aria-label={t('language.switchTo', { language: locale === 'zh-CN' ? 'English' : '中文' })}>{locale === 'zh-CN' ? 'EN' : '中'}</button><button type="button" className="inline-flex admin-data-icon-button" onClick={cycleTheme} aria-label={text('切换深浅色', 'Toggle light and dark theme')}>{themeMode === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button><Button className="inline-flex items-center justify-center gap-2" onClick={refresh} disabled={overview.isFetching || !authenticated} title={text('刷新数据', 'Refresh data')}>{overview.isFetching ? <Spinner /> : <RefreshCw size={14} />}</Button><Button className="inline-flex items-center justify-center gap-2" variant="primary" disabled={readonly || !currentProject?.eligible || exporter.isPending} onClick={() => { setExportNotice(''); setModal('export'); }}><Download size={14} /><span className="hidden sm:inline">{text('导出', 'Export')}</span></Button></div>
+        <div className="ml-auto flex items-center gap-1 sm:gap-2"><AppearanceControls themeMode={themeMode} onCycleTheme={cycleTheme} /><Button className="inline-flex items-center justify-center gap-2" onClick={refresh} disabled={overview.isFetching || !authenticated} title={text('刷新数据', 'Refresh data')}>{overview.isFetching ? <Spinner /> : <RefreshCw size={14} />}</Button><Button className="inline-flex items-center justify-center gap-2" variant="primary" disabled={readonly || !currentProject?.eligible || exporter.isPending} onClick={() => { setExportNotice(''); setModal('export'); }}><Download size={14} /><span className="hidden sm:inline">{text('导出', 'Export')}</span></Button></div>
       </WorkspaceHeader>
       <div className="admin-data-content">
         {!authenticated ? <div className="admin-data-welcome"><Wordmark size={38} /><h1>{text('数据工作台', 'Data workbench')}</h1><p>{identity.error ? errorMessage(identity.error) : text('正在验证管理员身份…', 'Checking administrator access…')}</p>{identity.error ? <a className="brand-button brand-button-primary" href="/admin/login">{text('管理员登录', 'Administrator sign in')}</a> : <Spinner />}</div>

@@ -722,6 +722,17 @@ select optgroup {
   }
 }
 
+/* Keep a readable conversation above the input when the visible area shrinks.
+ * The existing keyboard and navigation insets still own the bottom reserve. */
+[data-compact-viewport='true'] .composer-dock {
+  padding-top: 6px;
+  padding-bottom: calc(var(--mobile-tabbar-height) + var(--keyboard-inset) + 0.5rem);
+}
+[data-compact-viewport='true'] .composer-dock .map-composer { padding-top: 6px; padding-bottom: 6px; }
+[data-compact-viewport='true'] .composer-dock .map-composer textarea { max-height: 56px; }
+[data-compact-viewport='true'] .composer-dock .composer-controls { padding-top: 0; }
+[data-compact-viewport='true'] .composer-dock .composer-runtime { padding-top: 2px; padding-bottom: 2px; }
+
 @media (prefers-reduced-motion: reduce) {
   .composer-dock,
   .mobile-tabbar {

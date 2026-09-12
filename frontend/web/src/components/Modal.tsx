@@ -66,7 +66,7 @@ export function Modal({
     const frame = window.requestAnimationFrame(() => {
       const target = dialogRef.current?.querySelector<HTMLElement>('[data-autofocus]')
         ?? dialogRef.current?.querySelector<HTMLElement>(
-          'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+          'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), summary, [href], [tabindex]:not([tabindex="-1"])',
         );
       (target ?? dialogRef.current)?.focus();
     });
@@ -78,8 +78,9 @@ export function Modal({
       }
       if (e.key !== 'Tab' || !dialogRef.current) return;
       const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-        'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-      )).filter((element) => element.getAttribute('aria-hidden') !== 'true');
+        'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), summary, [href], [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => element.getAttribute('aria-hidden') !== 'true'
+        && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden');
       if (focusable.length === 0) {
         e.preventDefault();
         dialogRef.current.focus();

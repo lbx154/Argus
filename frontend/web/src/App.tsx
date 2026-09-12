@@ -180,8 +180,8 @@ export default function App() {
     if (workspaceView === 'map') return;
     setStandardWorkspaceView(workspaceView);
   }, [workspaceView]);
-  // Publishes --keyboard-inset so the composer clears the software keyboard.
-  useVisualViewport();
+  // Share the visible-height decision with the reading card and composer.
+  const compactViewport = useVisualViewport();
   const [composerFocus, setComposerFocus] = useState(0);
   const [composerDraft, setComposerDraft] = useState('');
   const [composerAttachments, setComposerAttachments] = useState<File[]>([]);
@@ -994,7 +994,7 @@ export default function App() {
                 <GuardianBanner alert={guardianAlert} />
                 {missionView?.mission.id && activeSid ? <div className="flex min-h-0 shrink-0 flex-col">
                   <ResearchBrief key={activeSid} sid={activeSid} snapshot={snap} view={missionView}
-                    active={workspaceView === 'mission' || workspaceView === 'activity'} readOnly={kiosk}
+                    active={workspaceView === 'mission' || workspaceView === 'activity'} readOnly={kiosk} compact={compactViewport}
                     onAsk={draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); }} />
                 </div> : null}
                 {standardWorkspaceView === 'mission' && missionView ? (
