@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.background import BackgroundTask
 from starlette.staticfiles import StaticFiles
 
-from . import CLIENT_MODEL, MAX_OUTPUT_TOKENS, MODEL
+from . import CLIENT_MODEL, MAX_CONCURRENCY, MAX_OUTPUT_TOKENS, MODEL, TOKEN_LIMIT
 from .copilot import Copilot
 from .responses import chat_chunks, completion, request_payload
 from .secrets import Vault
@@ -40,6 +40,7 @@ class Settings:
     model: str = CLIENT_MODEL
     timeout: float = 300
     site_dir: Path | None = None
+    token_limit: int | None = TOKEN_LIMIT
 
 
 class TextPart(BaseModel):
@@ -128,6 +129,8 @@ async def read_json(request: Request, limit: int) -> dict:
 
 
 def prepare(data: dict, model: str) -> tuple[dict, int]:
+    if data.get("model") == model:
+        data = {**data, "model": "argus-trial"}
     try:
         parsed = Completion.model_validate(data)
     except ValidationError:
@@ -179,7 +182,7 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
         # worker from refunding/recovering requests that are still executing.
         with portalocker.Lock(str(settings.state_dir / "gateway.lock"), timeout=0):
             vault = Vault(settings.key_file, settings.state_dir / "github-token.enc")
-            store = Store(settings.state_dir / "usage.sqlite3")
+            store = Store(settings.state_dir / "usage.sqlite3", token_limit=settings.token_limit)
             store.recover()
             async with httpx.AsyncClient(
                 transport=transport, timeout=settings.timeout, follow_redirects=False,
@@ -187,6 +190,7 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
             ) as client:
                 app.state.store, app.state.vault = store, vault
                 app.state.copilot = Copilot(client, vault)
+                app.state.request_slots = asyncio.Semaphore(MAX_CONCURRENCY)
                 yield
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -226,11 +230,25 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
         key_id = trial_key(request)
         payload, reserve = prepare(await read_json(request, MAX_BODY_BYTES), settings.model)
         store, copilot = app.state.store, app.state.copilot
-        request_id = store.reserve(key_id, reserve)
+        try:
+            async with asyncio.timeout(settings.timeout):
+                await app.state.request_slots.acquire()
+        except TimeoutError:
+            raise TrialError(429, "trial_busy", "Model request queue timed out; try again later.") from None
+        slot_released = False
+
+        def release_slot():
+            nonlocal slot_released
+            if not slot_released:
+                app.state.request_slots.release()
+                slot_released = True
+
+        request_id = None
         actual: int | None = 0  # No generation has been submitted yet.
         response = None
         handed_off = False
         try:
+            request_id = store.reserve(key_id, reserve)
             async with asyncio.timeout(settings.timeout):
                 base_url, headers = await copilot.authorization()
                 actual = None  # Ambiguous network failures must not refund usage.
@@ -246,9 +264,9 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                 if payload["stream"]:
                     handed_off = True
                     return StreamingResponse(
-                        stream_response(response, request_id), media_type="text/event-stream",
+                        stream_response(response, request_id, release_slot), media_type="text/event-stream",
                         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
-                        background=BackgroundTask(finish_stream, response, request_id),
+                        background=BackgroundTask(finish_stream, response, request_id, release_slot),
                     )
                 body = await response.aread()
                 data = json.loads(body)
@@ -263,16 +281,19 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
             raise TrialError(502, "provider_protocol_error", "Invalid provider completion response.") from None
         finally:
             if not handed_off:
-                store.settle(request_id, actual)
+                release_slot()
+                if request_id is not None:
+                    store.settle(request_id, actual)
                 if response is not None:
                     await response.aclose()
 
-    async def finish_stream(response, request_id):
+    async def finish_stream(response, request_id, release_slot):
         # Also covers a disconnect before the async generator starts.
         app.state.store.settle(request_id, None)
+        release_slot()
         await response.aclose()
 
-    async def stream_response(response, request_id):
+    async def stream_response(response, request_id, release_slot):
         actual = None
         complete = False
         try:
@@ -296,6 +317,7 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
             # Disconnects and truncated streams retain reservations even if a
             # partial usage object was seen. Cancellation cannot skip settlement.
             app.state.store.settle(request_id, actual if complete else None)
+            release_slot()
             await response.aclose()
 
     if settings.site_dir is not None:

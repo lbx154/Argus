@@ -120,6 +120,8 @@ def _raw_backend_stop_kind(
         return "provider_cooldown"
     if looks_like_auth_failure([low]):
         return "permanent_error"
+    if has_http_status(low, {400}) and "unsupported trial request" in low:
+        return "permanent_error"
     if has_http_status(low, {502, 503, 504}) or any(
         pattern in low for pattern in _TRANSIENT_ERROR_PATTERNS
     ):

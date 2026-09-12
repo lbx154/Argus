@@ -57,6 +57,56 @@ def issued_auth(client, key_id=KEY_ID):
     return {"Authorization": "Bearer " + credential}
 
 
+def test_model_burst_waits_for_slots_without_failing_tasks(settings):
+    active = peak = 0
+
+    async def slow_upstream(request):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.05)
+        active -= 1
+        return httpx.Response(200, json=response_data())
+
+    app = create_app(settings, transport=httpx.MockTransport(slow_upstream))
+    with TestClient(app) as client:
+        auth = issued_auth(client)
+        with ThreadPoolExecutor(max_workers=14) as pool:
+            responses = list(pool.map(
+                lambda _: client.post("/v1/chat/completions", headers=auth, json=PAYLOAD),
+                range(14),
+            ))
+        assert all(response.status_code == 200 for response in responses)
+        assert peak == 10
+        assert app.state.store.status(KEY_ID)["active_requests"] == 0
+        assert app.state.store.status(KEY_ID)["tokens_used"] == 14 * 15
+        assert app.state.request_slots._value == 10
+
+
+def test_cancelled_queued_request_does_not_spend_or_leak_slot(settings):
+    async def scenario():
+        app = create_app(settings, transport=httpx.MockTransport(upstream))
+        async with app.router.lifespan_context(app):
+            credential = app.state.vault.credential(KEY_ID)
+            app.state.store.issue(KEY_ID, credential)
+            app.state.request_slots = asyncio.Semaphore(0)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test",
+                headers={"Authorization": "Bearer " + credential},
+            ) as client:
+                waiting = asyncio.create_task(client.post("/v1/chat/completions", json=PAYLOAD))
+                await asyncio.sleep(0.01)
+                waiting.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await waiting
+                assert app.state.store.status(KEY_ID)["tokens_used"] == 0
+                app.state.request_slots.release()
+                assert (await client.post("/v1/chat/completions", json=PAYLOAD)).status_code == 200
+                assert app.state.request_slots._value == 1
+
+    asyncio.run(scenario())
+
+
 def test_key_metering_restart_and_no_secret_exposure(settings):
     transport = httpx.MockTransport(upstream)
     with TestClient(create_app(settings, transport=transport)) as client:
@@ -173,14 +223,15 @@ def test_gateway_limits_ten_concurrent_requests(settings):
                 headers = {"Authorization": "Bearer " + credential}
                 tasks = [asyncio.create_task(client.post("/v1/chat/completions", headers=headers, json=PAYLOAD)) for _ in range(10)]
                 await asyncio.wait_for(all_started.wait(), 0.8)
-                busy = await client.post("/v1/chat/completions", headers=headers, json=PAYLOAD)
-                assert busy.status_code == 429
-                assert busy.headers["retry-after"] == "5"
+                queued = asyncio.create_task(client.post("/v1/chat/completions", headers=headers, json=PAYLOAD))
+                await asyncio.sleep(0.01)
+                assert not queued.done()
+                assert started == 10
                 release.set()
-                results = await asyncio.gather(*tasks)
+                results = await asyncio.gather(*tasks, queued)
                 assert all(result.status_code == 200 for result in results)
                 status = (await client.get("/trial/status", headers=headers)).json()
-                assert status["tokens_used"] == 150 and status["active_requests"] == 0
+                assert status["tokens_used"] == 165 and status["active_requests"] == 0
                 assert (await client.post("/v1/chat/completions", headers=headers, json=PAYLOAD)).status_code == 200
     asyncio.run(run())
 

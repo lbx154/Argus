@@ -122,6 +122,12 @@ impl SettingsStore {
         format!("http://{}:{}", settings.host, settings.port)
     }
 
+    pub fn is_artifact_download_url(settings: &DesktopSettings, url: &url::Url) -> bool {
+        let backend = url::Url::parse(&Self::api_base_url(settings))
+            .expect("desktop settings contain a valid backend URL");
+        url.scheme() == "blob" && url.origin() == backend.origin()
+    }
+
     pub fn cockpit_url(settings: &DesktopSettings) -> String {
         let token: String =
             url::form_urlencoded::byte_serialize(settings.token.as_bytes()).collect();
@@ -303,6 +309,26 @@ mod tests {
         };
         store.save().unwrap();
         (directory, store)
+    }
+
+    #[test]
+    fn artifact_downloads_accept_only_current_backend_blobs() {
+        for port in [55418, 80] {
+            let settings = DesktopSettings { port, ..Default::default() };
+            let accepted = url::Url::parse(&format!("blob:http://127.0.0.1:{port}/artifact")).unwrap();
+            assert!(SettingsStore::is_artifact_download_url(&settings, &accepted));
+            for denied in [
+                "blob:http://127.0.0.1:9999/artifact",
+                "blob:https://example.com/artifact",
+                "blob:null/artifact",
+                "http://127.0.0.1:55418/api/projects",
+                "file:///example.txt",
+            ] {
+                assert!(!SettingsStore::is_artifact_download_url(
+                    &settings, &url::Url::parse(denied).unwrap()
+                ));
+            }
+        }
     }
 
     #[test]

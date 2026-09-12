@@ -451,10 +451,16 @@ def spawn_detached_daemon_clean(
     env["PYTHONSAFEPATH"] = "1"
     started_at = time.time()
     timeout_s = _clean_launch_timeout_seconds()
+    payload = _config_payload(config)
+    from ..trial.training_runtime import daemon_launch_payload
+
+    training_launch = daemon_launch_payload(config)
+    if training_launch is not None:
+        payload["_training_launch"] = training_launch
     try:
         completed = subprocess.run(  # noqa: S603
             [sys.executable, "-m", "argus_skill.daemon.spawn_helper"],
-            input=json.dumps(_config_payload(config)),
+            input=json.dumps(payload),
             text=True,
             encoding="utf-8",
             errors="replace",

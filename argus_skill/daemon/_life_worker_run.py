@@ -134,8 +134,6 @@ class LifeWorkerRunMixin:
 
     def _rf_vault_preflight(self, rf_state: _RunForeverState) -> int | None:
         """Validate backend/auth before constructing providers or mutating state."""
-        from ..core.runtime_identity import source_root_preflight_error
-
         # An unreadable knob file is checked HERE, before anything resolves a
         # role. Every resolver reads that file, so without this the first
         # resolution to run — somewhere deep in role construction — raises
@@ -144,6 +142,7 @@ class LifeWorkerRunMixin:
         # anyway would silently revert every persisted switch at once (the
         # backend of every role, the model of every route, the budget cap).
         from ..core.knob_store import KnobStoreCorruptError, read_persisted_knobs
+        from ..core.runtime_identity import source_root_preflight_error
 
         try:
             read_persisted_knobs()

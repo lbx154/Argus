@@ -1,6 +1,7 @@
 """Server-metered Argus trial. Provider credentials never enter client config."""
 
 TOKEN_LIMIT = 1_000_000
+WEB_TOKEN_LIMIT = 10_000_000
 MAX_CONCURRENCY = 10
 GLOBAL_TPM = 10_000_000
 TPM_WINDOW_SECONDS = 60

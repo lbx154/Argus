@@ -14,7 +14,7 @@ from .project_state import project_life_dir, resolve_global_root
 
 _TEXT_ARTIFACT_SUFFIXES = {
     ".bib", ".cfg", ".css", ".js", ".mjs", ".ini", ".log", ".py", ".rst", ".sh", ".tex", ".toml",
-    ".ts", ".txt", ".yaml", ".yml",
+    ".svg", ".ts", ".txt", ".yaml", ".yml",
 }
 _MARKDOWN_ARTIFACT_SUFFIXES = {".md", ".markdown"}
 _JSON_ARTIFACT_SUFFIXES = {".ipynb", ".json", ".jsonl"}
@@ -178,6 +178,7 @@ def registered_delivery_artifacts(
     mission = view.get("mission") if isinstance(view.get("mission"), dict) else {}
     title = "Delivered results"
     targets: list[Any] = []
+    completion_summaries: list[object] = []
     if isinstance(delivery, dict):
         title = str(delivery.get("title") or title).strip() or title
         raw_targets = delivery.get("targets")
@@ -194,6 +195,7 @@ def registered_delivery_artifacts(
         raw_targets = transcript_delivery.get("targets")
         if isinstance(raw_targets, list):
             targets.extend(raw_targets)
+        completion_summaries.append(transcript_delivery.get("summary"))
 
     results: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -214,16 +216,18 @@ def registered_delivery_artifacts(
         })
 
     terminal = str(mission.get("status") or "").strip().lower()
+    if terminal in {"complete", "completed", "done", "success"}:
+        completion_summaries.append(mission.get("summary"))
     resolved_workspace = workspace or artifact_workspace(
         sid,
         global_root=global_root,
     )
-    if terminal in {"complete", "completed", "done", "success"} and resolved_workspace:
+    if completion_summaries and resolved_workspace:
         from ..life.delivery import referenced_delivery_paths
 
         for path in referenced_delivery_paths(
             resolved_workspace,
-            [mission.get("summary")],
+            completion_summaries,
             limit=12,
         ):
             if path in seen:
@@ -231,7 +235,7 @@ def registered_delivery_artifacts(
             seen.add(path)
             results.append({
                 "path": path,
-                "why": "File linked by the reviewer-accepted completion summary.",
+                "why": "File linked by the completed task's delivery summary.",
                 "source": "delivery",
                 "group_title": title,
             })

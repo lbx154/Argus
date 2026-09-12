@@ -48,7 +48,7 @@ def main():
                   assets / f"Argus-{version}-linux-x86_64.AppImage",
                   assets / f"Argus-{version}-linux-x86_64.deb"]
     assert all(path.is_file() for path in installers)
-    manifest["notes"] = "试用默认 GPT-5.5 high；不再因未知费用阻断，自动避让本机端口冲突。"
+    manifest["notes"] = "更清晰的日夜图标、自适应任务标题、试用 Key 更换入口，以及输入框下方的后端和模型显示。"
     (assets / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     hashes = []
     for path in sorted(assets.iterdir()):
@@ -57,16 +57,12 @@ def main():
     (assets / "SHA256SUMS").write_text("\n".join(hashes) + "\n")
     args.notes.write_text(f"""## Argus {version} · Windows, Mac & Linux
 
-- 新增 Linux x86_64 桌面应用：AppImage 和 Debian 安装包；原生验证运行于 Ubuntu 22.04。
-- 不再因历史费用未确认而阻止试用或新任务；仍保留费用记录、已知费用预算和试用 Key 额度。
-- 试用模式自动避让本机端口冲突，无需用户选择端口，也不会停止其他应用或已有 Argus 服务。
-- 修复桌面打包版后台执行进程绕过独立启动路径的问题，保留启动失败的具体诊断，恢复停止后的继续运行按钮，并在工作台显示执行失败原因；安装验证覆盖工作台 Run API。
-- 试用默认模型改为 **GPT-5.5，推理强度 high**；服务端使用 Responses 转发并统一执行该设置。
-- 修复 Windows / Mac 工作台布局：按中间区域实际可用宽度调整分栏，避免两侧栏展开时挤压标题和卡片。
-- 修复全局样式覆盖工作台的问题，恢复标题字号、按钮和内容间距。
-- Copilot 首次下载显示实际进度；连续 30 秒没有进展时提示检查网络或开启系统代理 / TUN。
-- 保留内部测试 Key 入口、自动安装 Copilot 和内置工作台，无需命令行或个人 Coding 账号。
-- 同一 Key 可跨设备使用，累计额度 100 万 token；上游账号凭据保留在服务器。
+- 日夜切换改用清晰的线条太阳 / 月亮图标，便于与设置齿轮区分。
+- 任务标题随中间面板的可用宽度展开，拖动侧栏后可显示完整标题；空间不足时才省略。
+- 在「设置 → 试用账号」和输入框下方增加「更换 Key」入口，复用验证与保存流程，保留项目和聊天记录。
+- 输入框下方显示当前后端、模型和推理强度；试用模式显示 **GPT-5.5 · high**，普通模式跟随当前活动角色的配置。
+- 保留内部测试 Key、自动准备 Copilot 和内置工作台，无需命令行或个人 Coding 账号。
+- 包含最新 main 的工作台和任务状态改进，以及暂停 / 完成边界修复。
 
 ### Downloads
 

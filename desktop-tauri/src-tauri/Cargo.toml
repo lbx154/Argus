@@ -1,6 +1,6 @@
 [package]
 name = "argus-desktop"
-version = "0.1.5"
+version = "0.1.6"
 description = "Argus desktop host"
 authors = ["lbx154"]
 edition = "2021"

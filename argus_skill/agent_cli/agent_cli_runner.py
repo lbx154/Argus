@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import os  # noqa: F401 -- re-exported so tests can patch `agent_cli_runner.os`
 import subprocess  # noqa: F401 -- re-exported so tests can patch `agent_cli_runner.subprocess`
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -48,6 +49,36 @@ EventCallback = Callable[[str, str], None]
 InactivityDecision = Literal["continue", "restart"]
 InactivityCallback = Callable[[InactivitySnapshot], InactivityDecision]
 ExternalInterruptProvider = Callable[[], str | None]
+
+
+class PrivateRunnerEnvironment(Mapping[str, str]):
+    """Explicit child-only environment, opaque to repr and dataclass logging.
+
+    dataclasses.replace preserves this immutable mapping by reference. Generic
+    dataclasses.asdict/deepcopy instead yields None, so a debugging/serialization
+    path cannot accidentally copy a per-call capability into public records.
+    Only the child-environment builder explicitly expands its mapping values.
+    """
+
+    __slots__ = ("_values",)
+
+    def __init__(self, values: Mapping[str, str]):
+        self._values = dict(values)
+
+    def __getitem__(self, key):
+        return self._values[key]
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
+
+    def __repr__(self):
+        return "PrivateRunnerEnvironment(<redacted>)"
+
+    def __deepcopy__(self, memo):
+        return None
 
 
 @dataclass
@@ -92,6 +123,10 @@ class RunnerOptions:
     trusted_extensions: list[str] | None = None
     trusted_tool_names: list[str] | None = None
     extension_env: dict[str, str] | None = None
+    # Internal transport fields must survive the real run_exec sandbox policy's
+    # dataclasses.replace. They are never populated from ordinary user options.
+    _training_extension: str | None = field(default=None, repr=False, compare=False)
+    _training_environment: PrivateRunnerEnvironment | None = field(default=None, repr=False, compare=False)
 
 
 class AgentCliRunner(

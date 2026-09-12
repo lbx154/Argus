@@ -354,6 +354,9 @@ class PromptDeliveryMixin:
                 if not key.startswith("ARGUS_PLUGIN_"):
                     raise ValueError("invalid plugin environment key")
                 env[key] = str(value)
+        if self.backend == BACKEND_PI and getattr(options, "_training_environment", None):
+            env = dict(os.environ) if env is None else env
+            env.update(options._training_environment)
         repaired = runner_child_environment(
             executable or getattr(self, "agent_bin", ""),
             env=env,

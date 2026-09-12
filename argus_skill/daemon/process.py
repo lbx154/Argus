@@ -382,6 +382,14 @@ def spawn_detached_process(
     # unlocking here would release the parent's lock before pid publication.
     release_spawn_lock(spawn_lock_fd, unlock=False)
 
+    from ..trial.training_runtime import (
+        complete_daemon_fork,
+        prepare_daemon_fork,
+        wait_daemon_claim,
+    )
+
+    training_handoff = prepare_daemon_fork(config)
+
     # First child — become session leader.
     try:
         os.setsid()
@@ -394,7 +402,10 @@ def spawn_detached_process(
     except OSError:
         pid2 = -1
     if pid2 > 0:
+        wait_daemon_claim(training_handoff)
         os._exit(0)
+
+    complete_daemon_fork(training_handoff, forked=pid2 == 0)
 
     # Grandchild: this is the daemon. Redirect std fds to the log file.
     os.chdir("/")

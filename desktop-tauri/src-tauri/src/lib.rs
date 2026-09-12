@@ -728,8 +728,16 @@ pub fn run() {
     .plugin(tauri_plugin_updater::Builder::new().build())
     .setup(|app| {
         let config = &app.config().app.windows[0];
+        // Wry cancels macOS downloads unless a handler accepts them.
         let mut window = tauri::WebviewWindowBuilder::from_config(app, config)?
-            .initialization_script(include_str!("shell-init.js"));
+            .initialization_script(include_str!("shell-init.js"))
+            .on_download(|webview, event| match event {
+                tauri::webview::DownloadEvent::Requested { url, .. } =>
+                    SettingsStore::is_artifact_download_url(
+                        &state(webview.app_handle()).settings.snapshot(), &url,
+                    ),
+                _ => true,
+            });
         if release::preview_mode()
             || std::env::var("ARGUS_DESKTOP_DISABLE_SINGLE_INSTANCE").as_deref() == Ok("1")
         {

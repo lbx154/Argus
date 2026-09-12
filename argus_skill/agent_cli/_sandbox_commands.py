@@ -722,6 +722,9 @@ class CommandBuilderMixin:
         if not options.disable_tools:
             for path in getattr(options, "trusted_extensions", None) or []:
                 command.extend(["--extension", path])
+        training_extension = getattr(options, "_training_extension", None)
+        if training_extension:
+            command.extend(["--extension", training_extension])
         if options.model:
             command.extend(["--model", _pi_model(options.model)])
         if options.reasoning_effort:
