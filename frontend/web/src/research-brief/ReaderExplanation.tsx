@@ -8,6 +8,7 @@ import { useI18n } from '../i18n';
 import { dateOf } from '../lib/format';
 import { DirectionExample, offersDirectionExample } from './DirectionExample';
 import { LearningPath } from './LearningPath';
+import { explanationProgressLabel } from './progress';
 
 export function ShortText({ value, expandLabel, clamp = true }: { value: string; expandLabel: string; clamp?: boolean }) {
   const [expanded, setExpanded] = useState(false);
@@ -32,9 +33,10 @@ export function ShortText({ value, expandLabel, clamp = true }: { value: string;
 }
 
 /** A retained explanation and its freshness describe the same card. */
-export function ReaderExplanationStatus({ generatedAt, pending = false, generating = false, hasExplanation = false, error, unavailable = false, retry }: {
+export function ReaderExplanationStatus({ generatedAt, pending = false, generating = false, phase, hasExplanation = false, error, unavailable = false, retry, retryDisabled = false }: {
   generatedAt?: number; pending?: boolean; generating?: boolean; hasExplanation?: boolean;
-  error?: unknown; unavailable?: boolean; retry?: () => Promise<unknown>;
+  phase?: import('../api').ExplanationPhase;
+  error?: unknown; unavailable?: boolean; retry?: () => Promise<unknown>; retryDisabled?: boolean;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -52,8 +54,8 @@ export function ReaderExplanationStatus({ generatedAt, pending = false, generati
       <span role="status" className="text-xs text-ink-faint">{error
         ? zh ? '说明生成未完成；不会自动重复请求。' : 'The explanation could not be prepared. This request will not be repeated automatically.'
         : zh ? '说明暂未更新；可以手动重试。' : 'The explanation has not been updated yet. You can retry manually.'}</span>
-      {retry ? <Button className="inline-flex items-center gap-1 text-xs" disabled={generating} onClick={() => void retry()}><RefreshCw size={12} />{zh ? '重试' : 'Retry'}</Button> : null}
-    </> : generating ? <span role="status" className="inline-flex items-center gap-1.5 text-xs text-ink-faint"><Spinner />{zh ? '正在整理说明' : 'Preparing an explanation'}</span> : null}
+      {retry ? <Button className="inline-flex items-center gap-1 text-xs" disabled={generating || retryDisabled} onClick={() => void retry()}><RefreshCw size={12} />{zh ? '重试' : 'Retry'}</Button> : null}
+    </> : generating ? <span role="status" data-explanation-phase={phase ?? 'pending'} className="inline-flex items-center gap-1.5 text-xs text-ink-faint"><Spinner />{explanationProgressLabel(phase, zh)}</span> : null}
   </div>;
 }
 

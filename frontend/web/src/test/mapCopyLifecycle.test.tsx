@@ -65,12 +65,21 @@ it('starts the selected preview after an in-flight normal request finishes witho
   act(() => { renderer = create(render()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
   expect(generate).toHaveBeenCalledTimes(1);
+  await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
+  expect(state.readingGenerating).toBe(true);
+  expect(state.generationPhase).toBe('planning');
   vi.stubGlobal('window', { location: { search: '?reader_preview=source-first' } });
   act(() => renderer!.update(render()));
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
   expect(generate).toHaveBeenCalledTimes(1);
+  expect(state.generating).toBe(true);
+  expect(state.readingGenerating).toBe(false);
+  expect(state.generationPhase).toBeUndefined();
+  await act(async () => { generate.mock.calls[0][6]?.('writing'); await vi.advanceTimersByTimeAsync(25); });
+  expect(state.generationPhase).toBeUndefined();
   const normal: MapCopy = { ...empty, cards: { task: {
     title: 'Normal result', summary: 'Recorded summary', detail: 'Recorded detail', generated_at: 1,
+    task_revision: '1', task_status: 'done',
   } } };
   await act(async () => { finish(normal); });
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
@@ -79,6 +88,20 @@ it('starts the selected preview after an in-flight normal request finishes witho
   expect(client.getQueryData<MapCopy>(key)?.cards.task.title).toBe('Normal result');
   expect(state.copy?.cards.task).toBeUndefined();
   expect(state.generating).toBe(true);
+  expect(state.readingGenerating).toBe(true);
+  await act(async () => { generate.mock.calls[1][6]?.('writing'); await vi.advanceTimersByTimeAsync(25); });
+  await act(async () => { generate.mock.calls[0][6]?.('reviewing'); await vi.advanceTimersByTimeAsync(25); });
+  expect(state.generationPhase).toBe('writing');
+  vi.stubGlobal('window', { location: { search: '' } });
+  act(() => renderer!.update(render()));
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  expect(state.readingGenerating).toBe(false);
+  expect(state.generationPhase).toBeUndefined();
+  expect(state.copy?.cards.task.title).toBe('Normal result');
+  vi.stubGlobal('window', { location: { search: '?reader_preview=source-first' } });
+  act(() => renderer!.update(render()));
+  expect(state.generationPhase).toBe('writing');
+  expect(generate).toHaveBeenCalledTimes(2);
 });
 
 it("naturally rechecks an open historical step after saving review settings while retaining its original text and evidence", async () => {
@@ -302,36 +325,135 @@ it('does not duplicate an in-flight semantic attempt when the canvas remounts', 
   const generate = vi.spyOn(api, 'generateMapCopy').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   act(() => { renderer = create(tree(false)); });
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.generationPhase).toBe('planning');
   act(() => renderer!.unmount());
   act(() => { renderer = create(tree(false)); });
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
   expect(generate).toHaveBeenCalledTimes(1);
   expect(latest.generating).toBe(true);
+  expect(latest.readingGenerating).toBe(true);
+  expect(latest.generationPhase).toBe('planning');
+  await act(async () => { generate.mock.calls[0][6]?.('writing'); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.generationPhase).toBe('writing');
   await act(async () => { finish({ ...empty, cards: { task: {
     title: 'Completed once', summary: 'Result', detail: 'Source', generated_at: 1, task_revision: '1', task_status: 'done',
   } } }); await vi.advanceTimersByTimeAsync(25); });
   expect(latest.copy?.cards.task.title).toBe('Completed once');
+  expect(latest.readingGenerating).toBe(false);
+  expect(latest.generationPhase).toBeUndefined();
+  await act(async () => { generate.mock.calls[0][6]?.('reviewing'); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.generationPhase).toBeUndefined();
+  expect(generate).toHaveBeenCalledTimes(1);
 });
 
 it('keeps a failed card visibly failed while another card in the same map is generating', async () => {
   const source: Dataset = { ...data, tasks: [...data.tasks, { ...data.tasks[0], id: 'other', title: 'Another task' }] };
   let focused = 'task';
   const render = () => <QueryClientProvider client={client}><Reader /></QueryClientProvider>;
-  function Reader() { latest = useMapCopy(source, focused, false, true, undefined, 'session'); return null; }
+  function Reader() {
+    latest = useMapCopy(source, focused, false, true, undefined, 'session');
+    const task = source.tasks.find(item => item.id === focused)!;
+    return <MapReaderContent cardKey={focused} taskId={focused} task={task} card={latest.copy?.cards[focused]}
+      originalDetail={task.objective || ''} selection={latest.readingRequest ? {
+        request: latest.readingRequest, evidence: source.events,
+        pending: latest.readingNeedsUpdate, generating: latest.readingGenerating, phase: latest.generationPhase,
+        error: latest.generationError, retry: latest.retry, retryDisabled: latest.generating,
+      } : undefined} />;
+  }
   const failure = new Error('First card failed');
-  const generate = vi.spyOn(api, 'generateMapCopy').mockRejectedValueOnce(failure).mockReturnValueOnce(new Promise(() => {}));
+  let failFirst!: (reason: Error) => void, finishOther!: (copy: MapCopy) => void;
+  const generate = vi.spyOn(api, 'generateMapCopy')
+    .mockReturnValueOnce(new Promise((_resolve, reject) => { failFirst = reject; }))
+    .mockReturnValueOnce(new Promise(resolve => { finishOther = resolve; }));
   act(() => { renderer = create(render()); });
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.generationPhase).toBe('planning');
+  await act(async () => { failFirst(failure); await vi.advanceTimersByTimeAsync(25); });
   expect(latest.generationError).toBe(failure);
+  expect(latest.readingGenerating).toBe(false);
+  expect(latest.generationPhase).toBeUndefined();
   focused = 'other';
   act(() => renderer!.update(render()));
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
   expect(generate).toHaveBeenCalledTimes(2);
+  await act(async () => { generate.mock.calls[1][6]?.('writing'); await vi.advanceTimersByTimeAsync(25); });
+  expect(renderer!.root.findByProps({ 'data-explanation-phase': 'writing' })).toBeTruthy();
   focused = 'task';
   act(() => renderer!.update(render()));
   expect(latest.generating).toBe(true);
+  expect(latest.readingGenerating).toBe(false);
+  expect(latest.generationPhase).toBeUndefined();
   expect(latest.generationError).toBe(failure);
+  expect(JSON.stringify(renderer!.toJSON())).toContain('The explanation could not be prepared. This request will not be repeated automatically.');
+  expect(renderer!.root.findAll(node => node.props['data-explanation-phase'] !== undefined)).toHaveLength(0);
+  const retry = () => renderer!.root.findAllByType('button').find(node => node.children.includes('Retry'))!;
+  expect(retry().props.disabled).toBe(true);
+  await act(async () => { await latest.retry(); generate.mock.calls[0][6]?.('reviewing'); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.generationError).toBe(failure);
+  expect(latest.generationPhase).toBeUndefined();
+  expect(generate).toHaveBeenCalledTimes(2);
+  await act(async () => { finishOther({ ...empty, cards: { other: {
+    title: 'Other task completed', summary: 'Result', detail: 'Sources', generated_at: 10, task_revision: '1', task_status: 'done',
+  } } }); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.generating).toBe(false);
+  expect(latest.generationError).toBe(failure);
+  expect(latest.generationPhase).toBeUndefined();
+  expect(retry().props.disabled).toBe(false);
   await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  expect(generate).toHaveBeenCalledTimes(2);
+});
+
+it('shares an in-flight phase on return to its source without leaking it into another source with the same card id', async () => {
+  const other: Dataset = { ...data, id: 'live:another-project', title: 'Another project' };
+  const otherKey = ['map-copy', 'project', 'another-project', 'en-US', 'session'];
+  client.setQueryData(otherKey, empty);
+  let selected = data;
+  const render = () => <QueryClientProvider client={client}><Probe key={selected.id} source={selected} /></QueryClientProvider>;
+  let finishFirst!: (copy: MapCopy) => void, finishOther!: (copy: MapCopy) => void;
+  const generate = vi.spyOn(api, 'generateMapCopy')
+    .mockReturnValueOnce(new Promise(resolve => { finishFirst = resolve; }))
+    .mockReturnValueOnce(new Promise(resolve => { finishOther = resolve; }));
+  const completed = (title: string): MapCopy => ({ ...empty, cards: { task: {
+    title, summary: title, detail: title, generated_at: 1, task_revision: '1', task_status: 'done',
+  } } });
+
+  act(() => { renderer = create(render()); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
+  selected = other;
+  act(() => renderer!.update(render()));
+  expect(latest.generationPhase).toBeUndefined();
+  expect(latest.readingGenerating).toBe(false);
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  await act(async () => { generate.mock.calls[1][6]?.('writing'); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.generationPhase).toBe('writing');
+  await act(async () => { generate.mock.calls[0][6]?.('reviewing'); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.generationPhase).toBe('writing');
+
+  selected = data;
+  act(() => renderer!.update(render()));
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(latest.readingGenerating).toBe(true);
+  expect(latest.generationPhase).toBe('reviewing');
+  expect(generate).toHaveBeenCalledTimes(2);
+  await act(async () => { finishFirst(completed('First source result')); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.generationPhase).toBeUndefined();
+  expect(latest.readingGenerating).toBe(false);
+  expect(latest.copy?.cards.task.title).toBe('First source result');
+
+  selected = other;
+  act(() => renderer!.update(render()));
+  expect(latest.generationPhase).toBe('writing');
+  await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.generationPhase).toBe('writing');
+  await act(async () => { finishOther(completed('Other source result')); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.generationPhase).toBeUndefined();
+  expect(latest.readingGenerating).toBe(false);
+  expect(client.getQueryData<MapCopy>(key)?.cards.task.title).toBe('First source result');
+  expect(client.getQueryData<MapCopy>(otherKey)?.cards.task.title).toBe('Other source result');
+  expect(generate.mock.calls.map(call => call[1])).toEqual(['research', 'another-project']);
   expect(generate).toHaveBeenCalledTimes(2);
 });
 

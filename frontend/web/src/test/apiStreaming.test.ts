@@ -1,7 +1,7 @@
 import { createServer, type IncomingHttpHeaders, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { api } from '../api';
+import { api, type ExplanationPhase } from '../api';
 import type { MapCopy } from '../map/presentation';
 import type { ReaderPreview } from '../map/copyMode';
 
@@ -157,6 +157,48 @@ it('reassembles UTF-8, JSON and CRLF frame boundaries split into individual byte
   vi.stubGlobal('fetch', fetch);
   await expect(api.generateMapCopy('dataset', 'example', requestBody)).resolves.toEqual(complete);
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('reports real explanation phases before the result without treating progress as completion', async () => {
+  let response!: ServerResponse;
+  const fetch = await serve(value => {
+    response = value;
+    value.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    value.write(frame({ type: 'heartbeat', quiet_s: 0 })
+      + frame({ type: 'progress', phase: 'waiting_for_source' })
+      + frame({ type: 'progress', phase: 'planning' })
+      + frame({ type: 'progress', phase: 'invented_percentage' }));
+  });
+  const phases: ExplanationPhase[] = [];
+  const pending = api.generateMapCopy('project', 'research', requestBody, undefined, 's research', null,
+    phase => { phases.push(phase); });
+  let settled = false;
+  void pending.then(() => { settled = true; });
+  await vi.waitFor(() => expect(phases).toEqual(['waiting_for_source', 'planning']));
+  expect(settled).toBe(false);
+  response.write(frame({ type: 'progress', phase: 'writing' }));
+  await vi.waitFor(() => expect(phases.at(-1)).toBe('writing'));
+  expect(settled).toBe(false);
+  response.end(frame({ type: 'done', result: complete }));
+  await expect(pending).resolves.toEqual(complete);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(requests).toHaveLength(1);
+});
+
+it.each(['done', 'error'])('ignores late phases after %s while still draining the explanation stream', async type => {
+  await serve(response => {
+    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    response.end(frame({ type: 'progress', phase: 'writing' })
+      + frame({ type, result: complete, error: 'Observed failure' })
+      + frame({ type: 'progress', phase: 'reviewing' }));
+  });
+  const phases: ExplanationPhase[] = [];
+  const pending = api.generateMapCopy('project', 'research', requestBody, undefined, undefined, null,
+    phase => { phases.push(phase); });
+  if (type === 'done') await expect(pending).resolves.toEqual(complete);
+  else await expect(pending).rejects.toThrow('Observed failure');
+  expect(phases).toEqual(['writing']);
+  expect(requests).toHaveLength(1);
 });
 
 it.each([

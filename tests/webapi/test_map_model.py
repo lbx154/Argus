@@ -150,11 +150,13 @@ def test_map_settings_use_existing_config_endpoint(tmp_path, monkeypatch):
 @pytest.mark.parametrize("runner", ["codex", "pi"])
 def test_map_runner_uses_shared_usage_ledger_and_read_only_turn(tmp_path, monkeypatch, runner):
     observed = []
+    phases = []
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "100")
     monkeypatch.setenv("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "100")
 
     def run(self, **kwargs):
+        assert phases == ["planning"]
         options = kwargs["options"]
         assert options.disable_tools and options.force_safe_mode
         assert options.sandbox_mode == "read-only"
@@ -171,8 +173,10 @@ def test_map_runner_uses_shared_usage_ledger_and_read_only_turn(tmp_path, monkey
     monkeypatch.setattr(AgentCliRunner, "run_exec", run)
     project = tmp_path / "projects/s-map"
     config = map_model.MapModel(runner, "gpt-5.4-mini", "low", sys.executable)
-    result = map_model.run_map_model("Summarize these records", {}, config, project_root=project, global_root=tmp_path)
+    result = map_model.run_map_model("Summarize these records", {}, config, project_root=project, global_root=tmp_path,
+                                     on_progress=phases.append, phase="planning")
     assert result == {"cards": {}, "relations": []} and len(observed) == 1
+    assert phases == ["planning"]
     rows = UsageLedger(project).records()
     assert len(rows) == 1
     row = rows[0].to_jsonable()
@@ -180,6 +184,19 @@ def test_map_runner_uses_shared_usage_ledger_and_read_only_turn(tmp_path, monkey
     assert row["model"] == "gpt-5.4-mini" and row["input_tokens"] == 100
     assert row["cost_usd"] is not None
     assert not list((tmp_path / "map-presentation").glob("generation-*"))
+
+
+def test_expired_map_deadline_does_not_report_a_model_phase(tmp_path, monkeypatch):
+    phases = []
+    monkeypatch.setattr(map_model, "run_exec", lambda *args, **kwargs: pytest.fail("Expired request ran a model"))
+    with pytest.raises(OSError, match="timed out"):
+        map_model.run_map_model(
+            "Expired request", {}, map_model.MapModel("pi", "gpt-5.5", "medium", sys.executable),
+            project_root=tmp_path, global_root=tmp_path, deadline=time.monotonic() - 1,
+            on_progress=phases.append, phase="writing",
+        )
+    assert phases == []
+    assert not (tmp_path / "map-presentation").exists()
 
 
 def test_shared_budget_denies_map_before_provider_call(tmp_path, monkeypatch):

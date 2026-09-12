@@ -56,6 +56,8 @@ def model():
 
 def run_stub(calls, *, fail_second=False, learning_path=False):
     def run(prompt, schema, config, **kwargs):
+        if kwargs.get("on_progress") is not None:
+            kwargs["on_progress"](kwargs["phase"])
         sources = json.loads(prompt.rsplit("Retained sources:\n", 1)[1])
         calls.append({"sources": sources, "schema": schema, "config": config, **kwargs})
         keys = list(sources["passages"])
@@ -79,10 +81,12 @@ def test_two_stages_share_exact_bounded_sources_deadline_and_actual_efforts(monk
     tasks = [{"id": "a", "title": "Source title"}, {"id": "b", "objective": "A related goal", "status": "running"}]
     before = copy.deepcopy((docs, tasks))
     calls = []
+    phases = []
     monkeypatch.setattr(map_lesson, "run_map_model", run_stub(calls, learning_path=learning_path))
     value = map_lesson.generate_source_first(docs, tasks, "en-US", config=model(), project_root=None,
-                                              global_root=None, learning_path=learning_path)
+                                              global_root=None, learning_path=learning_path, on_progress=phases.append)
     assert len(calls) == 2 and calls[0]["deadline"] == calls[1]["deadline"]
+    assert phases == ["planning", "writing"]
     assert [call["config"].effort for call in calls] == ["medium", "high"]
     assert calls[0]["sources"] == calls[1]["sources"]
     sent = calls[0]["sources"]["passages"]["a"]
@@ -109,6 +113,7 @@ def dataset():
 @pytest.mark.parametrize("learning_path", [False, True])
 def test_preview_caches_only_complete_lessons_separately_and_reuses_them(tmp_path, monkeypatch, fail_second, learning_path):
     calls = []
+    phases = []
     monkeypatch.setattr(map_narrative, "resolve_map_model", model)
     monkeypatch.setattr(map_narrative, "configured", lambda: True)
     monkeypatch.setattr(map_lesson, "run_map_model", run_stub(calls, fail_second=fail_second, learning_path=learning_path))
@@ -126,7 +131,7 @@ def test_preview_caches_only_complete_lessons_separately_and_reuses_them(tmp_pat
 
     def generate():
         return map_narrative.enrich(tmp_path, data, requests, "en-US", project_root=tmp_path,
-                                    preview="learning-path" if learning_path else True)
+                                    preview="learning-path" if learning_path else True, on_progress=phases.append)
 
     if fail_second:
         with pytest.raises(OSError, match="second-stage failure"):
@@ -134,6 +139,7 @@ def test_preview_caches_only_complete_lessons_separately_and_reuses_them(tmp_pat
         cache = map_narrative.read_cache(tmp_path, map_narrative.copy_source("live:s", "en-US",
                                           preview="learning-path" if learning_path else True))
         assert not cache.get("cards")
+        assert phases == ["waiting_for_source", "planning", "writing"]
     else:
         result = generate()
         version = map_learning if learning_path else map_lesson
@@ -141,6 +147,7 @@ def test_preview_caches_only_complete_lessons_separately_and_reuses_them(tmp_pat
         assert result["cards"]["a"]["teaching_process"]["version"] == version.PROCESS_VERSION
         assert "teaching_review" not in result["cards"]["a"]
         assert generate()["cached"] is True
+        assert phases == ["waiting_for_source", "planning", "writing", "waiting_for_source"]
     assert len(calls) == 2
     assert normal_path.read_bytes() == before
     if learning_path:

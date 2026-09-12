@@ -142,7 +142,7 @@ it.each([false, true])('shares selected error status between task and step reade
   const retry = vi.fn().mockResolvedValue(undefined);
   const failure = new Error('Explanation did not finish');
   const generation = {
-    copy: undefined, ready: true, generating: false, readingNeedsUpdate: true,
+    copy: undefined, ready: true, generating: false, readingGenerating: false, generationPhase: undefined, readingNeedsUpdate: true,
     readingRequest: { key: 'failed', task_id: 'failed', kind: 'task', event_ids: ['failure'] },
     generationError: failure, generationUnavailable: false, retry,
   };

@@ -9,8 +9,10 @@ import shlex
 import shutil
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 from jsonschema import Draft202012Validator, ValidationError
 
@@ -21,6 +23,9 @@ from ..core.models import RunnerOptions
 from ..core.role_config import resolve_role_config
 from ..core.run_gateway import run_exec
 from .map_view import digest
+
+MapCopyPhase = Literal["waiting_for_source", "planning", "writing", "reviewing"]
+MapProgress = Callable[[MapCopyPhase], None]
 
 
 @dataclass(frozen=True)
@@ -137,6 +142,8 @@ def run_map_model(
     project_root: Path,
     global_root: Path,
     deadline: float | None = None,
+    on_progress: MapProgress | None = None,
+    phase: MapCopyPhase = "writing",
 ) -> dict:
     deadline = deadline if deadline is not None else time.monotonic() + 180
     if time.monotonic() >= deadline:
@@ -151,6 +158,8 @@ def run_map_model(
     try:
         # A separate, read-only turn cannot resume or edit the research conversation.
         with tempfile.TemporaryDirectory(prefix="generation-", dir=scratch) as workdir:
+            if on_progress is not None:
+                on_progress(phase)
             result = run_exec(
                 backend,
                 prompt=prompt,

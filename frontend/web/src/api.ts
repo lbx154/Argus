@@ -530,6 +530,9 @@ export interface SSEFrame {
   [k: string]: unknown;
 }
 
+export type ExplanationPhase = 'waiting_for_source' | 'planning' | 'writing' | 'reviewing';
+const EXPLANATION_PHASES = new Set<unknown>(['waiting_for_source', 'planning', 'writing', 'reviewing']);
+
 /** The final ``done`` frame payload — same shape as blocking ``message()``. */
 export interface StreamDone {
   kind?: string;
@@ -634,9 +637,14 @@ export const api = {
     return getJson<import('./map/model').Dataset>(P(sid, '/map-history') + (params.size ? `?${params}` : ''), signal);
   },
   mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview) => getJson<import('./map/presentation').MapCopy>(mapCopyPath(source, name, { locale }, sessionId, preview), signal),
-  generateMapCopy: async (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string}, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview): Promise<import('./map/presentation').MapCopy> => {
+  generateMapCopy: async (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string}, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, onProgress?: (phase: ExplanationPhase) => void): Promise<import('./map/presentation').MapCopy> => {
     const response = await postResponse(mapCopyPath(source, name, { stream: 'true' }, sessionId, preview), body, signal);
-    const terminal = await readSSE(response, 'Explanation stream', undefined, signal);
+    let receivedTerminal = false;
+    const terminal = await readSSE(response, 'Explanation stream', frame => {
+      if (frame.type === 'done' || frame.type === 'error') receivedTerminal = true;
+      if (!receivedTerminal && frame.type === 'progress' && EXPLANATION_PHASES.has(frame.phase))
+        onProgress?.(frame.phase as ExplanationPhase);
+    }, signal);
     if (terminal.type === 'error') throw new Error(String(terminal.error ?? 'Explanation failed'));
     return terminal.result as import('./map/presentation').MapCopy;
   },

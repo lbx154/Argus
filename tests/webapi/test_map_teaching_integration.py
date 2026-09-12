@@ -220,11 +220,14 @@ def test_source_snapshot_binds_the_pre_generation_material_when_live_task_and_ev
 
 def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_backfill_it(tmp_path, monkeypatch):
     calls = []
+    phases = []
     monkeypatch.setattr(map_narrative, "configured", lambda: True)
     monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: MapModel("pi", "gpt-5.5", "medium", "argus-pi"))
     monkeypatch.setattr(map_narrative.time, "time", lambda: 1000.0)
 
     def run(_prompt, schema, _config, **_kwargs):
+        if _kwargs.get("on_progress") is not None:
+            _kwargs["on_progress"](_kwargs["phase"])
         calls.append(schema)
         if "cards" in schema["properties"]:
             return {"cards": {"a": copy.deepcopy(card())}, "relations": []}
@@ -240,17 +243,20 @@ def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_bac
                            "text": "The initial record", "revision": "event-before"}]}
     before = copy.deepcopy(dataset)
     request = [{"key": "a", "task_id": "a", "kind": "task", "event_ids": ["start-a"]}]
-    first = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
+    first = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path, on_progress=phases.append)
     saved = copy.deepcopy(first["cards"]["a"])
     snapshot = saved["source_snapshot"]
     assert len(calls) == 2 and snapshot["captured_at"] == 1000.0
+    assert phases == ["waiting_for_source", "writing", "reviewing"]
     assert snapshot["task"]["objective"] == "The initial goal" and snapshot["source_ids"] == ["start-a"]
     assert snapshot["related_tasks"] == dataset["tasks"][1:]
     assert saved["task_revision"] == "task-before" and saved["event_revisions"] == ["event-before"]
     cache_source = "live:snapshots:en-US"
     assert map_narrative.read_cache(tmp_path, cache_source)["cards"]["a"]["source_snapshot"] == snapshot
-    again = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
+    phases.clear()
+    again = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path, on_progress=phases.append)
     assert again["cached"] is True and again["cards"]["a"] == saved and len(calls) == 2
+    assert phases == ["waiting_for_source"]
 
     later = copy.deepcopy(dataset)
     later["tasks"][0].update(objective="A changed goal", revision="task-after")
@@ -258,9 +264,11 @@ def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_bac
     later["events"].append({"id": "completed-a", "item_id": "a", "type": "round.main.completed", "ts": 950,
                             "text": "New progress", "revision": "new-event"})
     later_request = [{**request[0], "event_ids": ["start-a", "completed-a"]}]
-    coalesced = map_narrative.enrich(tmp_path, later, later_request, "en-US", project_root=tmp_path)
+    phases.clear()
+    coalesced = map_narrative.enrich(tmp_path, later, later_request, "en-US", project_root=tmp_path, on_progress=phases.append)
     assert coalesced["retry_after"] == 25 and coalesced["cards"]["a"] == saved
     assert len(calls) == 2 and dataset == before
+    assert phases == ["waiting_for_source"]
 
     # An otherwise current pre-snapshot cache remains readable without a new call.
     legacy = map_narrative.read_cache(tmp_path, cache_source)
@@ -274,6 +282,7 @@ def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_bac
 
 def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(monkeypatch):
     observed = []
+    phases = []
     original = card()
     replacement = {**original["reader_brief"]["concept"],
                    "example": "Two independent directions give a lower bound of two; an exact count needs a spanning argument"}
@@ -283,6 +292,7 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
                "scope": "The reported result is a lower bound, not an exact count."}
 
     def run(prompt, schema, _config, **kwargs):
+        kwargs["on_progress"](kwargs["phase"])
         observed.append((prompt, kwargs["deadline"], _config))
         if "cards" in schema["properties"]:
             return {"cards": {"a": copy.deepcopy(original)}, "relations": []}
@@ -299,9 +309,10 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
     monkeypatch.setattr(map_narrative, "run_map_model", run)
     monkeypatch.setattr(map_narrative.time, "monotonic", lambda: 1000.0)
     config = MapModel("pi", "gpt-5.5", "medium", "argus-pi", review_effort="high")
-    kwargs = {"config": config, "project_root": None, "global_root": None}
+    kwargs = {"config": config, "project_root": None, "global_root": None, "on_progress": phases.append}
     result = map_narrative.generate([document()], [{"id": "a"}], "en-US", **kwargs)
     assert len(observed) == 2 and observed[0][1] == observed[1][1]
+    assert phases == ["writing", "reviewing"]
     assert observed[0][1] == 1170.0
     assert observed[0][2].effort == "medium" and observed[1][2].effort == "high"
     saved = result["cards"][0]
@@ -314,6 +325,7 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
     again = map_narrative.generate([document()], [{"id": "a"}], "en-US",
                                    cached_reviews=result["teaching_reviews"], **kwargs)
     assert len(observed) == 3  # A new draft, with no repeated concept review.
+    assert phases == ["writing", "reviewing", "writing"]
     assert again["cards"][0]["reader_brief"]["concept"] == replacement
     assert reading_fields(again["cards"][0]) == reading
     # Same source and draft, but a different checker must not reuse its receipt.
@@ -321,6 +333,7 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
     map_narrative.generate([document()], [{"id": "a"}], "en-US",
                            cached_reviews=result["teaching_reviews"], **kwargs)
     assert len(observed) == 5 and observed[-1][2].effort == "medium"
+    assert phases == ["writing", "reviewing", "writing", "writing", "reviewing"]
 
 
 def test_failed_teaching_check_keeps_task_facts_but_does_not_publish_the_unchecked_example(monkeypatch):

@@ -175,8 +175,12 @@ def test_copy_preview_post_reuses_enrichment_and_stream_without_changing_the_bod
         assert _copy_stream_frames(response) == [{"type": "heartbeat", "quiet_s": 0}, {"type": "done", "result": result}]
     else:
         assert response.json() == result
-    assert calls == [(tmp_path, [{**body["cards"][0], "event_ids": []}], "zh-CN",
-                      {"project_root": life, **({"preview": preview} if preview else {})})]
+    assert len(calls) == 1
+    expected_kwargs = {"project_root": life, **({"preview": preview} if preview else {})}
+    if stream:
+        assert callable(calls[0][-1].get("on_progress"))
+        expected_kwargs["on_progress"] = calls[0][-1]["on_progress"]
+    assert calls == [(tmp_path, [{**body["cards"][0], "event_ids": []}], "zh-CN", expected_kwargs)]
 
 
 def test_copy_stream_returns_the_complete_json_result_with_one_enrichment(tmp_path, monkeypatch):
@@ -188,9 +192,13 @@ def test_copy_stream_returns_the_complete_json_result_with_one_enrichment(tmp_pa
         "cache_revision": 3, "model_revision": "offline-fixture",
     }
     calls = []
+    phases = ["waiting_for_source", "planning", "writing", "reviewing"]
 
     def enrich(root, value, cards, locale, **kwargs):
         calls.append((root, value["id"], cards, locale, kwargs))
+        if on_progress := kwargs.get("on_progress"):
+            for phase in phases:
+                on_progress(phase)
         return result
 
     monkeypatch.setattr(copy, "enrich", enrich)
@@ -201,13 +209,64 @@ def test_copy_stream_returns_the_complete_json_result_with_one_enrichment(tmp_pa
     assert response.headers["content-type"].startswith("text/event-stream")
     assert response.headers["x-accel-buffering"] == "no"
     assert _copy_stream_frames(response) == [
-        {"type": "heartbeat", "quiet_s": 0}, {"type": "done", "result": result},
+        {"type": "heartbeat", "quiet_s": 0},
+        *[{"type": "progress", "phase": phase} for phase in phases],
+        {"type": "done", "result": result},
     ]
-    assert len(calls) == 1 and calls[0][-1] == {"project_root": life}
+    assert len(calls) == 1 and callable(calls[0][-1].get("on_progress"))
+    assert calls[0][-1] == {"project_root": life, "on_progress": calls[0][-1]["on_progress"]}
     ordinary = client.post(path, json=body)
     assert ordinary.status_code == 200 and ordinary.json() == result
     assert ordinary.headers["content-type"].startswith("application/json")
-    assert len(calls) == 2 and calls[0] == calls[1]
+    assert len(calls) == 2 and calls[0][:-1] == calls[1][:-1]
+    assert calls[1][-1] == {"project_root": life}
+
+
+def test_copy_stream_delivers_progress_while_generation_is_still_running(tmp_path, monkeypatch):
+    from argus_skill.webapi.routes.map_live import MapCopyIn
+
+    sid, _ = sample(tmp_path)
+    release = threading.Event()
+    completed = threading.Event()
+    result = {"cards": {}, "relations": [], "cached": False}
+
+    def enrich(*args, **kwargs):
+        kwargs["on_progress"]("planning")
+        assert release.wait(5), "The progress frame did not reach the reader"
+        completed.set()
+        return result
+
+    monkeypatch.setattr(copy, "enrich", enrich)
+    app = create_app(global_root=tmp_path)
+    endpoint = next(route.endpoint for route in app.routes
+                    if getattr(route, "path", "") == "/api/map-copy/{source}/{name}"
+                    and "POST" in route.methods)
+    received = []
+
+    async def read_before_completion():
+        response = await endpoint(
+            "project", sid,
+            MapCopyIn(cards=[{"key": "task-a", "task_id": "task-a", "kind": "task"}]),
+            stream=True,
+        )
+        async for chunk in response.body_iterator:
+            frame = json.loads(chunk.removeprefix("data: "))
+            received.append(frame)
+            if frame["type"] == "progress":
+                assert not completed.is_set()
+                release.set()
+
+    try:
+        asyncio.run(asyncio.wait_for(read_before_completion(), 2))
+    finally:
+        release.set()
+
+    assert completed.is_set()
+    assert received == [
+        {"type": "heartbeat", "quiet_s": 0},
+        {"type": "progress", "phase": "planning"},
+        {"type": "done", "result": result},
+    ]
 
 
 @pytest.mark.parametrize("failure, status, detail", [
@@ -223,7 +282,10 @@ def test_copy_stream_reports_terminal_errors_and_keeps_json_http_errors(
     calls = []
 
     def fail(*args, **kwargs):
-        calls.append(1)
+        calls.append(kwargs)
+        if on_progress := kwargs.get("on_progress"):
+            on_progress("waiting_for_source")
+            on_progress("planning")
         raise failure
 
     monkeypatch.setattr(copy, "enrich", fail)
@@ -233,11 +295,14 @@ def test_copy_stream_reports_terminal_errors_and_keeps_json_http_errors(
     assert response.status_code == 200
     assert _copy_stream_frames(response) == [
         {"type": "heartbeat", "quiet_s": 0},
+        {"type": "progress", "phase": "waiting_for_source"},
+        {"type": "progress", "phase": "planning"},
         {"type": "error", "error": detail, "status": status},
     ]
     ordinary = client.post(path, json=body)
     assert ordinary.status_code == status and ordinary.json() == {"detail": detail}
     assert len(calls) == 2
+    assert callable(calls[0].get("on_progress")) and "on_progress" not in calls[1]
 
 
 @pytest.mark.parametrize("preview", [False, True, "learning-path"])
@@ -313,14 +378,14 @@ def test_copy_stream_heartbeats_before_generation_and_keeps_cache_after_disconne
             if message["type"] == "http.response.body" and message.get("body"):
                 received.append(json.loads(message["body"].decode().removeprefix("data: ")))
                 assert not completed.is_set()
-                if len(received) == 2:
+                if sum(frame["type"] == "heartbeat" for frame in received) == 2:
                     disconnected.set()
 
         await asyncio.wait_for(response({"type": "http", "asgi": {"spec_version": "2.0"}}, receive, send), 2)
 
     try:
         asyncio.run(disconnect_while_generating())
-        assert [frame["type"] for frame in received] == ["heartbeat", "heartbeat"]
+        assert [frame["type"] for frame in received if frame["type"] != "progress"] == ["heartbeat", "heartbeat"]
         assert not completed.is_set()
     finally:
         release.set()

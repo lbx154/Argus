@@ -5,6 +5,7 @@ import { mapCopyKey, readerPreview } from './copyMode';
 import type { Dataset } from "./model";
 import { buildSubmap, type SubmapStep } from "./submap";
 import { briefEvidence, briefInputSignature, briefRequest } from '../research-brief/model';
+import { beginExplanationProgress, explanationRunStart, useExplanationProgress } from '../research-brief/progress';
 import {
   mergeMapCopy,
   needsCardCopy,
@@ -100,6 +101,7 @@ export function useMapCopy(
     refetchOnWindowFocus: false,
   });
   const task = data.tasks.find((t) => t.id === focused);
+  const progress = useExplanationProgress(key, readingKey, explanationRunStart(readingKey, task));
   const steps = useMemo(
     () => visibleSteps ?? (task ? buildSubmap(task, data.events, zh) : []),
     [task, data.events, zh, visibleSteps],
@@ -132,7 +134,15 @@ export function useMapCopy(
     queryFn: async () => {
       const requestedModelRevision = copy.data?.model_revision;
       // Finish and save against this request's source even after its reader unmounts.
-      const result = await api.generateMapCopy(source, name, { cards, locale }, undefined, sessionId, preview);
+      const observed = beginExplanationProgress(queryClient, key, cards.map(card => ({
+        key: card.key, startedAt: explanationRunStart(card.key, data.tasks.find(task => task.id === card.task_id)),
+      })));
+      let result: MapCopy;
+      try {
+        result = await api.generateMapCopy(source, name, { cards, locale }, undefined, sessionId, preview, observed.update);
+      } finally {
+        observed.finish();
+      }
       queryClient.setQueryData<MapCopy>(key, previous => mergeMapCopy(previous, result, requestedModelRevision));
       return { available: cards.every(card => !needsCardCopy(card, data, result, eventIndex)),
         retryAfter: typeof result.retry_after === 'number' && result.retry_after > 0 ? result.retry_after : null };
@@ -190,8 +200,9 @@ export function useMapCopy(
     await startGeneration().catch(() => undefined);
   };
   return { copy: copy.data, generating: busy, ready: copy.isFetched,
-    generationError: cards.length && !generation.isFetching ? generation.error : null,
-    generationUnavailable: !!cards.length && !generation.isFetching && !retryAfter && generation.data?.available === false,
+    readingGenerating: progress.active, generationPhase: progress.phase,
+    generationError: cards.length && !generation.isFetching && !progress.active ? generation.error : null,
+    generationUnavailable: !!cards.length && !generation.isFetching && !progress.active && !retryAfter && generation.data?.available === false,
     retry,
     readingRequest: foreground.find(card => card.key === readingKey),
     readingNeedsUpdate: generation.data?.available !== true && cards.some(card => card.key === readingKey) };

@@ -1,4 +1,4 @@
-import type { ArtifactInfo } from '../api';
+import type { ArtifactInfo, ExplanationPhase } from '../api';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { RawDisclosure } from '../components/primitives';
 import { useI18n } from '../i18n';
@@ -15,9 +15,11 @@ export interface MapReaderSelection {
   evidence: MapEvent[];
   pending: boolean;
   generating: boolean;
+  phase?: ExplanationPhase;
   error?: unknown;
   unavailable?: boolean;
   retry?: () => Promise<unknown>;
+  retryDisabled?: boolean;
 }
 
 /** Only this card's copy and event range enter the reader; no task-root fallback. */
@@ -37,7 +39,7 @@ export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, 
       ? zh ? '任务说明；来源按保存的材料核对。' : 'Task explanation with retained sources.'
       : zh ? '环节说明；来源按保存的材料核对。' : 'Step explanation with retained sources.'}</p>
     <ReaderExplanationStatus generatedAt={card?.generated_at} pending={selected?.pending} generating={selected?.generating} hasExplanation={!!card}
-      error={selected?.error} unavailable={selected?.unavailable} retry={selected?.retry} />
+      phase={selected?.phase} error={selected?.error} unavailable={selected?.unavailable} retry={selected?.retry} retryDisabled={selected?.retryDisabled} />
     <ReaderEvidenceSummary selection={sources} />
     {brief ? <ReaderExplanation brief={brief} identity={cardKey} detail={card?.detail} learningPath={card?.learning_path}
       readingUnavailable={card?.teaching_review?.reading_review?.status === 'unavailable'}

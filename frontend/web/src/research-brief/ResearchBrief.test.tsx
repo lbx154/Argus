@@ -190,16 +190,23 @@ it('keeps a desktop reader on its selected task through a background task switch
   await act(async () => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} /></QueryClientProvider>); });
   await act(async () => { await vi.advanceTimersByTimeAsync(25); });
   expect(generate).toHaveBeenCalledTimes(1);
+  await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
   act(() => renderer!.root.findAllByType('button').find(node => node.children.includes('Read explanation'))!.props.onClick());
   const reading = () => renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' });
   expect(reading().props['data-task-id']).toBe('a');
   expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Earlier explanation of task A.');
+  expect(reading().findByProps({ 'data-explanation-phase': 'planning' })).toBeTruthy();
 
   await act(async () => renderer!.update(<QueryClientProvider client={queryClient}><ResearchBrief {...next} /></QueryClientProvider>));
   await act(async () => { await vi.advanceTimersByTimeAsync(25); });
   expect(reading().props['data-task-id']).toBe('a');
   expect(reading().findByType(ReaderEvidence).props.selection.taskId).toBe('a');
   expect(renderer!.root.findByProps({ 'data-testid': 'research-brief-body' }).findByType(ReaderExplanation).props.brief.why).toBe('Current explanation of task B.');
+  await act(async () => { generate.mock.calls[0][6]?.('writing'); await vi.advanceTimersByTimeAsync(25); });
+  expect(reading().findByProps({ 'data-explanation-phase': 'writing' })).toBeTruthy();
+  expect(renderer!.root.findByProps({ 'data-testid': 'research-brief' })
+    .findAll(node => node.props['data-explanation-phase'] !== undefined)).toHaveLength(0);
+  expect(generate).toHaveBeenCalledTimes(1);
 
   const completed = completedCopy(source.tasks[0], ['start-a', 'main-a'], 30);
   completed.cards.a.reader_brief = { ...completed.cards.a.reader_brief!, why: 'The completed explanation of task A.' };
@@ -209,6 +216,7 @@ it('keeps a desktop reader on its selected task through a background task switch
   await act(async () => finish(completed));
   await act(async () => { await vi.advanceTimersByTimeAsync(25); });
   expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('The completed explanation of task A.');
+  expect(reading().findAll(node => node.props['data-explanation-phase'] !== undefined)).toHaveLength(0);
   const retained = reading().findByType(ReaderEvidence).props.selection;
   expect(retained.taskId).toBe('a');
   expect(retained.snapshot).toEqual(completed.cards.a.source_snapshot);
@@ -225,6 +233,128 @@ it('keeps a desktop reader on its selected task through a background task switch
   expect(renderer!.root.findAllByProps({ 'data-testid': 'research-brief-reading' })).toHaveLength(0);
   act(() => renderer!.update(<QueryClientProvider client={queryClient}><ResearchBrief {...next} active={false} /></QueryClientProvider>));
   expect(renderer!.root.findAllByProps({ 'data-testid': 'research-brief-reading' })).toHaveLength(0);
+});
+
+it('keeps observed phases with the opened reader’s preview while the same task uses another mode in the panel', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('window', { location: { search: '?reader_preview=source-first' } });
+  const props = inputs(), queryClient = cachedClient();
+  const oldMode = completedCopy(source.tasks[0], ['start-a']);
+  oldMode.cards.a.reader_brief = { ...oldMode.cards.a.reader_brief!, why: 'Previous source-first explanation.' };
+  const newMode = completedCopy(source.tasks[0], ['start-a', 'main-a']);
+  newMode.cards.a.reader_brief = { ...newMode.cards.a.reader_brief!, why: 'Separate learning-path explanation.' };
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US', 'source-first'), oldMode);
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US', 'learning-path'), newMode);
+  let finish!: (copy: MapCopy) => void;
+  const generate = vi.spyOn(api, 'generateMapCopy').mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  await act(async () => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} /></QueryClientProvider>); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(generate.mock.calls[0][5]).toBe('source-first');
+  await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
+  act(() => renderer!.root.findAllByType('button').find(node => node.children.includes('Read explanation'))!.props.onClick());
+
+  vi.stubGlobal('window', { location: { search: '?reader_preview=learning-path' } });
+  act(() => renderer!.update(<QueryClientProvider client={queryClient}><ResearchBrief {...props} /></QueryClientProvider>));
+  await act(async () => { generate.mock.calls[0][6]?.('writing'); await vi.advanceTimersByTimeAsync(25); });
+  const reading = () => renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' });
+  expect(reading().findByProps({ 'data-explanation-phase': 'writing' })).toBeTruthy();
+  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Previous source-first explanation.');
+  expect(renderer!.root.findByProps({ 'data-testid': 'research-brief-body' }).findByType(ReaderExplanation).props.brief.why).toBe('Separate learning-path explanation.');
+  expect(renderer!.root.findByProps({ 'data-testid': 'research-brief' })
+    .findAll(node => node.props['data-explanation-phase'] !== undefined)).toHaveLength(0);
+  expect(generate).toHaveBeenCalledTimes(1);
+
+  const complete = completedCopy(source.tasks[0], ['start-a', 'main-a'], 30);
+  complete.cards.a.reader_brief = { ...complete.cards.a.reader_brief!, why: 'Finished source-first explanation.' };
+  await act(async () => { finish(complete); await vi.advanceTimersByTimeAsync(25); });
+  await act(async () => { generate.mock.calls[0][6]?.('reviewing'); await vi.advanceTimersByTimeAsync(25); });
+  expect(reading().findAll(node => node.props['data-explanation-phase'] !== undefined)).toHaveLength(0);
+  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Finished source-first explanation.');
+  expect(queryClient.getQueryData<MapCopy>(briefCopyKey(props.sid, 'en-US', 'learning-path'))?.cards.a.reader_brief?.why).toBe('Separate learning-path explanation.');
+  expect(generate).toHaveBeenCalledTimes(1);
+});
+
+it('shows phases in compact chrome while keeping an opened task A reader independent of the current task B', async () => {
+  vi.useFakeTimers();
+  const props = inputs(), next = inputs('b'), queryClient = cachedClient();
+  const previous = completedCopy(source.tasks[0], ['start-a']);
+  const other = completedCopy(source.tasks[1], ['review-b']);
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US'), { ...previous, cards: { ...previous.cards, ...other.cards } });
+  queryClient.setQueryData(briefLiveKey(next.sid, briefSelection(next.snapshot, next.view)), currentBriefData(source, next.sid, 'b'));
+  let finish!: (copy: MapCopy) => void;
+  const generate = vi.spyOn(api, 'generateMapCopy').mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  await act(async () => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} compact /></QueryClientProvider>); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
+  expect(renderer!.root.findByProps({ 'data-testid': 'research-brief-footer' })
+    .findByProps({ 'data-explanation-phase': 'planning' })).toBeTruthy();
+  act(() => renderer!.root.findAllByType('button').find(node => node.children.includes('Read explanation'))!.props.onClick());
+  await act(async () => renderer!.update(<QueryClientProvider client={queryClient}><ResearchBrief {...next} compact /></QueryClientProvider>));
+  await act(async () => { generate.mock.calls[0][6]?.('writing'); await vi.advanceTimersByTimeAsync(25); });
+
+  const panel = renderer!.root.findByProps({ 'data-testid': 'research-brief' });
+  const reading = () => renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' });
+  expect(panel.props['data-task-id']).toBe('b');
+  expect(panel.findAll(node => node.props['data-explanation-phase'] !== undefined)).toHaveLength(0);
+  expect(reading().props['data-task-id']).toBe('a');
+  expect(reading().findByProps({ 'data-explanation-phase': 'writing' })).toBeTruthy();
+  expect(generate).toHaveBeenCalledTimes(1);
+
+  await act(async () => { finish(completedCopy(source.tasks[0], ['start-a', 'main-a'], 30)); await vi.advanceTimersByTimeAsync(25); });
+  expect(reading().findAll(node => node.props['data-explanation-phase'] !== undefined)).toHaveLength(0);
+  expect(renderer!.root.findAllByProps({ 'data-testid': 'research-brief-body' })).toHaveLength(0);
+  expect(generate).toHaveBeenCalledTimes(1);
+});
+
+it('keeps a pinned reader’s phase with its original attempt when the same task starts another attempt', async () => {
+  vi.useFakeTimers();
+  const props = inputs(), queryClient = cachedClient();
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US'), completedCopy(source.tasks[0], ['start-a']));
+  const nextTask = { ...source.tasks[0], started_ts: 100, attempt: 2, revision: 'a2' };
+  const nextSource: Dataset = { ...source, tasks: [nextTask, source.tasks[1]], events: [...source.events,
+    { id: 'start-a-2', item_id: 'a', type: 'life.mission.started', ts: 100, text: '', revision: 'start-a-2' },
+    { id: 'main-a-2', item_id: 'a', type: 'round.main.completed', ts: 102, text: 'A new attempt result', revision: 'main-a-2' },
+  ] };
+  const next = { ...props,
+    view: { ...props.view, mission: { ...props.view.mission, started_at: 100 } },
+    snapshot: { ...props.snapshot, backlog: [{ ...props.snapshot.backlog[0], started_ts: 100 }] },
+  };
+  queryClient.setQueryData(briefLiveKey(next.sid, briefSelection(next.snapshot, next.view)), currentBriefData(nextSource, next.sid, 'a'));
+  let finishOriginal!: (copy: MapCopy) => void, finishNext!: (copy: MapCopy) => void;
+  const generate = vi.spyOn(api, 'generateMapCopy')
+    .mockReturnValueOnce(new Promise(resolve => { finishOriginal = resolve; }))
+    .mockReturnValueOnce(new Promise(resolve => { finishNext = resolve; }));
+  await act(async () => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} /></QueryClientProvider>); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  await act(async () => { generate.mock.calls[0][6]?.('planning'); await vi.advanceTimersByTimeAsync(25); });
+  act(() => renderer!.root.findAllByType('button').find(node => node.children.includes('Read explanation'))!.props.onClick());
+  const reading = () => renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' });
+  const panel = () => renderer!.root.findByProps({ 'data-testid': 'research-brief' });
+
+  await act(async () => renderer!.update(<QueryClientProvider client={queryClient}><ResearchBrief {...next} /></QueryClientProvider>));
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  expect(generate).toHaveBeenCalledTimes(2);
+  expect(generate.mock.calls.map(call => call[2].cards[0].event_ids)).toEqual([
+    ['start-a', 'main-a'], ['start-a-2', 'main-a-2'],
+  ]);
+  await act(async () => { generate.mock.calls[1][6]?.('writing'); await vi.advanceTimersByTimeAsync(25); });
+  expect(panel().props['data-task-id']).toBe('a');
+  expect(reading().props['data-task-id']).toBe('a');
+  expect(panel().findByProps({ 'data-explanation-phase': 'writing' })).toBeTruthy();
+  expect(reading().findByProps({ 'data-explanation-phase': 'planning' })).toBeTruthy();
+  await act(async () => { generate.mock.calls[0][6]?.('reviewing'); await vi.advanceTimersByTimeAsync(25); });
+  expect(reading().findByProps({ 'data-explanation-phase': 'reviewing' })).toBeTruthy();
+  expect(panel().findByProps({ 'data-explanation-phase': 'writing' })).toBeTruthy();
+
+  await act(async () => { finishOriginal(completedCopy(source.tasks[0], ['start-a', 'main-a'], 20)); await vi.advanceTimersByTimeAsync(25); });
+  expect(reading().findAll(node => node.props['data-explanation-phase'] !== undefined)).toHaveLength(0);
+  expect(panel().findByProps({ 'data-explanation-phase': 'writing' })).toBeTruthy();
+  await act(async () => { finishNext(completedCopy(nextTask, ['start-a-2', 'main-a-2'], 30)); await vi.advanceTimersByTimeAsync(25); });
+  expect(panel().findAll(node => node.props['data-explanation-phase'] !== undefined)).toHaveLength(0);
+  expect(reading().findAll(node => node.props['data-explanation-phase'] !== undefined)).toHaveLength(0);
+  expect(generate).toHaveBeenCalledTimes(2);
 });
 
 it('keeps an opened reader in its captured cache mode while the current panel changes mode', async () => {

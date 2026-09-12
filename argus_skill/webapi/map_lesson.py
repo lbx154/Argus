@@ -10,7 +10,7 @@ import copy
 import json
 import time
 
-from .map_model import MapModel, run_map_model
+from .map_model import MapModel, MapProgress, run_map_model
 from .map_teaching_review import (
     CARD_TEXT_LIMITS,
     _object,
@@ -108,7 +108,8 @@ Retained sources:
 
 
 def generate_source_first(documents: list[dict], tasks: list[dict], locale: str, *,
-                          config: MapModel, project_root, global_root, learning_path: bool = False) -> dict:
+                          config: MapModel, project_root, global_root, learning_path: bool = False,
+                          on_progress: MapProgress | None = None) -> dict:
     from .map_narrative import SOURCE_SNAPSHOT_VERSION, _reader_brief
 
     deadline = time.monotonic() + 170
@@ -126,10 +127,12 @@ def generate_source_first(documents: list[dict], tasks: list[dict], locale: str,
         prepare, compose = outline_request, lesson_request
     first_prompt, first_schema = prepare(contexts, locale, [task["id"] for task in tasks])
     outline = run_map_model(first_prompt, first_schema, config, project_root=project_root,
-                            global_root=global_root, deadline=deadline)
+                            global_root=global_root, deadline=deadline,
+                            **({"on_progress": on_progress, "phase": "planning"} if on_progress is not None else {}))
     second_prompt, second_schema = compose(contexts, outline, locale)
     result = run_map_model(second_prompt, second_schema, config.for_review(), project_root=project_root,
-                           global_root=global_root, deadline=deadline)
+                           global_root=global_root, deadline=deadline,
+                           **({"on_progress": on_progress, "phase": "writing"} if on_progress is not None else {}))
     cards = []
     for document in documents:
         key = document["key"]
