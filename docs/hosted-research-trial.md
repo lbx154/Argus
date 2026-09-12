@@ -1,28 +1,37 @@
 # Hosted research trial and data review
 
-The hosted service provides ten invitation-scoped workspaces, separate model and
+The hosted service supports eleven invitation-scoped workspaces, separate model and
 compute accounting, an operator dashboard, and consent-aware research replay and
 dataset export. It runs on a Linux operator host; ordinary Argus desktop and Web
 installations do not enable this service automatically.
 
-## Administrator runtime
+## Eleventh workspace and data administrator
 
-The administrator workspace is a separate runtime, not one of the ten
-invitation containers. Start it explicitly with
+The original administrator workspace is enrolled as ordinary `trial-11`, alongside
+the ten invitation containers. Its original state and project paths are retained.
+Start this existing native workspace explicitly with
 `python -m argus_skill.trial.admin_runtime --portal-config /private/portal.json
 --state-dir /existing/admin/state --workdir /existing/admin/workspace
---pi-bin /installed/Argus-Pi/packages/coding-agent/dist/bundle/cli.js`.
-It retains the existing project state, pins all roles to Argus-Pi and `gpt-5.5`,
-and verifies the deployment's encrypted upstream credential before serving.
-The provider secret is supplied through the process environment, not written
-into model configuration. Administrator usage remains in its own Argus ledger;
-it does not consume another invitation's allowance. This replaces the legacy
-demo launcher's accidental dependence on the host Copilot CLI login.
+--pi-bin /installed/Argus-Pi/packages/coding-agent/dist/bundle/cli.js
+--tenant trial-11 --uds /private/tenants/trial-11/run/web.sock
+--model-socket /private/model-socket/gateway.sock`.
+Its own invitation authenticates model requests through the shared meter. Add
+`trial-11` to the portal, analytics and compute configurations; analytics uses
+the original `global_root` and explicit `runtime_mode: "host"`. Compute retains
+the ordinary mounted-volume layout and a separate 200-GPU-hour allowance.
+The default provisioning command still creates ten container workspaces; enrolling
+an existing native workspace does not move or recreate its project files.
+
+The data administrator signs in at `/admin/login` using `admin_login_token`.
+This creates an `/admin` cookie independent of the ordinary invitation cookie.
+Both logins can coexist in one browser, and signing out of either leaves the
+other session intact. The administrator key grants data-backend access; opening
+a project still requires an ordinary invitation, including for `trial-11`.
 
 ## Mission map
 
-The configured hosted frontend is shared by authenticated invitation and
-administrator workspaces. Their project APIs remain separately routed; sharing
+The configured hosted frontend is shared by all authenticated invitation
+workspaces, including `trial-11`. Their project APIs remain separately routed; sharing
 the interface does not merge projects, credentials, or conversation records.
 
 The map shows the latest page of each mission as a single card by default.
@@ -88,6 +97,19 @@ consent/checkpoint metadata, downloaded exports and independent backups have
 separate lifecycles. Logical deletion is not secure disk erasure.
 
 ## Dataset review
+
+The current data workbench at `/admin/data` collects Manager, Planner, Engineer
+and Reviewer observations before quality review. It retains actual application
+system/developer inputs, visible model output, provider requests, tool definitions,
+arguments and results. Zero-tool, failed and interrupted calls retain their
+observed records. Structured hidden reasoning and signatures are omitted.
+Collection status and quality acceptance are separate; incomplete or sensitive
+observations are not grounds to discard an entire current-policy episode.
+The workbench's observation export does not require per-sample digest approval.
+
+The following strict candidate-review and SFT export workflow remains available
+for legacy samples and separately reviewed datasets; it does not gate the
+current observation collector.
 
 The operator page at `/admin` supports selected-project previews, purpose filters,
 pagination, explicit per-event quality review, and export auditing. The tester data
@@ -232,6 +254,13 @@ python -m argus_skill.trial.web_admin release \
   --source /path/to/deployed/checkout
 ```
 
+For a deployment with native `trial-11`, update that service and the portal's
+`WorkingDirectory`/`PYTHONPATH` to the same immutable source as the container
+image, then switch the completed frontend build. Stop any older automatic
+rollout timer before replacing containers. Snapshot active project daemons,
+stop them cooperatively, and restore those same daemons through the new
+workspace API after readiness checks; keep project state and paused questions.
+
 `release` stamps the version from the source checkout's commit (refusing a dirty
 tree unless `--allow-dirty`), rolls every tenant container to `--image` first,
 then points the portal at that source's built frontend and restarts it, so the
@@ -268,7 +297,7 @@ capacity available for the trial.
 
 ## Capture capacity and public references
 
-Hosted Pi episodes retain at most 16 MiB of cumulative observations and 512
+Legacy strict Pi episodes retain at most 16 MiB of cumulative observations and 512
 observations. Repeated public contexts count toward that total. Each projected
 event and observer RPC remains limited to 4 MiB, with an 8 KiB transport envelope;
 individual public text stays at 256 KiB and tool results at 64 KiB. Retained hosted
@@ -281,7 +310,7 @@ separately when their combined package exceeds the limit. The offline validator
 retains its independent 64 MiB ZIP and expanded-content ceiling; that does not
 increase the exporter limit.
 
-Standard platform directory references are recognized as public path literals,
+In that legacy strict workflow, standard platform directory references are recognized as public path literals,
 with project and mission references bound to the observed runtime. Published
 Skill files are resolved from the built-in package inventory, and actual `read`
 results must match the shipped body or its exact requested line selection.

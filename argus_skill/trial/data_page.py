@@ -14,7 +14,7 @@ PAGE = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <div class="nav-caption">工作空间</div><a class="nav-link" href="/admin"><span class="icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span><span class="nav-text">运营概览</span></a>
 <a class="nav-link active" href="/admin/data" aria-current="page"><span class="icon"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/></svg></span><span class="nav-text">数据工作台</span></a>
 <button class="nav-link" id="nav-audit"><span class="icon"><svg viewBox="0 0 24 24"><path d="M8 3h8l4 4v14H4V3h4zm8 0v5h4M8 12h8m-8 4h6"/></svg></span><span class="nav-text">导出与审计</span></button>
-<div class="sidebar-bottom"><a class="nav-link" href="/invite"><span class="icon"><svg viewBox="0 0 24 24"><path d="M14 4h6v6m0-6L10 14m-3-8H4v14h14v-3"/></svg></span><span class="nav-text">进入用户端</span></a><div class="operator"><div class="avatar">AD</div><div>团队管理员<small id="session-label">私有工作空间</small></div></div></div></aside>
+<div class="sidebar-bottom"><a class="nav-link" href="/invite"><span class="icon"><svg viewBox="0 0 24 24"><path d="M14 4h6v6m0-6L10 14m-3-8H4v14h14v-3"/></svg></span><span class="nav-text">进入用户端</span></a><div class="operator"><div class="avatar">AD</div><div>团队管理员<small id="session-label">仅数据后台</small></div></div></div></aside>
 <div class="shell"><header class="topbar"><div class="breadcrumb"><span>工作空间</span><span>/</span><strong>数据工作台</strong></div><div class="top-actions"><span class="connection" id="connection"><span class="status-dot"></span><span id="connection-label">连接中</span></span><button class="quiet-button" id="open-diagnostics">采集诊断</button></div></header>
 <main class="main"><div class="page-heading"><div><h1>数据工作台</h1><p>看见四个角色的真实过程，先采集，再验收。</p></div><div class="actions"><button class="button-icon" id="reload"><span class="icon"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6.2 7a7 7 0 0 1 11.6-1L20 9M4 15l2.2 3A7 7 0 0 0 18 17"/></svg></span><span class="optional-label">刷新</span></button><button class="primary button-icon" id="open-export"><span class="icon"><svg viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M5 16v5h14v-5"/></svg></span>导出全部过程</button></div></div>
 <div id="metrics" class="metrics" aria-label="本页数据概览"></div><div class="library-heading"><h2>任务库</h2><span id="overview-scope" class="scope-label">按真实任务记录归集</span></div>
@@ -185,7 +185,7 @@ function renderObservation(target,episode){
       body.append(textNode('h4',result?(result.payload?.isError?'工具报告错误':'真实返回内容'):'尚未保留对应返回'),textNode('pre',result?json(result.payload?.content):'调用记录已保留，当前没有对应的返回记录。'));
       body.append(textNode('small','调用编号：'+payload.toolCallId));item.append(heading,body);section.append(item);continue;
     }
-    const labels={session_message:'历史会话消息',context:'模型输入',provider_request:'模型请求',agent_end:'模型输出',tool_result:'工具返回（未匹配到调用）',settled:'本段过程结束',quarantine:'过程状态记录'};
+    const labels={tool_execution_start:'工具执行开始',tool_execution_update:'工具执行进度',tool_execution_end:'工具执行结束',message_delta:'模型公开输出片段',message_end:'模型消息',session_message:'历史会话消息',context:'模型输入',provider_request:'模型请求',agent_end:'模型输出',tool_result:'工具返回（未匹配到调用）',settled:'本段过程结束',quarantine:'过程状态记录'};
     const title=labels[event.kind]||'过程事件 · '+event.kind;
     const body=Array.isArray(payload.messages)?messageText(payload.messages):json(payload);
     const item=detailsBlock(title,body,'message-summary'+(event.kind==='agent_end'?' result-message':''));
@@ -340,7 +340,7 @@ async function load(offset=0){
         offset:taskData.offset||0,selection_limit:taskData.selection_limit||20,total_projects:taskData.total_projects??taskData.projects.length,
         has_more_projects:taskData.has_more_projects===true,next_offset:taskData.next_offset};
     }else throw Error('协作概览格式不正确');
-    el('session-label').textContent=readonly?'只读会话':'私有工作空间';metrics();renderProjects();
+    el('session-label').textContent=readonly?'只读会话':'仅数据后台';metrics();renderProjects();
     el('page').textContent='第 '+number(Math.floor(preview.offset/preview.selection_limit)+1)+' 页';
     el('collector').textContent=json({research_journal:collector,collaboration_limitations:taskData.limitations||null,completeness:taskData.completeness||null});renderProjectDiagnostics({});renderAudit(audit);
     if(audit.error)el('error').textContent='审计读取失败：'+audit.error;
