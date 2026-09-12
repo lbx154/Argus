@@ -5,6 +5,20 @@ compute accounting, an operator dashboard, and consent-aware research replay and
 dataset export. It runs on a Linux operator host; ordinary Argus desktop and Web
 installations do not enable this service automatically.
 
+## Administrator runtime
+
+The administrator workspace is a separate runtime, not one of the ten
+invitation containers. Start it explicitly with
+`python -m argus_skill.trial.admin_runtime --portal-config /private/portal.json
+--state-dir /existing/admin/state --workdir /existing/admin/workspace
+--pi-bin /installed/Argus-Pi/packages/coding-agent/dist/bundle/cli.js`.
+It retains the existing project state, pins all roles to Argus-Pi and `gpt-5.5`,
+and verifies the deployment's encrypted upstream credential before serving.
+The provider secret is supplied through the process environment, not written
+into model configuration. Administrator usage remains in its own Argus ledger;
+it does not consume another invitation's allowance. This replaces the legacy
+demo launcher's accidental dependence on the host Copilot CLI login.
+
 ## Mission map
 
 The configured hosted frontend is shared by authenticated invitation and
