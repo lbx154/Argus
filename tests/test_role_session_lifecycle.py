@@ -247,7 +247,25 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
     first_loop = _loop(first, tmp_path, context, checkpoint, policy="mission")
     first_loop.config.max_rounds = 1
     first_loop.config.hard_escalate_rounds = 0
-    assert first_loop.run("same objective", workdir=tmp_path).status == "max_rounds"
+    interrupted = first_loop.run("same objective", workdir=tmp_path)
+
+    assert interrupted.status == "max_rounds"
+    assert not interrupted.successful
+    assert [label for label, _prompt, _options in first.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
+    capsules = context.parent / "role-sessions"
+    engineer_before_restart = json.loads(
+        (capsules / "engineer.json").read_text(encoding="utf-8")
+    )
+    reviewer_before_restart = json.loads(
+        (capsules / "reviewer.json").read_text(encoding="utf-8")
+    )
+    assert engineer_before_restart["thread_id"] == "e1"
+    assert engineer_before_restart["decisive_output"] == "partial"
+    assert reviewer_before_restart["thread_id"] == "v1"
+    assert "partial" not in reviewer_before_restart["decisive_output"]
 
     second = MemoryBackend()
     second.queue("engineer-r1", CannedResponse(message="finished", thread_id="e1"))
@@ -264,6 +282,11 @@ def test_capsules_restore_same_mission_after_process_restart(tmp_path: Path) -> 
     ] == [("engineer-r1", "e1"), ("reviewer", "v1")]
     prompt = next(prompt for label, prompt, _ in second.history if label == "engineer-r1")
     assert str(context.parent / "role-sessions" / "engineer.json") in prompt
+    assert str(context.parent / "role-sessions" / "reviewer.json") not in prompt
+    assert [label for label, _prompt, _options in second.history] == [
+        "engineer-r1",
+        "reviewer",
+    ]
 
 
 def test_rolling_capsule_rotates_when_branch_changes(tmp_path: Path) -> None:

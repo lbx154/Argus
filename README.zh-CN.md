@@ -59,6 +59,13 @@
 
 **原生 Backend：** `GitHub Copilot CLI` · `Pi` · `OpenAI Codex CLI` · `Claude Code` · `Cursor CLI` · `OpenCode` · `Grok Build` · `Qoder` · `DeepSeek Harness`
 
+**Argus-Pi（可选试用）：** 我们也基于 [Pi](https://github.com/earendil-works/pi)
+维护了 [Argus-Pi](https://github.com/Argus-AiTeam/Argus-Pi)，主要做了少量面向
+Argus 任务的优化，包括任务提示、PDF 阅读以及执行与重试状态处理。当前提供源码
+预览版，欢迎按[试用步骤](#argus-pi-preview)体验；它不是必需依赖，也不影响继续使用其他后端。
+Argus 作为 Driver 负责调度、角色分配和任务生命周期；Argus-Pi 作为 Harness
+专注于模型和工具执行。
+
 **Harbor 评测：** Harbor Framework 可以把完整的有界 Argus
 Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。配置和边界见
 **[Harbor 接入说明](docs/harbor.md)**。
@@ -107,6 +114,96 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 | Grok Build | `grok` | [官方安装说明](https://x.ai/cli) | `grok login` |
 | Qoder CLI | `qoder` | `npm install -g @qoder-ai/qodercli` | `qodercli login` |
 | DeepSeek Harness | `dsh` | `npm install -g @deepseek-ai/dsh` | 配置 `DEEPSEEK_API_KEY` 或 dsh Models 页面 |
+
+<a id="argus-pi-preview"></a>
+<details>
+<summary><strong>试用 Argus-Pi：安装、接入与回退</strong></summary>
+
+本流程假设已经安装 Argus，并准备好 Git、Node.js **22.19+** 和 npm。
+Argus-Pi 当前是**源码预览版**，尚无单独发布的 npm 包或桌面安装包；
+安装原版 Pi 的 npm 包不会安装 Argus-Pi。
+
+**1. 在新终端中单独构建。** 请逐条执行，上一条成功后再继续，不覆盖已有的全局 Pi。
+
+```bash
+git clone --branch main https://github.com/Argus-AiTeam/Argus-Pi.git
+cd Argus-Pi
+npm ci --ignore-scripts
+npm run hydrate:model-data
+npm run build:offline
+npm rebuild --workspace=@earendil-works/pi-coding-agent --ignore-scripts
+node packages/coding-agent/dist/bundle/cli.js --version
+node packages/coding-agent/dist/bundle/cli.js --list-models
+```
+
+默认复用 `~/.pi/agent` 中的 Pi 认证。尚未登录时，运行
+`node packages/coding-agent/dist/bundle/cli.js`，执行 `/login` 后退出。
+选择账户实际可用的模型，并带上 provider 前缀。列出模型不等于推理已成功，
+下面的 setup 会进行真实回合验收。不要把密钥贴进任务或 Issue。
+如果也想隔离 Pi 自身的配置，请在登录前及整个试用期间设置 `PI_CODING_AGENT_DIR`。
+
+**2. 配置当前试用终端。** 保持在刚才的源码目录根部，设置以下临时环境变量，将
+**`provider/model`** 替换为选好的模型。如果原来设置了每角色的 backend、model
+或 runner 环境覆盖，先在该终端清除，否则可能优先于通用配置。
+不要把这些试用设置写入 shell 启动文件或系统持久环境变量。
+
+macOS / Linux：
+
+```bash
+export ARGUS_SKILL_HOME="$HOME/.argus-pi-preview"
+export ARGUS_SKILL_RUNNER_BACKEND=pi
+export ARGUS_SKILL_RUNNER_BIN="$PWD/node_modules/.bin/argus-pi"
+export ARGUS_SKILL_MODEL="provider/model"
+"$ARGUS_SKILL_RUNNER_BIN" --version
+mkdir -p "$HOME/argus-pi-preview-workspace"
+cd "$HOME/argus-pi-preview-workspace"
+git init -q
+```
+
+Windows PowerShell：
+
+```powershell
+$env:ARGUS_SKILL_HOME = "$HOME\.argus-pi-preview"
+$env:ARGUS_SKILL_RUNNER_BACKEND = "pi"
+$env:ARGUS_SKILL_RUNNER_BIN = (Resolve-Path ".\node_modules\.bin\argus-pi.cmd" -ErrorAction Stop).Path
+$env:ARGUS_SKILL_MODEL = "provider/model"
+& $env:ARGUS_SKILL_RUNNER_BIN --version
+New-Item -ItemType Directory -Force "$HOME\argus-pi-preview-workspace" | Out-Null
+Set-Location "$HOME\argus-pi-preview-workspace"
+git init -q
+```
+
+请使用新的空目录，不要拿正式项目或 Argus-Pi 源码目录做试用工作区。
+Backend 名称仍是 **`pi`**，通过明确的可执行文件路径选择定制版。
+独立的 Argus 状态目录将试用配置、任务记录与正式环境分开，但这**不是文件系统沙箱**。
+
+**3. 验证后启动。** 在同一终端、同一试用工作目录中逐条执行，任何一步报错就停止：
+
+```bash
+argus --setup --backend pi --non-interactive
+argus --backend pi doctor --deep --advisor none
+argus --config-help
+argus
+```
+
+确认 `ARGUS_SKILL_RUNNER_BIN` 指向刚构建的 Argus-Pi，再尝试一个仅在试用目录内
+执行的小型、可逆任务。setup、深度诊断和任务都可能消耗所选模型服务的额度或产生费用；
+“试用”指软件预览，并不代表免费推理。
+
+**4. 停止并回退。** 退出界面后，保持试用终端的环境变量和工作目录，执行：
+
+```bash
+argus --daemon-stop --drain
+argus --status
+```
+
+确认试用 daemon 已停止，再关闭这个终端，在新终端里按原来的方式启动 Argus。
+如果已经关闭试用终端，先重新设置试用的 `ARGUS_SKILL_HOME` 并进入试用工作目录，
+再执行停止命令；仅关闭终端不一定会停止后台任务。
+不需要卸载原版 Pi，也不必删除试用记录。
+`PI_HARNESS_PROFILE=stock` 只是切换定制版内部的兼容行为，**不等于换回原版可执行文件**。
+
+</details>
 
 **先选安装渠道。**下面命令直接从 GitHub 安装官方源码仓库的 `main`，不依赖 PyPI。
 如果明确要体验开发预览版，请把对应平台安装和更新命令中的 `microsoft/ArgusAgent`

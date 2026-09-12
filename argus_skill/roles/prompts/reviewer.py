@@ -247,6 +247,7 @@ def render_reviewer_prompt(
     working_dir: str | Path | None = None,
     vertical_state_root: str | Path | None = None,
     vertical: str = "",
+    workflow_mode: str | None = None,
 ) -> tuple[str, str]:
     """Render the complete Reviewer prompt as ``(static_preamble, round_delta)``."""
     from ...core.project import resolve_project_root
@@ -373,7 +374,9 @@ def render_reviewer_prompt(
         scope=scope_normalized, operation=operation,
     )
     research_context_block = prompt_context.role_context
-    direct_workflow = resolve_workflow_mode(_proot) == "direct"
+    direct_workflow = (
+        workflow_mode if workflow_mode is not None else resolve_workflow_mode(_proot)
+    ) == "direct"
     _measured = not _requires_engineering_audit and os.environ.get(
         "ARGUS_SKILL_MEASURED_MODE", ""
     ).strip().lower() in ("1", "true", "yes", "on")

@@ -218,6 +218,35 @@ def extract_token_usage(
             and str(message.get("role") or "").strip().casefold() == "assistant"
             and message_usage
         ):
+            raw_pi_cost = message_usage.get("cost")
+            pi_cost = (
+                _coerce_nonnegative_float(raw_pi_cost.get("total"))
+                if isinstance(raw_pi_cost, dict)
+                else None
+            )
+            stop_reason = str(
+                message.get("stopReason") or ""
+            ).strip().casefold()
+            failed_message = (
+                stop_reason in {"error", "aborted"}
+                or bool(str(message.get("errorMessage") or "").strip())
+            )
+            empty_error = (
+                failed_message
+                and not any(
+                    _coerce_int(message_usage.get(name))
+                    for name in (
+                        "input",
+                        "output",
+                        "cacheRead",
+                        "cacheWrite",
+                        "reasoning",
+                    )
+                )
+                and not (pi_cost or 0.0)
+            )
+            if empty_error:
+                continue
             fresh_present = "input" in message_usage
             cache_read_present = "cacheRead" in message_usage
             cache_write_present = "cacheWrite" in message_usage
@@ -240,12 +269,6 @@ def extract_token_usage(
             if "reasoning" in message_usage:
                 pi_present[4] = True
                 pi_values[4] += _coerce_int(message_usage.get("reasoning"))
-            raw_pi_cost = message_usage.get("cost")
-            pi_cost = (
-                _coerce_nonnegative_float(raw_pi_cost.get("total"))
-                if isinstance(raw_pi_cost, dict)
-                else None
-            )
             if pi_cost is not None:
                 pi_cost_present = True
                 pi_cost_usd += pi_cost

@@ -218,6 +218,21 @@ def build_mission_prompt(
         require_post_task_learning=require_post_task_learning,
         project_skill_dir=project_skill_dir,
     )
+    delta_sections: list[str] = []
+    if next_action:
+        delta_sections.append(
+            "## Reviewer guidance from prior round\n"
+            "Build on the verified progress and address the following before declaring done. "
+            "Final paper review can request high-impact improvements even after the minimum "
+            "acceptance bar is met. Implement those changes and validate them, then return "
+            "for independent review. Scientific repairs and new experiments for a final "
+            "paper happen directly in the current Review stage, without rolling back "
+            "or waiting for an earlier-stage mission. For each actionable suggestion, record the actual change "
+            "and decisive evidence in the existing CHECKPOINT.md. If a suggested hypothesis "
+            "fails, retain the result and explain the evidence-backed alternative; the "
+            "Reviewer decides whether that resolves the item.\n\n"
+            + sanitize_model_visible_text(next_action)
+        )
     # Section order in both shapes below: what is the same for every mission
     # of this role and vertical first (contract, banner, the rules and the
     # decision footer), then what is the same across the rounds of one
@@ -261,6 +276,7 @@ def build_mission_prompt(
         if skill_text:
             sections.append(skill_text)
         sections.append(task)
+        sections.extend(delta_sections)
         from ...core.operator_context import append_operator_context
 
         return append_operator_context("\n\n".join(sections), operator_context)
@@ -268,25 +284,10 @@ def build_mission_prompt(
     sections: list[str] = [EFFECTIVE_TASK_CONTRACT]
     if shell_summary:
         sections.append(shell_summary)
-    delta_sections: list[str] = []
     if role_banner.strip():
         sections.append(
             "## Active vertical role\n"
             + sanitize_model_visible_text(role_banner.strip())
-        )
-    if next_action:
-        delta_sections.append(
-            "## Reviewer guidance from prior round\n"
-            "Build on the verified progress and address the following before declaring done. "
-            "Final paper review can request high-impact improvements even after the minimum "
-            "acceptance bar is met. Implement those changes and validate them, then return "
-            "for independent review. Scientific repairs and new experiments for a final "
-            "paper happen directly in the current Review stage, without rolling back "
-            "or waiting for an earlier-stage mission. For each actionable suggestion, record the actual change "
-            "and decisive evidence in the existing CHECKPOINT.md. If a suggested hypothesis "
-            "fails, retain the result and explain the evidence-backed alternative; the "
-            "Reviewer decides whether that resolves the item.\n\n"
-            + sanitize_model_visible_text(next_action)
         )
     sections.append(
         "## This turn\n"
