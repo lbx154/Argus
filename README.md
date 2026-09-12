@@ -450,6 +450,8 @@ A measured counterpart is **[system audit: six complaints, checked against the c
 
 The follow-up **[architecture simplification plan](docs/architecture-simplification-plan.md)** separates a short direct-engineering lane from the full research team, proposes one Host-generated shared mission view, and outlines a compatibility-first Vertical package split.
 
+Maintainers can use the **[runtime maintenance map](docs/runtime-maintainability.md)** for code entry points, state ownership, recovery boundaries, and the current refactoring tasks.
+
 What follows from that audit is **[the simplification plan](docs/simplification-plan.md)**: an ordered set of deletions, a mechanical rule for sorting 2,277 exception handlers, an explicit list of what must not be removed, and the trap to avoid — replacing deleted machinery with a unified system that becomes the same mistake.
 
 ### Build your own Vertical
