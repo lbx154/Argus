@@ -130,6 +130,7 @@ def test_cockpit_theme_can_update_native_chrome_without_overlay_controls() -> No
     host = (TAURI_ROOT / "src-tauri" / "src" / "lib.rs").read_text(encoding="utf-8")
     shell = (TAURI_ROOT / "src" / "main.ts").read_text(encoding="utf-8")
     cockpit = (ROOT / "frontend" / "web" / "src" / "useWorkbenchLayout.ts").read_text(encoding="utf-8")
+    theme = (ROOT / "frontend" / "web" / "src" / "useWorkbenchTheme.ts").read_text(encoding="utf-8")
 
     assert "apply_window_appearance" in host
     assert "set_window_theme" in host
@@ -142,7 +143,8 @@ def test_cockpit_theme_can_update_native_chrome_without_overlay_controls() -> No
     assert "DwmSetWindowAttribute" in host
     assert "DWMWA_CAPTION_COLOR" in host
     assert "DWMWA_TEXT_COLOR" in host
-    assert "argus:theme-changed" in cockpit
+    assert "useWorkbenchTheme()" in cockpit
+    assert "argus:theme-changed" in theme
 
 
 def test_delivery_notification_restores_the_authenticated_cockpit() -> None:

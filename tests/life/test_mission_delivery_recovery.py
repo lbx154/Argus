@@ -160,16 +160,22 @@ def _supervisor(tmp_path, monkeypatch):
 
 def test_sink_failure_keeps_completion_pending_and_holds_new_work(tmp_path, monkeypatch):
     supervisor, runner, item, observed = _supervisor(tmp_path, monkeypatch)
-    append = supervisor.sink._append
+    append = JsonlEventSink._append
     failing = True
+    rejected = []
 
-    def append_or_fail(event):
-        return False if failing and event.get("mission_delivery_id") else append(event)
+    def append_or_fail(sink, event):
+        if failing and event.get("mission_delivery_id"):
+            rejected.append(event["mission_delivery_id"])
+            return False
+        return append(sink, event)
 
-    monkeypatch.setattr(supervisor.sink, "_append", append_or_fail)
+    # Inject at the durable writer, beneath the supervision sink decorator.
+    monkeypatch.setattr(JsonlEventSink, "_append", append_or_fail)
     result = supervisor.tick()
     assert result["success"] is True
     assert runner.calls == 1
+    assert len(rejected) == 1
     stored = supervisor.memory.backlog.history()[0]
     assert stored.status == "done" and stored.mission_result == result
     assert len(supervisor.memory.backlog.pending_mission_deliveries()) == 1

@@ -956,6 +956,7 @@ def test_run_exec_writes_full_agent_io_log(
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
     backend = AgentCliBackend(backend="copilot")
+    provider_prompts: list[str] = []
 
     def fake_run_exec(
         self: Any,
@@ -965,6 +966,7 @@ def test_run_exec_writes_full_agent_io_log(
         options: Any,
         run_label: str,
     ) -> AgentRunResult:
+        provider_prompts.append(prompt)
         assert self.event_callback is not None
         thread = threading.Thread(
             target=self.event_callback,
@@ -1007,7 +1009,11 @@ def test_run_exec_writes_full_agent_io_log(
     ]
     assert [row["io_kind"] for row in rows[:-1]] == ["start", "complete"]
     assert [row["io_kind"] for row in raw_rows] == ["start", "stream", "stream"]
-    assert raw_rows[0]["prompt"] == "full prompt text"
+    # Call-bound tool instructions are part of the actual provider input. The
+    # trace must retain that complete input, including the original request.
+    assert len(provider_prompts) == 1
+    assert raw_rows[0]["prompt"] == provider_prompts[0]
+    assert raw_rows[0]["prompt"].startswith("full prompt text")
     assert rows[0]["run_label"] == "manager"
     assert [row["stream"] for row in raw_rows[1:]] == [
         "stdout",
@@ -1109,8 +1115,10 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_MODE", "full")
     backend = AgentCliBackend(backend="copilot")
     prompt = "large prompt body that must be stored exactly once"
+    provider_prompts: list[str] = []
 
     def fake_run_exec(self: Any, **kwargs: Any) -> AgentRunResult:
+        provider_prompts.append(kwargs["prompt"])
         assert self.event_callback is not None
         self.event_callback(
             "stdout",
@@ -1155,7 +1163,9 @@ def test_full_io_persists_prompt_once_not_as_user_message_echo(
     assert "prompt" not in start
     assert "prompt_sha256" not in start
     assert "prompt_sha256" not in raw_start
-    assert raw_start["prompt"] == prompt
+    assert len(provider_prompts) == 1
+    assert raw_start["prompt"] == provider_prompts[0]
+    assert raw_start["prompt"].startswith(prompt)
     assert len(streams) == 1
     assert "assistant.message_delta" in streams[0]["line"]
 

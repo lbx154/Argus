@@ -657,16 +657,12 @@ def test_research_target_persists_and_non_target_vertical_clears_it(tmp_path) ->
     assert "research_target_set_at" not in state
 
 
-def test_reviewer_keeps_its_stage_checklist_when_the_daemon_names_the_vertical(
+@pytest.mark.parametrize("workflow_mode", ["staged", "direct"])
+def test_reviewer_keeps_workflow_policy_when_the_daemon_names_the_vertical(
     tmp_path: Path,
+    workflow_mode: str,
 ) -> None:
-    """The daemon passes ``vertical_override`` for a real campaign.
-
-    That used to route the Reviewer down the same branch as a vertical named
-    for a directory with no pipeline state, which suppresses the checklist —
-    so a math Reviewer in ``solve`` was judging without the ~2k characters of
-    acceptance criteria the Engineer's own prompt still carried.
-    """
+    """Named verticals retain staged checklists and direct task review policy."""
     import json
 
     from argus_skill import SkillLoop, SkillLoopConfig
@@ -695,7 +691,7 @@ def test_reviewer_keeps_its_stage_checklist_when_the_daemon_names_the_vertical(
         engineer_runner=backend,
         reviewer_runner=backend,
         config=SkillLoopConfig(
-            max_rounds=1, workflow_mode="direct", active_vertical="math",
+            max_rounds=1, workflow_mode=workflow_mode, active_vertical="math",
         ),
     )
     loop.run("Prove G.", workdir=tmp_path, scope="bounded")
@@ -703,8 +699,9 @@ def test_reviewer_keeps_its_stage_checklist_when_the_daemon_names_the_vertical(
     reviewer_prompt = next(
         prompt for label, prompt, _options in backend.history if label == "reviewer"
     )
-    assert "Stage checklist (solve)" in reviewer_prompt
-    assert "solve.substantive-result" in reviewer_prompt
+    assert "Review the mathematics, not the paperwork." in reviewer_prompt
+    assert ("Stage checklist (solve)" in reviewer_prompt) == (workflow_mode == "staged")
+    assert ("solve.substantive-result" in reviewer_prompt) == (workflow_mode == "staged")
     # The failure this replaced: a stage the checklist loader could not resolve
     # renders as a manufactured blocker rather than as nothing.
     assert "Configuration error" not in reviewer_prompt

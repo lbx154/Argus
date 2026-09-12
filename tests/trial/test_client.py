@@ -146,13 +146,13 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
 
     original_prepare = gateway.prepare
 
-    def inspect_payload(data, model):
+    def inspect_payload(data, model, *, models=()):
         try:
             gateway.Completion.model_validate(data)
         except ValidationError as exc:
             rejected.extend(exc.errors(include_input=False))
             rejected.append({"snippy": data.get("snippy")})
-        return original_prepare(data, model)
+        return original_prepare(data, model, models=models)
 
     monkeypatch.setattr(gateway, "prepare", inspect_payload)
 
