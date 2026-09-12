@@ -55,8 +55,8 @@ export function readerExplanationBoundary(zh: boolean) {
 }
 
 /** Pure presentation shared by current research and an explicitly selected historical card. */
-export function ReaderExplanation({ brief, identity, readingUnavailable = false, teachingUnavailable = false, artifacts, onOpenArtifact }: {
-  brief: ReaderBrief; identity: string; readingUnavailable?: boolean; teachingUnavailable?: boolean;
+export function ReaderExplanation({ brief, identity, detail, readingUnavailable = false, teachingUnavailable = false, artifacts, onOpenArtifact }: {
+  brief: ReaderBrief; identity: string; detail?: string; readingUnavailable?: boolean; teachingUnavailable?: boolean;
   artifacts?: ArtifactInfo[]; onOpenArtifact?: (path: string) => void;
 }) {
   const { locale } = useI18n();
@@ -86,5 +86,8 @@ export function ReaderExplanation({ brief, identity, readingUnavailable = false,
     <div><h3 className="mb-0.5 text-xs font-medium text-ink">{text('这一步为什么有用', 'Why this step helps')}</h3><ShortText key={`why:${identity}`} value={brief.why} expandLabel={text('完整说明', 'Full explanation')} /></div>
     <div><h3 className="mb-0.5 text-xs font-medium text-ink">{text('结论到哪里为止', 'What this does and does not establish')}</h3><ShortText key={`scope:${identity}`} value={brief.scope} expandLabel={text('完整适用范围', 'Full scope')} clamp={false} /></div>
     <div><h3 className="mb-0.5 text-xs font-medium text-ink">{text('当前任务与后续安排', 'Assigned work and next steps')}</h3><ShortText key={`next:${identity}`} value={brief.next} expandLabel={text('完整安排', 'Full assignment and next steps')} /></div>
+    {detail ? <RawDisclosure key={`detail:${identity}`} className="min-w-0 sm:col-span-2" label={text('详细说明与条件', 'Detailed explanation and conditions')}>
+      <div className="macro-reader-markdown text-[13px] leading-6 text-ink-dim"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{detail}</MarkdownContent></div>
+    </RawDisclosure> : null}
   </div>;
 }

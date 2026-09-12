@@ -8,6 +8,7 @@ import { MarkdownContent } from '../components/MarkdownContent';
 import type { Dataset } from '../map/model';
 import type { MapCopy } from '../map/presentation';
 import { ReaderEvidence } from './ReaderEvidence';
+import { ReaderExplanation } from './ReaderExplanation';
 import type { ReactNode } from 'react';
 import ResearchBrief from './ResearchBrief';
 import { briefCopyKey, briefLiveKey, briefSelection, currentBriefData } from './model';
@@ -42,6 +43,7 @@ it('leads with a concept and example while retaining task scope, next steps, and
   expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('Why this step helps'));
   expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('What this does and does not establish'));
   expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('Assigned work and next steps'));
+  expect(markup.indexOf('Assigned work and next steps')).toBeLessThan(markup.indexOf('Detailed explanation and conditions'));
   expect(markup).toContain('View evidence');
   expect(markup).toContain('Illustrative example');
   expect(markup).toContain('How it connects to this step');
@@ -79,6 +81,12 @@ it('retains the same explanation title and generation time when new evidence mak
   const displayed = body.findAllByType(MarkdownContent).map(item => item.props.children);
   expect(displayed[0]).toBe(copy.cards.a.title);
   expect(displayed).toContain(copy.cards.a.reader_brief!.why);
+  const explanation = body.findByType(ReaderExplanation);
+  expect(explanation.props.detail).toBe(copy.cards.a.detail);
+  const details = explanation.findAllByType('details').filter(node => node.findByType('summary').children.includes('Detailed explanation and conditions'));
+  expect(details).toHaveLength(1);
+  expect(details[0].props.open).toBeUndefined();
+  expect(details[0].findByType(MarkdownContent).props.children).toBe(copy.cards.a.detail);
   const status = renderer!.root.findByProps({ 'data-testid': 'research-brief-status' });
   expect(status.findAllByType('span').some(item => item.children.includes('Previous explanation · '))).toBe(true);
   expect(status.findByType('time').props.dateTime).toBe('2026-09-12T12:27:03.000Z');
@@ -106,6 +114,7 @@ it('does not carry another task’s retained title or explanation across a task 
   expect(displayed).toContain(source.tasks[1].title);
   expect(displayed).not.toContain(copy.cards.a.title);
   expect(displayed).not.toContain(copy.cards.a.reader_brief!.why);
+  expect(displayed).not.toContain(copy.cards.a.detail);
   expect(renderer!.root.findAllByProps({ 'data-testid': 'research-brief-status' })).toHaveLength(0);
 });
 
@@ -135,6 +144,9 @@ it('opens the existing explanation from compact chrome while retaining source an
   const headings = reading.findAllByType('h3').map(heading => heading.children.join(''));
   expect(headings.findIndex(heading => heading.startsWith('One useful concept'))).toBeLessThan(headings.indexOf('What this does and does not establish'));
   expect(reading.findAllByType(MarkdownContent).map(item => item.props.children).join('\n')).toContain('the general problem remains open');
+  const details = reading.findAllByType('details').find(node => node.findByType('summary').children.includes('Detailed explanation and conditions'))!;
+  expect(details.props.open).toBeUndefined();
+  expect(details.findByType(MarkdownContent).props.children).toBe(completedCopy(source.tasks[0], ['start-a']).cards.a.detail);
   expect(reading.findAllByType('span').some(item => item.children.join('').includes('update pending'))).toBe(true);
   expect(onAsk).not.toHaveBeenCalled();
   expect(generate).not.toHaveBeenCalled();

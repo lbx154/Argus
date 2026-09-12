@@ -1,7 +1,9 @@
+import type { AgentRole } from '../lib/agentRoles';
+
 /** The operator data API is separate from the ordinary user /api contract. */
 export type UnknownRecord = Record<string, unknown>;
 export type Purpose = 'internal_training' | 'external_sharing';
-export type RecordedRole = 'manager' | 'planner' | 'engineer' | 'reviewer' | 'operator' | 'unknown';
+export type RecordedRole = AgentRole | 'operator' | 'unknown';
 
 export interface ProjectIdentity {
   tenant_id: string;

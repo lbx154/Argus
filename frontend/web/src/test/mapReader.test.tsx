@@ -44,7 +44,14 @@ it('uses the same explanation component for a historical step without borrowing 
   act(() => renderer!.root.findByProps({ 'data-step-id': step.id }).props.onClick());
   expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, step.id);
   const reader = renderer!.root.findByProps({ 'data-testid': 'map-reader' });
-  expect(reader.findByType(ReaderExplanation).props.brief).toEqual(oldCopy.reader_brief);
+  const explanation = reader.findByType(ReaderExplanation);
+  expect(explanation.props.brief).toEqual(oldCopy.reader_brief);
+  expect(explanation.props.detail).toBe(oldCopy.detail);
+  const details = explanation.findAllByType('details').filter(node => node.findByType('summary').children.includes('Detailed explanation and conditions'));
+  expect(details).toHaveLength(1);
+  expect(details[0].props.open).toBeUndefined();
+  expect(details[0].findByType(MarkdownContent).props.children).toBe(oldCopy.detail);
+  expect(reader.findAllByType(MarkdownContent).filter(node => node.props.children === oldCopy.detail)).toHaveLength(1);
   const sources = reader.findAllByType(MarkdownContent).map(node => node.props.children).join('\n');
   expect(sources).toContain(oldCopy.reader_brief!.concept!.example);
   expect(sources).toContain(step.detail);
@@ -93,11 +100,13 @@ it('uses retained historical sources while keeping updated records and current d
   const material = { id: 'old-event', item_id: task.id, revision: 'event-v1', type: 'round.review.completed',
     ts: 100, attempt: 1, text: 'Original earlier-attempt excerpt', text_truncated: true };
   const taskMaterial = { title: task.title, objective: 'Original retained goal', acceptance_check: 'Partial condition', acceptance_check_truncated: true };
-  const copy: CardCopy = { ...oldCopy, source_snapshot: { version: 1, card_key: step.id, task_id: task.id,
+  const copy: CardCopy = { ...oldCopy, detail: 'Retained condition; see the [recorded note](research/note.md).', source_snapshot: { version: 1, card_key: step.id, task_id: task.id,
     captured_at: 110, task: taskMaterial, events: [material], source_ids: ['old-event'] } };
   const currentTask = { ...task, objective: 'Changed task goal', revision: 'task-v2', attempt: 2 };
   const currentEvent = { ...props().data.readerCopy!.evidence[0], revision: 'event-v2', text: 'Current record revision', ts: 200 };
+  const onOpenArtifact = vi.fn();
   act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id} card={copy} task={currentTask}
+    artifacts={[{ path: 'research/note.md', name: 'note.md', why: 'Recorded note', exists: true, kind: 'markdown', mime: 'text/markdown', size: 42, mtime: null }]} onOpenArtifact={onOpenArtifact}
     originalDetail="Current loaded detail only" selection={{ request: { key: step.id, task_id: task.id, kind: 'review', event_ids: [] },
       evidence: [currentEvent], pending: true, generating: false }} />); });
   const shared = renderer!.root.findByType(ReaderEvidence);
@@ -114,4 +123,10 @@ it('uses retained historical sources while keeping updated records and current d
   const currentDetail = renderer!.root.findAllByType('details').find(node => node.findByType('summary').children.includes('Currently loaded task and step record'))!;
   expect(currentDetail.findByType(MarkdownContent).props.children).toBe('Current loaded detail only');
   expect(used.findAllByType(MarkdownContent).map(node => node.props.children)).not.toContain('Current loaded detail only');
+  const retainedDetails = renderer!.root.findByType(ReaderExplanation).findAllByType('details').find(node => node.findByType('summary').children.includes('Detailed explanation and conditions'))!;
+  expect(retainedDetails.findByType(MarkdownContent).props.children).toBe(copy.detail);
+  const preventDefault = vi.fn();
+  act(() => retainedDetails.findByProps({ 'data-artifact-path': 'research/note.md' }).props.onClick({ preventDefault }));
+  expect(preventDefault).toHaveBeenCalledOnce();
+  expect(onOpenArtifact).toHaveBeenCalledWith('research/note.md');
 });
