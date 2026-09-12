@@ -148,6 +148,118 @@ def test_only_bounded_context_is_sent_and_tool_ticks_do_not_invalidate_review():
     no_call.assert_not_called()
 
 
+def selected_source_context():
+    return {
+        "task": {
+            "title": "Check the recorded conditions", "objective": "Determine whether the stated bound is exact",
+            "summary": "The executor reported a lower bound", "status": "running",
+            "acceptance_check": ["Check all hypotheses"],
+            "outcome_source": {"status": "not_recorded_for_current_attempt", "attempt": 2},
+        },
+        "events": [{
+            "id": f"source-{index}", "item_id": "task-a", "type": "round.review.completed", "revision": "revision-a",
+            "ts": 100 + index, "text": f"Recorded comparison {index}", "status": "recorded",
+            "next_action": f"Check condition {index} against the source", "review_skipped": False,
+            "review_source": "engineer_self_review",
+        } for index in range(9)],
+    }
+
+
+@pytest.mark.parametrize("scope,field,replacement", [
+    ("event", "next_action", "Wait for a recorded response before checking the condition"),
+    ("event", "status", "failed"),
+    ("event", "text", "The comparison failed because its hypothesis was not met"),
+    ("event", "review_skipped", True),
+    ("event", "review_source", "independent_reviewer"),
+    ("event", "id", "changed-ninth-source"),
+    ("task", "status", "done"),
+    ("task", "summary", "The executor withdrew the earlier lower bound"),
+    ("task", "acceptance_check", ["An explicit additional condition must hold"]),
+    ("task", "outcome_source", {"status": "current_attempt", "attempt": 2, "event_id": "source-8"}),
+])
+def test_same_candidates_are_rechecked_when_the_selected_source_facts_change(scope, field, replacement):
+    source = selected_source_context()
+    response = {"reviews": {"a": accepted()}, "readings": {"a": accepted()}}
+    candidates, readings = {"a": concept()}, {"a": reading()}
+    _, first_receipts, cache = invoke(candidates, Mock(return_value=copy.deepcopy(response)),
+                                      context={"a": source}, reading=readings)
+    cached_snapshot = copy.deepcopy(cache)
+    changed = copy.deepcopy(source)
+    target = changed["task"] if scope == "task" else changed["events"][-1]
+    target[field] = replacement
+    inputs_before = copy.deepcopy((changed, candidates, readings))
+    run = Mock(return_value=copy.deepcopy(response))
+    _, receipts, updates = invoke(candidates, run, context={"a": changed}, reading=readings, cached_reviews=cache)
+    run.assert_called_once()
+    assert receipts["a"]["input_revision"] != first_receipts["a"]["input_revision"]
+    assert set(updates).isdisjoint(cache)
+    assert (changed, candidates, readings) == inputs_before
+    assert cache == cached_snapshot
+
+
+def test_unknown_tool_ticks_and_large_fields_are_not_source_evidence_or_cache_dependencies():
+    source = selected_source_context()
+    source.update(cursor="cursor-first", tool_output="PRIVATE_UNKNOWN_OUTPUT" * 10000,
+                  generated_detail="GENERATED_PROSE_IS_NOT_SOURCE" * 1000)
+    source["task"].update(tool_output="PRIVATE_UNKNOWN_OUTPUT" * 1000, cursor="task-cursor-first")
+    source["events"][-1].update(tool_output="PRIVATE_UNKNOWN_OUTPUT" * 1000, cursor="event-cursor-first",
+                                steps=[{"output": "PRIVATE_UNKNOWN_OUTPUT" * 1000}])
+    before = copy.deepcopy(source)
+    response = {"reviews": {"a": accepted()}, "readings": {"a": accepted()}}
+    run = Mock(return_value=copy.deepcopy(response))
+    _, _, cache = invoke({"a": concept()}, run, context={"a": source}, reading={"a": reading()})
+    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])["a"]["context"]
+    encoded = json.dumps(sent)
+    assert "PRIVATE_UNKNOWN_OUTPUT" not in encoded and "GENERATED_PROSE_IS_NOT_SOURCE" not in encoded
+    assert "cursor" not in encoded and "steps" not in encoded
+    assert len(sent["source_ids"]) == 9
+    assert source == before
+
+    source.update(cursor="cursor-second", tool_output="another unrelated tool output")
+    source["task"].update(cursor="task-cursor-second", tool_output="changed")
+    source["events"][-1].update(cursor="event-cursor-second", tool_output="changed", steps=[])
+    no_call = Mock(side_effect=AssertionError("Unrelated collection ticks must reuse this review"))
+    _, _, updates = invoke({"a": concept()}, no_call, context={"a": source}, reading={"a": reading()}, cached_reviews=cache)
+    no_call.assert_not_called()
+    assert updates == {}
+
+
+def test_source_projection_preserves_all_selected_ids_and_loss_flags_across_normalization_without_aliasing():
+    source = selected_source_context()
+    source.update(objective="Already clipped legacy context", objective_truncated=True,
+                  source_ids=["stale-legacy-id"])
+    source["task"].update(objective="o" * (teaching.TASK_SOURCE_LIMITS["objective"] + 1),
+                          summary="An already clipped summary", summary_truncated=True,
+                          non_goals=["No universal claim"], outcome={"review_status": "not_assessed"},
+                          outcome_source={"event_id": "source-" + "z" * teaching.TASK_SOURCE_LIMITS["outcome_source"]})
+    source["events"] = [{**source["events"][0], "id": f"source-{index}"}
+                        for index in range(teaching.MAX_SOURCE_EVENTS + 2)]
+    source["events"][0].update(text="An upstream excerpt", text_truncated=True,
+                               next_action="n" * (teaching.EVENT_SOURCE_LIMITS["next_action"] + 1))
+    before = copy.deepcopy(source)
+    projected = teaching.teaching_context(source)
+    expected_ids = [f"source-{index}" for index in range(teaching.MAX_SOURCE_EVENTS)]
+    assert projected["source_ids"] == expected_ids
+    assert len(expected_ids) > 6
+    assert projected["events_truncated"] is True
+    assert projected["objective_truncated"] is True
+    assert projected["task"]["objective_truncated"] is True
+    assert projected["task"]["summary_truncated"] is True
+    assert projected["task"]["outcome_source_truncated"] is True
+    assert projected["events"][0]["text_truncated"] is True
+    assert projected["events"][0]["next_action_truncated"] is True
+    assert projected["events"][0]["review_skipped"] is False
+
+    again = teaching.teaching_context(projected)
+    assert again == projected
+    assert source == before
+    snapshot = copy.deepcopy(projected)
+    again["task"]["non_goals"].append("Local consumer edit")
+    again["task"]["outcome"]["review_status"] = "local change"
+    again["events"][0]["text"] = "Another local change"
+    assert projected == snapshot and source == before
+
+
 def test_unavailable_model_verdict_hides_example_and_is_cached():
     verdict = {"status": "unavailable", "reason": "The necessary fact cannot be checked from the supplied context.",
                "findings": [], "replacement": None}

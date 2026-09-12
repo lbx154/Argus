@@ -1,10 +1,12 @@
 """End-to-end presentation plumbing; supplied model verdicts are not fact checks."""
 import copy
+import json
 from types import SimpleNamespace
 
 import pytest
 
 from argus_skill.webapi import map_narrative
+from argus_skill.webapi import map_teaching_review as teaching
 
 
 def document():
@@ -21,6 +23,101 @@ def card():
                              "concept": {"name": "Independent directions", "explanation": "These directions cannot be made from each other",
                                          "example": "Two independent directions show that the dimension is exactly two",
                                          "connection": "The task asks whether the count is exact"}}}
+
+
+def capture_generation_sources(monkeypatch, documents):
+    """Exercise both transports with supplied verdicts, never a model endpoint."""
+    observed = {}
+    calls = []
+
+    def run(prompt, schema, _config, **_kwargs):
+        calls.append(schema)
+        if "cards" in schema["properties"]:
+            observed["draft"] = json.loads(prompt.split("\n研究记录：\n", 1)[1])
+            return {"cards": {doc["key"]: copy.deepcopy(card()) for doc in documents}, "relations": []}
+        observed["checker"] = json.loads(prompt.split("Teaching passages:\n", 1)[1])
+        verdict = {"status": "accepted", "reason": "Supplied transport-test verdict", "findings": [], "replacement": None}
+        return {section: {key: copy.deepcopy(verdict) for key in schema["properties"][section]["properties"]}
+                for section in ("reviews", "readings")}
+
+    monkeypatch.setattr(map_narrative, "run_map_model", run)
+    map_narrative.generate(documents, [{"id": doc["task_id"]} for doc in documents], "en-US",
+                           config=SimpleNamespace(revision="model-a"), project_root=None, global_root=None)
+    assert len(calls) == 2
+    return observed
+
+
+def test_draft_and_checker_share_actual_task_evidence_and_attribution_without_mutating_sources(monkeypatch):
+    documents = []
+    for key in ("a", "b"):
+        source = document()
+        source.update(key=key, task_id=key, kind="task")
+        source["task"].update(
+            title=f"Recorded task {key}", summary=f"Executor reported only a lower bound for {key}",
+            status="running", acceptance_check=["Check all stated conditions", "Preserve the scope limit"],
+            plan_hypothesis="An exact count remains a hypothesis", goal_contribution="Determine the scope",
+            outcome={"execution_status": "running", "review_status": "not_assessed"},
+            outcome_source={"status": "not_recorded_for_current_attempt", "attempt": 2},
+            attempt=2, started_ts=100.0, tool_output="UNRELATED_TASK_OUTPUT" * 1000,
+        )
+        source["events"] = [{
+            "id": f"{key}-source-{index}", "item_id": key, "type": "round.main.completed", "ts": 101 + index,
+            "text": f"The executor recorded comparison {index} for {key}",
+            "next_action": f"For {key}, inspect the explicit condition {index} before drawing a conclusion.",
+            "tool_output": "UNRELATED_EVENT_OUTPUT" * 1000, "cursor": "tool-tick",
+        } for index in range(9)]
+        source["events"][-1].update(review_skipped=False, review_source="engineer_self_review",
+                                    success=False, overall_complete=False, campaign_continues=True)
+        documents.append(source)
+    before = copy.deepcopy(documents)
+    observed = capture_generation_sources(monkeypatch, documents)
+
+    for sent in observed["draft"]["cards"]:
+        key = sent["key"]
+        original = next(doc for doc in before if doc["key"] == key)
+        checked = observed["checker"][key]["context"]
+        assert checked["task"] == sent["task"]
+        assert checked["events"] == sent["events"]
+        assert checked["source_ids"] == sent["source_ids"] == [event["id"] for event in original["events"]]
+        assert len(checked["source_ids"]) == 9
+        for field in ("summary", "acceptance_check", "outcome", "outcome_source", "plan_hypothesis", "non_goals"):
+            assert checked["task"][field] == original["task"][field]
+        assert "summary" not in checked  # No title/non-goals surrogate for a research summary.
+        assert checked["events"][-1]["review_skipped"] is False
+        assert checked["events"][-1]["success"] is False
+        assert checked["events"][-1]["overall_complete"] is False
+        assert checked["events"][-1]["review_source"] == "engineer_self_review"
+        assert checked["events"][-1]["next_action"] == original["events"][-1]["next_action"]
+        assert all(event["item_id"] == key for event in checked["events"])
+        assert "success" not in checked["events"][0]
+        encoded = json.dumps({"draft": sent, "checker": checked})
+        assert "UNRELATED_TASK_OUTPUT" not in encoded and "UNRELATED_EVENT_OUTPUT" not in encoded
+        assert "tool-tick" not in encoded
+        assert card()["summary"] not in json.dumps(checked)
+    assert documents == before
+
+
+def test_upstream_evidence_truncation_remains_visible_to_both_draft_and_checker(monkeypatch):
+    dataset = {"tasks": [{"id": "a", "title": "Task", "status": "running",
+                          "objective": "o" * (teaching.TASK_SOURCE_LIMITS["objective"] + 1)}],
+               "events": [{"id": "source-a", "item_id": "a", "type": "round.main.completed", "ts": 1,
+                           "text": "e" * 3000, "next_action": "n" * 1800, "review_skipped": False}]}
+    before = copy.deepcopy(dataset)
+    documents = map_narrative.card_evidence(dataset, [{"key": "a", "task_id": "a", "kind": "task", "event_ids": ["source-a"]}])
+    assert documents[0]["events"][0]["next_action_truncated"] is True
+    document_snapshot = copy.deepcopy(documents)
+    observed = capture_generation_sources(monkeypatch, documents)
+    draft = observed["draft"]["cards"][0]
+    checked = observed["checker"]["a"]["context"]
+    assert draft["task"] == checked["task"]
+    assert draft["events"] == checked["events"]
+    assert checked["task"]["objective_truncated"] is True
+    assert checked["events"][0]["text_truncated"] is True
+    # This value already fits the second projector: its upstream loss flag must survive.
+    assert len(checked["events"][0]["next_action"]) == 1500
+    assert checked["events"][0]["next_action_truncated"] is True
+    assert checked["events"][0]["review_skipped"] is False
+    assert dataset == before and documents == document_snapshot
 
 
 def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(monkeypatch):

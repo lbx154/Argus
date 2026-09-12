@@ -27,15 +27,18 @@ function cachedClient() {
   return client;
 }
 
-it('puts scope and next steps before background concepts and keeps evidence in the fixed footer', () => {
+it('leads with a concept and example while retaining task scope, next steps, and the fixed evidence footer', () => {
   const props = inputs(), queryClient = cachedClient();
   const markup = renderToStaticMarkup(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} readOnly /></QueryClientProvider>);
   expect(markup).toContain('Why this step helps');
   expect(markup).toContain('Counterexample');
   expect(markup).toContain('the general problem remains open');
   expect(markup).toContain('Background explanations are not research progress');
-  expect(markup.indexOf('What this does and does not establish')).toBeLessThan(markup.indexOf('One useful concept'));
-  expect(markup.indexOf('The recorded next step')).toBeLessThan(markup.indexOf('One useful concept'));
+  expect(markup.indexOf('One useful concept')).toBeLessThan(markup.indexOf('Illustrative example'));
+  expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('Concept explanation'));
+  expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('Why this step helps'));
+  expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('What this does and does not establish'));
+  expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('The recorded next step'));
   expect(markup).toContain('View evidence');
   expect(markup).toContain('Illustrative example');
   expect(markup).toContain('How it connects to this step');
@@ -127,7 +130,7 @@ it('opens the existing explanation from compact chrome while retaining source an
   act(() => read.props.onClick());
   const reading = renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' });
   const headings = reading.findAllByType('h3').map(heading => heading.children.join(''));
-  expect(headings.indexOf('What this does and does not establish')).toBeLessThan(headings.findIndex(heading => heading.startsWith('One useful concept')));
+  expect(headings.findIndex(heading => heading.startsWith('One useful concept'))).toBeLessThan(headings.indexOf('What this does and does not establish'));
   expect(reading.findAllByType(MarkdownContent).map(item => item.props.children).join('\n')).toContain('the general problem remains open');
   expect(reading.findAllByType('span').some(item => item.children.join('').includes('update pending'))).toBe(true);
   expect(onAsk).not.toHaveBeenCalled();
@@ -146,6 +149,9 @@ it('keeps evidence and follow-up available when the concept explanation is unava
   expect(markup).toContain('Ask about this step');
   expect(markup).not.toContain('internal_failure_code');
   expect(markup).not.toContain('Counterexample');
+  expect(markup).not.toContain('data-reader-teaching');
+  expect(markup).toContain('the general problem remains open');
+  expect(markup).toContain('The recorded next step');
 });
 
 it('keeps task facts and a usable concept when the separate reading check is unavailable', () => {
