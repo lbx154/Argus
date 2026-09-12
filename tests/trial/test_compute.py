@@ -118,6 +118,69 @@ def submit(service, tenant="trial-01", **resources):
     return service.submit(tenant, {"command": ["python", "train.py"], **resources})
 
 
+def test_eleven_tenant_upgrade_keeps_existing_ledger_and_gives_normal_compute_access(environment, tmp_path):
+    config, now, docker = environment
+    store = Store(Path(config["trial_db"]), key_limit=11)
+    for number in range(4, 11):
+        tenant = f"trial-{number:02d}"
+        root = tmp_path / tenant / "data"
+        (root / "workspace").mkdir(parents=True)
+        (root / "home").mkdir()
+        config["tenants"][tenant] = {"data_dir": str(root)}
+        store.issue(tenant, "key-" + tenant)
+    original = ComputeService(config, executor=docker, clock=lambda: now[0])
+    original.open()
+    try:
+        first = submit(original, timeout_seconds=30)
+        original.tick()
+        now[0] += 3
+        docker.finish(first["id"])
+        original.tick()
+        before = {tenant: original.status(tenant)["gpu_seconds_remaining"] for tenant in config["tenants"]}
+        assert before["trial-01"] == GPU_SECONDS - 3
+        with original.transaction() as db:
+            schedule = dict(db.execute("SELECT tenant_id,last_dispatch FROM tenants"))
+    finally:
+        original.close()
+
+    volume = tmp_path / "trial-11/data"
+    (volume / "workspace").mkdir(parents=True)
+    (volume / "home").mkdir()
+    config["tenants"]["trial-11"] = {"data_dir": str(volume)}
+    store.issue("trial-11", "key-trial-11")
+    app = create_app(config, executor=docker, clock=lambda: now[0], poll_interval=None)
+    headers = {"Authorization": "Bearer key-trial-11"}
+    with TestClient(app) as client:
+        status = client.get("/compute/status", headers=headers)
+        assert status.status_code == 200
+        assert status.json()["tenant_id"] == "trial-11"
+        assert status.json()["gpu_hours_limit"] == 200 and status.json()["gpu_seconds_remaining"] == GPU_SECONDS
+        svc = app.state.compute
+        assert svc.auth.key_limit == 11
+        with svc.transaction() as db:
+            current = dict(db.execute("SELECT tenant_id,last_dispatch FROM tenants"))
+        assert len(current) == 11 and current["trial-11"] == 0
+        assert {tenant: current[tenant] for tenant in schedule} == schedule
+        response = client.post("/compute/jobs", headers=headers,
+                               json={"command": ["python", "-V"], "gpus": 1, "timeout_seconds": 30})
+        assert response.status_code == 202
+        job = response.json()["job"]
+        assert job["tenant_id"] == "trial-11"
+        assert client.get(f"/compute/jobs/{job['id']}", headers={"Authorization": "Bearer key-trial-01"}).status_code == 404
+        svc.tick()
+        assert f"type=bind,src={volume},dst=/tenant" in docker.launched[-1]
+        assert docker.launched[-1][docker.launched[-1].index("--workdir") + 1] == "/tenant/workspace"
+        now[0] += 4
+        docker.finish(job["id"])
+        svc.tick()
+        assert client.get("/compute/status", headers=headers).json()["gpu_seconds_remaining"] == GPU_SECONDS - 4
+        assert {tenant: svc.status(tenant)["gpu_seconds_remaining"] for tenant in before} == before
+        assert svc.auth.status("trial-11")["tokens_used"] == 0
+
+    with pytest.raises(ValueError, match="1..11"):
+        load_config({**config, "tenants": {**config["tenants"], "trial-12": {"data_dir": str(tmp_path / "extra")}}})
+
+
 def test_interactive_memory_growth_is_reserved_under_parent_limit(environment):
     config, now, docker = environment
     config["interactive_memory_gib"] = 320

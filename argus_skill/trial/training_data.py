@@ -34,6 +34,24 @@ MAX_PROJECT_EVENTS = 500
 MAX_EVENT_BYTES = 20 * 1024
 MAX_SOURCE_BYTES = 32 * 1024 * 1024
 MAX_EXPORT_BYTES = 32 * 1024 * 1024
+
+
+def validate_team_training_policy(policy, configured_tenants):
+    """Validate the server-private declaration without granting any permission."""
+    if (not isinstance(policy, dict) or set(policy) != {"mode", "tenant_ids", "evidence_note"}
+            or policy["mode"] != "internal_team_offline"):
+        raise ValueError("A server-private internal-team policy is required")
+    tenants, note = policy["tenant_ids"], policy["evidence_note"]
+    available = set(configured_tenants)
+    if (not isinstance(tenants, list) or not 1 <= len(tenants) <= len(available)
+            or any(not isinstance(tenant, str) or tenant not in available for tenant in tenants)
+            or len(set(tenants)) != len(tenants)):
+        raise ValueError("Team policy must list distinct configured tenants")
+    if not isinstance(note, str) or not note.strip() or len(note) > 2000 or _sensitive(note):
+        raise ValueError("Provide a bounded, non-sensitive owner-declaration note")
+    return {"mode": "internal_team_offline", "tenant_ids": list(tenants), "evidence_note": note.strip()}
+
+
 LIMITATIONS = [
     "Global journey completeness is always unverified; gaps and truncation are explicit.",
     "Sequence is ingestion order, not causal order; runtime timestamps are untrusted.",
@@ -411,8 +429,8 @@ class TrainingData:
             )
             result["notice"]["internal_training"] = (
                 "Internal-team use authorized offline according to the operator's recorded owner declaration. "
-                "The historical effective date is unknown; collection/export eligibility begins no earlier "
-                "than the server recording time. This is not an individual browser acceptance."
+                "The historical effective date is unknown. Newly enabled grants begin at the server recording time; "
+                "existing grants retain their original authorization boundary. This is not an individual browser acceptance."
             )
             result["notice"]["external_sharing"] = "External sharing is not authorized by this internal-only policy."
         return result
@@ -423,10 +441,10 @@ class TrainingData:
             FROM training_offline_authorizations
             WHERE tenant_id=? AND research_notice_version=? AND training_notice_version=?
         """, (tenant_id, self.analytics.notice_version, NOTICE_VERSION)).fetchone()
-        if row and not db.execute("""
+        if row and (tenant_id in self._offline_team_tenants or not db.execute("""
             SELECT 1 FROM training_onboarding_acceptances WHERE tenant_id=?
             AND research_notice_version=? AND training_notice_version=? AND last_accepted_at>?
-        """, (tenant_id, self.analytics.notice_version, NOTICE_VERSION, row["recorded_at"])).fetchone():
+        """, (tenant_id, self.analytics.notice_version, NOTICE_VERSION, row["recorded_at"])).fetchone()):
             return dict(row)
         return None
 
@@ -440,17 +458,10 @@ class TrainingData:
         and manual revocations. No additional individual acceptance is required
         within this explicitly configured internal scope.
         """
-        if (not isinstance(team_policy, dict) or set(team_policy) != {
-            "mode", "tenant_ids", "evidence_note",
-        } or team_policy["mode"] != "internal_team_offline"):
-            raise ValueError("A server-private internal-team policy is required")
+        team_policy = validate_team_training_policy(team_policy, self.analytics.tenants)
         tenants, note = team_policy["tenant_ids"], team_policy["evidence_note"]
-        if (not isinstance(tenants, list) or not 1 <= len(tenants) <= 10
-                or any(not isinstance(tenant, str) or tenant not in self.analytics.tenants for tenant in tenants)
-                or tenant_id not in tenants):
+        if tenant_id not in tenants:
             raise AnalyticsError(403, "outside_configured_internal_team")
-        if not isinstance(note, str) or not note.strip() or len(note) > 2000 or _sensitive(note):
-            raise ValueError("Provide a bounded, non-sensitive owner-declaration note")
         self._offline_team_tenants = set(tenants)
         now = self.analytics.clock()
         changed = False
@@ -461,7 +472,9 @@ class TrainingData:
                 WHERE tenant_id=? AND research_notice_version=? AND training_notice_version=?
             """, (tenant_id, self.analytics.notice_version, NOTICE_VERSION)).fetchone()
             if receipt is None:
-                db.execute("INSERT INTO training_offline_authorizations VALUES (?,?,?,?,?,?,?)", (
+                db.execute("""INSERT INTO training_offline_authorizations
+                    (tenant_id,research_notice_version,training_notice_version,source,
+                     recorded_at,effective_at,evidence_note) VALUES (?,?,?,?,?,?,?)""", (
                     tenant_id, self.analytics.notice_version, NOTICE_VERSION,
                     "operator_attested_offline", now, None, note.strip(),
                 ))
@@ -476,11 +489,13 @@ class TrainingData:
                     "SELECT * FROM training_permissions WHERE tenant_id=? AND purpose=?",
                     (tenant_id, purpose),
                 ).fetchone()
-                if receipt and old and old["notice_version"] == NOTICE_VERSION and (
-                    purpose == "internal_training" or not old["granted"]
-                ):
+                # A declaration supplies missing authorization; it must not
+                # rewrite an existing grant, notice version or manual withdrawal.
+                # External use remains blocked by this active internal-only
+                # scope, independently of any prior individual grant receipt.
+                if old:
                     continue
-                enabled = purpose == "internal_training" and (old is None or bool(old["granted"]))
+                enabled = purpose == "internal_training"
                 db.execute("""
                     INSERT INTO training_permissions VALUES (?,?,?,?,?,?)
                     ON CONFLICT(tenant_id,purpose) DO UPDATE SET
@@ -491,8 +506,6 @@ class TrainingData:
                     INSERT INTO training_permission_history
                     (tenant_id,purpose,notice_version,granted,changed_at) VALUES (?,?,?,?,?)
                 """, (tenant_id, purpose, NOTICE_VERSION, int(enabled), now))
-                if old and old["granted"]:
-                    db.execute("DELETE FROM training_tool_episodes WHERE tenant_id=?", (tenant_id,))
                 changed = True
         if changed:
             self.audit("offline_authorization", "internal_training", outcome="completed", actor="operator")
@@ -542,7 +555,12 @@ class TrainingData:
                 requested = purpose == "internal_training" or external_sharing
                 explicit_external = purpose == "external_sharing" and external_sharing
                 enabled = bool(requested and (reauthorize or explicit_external or old is None or old["granted"]))
-                current = old and old["notice_version"] == NOTICE_VERSION and previous_offline is None
+                # A genuine browser acceptance adds its own receipt without
+                # restarting an already active internal-team grant or deleting
+                # the episodes collected under that authorization.
+                current = old and old["notice_version"] == NOTICE_VERSION and (
+                    previous_offline is None or tenant_id in self._offline_team_tenants
+                )
                 if current and not reauthorize and not (explicit_external and not old["granted"]):
                     continue
                 grant_at = now if enabled else None

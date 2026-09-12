@@ -4,7 +4,9 @@ Run ``python -m argus_skill.trial.web_portal --config /absolute/portal.json``.
 ``create_app()`` also reads ``ARGUS_WEB_TRIAL_CONFIG``; ``create_app(config)``
 accepts the same JSON object or its path. Required fields are ``state_dir``
 (containing an existing usage.sqlite3), ``key_file``, ``tenants`` (exactly
-trial-01 through trial-10, each with url/token), and ``admin`` (url/token).
+trial-01 through trial-11, each with url/token). Older ten-tenant configurations
+remain readable; ``admin`` (url/token) is an optional legacy configuration alias
+and is never routed as a frontend identity.
 ``token_limit`` defaults to 10,000,000 lifetime input-plus-output tokens per
 web invitation. It changes the allowance, never the ledger's recorded usage;
 the shared Store class retains its separate desktop-trial default.
@@ -30,7 +32,8 @@ native same-origin local requests retain their existing behavior. A hostname
 change requires updating this pinned configuration and restarting the portal.
 This service neither provisions keys nor recovers/locks the model gateway.
 Container isolation, model quota enforcement, and secret-free backend artifacts
-remain deployment responsibilities. Logout clears the browser cookie; a copied
+remain deployment responsibilities. Separate administrator and invitation cookies allow both sessions in one browser.
+Logout clears only the corresponding cookie; a copied
 tenant cookie remains valid for at most seven days (there is no session-revocation DB).
 """
 from __future__ import annotations
@@ -76,11 +79,14 @@ from .secrets import Vault
 from .store import Store, TrialError
 
 COOKIE = "argus_web_session"
+ADMIN_COOKIE = "argus_admin_session"
 SESSION_SECONDS = 7 * 24 * 3600
 RESEARCH_POLL_SECONDS = 5
 MAX_BODY_BYTES = 16 * 1024 * 1024
 COOKIE_DOMAIN = b"argus-web-invitation-session-v1\x00"
-TENANT_IDS = {f"trial-{number:02d}" for number in range(1, 11)}
+ADMIN_COOKIE_DOMAIN = b"argus-web-private-admin-session-v2\x00"
+TENANT_IDS = {f"trial-{number:02d}" for number in range(1, 12)}
+LEGACY_TENANT_IDS = TENANT_IDS - {"trial-11"}
 SAFE_METHODS = {"GET", "HEAD"}
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
@@ -121,6 +127,14 @@ PROJECT_WRITES = re.compile(
     r"plan|prompt/rewrite|reset|continuous|daemon/(?:start|stop)|mission/abort|"
     r"backlog/[^/]+/(?:answer|dispose|stop)|decisions/[^/]+/resolve|"
     r"reviews/final|map-notes)$"
+)
+PLUGIN_WRITES = re.compile(
+    r"^/api/plugins/crystalpilot/(?:launch|preferences|config|"
+    r"manage/(?:health|repair|shelx)|"
+    r"projects/(?:open|settings|restart_engine|mcp_status|upload|import-structure)|"
+    r"threads/(?:send|interrupt|steer|rename|compact|fork)|approvals/decide|"
+    r"system/pick_folder|ui/diagnostics|"
+    r"wb/refine/analysis/jobs(?:/[^/]+/(?:cancel|release))?)$"
 )
 WS_ROUTE = re.compile(r"^/api/projects/[^/]+/stream$")
 # The website preview page ships its own content-security-policy that sandboxes
@@ -189,13 +203,14 @@ class Settings:
     state_dir: Path
     key_file: Path
     tenants: dict[str, Backend]
-    admin: Backend
+    admin: Backend | None = None
     secure_cookie: bool = True
     compute: Endpoint | None = None
     admin_login_token: str | None = None
     token_limit: int | None = WEB_TOKEN_LIMIT
     frontend_dir: Path | None = None
     public_origin: str | None = None
+    team_training_policy: dict | None = None
 
     @classmethod
     def load(cls, source: dict | str | Path | None = None) -> Settings:
@@ -204,12 +219,12 @@ class Settings:
             if not source:
                 raise ValueError("Set ARGUS_WEB_TRIAL_CONFIG or pass --config")
         data = source if isinstance(source, dict) else json.loads(Path(source).read_text())
-        required = {"state_dir", "key_file", "tenants", "admin"}
+        required = {"state_dir", "key_file", "tenants"}
         if (
             not isinstance(data, dict) or not required <= data.keys()
             or data.keys() - required - {
-                "secure_cookie", "compute_url", "compute_uds", "admin_login_token", "token_limit",
-                "frontend_dir", "public_origin",
+                "admin", "secure_cookie", "compute_url", "compute_uds", "admin_login_token", "token_limit",
+                "frontend_dir", "public_origin", "team_training_policy",
             }
         ):
             raise ValueError("Invalid web portal configuration fields")
@@ -218,8 +233,8 @@ class Settings:
             raise ValueError("state_dir and key_file must be absolute paths")
         if not (state / "usage.sqlite3").is_file() or not key.is_file():
             raise ValueError("An existing trial ledger and master key are required")
-        if not isinstance(data["tenants"], dict) or set(data["tenants"]) != TENANT_IDS:
-            raise ValueError("Configure exactly trial-01 through trial-10")
+        if not isinstance(data["tenants"], dict) or set(data["tenants"]) not in (TENANT_IDS, LEGACY_TENANT_IDS):
+            raise ValueError("Configure exactly trial-01 through trial-11 (legacy trial-01 through trial-10 is supported)")
         secure = data.get("secure_cookie", True)
         if type(secure) is not bool:
             raise ValueError("secure_cookie must be a boolean")
@@ -227,11 +242,14 @@ class Settings:
         if token_limit is not None and (type(token_limit) is not int or token_limit <= 0):
             raise ValueError("token_limit must be a positive integer")
         tenants = {name: Backend.load(value) for name, value in data["tenants"].items()}
-        admin = Backend.load(data["admin"])
-        if len({backend.token for backend in [*tenants.values(), admin]}) != 11:
+        admin = Backend.load(data["admin"]) if data.get("admin") is not None else None
+        backends = list(tenants.values())
+        if admin is not None and admin not in backends:
+            backends.append(admin)
+        if len({backend.token for backend in backends}) != len(backends):
             raise ValueError("Each backend must have its own private token")
         if len({("uds", backend.uds) if backend.uds else ("tcp", backend.url)
-                for backend in [*tenants.values(), admin]}) != 11:
+                for backend in backends}) != len(backends):
             raise ValueError("Each backend must have its own socket or HTTP origin")
         admin_login_token = data.get("admin_login_token")
         if admin_login_token is not None and (
@@ -239,7 +257,7 @@ class Settings:
             or not admin_login_token.isascii()
             or any(c.isspace() or ord(c) < 33 or ord(c) == 127 for c in admin_login_token)
             or admin_login_token.startswith("argus_trial_")
-            or admin_login_token in {backend.token for backend in [*tenants.values(), admin]}
+            or admin_login_token in {backend.token for backend in backends}
         ):
             raise ValueError("admin_login_token must be a distinct private login credential")
         compute = None
@@ -282,15 +300,20 @@ class Settings:
                 public_origin = "https://" + authority + (f":{port}" if port not in (None, 443) else "")
             except ValueError:
                 raise ValueError("public_origin must be an exact HTTPS origin") from None
+        team_training_policy = data.get("team_training_policy")
+        if team_training_policy is not None:
+            from .training_data import validate_team_training_policy
+
+            team_training_policy = validate_team_training_policy(team_training_policy, tenants)
         return cls(state, key, tenants, admin, secure, compute, admin_login_token, token_limit, frontend,
-                   public_origin)
+                   public_origin, team_training_policy)
 
 
 class BackendTransport(httpx.AsyncBaseTransport):
     """Select a private connection pool by the authenticated server-side identity."""
 
     def __init__(self, settings: Settings):
-        endpoints: dict[str, Backend | Endpoint] = {**settings.tenants, "admin": settings.admin}
+        endpoints: dict[str, Backend | Endpoint] = dict(settings.tenants)
         if settings.compute:
             endpoints["compute"] = settings.compute
         self.transports = {
@@ -413,7 +436,7 @@ def permitted(path: str, method: str) -> bool:
         return True
     if method == "POST":
         return bool(
-            PROJECT_WRITES.fullmatch(path) or path == "/api/daemons"
+            PROJECT_WRITES.fullmatch(path) or PLUGIN_WRITES.fullmatch(path) or path == "/api/daemons"
             or re.fullmatch(r"/api/map-copy/(?:project|dataset)/[^/]+", path)
             or re.fullmatch(r"/api/trash/[^/]+/restore", path)
         )
@@ -482,20 +505,23 @@ def login_page(nonce: str, token_limit: int | None = WEB_TOKEN_LIMIT,
         '<label><input id="data-notice" type="checkbox" required data-version="'
         + html.escape(notice_version, quote=True) + '"> '
         '我已阅读并同意团队训练内测告知：从本次确认起，允许运营方记录任务输入、可见回复、'
-        '公开执行过程、产物引用、明确反馈和资源使用信息，用于内部模型训练数据准备、人工复盘与产品改进。'
-        '过程采集包括工作区工具的真实定义、调用参数和执行结果，可能包含代码及工具读取或生成的文件内容。'
+        '统筹、规划、执行、审查四个角色的真实过程、产物引用、明确反馈和资源使用信息，'
+        '用于团队内部模型训练、训练数据准备、人工复盘与产品改进。'
+        '过程采集包括模型实际输入（含应用的系统提示和开发者指令）、可见输出、'
+        '工具的真实定义、调用参数和执行结果，可能包含代码、文件内容、工作区路径以及你输入或工具读取到的敏感信息。'
+        '无工具调用、失败或未结束的过程也会保留；不会因疑似敏感内容或格式不完整而整段排除，采集与质量验收分别记录。'
+        '模型提供的结构化隐藏推理和签名字段会被移除。'
         '关闭浏览器后，服务器仍会持续采集；不回填授权前的历史记录。'
-        '不采集隐藏推理、系统提示或凭证；超过范围、不完整或疑似敏感的样本会被排除或隔离。'
         '请仅提交团队有权用于本次内测与内部训练的材料。'
-        '研究内容最多保留30天（容量限制可能更早清除），管理员查看和导出会留审计记录。'
+        '研究内容最多保留30天，管理员查看和导出会留审计记录。'
         '可在“研究记录与反馈”中删除整个项目的研究副本并停止该项目后续采集，'
         '但不会删除运行中任务、工作区、源日志或计费账本。'
         '同意凭据、采集游标和删除标记单独保留以防重新导入；研究库不由本功能创建备份，'
         '既有主机快照及已下载导出不能在此保证即时删除，须联系运营方处理。'
         '本项包含内部训练用途，不包含对外或商业分享；旧版同意不能替代本次确认。</label>'
         '<label><input id="external-sharing-notice" type="checkbox"> '
-        '另外同意将今后符合条件、经过去标识和人工审核的记录向第三方提供，包括商业供应或出售（可选）。'
-        '去标识不保证匿名；可在研究记录页面撤回未来导出授权，已交付副本不能自动召回。</label>'
+        '另外授权运营方将今后符合对外分享授权范围的记录向第三方提供，包括商业供应或出售（可选）。'
+        '记录可能包含可识别信息；可在研究记录页面撤回未来导出授权，已交付副本不能自动召回。</label>'
         if notice_version else ""
     )
     return """<!doctype html><html lang="zh-CN"><meta charset="utf-8">
@@ -545,12 +571,21 @@ finally{button.disabled=false;}});
 </script></html>"""
 
 
+def admin_login_page(nonce: str) -> str:
+    return """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Argus · 数据后台登录</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f7fa;color:#303345;font:14px/1.7 system-ui,sans-serif}main{width:min(84vw,380px);padding:34px;background:white;border:1px solid #e7e8ef;border-radius:16px}h1{font-size:23px;margin:8px 0}small,p{color:#9195a4}label{display:block;margin:24px 0 8px}input,button{box-sizing:border-box;width:100%;border-radius:8px;padding:12px;font:inherit}input{border:1px solid #dfe1e9}button{margin-top:16px;border:0;background:#635bca;color:white;cursor:pointer}a{color:#77719f;text-decoration:none;font-size:12px}#error{color:#b86161;font-size:12px;min-height:20px}button:disabled{opacity:.5}</style></head>
+<body><main><small>ARGUS / 数据工作台</small><h1>登录数据后台</h1><p>使用专用管理员密钥查看团队过程数据。</p>
+<form id="admin-login"><label for="admin-key">管理员密钥</label><input id="admin-key" type="password" autocomplete="current-password" required autofocus><button type="submit">进入数据后台</button><p id="error" role="alert"></p></form><a href="/invite">进入用户工作区 →</a></main>
+<script nonce="__LOGIN_NONCE__">
+document.getElementById('admin-login').addEventListener('submit',async event=>{event.preventDefault();const button=event.currentTarget.querySelector('button');button.disabled=true;document.getElementById('error').textContent='';try{const response=await fetch('/admin/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({admin_login_token:document.getElementById('admin-key').value})});if(!response.ok)throw Error();document.getElementById('admin-key').value='';const result=await response.json();location.replace(result.redirect);}catch{document.getElementById('error').textContent='登录未成功，请检查管理员密钥后重试。';}finally{button.disabled=false;}});
+</script></body></html>""".replace("__LOGIN_NONCE__", html.escape(nonce, quote=True))
+
+
 def launcher_page(identity: dict, compute_enabled: bool, analytics_enabled: bool = False) -> str:
     workspace = "/?kiosk=1" if identity["readonly"] else "/"
     role = "只读浏览：可查看任务与额度，不可提交或修改任务。" if identity["readonly"] else "交互会话：继续使用当前独立工作空间。"
     compute_links = ""
-    if identity["role"] == "admin" and analytics_enabled:
-        compute_links = '<a href="/admin">试用运营后台 →</a>'
     if identity["role"] == "trial":
         compute_links = (
             '<a href="/invite/compute">GPU任务队列 →</a>'
@@ -594,10 +629,11 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
     @asynccontextmanager
     async def lifespan(app):
         vault = Vault(settings.key_file, settings.state_dir / "github-token.enc")
-        store = Store(settings.state_dir / "usage.sqlite3", token_limit=settings.token_limit)
+        store = Store(settings.state_dir / "usage.sqlite3", token_limit=settings.token_limit,
+                      key_limit=len(settings.tenants))
         # Check provisioned identities, without issuing keys, recovering active
         # requests, or acquiring the model gateway's process ownership lock.
-        for key_id in TENANT_IDS:
+        for key_id in settings.tenants:
             with store.transaction() as db:
                 found = db.execute("SELECT credential_hash FROM trial_keys WHERE key_id=?", (key_id,)).fetchone()
             if found is None or not hmac.compare_digest(
@@ -627,9 +663,14 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             if analytics is not None:
                 from .training_bridge import start_training_bridges
 
-                training_bridges = await run_in_threadpool(
-                    start_training_bridges, app.state.training_data, settings.tenants,
-                )
+                await run_in_threadpool(analytics.open_storage)
+                try:
+                    training_bridges = await run_in_threadpool(
+                        start_training_bridges, app.state.training_data, settings.tenants,
+                    )
+                except BaseException:
+                    await run_in_threadpool(analytics.close_storage)
+                    raise
                 async def collect():
                     from .interaction_capture import prune_interactions
 
@@ -662,40 +703,43 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
                         await worker
                 if training_bridges is not None:
                     await run_in_threadpool(training_bridges.close)
+                if analytics is not None:
+                    await run_in_threadpool(analytics.close_storage)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(SecurityHeaders)
 
-    def session(request: Request | WebSocket) -> dict | None:
-        cookie = request.cookies.get(COOKIE, "")
+    def read_session(request: Request | WebSocket, *, admin: bool = False) -> dict | None:
+        cookie = request.cookies.get(ADMIN_COOKIE if admin else COOKIE, "")
         if not cookie or len(cookie) > 4096:
             return None
+        domain = ADMIN_COOKIE_DOMAIN if admin else COOKIE_DOMAIN
         try:
             raw = app.state.vault.cipher.decrypt(cookie.encode(), ttl=SESSION_SECONDS)
-            if not raw.startswith(COOKIE_DOMAIN):
+            if not raw.startswith(domain):
                 return None
-            value = json.loads(raw[len(COOKIE_DOMAIN):])
+            value = json.loads(raw[len(domain):])
             if not isinstance(value, dict):
                 return None
             fields = {"tenant", "role", "readonly", "exp"}
-            if value.get("role") == "admin":
+            if admin:
                 fields.add("admin_binding")
             if (
                 set(value) != fields
                 or type(value["readonly"]) is not bool or type(value["exp"]) is not int
                 or value["exp"] <= time.time() or value["exp"] > time.time() + SESSION_SECONDS
-                or value["role"] not in {"trial", "admin"}
+                or value["role"] != ("admin" if admin else "trial")
                 or not isinstance(value["tenant"], str)
-                or (value["role"] == "trial" and value["tenant"] not in settings.tenants)
-                or (value["role"] == "admin" and value["tenant"] != "admin")
+                or (not admin and value["tenant"] not in settings.tenants)
+                or (admin and value["tenant"] != "admin")
             ):
                 return None
-            if value["role"] == "admin" and (
+            if admin and (
                 app.state.admin_binding is None or not isinstance(value["admin_binding"], str)
                 or not hmac.compare_digest(value["admin_binding"], app.state.admin_binding)
             ):
                 return None
-            if value["role"] == "trial":
+            if not admin:
                 try:
                     app.state.store.check_access(value["tenant"])
                 except TrialError:
@@ -704,18 +748,27 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         except (InvalidToken, ValueError, UnicodeError, TypeError):
             return None
 
+    def session(request: Request | WebSocket) -> dict | None:
+        path = request.url.path
+        return read_session(request, admin=path == "/admin" or path.startswith("/admin/"))
+
     def set_session(response, tenant: str, readonly: bool, role: str = "trial"):
+        admin = role == "admin"
         value = {"tenant": tenant, "role": role, "readonly": readonly,
                  "exp": int(time.time()) + SESSION_SECONDS}
-        if role == "admin":
+        if admin:
             value["admin_binding"] = app.state.admin_binding
-        cookie = app.state.vault.cipher.encrypt(COOKIE_DOMAIN + json.dumps(value).encode()).decode()
-        response.set_cookie(COOKIE, cookie, max_age=SESSION_SECONDS, secure=settings.secure_cookie,
-                            httponly=True, samesite="strict", path="/")
+        domain = ADMIN_COOKIE_DOMAIN if admin else COOKIE_DOMAIN
+        cookie = app.state.vault.cipher.encrypt(domain + json.dumps(value).encode()).decode()
+        response.set_cookie(ADMIN_COOKIE if admin else COOKIE, cookie, max_age=SESSION_SECONDS,
+                            secure=settings.secure_cookie, httponly=True, samesite="strict",
+                            path="/admin" if admin else "/")
 
     app.state.session = session
     app.state.settings = settings
     app.state.analytics = analytics
+    if settings.team_training_policy is not None and analytics is None:
+        raise ValueError("team_training_policy requires configured analytics")
     if analytics is not None:
         analytics.token_limit = settings.token_limit
         from .analytics_routes import register_analytics
@@ -734,7 +787,47 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             app, analytics, session, journal=app.state.journal,
             controls=app.state.research_controls,
         )
+        if settings.team_training_policy is not None:
+            for tenant in settings.team_training_policy["tenant_ids"]:
+                app.state.training_data.apply_offline_team_authorization(
+                    tenant, team_policy=settings.team_training_policy,
+                )
         app.state.research_status = {"state": "starting"}
+
+    @app.middleware("http")
+    async def administrator_entry(request: Request, call_next):
+        if request.method == "GET" and request.url.path in {"/admin", "/admin/data"} and session(request) is None:
+            return RedirectResponse("/admin/login", status_code=303)
+        return await call_next(request)
+
+    @app.get("/admin/login", response_class=HTMLResponse)
+    async def administrator_login_page(request: Request):
+        if session(request) is not None:
+            return RedirectResponse("/admin/data", status_code=303)
+        nonce = secrets.token_urlsafe(24)
+        return HTMLResponse(admin_login_page(nonce), headers={
+            "content-security-policy": CSP.replace("script-src 'self'", f"script-src 'nonce-{nonce}'"),
+        })
+
+    @app.get("/admin/status")
+    async def administrator_status(request: Request):
+        identity = session(request)
+        if identity is None:
+            raise HTTPException(401, "请先登录数据后台")
+        return {"key_id": "admin", "role": "admin", "readonly": identity["readonly"],
+                "expires_at": identity["exp"]}
+
+    @app.post("/admin/logout")
+    async def administrator_logout(request: Request):
+        require_origin(request)
+        if session(request) is None:
+            raise HTTPException(401, "请先登录数据后台")
+        response = (RedirectResponse("/admin/login", status_code=303)
+                    if "text/html" in request.headers.get("accept", "")
+                    else JSONResponse({"redirect": "/admin/login"}))
+        response.delete_cookie(ADMIN_COOKIE, path="/admin", secure=settings.secure_cookie,
+                               httponly=True, samesite="strict")
+        return response
 
     @app.post("/admin/login")
     async def operator_login(request: Request):
@@ -751,7 +844,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             await run_in_threadpool(
                 app.state.research_controls.audit, "admin.login", outcome="completed",
             )
-        response = JSONResponse({"redirect": "/admin" if analytics is not None else "/"})
+        response = JSONResponse({"redirect": "/admin/data"})
         set_session(response, "admin", readonly, "admin")
         return response
 
@@ -759,8 +852,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
     async def invitation(request: Request):
         identity = session(request)
         if identity is not None and (
-            analytics is None or identity["role"] == "admin"
-            or analytics.consented(identity["tenant"], analytics.notice_version)
+            analytics is None or await run_in_threadpool(analytics.consented, identity["tenant"], analytics.notice_version)
         ):
             return HTMLResponse(launcher_page(
                 identity, settings.compute is not None, analytics is not None,
@@ -865,7 +957,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         # logic never sees or stores the administrator credential.
         if path == "/" and request.method == "GET" and "token" in request.query_params:
             values = request.query_params.getlist("token")
-            if len(values) == 1 and hmac.compare_digest(values[0].encode(), settings.admin.token.encode()):
+            if settings.admin is not None and len(values) == 1 and hmac.compare_digest(values[0].encode(), settings.admin.token.encode()):
                 return RedirectResponse("/invite", status_code=303)
             if (
                 len(values) != 1
@@ -875,12 +967,11 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
                 raise HTTPException(401, "入口凭证无效")
             if request.headers.get("origin") and not same_origin(request):
                 raise HTTPException(403, "Same-origin request required")
-            query = urlencode([(key, value) for key, value in request.query_params.multi_items()
-                               if key in {"project", "kiosk"}])
-            target = "/admin" if analytics is not None else "/" + ("?" + query if query else "")
-            response = RedirectResponse(target, status_code=303)
+            response = RedirectResponse("/admin/data", status_code=303)
             set_session(response, "admin", "1" in request.query_params.getlist("kiosk"), "admin")
             return response
+        if path == "/admin" or path.startswith("/admin/"):
+            raise HTTPException(404, "Administrator route not available")
         identity = session(request)
         if identity is None:
             if request.method == "GET" and not path.startswith(("/api/", "/compute/")) and (
@@ -931,7 +1022,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         else:
             if not permitted(path, request.method):
                 raise HTTPException(403, "Route not available")
-            backend = settings.admin if identity["role"] == "admin" else settings.tenants[identity["tenant"]]
+            backend = settings.tenants[identity["tenant"]]
             credential = backend.token
         body = await read_body(request)
         if path == "/api/daemons" and request.method == "POST":
@@ -1002,6 +1093,20 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         headers = {key: value for key, value in headers.items() if credential not in value}
         if PREVIEW_PAGE_ROUTE.fullmatch(path) and "content-security-policy" in upstream.headers:
             headers["content-security-policy"] = upstream.headers["content-security-policy"]
+        if (
+            path.startswith("/plugins/crystalpilot/")
+            and request.method == "GET"
+            and upstream.headers.get("content-type", "").startswith("text/html")
+        ):
+            document = (await upstream.aread()).decode("utf-8")
+            await upstream.aclose()
+            nonce = secrets.token_urlsafe(24)
+            content = re.sub(r"<script(?=[\s>])", f'<script nonce="{nonce}"', document)
+            return HTMLResponse(content, headers={
+                "content-security-policy": CSP.replace(
+                    "script-src 'self'", f"script-src 'self' 'nonce-{nonce}'",
+                ),
+            })
         return ProxyResponse(upstream, headers, capture)
 
     @app.websocket("/{path:path}")
@@ -1011,13 +1116,13 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             await ws.close(code=4401)
             return
         if (analytics is not None and identity["role"] == "trial"
-                and not analytics.consented(identity["tenant"], analytics.notice_version)):
+                and not await run_in_threadpool(analytics.consented, identity["tenant"], analytics.notice_version)):
             await ws.close(code=4401)
             return
         if not same_origin(ws) or not WS_ROUTE.fullmatch("/" + path) or not canonical_path("/" + path):
             await ws.close(code=4403)
             return
-        backend = settings.admin if identity["role"] == "admin" else settings.tenants[identity["tenant"]]
+        backend = settings.tenants[identity["tenant"]]
         query = clean_query(ws, readonly=identity["readonly"])
         query += ("&" if query else "") + urlencode({"token": backend.token})
         url = backend.url.replace("http", "ws", 1) + "/" + quote(path, safe="/") + "?" + query

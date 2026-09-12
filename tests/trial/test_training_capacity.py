@@ -100,13 +100,35 @@ def test_real_size_cumulative_limit_quarantines_instead_of_truncating(training):
         assert db.execute("SELECT record FROM training_tool_episodes WHERE id=?", (episode,)).fetchone()[0] == "[]"
 
 
-def test_single_event_over_four_mib_stays_rejected_below_episode_budget(training):
+def test_single_event_limit_is_independent_of_legacy_episode_budget(training, monkeypatch):
+    from argus_skill.trial import training_capture
+
+    # The current production event and legacy episode limits are both 16 MiB.
+    # A smaller local event limit isolates this branch without reducing production collection.
+    monkeypatch.setattr(training_capture, "HOSTED_PAYLOAD_BYTES", 1024)
     episode = _begin(training, "synthetic-payload-boundary")
-    payload = {"messages": [{"role": "user", "content": [{"type": "text", "text": "x" * (256 * 1024)}],
-                              "timestamp": training.analytics.clock() * 1000} for _ in range(17)], "tools": TOOLS}
-    assert HOSTED_PAYLOAD_BYTES < len(json.dumps(payload)) < HOSTED_EPISODE_BYTES
+    payload = {"messages": [{"role": "user", "content": [{"type": "text", "text": "x" * 2048}],
+                              "timestamp": training.analytics.clock() * 1000}], "tools": TOOLS}
+    assert training_capture.HOSTED_PAYLOAD_BYTES < len(json.dumps(payload)) < HOSTED_EPISODE_BYTES
     result = training.capture.event("tenant-one", "s-project", episode, "context", payload)
     assert result["state"] == "quarantined" and result["reason"] == "capture_payload_oversized"
+
+
+def test_v2_event_above_previous_four_mib_limit_is_retained(training):
+    from argus_skill.trial.training_capture import OBSERVED_POLICY
+
+    episode = training.capture.begin(
+        "tenant-one", "s-project", "synthetic-v2-large-event", observer_verified=True,
+        allowed_tools=[], runtime_profile=HOSTED_PROFILE,
+        runtime_metadata={"capture_policy": OBSERVED_POLICY, "run_label": "planner.cycle0", "mission_id": None},
+    )["episode_id"]
+    payload = {"messages": [{"role": "user", "content": "x" * (4 * 1024 * 1024)}], "tools": []}
+    assert 4 * 1024 * 1024 < len(json.dumps(payload)) < HOSTED_PAYLOAD_BYTES
+    result = training.capture.event("tenant-one", "s-project", episode, "context", payload)
+    assert result["state"] == "capturing"
+    with training.analytics._db() as db:
+        records = training.capture.events(db, episode)
+    assert len(records) == 1 and records[0]["payload"] == payload
 
 
 def test_bridge_rejects_oversized_rpc_before_dispatch(tmp_path):

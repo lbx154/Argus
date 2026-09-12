@@ -41,9 +41,9 @@ def register_analytics(app, analytics, session) -> None:
 
     @app.middleware("http")
     async def observe(request: Request, call_next):
-        identity = session(request)
+        identity = await run_in_threadpool(session, request)
         tenant = identity["tenant"] if identity and identity["role"] == "trial" else None
-        consented = bool(tenant and analytics.consented(tenant, analytics.notice_version))
+        consented = bool(tenant and await run_in_threadpool(analytics.consented, tenant, analytics.notice_version))
         if tenant and not consented and request.url.path not in {
             "/invite", "/invite/login", "/invite/logout", "/admin/login",
         }:

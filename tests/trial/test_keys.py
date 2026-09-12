@@ -52,6 +52,25 @@ def test_concurrent_issuance_never_exceeds_ten_keys(tmp_path):
     assert store.availability()["issued_keys"] == 10
 
 
+def test_explicit_eleventh_key_keeps_first_ten_credentials_balances_and_normal_auth(pool, tmp_path):
+    _, vault, store = pool
+    original = json.loads((tmp_path / "operator-keys.json").read_text())
+    request = store.reserve("trial-01", 100)
+    store.settle(request, 37)
+    issue_keys(vault, tmp_path, tmp_path / "operator-keys.json", key_count=11)
+    expanded = json.loads((tmp_path / "operator-keys.json").read_text())
+    assert expanded[:10] == original and expanded[10]["key_id"] == "trial-11"
+    assert store.authenticate(expanded[10]["api_key"]) == "trial-11"
+    assert store.status("trial-01")["tokens_used"] == 37
+    assert store.status("trial-11")["tokens_used"] == 0
+    assert store.availability()["total_keys"] == store.availability()["issued_keys"] == 11
+    before = (tmp_path / "operator-keys.json").read_bytes()
+    issue_keys(vault, tmp_path, tmp_path / "operator-keys.json", key_count=11)
+    assert (tmp_path / "operator-keys.json").read_bytes() == before
+    with pytest.raises(ValueError, match="11 trial keys"):
+        Store(store.path, key_limit=11).issue("trial-12", vault.credential("trial-12"))
+
+
 def test_public_claim_and_recovery_are_removed_but_private_keys_work(pool):
     settings, vault, store = pool
     key = vault.credential("trial-01")

@@ -12,6 +12,7 @@ import os
 import secrets
 import socket
 import socketserver
+import sqlite3
 import stat
 import struct
 import threading
@@ -31,6 +32,8 @@ from .training_capture import (
 
 IMAGE_PACKAGE = Path("/opt/argus/argus_skill/trial")
 EXTENSION_NAME = "pi_training_extension.mjs"
+
+
 def _process(pid):
     """Use start ticks as well as PID so a recycled process cannot inherit a lease."""
     directory = Path("/proc") / str(pid)
@@ -126,6 +129,27 @@ class PeerVerifier:
         return result
 
 
+class HostPeerVerifier(PeerVerifier):
+    """The preserved local workspace uses the same UDS parent/child binding.
+
+    It already lives on the host, so no container volume marker is expected.
+    The actual workspace web listener owns registration, including daemon
+    launches; an unrelated host process cannot register an episode.
+    """
+
+    def _image_identity(self, proc, uid):
+        actual, expected = proc["root"].stat(), Path("/").stat()
+        if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+            raise AnalyticsError(403, "training_peer_tenant_mismatch")
+        return {}
+
+    @staticmethod
+    def accepts_extension(path):
+        # The authorized local web parent selects its installed observer path.
+        # A release directory change must not disable the next genuine call.
+        return isinstance(path, str) and Path(path).is_absolute() and Path(path).name == EXTENSION_NAME
+
+
 @dataclass
 class Lease:
     sid: str
@@ -169,13 +193,16 @@ class TrainingBridge:
         action = data.get("action") if isinstance(data, dict) else None
         try:
             result = self._dispatch(data, peer)
-        except (AnalyticsError, ValueError, TypeError, OSError, KeyError, IndexError) as exc:
-            code = exc.code if isinstance(exc, AnalyticsError) else "training_bridge_request_rejected"
+        except (AnalyticsError, ValueError, TypeError, OSError, KeyError, IndexError, sqlite3.Error) as exc:
+            code = (exc.code if isinstance(exc, AnalyticsError) else "training_storage_unavailable"
+                    if isinstance(exc, sqlite3.Error) else "training_bridge_request_rejected")
             with self.lock:
                 self.counts["registration_failed" if action == "register" else "requests_rejected"] += 1
                 if code.startswith(("training_peer_", "training_producer_", "training_observer_", "training_pi_")):
                     self.counts["producer_verification_failed"] += 1
                 self.last_error_code = code
+            if isinstance(exc, sqlite3.Error):
+                raise AnalyticsError(503, code) from None
             raise
         with self.lock:
             if action == "register":
@@ -286,12 +313,14 @@ class TrainingBridge:
                 if not isinstance(argv, list) or not 1 <= len(argv) <= 512 or any(not isinstance(arg, str) or len(arg) > 4096 for arg in argv):
                     raise ValueError("Invalid runtime launch")
                 extensions = [argv[index + 1] for index, arg in enumerate(argv[:-1]) if arg in {"-e", "--extension"}]
-                if str(IMAGE_PACKAGE / EXTENSION_NAME) not in extensions:
+                accepts_extension = getattr(self.verify, "accepts_extension", None)
+                if (not any(accepts_extension(path) for path in extensions) if accepts_extension
+                        else str(IMAGE_PACKAGE / EXTENSION_NAME) not in extensions):
                     raise AnalyticsError(403, "training_observer_arguments_mismatch")
                 parent = self._parent(peer, value["sid"])
                 # Registration is metadata-only; grant eligibility is checked
                 # before the producer even projects private in-memory messages.
-                self.training.journal.poll(self.tenant)
+                self.training.journal.ensure_project(self.tenant, value["sid"])
                 access = self.training.capture.authorize(self.tenant, value["sid"])
                 if not access["enabled"]:
                     return {"enabled": False}
@@ -451,7 +480,9 @@ def start_training_bridges(training, tenants):
             server = _Server(str(path), _Handler)
             path.chmod(0o600)
             mode = path.stat()
-            server.bridge = TrainingBridge(training, tenant, PeerVerifier(tenant, training.analytics.tenants[tenant]["data_dir"], uds))
+            configured = training.analytics.tenants[tenant]
+            verifier = HostPeerVerifier if configured.get("runtime_mode") == "host" else PeerVerifier
+            server.bridge = TrainingBridge(training, tenant, verifier(tenant, configured["data_dir"], uds))
             owner.servers.append((server, path, (mode.st_dev, mode.st_ino)))
             threading.Thread(target=server.serve_forever, daemon=True, name="training-bridge").start()
     except Exception:

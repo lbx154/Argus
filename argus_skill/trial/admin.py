@@ -12,25 +12,24 @@ from pathlib import Path
 
 import httpx
 
-from . import CLIENT_MODEL
+from . import CLIENT_MODEL, TRIAL_KEY_COUNT
 from .secrets import Vault, write_private
 from .store import TrialError
 
 
-def issue_keys(vault: Vault, state_dir: Path, output: Path):
-    """Issue the fixed pool once; reruns retain the same keys and balances."""
-    from . import TRIAL_KEY_COUNT
+def issue_keys(vault: Vault, state_dir: Path, output: Path, *, key_count: int = TRIAL_KEY_COUNT):
+    """Issue an explicitly sized pool; reruns retain the same keys and balances."""
     from .store import Store
 
-    store = Store(state_dir / "usage.sqlite3")
+    store = Store(state_dir / "usage.sqlite3", key_limit=key_count)
     keys = []
-    for i in range(1, TRIAL_KEY_COUNT + 1):
+    for i in range(1, key_count + 1):
         key_id = f"trial-{i:02d}"
         credential = vault.credential(key_id)
         store.issue(key_id, credential)
         keys.append({"key_id": key_id, "api_key": credential})
     write_private(output, json.dumps(keys, indent=2).encode())
-    print(f"10 trial keys saved privately to {output}. Existing balances preserved.")
+    print(f"{len(keys)} trial keys saved privately to {output}. Existing balances preserved.")
 
 # Public OAuth application identifier, as used by the Copilot device flow.
 GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98"
@@ -110,6 +109,8 @@ def main() -> int:
     parser.add_argument("command", choices=("init", "login", "import-token", "import-copilot-login", "issue-keys", "serve"))
     parser.add_argument("--state-dir", type=Path, default=Path.home() / ".local/share/argus-trial-gateway")
     parser.add_argument("--key-file", type=Path, default=Path.home() / ".config/argus-trial-gateway/master.key")
+    parser.add_argument("--key-count", type=int, default=TRIAL_KEY_COUNT,
+                        help="Explicit invitation pool size for issue-keys (default: 10)")
     parser.add_argument("--copilot-home", type=Path, default=Path(os.environ.get("COPILOT_HOME") or Path.home() / ".copilot"))
     parser.add_argument("--model", default=CLIENT_MODEL, help="Copilot model supporting Responses with high reasoning")
     parser.add_argument("--host", default="127.0.0.1")
@@ -132,7 +133,7 @@ def main() -> int:
             print("Server master key initialized. Next run: argus-trial-server login")
         elif args.command == "issue-keys":
             issue_keys(Vault(args.key_file, args.state_dir / "github-token.enc"), args.state_dir,
-                       args.keys_output or args.state_dir / "trial-keys.json")
+                       args.keys_output or args.state_dir / "trial-keys.json", key_count=args.key_count)
         elif args.command in {"login", "import-token", "import-copilot-login"}:
             vault = Vault(args.key_file, args.state_dir / "github-token.enc")
             if args.command == "login":

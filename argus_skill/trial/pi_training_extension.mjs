@@ -6,7 +6,7 @@ const MAX_PAYLOAD = 16 * 1024 * 1024;
 
 export function trainingExtension(submit) {
   return function (pi) {
-    let episode = null, privateBlocks = 0;
+    let episode = null, privateBlocks = 0, messageIndex = -1;
 
     async function warning(reason, kind) {
       if (episode === null) return;
@@ -18,8 +18,9 @@ export function trainingExtension(submit) {
     async function project(kind, makePayload) {
       if (episode === null) return;
       try {
-        const payload = makePayload();
-        if (Buffer.byteLength(JSON.stringify(payload)) > MAX_PAYLOAD) throw Error("capture_payload_oversized");
+        const encoded = JSON.stringify(makePayload());
+        if (Buffer.byteLength(encoded) > MAX_PAYLOAD) throw Error("capture_payload_oversized");
+        const payload = JSON.parse(encoded);
         const receipt = await submit("event", {episode_id: episode, kind, payload});
         if (receipt.state !== "capturing") episode = null;
       } catch (error) {
@@ -57,12 +58,30 @@ export function trainingExtension(submit) {
         if (message.role === "assistant") {
           item.stopReason = message.stopReason;
           if (message.errorMessage) item.errorMessage = message.errorMessage;
+          for (const name of ["api", "provider", "model", "responseModel", "responseId", "providerThinkingLevel", "rawStopReason", "endTurn"])
+            if (["string", "boolean", "number"].includes(typeof message[name])) item[name] = message[name];
         }
         if (message.role === "toolResult") Object.assign(item, {
           toolCallId: message.toolCallId, toolName: message.toolName, isError: message.isError,
         });
+        if (message.usage && typeof message.usage === "object") {
+          item.usage = {};
+          for (const name of ["input", "output", "cacheRead", "cacheWrite", "cacheWrite1h", "reasoning", "totalTokens"])
+            if (Number.isFinite(message.usage[name])) item.usage[name] = message.usage[name];
+          if (message.usage.cost && typeof message.usage.cost === "object") {
+            item.usage.cost = {};
+            for (const name of ["input", "output", "cacheRead", "cacheWrite", "total"])
+              if (Number.isFinite(message.usage.cost[name])) item.usage.cost[name] = message.usage.cost[name];
+          }
+        }
+        if (Array.isArray(message.addedToolNames)) item.addedToolNames = message.addedToolNames.filter(name => typeof name === "string");
         return item;
       });
+    }
+
+    function toolOutput(result) {
+      if (!result || typeof result !== "object") return result;
+      return {...result, ...(result.content === undefined ? {} : {content: blocks(result.content, "toolResult")})};
     }
 
     function providerProjection(payload) {
@@ -89,7 +108,14 @@ export function trainingExtension(submit) {
         });
         return item;
       });
-      return {messages: observed, tools: payload.tools || [], model: payload.model};
+      const result = {messages: observed, tools: payload.tools || [], model: payload.model};
+      // Keep generation settings, without copying transport headers, provider
+      // authentication, deferred handles, or unrelated provider internals.
+      for (const name of ["temperature", "top_p", "max_tokens", "max_completion_tokens", "seed", "n",
+        "frequency_penalty", "presence_penalty", "stream", "stream_options", "reasoning_effort", "verbosity",
+        "parallel_tool_calls", "tool_choice", "stop", "response_format", "store"])
+        if (payload[name] !== undefined) result[name] = payload[name];
+      return result;
     }
 
     pi.on("agent_start", async (_event, ctx) => {
@@ -98,6 +124,7 @@ export function trainingExtension(submit) {
         episode = null;
       }
       privateBlocks = 0;
+      messageIndex = -1;
       let failure = "capture_init_authorize_failed";
       try {
         const permission = await submit("authorize", {});
@@ -130,6 +157,18 @@ export function trainingExtension(submit) {
     pi.on("before_provider_request", async event => {
       await project("provider_request", () => providerProjection(event.payload));
     });
+    pi.on("message_start", () => { messageIndex++; });
+    pi.on("message_update", async event => {
+      const update = event.assistantMessageEvent;
+      if (!["text_delta", "toolcall_delta"].includes(update?.type) || typeof update.delta !== "string" || !update.delta) return;
+      // Store the public increment once, never the growing partial message:
+      // partial snapshots contain private reasoning and repeat earlier output.
+      await project("message_delta", () => ({message_index: messageIndex,
+        type: update.type, content_index: update.contentIndex, delta: update.delta}));
+    });
+    pi.on("message_end", async event => {
+      await project("message_end", () => ({message_index: messageIndex, messages: messages([event.message])}));
+    });
     pi.on("tool_call", async event => {
       await project("tool_call", () => ({toolCallId: event.toolCallId, toolName: event.toolName, input: event.input}));
     });
@@ -139,6 +178,17 @@ export function trainingExtension(submit) {
         content: blocks(event.content, "toolResult"), isError: event.isError,
         output_complete: !event.details?.truncation?.truncated && !event.details?.fullOutputPath,
       }));
+    });
+    pi.on("tool_execution_start", async event => {
+      await project("tool_execution_start", () => ({toolCallId: event.toolCallId, toolName: event.toolName, args: event.args}));
+    });
+    pi.on("tool_execution_update", async event => {
+      await project("tool_execution_update", () => ({toolCallId: event.toolCallId, toolName: event.toolName,
+        args: event.args, partialResult: toolOutput(event.partialResult)}));
+    });
+    pi.on("tool_execution_end", async event => {
+      await project("tool_execution_end", () => ({toolCallId: event.toolCallId, toolName: event.toolName,
+        result: toolOutput(event.result), isError: event.isError}));
     });
     pi.on("agent_end", async event => {
       await project("agent_end", () => ({messages: messages(event.messages), private_blocks_excluded: privateBlocks > 0}));

@@ -173,3 +173,134 @@ def test_start_cli_selects_capture_image_only_for_new_containers(tmp_path, monke
         for number, command in enumerate(launches, 1):
             assert f"type=bind,src={tmp_path}/tenants/trial-{number:02d}/data,dst=/tenant" in command
     assert not any(command[1] in {"stop", "restart", "rm"} for command in commands)
+
+
+def _fake_docker(state):
+    """A stateful docker stand-in tracking each container's image and label."""
+    import json
+    from subprocess import CompletedProcess
+
+    commands = []
+
+    def run(argv, **kwargs):
+        commands.append(argv)
+        head = argv[:3]
+        if head == ["docker", "container", "inspect"]:
+            name = argv[-1]
+            if name not in state:
+                return CompletedProcess(argv, 1, stdout="", stderr="No such container")
+            record = state[name]
+            data = [{"Config": {"Image": record["image"],
+                                "Labels": {"argus.web.tenant": record["label"]}}}]
+            return CompletedProcess(argv, 0, stdout=json.dumps(data), stderr="")
+        if argv[:2] == ["docker", "run"]:
+            name = argv[argv.index("--name") + 1]
+            label = argv[argv.index("--label") + 1].split("=", 1)[1]
+            state[name] = {"image": argv[-1], "label": label}
+        elif argv[:2] == ["docker", "rename"]:
+            state[argv[-1]] = state.pop(argv[-2])
+        elif argv[:2] == ["docker", "rm"]:
+            state.pop(argv[-1], None)
+        return CompletedProcess(argv, 0, stdout="", stderr="")
+
+    return run, commands
+
+
+def test_roll_recreates_only_containers_on_a_different_image(tmp_path, monkeypatch):
+    from argus_skill.trial import web_admin
+
+    state = {f"argus-web-trial-{n:02d}": {"image": "argus:old", "label": f"trial-{n:02d}"}
+             for n in range(1, 11)}
+    # One tenant is already on the target image and must be left untouched.
+    state["argus-web-trial-05"]["image"] = "argus:new"
+    run, commands = _fake_docker(state)
+    monkeypatch.setattr(web_admin.subprocess, "run", run)
+    monkeypatch.setattr(web_admin.os.path, "ismount", lambda path: True)
+
+    results = web_admin.roll_containers(tmp_path, image="argus:new")
+
+    assert results["trial-05"] == "current"
+    assert all(results[f"trial-{n:02d}"] == "upgraded" for n in range(1, 11) if n != 5)
+    # Every rolled tenant drained, kept a rollback, and relaunched on the new image.
+    assert ["docker", "stop", "--time", "30", "argus-web-trial-05"] not in commands
+    for n in range(1, 11):
+        if n == 5:
+            continue
+        name = f"argus-web-trial-{n:02d}"
+        assert ["docker", "stop", "--time", "30", name] in commands
+        assert ["docker", "rename", name, f"{name}-rollback"] in commands
+    launches = [c for c in commands if c[:2] == ["docker", "run"]]
+    assert len(launches) == 9 and all(c[-1] == "argus:new" for c in launches)
+    # Every container, new and pre-existing, still exists afterwards on the new image.
+    assert all(state[f"argus-web-trial-{n:02d}"]["image"] == "argus:new" for n in range(1, 11))
+    assert all(f"argus-web-trial-{n:02d}-rollback" in state for n in range(1, 11) if n != 5)
+
+
+def test_roll_restores_previous_container_when_recreate_fails(tmp_path, monkeypatch):
+    from subprocess import CalledProcessError
+
+    from argus_skill.trial import web_admin
+
+    state = {"argus-web-trial-01": {"image": "argus:old", "label": "trial-01"}}
+    run, commands = _fake_docker(state)
+
+    def failing(argv, **kwargs):
+        if argv[:2] == ["docker", "run"]:
+            raise CalledProcessError(1, argv)
+        return run(argv, **kwargs)
+
+    monkeypatch.setattr(web_admin.subprocess, "run", failing)
+    monkeypatch.setattr(web_admin.os.path, "ismount", lambda path: True)
+
+    with pytest.raises(CalledProcessError):
+        web_admin.roll_containers(tmp_path, numbers=[1], image="argus:new")
+
+    # The drained container is renamed back and restarted; service is preserved.
+    assert ["docker", "rename", "argus-web-trial-01-rollback", "argus-web-trial-01"] in commands
+    assert ["docker", "start", "argus-web-trial-01"] in commands
+    assert state["argus-web-trial-01"]["image"] == "argus:old"
+    assert "argus-web-trial-01-rollback" not in state
+
+
+def test_release_rolls_backend_before_flipping_frontend_and_writes_manifest(tmp_path, monkeypatch):
+    import json
+    from subprocess import CompletedProcess
+
+    from argus_skill.trial import web_admin
+
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "portal.json").write_text(json.dumps({"frontend_dir": "/old/dist", "tenants": {}}))
+    source = tmp_path / "src"
+    dist = source / "frontend/web/dist"
+    dist.mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html>")
+
+    state = {f"argus-web-trial-{n:02d}": {"image": "argus:old", "label": f"trial-{n:02d}"}
+             for n in range(1, 11)}
+    docker, commands = _fake_docker(state)
+
+    def run(argv, **kwargs):
+        if argv[:2] == ["git", "-C"]:
+            out = "abc1234" if argv[3] == "rev-parse" else ""
+            return CompletedProcess(argv, 0, stdout=out + "\n", stderr="")
+        return docker(argv, **kwargs)
+
+    monkeypatch.setattr(web_admin.subprocess, "run", run)
+    monkeypatch.setattr(web_admin.os.path, "ismount", lambda path: True)
+
+    manifest = web_admin.release(root, image="argus:new", source=source)
+
+    assert manifest["version"] == "abc1234"
+    assert manifest["image"] == "argus:new"
+    assert manifest["frontend_dir"] == str(dist)
+    assert set(manifest["tenants"].values()) == {"upgraded"}
+    saved = json.loads((root / "release.json").read_text())
+    assert saved == manifest
+    # Frontend flips only after the backend rolled: portal.json now points at the
+    # new dist and the portal restart is the final action, after the image roll.
+    assert json.loads((root / "portal.json").read_text())["frontend_dir"] == str(dist)
+    restart = ["systemctl", "--user", "restart", "argus-web-trial-portal"]
+    assert commands[-1] == restart
+    last_run = max(i for i, c in enumerate(commands) if c[:2] == ["docker", "run"])
+    assert last_run < commands.index(restart)

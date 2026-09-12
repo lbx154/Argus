@@ -102,8 +102,8 @@ def load_config(config):
     if not isinstance(config["image"], str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./:@-]*", config["image"]):
         raise ValueError("Invalid image")
     tenants = config["tenants"]
-    if not isinstance(tenants, dict) or not 1 <= len(tenants) <= 10:
-        raise ValueError("Configure 1..10 invitation tenants")
+    if not isinstance(tenants, dict) or not 1 <= len(tenants) <= 11:
+        raise ValueError("Configure 1..11 invitation tenants")
     roots = []
     for tenant, options in tenants.items():
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", tenant) or set(options) != {"data_dir"}:
@@ -272,7 +272,7 @@ class ComputeService:
                     self.executor.validate_volume(options["data_dir"], tenant)
             if not self.config["trial_db"].is_file():
                 raise ValueError("Existing model trial_db is required")
-            self.auth = Store(self.config["trial_db"])
+            self.auth = Store(self.config["trial_db"], key_limit=len(self.config["tenants"]))
             with closing(sqlite3.connect(self.path)) as db:
                 db.executescript("""
                     PRAGMA journal_mode=WAL;

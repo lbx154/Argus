@@ -20,12 +20,16 @@ class TrialError(Exception):
 
 
 class Store:
-    def __init__(self, path: Path, *, clock=time.time, token_limit: int | None = TOKEN_LIMIT):
+    def __init__(self, path: Path, *, clock=time.time, token_limit: int | None = TOKEN_LIMIT,
+                 key_limit: int = TRIAL_KEY_COUNT):
         if token_limit is not None and (type(token_limit) is not int or token_limit <= 0):
             raise ValueError("Trial token limit must be a positive integer")
+        if type(key_limit) is not int or not 1 <= key_limit <= 100:
+            raise ValueError("Trial key limit must be between 1 and 100")
         self.path = path
         self.clock = clock
         self.token_limit = token_limit
+        self.key_limit = key_limit
         with closing(sqlite3.connect(path)) as db:
             db.executescript("""
                 PRAGMA journal_mode=WAL;
@@ -92,8 +96,8 @@ class Store:
                 return
             else:
                 count = db.execute("SELECT count(*) FROM trial_keys").fetchone()[0]
-                if count >= TRIAL_KEY_COUNT:
-                    raise ValueError("All 10 trial keys have already been issued")
+                if count >= self.key_limit:
+                    raise ValueError(f"All {self.key_limit} trial keys have already been issued")
             db.execute(
                 "INSERT OR IGNORE INTO trial_keys(key_id, credential_hash) VALUES (?, ?)",
                 (key_id, digest),
@@ -104,7 +108,7 @@ class Store:
             issued, available = db.execute(
                 "SELECT count(*), coalesce(sum(claim_hash IS NULL), 0) FROM trial_keys"
             ).fetchone()
-        return {"total_keys": TRIAL_KEY_COUNT, "issued_keys": issued, "available_keys": available}
+        return {"total_keys": max(self.key_limit, issued), "issued_keys": issued, "available_keys": available}
 
     def authenticate(self, credential: str) -> str:
         digest = hashlib.sha256(credential.encode()).hexdigest()

@@ -29,14 +29,43 @@ The plugin center uses Argus's authenticated local administration interface. It 
 
 On a hosted service the visitor should never have to click Install: the server prepares the workbench itself. Set `ARGUS_PLUGINS_PREINSTALL` to the comma-separated catalog ids that must be present (for example `ARGUS_PLUGINS_PREINSTALL=crystalpilot`). At startup the web server checks each one; a plugin that is installed, enabled and matches the catalog is left untouched, anything else starts the normal verified install (with its automatic setup) in the background, once, without delaying the interface. The server log records what was found and what was started. While the install runs, the sidebar entry shows a single preparing sentence with the current step; once it finishes, the entry opens the workbench directly. Plugins named this way are reported with `managed_by_host: true`, the interface hides disable and uninstall for them, and the API refuses those two actions.
 
-To avoid a several-minute first start on every tenant, bake the plugin into the image with the same verified install:
+The invitation runtimes declare CrystalPilot automatically and prepare its
+workspace under each account's `ARGUS_SKILL_HOME/crystalpilot-runtime`.
+The public portal permits the curated workbench's launch, conversations,
+uploads and scientific operations, retaining invitation authentication,
+same-origin checks and read-only restrictions. Installation, updates, removal
+and arbitrary executable-path configuration remain service-owned; users can
+check/repair the environment and submit their own SHELX download credentials.
+Folder browsing and opening/importing a project cannot escape that account's
+CrystalPilot workspace, including through symlinks. No backend credential or
+plugin access cookie is forwarded to the browser.
+
+To prepare a tenant before its first visit, use the same verified install:
 
 ```
-ARGUS_SKILL_HOME=/tmp/argus-build \
-python -m argus_skill.release_tools.preinstall_plugins crystalpilot --root /opt/argus-plugins
+ARGUS_SKILL_HOME=/tenant/home/.argus-skill \
+python -m argus_skill.release_tools.preinstall_plugins crystalpilot --root /tenant/home/.argus-skill
 ```
 
-The command waits for the install to finish and exits non-zero if it did not. Point every tenant at that root with `ARGUS_WORKBENCH_HOST_ROOT=/opt/argus-plugins` and keep `ARGUS_PLUGINS_PREINSTALL=crystalpilot` set, so startup confirms the shared copy and tenants see it as provided by the service. Environment checks and repairs write under `<root>/extensions/<id>/resources`, so the root must stay writable by the tenant user. Egress from the build host and from any tenant that installs at startup must reach the distribution host (`crystalpilot-downloads.argusbot.cn` over HTTPS) and the upstream sources the automatic setup downloads.
+The command waits for completion and exits non-zero on failure. Run it inside
+the account's container, using the same absolute root as its API. Do not point
+multiple accounts at a shared writable host root: the plugin stores bindings
+and conversations there as well as reusable software. API routes explicitly use
+their own account root, rather than overriding it with
+`ARGUS_WORKBENCH_HOST_ROOT`. Startup confirms the prepared copy without
+reinstalling a current enabled release. Egress must reach the distribution host
+(`crystalpilot-downloads.argusbot.cn` over HTTPS) and the upstream sources used by
+automatic setup. A successful install makes the workbench available but does
+not imply that optional licensed components are installed; check their health
+rows separately.
+
+The curated CrystalPilot 0.4.0 environment constrains NumPy to `<2`: its
+distributed cctbx wheel can crash when loaded after NumPy 2. The installer
+passes catalog constraints through both pip installation stages, checks
+dependency consistency, and cold-imports the scientific registry in its real
+load order before activation. Changed constraints require an update even when
+the plugin wheel version is unchanged. A module-only or lightweight health
+check is not sufficient proof that the scientific worker can start.
 
 ## Release maintenance
 

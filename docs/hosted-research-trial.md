@@ -1,28 +1,37 @@
 # Hosted research trial and data review
 
-The hosted service provides ten invitation-scoped workspaces, separate model and
+The hosted service supports eleven invitation-scoped workspaces, separate model and
 compute accounting, an operator dashboard, and consent-aware research replay and
 dataset export. It runs on a Linux operator host; ordinary Argus desktop and Web
 installations do not enable this service automatically.
 
-## Administrator runtime
+## Eleventh workspace and data administrator
 
-The administrator workspace is a separate runtime, not one of the ten
-invitation containers. Start it explicitly with
+The original administrator workspace is enrolled as ordinary `trial-11`, alongside
+the ten invitation containers. Its original state and project paths are retained.
+Start this existing native workspace explicitly with
 `python -m argus_skill.trial.admin_runtime --portal-config /private/portal.json
 --state-dir /existing/admin/state --workdir /existing/admin/workspace
---pi-bin /installed/Argus-Pi/packages/coding-agent/dist/bundle/cli.js`.
-It retains the existing project state, pins all roles to Argus-Pi and `gpt-5.5`,
-and verifies the deployment's encrypted upstream credential before serving.
-The provider secret is supplied through the process environment, not written
-into model configuration. Administrator usage remains in its own Argus ledger;
-it does not consume another invitation's allowance. This replaces the legacy
-demo launcher's accidental dependence on the host Copilot CLI login.
+--pi-bin /installed/Argus-Pi/packages/coding-agent/dist/bundle/cli.js
+--tenant trial-11 --uds /private/tenants/trial-11/run/web.sock
+--model-socket /private/model-socket/gateway.sock`.
+Its own invitation authenticates model requests through the shared meter. Add
+`trial-11` to the portal, analytics and compute configurations; analytics uses
+the original `global_root` and explicit `runtime_mode: "host"`. Compute retains
+the ordinary mounted-volume layout and a separate 200-GPU-hour allowance.
+The default provisioning command still creates ten container workspaces; enrolling
+an existing native workspace does not move or recreate its project files.
+
+The data administrator signs in at `/admin/login` using `admin_login_token`.
+This creates an `/admin` cookie independent of the ordinary invitation cookie.
+Both logins can coexist in one browser, and signing out of either leaves the
+other session intact. The administrator key grants data-backend access; opening
+a project still requires an ordinary invitation, including for `trial-11`.
 
 ## Mission map
 
-The configured hosted frontend is shared by authenticated invitation and
-administrator workspaces. Their project APIs remain separately routed; sharing
+The configured hosted frontend is shared by all authenticated invitation
+workspaces, including `trial-11`. Their project APIs remain separately routed; sharing
 the interface does not merge projects, credentials, or conversation records.
 
 The map shows the latest page of each mission as a single card by default.
@@ -71,6 +80,14 @@ existing team policy through the separate offline-authorization mechanism. An
 offline policy is identified as operator-attested authorization, not a fabricated
 browser receipt. An unknown historical effective date does not authorize backfill.
 
+For an explicitly authorized internal team, the private portal configuration can
+set `team_training_policy` with `mode: "internal_team_offline"`, selected
+`tenant_ids`, and an `evidence_note` recording the owner's declaration. It activates
+that policy on the live collector and supplies missing internal-training grants.
+Existing grants, withdrawals and captured episodes are preserved; restarting the
+service or repeating an ordinary invitation login does not reset their boundary.
+This configuration does not authorize external sharing.
+
 Internal training and external sharing are separate purposes. External sharing is
 off by default and needs its own authorization and export review. Revocation,
 notice changes and project deletion are checked again during collection/export.
@@ -81,6 +98,12 @@ truncation and gap markers. Initial observation and source replacement establish
 a collection boundary; existing bytes are not retrospectively imported.
 Sequence is ingestion order, not a proof of causal order or successful work.
 
+The running portal holds an idle WAL connection and uses SQLite's `NORMAL`
+synchronous mode for analytics. This prevents every streamed observation from
+forcing a disk flush and every short connection from checkpointing on close.
+Registration indexes the current project instead of replaying the whole tenant;
+database checks in request middleware run outside the asynchronous event loop.
+
 Project research copies can be deleted with a tombstone that disables future
 collection for that project. Research retention is at most 30 days, with additional
 capacity limits. Source workspace/runtime files, accounting, separately retained
@@ -88,6 +111,19 @@ consent/checkpoint metadata, downloaded exports and independent backups have
 separate lifecycles. Logical deletion is not secure disk erasure.
 
 ## Dataset review
+
+The current data workbench at `/admin/data` collects Manager, Planner, Engineer
+and Reviewer observations before quality review. It retains actual application
+system/developer inputs, visible model output, provider requests, tool definitions,
+arguments and results. Zero-tool, failed and interrupted calls retain their
+observed records. Structured hidden reasoning and signatures are omitted.
+Collection status and quality acceptance are separate; incomplete or sensitive
+observations are not grounds to discard an entire current-policy episode.
+The workbench's observation export does not require per-sample digest approval.
+
+The following strict candidate-review and SFT export workflow remains available
+for legacy samples and separately reviewed datasets; it does not gate the
+current observation collector.
 
 The operator page at `/admin` supports selected-project previews, purpose filters,
 pagination, explicit per-event quality review, and export auditing. The tester data
@@ -217,13 +253,45 @@ The same capture tag is the default when `--image` is omitted. Pass an explicit
 tag for a later verified release. The separate compute scheduler uses its own
 compute image from `compute.json`.
 
-Existing containers retain their image: this command starts them without
+Existing containers retain their image: `start-containers` starts them without
 recreating them, and Docker restart also retains their original image. Upgrading
-them requires a separate migration after their active and queued tasks have
-finished. Preserve each tenant's data, bootstrap and socket mounts, retain a
-rollback container, then recreate only the idle container with the selected
-image. Do not replace an active container to enable capture; collect new tasks
-after its migration instead of importing earlier runtime logs.
+them is a deliberate, separate step because it interrupts a tenant's running
+work.
+
+Ship the frontend, portal and tenant image as one version with a single
+backend-first roll:
+
+```sh
+python -m argus_skill.trial.web_admin release \
+  --root "$ARGUS_TRIAL_ROOT" \
+  --image argus-web-trial:pi-<commit> \
+  --source /path/to/deployed/checkout
+```
+
+For a deployment with native `trial-11`, update that service and the portal's
+`WorkingDirectory`/`PYTHONPATH` to the same immutable source as the container
+image, then switch the completed frontend build. Stop any older automatic
+rollout timer before replacing containers. Snapshot active project daemons,
+stop them cooperatively, and restore those same daemons through the new
+workspace API after readiness checks; keep project state and paused questions.
+
+`release` stamps the version from the source checkout's commit (refusing a dirty
+tree unless `--allow-dirty`), rolls every tenant container to `--image` first,
+then points the portal at that source's built frontend and restarts it, so the
+frontend never advertises a route the running backend lacks. It records the one
+version tying image, frontend and source together in `release.json` under the
+root, for audit and rollback, and preserves each tenant's data, bootstrap and
+socket mounts across the recreate. Build `--image` from the same commit as
+`--source` so the three pieces genuinely match; pass `--no-restart-portal` to
+roll and record without flipping the frontend yet.
+
+`roll-containers` performs only the container half: it recreates every tenant on
+`--image`, draining the previous container and retaining it as
+`<name>-rollback` for recovery, and leaves a tenant already on the target image
+untouched (the roll is idempotent). Because the roll replaces running
+containers, a tenant's active and queued tasks are interrupted; run it when that
+cost is acceptable, and recover a failed tenant from its retained rollback
+container.
 
 `deploy/trial/web_services.py --root "$ARGUS_TRIAL_ROOT"` creates five user units:
 the portal, model meter, compute scheduler, HTTPS egress proxy and relay guardian.
@@ -243,7 +311,7 @@ capacity available for the trial.
 
 ## Capture capacity and public references
 
-Hosted Pi episodes retain at most 16 MiB of cumulative observations and 512
+Legacy strict Pi episodes retain at most 16 MiB of cumulative observations and 512
 observations. Repeated public contexts count toward that total. Each projected
 event and observer RPC remains limited to 4 MiB, with an 8 KiB transport envelope;
 individual public text stays at 256 KiB and tool results at 64 KiB. Retained hosted
@@ -256,7 +324,7 @@ separately when their combined package exceeds the limit. The offline validator
 retains its independent 64 MiB ZIP and expanded-content ceiling; that does not
 increase the exporter limit.
 
-Standard platform directory references are recognized as public path literals,
+In that legacy strict workflow, standard platform directory references are recognized as public path literals,
 with project and mission references bound to the observed runtime. Published
 Skill files are resolved from the built-in package inventory, and actual `read`
 results must match the shipped body or its exact requested line selection.

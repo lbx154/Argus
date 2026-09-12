@@ -29,6 +29,7 @@ import os
 import re
 import sqlite3
 import stat
+import threading
 import time
 from collections.abc import Mapping
 from contextlib import closing, contextmanager
@@ -197,16 +198,23 @@ class Analytics:
             raise ValueError("token_limit must be a positive integer or null")
         self.token_limit = token_limit
         self.tenants = {}
-        if not 1 <= len(tenants) <= 10:
-            raise ValueError("Expected 1..10 configured invitation accounts")
+        if not 1 <= len(tenants) <= 100:
+            raise ValueError("Expected 1..100 configured invitation accounts")
         for tenant, config in tenants.items():
             if not _ID.fullmatch(tenant) or type(config.get("internal_test")) is not bool:
                 raise ValueError("Invalid tenant configuration")
             path = Path(config["data_dir"])
             if not path.is_absolute() or ".." in path.parts:
                 raise ValueError("data_dir must be an absolute path")
+            global_root = Path(config.get("global_root", path / "home/.argus-skill"))
+            if not global_root.is_absolute() or ".." in global_root.parts:
+                raise ValueError("global_root must be an absolute path")
+            runtime_mode = config.get("runtime_mode", "container")
+            if runtime_mode not in ("container", "host"):
+                raise ValueError("runtime_mode must be container or host")
             self.tenants[tenant] = {
-                "data_dir": path, "internal_test": config["internal_test"],
+                "data_dir": path, "global_root": global_root, "runtime_mode": runtime_mode,
+                "internal_test": config["internal_test"],
             }
         self.notice_version = notice_version
         self.retention_days = retention_days
@@ -215,10 +223,12 @@ class Analytics:
         state_dir = Path(state_dir).absolute()
         # The operator-owned index must never be placed in a tenant's writable tree.
         for config in self.tenants.values():
-            if state_dir.resolve().is_relative_to(config["data_dir"].resolve()):
+            if any(state_dir.resolve().is_relative_to(config[field].resolve()) for field in ("data_dir", "global_root")):
                 raise ValueError("analytics state must be separate from tenant data")
         state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = state_dir / "analytics.sqlite3"
+        self._storage_anchor = None
+        self._storage_lock = threading.Lock()
         if self.path.is_symlink():
             raise ValueError("analytics database may not be a symlink")
         with self._db() as db:
@@ -246,8 +256,37 @@ class Analytics:
     def _db(self):
         with closing(sqlite3.connect(self.path, timeout=5)) as db:
             db.row_factory = sqlite3.Row
+            # WAL commits stay transactional without a device flush for every
+            # HTTP counter or streamed token. Checkpoints retain WAL recovery.
+            db.execute("PRAGMA synchronous=NORMAL")
             with db:
                 yield db
+
+    def open_storage(self):
+        """Keep an idle WAL reader attached for the portal's lifetime.
+
+        Closing the last short-lived connection checkpoints and unlinks WAL.
+        Under a busy filesystem that flush can hold an exclusive database lock
+        for seconds, blocking both new observations and ordinary page requests.
+        This anchor owns no transaction and does not serialize actual readers.
+        """
+        with self._storage_lock:
+            if self._storage_anchor is None:
+                anchor = sqlite3.connect(self.path, timeout=5, isolation_level=None, check_same_thread=False)
+                try:
+                    anchor.execute("PRAGMA synchronous=NORMAL")
+                    anchor.execute("SELECT count(*) FROM sqlite_master").fetchone()
+                    anchor.execute("PRAGMA query_only=ON")
+                except BaseException:
+                    anchor.close()
+                    raise
+                self._storage_anchor = anchor
+
+    def close_storage(self):
+        with self._storage_lock:
+            anchor, self._storage_anchor = self._storage_anchor, None
+            if anchor is not None:
+                anchor.close()
 
     def _tenant(self, tenant):
         if tenant not in self.tenants:
@@ -567,7 +606,7 @@ class Analytics:
     @contextmanager
     def _projects_dir(self, tenant):
         self._require_consent(tenant)
-        path = self.tenants[tenant]["data_dir"] / "home/.argus-skill/projects"
+        path = self.tenants[tenant]["global_root"] / "projects"
         try:
             with _directory(path) as fd:
                 yield fd
