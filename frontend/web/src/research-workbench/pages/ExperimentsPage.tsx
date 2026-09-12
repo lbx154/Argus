@@ -2,7 +2,7 @@ import { Activity, AlertTriangle, Check, Circle, Clock3, Pause, Play, RefreshCw,
 import { useEffect, useMemo, useState } from 'react';
 import { Badge, EmptyState, EventTimeline } from '../components/Common';
 import { roleLabel, statusLabel } from '../enumLabels';
-import { AGENT_ROLES, agentRoleDescription } from '../../lib/agentRoles';
+import { AGENT_ROLES, agentRoleColor, agentRoleDescription } from '../../lib/agentRoles';
 import { isBookkeepingEvent, plainDetail, plainStage } from '../../lib/plainStatus';
 import { workStatusLabel } from '../../lib/workStatus';
 import { readableToolProgress } from '../../lib/feedSteps';
@@ -96,7 +96,7 @@ export function ExperimentsPage(props: ActiveWorkbenchPageProps) {
             const role = props.snapshot.roles.find((item) => item.role === name);
             const active = running && progress.runtime.role === name;
             const idleStatus = role?.status && !ACTIVE.has(role.status) ? role.status : 'idle';
-            return <article className={active ? 'is-active' : ''} key={name}><span data-role-dot={name} className={`role-dot role-dot--${name}`} aria-hidden="true" /><div><strong>{roleLabel(name, text)}</strong><p>{agentRoleDescription(name, t)}</p></div>{active ? <Badge tone="live" dot>{text('执行中', 'Working')}</Badge> : <Badge tone={statusTone(idleStatus)}>{statusLabel(idleStatus, text)}</Badge>}</article>;
+            return <article className={active ? 'is-active' : ''} key={name}><span data-role-dot={name} className="role-dot" style={{ backgroundColor: agentRoleColor(name) }} aria-hidden="true" /><div><strong>{roleLabel(name, text)}</strong><p>{agentRoleDescription(name, t)}</p></div>{active ? <Badge tone="live" dot>{text('执行中', 'Working')}</Badge> : <Badge tone={statusTone(idleStatus)}>{statusLabel(idleStatus, text)}</Badge>}</article>;
           })}</div></section>
           <section className="ros-card estimate-note"><header><div><h2>{text('还需要多久', 'How much longer?')}</h2></div></header><div><p><strong>{text('暂无法可靠预计', 'No reliable estimate yet')}</strong>{progress.etaUnavailableReason}</p><div className="work-evidence-note"><ShieldCheck size={15} /><span>{text('真实已用时间和已完成工作可以统计。读文件、运行命令或审查结束，都不能换算成整体目标的完成百分比。', 'Elapsed time and completed work can be counted. File reads, commands, and the end of a review do not establish a completion percentage for the overall goal.')}</span></div>{props.controls.error ? <div className="inline-error">{props.controls.error}</div> : null}</div></section>
         </aside>

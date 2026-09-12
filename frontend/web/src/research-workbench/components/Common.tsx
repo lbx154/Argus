@@ -16,6 +16,7 @@ import remarkMath from 'remark-math-extended';
 import rehypeKatex from 'rehype-katex';
 import { PdfPreview } from '../../components/PdfPreview';
 import { isMarkdownArtifact } from '../../lib/artifactPresentation';
+import { agentRoleColor } from '../../lib/agentRoles';
 import { plainDetail } from '../../lib/plainStatus';
 import { api } from '../api';
 import { roleLabel } from '../enumLabels';
@@ -160,7 +161,7 @@ export function EventTimeline({
             <div className={cx('event-row__marker', `event-row__marker--${tone}`)} />
             <div className="event-row__content">
               <div className="event-row__meta">
-                <span className={cx('role-label', `role-label--${role}`)}>{roleLabel(role, text)}</span>
+                <span className="role-label" style={{ color: agentRoleColor(role) }}>{roleLabel(role, text)}</span>
                 <time>{formatClock(event.ts, locale)}</time>
               </div>
               <div className="event-row__title">{title}</div>

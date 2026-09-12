@@ -4,7 +4,7 @@ import { api } from '../api';
 import { ArgusMark } from '../components/Brand';
 import { Badge, EmptyState, Markdown } from '../components/Common';
 import { roleLabel, statusLabel } from '../enumLabels';
-import { AGENT_ROLES } from '../../lib/agentRoles';
+import { AGENT_ROLES, agentRoleColor } from '../../lib/agentRoles';
 import type { EventMsg, PromptRewrite, Role } from '../types';
 import { eventDetail, eventRole, eventTitle, formatClock } from '../utils';
 import { useManagerRun } from '../useManagerRun';
@@ -42,7 +42,7 @@ function ToolTrace({ events, roles, connected }: { events: EventMsg[]; roles: Ro
         {AGENT_ROLES.map((name, index) => {
           const role = roles.find((item) => item.role === name);
           const count = rows.filter((event) => eventRole(event) === name).length;
-          return <div className={role?.active ? 'is-active' : role?.status === 'done' ? 'is-done' : ''} key={name}><span className={`role-orb role-orb--${name}`} /> <strong>{roleLabel(name, text)}</strong><small>{role?.active ? role.label : statusLabel(role?.status || 'waiting', text)} · {count}</small>{index < AGENT_ROLES.length - 1 ? <b>↓</b> : null}</div>;
+          return <div className={role?.active ? 'is-active' : role?.status === 'done' ? 'is-done' : ''} key={name}><span className="role-orb" style={{ backgroundColor: agentRoleColor(name) }} /> <strong>{roleLabel(name, text)}</strong><small>{role?.active ? role.label : statusLabel(role?.status || 'waiting', text)} · {count}</small>{index < AGENT_ROLES.length - 1 ? <b>↓</b> : null}</div>;
         })}
       </div>
       {current ? <section className="current-operation"><span><Activity size={15} /></span><div><small>{text('当前最新动作', 'Latest action')} · {formatClock(current.ts, locale)}</small><strong>{eventTitle(current)}</strong><code>{eventDetail(current, 180)}</code></div></section> : null}
