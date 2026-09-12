@@ -88,6 +88,13 @@ Existing grants, withdrawals and captured episodes are preserved; restarting the
 service or repeating an ordinary invitation login does not reset their boundary.
 This configuration does not authorize external sharing.
 
+Members of this configured scope can enter with their invitation alone. Code-only
+sign-in uses the recorded operator authorization and does not manufacture a
+browser acceptance or re-enable a withdrawn training grant. For mixed
+deployments, the entry form first verifies the invitation: the existing notice
+form is shown only when the verified account still requires it. Accounts outside
+the private policy retain the normal affirmative-onboarding requirement.
+
 Internal training and external sharing are separate purposes. External sharing is
 off by default and needs its own authorization and export review. Revocation,
 notice changes and project deletion are checked again during collection/export.
