@@ -167,7 +167,12 @@ def is_copilot_context_parser_refusal(
         and receipt.get("turn_failed") is True
         and receipt.get("turn_completed") is False
         and receipt.get("thread_id") is None
-        and receipt.get("fatal_error") == "Process exited with code 1 before turn completion."
+        # The runner's record now carries the CLI's own stderr lines after its
+        # receipt line; older receipts hold the bare receipt.
+        and (
+            receipt.get("fatal_error") == "Process exited with code 1 before turn completion."
+            or is_copilot_context_parser_error(receipt.get("fatal_error"))
+        )
         and receipt.get("tool_activity_observed") is False
         and all(receipt.get(key) == 0 for key in (
             "agent_message_count", "stdout_line_count", "json_event_count"))

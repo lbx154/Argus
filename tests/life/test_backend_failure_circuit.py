@@ -127,10 +127,32 @@ class _StoppableEngineer(_ScriptedEngineer):
 
 
 def _rate_limited(seconds: int) -> RunnerResult:
+    """A session the provider ended the same way each time.
+
+    The record is a session death — the CLI exited without naming a cause —
+    which is what the failure streak and its hold are for. A record that
+    names an unreachable service (see ``_unreachable``) never reaches the
+    streak: it pauses for a provider cooldown instead.
+    """
+    return RunnerResult(
+        exit_code=2,
+        agent_messages=[],
+        fatal_error=(
+            "Process exited with code 2 before turn completion.\n"
+            f"turn ended after {seconds}s without a result"
+        ),
+    )
+
+
+def _unreachable(port: int) -> RunnerResult:
     return RunnerResult(
         exit_code=1,
         agent_messages=[],
-        fatal_error=f"Too Many Requests 429 (retry after {seconds}s)",
+        fatal_error=(
+            "Copilot CLI exited with code 1.\n"
+            f"Error: connect ECONNREFUSED 127.0.0.1:{port}\n"
+            "    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1555:16)"
+        ),
     )
 
 
@@ -239,9 +261,16 @@ def test_mixed_failure_signatures_keep_the_ordinary_fail_fast(
     tmp_path: Path, monkeypatch,
 ) -> None:
     engineer = _ScriptedEngineer([
-        RunnerResult(exit_code=1, agent_messages=[], fatal_error="gateway timeout"),
         RunnerResult(
-            exit_code=1, agent_messages=[], fatal_error="connection reset by peer"
+            exit_code=2, agent_messages=[],
+            fatal_error="Process exited with code 2 before turn completion.",
+        ),
+        RunnerResult(
+            exit_code=1, agent_messages=[],
+            fatal_error=(
+                "Copilot CLI exited with code 1. It printed nothing on stderr; "
+                "its own log is under /srv/argus/copilot-home/logs."
+            ),
         ),
     ])
     status, _events, _sleeps, engineer = _run(
@@ -412,6 +441,67 @@ def test_a_turn_cap_restart_restarts_the_same_cause_count(
     assert [e["same_cause_streak"] for e in _backoff_events(events)] == [1, 2, 1, 2]
     assert all(not e.get("operator_alert") for e in _backoff_events(events))
     assert sleeps == [0.5] * 4
+
+
+# --------------------------------------------------------------------------- #
+# Round loop: an unreachable service pauses for a cooldown, not the streak
+# --------------------------------------------------------------------------- #
+
+
+def test_an_unreachable_model_service_pauses_instead_of_burning_the_streak(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    engineer = _ScriptedEngineer([_unreachable(18765), _unreachable(18765)])
+    status, events, sleeps, engineer = _run(
+        tmp_path,
+        monkeypatch,
+        engineer=engineer,
+        reviewer=_DoneReviewer(),
+        max_rounds=4,
+        backoff_seconds=0.5,
+    )
+
+    # One call, then a provider-cooldown pause: no fresh-session retry, no
+    # backoff, no streak. A relay that had died inside a container once cost
+    # hours of retries this way with the operator seeing only "exit code 1".
+    assert status == "paused_provider_cooldown"
+    assert engineer.calls == 1
+    assert sleeps == []
+    assert _backoff_events(events) == []
+    review = next(e for e in events if e.get("type") == "round.review.completed")
+    assert review["review_skipped"] is True
+    assert review["stop_kind"] == "provider_cooldown"
+    assert review["failure_kind"] == "service_unreachable"
+    assert review["failure_cause"] == "connect ECONNREFUSED 127.0.0.1:18765"
+    assert review["reason"].startswith(
+        "The model service could not be reached: connect ECONNREFUSED 127.0.0.1:18765. "
+    )
+
+
+def test_a_session_death_keeps_the_streak_and_names_the_cause_on_the_backoff(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    engineer = _ScriptedEngineer([
+        _rate_limited(7),
+        RunnerResult(exit_code=0, agent_messages=["ran the benchmark"]),
+    ])
+    status, events, _sleeps, engineer = _run(
+        tmp_path,
+        monkeypatch,
+        engineer=engineer,
+        reviewer=_DoneReviewer(),
+        max_rounds=4,
+        backoff_seconds=0.5,
+    )
+
+    assert status == "done"
+    assert engineer.calls == 2
+    backoffs = _backoff_events(events)
+    assert len(backoffs) == 1
+    assert backoffs[0]["failure_cause"] == (
+        "Process exited with code 2 before turn completion."
+    )
+    assert "Process exited with code 2 before turn completion." in backoffs[0]["text"]
 
 
 # --------------------------------------------------------------------------- #

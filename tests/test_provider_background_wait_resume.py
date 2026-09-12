@@ -84,9 +84,14 @@ def test_a_working_provider_wait_breaks_a_backend_failure_streak(tmp_path):
         def run_exec(self, **kwargs):
             self.calls += 1
             if self.calls in (1, 3):
+                # A session that died without naming a cause: the streak's
+                # own case. (A record naming an unreachable service pauses
+                # for a provider cooldown instead of entering the streak.)
                 return RunnerResult(
-                    exit_code=1, stop_kind="transient_error",
-                    fatal_error="connection reset" if self.calls == 1 else "service unavailable",
+                    exit_code=2, stop_kind="transient_error",
+                    fatal_error=(
+                        f"Process exited with code {self.calls} before turn completion."
+                    ),
                 )
             if self.calls == 2:
                 return _waiting_result()

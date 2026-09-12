@@ -243,6 +243,15 @@ def prepare_copilot_home(env: Mapping[str, str] | None = None) -> Path | None:
     return home
 
 
+def copilot_log_dir(env: Mapping[str, str] | None = None) -> Path:
+    """Where the Copilot CLI writes its own log: the one place left to look
+    when it exits without printing anything on stderr."""
+    source = env if env is not None else os.environ
+    configured = str(source.get(COPILOT_HOME_ENV) or "").strip()
+    home = Path(configured).expanduser() if configured else argus_copilot_home(source)
+    return home / "logs"
+
+
 def apply_copilot_home(env: dict[str, str]) -> dict[str, str]:
     """Point ``env`` at the Argus Copilot home unless one is already chosen.
 
@@ -264,6 +273,7 @@ __all__ = [
     "prune_copilot_sessions",
     "COPILOT_HOME_ENV",
     "apply_copilot_home",
+    "copilot_log_dir",
     "argus_copilot_home",
     "prepare_copilot_home",
 ]

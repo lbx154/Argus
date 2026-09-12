@@ -244,6 +244,82 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "Argus could not sign in to the model provider, so the work did not run.",
         "Argus 无法登录模型服务，工作没有运行。",
     ),
+    # A round that never had a working model service behind it. ``cause`` is
+    # the line of the runner's record that names what was wrong, kept as the
+    # CLI wrote it ("connect ECONNREFUSED 127.0.0.1:18765"): a local address
+    # or path is what makes the sentence actionable.
+    "cause_service_unreachable": (
+        "The model service could not be reached: {cause}. "
+        "Argus pauses this task and retries it after a short wait.",
+        "模型服务连不上：{cause}。Argus 会暂停这项任务，稍后重试。",
+    ),
+    "cause_service_error": (
+        "The model service returned an error: {cause}. "
+        "Argus pauses this task and retries it after a short wait.",
+        "模型服务返回了错误：{cause}。Argus 会暂停这项任务，稍后重试。",
+    ),
+    "cause_service_tls": (
+        "The secure connection to the model service could not be established: "
+        "{cause}. Argus pauses this task and retries it after a short wait.",
+        "无法与模型服务建立安全连接：{cause}。Argus 会暂停这项任务，稍后重试。",
+    ),
+    "cause_service_proxy": (
+        "The proxy in front of the model service failed: {cause}. "
+        "Argus pauses this task and retries it after a short wait.",
+        "模型服务前的代理出了问题：{cause}。Argus 会暂停这项任务，稍后重试。",
+    ),
+    "cause_cli_missing": (
+        "The model CLI could not be started: {cause}. "
+        "Argus pauses this task and retries it after a short wait.",
+        "模型命令行工具无法启动：{cause}。Argus 会暂停这项任务，稍后重试。",
+    ),
+    "cause_service_quota": (
+        "The model service reported that its quota is used up: {cause}. "
+        "Argus pauses this task and retries it after a short wait.",
+        "模型服务提示配额已用完：{cause}。Argus 会暂停这项任务，稍后重试。",
+    ),
+    "cause_model_catalog": (
+        "The model service could not list its models: {cause}. "
+        "Argus pauses this task and retries it after a short wait.",
+        "模型服务无法列出可用模型：{cause}。Argus 会暂停这项任务，稍后重试。",
+    ),
+    "cause_sign_in": (
+        "Argus could not sign in to the model service: {cause}. The work did not run.",
+        "Argus 无法登录模型服务：{cause}。工作没有运行。",
+    ),
+    # The same causes as clauses, completing "The task was paused because …".
+    "why_service_unreachable": (
+        "the model service could not be reached ({cause})",
+        "模型服务连不上（{cause}）",
+    ),
+    "why_service_error": (
+        "the model service returned an error ({cause})",
+        "模型服务返回了错误（{cause}）",
+    ),
+    "why_service_tls": (
+        "the secure connection to the model service could not be established ({cause})",
+        "无法与模型服务建立安全连接（{cause}）",
+    ),
+    "why_service_proxy": (
+        "the proxy in front of the model service failed ({cause})",
+        "模型服务前的代理出了问题（{cause}）",
+    ),
+    "why_cli_missing": (
+        "the model CLI could not be started ({cause})",
+        "模型命令行工具无法启动（{cause}）",
+    ),
+    "why_service_quota": (
+        "the model service reported that its quota is used up ({cause})",
+        "模型服务提示配额已用完（{cause}）",
+    ),
+    "why_model_catalog": (
+        "the model service could not list its models ({cause})",
+        "模型服务无法列出可用模型（{cause}）",
+    ),
+    "why_sign_in": (
+        "Argus could not sign in to the model service ({cause})",
+        "Argus 无法登录模型服务（{cause}）",
+    ),
     "cause_paused": (
         "The work was paused before the Engineer finished this round because "
         "{why}; it resumes from the saved progress.",

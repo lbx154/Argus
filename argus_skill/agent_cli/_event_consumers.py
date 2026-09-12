@@ -26,6 +26,11 @@ class _CopilotWriteState:
 
     empty_final_answer: bool = False
     last_tool_waiting: bool = False
+    # The CLI's own exit code from its ``result`` event. Recorded here rather
+    # than worded into ``fatal_error`` at once: the runner's finalize step
+    # writes the failure record, where the CLI's last stderr lines can
+    # accompany the exit code instead of leaving it to stand alone.
+    exit_code: int | None = None
 
 
 @dataclass
@@ -532,8 +537,8 @@ class EventConsumerMixin:
             return thread_id, turn_completed, turn_failed, fatal_error
 
         turn_failed = True
-        if fatal_error is None:
-            fatal_error = f"Copilot CLI exited with code {exit_code}."
+        if write_state is not None and isinstance(exit_code, int) and not isinstance(exit_code, bool):
+            write_state.exit_code = exit_code
         return thread_id, turn_completed, turn_failed, fatal_error
 
     @staticmethod

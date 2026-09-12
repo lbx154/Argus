@@ -44,17 +44,18 @@ from .round_state import (
 from .round_stop_signals import (
     BACKEND_FAILURE_SAME_CAUSE_THRESHOLD,
     authentication_review_decision,
+    backend_failure_cause,
     backend_failure_hold_backoff_seconds,
     backend_failure_review_decision,
     backend_failure_signature,
     daemon_stop_review_decision,
     execution_host_review_decision,
     external_pause_review_decision,
-    fatal_error_looks_like_auth_failure,
     fatal_error_looks_like_daemon_stop_request,
     fatal_error_looks_like_model_configuration,
     fatal_error_looks_like_operator_abort_request,
     fatal_error_looks_like_provider_turn_cap,
+    infrastructure_failure_review_decision,
     model_configuration_review_decision,
     operator_abort_review_decision,
     provider_turn_cap_review_decision,
@@ -291,6 +292,12 @@ class RoundExecutionMixin:
         engineer_session = state.engineer_session
         if engineer_session is None:
             raise RuntimeError("engineer role session was not initialized")
+        # What the failure record names as the cause, read once by code. An
+        # infrastructure cause (the service could not be reached, the CLI
+        # could not start) decides the route below; the cause line also goes
+        # on the events so a reader sees "connect ECONNREFUSED 127.0.0.1:18765"
+        # rather than "exited with code 1".
+        cause = backend_failure_cause(fatal_error, exit_code=engineer_result.exit_code)
         if not fatal_error_looks_like_provider_turn_cap(fatal_error):
             # Any other ending — success, pause, or failure — breaks a run of
             # allowance-capped calls.
@@ -404,16 +411,20 @@ class RoundExecutionMixin:
                     "agent_layer": "engineer",
                     "model": self.engineer_config.model,
                     "error": fatal_error,
+                    "failure_cause": cause.line,
                     "operator_alert": True,
                     "text": review.reason,
                 })
-                on_event(_review_event_payload(
+                payload = _review_event_payload(
                     review,
                     round_index=round_index,
                     round_max=supervised_config.max_rounds,
                     text="review: skipped (model unavailable)",
                     review_skipped=True,
-                ))
+                )
+                payload["failure_kind"] = cause.kind
+                payload["failure_cause"] = cause.line
+                on_event(payload)
             # "Model X is not available" is usually the provider having a bad
             # minute, not a misconfiguration: one such outage on 2026-09-05
             # marked eight queued missions blocked inside two minutes. Pause
@@ -515,9 +526,9 @@ class RoundExecutionMixin:
                 ))
             return control_continue_loop()
 
-        if stop_kind == "permanent_error":
+        auth_failure = cause.kind == "sign_in"
+        if stop_kind == "permanent_error" or auth_failure:
             engineer_session.rotate("permanent_error")
-            auth_failure = fatal_error_looks_like_auth_failure(fatal_error)
             review = (
                 authentication_review_decision(
                     fatal_error=fatal_error,
@@ -555,6 +566,49 @@ class RoundExecutionMixin:
                 state=state,
                 on_event=on_event,
             )
+
+        if cause.infrastructure:
+            # The call never had a working model service behind it: the CLI
+            # could not start, could not reach the service, or the service
+            # refused. A fresh session cannot get past that, so counting it
+            # against the failure streak, rotating the session and backing off
+            # towards a stop only buries the cause — a relay that died inside
+            # a container once cost hours this way, with the operator seeing
+            # only the exit code. Pause for a provider cooldown instead, as a
+            # temporarily unavailable model does; the daemon retries after its
+            # waiting period, and the record names what was wrong.
+            engineer_session.rotate("model_service_unavailable")
+            review = infrastructure_failure_review_decision(
+                cause=cause,
+                fatal_error=fatal_error,
+                exit_code=engineer_result.exit_code,
+            )
+            if on_event:
+                payload = _review_event_payload(
+                    review,
+                    round_index=round_index,
+                    round_max=supervised_config.max_rounds,
+                    text="review: skipped (model service unavailable)",
+                    review_skipped=True,
+                )
+                payload["failure_kind"] = cause.kind
+                payload["failure_cause"] = cause.line
+                on_event(payload)
+            state.rounds.append(RoundRecord(
+                round_index=round_index,
+                engineer_message=engineer_message,
+                engineer_exit_code=engineer_result.exit_code,
+                review=review,
+                fatal_error=engineer_result.fatal_error,
+                stop_kind="provider_cooldown",
+            ))
+            return control_return((
+                "paused_provider_cooldown",
+                state.rounds,
+                state.last_engineer_message,
+                review.reason,
+                None,
+            ))
 
         if runner_result_is_backend_failure(engineer_result):
             engineer_session.rotate("backend_failure")
@@ -685,7 +739,7 @@ class RoundExecutionMixin:
             )
             if backoff_seconds:
                 if on_event:
-                    error_text = str(fatal_error or "").strip()
+                    named = cause.line or str(fatal_error or "").strip()
                     on_event({
                         "type": "round.backend_failure.backoff",
                         "round_index": round_index,
@@ -695,21 +749,24 @@ class RoundExecutionMixin:
                             state.backend_failure_same_cause_streak
                         ),
                         "signature": state.backend_failure_signature,
+                        "failure_cause": cause.line,
                         "operator_alert": circuit_open,
                         "text": (
                             (
-                                "The backend has failed the same way "
+                                "The model service has ended the Engineer's "
+                                "session the same way "
                                 f"{state.backend_failure_same_cause_streak} "
-                                f"times in a row ({error_text}). Waiting "
+                                f"times in a row ({named}). Argus waits "
                                 f"{backoff_seconds:.0f}s before the next "
                                 "attempt so a standing failure stops costing "
                                 "money; if this is a configuration problem, "
-                                "fix it or stop the mission."
+                                "fix it or stop the task."
                             )
                             if circuit_open
                             else (
-                                "backend failure; retrying in a fresh Codex "
-                                f"session after {backoff_seconds:.1f}s"
+                                "The model service ended the Engineer's "
+                                f"session ({named}); Argus retries in a fresh "
+                                f"session after {backoff_seconds:.1f}s."
                             )
                         ),
                     })

@@ -144,7 +144,7 @@ def test_adapter_preserves_turn_failed_when_fatal_normalizes_away() -> None:
     )
 
     assert translated.exit_code == 0
-    assert translated.fatal_error == "backend reported a failed turn"
+    assert translated.fatal_error == "Agent CLI exited without completing a model turn."
 
 
 def test_nonzero_exit_fails_and_reports_stderr_diagnostic(tmp_path) -> None:

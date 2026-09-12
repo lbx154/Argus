@@ -183,6 +183,22 @@ class RunExecMixin:
             process_group_id
         )
 
+    def _exit_receipt(self, returncode: int | None, state: _StreamState) -> str:
+        """The runner's one-line account of a call that ended without a turn."""
+        if self.backend == BACKEND_COPILOT and state.copilot_write.exit_code not in (None, 0):
+            return f"Copilot CLI exited with code {state.copilot_write.exit_code}."
+        if returncode:
+            return f"Process exited with code {returncode} before turn completion."
+        return ""
+
+    def _cli_log_hint(self) -> str:
+        """Where the CLI keeps its own log, for a record with nothing else to show."""
+        if self.backend == BACKEND_COPILOT:
+            from .copilot_home import copilot_log_dir
+
+            return str(copilot_log_dir())
+        return ""
+
     def _run_exec_start_gate(
         self, *, resume_thread_id: str | None, options
     ) -> AgentRunResult | None:
@@ -779,15 +795,15 @@ class RunExecMixin:
                     state.turn_completed = True
                 else:
                     state.turn_failed = True
-                    state.fatal_error = (
-                        "dsh completed with no assistant output: "
-                        + _incomplete_turn_error(state.stderr_lines)
+                    state.fatal_error = _incomplete_turn_error(
+                        state.stderr_lines,
+                        receipt="dsh completed with no assistant output.",
                     )
             else:
                 state.turn_failed = True
-                state.fatal_error = (
-                    f"dsh exited with code {process.returncode}: "
-                    + _incomplete_turn_error(state.stderr_lines)
+                state.fatal_error = _incomplete_turn_error(
+                    state.stderr_lines,
+                    receipt=f"dsh exited with code {process.returncode}.",
                 )
 
         if (
@@ -813,21 +829,25 @@ class RunExecMixin:
                 state.fatal_error = state.watchdog_reason
         elif state.turn_completed and not state.turn_failed:
             state.fatal_error = None
-        elif process.returncode != 0 and state.fatal_error is None:
+        elif state.fatal_error is None and (
+            process.returncode != 0 or not state.turn_completed
+        ):
+            # The CLI gave no reason of its own. A provider message is not a
+            # terminal turn receipt: Copilot can exit 0 after emitting
+            # assistant/tool deltas without the final ``result`` event, and
+            # accepting that partial stream loses sessionId, records
+            # thread_id=null, and lets an unfinished Engineer round advance to
+            # review. Fail closed unless the backend emitted its authoritative
+            # completion event. The record says how the process ended and
+            # carries the CLI's last stderr lines, because that is where the
+            # reason usually is; a relay that died inside a container was
+            # invisible for hours while the operator saw only "exit code 1".
             state.turn_failed = True
-            state.fatal_error = (
-                f"Process exited with code {process.returncode} before turn completion."
+            state.fatal_error = _incomplete_turn_error(
+                state.stderr_lines,
+                receipt=self._exit_receipt(process.returncode, state),
+                log_hint=self._cli_log_hint(),
             )
-        elif not state.turn_completed and state.fatal_error is None:
-            # A provider message is not a terminal turn receipt. Copilot can
-            # exit 0 after emitting assistant/tool deltas without the final
-            # ``result`` event; accepting that partial stream loses sessionId,
-            # records thread_id=null, and lets an unfinished Engineer round
-            # advance to review. Fail closed unless the backend emitted its
-            # authoritative completion event. Preserve stderr when available
-            # so configuration failures still retain their concrete diagnosis.
-            state.turn_failed = True
-            state.fatal_error = _incomplete_turn_error(state.stderr_lines)
 
         return AgentRunResult(
             command=command,

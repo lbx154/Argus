@@ -1803,3 +1803,93 @@ def test_failed_task_with_new_runtime_wording_is_explained_in_english(tmp_path: 
     assert entry["technical"] == (
         "consecutive failures=2, limit=2, error=Copilot CLI exited with code 1."
     )
+
+
+def test_round_skipped_for_an_unreachable_model_service_names_the_cause(
+    tmp_path: Path,
+) -> None:
+    emit(
+        tmp_path,
+        "life.manager.intent.completed",
+        1,
+        item_id="task-1",
+        objective="给我写一篇iclr的论文",
+    )
+    raw = (
+        "The model service could not be reached: connect ECONNREFUSED "
+        "127.0.0.1:18765. The Engineer's session ended before it produced a "
+        "result that could be checked, so this round was not judged; Argus "
+        "pauses this task and retries it after a short wait. Technical record: "
+        "error=Copilot CLI exited with code 1.\nError: connect ECONNREFUSED 127.0.0.1:18765"
+    )
+    view = emit(
+        tmp_path,
+        "round.review.completed",
+        2,
+        round_index=3,
+        status="blocked",
+        reason=raw,
+        next_action="Argus retries this task after the model service's waiting period.",
+        review_source="reviewer",
+        backend_unavailable=True,
+        stop_kind="provider_cooldown",
+        failure_kind="service_unreachable",
+        failure_cause="connect ECONNREFUSED 127.0.0.1:18765",
+        text="review: skipped (model service unavailable)",
+        review_skipped=True,
+        item_id="task-1",
+    )
+
+    entry = view["timeline"][-1]
+    assert entry["kind"] == "round_not_judged"
+    assert entry["cause"] == "service_unreachable"
+    assert entry["title"] == "这一轮没有人审阅。"
+    assert entry["detail"] == (
+        "模型服务连不上：connect ECONNREFUSED 127.0.0.1:18765。"
+        "Argus 会暂停这项任务，稍后重试。"
+    )
+    assert entry["technical"].startswith("error=Copilot CLI exited with code 1.")
+    assert "exited with code" not in entry["detail"]
+    assert view["role_work"][-1]["detail"] == entry["detail"]
+
+
+def test_task_paused_for_an_unreachable_model_service_is_explained_in_english(
+    tmp_path: Path,
+) -> None:
+    emit(tmp_path, "life.mission.started", 1, item_id="task-1", title="Run the sweep")
+    view = emit(
+        tmp_path,
+        "life.mission.completed",
+        2,
+        item_id="task-1",
+        title="Run the sweep",
+        success=False,
+        status="paused_provider_cooldown",
+        stop_kind="provider_cooldown",
+        stop_reason=(
+            "The model service could not be reached: connect ECONNREFUSED "
+            "127.0.0.1:18765. The Engineer's session ended before it produced a "
+            "result that could be checked, so this round was not judged; Argus "
+            "pauses this task and retries it after a short wait. Technical "
+            "record: error=Copilot CLI exited with code 1."
+        ),
+        failure_kind="service_unreachable",
+        failure_cause="connect ECONNREFUSED 127.0.0.1:18765",
+        recoverable=True,
+    )
+
+    entry = view["timeline"][-1]
+    assert entry["kind"] == "mission_paused"
+    assert entry["title"] == (
+        "The task was paused before it finished because the model service could "
+        "not be reached (connect ECONNREFUSED 127.0.0.1:18765); its progress is "
+        "saved and it can be resumed."
+    )
+    assert entry["cause"] == "service_unreachable"
+    assert entry["detail"] == (
+        "The model service could not be reached: connect ECONNREFUSED "
+        "127.0.0.1:18765. Argus pauses this task and retries it after a short wait."
+    )
+    assert entry["technical"] == (
+        "paused_provider_cooldown; error=Copilot CLI exited with code 1."
+    )

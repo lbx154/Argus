@@ -87,7 +87,10 @@ def test_backend_retry_also_starts_fresh(tmp_path: Path) -> None:
     backend.queue("distiller", CannedResponse(message=SKILL_MD))
     backend.queue(
         "engineer-r1",
-        CannedResponse(message="", thread_id="poison", fatal_error="502 Bad Gateway"),
+        CannedResponse(
+            message="", thread_id="poison",
+            fatal_error="Process exited with code 2 before turn completion.",
+        ),
     )
     backend.queue("engineer-r2", CannedResponse(message="recovered", thread_id="healthy"))
     backend.queue("reviewer", CannedResponse(message=_review("done")))

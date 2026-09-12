@@ -57,6 +57,29 @@ _TECHNICAL_FRAGMENT_RE = re.compile(
 )
 _SKIPPED_OPENING_RE = re.compile(r"^review:\s*skipped\s*\(([^)]*)\)", re.IGNORECASE)
 _PAUSE_STOP_KINDS = frozenset(NON_FAILURE_STOP_KINDS) - {"daemon_shutdown", "operator_abort"}
+# Failures the runtime names on its events when the call never had a working
+# model service behind it (``failure_kind``), each with the line of the
+# runner's record that says what was wrong (``failure_cause``). The codes are
+# the round loop's own; the sentences for them live in ``_wording``.
+_NAMED_FAILURE_KINDS = frozenset({
+    "service_unreachable",
+    "service_error",
+    "service_tls",
+    "service_proxy",
+    "cli_missing",
+    "service_quota",
+    "model_catalog",
+    "sign_in",
+})
+
+
+def _named_failure(event: Mapping[str, Any]) -> tuple[str, str]:
+    """The infrastructure failure an event names, as ``(kind, cause line)``."""
+    kind = _text(event, "failure_kind")
+    line = _text(event, "failure_cause", 200)
+    if kind in _NAMED_FAILURE_KINDS and line:
+        return kind, line
+    return "", ""
 
 
 def _technical_note(reason: str) -> str:
@@ -79,6 +102,9 @@ def _skipped_round_cause(event: Mapping[str, Any]) -> tuple[str, str]:
     the runtime writes into the event text names the path that skipped.
     """
     stop_kind = normalize_stop_kind(event.get("stop_kind")) or ""
+    named_kind, _named_line = _named_failure(event)
+    if named_kind:
+        return named_kind, stop_kind
     opening = ""
     match = _SKIPPED_OPENING_RE.match(_text(event, "text", 400))
     if match:
@@ -222,8 +248,12 @@ def _mission_outcome_presentation(
             normalize_stop_kind(event.get("stop_kind"))
             or normalize_stop_kind(outcome.get("interruption_kind"))
         )
-        why = pause_status_clause(raw_status, chinese=chinese) or stop_kind_clause(
-            stop_kind, chinese=chinese
+        named_kind, named_line = _named_failure(event)
+        why = (
+            say(f"why_{named_kind}", chinese, cause=named_line)
+            if named_kind
+            else pause_status_clause(raw_status, chinese=chinese)
+            or stop_kind_clause(stop_kind, chinese=chinese)
         )
         if raw_status.lower().startswith("paused_") or event.get("resumable") is True:
             kind = "mission_paused"
@@ -364,10 +394,15 @@ def reduce_mission_lifecycle_event(
             # to the reason the task stopped. When the runtime wrote that
             # reason, say what it means and keep its record apart.
             reason = _text(event, "stop_reason", 2000) or _text(event, "failure_reason", 2000)
-            record = _runtime_stop_record(
-                reason,
-                chinese=chinese,
-                stop_kind=normalize_stop_kind(event.get("stop_kind")),
+            named_kind, named_line = _named_failure(event)
+            record = (
+                (say(f"cause_{named_kind}", chinese, cause=named_line), named_kind, _technical_note(reason))
+                if named_kind
+                else _runtime_stop_record(
+                    reason,
+                    chinese=chinese,
+                    stop_kind=normalize_stop_kind(event.get("stop_kind")),
+                )
             )
             if record is not None:
                 detail, cause, record_technical = record
@@ -429,6 +464,7 @@ def _reduce_review_completed(
         }
     if review_skipped:
         cause, stop_kind = _skipped_round_cause(event)
+        _named_kind, named_line = _named_failure(event)
         title = say("round_not_judged", chinese)
         explanation = (
             say(
@@ -438,6 +474,8 @@ def _reduce_review_completed(
                 or ("工作被打断" if chinese else "the work was interrupted"),
             )
             if cause == "paused"
+            else say(f"cause_{cause}", chinese, cause=named_line)
+            if named_line
             else say(f"cause_{cause}", chinese)
         )
         technical = _technical_note(_text(event, "reason", 2000))

@@ -9,10 +9,15 @@ list, every crash wasted a whole reviewer round (mission stalled in research).
 """
 from pathlib import Path
 
+import pytest
+
 from argus_skill.core.models import RunnerResult
 from argus_skill.engineer.round_stop_signals import (
     authentication_review_decision,
+    backend_failure_cause,
+    backend_failure_signature,
     fatal_error_looks_like_auth_failure,
+    infrastructure_failure_review_decision,
 )
 from argus_skill.engineer.runner import (
     EngineerConfig,
@@ -44,6 +49,111 @@ def test_backend_failure_does_not_misclassify() -> None:
     assert not _is_bf("External interrupt: daemon stop requested")
     assert not _is_bf(None)
     assert not _is_bf("")
+
+
+# --------------------------------------------------------------------------- #
+# Infrastructure vs model behaviour, read by code from the failure record
+# --------------------------------------------------------------------------- #
+
+ECONNREFUSED_RECORD = (
+    "Copilot CLI exited with code 1.\n"
+    "[relay] forwarding to http://127.0.0.1:18765\n"
+    "Error: connect ECONNREFUSED 127.0.0.1:18765\n"
+    "    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1555:16)"
+)
+
+
+@pytest.mark.parametrize(("record", "kind", "line"), [
+    (ECONNREFUSED_RECORD, "service_unreachable", "connect ECONNREFUSED 127.0.0.1:18765"),
+    ("getaddrinfo ENOTFOUND api.example.test", "service_unreachable",
+     "getaddrinfo ENOTFOUND api.example.test"),
+    ("Error: getaddrinfo EAI_AGAIN proxy.corp", "service_unreachable",
+     "getaddrinfo EAI_AGAIN proxy.corp"),
+    ("read ECONNRESET", "service_unreachable", "read ECONNRESET"),
+    ("connect ETIMEDOUT 10.0.0.9:443", "service_unreachable", "connect ETIMEDOUT 10.0.0.9:443"),
+    ("HTTP 503: Service Unavailable", "service_error", "HTTP 503: Service Unavailable"),
+    ("Too Many Requests 429 (retry after 7s)", "service_error",
+     "Too Many Requests 429 (retry after 7s)"),
+    ("HTTP 421: Misdirected Request", "service_error", "HTTP 421: Misdirected Request"),
+    ("bad gateway", "service_error", "bad gateway"),
+    ("Error: Failed to load models", "model_catalog", "Failed to load models"),
+    ("Error: unable to verify the first certificate", "service_tls",
+     "unable to verify the first certificate"),
+    ("Error: tunneling socket could not be established, statusCode=407",
+     "service_proxy", "tunneling socket could not be established, statusCode=407"),
+    ("spawn copilot ENOENT", "cli_missing", "spawn copilot ENOENT"),
+    ("/bin/sh: copilot: command not found", "cli_missing", "/bin/sh: copilot: command not found"),
+    ("HTTP 401: token expired", "sign_in", "HTTP 401: token expired"),
+    ("github-copilot: OAuth refresh failed: timeout", "sign_in",
+     "github-copilot: OAuth refresh failed: timeout"),
+    ("HTTP 402: Insufficient trial tokens for this request.", "service_quota",
+     "HTTP 402: Insufficient trial tokens for this request."),
+])
+def test_infrastructure_failures_are_named_with_their_cause_line(
+    record: str, kind: str, line: str,
+) -> None:
+    cause = backend_failure_cause(record, exit_code=1)
+    assert cause.infrastructure
+    assert cause.kind == kind
+    assert cause.line == line
+    # Every infrastructure failure is also a backend failure for the callers
+    # that only ask "did the task itself fail?".
+    assert _is_bf(record)
+
+
+def test_shell_exit_codes_for_a_missing_command_count_without_text() -> None:
+    cause = backend_failure_cause("Process exited with code 127 before turn completion.", exit_code=127)
+    assert cause.kind == "cli_missing"
+
+
+@pytest.mark.parametrize("record", [
+    # A malformed or refused answer is the model's own doing.
+    "turn failed: The model produced a malformed answer",
+    "Claude runner reported error_max_turns.",
+    # A session that died without a word: a fresh session may well succeed.
+    "Process exited with code 2 before turn completion.",
+    "Copilot CLI exited with code 1. It printed nothing on stderr; "
+    "its own log is under /srv/argus/copilot-home/logs.",
+    # Argus's own watchdog ended the call; that says nothing about the service.
+    "Forced restart after hard idle timeout (600s without a model stream event).",
+    "ACP prompt timed out after 900s",
+    # A Codex reconnect notice: the CLI keeps recovering on its own.
+    "Reconnecting... 1/100 (stream disconnected before completion)",
+    # A path inside a stack frame is not a cause.
+    "Process exited with code 1 before turn completion.\n"
+    "    at Object.<anonymous> (/home/x/node_modules/proxy-agent/index.js:12:3)",
+    "External interrupt: daemon stop requested",
+    "",
+    None,
+])
+def test_model_behaviour_and_session_deaths_are_not_infrastructure(record) -> None:
+    assert not backend_failure_cause(record).infrastructure
+
+
+def test_signature_is_keyed_on_the_cause_line_not_the_rest_of_the_tail() -> None:
+    first = backend_failure_signature(ECONNREFUSED_RECORD)
+    second = backend_failure_signature(
+        "Copilot CLI exited with code 1.\n"
+        "[relay] retry 3 after 250ms\n"
+        "Error: connect ECONNREFUSED 127.0.0.1:18765\n"
+        "    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1602:16)"
+    )
+    assert first == second == "connect econnrefused #.#.#.#:#"
+
+
+def test_infrastructure_review_decision_names_the_cause_and_pauses() -> None:
+    cause = backend_failure_cause(ECONNREFUSED_RECORD, exit_code=1)
+    decision = infrastructure_failure_review_decision(
+        cause=cause, fatal_error=ECONNREFUSED_RECORD, exit_code=1,
+    )
+    assert decision.status == "blocked"
+    assert decision.backend_stop_kind == "provider_cooldown"
+    assert decision.reason.startswith(
+        "The model service could not be reached: connect ECONNREFUSED 127.0.0.1:18765. "
+    )
+    assert "Technical record: error=Copilot CLI exited with code 1." in decision.reason
+    for word in ("backend", "streak", "gate", "handoff", "artifact"):
+        assert word not in decision.reason.split("Technical record:")[0].lower()
 
 
 def test_oauth_refresh_failure_requires_operator_authentication() -> None:

@@ -1073,6 +1073,11 @@ class MissionExecutionRuntimeMixin:
             last_error=state.stop_reason,
             outcome=pause_outcome,
         )
+        from ...engineer.round_stop_signals import backend_failure_cause
+
+        # When the pause is the model service being out of reach, the record
+        # names the cause so the task's closing row can say so.
+        failure = backend_failure_cause(state.stop_reason)
         self._emit({
             "type": EventType.LIFE_MISSION_COMPLETED,
             "item_id": item.id,
@@ -1084,6 +1089,9 @@ class MissionExecutionRuntimeMixin:
             ),
             "outcome": pause_outcome,
             "stop_kind": state.stop_kind,
+            "stop_reason": state.stop_reason,
+            "failure_kind": failure.kind,
+            "failure_cause": failure.line if failure.kind else "",
             "recoverable": True,
             "cost_usd": state.usd,
             "known_cost_usd": state.known_usd,

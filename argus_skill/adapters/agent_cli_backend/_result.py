@@ -14,6 +14,7 @@ import re
 import threading
 from typing import Any
 
+from ...agent_cli._env import _incomplete_turn_error
 from ...core.http_status import has_http_status
 from ...core.models import RunnerResult
 from ...core.role_decision import extract_role_decisions
@@ -382,9 +383,9 @@ def translate_result(
         getattr(cli_result, "turn_failed", False)
         and not fatal_error
     ):
-        fatal_error = "\n".join(
-            map(str, getattr(cli_result, "stderr_lines", None) or [])
-        ).strip() or "backend reported a failed turn"
+        fatal_error = _incomplete_turn_error(
+            getattr(cli_result, "stderr_lines", None) or []
+        )
     failure_diagnostic = raw_fatal_error
     authoritative_local_stop = (
         is_provider_turn_cap_receipt(raw_fatal_error)

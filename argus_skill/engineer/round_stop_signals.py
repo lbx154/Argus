@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 
+from ..core.http_status import has_http_status
 from ..core.models import ReviewDecision, RunnerResult
 from ..core.stop_kinds import normalize_stop_kind, stop_kind_clause
 
@@ -46,42 +48,152 @@ _POISONED_SESSION_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
 )
 
 
-_BACKEND_FAILURE_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
-    "too many requests",
-    "429",
-    "rate limit",
-    "rate-limit",
+# A session that ended without the CLI naming a cause: the process died
+# mid-turn (e.g. gpt-5.5 occasionally exits 2: "Process exited with code 2
+# before turn completion"), or Argus's own watchdog ended it. Retrying in a
+# fresh session may well succeed, so these are counted by the failure streak
+# and retried with backoff; the streak threshold still terminates a session
+# that keeps dying.
+_SESSION_DEATH_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
     "forced restart after hard idle timeout",
     "hard idle timeout",
-    "service unavailable",
-    "gateway timeout",
-    "bad gateway",
-    "connection reset",
-    "connection closed",
-    "connection aborted",
-    "network error",
     "acp prompt timed out",
     "acp process died",
-    # Codex/Copilot CLI subprocess died mid-turn before emitting a verdict
-    # (e.g. gpt-5.5 occasionally exits 2: "Process exited with code 2 before
-    # turn completion"). Treat as a transient backend failure so the engineer
-    # retries in a fresh session (skip reviewer, backoff, re-run) instead of
-    # burning a full reviewer round on a no-output turn; the streak threshold
-    # still terminates if it keeps dying.
     "before turn completion",
     "cli exited with code",
 )
-_AUTH_FAILURE_FATAL_ERROR_PATTERNS: tuple[str, ...] = (
-    "unauthorized",
-    "authentication failed",
-    "oauth refresh failed",
-    "token refresh failed",
-    "expired token",
-    "invalid token",
-    "invalid api key",
-    "missing credentials",
-    "no authentication information found",
+
+# What broke when the call never had a working model service behind it. Each
+# entry names a kind and the text that identifies it in the runner's failure
+# record (the CLI's structured error, or its last stderr lines); the HTTP
+# statuses below are recognised in their status context only, so a stray
+# number in a log line does not count. Read by code alone: the model is never
+# asked to label its own failure. Order matters where one line could match
+# two kinds: a sign-in refusal or a quota notice names the service's answer,
+# so it outranks the transport it arrived over.
+_NETWORK_ERRNO = (
+    r"E(?:CONNREFUSED|CONNRESET|CONNABORTED|NOTFOUND|AI_AGAIN|TIMEDOUT"
+    r"|HOSTUNREACH|NETUNREACH|NETDOWN|PIPE)"
 )
+_INFRASTRUCTURE_FAILURE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("sign_in", re.compile(
+        r"unauthori[sz]ed|authentication failed|not (?:logged|signed) in"
+        r"|token (?:has )?expired|expired token|invalid token|invalid api key"
+        r"|missing credentials|no authentication information found"
+        r"|oauth refresh failed|token refresh failed|use /login|codex login",
+        re.IGNORECASE,
+    )),
+    ("service_quota", re.compile(
+        r"quota|payment required|insufficient (?:credit|fund|balance|trial)",
+        re.IGNORECASE,
+    )),
+    ("cli_missing", re.compile(
+        r"\bENOENT\b|command not found|no such file or directory"
+        r"|not recognized as an internal or external command"
+        r"|executable file not found|cannot find module",
+        re.IGNORECASE,
+    )),
+    ("model_catalog", re.compile(
+        r"failed to load models|could not retrieve the list of available models",
+        re.IGNORECASE,
+    )),
+    ("service_tls", re.compile(
+        r"\b(?:TLS|SSL)\b|certificate|CERT_HAS_EXPIRED|UNABLE_TO_VERIFY_LEAF_SIGNATURE"
+        r"|SELF_SIGNED_CERT_IN_CHAIN|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_GET_ISSUER_CERT",
+        re.IGNORECASE,
+    )),
+    ("service_unreachable", re.compile(
+        rf"\b{_NETWORK_ERRNO}\b|connection (?:refused|reset|closed|aborted)"
+        r"|network error|getaddrinfo|socket hang up|fetch failed|stream disconnected"
+        r"|temporary failure in name resolution|no route to host"
+        r"|could not connect|unable to connect|connect(?:ion)? timed out|request timed out",
+        re.IGNORECASE,
+    )),
+    ("service_proxy", re.compile(
+        r"tunneling socket|proxy (?:error|authentication|connection|connect|refused)"
+        r"|(?:https?|all)_proxy\b",
+        re.IGNORECASE,
+    )),
+    ("service_error", re.compile(
+        r"too many requests|rate[ -]limit|service unavailable|bad gateway"
+        r"|gateway timeout|internal server error|misdirected request|overloaded",
+        re.IGNORECASE,
+    )),
+)
+_INFRASTRUCTURE_HTTP_STATUSES: dict[str, frozenset[int]] = {
+    "sign_in": frozenset({401, 403}),
+    "service_quota": frozenset({402}),
+    "service_proxy": frozenset({407}),
+    "service_error": frozenset({421, 429, 500, 502, 503, 504}),
+}
+# Exit codes the shell uses when it cannot run the command at all.
+_CLI_MISSING_EXIT_CODES = frozenset({126, 127})
+_STACK_FRAME_LINE_RE = re.compile(r"^\s*at\s+\S")
+# What a CLI puts in front of the line that matters: timestamps, bracketed
+# levels, and the "Error:" label itself.
+_CAUSE_LINE_PREFIX_RE = re.compile(
+    r"^(?:\[[^\]]*\]\s*|\d{4}-\d\d-\d\d[T ][\d:.]+Z?\s*)*"
+    r"(?:(?:error|fatal)\s*:\s*)?",
+    re.IGNORECASE,
+)
+_CAUSE_LINE_LIMIT = 200
+
+
+@dataclass(frozen=True)
+class BackendFailureCause:
+    """What broke, as read from the runner's failure record.
+
+    ``kind`` names an infrastructure failure — the CLI could not start, could
+    not reach the model service, or the service refused — which no fresh
+    session can get past until the service or the operator changes something.
+    An empty kind means the model service was there and the session still
+    failed (a malformed answer, a turn the provider ended for its own
+    reasons): retrying in a fresh session may help. ``line`` is the one line
+    of the record that names the cause, ready to be read in a sentence.
+    """
+
+    kind: str = ""
+    line: str = ""
+
+    @property
+    def infrastructure(self) -> bool:
+        return bool(self.kind)
+
+
+def _cause_line(line: str) -> str:
+    text = _CAUSE_LINE_PREFIX_RE.sub("", line.strip(), count=1).strip() or line.strip()
+    return text[:_CAUSE_LINE_LIMIT]
+
+
+def backend_failure_cause(
+    fatal_error: str | None, *, exit_code: int = 0,
+) -> BackendFailureCause:
+    """Classify one failure record and pick the line that names its cause.
+
+    Reads the runner's ``fatal_error`` only — the CLI's structured error
+    followed by its last stderr lines — never model prose. Later lines are
+    read first because a CLI writes its reason last; stack-frame lines are
+    skipped so a path inside a trace cannot pass for a cause.
+    """
+    text = str(fatal_error or "").strip()
+    if fatal_error_looks_like_recoverable_reconnect(text):
+        return BackendFailureCause()
+    lines = [line for line in (raw.strip() for raw in text.splitlines()) if line]
+    for line in reversed(lines):
+        if _STACK_FRAME_LINE_RE.match(line):
+            continue
+        for kind, pattern in _INFRASTRUCTURE_FAILURE_PATTERNS:
+            statuses = _INFRASTRUCTURE_HTTP_STATUSES.get(kind, ())
+            if pattern.search(line) or (statuses and has_http_status(line, statuses)):
+                return BackendFailureCause(kind, _cause_line(line))
+    if int(exit_code or 0) in _CLI_MISSING_EXIT_CODES:
+        return BackendFailureCause(
+            "cli_missing", _cause_line(lines[0]) if lines else f"exit={exit_code}",
+        )
+    for line in reversed(lines):
+        if line.casefold().startswith(("error:", "fatal:")):
+            return BackendFailureCause("", _cause_line(line))
+    return BackendFailureCause("", _cause_line(lines[0]) if lines else "")
 
 _RECOVERABLE_RECONNECT_RE = re.compile(r"^reconnecting\.\.\.\s*(\d+)/(\d+)\b")
 _DAEMON_STOP_INTERRUPT_RE = re.compile(r"^external interrupt:\s*daemon stop requested\b")
@@ -103,24 +215,24 @@ def _fatal_error_looks_like_poisoned_session(fatal_error: str | None) -> bool:
 
 
 def fatal_error_looks_like_auth_failure(fatal_error: str | None) -> bool:
-    if not fatal_error:
-        return False
-    low = str(fatal_error).strip().casefold()
-    return any(pattern in low for pattern in _AUTH_FAILURE_FATAL_ERROR_PATTERNS)
+    return backend_failure_cause(fatal_error).kind == "sign_in"
 
 
 def fatal_error_looks_like_backend_failure(fatal_error: str | None) -> bool:
-    """Return True for Codex/backend transport failures only.
+    """True when the session ended without a usable result through no fault
+    of the task: an infrastructure failure or a session death.
 
     The match is intentionally restricted to ``RunnerResult.fatal_error``;
     do not call this on model prose, check output, or command stderr.
     """
     if not fatal_error:
         return False
-    low = str(fatal_error).strip().casefold()
     if fatal_error_looks_like_recoverable_reconnect(fatal_error):
         return False
-    return any(pattern in low for pattern in _BACKEND_FAILURE_FATAL_ERROR_PATTERNS)
+    if backend_failure_cause(fatal_error).infrastructure:
+        return True
+    low = str(fatal_error).strip().casefold()
+    return any(pattern in low for pattern in _SESSION_DEATH_FATAL_ERROR_PATTERNS)
 
 
 def fatal_error_looks_like_model_configuration(fatal_error: str | None) -> bool:
@@ -270,12 +382,16 @@ _SIGNATURE_HEX_RE = re.compile(r"\b[0-9a-f]{8,}\b")
 def backend_failure_signature(fatal_error: str | None, *, exit_code: int = 0) -> str:
     """Normalize one backend failure into a stable comparison key.
 
-    Two failures share a signature when they differ only in numbers, long hex
-    identifiers (thread/request ids), or whitespace — e.g. two 429 responses
-    with different retry-after seconds, or the same "model X is not available"
-    message across attempts.
+    The key is the line that names the cause (see ``backend_failure_cause``),
+    so the other stderr lines a record carries — timestamps, stack frames —
+    cannot make one continuing cause look like a series of different ones.
+    Two failures share a signature when their cause lines differ only in
+    numbers, long hex identifiers (thread/request ids), or whitespace — e.g.
+    two 429 responses with different retry-after seconds, or the same
+    "model X is not available" message across attempts.
     """
-    text = str(fatal_error or f"exit={exit_code}").strip().casefold()
+    cause = backend_failure_cause(fatal_error, exit_code=exit_code)
+    text = (cause.line or str(fatal_error or "") or f"exit={exit_code}").strip().casefold()
     text = _SIGNATURE_HEX_RE.sub("#", text)
     text = _SIGNATURE_NUMBER_RE.sub("#", text)
     return _WHITESPACE_SIGNATURE_RE.sub(" ", text)[:300]
@@ -445,6 +561,55 @@ def execution_host_review_decision(
     )
 
 
+# How each infrastructure failure is named to a reader; the cause line from
+# the record follows the opening ("The model service could not be reached:
+# connect ECONNREFUSED 127.0.0.1:18765").
+_INFRASTRUCTURE_FAILURE_OPENINGS: dict[str, str] = {
+    "service_unreachable": "The model service could not be reached",
+    "service_error": "The model service returned an error",
+    "service_tls": "The secure connection to the model service could not be established",
+    "service_proxy": "The proxy in front of the model service failed",
+    "cli_missing": "The model CLI could not be started",
+    "service_quota": "The model service reported that its quota is used up",
+    "model_catalog": "The model service could not list its models",
+    "sign_in": "Argus could not sign in to the model service",
+}
+
+
+def infrastructure_failure_review_decision(
+    *, cause: BackendFailureCause, fatal_error: str | None, exit_code: int,
+) -> ReviewDecision:
+    """The skipped-review record for a call that never had a model service.
+
+    Paused for a provider cooldown, like a model that is temporarily
+    unavailable: the daemon resumes the task after its waiting period, and a
+    fresh session in the meantime could only fail the same way.
+    """
+    error_text = str(fatal_error or f"exit={exit_code}").strip()
+    opening = _INFRASTRUCTURE_FAILURE_OPENINGS.get(
+        cause.kind, _INFRASTRUCTURE_FAILURE_OPENINGS["service_unreachable"],
+    )
+    named = f"{opening}: {cause.line}" if cause.line else opening
+    return ReviewDecision(
+        status="blocked",
+        reason=(
+            f"{named}. The Engineer's session ended before it produced a "
+            "result that could be checked, so this round was not judged; "
+            "Argus pauses this task and retries it after a short wait. "
+            f"Technical record: error={error_text}"
+        ),
+        next_action=(
+            "Argus retries this task after the model service's waiting period. "
+            "If the service does not come back on its own, restore it, then "
+            "resume the task."
+        ),
+        backend_unavailable=True,
+        backend_fatal_error=error_text,
+        backend_exit_code=exit_code,
+        backend_stop_kind="provider_cooldown",
+    )
+
+
 def model_configuration_review_decision(
     *, fatal_error: str | None, exit_code: int,
 ) -> ReviewDecision:
@@ -552,6 +717,8 @@ def operator_abort_review_decision(
 __all__ = [
     "BACKEND_FAILURE_SAME_CAUSE_THRESHOLD",
     "BACKEND_FAILURE_BACKOFF_CAP_SECONDS",
+    "BackendFailureCause",
+    "backend_failure_cause",
     "backend_failure_signature",
     "backend_failure_hold_backoff_seconds",
     "fatal_error_looks_like_backend_failure",
@@ -565,6 +732,7 @@ __all__ = [
     "backend_failure_review_decision",
     "external_pause_review_decision",
     "execution_host_review_decision",
+    "infrastructure_failure_review_decision",
     "model_configuration_review_decision",
     "provider_turn_cap_review_decision",
     "daemon_stop_review_decision",

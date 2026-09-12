@@ -285,7 +285,14 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     )
     stderr_lines = list(getattr(cli_result, "stderr_lines", None) or [])
     fatal_error = str(getattr(cli_result, "fatal_error", "") or "")
-    failure_text = "\n".join([fatal_error, *map(str, stderr_lines)]).strip()
+    stderr_text = "\n".join(map(str, stderr_lines)).strip()
+    # The runner's failure record already ends with the CLI's last stderr
+    # lines; add the rest only when it holds more than that.
+    failure_text = (
+        fatal_error
+        if stderr_text and stderr_text in fatal_error
+        else "\n".join(part for part in (fatal_error, stderr_text) if part)
+    )
     safe_failure_text = redact_secrets_text(
         failure_text,
         known_values=backend._known_secret_values,

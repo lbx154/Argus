@@ -26,9 +26,11 @@ import os
 import subprocess
 import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
+from ._env import _DEFAULT_CAPTURE_STDERR_LINES, _incomplete_turn_error
 from ._idle_watchdog import (
     STALLED_STAGE,
     TERMINATE_STAGE,
@@ -250,6 +252,10 @@ class CopilotAcpClient:
         self._session_events_root: Path | None = None
         self._agent_caps: dict[str, Any] = {}
         self._active_turn: _Turn | None = None
+        # The warm process's last stderr lines. When it dies mid-turn they are
+        # the only account of why ("connect ECONNREFUSED 127.0.0.1:18765"), so
+        # the failure record carries them instead of a bare "process died".
+        self._stderr_lines: deque[str] = deque(maxlen=_DEFAULT_CAPTURE_STDERR_LINES)
 
     # ── lifecycle ────────────────────────────────────────────────────────────
     def _ensure_started(self) -> None:
@@ -324,7 +330,7 @@ class CopilotAcpClient:
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,  # unread stderr PIPE would deadlock; we don't need it
+            stderr=subprocess.PIPE,  # drained by its own thread below; unread it would deadlock
             text=True,
             # Force UTF-8 so Windows does not fall back to cp1252 and crash the
             # JSON-RPC stdio bridge on non-Latin-1 payloads.
@@ -352,6 +358,13 @@ class CopilotAcpClient:
             daemon=True,
         )
         self._reader.start()
+        self._stderr_lines.clear()
+        threading.Thread(
+            target=self._stderr_loop,
+            args=(self._proc,),
+            name="copilot-acp-stderr",
+            daemon=True,
+        ).start()
         resp = self._request(
             "initialize",
             {"protocolVersion": 1, "clientCapabilities": {}},
@@ -458,6 +471,15 @@ class CopilotAcpClient:
             pass
         finally:
             self._on_dead()
+
+    def _stderr_loop(self, proc: subprocess.Popen[str]) -> None:
+        try:
+            if proc.stderr is None:
+                return
+            for line in proc.stderr:
+                self._stderr_lines.append(line.rstrip("\r\n"))
+        except Exception:  # noqa: BLE001 — a closed pipe ends the tail, nothing more
+            pass
 
     def _dispatch(self, msg: dict[str, Any]) -> None:
         mid = msg.get("id")
@@ -1016,6 +1038,9 @@ class CopilotAcpClient:
                         sid=sid,
                         text=text,
                         tool_activity_observed=turn.tool_activity_observed,
+                        # Argus ended the process on purpose; its stderr is
+                        # not the reason.
+                        with_stderr=False,
                     )
                 return self._fail_result(
                     "acp prompt ended without a response",
@@ -1076,7 +1101,7 @@ class CopilotAcpClient:
                 agent_messages=[text] if text else [],
                 json_events=json_events,
                 stdout_lines=[],
-                stderr_lines=[],
+                stderr_lines=list(self._stderr_lines),
                 turn_completed=completed,
                 turn_failed=not completed,
                 fatal_error=None
@@ -1097,7 +1122,14 @@ class CopilotAcpClient:
         text: str = "",
         stop_kind: str | None = None,
         tool_activity_observed: bool = False,
+        with_stderr: bool = True,
     ) -> AgentRunResult:
+        proc = self._proc
+        if with_stderr and (proc is None or proc.poll() is not None):
+            # The process is gone, so its last stderr lines are the only
+            # account of why; a live process's stderr is not evidence for a
+            # structured error it reported itself.
+            msg = _incomplete_turn_error(self._stderr_lines, receipt=msg)
         return AgentRunResult(
             command=[self._agent_bin, "--acp"],
             exit_code=-1,
@@ -1105,7 +1137,7 @@ class CopilotAcpClient:
             agent_messages=[text] if text else [],
             json_events=[],
             stdout_lines=[],
-            stderr_lines=[],
+            stderr_lines=list(self._stderr_lines),
             turn_completed=False,
             turn_failed=True,
             fatal_error=msg,
