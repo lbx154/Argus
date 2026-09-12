@@ -228,3 +228,33 @@ def test_failed_replacement_preserves_cached_committed_goal(tmp_path, monkeypatc
         server.set_continuous(sid, enabled=True, objective="Replacement", global_root=tmp_path)
     assert read_continuous_state(life).objective == state["continuous_objective"] == "Previous"
     assert read_continuous_state(life).enabled and state["config"]["continuous"]
+
+
+@pytest.mark.parametrize("preview", [manager_bridge.manager_plan, manager_bridge.manager_rewrite])
+def test_stop_reaches_raw_backend_while_preview_owns_manager_lock(tmp_path, monkeypatch, preview):
+    sid, _life = _project(tmp_path)
+    entered, cleanup = threading.Event(), threading.Event()
+
+    class Backend:
+        def run_exec(self, *, options, **kwargs):
+            interrupt = options.external_interrupt_reason_provider
+            assert callable(interrupt)
+            entered.set()
+            for _ in range(200):
+                if reason := interrupt():
+                    return RunnerResult(exit_code=130, fatal_error="External interrupt: " + reason)
+                if cleanup.wait(0.01):
+                    break
+            raise AssertionError("preview did not receive interruption")
+
+    backend = Backend()
+    runner = SimpleNamespace(planner_backend=backend, _backend=backend)
+    monkeypatch.setattr(front_door, "_ensure_manager_runner", lambda *args, **kwargs: runner)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(preview, sid, "Investigate this objective", global_root=tmp_path)
+        try:
+            assert entered.wait(1)
+            manager_state.interrupt_manager_turns(sid, clear_continuous=False)
+            assert future.result(timeout=1)["error"]
+        finally:
+            cleanup.set()
