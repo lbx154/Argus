@@ -60,6 +60,48 @@ def issued_auth(client, key_id=KEY_ID):
     return {"Authorization": "Bearer " + credential}
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_selected_advisor_model_reaches_upstream_and_keeps_metering(settings, stream):
+    observed = []
+
+    def provider(request):
+        payload = json.loads(request.content)
+        observed.append(payload)
+        assert payload["model"] == "expert-model"
+        data = response_data()
+        if not stream:
+            return httpx.Response(200, json=data)
+        events = [
+            {"type": "response.created", "response": {"id": data["id"], "created_at": 1}},
+            {"type": "response.output_text.delta", "delta": "hello"},
+            {"type": "response.completed", "response": data},
+        ]
+        return httpx.Response(200, text="".join("data: " + json.dumps(event) + "\n\n" for event in events))
+
+    app = create_app(replace(settings, models=("expert-model",)), transport=httpx.MockTransport(provider))
+    with TestClient(app) as client:
+        auth = issued_auth(client)
+        models = client.get("/v1/models", headers=auth).json()["data"]
+        assert {model["id"] for model in models} == {"argus-trial", "gpt-5.5", "expert-model"}
+        response = client.post("/v1/chat/completions", headers=auth,
+                               json={**PAYLOAD, "model": "expert-model", "stream": stream})
+        assert response.status_code == 200
+        if stream:
+            chunks = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ") and line != "data: [DONE]"]
+            assert all(chunk["model"] == "expert-model" for chunk in chunks)
+            assert "data: [DONE]" in response.text
+        else:
+            assert response.json()["model"] == "expert-model"
+        assert len(observed) == 1
+        assert app.state.store.status(KEY_ID)["tokens_used"] == 15
+        assert app.state.store.status(KEY_ID)["active_requests"] == 0
+        rejected = client.post("/v1/chat/completions", headers=auth,
+                               json={**PAYLOAD, "model": "not-enabled"})
+        assert rejected.status_code == 400
+        assert len(observed) == 1
+        assert app.state.store.status(KEY_ID)["tokens_used"] == 15
+
+
 def test_model_burst_waits_for_slots_without_failing_tasks(settings):
     active = peak = 0
 

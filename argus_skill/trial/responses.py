@@ -58,11 +58,14 @@ def request_payload(chat: dict) -> dict:
     return payload
 
 
-def completion(data: dict) -> dict:
+def completion(data: dict, *, model_id: str = MODEL) -> dict:
     if not isinstance(data, dict) or data.get("status") not in {"completed", "incomplete"}:
         raise TrialError(502, "provider_protocol_error", "Invalid provider completion response.")
     if not isinstance(data.get("output"), list):
         raise TrialError(502, "provider_protocol_error", "Invalid provider completion output.")
+    reported = data.get("model")
+    if model_id != MODEL and isinstance(reported, str) and reported:
+        model_id = reported
     text, calls, refusal = [], [], []
     for item in data["output"]:
         if item.get("type") == "message":
@@ -84,7 +87,7 @@ def completion(data: dict) -> dict:
         message["refusal"] = "".join(refusal)
     finish = "length" if data["status"] == "incomplete" else "tool_calls" if calls else "stop"
     result = {
-        "id": data["id"], "object": "chat.completion", "created": data["created_at"], "model": MODEL,
+        "id": data["id"], "object": "chat.completion", "created": data["created_at"], "model": model_id,
         "choices": [{"index": 0, "message": message, "finish_reason": finish}],
     }
     usage = data.get("usage")
@@ -98,7 +101,7 @@ def completion(data: dict) -> dict:
     return result
 
 
-async def chat_chunks(response, limit: int):
+async def chat_chunks(response, limit: int, *, model_id: str = MODEL):
     """Stream text immediately; deliver complete local tool calls at completion.
 
     Only terminal Responses events produce [DONE]. Interrupted/error streams
@@ -106,6 +109,7 @@ async def chat_chunks(response, limit: int):
     """
     lines = []
     identity = {}
+    reported_model = model_id
     sent_text = False
     async for line in response.aiter_lines():
         if len(line) + sum(map(len, lines)) > limit:
@@ -121,12 +125,14 @@ async def chat_chunks(response, limit: int):
             if kind == "response.created":
                 data = event["response"]
                 identity = {"id": data["id"], "created": data["created_at"]}
+                if model_id != MODEL and isinstance(data.get("model"), str) and data["model"]:
+                    reported_model = data["model"]
             elif kind == "response.output_text.delta":
                 sent_text = True
-                yield {**identity, "object": "chat.completion.chunk", "model": MODEL,
+                yield {**identity, "object": "chat.completion.chunk", "model": reported_model,
                        "choices": [{"index": 0, "delta": {"content": event["delta"]}, "finish_reason": None}]}
             elif kind in {"response.completed", "response.incomplete"}:
-                result = completion(event["response"])
+                result = completion(event["response"], model_id=model_id)
                 choice = result["choices"][0]
                 delta = choice.pop("message")
                 if sent_text:

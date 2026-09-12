@@ -13,6 +13,7 @@ def configure_provider(root: Path, config: dict) -> None:
     from ..core.knob_store import write_persisted_knobs
     from ..core.knobs import KNOBS, resolve_knob
     from . import CLIENT_MODEL, MAP_REASONING_DEFAULTS, REASONING_EFFORT
+    from .model_catalog import configured_model_ids
 
     backend = os.environ.get("ARGUS_TRIAL_HARNESS", "copilot")
     if backend not in {"copilot", "argus-pi"}:
@@ -35,7 +36,7 @@ def configure_provider(root: Path, config: dict) -> None:
         write_private(agent_dir / "models.json", json.dumps({"providers": {"argus": {
             "baseUrl": "http://127.0.0.1:18765/v1",
             "api": "openai-completions", "apiKey": config["api_key"],
-            "models": [{"id": CLIENT_MODEL, "reasoning": True}],
+            "models": [{"id": model, "reasoning": True} for model in configured_model_ids(additional=config.get("models"))],
         }}}).encode())
         os.environ.update({
             "PI_CODING_AGENT_DIR": str(agent_dir),

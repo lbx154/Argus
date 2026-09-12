@@ -18,6 +18,7 @@ from starlette.staticfiles import StaticFiles
 
 from . import CLIENT_MODEL, MAX_CONCURRENCY, MAX_OUTPUT_TOKENS, MODEL, TOKEN_LIMIT
 from .copilot import Copilot
+from .model_catalog import configured_model_ids, select_model
 from .responses import chat_chunks, completion, request_payload
 from .secrets import Vault
 from .store import Store, TrialError
@@ -41,6 +42,7 @@ class Settings:
     timeout: float = 300
     site_dir: Path | None = None
     token_limit: int | None = TOKEN_LIMIT
+    models: tuple[str, ...] | None = None
 
 
 class TextPart(BaseModel):
@@ -148,9 +150,12 @@ async def read_json(request: Request, limit: int) -> dict:
     return data
 
 
-def prepare(data: dict, model: str) -> tuple[dict, int]:
-    if data.get("model") == model:
-        data = {**data, "model": "argus-trial"}
+def prepare(data: dict, model: str, *, models: tuple[str, ...] | None = None) -> tuple[dict, int]:
+    try:
+        selected = select_model(data.get("model"), model, configured_model_ids(model, models))
+    except ValueError:
+        raise TrialError(400, "model_not_enabled", "The selected model is not enabled for this trial.") from None
+    data = {**data, "model": MODEL}
     try:
         parsed = Completion.model_validate(data)
     except ValidationError:
@@ -166,7 +171,7 @@ def prepare(data: dict, model: str) -> tuple[dict, int]:
         raise TrialError(400, "invalid_tools", "Only local function and custom tool choices are supported.")
     payload = parsed.model_dump(exclude_none=True, by_alias=True)
     output = payload.pop("max_completion_tokens", None) or payload.pop("max_tokens", None) or MAX_OUTPUT_TOKENS
-    payload.update(model=model, max_tokens=output)
+    payload.update(model=selected, max_tokens=output)
     # Text-only requests: reserve UTF-8 bytes plus protocol/tool framing and
     # the enforced output maximum. Refund only from authoritative upstream
     # usage. This deliberately conservative estimate is not a tokenizer.
@@ -194,6 +199,7 @@ def usage_total(data: dict) -> int | None:
 
 
 def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
+    catalog = configured_model_ids(settings.model, settings.models)
     @asynccontextmanager
     async def lifespan(app):
         settings.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -243,12 +249,14 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
     @app.get("/v1/models")
     async def models(request: Request):
         trial_key(request)
-        return {"object": "list", "data": [{"id": MODEL, "object": "model", "owned_by": "argus"}]}
+        return {"object": "list", "data": [{"id": name, "object": "model", "owned_by": "argus"} for name in (MODEL, *catalog)]}
 
     @app.post("/v1/chat/completions")
     async def complete(request: Request):
         key_id = trial_key(request)
-        payload, reserve = prepare(await read_json(request, MAX_BODY_BYTES), settings.model)
+        request_data = await read_json(request, MAX_BODY_BYTES)
+        payload, reserve = prepare(request_data, settings.model, models=catalog)
+        response_model = MODEL if request_data.get("model") == MODEL else payload["model"]
         store, copilot = app.state.store, app.state.copilot
         slot_acquired = False
 
@@ -308,13 +316,13 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                 if payload["stream"]:
                     handed_off = True
                     return StreamingResponse(
-                        stream_response(response, request_id, release_slot), media_type="text/event-stream",
+                        stream_response(response, request_id, release_slot, response_model), media_type="text/event-stream",
                         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
                         background=BackgroundTask(finish_stream, response, request_id, release_slot),
                     )
                 body = await response.aread()
                 data = json.loads(body)
-                result = completion(data)
+                result = completion(data, model_id=response_model)
                 actual = usage_total(result)
                 if actual is None:
                     raise TrialError(502, "provider_usage_missing", "Provider did not report token usage; reservation retained.")
@@ -337,12 +345,12 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
         release_slot()
         await response.aclose()
 
-    async def stream_response(response, request_id, release_slot):
+    async def stream_response(response, request_id, release_slot, model_id):
         actual = None
         complete = False
         try:
             async with asyncio.timeout(settings.timeout):
-                async for chunk in chat_chunks(response, MAX_BODY_BYTES):
+                async for chunk in chat_chunks(response, MAX_BODY_BYTES, model_id=model_id):
                     if chunk is None:
                         if actual is None:
                             raise TrialError(502, "provider_usage_missing", "Provider did not report token usage; reservation retained.")
