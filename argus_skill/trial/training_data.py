@@ -472,7 +472,9 @@ class TrainingData:
                 WHERE tenant_id=? AND research_notice_version=? AND training_notice_version=?
             """, (tenant_id, self.analytics.notice_version, NOTICE_VERSION)).fetchone()
             if receipt is None:
-                db.execute("INSERT INTO training_offline_authorizations VALUES (?,?,?,?,?,?,?)", (
+                db.execute("""INSERT INTO training_offline_authorizations
+                    (tenant_id,research_notice_version,training_notice_version,source,
+                     recorded_at,effective_at,evidence_note) VALUES (?,?,?,?,?,?,?)""", (
                     tenant_id, self.analytics.notice_version, NOTICE_VERSION,
                     "operator_attested_offline", now, None, note.strip(),
                 ))

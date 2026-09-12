@@ -758,6 +758,35 @@ def test_offline_team_authority_is_truthful_internal_only_and_forward_scoped(tra
                for event in data.controls.audit_log()["events"])
 
 
+def test_offline_policy_accepts_legacy_extra_columns_without_rewriting_receipts(training):
+    data, _, now = training
+    data.analytics.notice_version = COMBINED_NOTICE_VERSION
+    with data.analytics._db() as db:
+        db.execute("ALTER TABLE training_offline_authorizations ADD COLUMN external_sharing INTEGER NOT NULL DEFAULT 0")
+        db.execute("ALTER TABLE training_offline_authorizations ADD COLUMN sharing_recorded_at REAL")
+        db.execute("INSERT INTO training_offline_authorizations VALUES (?,?,?,?,?,?,?,?,?)", (
+            "tenant-two", COMBINED_NOTICE_VERSION, NOTICE_VERSION, "operator_attested_offline",
+            now[0] - 10, None, "Existing owner declaration.", 1, now[0] - 5,
+        ))
+        original = tuple(db.execute("SELECT * FROM training_offline_authorizations").fetchone())
+    policy = {"mode": "internal_team_offline", "tenant_ids": ["tenant-one"],
+              "evidence_note": "Owner explicitly authorized internal-team training."}
+    first = data.apply_offline_team_authorization("tenant-one", team_policy=policy)
+    assert first["internal_training"] and not first["external_sharing"]
+    assert first["authorization"]["effective_at"] is None
+    assert first["onboarding"] is None
+    now[0] += 10
+    repeated = data.apply_offline_team_authorization("tenant-one", team_policy=policy)
+    assert repeated["authorization"] == first["authorization"]
+    assert repeated["granted_at"] == first["granted_at"]
+    with data.analytics._db() as db:
+        created = db.execute("SELECT external_sharing,sharing_recorded_at FROM training_offline_authorizations "
+                             "WHERE tenant_id='tenant-one'").fetchone()
+        assert tuple(created) == (0, None)
+        retained = db.execute("SELECT * FROM training_offline_authorizations WHERE tenant_id='tenant-two'").fetchone()
+        assert tuple(retained) == original
+
+
 def test_offline_policy_is_private_preserves_revocations_and_never_resurrects_deletion(training):
     data, _, now = training
     policy = {"mode": "internal_team_offline", "tenant_ids": ["tenant-one"],
