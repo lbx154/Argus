@@ -9,7 +9,6 @@ budget plus one complete event, including initial/legacy reconstruction.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 from contextlib import contextmanager
@@ -18,6 +17,7 @@ from typing import Any, Iterator
 
 from ..event_catalog import EventType, canonical_event_type, validate_event_envelope
 from ..file_lock import exclusive_file_lock
+from ..json_codec import loads_finite_json
 from ._dispatch import reduce_mission_view_event
 from ._view_state import (
     _locked,
@@ -246,7 +246,7 @@ def reconcile_unlocked(root: Path, view: dict[str, Any], *, force_logged: bool =
             and archived_stat.st_mtime_ns == source["mtime_ns"]
         ):
             return view
-    if source and current_stat is not None and _identity(current_stat) == (source["device"], source["inode"]):
+    if source and cursor is not None and current_stat is not None and _identity(current_stat) == (source["device"], source["inode"]):
         if (
             current_stat.st_size == source["size"]
             and current_stat.st_mtime_ns == source["mtime_ns"]
@@ -339,7 +339,7 @@ def reconcile_unlocked(root: Path, view: dict[str, Any], *, force_logged: bool =
                 offset = handle.tell()
                 cursor["last_event_id"] = hashlib.sha256(raw).hexdigest()
                 try:
-                    event = json.loads(raw)
+                    event = loads_finite_json(raw)
                 except (UnicodeDecodeError, ValueError):
                     skipped += 1
                     continue

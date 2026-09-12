@@ -7,6 +7,7 @@ import sqlite3
 import time
 from pathlib import Path
 
+from ..core.json_codec import loads_finite_json
 from ..life.memory import _jsonl_history_paths
 from .map_view import digest, normalize_events, turn_records, with_revisions
 
@@ -14,7 +15,16 @@ PAGE_BYTES = 1024 * 1024
 PAGE_EVENTS = 500
 # Bump when the projection learns to derive new records from old rows, so an
 # index built by an earlier version is rebuilt instead of trusted.
-HISTORY_VERSION = 3
+HISTORY_VERSION = 4
+
+
+def _finite_record(value: str | bytes) -> dict | None:
+    """Skip invalid log/cache records without changing their audit source."""
+    try:
+        record = loads_finite_json(value)
+    except ValueError:
+        return None
+    return record if isinstance(record, dict) else None
 
 
 def history_path(root: Path, life_dir: Path) -> Path:
@@ -51,7 +61,7 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
             # Serialize index writers across API workers as well as browser tabs.
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT value FROM metadata WHERE key = 'state'").fetchone()
-            state = json.loads(row[0]) if row else {}
+            state = (_finite_record(row[0]) or {}) if row else {}
             files = [(path, path.stat()) for path in _jsonl_history_paths(life_dir / "events.jsonl")]
             size = sum(stat.st_size for _, stat in files)
             task_ids = sorted(t["id"] for t in value["tasks"])
@@ -111,11 +121,8 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
                         if not line.endswith(b"\n"):
                             continue
                         consumed += len(line)
-                        try:
-                            row = json.loads(line)
-                        except ValueError:
-                            continue
-                        if isinstance(row, dict):
+                        row = _finite_record(line)
+                        if row is not None:
                             rows.append(row)
                     owners = known_ids | active | {
                         str(row.get("item_id") or row.get("mission_id") or "") for row in rows
@@ -150,7 +157,7 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
                     db.executemany(
                         "INSERT INTO events (seq, id, body) VALUES (?, ?, ?)",
                         [
-                            (counter + index + 1, e["id"], json.dumps(e, ensure_ascii=False))
+                            (counter + index + 1, e["id"], json.dumps(e, ensure_ascii=False, allow_nan=False))
                             for index, e in enumerate(fresh)
                         ],
                     )
@@ -163,13 +170,13 @@ def history_page(root: Path, life_dir: Path, value: dict, after: str | None) -> 
             state.update(active=sorted(active), task_ids=task_ids, omitted_owners=sorted(omitted),
                          segments=segments, turn_asks=turn_asks,
                          offset=sum(saved["offset"] for saved in state["files"]))
-            db.execute("INSERT OR REPLACE INTO metadata VALUES ('state', ?)", (json.dumps(state),))
+            db.execute("INSERT OR REPLACE INTO metadata VALUES ('state', ?)", (json.dumps(state, allow_nan=False),))
             epoch, _, number = (after or "").partition(":")
             valid = epoch == state["epoch"] and number.isdigit()
             start = int(number) if valid else 0
             rows = db.execute("SELECT seq, body FROM events WHERE seq > ? ORDER BY seq LIMIT ?",
                               (min(start, 2**63 - 1), PAGE_EVENTS + 1)).fetchall()
-            events = [json.loads(row[1]) for row in rows[:PAGE_EVENTS]]
+            events = [event for row in rows[:PAGE_EVENTS] if (event := _finite_record(row[1])) is not None]
             last = rows[min(len(rows), PAGE_EVENTS) - 1][0] if rows else start
             return with_revisions({
                 **value, "events": events, "incremental": valid,
@@ -189,8 +196,10 @@ def indexed_evidence(root: Path, life_dir: Path, ids: list[str]) -> list[dict]:
     db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
     try:
         placeholders = ",".join("?" for _ in ids)
-        return [json.loads(row[0]) for row in db.execute(
+        # Summary requests can arrive before history_page migrates an old
+        # index. Keep usable cached evidence and omit malformed rows read-only.
+        return [event for row in db.execute(
             f"SELECT body FROM events WHERE id IN ({placeholders})", ids,
-        )]
+        ) if (event := _finite_record(row[0])) is not None]
     finally:
         db.close()

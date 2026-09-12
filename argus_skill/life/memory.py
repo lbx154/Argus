@@ -46,6 +46,7 @@ from typing import Any, Callable, Iterable, Iterator
 import portalocker
 
 from ..core.event_catalog import EventType, canonical_event_type
+from ..core.json_codec import loads_finite_json
 from ..core.prompt_example_tasks import is_prompt_example_task
 
 _BACKLOG_THREAD_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
@@ -89,7 +90,7 @@ def _read_jsonl_tail(
     raw_predicate: Callable[[bytes], bool] | None = None,
     raw_markers: tuple[bytes, ...] | None = None,
 ) -> list[dict[str, Any]]:
-    """Return the last ``n`` matching JSONL rows without a full-file scan."""
+    """Return the last ``n`` matching finite JSONL rows without a full-file scan."""
     if n <= 0 or not path.exists():
         return []
     if raw_markers:
@@ -124,8 +125,8 @@ def _read_jsonl_tail(
                     if raw_predicate is not None and not raw_predicate(raw):
                         continue
                     try:
-                        row = json.loads(raw.decode("utf-8"))
-                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        row = loads_finite_json(raw)
+                    except (UnicodeDecodeError, ValueError):
                         continue
                     if predicate is not None and not predicate(row):
                         continue
@@ -138,10 +139,10 @@ def _read_jsonl_tail(
                     try:
                         if raw_predicate is not None and not raw_predicate(raw):
                             return list(reversed(rows_rev))
-                        row = json.loads(raw.decode("utf-8"))
+                        row = loads_finite_json(raw)
                         if predicate is None or predicate(row):
                             rows_rev.append(row)
-                    except (UnicodeDecodeError, json.JSONDecodeError):
+                    except (UnicodeDecodeError, ValueError):
                         pass
     except OSError:
         return []
@@ -188,8 +189,8 @@ def _read_jsonl_tail_marked(
                         raw = mapped[line_start:line_end].strip()
                         if raw:
                             try:
-                                row = json.loads(raw.decode("utf-8"))
-                            except (UnicodeDecodeError, json.JSONDecodeError):
+                                row = loads_finite_json(raw)
+                            except (UnicodeDecodeError, ValueError):
                                 row = None
                             if row is not None and (predicate is None or predicate(row)):
                                 rows_rev.append(row)
@@ -316,7 +317,7 @@ def _read_jsonl_tail_rg(
     rows: deque[dict[str, Any]] = deque(maxlen=n)
     for raw in result.stdout.splitlines():
         try:
-            row = json.loads(raw)
+            row = loads_finite_json(raw)
         except ValueError:
             continue
         if predicate is None or predicate(row):

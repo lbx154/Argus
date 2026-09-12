@@ -17,6 +17,7 @@ from typing import Any, Iterator
 
 from ..event_catalog import EventType, canonical_event_type
 from ..file_lock import exclusive_file_lock
+from ..json_codec import loads_finite_json
 
 MISSION_VIEW_FILE = "mission-view.json"
 MISSION_VIEW_LOCK_FILE = "mission-view.lock"
@@ -118,7 +119,7 @@ def _locked(root: Path) -> Iterator[None]:
 
 def _read_unlocked(root: Path) -> dict[str, Any]:
     try:
-        payload = json.loads((root / MISSION_VIEW_FILE).read_text(encoding="utf-8"))
+        payload = loads_finite_json((root / MISSION_VIEW_FILE).read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
         return empty_mission_view()
     if not isinstance(payload, dict):
@@ -306,7 +307,7 @@ def _tail_jsonl(path: Path, max_bytes: int = MISSION_BOOTSTRAP_MAX_BYTES) -> lis
     rows: list[dict[str, Any]] = []
     for line in raw.splitlines():
         try:
-            event = json.loads(line)
+            event = loads_finite_json(line)
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
             continue
         if not isinstance(event, dict):

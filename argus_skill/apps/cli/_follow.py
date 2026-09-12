@@ -15,6 +15,7 @@ from typing import Any, Callable, Sequence
 from urllib.parse import urlencode
 
 from ...core import paths as core_paths
+from ...core.json_codec import loads_finite_json
 from ...core.operator_messages import uses_cjk
 from ...core.role_reply import strip_named_lines
 from ...core.secret_guard import known_secret_values, redact_secrets_text
@@ -510,8 +511,8 @@ def _read_recent_jsonl_events(
         if not line:
             continue
         try:
-            event = json.loads(line.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+            event = loads_finite_json(line)
+        except (UnicodeDecodeError, ValueError):
             continue
         if isinstance(event, dict):
             rows.append(event)

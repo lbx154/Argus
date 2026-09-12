@@ -11,6 +11,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Mapping
 
+from .json_codec import is_finite_number
+
 EVENT_ENVELOPE_VERSION = 1
 EVENT_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
 _PAYLOAD_SCHEMA_PATH = Path(__file__).with_name("event_payload_schemas.json")
@@ -489,6 +491,9 @@ def _validate_payload(event: Mapping[str, Any], schema: dict[str, Any]) -> list[
         ):
             errors.append(f"field {field} must be {' or '.join(expected_types)}")
             continue
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and not is_finite_number(value):
+            errors.append(f"field {field} must be finite")
+            continue
         if "const" in field_schema and value != field_schema["const"]:
             errors.append(f"field {field} must equal {field_schema['const']!r}")
         allowed = field_schema.get("enum")
@@ -550,6 +555,8 @@ def validate_event_envelope(
     ts = event.get("ts")
     if ts is not None and (isinstance(ts, bool) or not isinstance(ts, (int, float))):
         errors.append("ts must be numeric")
+    elif ts is not None and not is_finite_number(ts):
+        errors.append("ts must be finite")
     version = event.get("event_schema_version")
     if version is not None and (
         isinstance(version, bool)

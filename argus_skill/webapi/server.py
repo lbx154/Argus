@@ -33,7 +33,6 @@ Command POSTs (task/nudge/daemon start-stop/config) land in M1.
 # unions are fine on the required Python >=3.11.
 
 import asyncio
-import json
 import logging
 import os
 import queue
@@ -49,6 +48,7 @@ from ..apps.cli._follow import (
     _read_recent_project_events,  # noqa: F401 - used via server_mod._read_recent_project_events in webapi/routes/projects.py
 )
 from ..core.event_catalog import EventType, canonical_event_type
+from ..core.json_codec import loads_finite_json
 from ..core.metrics import (
     http_route_template,
     metrics_snapshot,  # noqa: F401 - used via server_mod.metrics_snapshot in webapi/routes/meta.py
@@ -434,8 +434,8 @@ def _read_replay_snapshot(
         if not line:
             continue
         try:
-            event = json.loads(line.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+            event = loads_finite_json(line)
+        except (UnicodeDecodeError, ValueError):
             continue
         if isinstance(event, dict):
             rows.append(event)
@@ -499,8 +499,8 @@ async def tail_events(
             if not line:
                 continue
             try:
-                ev = json.loads(line.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
+                ev = loads_finite_json(line)
+            except (UnicodeDecodeError, ValueError):
                 continue
             if not isinstance(ev, dict):
                 continue
