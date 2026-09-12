@@ -695,6 +695,21 @@
         },
         "error_type": {
           "type": "string"
+        },
+        "failure_stage": {
+          "type": "string",
+          "enum": ["provider", "decision", "commit"]
+        },
+        "stop_kind": {
+          "type": "string",
+          "enum": ["budget_exhausted", "provider_cooldown", "provider_fence", "daemon_shutdown", "operator_pause", "operator_abort", "backend_unavailable", "transient_error", "permanent_error"]
+        },
+        "error_code": {
+          "type": "string",
+          "enum": ["trial_quota_exceeded", "timeout", "cancelled", "superseded"]
+        },
+        "backend_exit_code": {
+          "type": "integer"
         }
       }
     },

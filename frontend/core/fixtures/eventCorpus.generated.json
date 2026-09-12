@@ -222,12 +222,14 @@
         "action": "advance",
         "advisor_disposition": "advisor disposition",
         "agent_layer": "manager",
+        "backend_exit_code": 1,
         "call_id": "call-1",
         "consultation_id": "consultation id",
         "control_revision": "control revision",
         "effects": {
           "value": "recorded"
         },
+        "error_code": "trial_quota_exceeded",
         "error_type": "error type",
         "evidence_refs": [
           {
@@ -235,10 +237,12 @@
           }
         ],
         "evidence_revision": "evidence revision",
+        "failure_stage": "provider",
         "item_id": "task-1",
         "payload_schema_version": 1,
         "reason": "the current operation needs attention",
         "status": "completed",
+        "stop_kind": "budget_exhausted",
         "summary": "Implemented and verified the requested change.",
         "supervision_id": "supervision id",
         "trigger_type": "trigger type",

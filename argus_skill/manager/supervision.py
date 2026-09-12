@@ -8,6 +8,7 @@ import os
 import threading
 import time
 import uuid
+from concurrent.futures import CancelledError
 from inspect import signature
 from pathlib import Path
 from typing import Any, Callable
@@ -18,6 +19,7 @@ from ..core.event_catalog import EventType
 from ..core.models import RunnerOptions
 from ..core.run_gateway import run_exec, run_interrupt_scope
 from ..daemon.state import _fsync_directory, compare_and_swap_continuous_config
+from ._helpers import _manager_backend_failure
 from ._session_ops import (
     _ManagerSession,
     clear_manager_pipeline_yield,
@@ -26,6 +28,7 @@ from ._session_ops import (
 from .observation import ManagerObservation, _digest, _semantic, control_identity, observe_project
 from .session_context import manager_session_yield_reason
 from .stage_decider import extract_answer
+from .supervision_errors import _failure_reason, _provider_failure_metadata
 
 LOG = logging.getLogger(__name__)
 _ADMISSION = threading.BoundedSemaphore(2)
@@ -81,7 +84,7 @@ def _emit(record: dict[str, Any], root: Path, phase: str) -> None:
     decision = record.get("decision") or {}
     reason = record.get("failure_reason") if phase == "failed" else decision.get("reason")
     reason = reason or "Manager could not complete the evidence check; prior controls remain authoritative."
-    JsonlEventSink(None, life_dir=root).append({
+    payload = {
         "type": {
             "issued": EventType.LIFE_MANAGER_SUPERVISION_ISSUED,
             "applied": EventType.LIFE_MANAGER_SUPERVISION_APPLIED,
@@ -93,10 +96,17 @@ def _emit(record: dict[str, Any], root: Path, phase: str) -> None:
         "item_id": record["trigger"].get("item_id", ""),
         "status": record["status"], "action": decision.get("action", ""),
         "reason": reason, "summary": reason, "evidence_refs": record["evidence_refs"],
-        "call_id": record.get("call_id", ""), "effects": record.get("effects", {}),
+        "call_id": record.get("call_id") or "", "effects": record.get("effects", {}),
         "consultation_id": decision.get("consultation_id", ""),
         "advisor_disposition": decision.get("advisor_disposition", ""),
-    })
+    }
+    if phase == "failed":
+        payload.update({key: record[key] for key in (
+            "failure_stage", "stop_kind", "error_code", "backend_exit_code",
+        ) if key in record})
+        if record.get("error"):
+            payload["error_type"] = record["error"]
+    JsonlEventSink(None, life_dir=root).append(payload)
 
 
 def waiting_for_evidence(root: Path | str | None, mission_id: str | None = None) -> bool:
@@ -273,7 +283,10 @@ def _apply(
         clear_manager_pipeline_yield(root, yield_token)
 
 
-def _deliver(root: Path, event: dict[str, Any], record: dict[str, Any], cancelled: Callable[[], bool]) -> dict[str, Any]:
+def _deliver(
+    root: Path, event: dict[str, Any], record: dict[str, Any], cancelled: Callable[[], bool],
+    *, interruption_code: Callable[[], str | None] | None = None,
+) -> dict[str, Any]:
     """Replay a durable issued decision without asking the model again."""
     path = root / "manager-supervision" / f"{record['id']}.json"
     try:
@@ -281,18 +294,24 @@ def _deliver(root: Path, event: dict[str, Any], record: dict[str, Any], cancelle
         record["status"] = "applied"
         record["applied_at"] = time.time()
         record["completed_at"] = time.time()
-        record.pop("failure_reason", None)
-        record.pop("error", None)
+        for key in ("failure_reason", "failure_stage", "error", "error_type", "error_code", "stop_kind"):
+            record.pop(key, None)
         _write(path, record)
     except Exception as exc:
+        # Classification must not turn an expired decision into a replayable one.
         superseded = isinstance(exc, SupervisionSuperseded) or cancelled()
+        code = interruption_code() if interruption_code else ("cancelled" if cancelled() else None)
+        code = code or ("timeout" if isinstance(exc, TimeoutError) else None)
+        code = code or ("cancelled" if isinstance(exc, CancelledError) else None)
+        code = code or ("superseded" if superseded else None)
         record["status"] = "superseded" if superseded else "issued"
         record["error"] = type(exc).__name__
-        record["failure_reason"] = (
-            "Newer control, evidence, or cancellation superseded this decision. Any recorded effects remain auditable."
-            if superseded else
-            "Delivery is incomplete and will be recovered from this issued receipt; some recorded effects may already be durable."
-        )
+        record["failure_stage"] = "commit"
+        record.pop("stop_kind", None)
+        record.pop("error_code", None)
+        if code:
+            record["error_code"] = code
+        record["failure_reason"] = _failure_reason("commit", record, issued=True)
         if superseded:
             record["completed_at"] = time.time()
         try:
@@ -339,11 +358,23 @@ def supervise(
                 return previous
             deadline = time.monotonic() + 30
 
+            def cancellation_code() -> str | None:
+                if cancelled and cancelled():
+                    return "cancelled"
+                if time.monotonic() >= deadline:
+                    return "timeout"
+                if manager_session_yield_reason(root):
+                    return "superseded"
+                return None
+
             def cancelled_or_expired() -> bool:
-                return bool((cancelled and cancelled()) or time.monotonic() >= deadline or manager_session_yield_reason(root))
+                return cancellation_code() is not None
+
+            def interruption_code() -> str | None:
+                return cancellation_code() or ("superseded" if not observation.current() else None)
 
             def interrupted() -> bool:
-                return cancelled_or_expired() or not observation.current()
+                return interruption_code() is not None
 
             record: dict[str, Any] = {
                 "version": 1, "id": identity,
@@ -356,12 +387,19 @@ def supervise(
                 "created_at": time.time(), "status": "evaluating",
             }
             _write(path, record)
+            failure_stage = "provider"
+            result = None
             try:
                 session: Any = _ManagerSession(backend, root) if backend is not None else manager._session
                 from ._helpers import _manager_model, _manager_reasoning_effort
 
                 def interrupt_reason() -> str | None:
-                    return "Manager supervision superseded" if interrupted() else None
+                    code = interruption_code()
+                    return {
+                        "timeout": "Manager supervision timed out",
+                        "cancelled": "Manager supervision cancelled",
+                        "superseded": "Manager supervision superseded",
+                    }.get(code) if code else None
 
                 options = RunnerOptions(
                     model=_manager_model(), reasoning_effort=_manager_reasoning_effort(),
@@ -372,31 +410,36 @@ def supervise(
                 )
                 with run_interrupt_scope(interrupt_reason):
                     result = run_exec(session, prompt=_prompt(observation), options=options, run_label="manager-supervision")
-                if interrupted() or result.exit_code != 0 or result.fatal_error:
+                record["call_id"] = getattr(result, "call_id", "") or ""
+                record["backend_exit_code"] = int(getattr(result, "exit_code", 0) or 0)
+                backend_failed, _ = _manager_backend_failure(result)
+                if interrupted() or backend_failed:
                     raise RuntimeError("Manager supervision was interrupted or failed")
-                record["decision"] = _decision(extract_answer(result))
-                if record["decision"]["action"] == "wait":
+                failure_stage = "decision"
+                decision = _decision(extract_answer(result))
+                if decision["action"] == "wait":
                     waiting = [task for task in observation.facts["tasks"] if task.get("pending_question")]
                     record["waiting_task_ids"] = [task["id"] for task in waiting]
                     record["waiting_task_revisions"] = {task["id"]: _digest(_semantic(task)) for task in waiting}
                     record["waiting_questions"] = {task["id"]: task["pending_question"] for task in waiting}
                 available = {ref["path"]: ref for ref in observation.facts["evidence_refs"]}
-                cited = record["decision"]["cited_refs"]
+                cited = decision["cited_refs"]
                 if any(ref not in available for ref in cited):
                     raise ValueError("Manager cited evidence outside the observed project snapshot")
                 record["available_refs"] = list(available.values())
                 record["cited_refs"] = [available[ref] for ref in cited]
                 record["evidence_refs"] = record["cited_refs"]
-                consultation_id = record["decision"].get("consultation_id")
+                consultation_id = decision.get("consultation_id")
                 if consultation_id:
                     from ..advisor.receipts import read_receipt
 
                     advice = read_receipt(root, consultation_id)
                     if not advice or advice.get("status") != "completed":
                         raise ValueError("Manager referenced unavailable advisor evidence")
-                    if record["decision"].get("advisor_disposition") not in {"adopt", "reject"}:
+                    if decision.get("advisor_disposition") not in {"adopt", "reject"}:
                         raise ValueError("Manager must explain whether it adopted the advisor result")
-                record["call_id"] = result.call_id
+                record["decision"] = decision
+                failure_stage = "commit"
                 record["status"] = "issued"
                 record["issued_at"] = time.time()
                 _write(path, record)
@@ -404,18 +447,23 @@ def supervise(
                     _emit(record, root, "issued")
                 except Exception:
                     LOG.exception("Manager issued decision event is unavailable; the receipt remains authoritative")
-                return _deliver(root, event, record, cancelled_or_expired)
+                return _deliver(root, event, record, cancelled_or_expired, interruption_code=cancellation_code)
             except Exception as exc:
                 durable = _read(path)
                 if durable.get("status") == "issued":
-                    return _deliver(root, event, durable, cancelled_or_expired)
+                    return _deliver(root, event, durable, cancelled_or_expired, interruption_code=cancellation_code)
                 record["status"] = "superseded" if interrupted() or isinstance(exc, SupervisionSuperseded) else "failed"
                 record["error"] = type(exc).__name__
-                record["failure_reason"] = (
-                    "The project changed or this check was cancelled; the older Manager decision was not applied."
-                    if record["status"] == "superseded"
-                    else "The evidence check or control commit failed; inspect the receipt before retrying."
-                )
+                record["failure_stage"] = failure_stage
+                if failure_stage == "provider":
+                    record.update(_provider_failure_metadata(result, exc))
+                code = interruption_code()
+                code = code or ("superseded" if isinstance(exc, SupervisionSuperseded) else None)
+                if code:
+                    record["error_code"] = code
+                    if code == "timeout" and failure_stage == "provider":
+                        record["stop_kind"] = "transient_error"
+                record["failure_reason"] = _failure_reason(failure_stage, record)
             record["completed_at"] = time.time()
             _write(path, record)
             _emit(record, root, "applied" if record["status"] == "applied" else "failed")

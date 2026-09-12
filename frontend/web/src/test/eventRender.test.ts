@@ -39,6 +39,37 @@ describe('the web feed line', () => {
     expect(line({ type: 'some.unknown.internal', text: 'kept for grep' })).toBeNull();
   });
 
+  it('explains a refused Manager check without claiming a team decision failed', () => {
+    const event = {
+      type: 'life.manager.supervision.failed', status: 'failed', failure_stage: 'provider',
+      stop_kind: 'provider_fence', error_code: 'trial_quota_exceeded',
+      summary: '402: provider body with private account details',
+    };
+    expect(zh(event)).toMatchObject({ text: '剩余试用额度不足以启动这次 Manager 检查。', tone: 'warn' });
+    expect(line(event)?.text).toContain('trial quota');
+    expect(zh(event)?.text).not.toContain('团队调整');
+    expect(line(event)?.text).not.toContain('private account');
+  });
+
+  it('keeps timeouts, user cancellation and changed evidence distinct', () => {
+    const failed = { type: 'life.manager.supervision.failed', failure_stage: 'provider', status: 'failed' };
+    expect(zh({ ...failed, error_code: 'timeout' })).toMatchObject({ text: '模型未在时限内返回，Manager 这次检查已结束。', tone: 'warn' });
+    expect(zh({ ...failed, status: 'superseded', error_code: 'cancelled' })).toMatchObject({ text: '已取消这次 Manager 检查。', tone: 'dim' });
+    expect(zh({ ...failed, status: 'superseded', error_code: 'superseded' })?.text).toContain('新的操作或证据');
+    expect(zh({ ...failed, error_code: 'cancelled', stop_kind: 'operator_pause' })).toMatchObject({ text: '已按你的要求暂停这次 Manager 检查。', tone: 'dim' });
+  });
+
+  it('only calls a failed commit an unapplied adjustment when a decision exists', () => {
+    const failed = { type: 'life.manager.supervision.failed', status: 'failed' };
+    expect(zh({ ...failed, failure_stage: 'commit', action: 'steer' })?.text).toContain('团队调整未能生效');
+    expect(zh({ ...failed, failure_stage: 'commit', action: 'steer', error_code: 'timeout' })?.text).toBe('Manager 已作出判断，但应用调整超时。');
+    expect(zh({ ...failed, status: 'issued', failure_stage: 'commit', action: 'steer', error_code: 'cancelled' })).toMatchObject({ text: '应用调整时被中断，已保存的决定等待继续处理。', tone: 'warn' });
+    expect(zh({ ...failed, failure_stage: 'provider' })?.text).not.toContain('团队调整');
+    expect(zh({ ...failed, failure_stage: 'commit' })?.text).not.toContain('团队调整');
+    expect(zh({ ...failed, failure_stage: 'decision' })?.text).toContain('判断或引用依据');
+    expect(zh({ ...failed, error_code: 'constructor', summary: 'untrusted raw error' })?.text).toBe('Manager 未能完成这次检查。');
+  });
+
   it('shows reasoning summaries as pale role context, and drops them on request', () => {
     const reasoning = {
       type: 'engineer.progress',

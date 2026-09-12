@@ -94,6 +94,24 @@ balances do not establish that the refused reservation would fit. We did not
 repeat paid calls to obtain a passing sample. Readonly Advisor support for other
 backends is described in `docs/advisor-backend-tools.md`.
 
+A subsequent bounded supervision run used the real Pi/Manager path for two
+evidence conditions. Manager directed repair of a pooled-mean calculation and
+waited only for the task with an unresolved operator-owned unit question; the
+resulting directive and WAIT reached actual role boundaries. Both judgments
+and citations passed independent review, using 2 requests / 4,066 actual tokens.
+The corrected-evidence follow-up required a 22,635-token reservation against
+15,934 remaining, so admission stopped before another provider request. The
+four-phase model acceptance remains partial; it was not repeated for a pass.
+
+That run exposed a reporting defect: supervision flattened quota refusal into
+an evidence/control failure, and the web feed hid all causes behind an unapplied
+adjustment message. Receipts/events now retain the failure stage, canonical stop
+kind, known error code, call ID and exit status. The web feed distinguishes quota,
+timeout, cancellation, invalid decisions and interrupted application without
+displaying raw provider bodies. Existing expiry, ownership and recovery rules
+remain unchanged; the feedback fix is covered with local failures, not another
+paid model run.
+
 The original semantic-adapter request returned HTTP 400. A single diagnostic
 confirmed a plaintext provider rejection; Copilot's published request contract
 uses an input array without `encoding_format`, and successful replies omit

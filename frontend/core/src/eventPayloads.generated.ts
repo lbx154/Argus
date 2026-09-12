@@ -192,6 +192,10 @@ export interface LifeManagerSupervisionFailedEvent extends EventMsg {
   "consultation_id"?: string;
   "advisor_disposition"?: string;
   "error_type"?: string;
+  "failure_stage"?: "provider" | "decision" | "commit";
+  "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error";
+  "error_code"?: "trial_quota_exceeded" | "timeout" | "cancelled" | "superseded";
+  "backend_exit_code"?: number;
 }
 
 export interface AgentIoStartEvent extends EventMsg {

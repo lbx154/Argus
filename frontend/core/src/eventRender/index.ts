@@ -97,6 +97,52 @@ function localized(context: RenderContext, english: string, chinese: string): st
   return context.locale === 'zh-CN' ? chinese : english;
 }
 
+function supervisionFailure(event: TypedArgusEvent, context: RenderContext): { text: string; tone: RenderTone } {
+  const code = stringField(event, 'error_code');
+  const stage = stringField(event, 'failure_stage');
+  const stopKind = stringField(event, 'stop_kind');
+  const controlStop = ['daemon_shutdown', 'operator_pause', 'operator_abort'].includes(stopKind);
+  if (code === 'cancelled' && stage === 'commit' && stringField(event, 'status') === 'issued') {
+    return { text: localized(context, 'Applying the adjustment was interrupted; the saved decision is waiting to be applied.', '应用调整时被中断，已保存的决定等待继续处理。'), tone: 'warn' };
+  }
+  if (code === 'timeout' && stage === 'commit') {
+    return { text: localized(context, 'Manager reached a decision, but applying the adjustment timed out.', 'Manager 已作出判断，但应用调整超时。'), tone: 'warn' };
+  }
+  const reasons: Record<string, [string, string]> = {
+    trial_quota_exceeded: ['The remaining trial quota cannot cover this Manager check.', '剩余试用额度不足以启动这次 Manager 检查。'],
+    timeout: ['The model did not respond before the Manager check timed out.', '模型未在时限内返回，Manager 这次检查已结束。'],
+    cancelled: ['This Manager check was cancelled.', '已取消这次 Manager 检查。'],
+    superseded: ['New input or evidence superseded this Manager check.', '新的操作或证据已取代这次 Manager 检查。'],
+  };
+  if (Object.hasOwn(reasons, code) && !(code === 'cancelled' && controlStop)) {
+    return { text: localized(context, ...reasons[code]), tone: code === 'cancelled' || code === 'superseded' ? 'dim' : 'warn' };
+  }
+  const stopped: Record<string, [string, string]> = {
+    budget_exhausted: ['The project budget limit prevented this Manager check.', '项目预算已达上限，Manager 暂未完成检查。'],
+    provider_cooldown: ['The model service asked Manager to wait before calling again.', '模型服务要求稍后再调用，Manager 暂未完成检查。'],
+    provider_fence: ['The model service is not accepting calls; Manager could not finish this check.', '模型服务当前不接受调用，Manager 未完成这次检查。'],
+    backend_unavailable: ['The model service was unavailable for this Manager check.', '模型服务不可用，Manager 未完成这次检查。'],
+    transient_error: ['A temporary model service error interrupted this Manager check.', '模型服务的临时错误中断了这次 Manager 检查。'],
+    permanent_error: ['The model call failed; Manager could not finish this check.', '模型调用失败，Manager 未完成这次检查。'],
+    daemon_shutdown: ['Argus stopped, ending this Manager check.', 'Argus 已停止，这次 Manager 检查已结束。'],
+    operator_pause: ['This Manager check was paused by your request.', '已按你的要求暂停这次 Manager 检查。'],
+    operator_abort: ['This Manager check was cancelled by your request.', '已按你的要求取消这次 Manager 检查。'],
+  };
+  if (Object.hasOwn(stopped, stopKind)) {
+    return { text: localized(context, ...stopped[stopKind]), tone: controlStop ? 'dim' : 'warn' };
+  }
+  const status = stringField(event, 'status');
+  if (status === 'cancelled' || status === 'superseded') {
+    return { text: localized(context, 'This Manager check was cancelled.', '这次 Manager 检查已取消。'), tone: 'dim' };
+  }
+  const text = stage === 'commit' && ['continue', 'wait', 'steer'].includes(stringField(event, 'action'))
+    ? localized(context, 'Manager reached a decision, but the team adjustment could not be applied.', 'Manager 已作出判断，但团队调整未能生效。')
+    : stage === 'decision'
+      ? localized(context, 'Manager returned a decision that could not be validated.', 'Manager 返回的判断或引用依据未通过核验。')
+      : localized(context, 'Manager could not finish this check.', 'Manager 未能完成这次检查。');
+  return { text, tone: 'warn' };
+}
+
 function model(
   role: string,
   labelKey: string,
@@ -244,12 +290,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'life.peer.message.processed':
       return model('manager', 'role.peer', '↔', stringField(event, 'text'), 'info', { expandable: true });
     case 'life.manager.supervision.failed': {
-      const status = stringField(event, 'status');
-      const cancelled = status === 'cancelled' || status === 'superseded';
-      const explanation = cancelled
-        ? localized(context, 'The previous team adjustment no longer applies', '先前的团队调整已失效')
-        : localized(context, 'The team adjustment could not be applied', '团队调整未能生效');
-      return model('manager', 'role.manager', '🧭', explanation, cancelled ? 'dim' : 'warn', { expandable: true });
+      const failure = supervisionFailure(event, context);
+      return model('manager', 'role.manager', '🧭', failure.text, failure.tone, { expandable: true });
     }
     case 'engineer.progress':
       return progress(event, context);
