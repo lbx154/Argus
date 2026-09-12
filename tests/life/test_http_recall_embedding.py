@@ -46,16 +46,30 @@ def embedding_server():
             value = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             with server.guard:
                 server.requests.append((self.path, value, self.headers.get("Authorization")))
+                server.request_headers.append(dict(self.headers))
             server.entered.set()
             if server.gate is not None:
                 server.gate.wait(2)
             if server.mode == "slow":
                 time.sleep(0.3)
             dimensions = value.get("dimensions", 2)
+            if server.mode.startswith("copilot"):
+                assert set(value) == {"model", "input", "dimensions"}
+                assert isinstance(value["input"], list) and len(value["input"]) == 1
+                text = value["input"][0]
+                assert isinstance(text, str)
+            else:
+                text = value["input"]
             vector = [0.0] * dimensions
-            vector[0 if any(word in value["input"] for word in ("database", "cache")) else min(1, dimensions - 1)] = 1.0
+            vector[0 if any(word in text for word in ("database", "cache")) else min(1, dimensions - 1)] = 1.0
             response = {"model": value["model"], "data": [{"index": 0, "embedding": vector}]}
-            if server.mode == "nan":
+            if server.mode in {"copilot", "missing_model"}:
+                response.pop("model")
+            elif server.mode == "copilot_wrong_model":
+                response["model"] = "different-model"
+            elif server.mode == "copilot_null_model":
+                response["model"] = None
+            elif server.mode == "nan":
                 response["data"][0]["embedding"][0] = float("nan")
             elif server.mode == "wrong_dimensions":
                 response["data"][0]["embedding"] = [1.0]
@@ -83,6 +97,7 @@ def embedding_server():
 
     server = Server(("127.0.0.1", 0), Handler)
     server.requests, server.mode, server.guard = [], "normal", threading.Lock()
+    server.request_headers = []
     server.gate, server.entered = None, threading.Event()
     server.endpoint = f"http://127.0.0.1:{server.server_port}/v1/embeddings"
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
@@ -148,6 +163,53 @@ def test_memory_http_recall_tracks_revisions_deletions_and_model_identity(tmp_pa
     with closing(sqlite3.connect(store.index.path)) as db:
         assert db.execute("SELECT id FROM documents WHERE id=?", (old.id,)).fetchone() is None
     assert all(hit.experience.id != old.id for hit in memory.failure_experiences.retrieve("cache"))
+
+
+def test_copilot_format_retrieves_real_wire_shape_without_response_model(tmp_path, embedding_server, monkeypatch):
+    monkeypatch.setenv("ARGUS_TEST_EMBEDDING_SECRET", "fixture-copilot-bearer")
+    memory = MemoryBundle.for_cwd(tmp_path, global_root=tmp_path / "global", fingerprint="copilot")
+    stored = memory.failure_experiences.append(experience("database"))
+    memory.failure_experiences.append(experience("unrelated recent observation"))
+    configure(memory.project_root, embedding_server, api_format="copilot", credential_env="ARGUS_TEST_EMBEDDING_SECRET")
+    embedding_server.mode = "copilot"
+    hits = memory.failure_experiences.retrieve("cache", max_entries=2)
+    assert any(hit.experience.id == stored.id and hit.channel == "embedding similarity (advisory)" for hit in hits)
+    assert len(embedding_server.requests) == 3
+    assert all(row[1]["input"] and isinstance(row[1]["input"], list) for row in embedding_server.requests)
+    assert all(headers["Copilot-Integration-Id"] == "copilot-developer-cli"
+               and headers["X-Initiator"] == "agent" and headers["Authorization"] == "Bearer fixture-copilot-bearer"
+               for headers in embedding_server.request_headers)
+    memory.failure_experiences.retrieve("cache", max_entries=2)
+    assert len(embedding_server.requests) == 3
+
+
+@pytest.mark.parametrize("mode", ["copilot_wrong_model", "copilot_null_model"])
+def test_copilot_never_accepts_an_explicit_conflicting_model(tmp_path, embedding_server, mode):
+    configure(tmp_path, embedding_server, api_format="copilot")
+    embedding_server.mode = mode
+    with pytest.raises(EmbeddingUnavailable, match="identity"):
+        configured_embedder(tmp_path).embed("database")
+    with closing(sqlite3.connect(tmp_path / "embedding/cache.sqlite3")) as db:
+        assert db.execute("SELECT COUNT(*) FROM vectors").fetchone()[0] == 0
+
+
+def test_openai_format_still_requires_response_model(tmp_path, embedding_server):
+    configure(tmp_path, embedding_server)
+    embedding_server.mode = "missing_model"
+    with pytest.raises(EmbeddingUnavailable, match="identity"):
+        configured_embedder(tmp_path).embed("database")
+
+
+def test_switching_wire_format_does_not_reuse_vectors_or_reset_budget(tmp_path, embedding_server):
+    openai = configure(tmp_path, embedding_server, daily_request_budget=1)
+    original = HttpEmbeddingAdapter(tmp_path, openai)
+    assert original.embed("database") == [1.0, 0.0]
+    copilot = configure(tmp_path, embedding_server, api_format="copilot", daily_request_budget=1)
+    alternate = HttpEmbeddingAdapter(tmp_path, copilot)
+    assert alternate.identifier != original.identifier
+    with pytest.raises(EmbeddingUnavailable, match="daily"):
+        alternate.embed("database")
+    assert len(embedding_server.requests) == 1
 
 
 def test_markdown_semantic_pointer_uses_current_file_and_disappears_after_delete(tmp_path, embedding_server):
@@ -265,6 +327,7 @@ def test_credentials_are_redacted_before_http_and_absent_from_derived_state(tmp_
     {"api_key": "must-not-persist"}, {"endpoint": "http://remote.invalid/embeddings"},
     {"endpoint": "https://user:password@example.invalid/embeddings"}, {"endpoint": "https://example.invalid/?key=secret"},
     {"dimensions": True}, {"dimensions": 4097}, {"timeout_seconds": float("nan")},
+    {"api_format": "guess"}, {"api_format": ["copilot"]},
 ])
 def test_invalid_config_is_rejected_without_saving_credentials(tmp_path, changes):
     with pytest.raises(EmbeddingConfigError):

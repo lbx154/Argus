@@ -1,4 +1,4 @@
-"""Bounded OpenAI-compatible embeddings with a disposable, text-free cache."""
+"""Bounded embeddings with explicit wire formats and a text-free cache."""
 from __future__ import annotations
 
 import hashlib
@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterator, Sequence
 from urllib.parse import urlsplit
 
+from ..core.copilot_http import COPILOT_HEADERS
 from ..core.json_codec import loads_finite_json
 from ..core.secret_guard import redact_secrets_text
 from .failure_experience_index import EmbeddingUnavailable, _guard_recall_database, _normalized
@@ -29,8 +30,13 @@ class HttpEmbeddingAdapter:
         if not config.enabled:
             raise ValueError("HTTP embedding adapter requires explicit enabled configuration")
         self.dimensions = config.dimensions
-        identity = json.dumps({"endpoint": config.endpoint, "model": config.model,
-                               "dimensions": config.dimensions, "request_dimensions": config.request_dimensions}, sort_keys=True)
+        identity_fields = {"endpoint": config.endpoint, "model": config.model,
+                           "dimensions": config.dimensions, "request_dimensions": config.request_dimensions}
+        # Preserve existing OpenAI cache identities. Alternate response contracts
+        # are explicitly separated, even when the endpoint/model are unchanged.
+        if config.api_format != "openai":
+            identity_fields["api_format"] = config.api_format
+        identity = json.dumps(identity_fields, sort_keys=True)
         self.identifier = "http-semantic-v1:" + hashlib.sha256(identity.encode()).hexdigest()
         self.path = Path(state_root) / "embedding" / "cache.sqlite3"
         _guard_recall_database(self.path)
@@ -126,6 +132,9 @@ class HttpEmbeddingAdapter:
             _HTTP_SLOTS.release()
             raise EmbeddingUnavailable("embedding HTTP transport unavailable") from None
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if self.config.api_format == "copilot":
+            headers.update(COPILOT_HEADERS)
+            headers["X-Initiator"] = "agent"
         if credential:
             headers["Authorization"] = "Bearer " + credential
         done = threading.Event()
@@ -214,7 +223,11 @@ class HttpEmbeddingAdapter:
         remaining = budget["deadline"] - time.monotonic()
         if budget["calls"] >= self.config.max_requests_per_batch or remaining <= 0:
             raise EmbeddingUnavailable("embedding batch request/time budget exhausted")
-        payload: dict[str, Any] = {"input": text, "model": self.config.model, "encoding_format": "float"}
+        payload: dict[str, Any] = (
+            {"input": [text], "model": self.config.model}
+            if self.config.api_format == "copilot"
+            else {"input": text, "model": self.config.model, "encoding_format": "float"}
+        )
         if self.config.request_dimensions:
             payload["dimensions"] = self.dimensions
         body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()
@@ -224,7 +237,14 @@ class HttpEmbeddingAdapter:
         budget["calls"] += 1
         raw = self._post(body, credential, min(self.config.timeout_seconds, remaining))
         value = loads_finite_json(raw)
-        if not isinstance(value, dict) or value.get("model") != self.config.model:
+        if not isinstance(value, dict):
+            raise EmbeddingUnavailable("embedding response is not an object")
+        # Copilot CAPI omits model identity in successful embedding responses.
+        # Its opt-in format binds identity to the authenticated request; any
+        # explicit conflicting identity is still rejected. OpenAI stays strict.
+        if value.get("model") != self.config.model and (
+            self.config.api_format != "copilot" or "model" in value
+        ):
             raise EmbeddingUnavailable("embedding response model does not match configured identity")
         data = value.get("data")
         if (not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict)

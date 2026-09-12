@@ -3,14 +3,10 @@ from __future__ import annotations
 
 import httpx
 
+from ..core.copilot_http import COPILOT_BASE_URL as BASE_URL
+from ..core.copilot_http import COPILOT_HEADERS as HEADERS
 from .secrets import Vault
 from .store import TrialError
-
-BASE_URL = "https://api.githubcopilot.com"
-HEADERS = {
-    "User-Agent": "GithubCopilot/1.0.84",
-    "Copilot-Integration-Id": "copilot-developer-cli",
-}
 
 
 class Copilot:

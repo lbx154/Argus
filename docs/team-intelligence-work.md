@@ -94,10 +94,25 @@ balances do not establish that the refused reservation would fit. We did not
 repeat paid calls to obtain a passing sample. Readonly Advisor support for other
 backends is described in `docs/advisor-backend-tools.md`.
 
-One semantic-adapter request returned HTTP 400 and no vector. Default lexical
-fallback remained available. The captured provider catalog alone does not prove
-that the current embedding endpoint/authentication works, and this attempt does
-not establish that the model is globally unsupported.
+The original semantic-adapter request returned HTTP 400. A single diagnostic
+confirmed a plaintext provider rejection; Copilot's published request contract
+uses an input array without `encoding_format`, and successful replies omit
+`model`. The explicit Copilot format now supports that contract while retaining
+the default OpenAI response identity check and existing cache keys. A bounded
+production-adapter acceptance made four real requests / 128 actual tokens:
+a Chinese deadlock query selected the English database experience by semantic
+similarity over an unrelated newer gardening record; reopening reused cached
+vectors, revision replaced the searchable vector, and retraction removed the
+experience from recall. All thirteen assertions passed with synthetic content
+and disposable state. Default recall remains local lexical hashing.
+
+Two-process peer acceptance on frozen `6a2cc4380` passed 31 checks through
+`LifeSupervisor.tick`, the persisted Manager, `AgentCliBackend` and call-bound
+peer bridge. Offline queueing survived restart, request/reply each received an
+ACK, and subsequent restarts caused no extra calls or messages. Operator/WAIT
+state stayed unchanged. Inference used a local deterministic CLI substitute;
+this establishes runtime delivery and recovery, not autonomous model judgment
+or production service-manager behavior.
 
 The local candidate image for `7c84cc09d` passed both actual Uvicorn/UDS and
 comprehensive offline API/tool/state checks without live mounts or provider

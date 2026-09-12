@@ -30,6 +30,16 @@ require HTTPS. The adapter sends OpenAI-compatible `model`, `input`,
 the last field for compatible services that do not support it. The configured
 dimension must still equal the returned vector dimension.
 
+For Copilot's embeddings endpoint, explicitly set `api_format="copilot"` and
+`endpoint="https://api.githubcopilot.com/embeddings"`. This format sends a
+one-element `input` array, omits `encoding_format`, and uses the same CLI
+identity headers as the trial gateway. Supply the authorized bearer credential
+through `credential_env`; the recall adapter does not discover or renew it.
+Copilot can omit `model` in its response. This format binds encoder identity to
+the configured request and still rejects an explicit conflicting response
+model. The default `api_format="openai"` continues to require a matching model.
+Changing formats separates cached vectors without resetting request budgets.
+
 `MemoryBundle`, ordinary failure-experience stores, experience search tools,
 and Markdown knowledge recall construct this adapter from
 `embedding/config.json`. Reopening a store reads current configuration. Changing

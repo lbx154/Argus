@@ -42,6 +42,7 @@ class RecallEmbeddingConfig:
     daily_input_bytes_budget: int = 1048576
     cache_entries: int = 1024
     cache_max_bytes: int = 8388608
+    api_format: str = "openai"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -55,6 +56,8 @@ def _validated(values: Mapping[str, Any]) -> RecallEmbeddingConfig:
         raise EmbeddingConfigError("unsupported embedding configuration version")
     if type(config.enabled) is not bool or type(config.request_dimensions) is not bool:
         raise EmbeddingConfigError("embedding switches must be boolean")
+    if config.api_format not in ("openai", "copilot"):
+        raise EmbeddingConfigError("embedding api_format must be openai or copilot")
     for name in ("endpoint", "model", "credential_env"):
         value = getattr(config, name)
         if not isinstance(value, str) or value != value.strip() or len(value) > 1024:
