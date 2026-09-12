@@ -230,25 +230,49 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
         key_id = trial_key(request)
         payload, reserve = prepare(await read_json(request, MAX_BODY_BYTES), settings.model)
         store, copilot = app.state.store, app.state.copilot
-        try:
-            async with asyncio.timeout(settings.timeout):
-                await app.state.request_slots.acquire()
-        except TimeoutError:
-            raise TrialError(429, "trial_busy", "Model request queue timed out; try again later.") from None
-        slot_released = False
+        slot_acquired = False
 
         def release_slot():
-            nonlocal slot_released
-            if not slot_released:
+            nonlocal slot_acquired
+            if slot_acquired:
                 app.state.request_slots.release()
-                slot_released = True
+                slot_acquired = False
 
         request_id = None
         actual: int | None = 0  # No generation has been submitted yet.
         response = None
         handed_off = False
         try:
-            request_id = store.reserve(key_id, reserve)
+            last_tpm_error = None
+            try:
+                # Slot and TPM waiting share one admission deadline. Keep TPM
+                # waiters inside the existing slot limit and charge only once
+                # reservation succeeds. Poll so disconnected clients leave.
+                async with asyncio.timeout(settings.timeout):
+                    while not slot_acquired:
+                        if await request.is_disconnected():
+                            raise TrialError(499, "client_disconnected", "Client disconnected before model admission.")
+                        try:
+                            async with asyncio.timeout(1):
+                                await app.state.request_slots.acquire()
+                                slot_acquired = True
+                        except TimeoutError:
+                            continue
+                    while True:
+                        if await request.is_disconnected():
+                            raise TrialError(499, "client_disconnected", "Client disconnected before model admission.")
+                        try:
+                            request_id = store.reserve(key_id, reserve)
+                            break
+                        except TrialError as exc:
+                            if exc.code != "trial_tpm_exceeded":
+                                raise
+                            last_tpm_error = exc
+                        await asyncio.sleep(1)
+            except TimeoutError:
+                if last_tpm_error is not None:
+                    raise last_tpm_error from None
+                raise TrialError(429, "trial_busy", "Model request queue timed out; try again later.") from None
             async with asyncio.timeout(settings.timeout):
                 base_url, headers = await copilot.authorization()
                 actual = None  # Ambiguous network failures must not refund usage.
