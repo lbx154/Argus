@@ -34,10 +34,36 @@ afterEach(() => {
   renderer = undefined;
   client.clear();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
 describe('semantic generation and shared cache lifecycle', () => {
+  it('keeps normal and preview text separate when switching mode without a page reload', async () => {
+    vi.stubGlobal('window', { location: { search: '' } });
+    const normal = completedCopy(source.tasks[0], ['start-a', 'main-a']);
+    normal.cards.a.title = 'Normal retained explanation';
+    client.setQueryData(briefCopyKey('s-research', 'en-US'), normal);
+    const preview = structuredClone(normal);
+    preview.version = 24;
+    preview.cards.a.version = 24;
+    preview.cards.a.title = 'Separate preview explanation';
+    vi.mocked(api.mapCopy).mockResolvedValue(preview);
+    const generate = vi.spyOn(api, 'generateMapCopy');
+    await mount({ ...inputs(), readOnly: true });
+    expect(result.card?.title).toBe(normal.cards.a.title);
+    vi.stubGlobal('window', { location: { search: '?reader_preview=source-first' } });
+    await act(async () => { renderer!.update(tree({ ...inputs(), readOnly: true })); });
+    await flush(); await flush();
+    expect(result.card?.title).toBe(preview.cards.a.title);
+    expect(api.mapCopy).toHaveBeenLastCalledWith('project', 's-research', 'en-US', expect.any(AbortSignal), 's-research', 'source-first');
+    vi.stubGlobal('window', { location: { search: '' } });
+    await act(async () => { renderer!.update(tree({ ...inputs(), readOnly: true })); });
+    await flush();
+    expect(result.card?.title).toBe(normal.cards.a.title);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it.each(['completed', 'failed'])('rechecks after saving review settings despite a %s attempt for the previous pipeline', async (previousAttempt) => {
     const key = briefCopyKey('s-research', 'en-US');
     const beforeSource = structuredClone(source);

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { mapCopyKey, readerPreview } from './copyMode';
 import type { Dataset } from "./model";
 import { buildSubmap, type SubmapStep } from "./submap";
 import { briefEvidence, briefRequest } from '../research-brief/model';
@@ -68,7 +69,8 @@ export function useMapCopy(
   const locale = zh ? "zh-CN" : "en-US";
   const source = data.kind === "live" ? "project" : "dataset";
   const name = data.id.replace(/^live:/, "");
-  const key = ["map-copy", source, name, locale, sessionId];
+  const preview = readerPreview();
+  const key = mapCopyKey(source, name, locale, sessionId, preview);
   const context = JSON.stringify(key);
   const contextRef = useRef(context);
   contextRef.current = context;
@@ -78,7 +80,7 @@ export function useMapCopy(
   const copy = useQuery({
     queryKey: key,
     queryFn: async ({ signal }) => {
-      const result = await api.mapCopy(source, name, locale, signal, sessionId);
+      const result = await api.mapCopy(source, name, locale, signal, sessionId, preview);
       const previous = queryClient.getQueryData<MapCopy>(key);
       return mergeMapCopy(previous, result, previous?.model_revision);
     },
@@ -160,7 +162,7 @@ export function useMapCopy(
           queryKey: ["map-copy-generation", ...key],
           queryFn: () => {
             submitted = true;
-            return api.generateMapCopy(source, name, { cards, locale }, undefined, sessionId);
+            return api.generateMapCopy(source, name, { cards, locale }, undefined, sessionId, preview);
           },
           staleTime: 0, gcTime: 0, retry: false,
         });
@@ -191,10 +193,14 @@ export function useMapCopy(
               retryAt.current = pausedRef.current ? Infinity : Date.now() + 60000;
           })
           .finally(() => {
-            if (inflight.current === request) inflight.current = null;
-            if (mounted.current && contextRef.current === context) {
-              setGenerating(false);
-              setPulse((n) => n + 1);
+            if (inflight.current === request) {
+              inflight.current = null;
+              // A source/mode switch was waiting for this request to finish.
+              // Reevaluate the current reader while retaining the result in its original cache.
+              if (mounted.current) {
+                setGenerating(false);
+                setPulse((n) => n + 1);
+              }
             }
           });
       },

@@ -45,6 +45,7 @@ afterEach(() => {
   renderer = undefined;
   client.clear();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -196,6 +197,35 @@ it('does not treat another reader sharing the source request as verification of 
   expect(states.other.readingNeedsUpdate).toBe(false);
   await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
   expect(generate).toHaveBeenCalledTimes(2);
+});
+
+it('starts the selected preview after an in-flight normal request finishes without mixing their text', async () => {
+  vi.stubGlobal('window', { location: { search: '' } });
+  client.setQueryData([...key, 'source-first'], empty);
+  let state!: ReturnType<typeof useMapCopy>;
+  function Reader() { state = useMapCopy(data, 'task', false, true, undefined, 'session'); return null; }
+  const render = () => <QueryClientProvider client={client}><Reader /></QueryClientProvider>;
+  let finish!: (copy: MapCopy) => void;
+  const generate = vi.spyOn(api, 'generateMapCopy')
+    .mockReturnValueOnce(new Promise(resolve => { finish = resolve; }))
+    .mockReturnValueOnce(new Promise(() => {}));
+  act(() => { renderer = create(render()); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  vi.stubGlobal('window', { location: { search: '?reader_preview=source-first' } });
+  act(() => renderer!.update(render()));
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  const normal: MapCopy = { ...empty, cards: { task: {
+    title: 'Normal result', summary: 'Recorded summary', detail: 'Recorded detail', generated_at: 1,
+  } } };
+  await act(async () => { finish(normal); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(2);
+  expect(generate.mock.calls.map(call => call[5])).toEqual([null, 'source-first']);
+  expect(client.getQueryData<MapCopy>(key)?.cards.task.title).toBe('Normal result');
+  expect(state.copy?.cards.task).toBeUndefined();
+  expect(state.generating).toBe(true);
 });
 
 it("naturally rechecks an open historical step after saving review settings while retaining its original text and evidence", async () => {

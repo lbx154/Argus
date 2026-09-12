@@ -25,7 +25,7 @@ async function serve(handler: (response: ServerResponse, request: RequestRecord)
     request.setEncoding('utf8');
     request.on('data', chunk => { body += chunk; });
     request.on('end', () => {
-      const record = { method: request.method, path: request.url!, headers: request.headers, body: JSON.parse(body) };
+      const record = { method: request.method, path: request.url!, headers: request.headers, body: body ? JSON.parse(body) : undefined };
       requests.push(record);
       handler(response, record);
     });
@@ -49,6 +49,45 @@ afterEach(async () => {
   server = undefined;
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+it.each([
+  ['', false], ['?reader_preview=other', false], ['?project=research&reader_preview=source-first', true],
+])('selects the same map-copy cache and generation mode from %s', async (search, preview) => {
+  vi.stubGlobal('window', { location: { search } });
+  const fetch = await serve((response, request) => {
+    if (request.method === 'GET') {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify(complete));
+    } else {
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      response.end(frame({ type: 'heartbeat', quiet_s: 0 }) + frame({ type: 'done', result: complete }));
+    }
+  });
+  const controller = new AbortController();
+  await expect(api.mapCopy('project', 'research name', 'zh-CN', controller.signal, 's research')).resolves.toEqual(complete);
+  await expect(api.generateMapCopy('project', 'research name', requestBody, controller.signal, 's research')).resolves.toEqual(complete);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(requests.map(request => request.method)).toEqual(['GET', 'POST']);
+  expect(requests.map(request => request.body)).toEqual([undefined, requestBody]);
+  requests.forEach((request, index) => {
+    const url = new URL(request.path, 'http://argus.test');
+    expect(url.pathname).toBe('/api/map-copy/project/research%20name');
+    expect(url.searchParams.get('session_id')).toBe('s research');
+    expect(url.searchParams.get('preview')).toBe(preview ? 'true' : null);
+    expect(url.searchParams.get(index ? 'stream' : 'locale')).toBe(index ? 'true' : 'zh-CN');
+    expect(request.headers.authorization).toBe('Bearer test-pairing-token');
+  });
+});
+
+it('keeps a scheduled request in its captured mode after the page URL changes', async () => {
+  vi.stubGlobal('window', { location: { search: '?reader_preview=source-first' } });
+  await serve(response => {
+    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    response.end(frame({ type: 'done', result: complete }));
+  });
+  await api.generateMapCopy('project', 'research', requestBody, undefined, 's research', null);
+  expect(new URL(requests[0].path, 'http://argus.test').searchParams.has('preview')).toBe(false);
 });
 
 it('waits through 125 seconds of HTTP heartbeats and returns only the complete explanation at 130 seconds', async () => {
