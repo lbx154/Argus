@@ -42,6 +42,16 @@ class EventCategory(StrEnum):
 
 
 class EventType(StrEnum):
+    ADVISOR_CONSULTATION_REQUESTED = "advisor.consultation.requested"
+    ADVISOR_CONSULTATION_COMPLETED = "advisor.consultation.completed"
+    ADVISOR_CONSULTATION_FAILED = "advisor.consultation.failed"
+    ADVISOR_CONSULTATION_CANCELLED = "advisor.consultation.cancelled"
+    ADVISOR_CONSULTATION_TIMED_OUT = "advisor.consultation.timed_out"
+    ADVISOR_CONSULTATION_MODEL_MISMATCH = "advisor.consultation.model_mismatch"
+    LIFE_MANAGER_SUPERVISION_ISSUED = "life.manager.supervision.issued"
+    LIFE_MANAGER_SUPERVISION_APPLIED = "life.manager.supervision.applied"
+    LIFE_MANAGER_SUPERVISION_FAILED = "life.manager.supervision.failed"
+    LIFE_PEER_MESSAGE_PROCESSED = "life.peer.message.processed"
     AGENT_IO_START = "agent.io.start"
     AGENT_IO_STREAM = "agent.io.stream"
     AGENT_IO_COMPLETE = "agent.io.complete"
@@ -231,6 +241,14 @@ LEGACY_EVENT_ALIASES: dict[str, EventType] = {
 }
 
 SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
+    EventType.ADVISOR_CONSULTATION_COMPLETED,
+    EventType.ADVISOR_CONSULTATION_FAILED,
+    EventType.ADVISOR_CONSULTATION_CANCELLED,
+    EventType.ADVISOR_CONSULTATION_TIMED_OUT,
+    EventType.ADVISOR_CONSULTATION_MODEL_MISMATCH,
+    EventType.LIFE_MANAGER_SUPERVISION_APPLIED,
+    EventType.LIFE_MANAGER_SUPERVISION_FAILED,
+    EventType.LIFE_PEER_MESSAGE_PROCESSED,
     # One line per role per boot, and the exact line an operator needs when a
     # role turns out to be running on a backend they did not choose. Cheap
     # enough to keep even in the verdict-only log.

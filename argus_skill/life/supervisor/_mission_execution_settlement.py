@@ -1550,8 +1550,8 @@ class MissionExecutionSettlementMixin:
         return result
 
     def _capture_failure_experience(self, state: _MissionRunState) -> None:
-        """Persist one compact capsule without reading referenced artifacts."""
-        if state.success or state.intentional_abort:
+        """Persist one settled observation without reading referenced artifacts."""
+        if state.intentional_abort:
             return
         store = getattr(self.memory, "failure_experiences", None)
         if store is None:
@@ -1578,6 +1578,8 @@ class MissionExecutionSettlementMixin:
                 title=item.title,
                 objective=item.objective,
                 status=state.status,
+                success=bool(state.success),
+                reviewer_source=str(getattr(outcome, "final_review_source", "") or ""),
                 factual_outcome=state.stop_reason or state.err or state.status,
                 final_message=str(getattr(outcome, "final_message", "") or ""),
                 review_reason=str(
@@ -1594,7 +1596,7 @@ class MissionExecutionSettlementMixin:
             )
             store.append(experience)
         except (OSError, TypeError, ValueError):
-            log.exception("life supervisor: failed to persist failure experience")
+            log.exception("life supervisor: failed to persist settled experience")
 
 
 __all__ = ["MissionExecutionSettlementMixin"]

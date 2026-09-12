@@ -1,4 +1,4 @@
-"""Compact, open-ended memory for learning from unsuccessful missions.
+"""Compact, open-ended memory for learning from settled missions.
 
 Failure experiences live in Argus project state, separate from project
 artifacts. Records contain prose plus advisory facets and references; ordinary
@@ -12,9 +12,10 @@ import json
 import logging
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
 from .failure_experience_index import (
     EmbeddingAdapter,
@@ -230,6 +231,10 @@ class FailureExperienceStore:
             max_active_bytes=max_active_bytes,
             max_history_bytes=max_history_bytes,
         )
+        if embedder is None:
+            from .recall_embedding import configured_embedder
+
+            embedder = configured_embedder(self.path.parent)
         self.index = FailureExperienceIndex(self.path.with_suffix(".sqlite3"), embedder=embedder)
 
     @staticmethod
@@ -301,10 +306,15 @@ class FailureExperienceStore:
         return documents, digest
 
     def _sync(self, snapshot: ExperienceSnapshot) -> bool:
+        from .failure_experience_index import EmbeddingUnavailable
+
         documents, digest = self._documents(snapshot)
         try:
             self.index.sync(documents, digest)
             return True
+        except EmbeddingUnavailable:
+            log.warning("semantic embedding unavailable; using current lexical recall")
+            return False
         except Exception:
             # Source is already committed. Never acknowledge an old cache as
             # current, or roll the source back because a derived write failed.
@@ -320,17 +330,22 @@ class FailureExperienceStore:
 
     def _commit(self, snapshot: ExperienceSnapshot, *, protected: set[str] | None = None) -> None:
         self._repository.save(snapshot, now=time.time(), protected=protected)
+
+    @contextmanager
+    def _writable_snapshot(self) -> Iterator[ExperienceSnapshot]:
+        """Commit source under its short lock, then refresh derived recall outside it."""
+        with self._repository.locked():
+            snapshot = self._repository.load(full_legacy=True)
+            yield snapshot
         self._sync(snapshot)
 
     def append(self, experience: FailureExperience) -> FailureExperience:
         """Idempotent insert/upsert. Existing identities require the next revision."""
         self._repository.validate(experience)
-        with self._repository.locked():
-            snapshot = self._repository.load(full_legacy=True)
+        with self._writable_snapshot() as snapshot:
             previous = snapshot.current.get(experience.id)
             if previous is not None:
                 if self._same(previous, experience):
-                    self._sync(snapshot)
                     return previous
                 self._require_current(snapshot, experience.id, experience.revision - 1)
                 self._evidence(experience.evidence_refs)
@@ -374,8 +389,7 @@ class FailureExperienceStore:
         }
         if forbidden.intersection(changes):
             raise ValueError("identity and lifecycle fields cannot be rewritten as content")
-        with self._repository.locked():
-            snapshot = self._repository.load(full_legacy=True)
+        with self._writable_snapshot() as snapshot:
             previous = self._require_current(snapshot, experience_id, expected_revision)
             written = replace(
                 previous,
@@ -392,8 +406,7 @@ class FailureExperienceStore:
 
     def annotate(self, experience_id: str, annotation: FailureAnnotation) -> FailureExperience:
         """Attach advisory interpretation to a real current identity, once per id."""
-        with self._repository.locked():
-            snapshot = self._repository.load(full_legacy=True)
+        with self._writable_snapshot() as snapshot:
             previous = snapshot.current.get(experience_id)
             if previous is None or previous.state != "active":
                 raise StaleFailureExperienceWrite("annotation target is missing or retired")
@@ -432,8 +445,7 @@ class FailureExperienceStore:
         refs = self._evidence(evidence_refs)
         if not str(reason).strip():
             raise ValueError("retirement requires its reason")
-        with self._repository.locked():
-            snapshot = self._repository.load(full_legacy=True)
+        with self._writable_snapshot() as snapshot:
             previous = self._require_current(snapshot, experience_id, expected_revision)
             if replacement_id:
                 target = snapshot.current.get(replacement_id)
@@ -509,8 +521,7 @@ class FailureExperienceStore:
             "related_experience_ids",
         }.intersection(changes):
             raise ValueError("merge cannot override identities or provenance")
-        with self._repository.locked():
-            snapshot = self._repository.load(full_legacy=True)
+        with self._writable_snapshot() as snapshot:
             items = [
                 self._require_current(snapshot, identity, expected_revisions[identity])
                 for identity in identities
@@ -550,18 +561,18 @@ class FailureExperienceStore:
 
     def compact(self) -> dict[str, int]:
         """Migrate old JSONL, prune old revisions/expired entries, reclaim the cache."""
-        with self._repository.locked():
-            snapshot = self._repository.load(full_legacy=True)
+        with self._writable_snapshot() as snapshot:
             self._commit(snapshot)
-            try:
-                self.index.compact()
-            except Exception:
-                log.warning("experience cache compaction failed", exc_info=True)
-            return {
+            summary = {
                 "active": sum(item.state == "active" for item in snapshot.current.values()),
                 "terminal": sum(item.state != "active" for item in snapshot.current.values()),
                 "history": len(snapshot.history),
             }
+        try:
+            self.index.compact()
+        except Exception:
+            log.warning("experience cache compaction failed", exc_info=True)
+        return summary
 
     def get(self, experience_id: str) -> FailureExperience | None:
         with self._repository.locked():
@@ -594,66 +605,87 @@ class FailureExperienceStore:
             if snapshot.legacy and max_bytes == _DEFAULT_SCAN_BYTES:
                 snapshot = self._repository.load(full_legacy=True)
                 self._commit(snapshot)
-            documents, digest = self._documents(snapshot)
-            if not documents:
-                self._sync(snapshot)
-                return []
+        from .failure_experience_index import _embedding_batch
+
+        with _embedding_batch(self.index.embedder):
+            return self._retrieve_snapshot(snapshot, objective, max_entries=max_entries, max_bytes=max_bytes)
+
+    def _retrieve_snapshot(
+        self, snapshot: ExperienceSnapshot, objective: str, *, max_entries: int, max_bytes: int,
+    ) -> list[FailureExperienceHit]:
+        documents, digest = self._documents(snapshot)
+        if not documents:
+            self._sync(snapshot)
+            return []
+        scores = lexical_scores(documents, objective)
+        if self._sync(snapshot):
+            try:
+                indexed_scores = self.index.scores(objective, source_digest=digest)
+                if set(indexed_scores) != {document.id for document in documents}:
+                    raise ValueError("experience index identities do not match the source snapshot")
+                scores = indexed_scores
+            except Exception:
+                log.warning(
+                    "experience index query failed; using current lexical recall", exc_info=True
+                )
+        # Source changes while HTTP was in flight supersede older similarity.
+        # Use current lexical facts without another external request.
+        with self._repository.locked():
+            current = self._repository.load(max_bytes=max_bytes)
+            current_documents, current_digest = self._documents(current)
+        if current_digest != digest:
+            snapshot, documents = current, current_documents
             scores = lexical_scores(documents, objective)
-            if self._sync(snapshot):
-                try:
-                    scores = self.index.scores(objective, source_digest=digest)
-                except Exception:
-                    log.warning(
-                        "experience index query failed; using current lexical recall", exc_info=True
-                    )
-            candidates = sorted(
-                (snapshot.current[doc.id] for doc in documents),
-                key=lambda item: (item.updated_at or item.created_at, item.id),
-                reverse=True,
-            )
-            hits: list[FailureExperienceHit] = []
-            selected: set[str] = set()
+        if not documents:
+            return []
+        candidates = sorted(
+            (snapshot.current[doc.id] for doc in documents),
+            key=lambda item: (item.updated_at or item.created_at, item.id),
+            reverse=True,
+        )
+        hits: list[FailureExperienceHit] = []
+        selected: set[str] = set()
 
-            def add(item: FailureExperience, channel: str) -> None:
-                if item.id not in selected and len(hits) < max_entries:
-                    selected.add(item.id)
-                    hits.append(FailureExperienceHit(item, channel))
+        def add(item: FailureExperience, channel: str) -> None:
+            if item.id not in selected and len(hits) < max_entries:
+                selected.add(item.id)
+                hits.append(FailureExperienceHit(item, channel))
 
-            add(candidates[0], "recent")
-            direct = max(
-                candidates,
-                key=lambda item: (scores[item.id].direct, scores[item.id].vector, item.updated_at),
-            )
-            if scores[direct.id].direct:
-                add(direct, "direct factual/conceptual")
-            transfer = max(
-                candidates,
+        add(candidates[0], "recent")
+        direct = max(
+            candidates,
+            key=lambda item: (scores[item.id].direct, scores[item.id].vector, item.updated_at),
+        )
+        if scores[direct.id].direct:
+            add(direct, "direct factual/conceptual")
+        transfer = max(
+            candidates,
+            key=lambda item: (
+                scores[item.id].transfer,
+                scores[item.id].vector,
+                item.updated_at,
+            ),
+        )
+        if scores[transfer.id].transfer:
+            add(transfer, "transfer insight")
+        if not self.index.embedder.identifier.startswith("lexical-hash-"):
+            vector_hit = max(candidates, key=lambda item: scores[item.id].vector)
+            if scores[vector_hit.id].vector > 0:
+                add(vector_hit, "embedding similarity (advisory)")
+        remaining = [item for item in candidates if item.id not in selected]
+        if remaining:
+            salt = hashlib.sha256(objective.encode()).hexdigest()
+            exploratory = min(
+                remaining,
                 key=lambda item: (
-                    scores[item.id].transfer,
-                    scores[item.id].vector,
-                    item.updated_at,
+                    scores[item.id].direct + scores[item.id].transfer,
+                    hashlib.sha256(f"{salt}:{item.id}".encode()).hexdigest(),
                 ),
             )
-            if scores[transfer.id].transfer:
-                add(transfer, "transfer insight")
-            if not self.index.embedder.identifier.startswith("lexical-hash-"):
-                vector_hit = max(candidates, key=lambda item: scores[item.id].vector)
-                if scores[vector_hit.id].vector > 0:
-                    add(vector_hit, "embedding similarity (advisory)")
-            remaining = [item for item in candidates if item.id not in selected]
-            if remaining:
-                salt = hashlib.sha256(objective.encode()).hexdigest()
-                exploratory = min(
-                    remaining,
-                    key=lambda item: (
-                        scores[item.id].direct + scores[item.id].transfer,
-                        hashlib.sha256(f"{salt}:{item.id}".encode()).hexdigest(),
-                    ),
-                )
-                add(exploratory, "exploratory analogy")
-            for item in candidates:
-                add(item, "recent")
-            return hits
+            add(exploratory, "exploratory analogy")
+        for item in candidates:
+            add(item, "recent")
+        return hits
 
     def render_context(
         self,
@@ -678,14 +710,17 @@ class FailureExperienceStore:
             return ""
         if not hits or max_chars <= 0:
             return ""
+        has_success = any(hit.experience.status == "completed" for hit in hits)
         lines = [
-            "### Prior failure experiences (advisory, compact)",
+            ("### Prior mission experiences (advisory, compact)" if has_success
+             else "### Prior failure experiences (advisory, compact)"),
             (
                 "These capsules are prompts for scientific judgment, not rules. "
                 "Facets and channel labels only explain retrieval; a timeout, "
                 "negative result, or prior failed mechanism does not prove "
                 "impossibility or block a changed approach. Raw artifacts are "
-                "references and have not been opened."
+                "references and have not been opened. A successful verdict is "
+                "one scoped observation; it does not establish a general causal rule."
             ),
         ]
         for hit in hits:
@@ -694,6 +729,7 @@ class FailureExperienceStore:
                 [
                     "",
                     f"#### {item.title or item.mission_id} [{hit.channel}]",
+                    f"- Experience: {item.id} (revision {item.revision}; status {item.status})",
                     f"- Outcome: {item.factual_outcome or item.status}",
                 ]
             )
@@ -742,6 +778,8 @@ def experience_from_settled_mission(
     non_goals: list[str] | None = None,
     attempt_id: str = "",
     created_at: float | None = None,
+    success: bool = False,
+    reviewer_source: str = "",
 ) -> FailureExperience:
     """Build a conservative capsule from fields already in settled memory."""
     if created_at is None:
@@ -762,9 +800,16 @@ def experience_from_settled_mission(
         ]
     )
     boundaries = [
-        "This records one bounded mission outcome, not a general impossibility result.",
+        ("This successful runtime verdict records one bounded mission observation, not a general causal rule. "
+         "Reuse requires checking the original conditions and supporting evidence."
+         if success else "This records one bounded mission outcome, not a general impossibility result."),
         *(_clean_list(non_goals or [])),
     ]
+    if success:
+        boundaries.append(
+            "Recorded verdict source: " + (_clean_text(reviewer_source, limit=200) or "unspecified")
+            + ". This capsule does not independently verify the claim or promote it to shared knowledge."
+        )
     causes = _clean_list([stop_kind, report.get("diagnosis"), report.get("cause")])
     source_identity = f"mission:{mission_id}/attempt:{attempt_id or 'default'}"
     return FailureExperience.new(

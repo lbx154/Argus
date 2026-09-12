@@ -201,6 +201,7 @@ def test_message_route_resolves_attachment_metadata(
         *,
         global_root=None,
         attachments=None,
+        cancelled=None,
     ):
         seen["sid"] = sid
         seen["text"] = text

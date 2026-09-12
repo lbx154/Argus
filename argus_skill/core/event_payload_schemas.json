@@ -2,6 +2,702 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "schema_version": 2,
   "events": {
+    "life.peer.message.processed": {
+      "version": 1,
+      "required": [
+        "message_id",
+        "sender_project_id",
+        "recipient_project_id",
+        "message_kind",
+        "authority",
+        "text"
+      ],
+      "properties": {
+        "message_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sender_project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recipient_project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message_kind": {
+          "type": "string",
+          "enum": [
+            "request",
+            "reply"
+          ]
+        },
+        "authority": {
+          "type": "string",
+          "const": "peer_advisory"
+        },
+        "reply_to": {
+          "type": "string"
+        },
+        "reply_message_id": {
+          "type": "string"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "advisor.consultation.requested": {
+      "version": 1,
+      "required": [
+        "consultation_id",
+        "parent_call_id",
+        "caller_role",
+        "requested_model",
+        "evidence_refs"
+      ],
+      "properties": {
+        "consultation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_call_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "caller_role": {
+          "type": "string",
+          "enum": [
+            "manager",
+            "planner",
+            "engineer",
+            "reviewer"
+          ]
+        },
+        "agent_layer": {
+          "type": "string",
+          "const": "advisor"
+        },
+        "mission_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "requested_model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reported_model": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "question": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "summary_truncated": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "advisor.consultation.completed": {
+      "version": 1,
+      "required": [
+        "consultation_id",
+        "parent_call_id",
+        "caller_role",
+        "requested_model",
+        "evidence_refs"
+      ],
+      "properties": {
+        "consultation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_call_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "caller_role": {
+          "type": "string",
+          "enum": [
+            "manager",
+            "planner",
+            "engineer",
+            "reviewer"
+          ]
+        },
+        "agent_layer": {
+          "type": "string",
+          "const": "advisor"
+        },
+        "mission_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "requested_model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reported_model": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "question": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "summary_truncated": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "advisor.consultation.failed": {
+      "version": 1,
+      "required": [
+        "consultation_id",
+        "parent_call_id",
+        "caller_role",
+        "requested_model",
+        "evidence_refs"
+      ],
+      "properties": {
+        "consultation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_call_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "caller_role": {
+          "type": "string",
+          "enum": [
+            "manager",
+            "planner",
+            "engineer",
+            "reviewer"
+          ]
+        },
+        "agent_layer": {
+          "type": "string",
+          "const": "advisor"
+        },
+        "mission_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "requested_model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reported_model": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "question": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "summary_truncated": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "advisor.consultation.cancelled": {
+      "version": 1,
+      "required": [
+        "consultation_id",
+        "parent_call_id",
+        "caller_role",
+        "requested_model",
+        "evidence_refs"
+      ],
+      "properties": {
+        "consultation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_call_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "caller_role": {
+          "type": "string",
+          "enum": [
+            "manager",
+            "planner",
+            "engineer",
+            "reviewer"
+          ]
+        },
+        "agent_layer": {
+          "type": "string",
+          "const": "advisor"
+        },
+        "mission_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "requested_model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reported_model": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "question": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "summary_truncated": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "advisor.consultation.timed_out": {
+      "version": 1,
+      "required": [
+        "consultation_id",
+        "parent_call_id",
+        "caller_role",
+        "requested_model",
+        "evidence_refs"
+      ],
+      "properties": {
+        "consultation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_call_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "caller_role": {
+          "type": "string",
+          "enum": [
+            "manager",
+            "planner",
+            "engineer",
+            "reviewer"
+          ]
+        },
+        "agent_layer": {
+          "type": "string",
+          "const": "advisor"
+        },
+        "mission_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "requested_model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reported_model": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "question": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "summary_truncated": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "advisor.consultation.model_mismatch": {
+      "version": 1,
+      "required": [
+        "consultation_id",
+        "parent_call_id",
+        "caller_role",
+        "requested_model",
+        "evidence_refs"
+      ],
+      "properties": {
+        "consultation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_call_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "caller_role": {
+          "type": "string",
+          "enum": [
+            "manager",
+            "planner",
+            "engineer",
+            "reviewer"
+          ]
+        },
+        "agent_layer": {
+          "type": "string",
+          "const": "advisor"
+        },
+        "mission_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "requested_model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reported_model": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "question": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "summary_truncated": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "life.manager.supervision.issued": {
+      "version": 1,
+      "required": [
+        "supervision_id",
+        "evidence_revision",
+        "control_revision",
+        "trigger_type",
+        "agent_layer",
+        "status",
+        "action",
+        "reason",
+        "summary",
+        "evidence_refs"
+      ],
+      "properties": {
+        "supervision_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "control_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent_layer": {
+          "type": "string",
+          "const": "manager"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "effects": {
+          "type": "object"
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "consultation_id": {
+          "type": "string"
+        },
+        "advisor_disposition": {
+          "type": "string"
+        },
+        "error_type": {
+          "type": "string"
+        }
+      }
+    },
+    "life.manager.supervision.applied": {
+      "version": 1,
+      "required": [
+        "supervision_id",
+        "evidence_revision",
+        "control_revision",
+        "trigger_type",
+        "agent_layer",
+        "status",
+        "action",
+        "reason",
+        "summary",
+        "evidence_refs"
+      ],
+      "properties": {
+        "supervision_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "control_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent_layer": {
+          "type": "string",
+          "const": "manager"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "effects": {
+          "type": "object"
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "consultation_id": {
+          "type": "string"
+        },
+        "advisor_disposition": {
+          "type": "string"
+        },
+        "error_type": {
+          "type": "string"
+        }
+      }
+    },
+    "life.manager.supervision.failed": {
+      "version": 1,
+      "required": [
+        "supervision_id",
+        "evidence_revision",
+        "control_revision",
+        "trigger_type",
+        "agent_layer",
+        "status",
+        "action",
+        "reason",
+        "summary",
+        "evidence_refs"
+      ],
+      "properties": {
+        "supervision_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "control_revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {"type": "string"},
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent_layer": {
+          "type": "string",
+          "const": "manager"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "effects": {
+          "type": "object"
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "consultation_id": {
+          "type": "string"
+        },
+        "advisor_disposition": {
+          "type": "string"
+        },
+        "error_type": {
+          "type": "string"
+        }
+      }
+    },
     "agent.io.start": {
       "version": 1,
       "required": ["call_id", "run_label"],

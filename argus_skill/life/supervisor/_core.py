@@ -212,7 +212,10 @@ class LifeSupervisor(
         self.memory = memory
         self.runner = runner
         self.manager = getattr(runner, "manager", None)
-        self.sink = sink
+        from ...manager.supervision import SupervisionSink, start_supervision
+
+        start_supervision(getattr(self.memory, "project_root", self.memory.root))
+        self.sink = SupervisionSink(sink, self)
         self.config = config or LifeSupervisorConfig()
         self.engineer_model = engineer_model
         self.reviewer_model = reviewer_model
@@ -272,6 +275,11 @@ class LifeSupervisor(
         # escalates to the operator (surface, don't loop invisibly).
         self._consecutive_no_progress_missions = 0
         self._reap_orphans_on_startup()
+        if self.manager is not None:
+            from ...manager.supervision import recover_issued_supervision
+
+            state_root = getattr(self.manager, "manager_session_root", None) or getattr(self.memory, "project_root", None) or self.memory.root
+            recover_issued_supervision(self.manager, state_root)
 
     def _bound_manager(self) -> Any:
         if self.manager is None:
@@ -700,6 +708,7 @@ class LifeSupervisor(
         stopped_by: str = ""
         self._resume_automatic_pauses()
         while True:
+            self._drain_peer_inbox()
             if not self._drain_mission_completions():
                 stopped_by = "mission_delivery_pending"
                 self._suggested_sleep_s = 1.0
@@ -1159,6 +1168,7 @@ class LifeSupervisor(
     def tick(self) -> dict[str, Any] | None:
         """Process at most one backlog item. Returns its result dict or
         ``None`` if nothing was eligible to run."""
+        self._drain_peer_inbox()
         if not self._drain_mission_completions():
             return {"status": "mission_delivery_pending", "recoverable": True}
         parallel_worker = getattr(self.config, "parallel_worker", False)
@@ -1578,10 +1588,10 @@ class LifeSupervisor(
             # The validated handoff is now a durable decision, even if report
             # delivery fails below. Checkpoint only the input Planner actually
             # handled so retry can drain the outbox, not repeat planning.
-            from ...core.operator_context import OperatorContextStore
+            from ...core.operator_context import OperatorContextStore, operator_context_state_root
 
             try:
-                OperatorContextStore(self.memory.root).acknowledge("planner", handled_revision)
+                OperatorContextStore(operator_context_state_root(self.memory)).acknowledge("planner", handled_revision)
             except (OSError, ValueError):
                 log.exception("failed to checkpoint certified Planner handoff")
                 return False

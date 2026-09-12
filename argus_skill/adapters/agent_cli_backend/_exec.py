@@ -80,15 +80,6 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
     accounting_root = plugin_accounting_root(usage_project_root)
     if accounting_root is not None:
         usage_global_root = accounting_root
-    io_context = backend._io_logger.start_call(
-        call_id=call_id,
-        run_label=run_label,
-        log_path=log_path,
-        model=options.model,
-        prompt=prompt,
-    )
-    io_mode = io_context["mode"]
-
     ctx = _ExecContext(
         backend=backend,
         prompt=prompt,
@@ -98,17 +89,27 @@ def _execute_prepared(backend, *, prompt, options, run_label, resume_thread_id):
         call_id=call_id,
         started_at=started_at,
         log_path=log_path,
-        io_mode=io_mode,
+        io_mode="",
         usage_project_root=usage_project_root,
         usage_mission_id=usage_mission_id,
         usage_global_root=usage_global_root,
     )
 
-    cli_options, denied = admit(ctx)
-    if denied is not None:
-        return denied
+    from ...advisor.runtime import advisor_run
+    from ...life.experience_runtime import experience_run
+    from ...messaging.runtime import peer_run
 
-    from ...trial.training_runtime import capture_runtime_call
+    with advisor_run(ctx), peer_run(ctx), experience_run(ctx):
+        io_context = backend._io_logger.start_call(
+            call_id=call_id, run_label=run_label, log_path=log_path,
+            model=ctx.options.model, prompt=ctx.prompt,
+        )
+        ctx.io_mode = io_context["mode"]
+        cli_options, denied = admit(ctx)
+        if denied is not None:
+            return denied
 
-    with monitor_budget(ctx, cli_options), capture_runtime_call(ctx, cli_options):
-        return spawn_and_finish(ctx, cli_options)
+        from ...trial.training_runtime import capture_runtime_call
+
+        with monitor_budget(ctx, cli_options), capture_runtime_call(ctx, cli_options):
+            return spawn_and_finish(ctx, cli_options)

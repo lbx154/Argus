@@ -555,7 +555,9 @@ def _inbox_drainer_for(
             return None
         return messages[0] if messages else None
 
-    return _drain_one
+    from ..messaging.inbox import PeerAwareInbox
+
+    return PeerAwareInbox(life_dir, _drain_one)
 
 
 def _pending_question_resolver_for(project_root: Path):

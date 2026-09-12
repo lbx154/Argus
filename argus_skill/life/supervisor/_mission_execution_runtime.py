@@ -113,7 +113,10 @@ class MissionExecutionRuntimeMixin:
         except TypeError:
             # Compatibility with narrow host-provided memory views.
             prelude = self.memory.render_prelude()
-        from ...core.operator_context import build_operator_context_block
+        from ...core.operator_context import (
+            build_operator_context_block,
+            operator_context_state_root,
+        )
 
         # Bounded Planner projects its own current OperatorContext immediately
         # before drafting. Never mix in this Engineer-role snapshot.
@@ -121,7 +124,7 @@ class MissionExecutionRuntimeMixin:
         if not for_planner:
             operator_context, _revision = build_operator_context_block(
                 "engineer",
-                self.memory.root,
+                operator_context_state_root(self.memory),
                 mission_id=item.id,
                 consume_once=False,
             )
@@ -1066,6 +1069,11 @@ class MissionExecutionRuntimeMixin:
                 "pricing_status": usage_summary.pricing_status,
             }
         pause_status = pause_status_for_stop_kind(state.stop_kind)
+        manager_wait = state.status == "paused_operator" and state.stop_kind is None
+        if manager_wait:
+            # A task-scoped Manager WAIT is observed at a safe role boundary;
+            # it has no provider interruption and preserves the existing question.
+            pause_status = "paused_operator"
         if state.status == "budget_exhausted":
             state.status = "paused_budget"
             pause_status = state.status
@@ -1086,13 +1094,33 @@ class MissionExecutionRuntimeMixin:
             stop_kind=state.stop_kind,
             resumable=True,
         )
-        self.memory.backlog.update(
-            item.id,
-            status=pause_status,
-            finished_ts=time.time(),
-            last_error=state.stop_reason,
-            outcome=pause_outcome,
-        )
+        if manager_wait:
+            from ...core.operator_context import operator_context_state_root
+            from ...manager.supervision import waiting_for_evidence
+
+            current = next((row for row in self.memory.backlog.active() if row.id == item.id), None)
+            settled = self.memory.backlog.park_after_manager_wait(
+                item.id,
+                expected_question=current.pending_question if current is not None else "",
+                reason=state.stop_reason,
+                outcome=pause_outcome,
+                wait_current=waiting_for_evidence(operator_context_state_root(self.memory), item.id),
+            )
+            if settled is None or settled.status != "paused_operator":
+                return {
+                    "status": settled.status if settled is not None else "superseded",
+                    "item_id": item.id, "success": False, "recoverable": True,
+                    "cost_usd": state.usd, "known_cost_usd": state.known_usd,
+                    "pricing_status": usage_summary.pricing_status,
+                }
+        else:
+            self.memory.backlog.update(
+                item.id,
+                status=pause_status,
+                finished_ts=time.time(),
+                last_error=state.stop_reason,
+                outcome=pause_outcome,
+            )
         from ...engineer.round_stop_signals import backend_failure_cause
 
         # When the pause is the model service being out of reach, the record

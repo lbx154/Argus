@@ -2379,6 +2379,23 @@ def test_fork_creates_independent_runner_with_same_usage_context(tmp_path: Path)
     forked.close_acp_clients()
 
 
+def test_background_forks_do_not_publish_into_the_foreground_role(tmp_path: Path) -> None:
+    foreground, background = [], []
+    backend = AgentCliBackend(backend="pi", runner_bin="/bin/echo", event_callback=lambda *event: foreground.append(event))
+    backend.set_usage_context(project_root=tmp_path / "project", mission_id="mission", global_root=tmp_path)
+    inherited = backend.fork()
+    isolated = backend.fork(event_callback=None)
+    redirected = backend.fork(event_callback=lambda *event: background.append(event))
+    line = '{"type":"tool_execution_start","toolName":"read"}'
+    for target in (inherited, isolated, redirected):
+        target._io_logger.stream_event_callback("engineer.stdout", line, backend_name="pi", known_secret_values=())
+        assert target._usage_context_snapshot() == backend._usage_context_snapshot()
+        target.close_acp_clients()
+    assert foreground == [("engineer.stdout", line)]
+    assert background == [("engineer.stdout", line)]
+    assert backend._io_logger.external_event_callback is inherited._io_logger.external_event_callback
+
+
 def test_build_agent_cli_backend_from_env_strips_legacy_auto_max_profile(
     monkeypatch,
 ):

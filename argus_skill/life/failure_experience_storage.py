@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import os
+import stat
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
 
 from ..core.file_lock import exclusive_file_lock
+from ..core.scoped_file import open_regular_file
 
 if TYPE_CHECKING:
     from .failure_experience import FailureExperience
@@ -71,11 +73,29 @@ class ExperienceRepository:
         self.max_active_bytes = max_active_bytes
         self.max_history_bytes = max_history_bytes
 
+    def _guard_paths(self) -> None:
+        for path in (self.path, self.lock_path):
+            absolute = path.absolute()
+            if absolute.resolve() != absolute or path.is_symlink():
+                raise ValueError("experience source and lock must not follow aliases")
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError("experience source and lock must be regular files")
+
+    @staticmethod
+    def _open_file(path: Path, flags: int):
+        return open_regular_file(path, flags)
+
     @contextmanager
     def locked(self) -> Iterator[None]:
+        self._guard_paths()
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.lock_path.open("a+b") as handle:
+        with self._open_file(self.lock_path, os.O_RDWR | os.O_CREAT) as handle:
             with exclusive_file_lock(handle, lock_name="failure experience lock"):
+                self._guard_paths()
                 yield
 
     @staticmethod
@@ -101,8 +121,9 @@ class ExperienceRepository:
     def load(self, *, full_legacy: bool = False, max_bytes: int = 1_000_000) -> ExperienceSnapshot:
         from .failure_experience import FailureExperience
 
+        self._guard_paths()
         try:
-            handle = self.path.open("rb")
+            handle = self._open_file(self.path, os.O_RDONLY)
         except FileNotFoundError:
             return ExperienceSnapshot()
         with handle:
@@ -299,6 +320,7 @@ class ExperienceRepository:
     def save(
         self, snapshot: ExperienceSnapshot, *, now: float, protected: set[str] | None = None
     ) -> None:
+        self._guard_paths()
         self.trim(snapshot, now=now, protected=protected)
         for item in [*snapshot.current.values(), *snapshot.history]:
             self.validate(item)
@@ -330,6 +352,7 @@ class ExperienceRepository:
                 handle.write(header + body)
                 handle.flush()
                 os.fsync(handle.fileno())
+            self._guard_paths()
             os.replace(temporary, self.path)
             if os.name != "nt":
                 directory = os.open(self.path.parent, os.O_RDONLY)

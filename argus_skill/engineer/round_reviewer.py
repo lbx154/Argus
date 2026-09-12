@@ -447,6 +447,11 @@ class RoundReviewerMixin:
         # or by failing loud once the reviewer-backend streak hits threshold.
         reviewer_turn_cap_restarts = 0
         while True:
+            from .round_manager_wait import manager_wait_terminal
+
+            paused = manager_wait_terminal(supervised_config, state)
+            if paused is not None:
+                return control_return(paused)
             review = self._call_reviewer_once(
                 objective=objective,
                 original_objective=original_objective,

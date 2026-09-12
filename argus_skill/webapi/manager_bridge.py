@@ -107,6 +107,8 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
     from ..core.run_gateway import run_exec as gateway_run_exec
     from ..life.memory import LifeMemory
     from ..manager.front_door import _ensure_manager_runner
+    from ..manager.observation import observe_project
+    from ..manager.session_context import conversation_backend
     from ..manager.stage_decider import extract_answer
     from ..roles.prompts.manager import build_quick_reply_prompt
 
@@ -130,10 +132,16 @@ def _answer_inline(sid: str, life_dir: Any, question: str) -> str:
         )
         prompt = build_quick_reply_prompt(objective=question)
         prompt = append_operator_context(prompt, operator_context)
+        prompt += "\n\n" + observe_project(Path(life_dir)).render()
+        from ..core.knobs import resolve_manager_reply_model
+
         result = gateway_run_exec(
-            chat_state.get("manager_session") or runner,
+            conversation_backend(runner),
             prompt=prompt,
-            options=RunnerOptions(skip_git_repo_check=True),
+            options=RunnerOptions(model=resolve_manager_reply_model(), skip_git_repo_check=True,
+                                 sandbox_mode="read-only", force_safe_mode=True, working_dir=str(
+                getattr(getattr(runner, "manager", None), "execution_workdir", life_dir)
+            )),
             run_label="manager-ask",
         )
     except Exception:  # noqa: BLE001 - never turn a question into a task

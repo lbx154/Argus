@@ -222,7 +222,10 @@ class PlannerRenderingMixin:
             lines.append(line)
         body = "\n".join(lines) or "(empty)"
         try:
-            failure_context = self.memory.render_failure_experience_context(
+            render_recall = getattr(self.memory, "render_recall_context", None)
+            if not callable(render_recall):
+                render_recall = self.memory.render_failure_experience_context
+            failure_context = render_recall(
                 self.config.continuous_objective,
             ).strip()
         except (AttributeError, OSError, TypeError, ValueError):

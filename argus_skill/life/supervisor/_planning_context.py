@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.event_catalog import EventType
+from ...core.operator_context import operator_context_state_root
 from ...core.planner_verdict import PlannerVerdictStatus
 from ...core.wake_sources import normalize_wake_sources
 from ..memory import BacklogItem
@@ -394,7 +395,7 @@ class PlanningContextMixin:
                     unchanged_since=project_unchanged_since(
                         project_root=self._project_workdir(),
                         cutoff=float(getattr(entry, "ts", 0.0) or 0.0),
-                        state_root=Path(self.memory.root),
+                        state_root=operator_context_state_root(self.memory),
                     ),
                 ):
                     return True
@@ -495,7 +496,7 @@ class PlanningContextMixin:
 
         return build_project_state_signature(
             project_root=self._project_workdir(),
-            state_root=Path(self.memory.root),
+            state_root=operator_context_state_root(self.memory),
         )
 
     def _legacy_final_submission_cert_matches(
@@ -817,7 +818,7 @@ class PlanningContextMixin:
                 backlog=(),
                 artifact_root=self._artifact_root(),
                 project_root=self._planner_workdir(),
-                state_root=Path(self.memory.root),
+                state_root=operator_context_state_root(self.memory),
                 completion_contract=None,
             )
         except Exception:  # noqa: BLE001 - circuit remains conservative

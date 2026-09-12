@@ -952,10 +952,13 @@ class PlanningCycleMixin(
             return {"vertical": persisted}
 
         mgr = self._bound_manager()
-        from ...core.operator_context import build_operator_context_block
+        from ...core.operator_context import (
+            build_operator_context_block,
+            operator_context_state_root,
+        )
 
         directive, _operator_context_revision = build_operator_context_block(
-            "manager", artifact_root, consume_once=False
+            "manager", operator_context_state_root(self.memory), consume_once=False
         )
         selection_objective = "\n\n".join(
             part
@@ -1074,10 +1077,10 @@ class PlanningCycleMixin(
                 or state.completion_accepted
             )
         ):
-            from ...core.operator_context import OperatorContextStore
+            from ...core.operator_context import OperatorContextStore, operator_context_state_root
 
             try:
-                OperatorContextStore(self.memory.root).acknowledge(
+                OperatorContextStore(operator_context_state_root(self.memory)).acknowledge(
                     "planner", state.operator_context_revision,
                 )
             except (OSError, ValueError):

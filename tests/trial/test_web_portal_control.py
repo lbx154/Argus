@@ -193,6 +193,7 @@ def test_reserved_pool_forwards_control_while_real_data_connection_is_occupied(p
                         for path in (
                             "/api/projects/demo/daemon/stop", "/api/projects/demo/mission/abort",
                             "/api/projects/demo/continuous", "/api/projects/demo/backlog/item/stop",
+                            "/api/projects/demo/message/cancel",
                         ):
                             response = await asyncio.wait_for(client.post(
                                 path, headers={"Origin": ORIGIN, "X-Argus-Backend": "trial-02"},

@@ -22,6 +22,16 @@ const line = (event: Record<string, unknown>, context: Partial<RenderContext> = 
 const zh = (event: Record<string, unknown>) => line(event, { locale: 'zh-CN' });
 
 describe('the web feed line', () => {
+  it('shows the advisor question and answer, and only applied supervision as a team decision', () => {
+    const answered = zh({ type: 'advisor.consultation.completed', question: 'Why did the measurement change?', summary: 'The second run used a different batch size. Repeat with batch size 16.' });
+    expect(answered).toMatchObject({ role: 'advisor', label: '顾问' });
+    expect(answered?.text).toContain('batch size 16');
+    expect(answered?.text).toContain('Why did the measurement change?');
+    const proposal = { type: 'life.manager.supervision.issued', summary: 'Repeat both runs with batch size 16.', action: 'steer' };
+    expect(line(proposal)).toBeNull();
+    expect(line({ ...proposal, type: 'life.manager.supervision.applied' })?.text).toBe(proposal.summary);
+    expect(line({ ...proposal, type: 'life.manager.supervision.failed', status: 'superseded' })?.text).not.toContain('Repeat both runs');
+  });
   it('hides raw CLI framing, telemetry and unknown types (the noise)', () => {
     expect(line({ type: 'agent.io.stream', text: 'raw' })).toBeNull();
     expect(line({ type: 'agent.io.start' })).toBeNull();

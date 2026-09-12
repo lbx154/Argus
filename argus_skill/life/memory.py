@@ -2492,6 +2492,46 @@ class Backlog:
             updates["outcome"] = dict(outcome)
         return self.update(item_id, **updates)
 
+    def park_after_manager_wait(
+        self,
+        item_id: str,
+        *,
+        expected_question: str,
+        reason: str,
+        outcome: dict[str, Any] | None = None,
+        wait_current: bool = True,
+    ) -> BacklogItem | None:
+        """Settle an interrupted turn only while its exact Manager question remains.
+
+        An answer or replacement can win before the old turn reaches settlement.
+        Keep the current row's contract and result; that old WAIT cannot park it.
+        """
+        if wait_current and (
+            not isinstance(expected_question, str) or not expected_question.strip()
+        ):
+            raise ValueError("Manager WAIT requires a non-empty question witness")
+        with self._locked():
+            items = self._load()
+            item = next((row for row in items if row.id == item_id), None)
+            if item is None:
+                return next(
+                    (row for row in reversed(self._load_archive()) if row.id == item_id),
+                    None,
+                )
+            if item.status != "running":
+                return item
+            if wait_current and item.pending_question == expected_question:
+                item.status = "paused_operator"
+                item.last_error = str(reason)
+                if outcome is not None:
+                    item.outcome = dict(outcome)
+            else:
+                item.status = "pending"
+                item.started_ts = None
+                item.finished_ts = None
+            self._save(items)
+            return item
+
     def resume_paused(self, item_id: str) -> BacklogItem | None:
         """Start a fresh metering attempt for one recoverable paused item."""
         with self._locked():
@@ -2823,6 +2863,15 @@ class LifeMemory:
 
         return FailureExperienceStore(self.root / "failure_experiences.jsonl")
 
+    def render_recall_context(
+        self, objective: str, *, max_entries: int = 4, max_chars: int = 6_000,
+    ) -> str:
+        from .knowledge_recall import render_memory_recall
+
+        return render_memory_recall(
+            self, objective, max_entries=max_entries, max_chars=max_chars,
+        )
+
     def render_failure_experience_context(
         self,
         objective: str,
@@ -2862,7 +2911,7 @@ class LifeMemory:
             else []
         )
 
-        failure_context = self.render_failure_experience_context(objective)
+        failure_context = self.render_recall_context(objective)
 
         if not identity and not relevant and not failure_context:
             return ""
@@ -3309,7 +3358,7 @@ class MemoryBundle:
             else []
         )
 
-        failure_context = self.render_failure_experience_context(objective)
+        failure_context = self.render_recall_context(objective)
 
         if not (identity or project_hits or failure_context):
             return ""
@@ -3341,6 +3390,15 @@ class MemoryBundle:
     @property
     def failure_experiences(self):
         return self.project.failure_experiences
+
+    def render_recall_context(
+        self, objective: str, *, max_entries: int = 4, max_chars: int = 6_000,
+    ) -> str:
+        from .knowledge_recall import render_memory_recall
+
+        return render_memory_recall(
+            self, objective, max_entries=max_entries, max_chars=max_chars,
+        )
 
     def render_failure_experience_context(
         self,

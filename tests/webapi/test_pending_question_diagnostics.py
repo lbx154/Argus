@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from argus_skill.adapters.agent_cli_backend import AgentCliBackend
 from argus_skill.agent_cli.models import AgentRunResult
 from argus_skill.core.models import RunnerOptions
+from argus_skill.core.operator_context import OperatorContextStore
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.manager._session_ops import _ManagerSession
 from argus_skill.webapi.manager_pending_question import (
@@ -122,11 +123,8 @@ def test_pending_question_401_replay_settles_answer_after_persistence(
     blocked = next(row for row in rows if row.id == item.id)
     assert blocked.pending_question == ""
     assert len([row for row in rows if row.id != item.id]) == 1
-    ledger = [
-        json.loads(line)
-        for line in (tmp_path / "operator_context.jsonl").read_text().splitlines()
-    ]
-    assert [row["text"] for row in ledger] == [
+    ledger = OperatorContextStore(tmp_path).records()
+    assert [row.text for row in ledger] == [
         "Yes, authorize the requested repair."
     ]
     projection = json.loads((tmp_path / "operator_context.json").read_text())
@@ -173,11 +171,8 @@ def test_pending_question_backend_failure_preserves_answer_and_cause(
     rows = mem.backlog.history()
     assert len(rows) == 1
     assert rows[0].pending_question == "May the repair proceed?"
-    ledger = [
-        json.loads(line)
-        for line in (tmp_path / "operator_context.jsonl").read_text().splitlines()
-    ]
-    assert [row["text"] for row in ledger] == [
+    ledger = OperatorContextStore(tmp_path).records()
+    assert [row.text for row in ledger] == [
         "Yes, authorize the requested repair."
     ]
     projection = json.loads((tmp_path / "operator_context.json").read_text())

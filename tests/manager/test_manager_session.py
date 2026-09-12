@@ -5,8 +5,8 @@ Covers the four guarantees of ``_ManagerSession``:
   * continuation + persistence — incoming turns resume the stored thread_id and
     the new thread_id is written back to ``<root>/.manager_session.json``;
   * cross-process serialization — advisory locking keeps turns from interleaving;
-  * fail-open — any session-mode error degrades to a plain no-session call,
-    never raising and never blocking the Manager's decision;
+  * setup recovery — a session setup error permits one plain call, while an
+    uncertain provider failure never replays inference or tool effects;
   * Manager wiring — the Manager LLM calls (is_conversational / divide) actually
     flow through the shared session.
 """
@@ -281,7 +281,7 @@ def test_lock_is_held_during_a_turn(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 6. fail-open — errors degrade to a plain no-session call, never raise/block
+# 6. setup recovery must not replay uncertain provider effects
 # ---------------------------------------------------------------------------
 class _RaiseOnceRunner:
     """Raises on the FIRST (session-mode) call, succeeds on the retry."""
@@ -301,15 +301,13 @@ class _RaiseOnceRunner:
         return _Result(thread_id="t1")
 
 
-def test_fail_open_session_error_degrades_to_plain_call(tmp_path):
+def test_uncertain_session_provider_error_is_not_replayed(tmp_path):
     fake = _RaiseOnceRunner()
     sess = _ManagerSession(fake, tmp_path)
-    # Must NOT raise: the session-mode call blew up, the fallback succeeded.
-    res = sess.run_exec(prompt="a", options=None, run_label="x")
-    assert res.thread_id == "t1"
-    assert fake.calls == 2
-    # The fallback was a no-session call: resume_thread_id was NOT passed.
-    assert fake.last_kwargs["resume_passed"] is False
+    with pytest.raises(RuntimeError, match="session-mode boom"):
+        sess.run_exec(prompt="a", options=None, run_label="x")
+    assert fake.calls == 1
+    assert not (tmp_path / _SESSION_FILE).exists()
 
 
 def test_fail_open_when_root_unwritable(tmp_path, monkeypatch):

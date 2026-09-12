@@ -119,6 +119,15 @@ class EvolutionMixin:
             log.warning("manager Skill propagation after mission failed", exc_info=True)
             return {"to_shared": 0, "to_vertical_shared": 0, "errors": 1}
         finally:
+            try:
+                from ..knowledge_recall import knowledge_recall_for_memory
+
+                knowledge_recall_for_memory(
+                    self.memory, worktree=self._project_workdir(),
+                    skill_store=getattr(self.runner, "skill_store", None),
+                ).sync()
+            except Exception:  # noqa: BLE001 - derived recall never owns settlement
+                log.warning("post-mission knowledge index sync failed", exc_info=True)
             if callable(set_usage):
                 try:
                     set_usage(None)

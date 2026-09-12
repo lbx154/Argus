@@ -406,6 +406,9 @@ class LifeWorkerRunMixin:
                     ),
                 )
         finally:
+            from ..manager.supervision import shutdown_supervision
+
+            shutdown_supervision(rf_state.runtime_root)
             self._stop_running_stall_watcher()
             if self._curator is not None:
                 self._curator.stop()

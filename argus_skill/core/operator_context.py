@@ -1,20 +1,33 @@
-"""Typed, append-only operator context for one project life directory."""
+"""Scoped operator authority with durable consumption and bounded checkpoints."""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
-from dataclasses import asdict, dataclass
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, TypeAlias, cast
+from typing import Any, Iterator, Literal, TypeAlias, cast
 
 from .file_lock import exclusive_file_lock
+from .operator_context_storage import (
+    MAX_SOURCE_BYTES,
+    ContextDocument,
+    checkpoint_bytes,
+    compact_document,
+    preference_key,
+    read_document,
+    write_checkpoint,
+)
 
 LEDGER_FILENAME = "operator_context.jsonl"
 PROJECTION_FILENAME = "operator_context.json"
 LOCK_FILENAME = "operator_context.lock"
+OWNERSHIP_FILENAME = "operator_context.owner"
+log = logging.getLogger(__name__)
 
 Scope = Literal["mission", "project", "global"]
 Lifetime = Literal["standing", "bounded_increment", "once"]
@@ -51,6 +64,43 @@ class StaleOperatorContextWrite(RuntimeError):
     """The ledger changed after a writer read its revision."""
 
 
+class OperatorContextCapacityError(ValueError):
+    """Live operator authority cannot be silently evicted to fit a storage cap."""
+
+
+def operator_context_state_root(memory: Any) -> Path:
+    value = getattr(memory, "project_root", None) or getattr(memory, "root", None)
+    if value is None:
+        raise ValueError("runtime memory must provide a project state root")
+    return Path(value)
+
+
+def operator_context_global_root(
+    life_dir: Path | str,
+    global_root: Path | str | None = None,
+) -> Path | None:
+    """Resolve the caller's user namespace without consulting ambient global state."""
+    lexical = Path(life_dir).expanduser().absolute()
+    project = lexical.resolve()
+    inferred = lexical.parent.parent.resolve() if lexical.parent.name == "projects" else None
+    if inferred is not None and project != inferred / "projects" / lexical.name:
+        raise ValueError("operator context project state cannot alias another project or user")
+    supplied = Path(global_root).expanduser().resolve() if global_root is not None else None
+    if supplied is not None and inferred is not None and supplied != inferred:
+        raise ValueError("operator context project and global root belong to different users")
+    return supplied or inferred
+
+
+def preference_state_root(
+    life_dir: Path | str,
+    *,
+    scope: Scope,
+    global_root: Path | str | None = None,
+) -> Path:
+    shared = operator_context_global_root(life_dir, global_root)
+    return shared if scope == "global" and shared is not None else Path(life_dir)
+
+
 @dataclass(frozen=True)
 class DirectiveRecord:
     text: str
@@ -60,6 +110,7 @@ class DirectiveRecord:
     source: str
     revision: int
     created_at: str
+    mission_id: str = ""
     type: Literal["directive"] = "directive"
 
 
@@ -92,9 +143,7 @@ class RevokeRecord:
     type: Literal["revoke"] = "revoke"
 
 
-OperatorRecord: TypeAlias = (
-    DirectiveRecord | PreferenceRecord | CapabilityRecord | RevokeRecord
-)
+OperatorRecord: TypeAlias = DirectiveRecord | PreferenceRecord | CapabilityRecord | RevokeRecord
 
 
 @dataclass(frozen=True)
@@ -103,6 +152,8 @@ class OperatorContextProjection:
     directives: tuple[DirectiveRecord, ...]
     preferences: tuple[PreferenceRecord, ...]
     capabilities: tuple[CapabilityRecord, ...]
+    global_revision: int = 0
+    preference_sources: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -116,9 +167,7 @@ class IntakeDecision:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
-        "+00:00", "Z"
-    )
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _roles(value: object) -> AppliesToRoles:
@@ -140,6 +189,8 @@ def _scope(value: object) -> Scope:
 
 
 def _record_from_dict(payload: dict[str, Any]) -> OperatorRecord:
+    if not isinstance(payload, dict):
+        raise ValueError("operator context record must be an object")
     record_type = str(payload.get("type") or "").strip().lower()
     revision = int(payload.get("revision") or 0)
     if revision <= 0:
@@ -159,6 +210,7 @@ def _record_from_dict(payload: dict[str, Any]) -> OperatorRecord:
             source=str(payload.get("source") or "operator").strip() or "operator",
             revision=revision,
             created_at=str(payload.get("created_at") or "").strip() or "unknown time",
+            mission_id=str(payload.get("mission_id") or "").strip(),
         )
     if record_type == "preference":
         kind = str(payload.get("kind") or "").strip().lower()
@@ -200,31 +252,6 @@ def _record_from_dict(payload: dict[str, Any]) -> OperatorRecord:
     raise ValueError(f"unknown operator context record type: {record_type}")
 
 
-def _read_native(path: Path) -> list[OperatorRecord]:
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except FileNotFoundError:
-        return []
-    records: list[OperatorRecord] = []
-    expected = 1
-    for line_number, line in enumerate(lines, start=1):
-        try:
-            payload = json.loads(line)
-            record = _record_from_dict(payload)
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"invalid operator context row {path}:{line_number}: {exc}"
-            ) from exc
-        if record.revision != expected:
-            raise ValueError(
-                f"operator context revision gap at {path}:{line_number}: "
-                f"expected {expected}, got {record.revision}"
-            )
-        records.append(record)
-        expected += 1
-    return records
-
-
 def _legacy_records(root: Path) -> list[dict[str, Any]]:
     """Read the old steering files without importing their hash/id machinery."""
     from ..manager.directive import (
@@ -243,18 +270,23 @@ def _legacy_records(root: Path) -> list[dict[str, Any]]:
             }
             for row in rows
             if str(row.get("text") or "").strip()
+            and not str(row.get("source") or "").startswith("manager.supervision")
         ]
     active = load_active_manager_directive(root)
-    if active is None:
+    if active is None or active.source.startswith("manager.supervision"):
         return []
-    created_at = datetime.fromtimestamp(
-        max(0.0, float(active.set_at)), timezone.utc
-    ).isoformat(timespec="seconds").replace("+00:00", "Z")
-    return [{
-        "text": active.text,
-        "source": active.source or "legacy.active_manager_directive",
-        "created_at": created_at,
-    }]
+    created_at = (
+        datetime.fromtimestamp(max(0.0, float(active.set_at)), timezone.utc)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
+    return [
+        {
+            "text": active.text,
+            "source": active.source or "legacy.active_manager_directive",
+            "created_at": created_at,
+        }
+    ]
 
 
 def _adapter_records(root: Path) -> list[OperatorRecord]:
@@ -274,8 +306,12 @@ def _adapter_records(root: Path) -> list[OperatorRecord]:
 
 def _read_cache(root: Path) -> dict[str, Any]:
     try:
-        payload = json.loads((root / PROJECTION_FILENAME).read_text(encoding="utf-8"))
-    except (OSError, TypeError, json.JSONDecodeError):
+        with (root / PROJECTION_FILENAME).open("rb") as handle:
+            raw = handle.read(MAX_SOURCE_BYTES + 1)
+        if len(raw) > MAX_SOURCE_BYTES:
+            return {}
+        payload = json.loads(raw)
+    except (OSError, TypeError, json.JSONDecodeError, UnicodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -283,22 +319,21 @@ def _read_cache(root: Path) -> dict[str, Any]:
 def _write_cache(root: Path, payload: dict[str, Any]) -> None:
     path = root / PROJECTION_FILENAME
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    with temporary.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    try:
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _current_mission_id(root: Path) -> str:
     from ..life.memory import LifeMemory
 
-    active = [
-        item
-        for item in LifeMemory.open(root).backlog.active()
-        if item.status == "running"
-    ]
+    active = [item for item in LifeMemory.open(root).backlog.active() if item.status == "running"]
     if active:
         return max(active, key=lambda item: float(item.started_ts or 0.0)).id
     return ""
@@ -310,11 +345,7 @@ def _standing_directive_key(
     """Identify identical standing instructions without merging independent work."""
     if record.lifetime != "standing":
         return None
-    roles = (
-        ("all",)
-        if record.applies_to_roles == "all"
-        else tuple(sorted(record.applies_to_roles))
-    )
+    roles = ("all",) if record.applies_to_roles == "all" else tuple(sorted(record.applies_to_roles))
     return (
         record.text,
         record.scope,
@@ -324,146 +355,341 @@ def _standing_directive_key(
 
 
 class OperatorContextStore:
-    def __init__(self, life_dir: Path | str) -> None:
+    """One physical revision namespace; projection may read explicit shared preferences."""
+
+    def __init__(
+        self,
+        life_dir: Path | str,
+        *,
+        global_root: Path | str | None = None,
+        max_records: int = 256,
+        max_bytes: int = 1_000_000,
+    ) -> None:
+        if not 1 <= max_records <= 4096 or not 1024 <= max_bytes <= 8_000_000:
+            raise ValueError("operator context capacity is outside supported bounds")
         self.root = Path(life_dir)
+        self.global_root = operator_context_global_root(life_dir, global_root)
         self.ledger_path = self.root / LEDGER_FILENAME
         self.lock_path = self.root / LOCK_FILENAME
+        self.ownership_path = self.root / OWNERSHIP_FILENAME
+        self.max_records = max_records
+        self.max_bytes = max_bytes
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        operator_context_global_root(self.root, self.global_root)
+        self.root.mkdir(parents=True, exist_ok=True)
+        with self.lock_path.open("a+b") as handle:
+            with exclusive_file_lock(handle, lock_name="operator context lock"):
+                yield
+
+    def _load(self) -> ContextDocument:
+        cache = _read_cache(self.root)
+        state = {
+            key: cache[key]
+            for key in (
+                "consumed_once",
+                "acknowledged_revisions",
+                "bounded_missions",
+                "preference_heads",
+                "revoked",
+            )
+            if key in cache
+        }
+        doc = read_document(
+            self.ledger_path,
+            legacy_state=state,
+            normalize_record=lambda row: asdict(_record_from_dict(row)),
+        )
+        if doc is None:
+            if (
+                self.ownership_path.exists()
+                or cache.get("canonical_established") is True
+                or int(cache.get("base_revision") or 0) > 0
+            ):
+                raise ValueError(
+                    "established operator context source is missing; refusing legacy replay"
+                )
+            rows = [asdict(record) for record in _adapter_records(self.root)]
+            doc = ContextDocument(rows, int(rows[-1]["revision"]) if rows else 0, state=state)
+        doc.records = [asdict(_record_from_dict(row)) for row in doc.records]
+        doc.absorb_records()
+        if self.ledger_path.exists() and doc.revision > 0:
+            self._ensure_ownership()
+        if not doc.checkpointed and "consumed_once" not in cache:
+            uncertain = [
+                row["revision"]
+                for row in doc.records
+                if row["type"] == "directive" and row["lifetime"] == "once"
+            ]
+            if uncertain:
+                # Old one-shot consumption lived only in a cache. If that
+                # cache has vanished, there is no evidence authorizing replay.
+                doc.state["consumed_once"] = uncertain
+                doc.state["legacy_consumption_uncertain"] = True
+        return doc
+
+    def _ensure_ownership(self) -> None:
+        try:
+            descriptor = os.open(self.ownership_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            return
+        try:
+            os.write(descriptor, b"operator-context-v2\n")
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        if os.name != "nt":
+            directory = os.open(self.root, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
 
     def records(self) -> list[OperatorRecord]:
-        native = _read_native(self.ledger_path)
-        return native if self.ledger_path.exists() else _adapter_records(self.root)
+        with self._locked():
+            return [_record_from_dict(row) for row in self._load().records]
 
     @property
     def revision(self) -> int:
-        records = self.records()
-        return records[-1].revision if records else 0
+        with self._locked():
+            return self._load().revision
+
+    def _write_projection(self, doc: ContextDocument) -> None:
+        revoked = {int(row["target_revision"]) for row in doc.records if row["type"] == "revoke"}
+        revoked.update(int(value) for value in doc.state.get("revoked", []))
+        payload = {
+            "version": 2,
+            "revision": doc.revision,
+            "base_revision": doc.base_revision,
+            "canonical_established": self.ledger_path.exists(),
+            "consumed_once": [],
+            "acknowledged_revisions": {},
+            "bounded_missions": {},
+            "records": [
+                row
+                for row in doc.records
+                if row["type"] != "revoke" and row["revision"] not in revoked
+            ],
+            **doc.state,
+        }
+        try:
+            _write_cache(self.root, payload)
+        except OSError:
+            log.warning(
+                "operator projection cache write failed; canonical state remains committed",
+                exc_info=True,
+            )
+
+    def _save(
+        self,
+        doc: ContextDocument,
+        *,
+        new_rows: list[dict[str, Any]] | None = None,
+        checkpoint: bool = False,
+        compact: bool = False,
+    ) -> None:
+        doc.absorb_records()
+        needs_compaction = (
+            compact
+            or len(doc.records) > self.max_records
+            or len(checkpoint_bytes(doc)) > self.max_bytes
+        )
+        if needs_compaction:
+            compact_document(doc)
+            checkpoint = True
+        if len(doc.records) > self.max_records or len(checkpoint_bytes(doc)) > self.max_bytes:
+            raise OperatorContextCapacityError(
+                "active operator context exceeds its budget; revoke or consolidate obsolete instructions before adding more"
+            )
+        if checkpoint or doc.checkpointed or doc.needs_checkpoint or new_rows is None:
+            write_checkpoint(self.ledger_path, doc)
+        else:
+            self._append_lines([_record_from_dict(row) for row in new_rows])
+        self._ensure_ownership()
+        self._write_projection(doc)
 
     def acknowledged_revision(self, role: Role) -> int:
-        """Last input revision durably handled by this role, not merely read."""
         if role not in _ROLES:
             raise ValueError(f"unknown operator context role: {role}")
-        return int(dict(_read_cache(self.root).get("acknowledged_revisions") or {}).get(role) or 0)
+        with self._locked():
+            return int((self._load().state.get("acknowledged_revisions") or {}).get(role, 0))
 
     def acknowledge(self, role: Role, revision: int) -> None:
-        """Checkpoint only the revision used by successfully committed work."""
         if role not in _ROLES:
             raise ValueError(f"unknown operator context role: {role}")
-        self.root.mkdir(parents=True, exist_ok=True)
-        with self.lock_path.open("a+b") as lock:
-            with exclusive_file_lock(lock, lock_name="operator context lock"):
-                records = self.records()
-                current = records[-1].revision if records else 0
-                if not 0 <= revision <= current:
-                    raise ValueError("acknowledged revision is outside the operator ledger")
-                cache = _read_cache(self.root)
-                acknowledged = dict(cache.get("acknowledged_revisions") or {})
-                acknowledged[role] = max(int(acknowledged.get(role) or 0), revision)
-                cache["acknowledged_revisions"] = acknowledged
-                consumed = {int(value) for value in cache.get("consumed_once") or []}
-                consumed.update(
-                    record.revision for record in records
-                    if isinstance(record, DirectiveRecord)
-                    and record.lifetime == "once"
-                    and record.revision <= revision
-                    and (
-                        record.applies_to_roles == "all"
-                        or role in record.applies_to_roles
-                    )
-                )
-                cache["consumed_once"] = sorted(consumed)
-                self._refresh_cache(records, cache=cache)
+        with self._locked():
+            doc = self._load()
+            if not 0 <= revision <= doc.revision:
+                raise ValueError("acknowledged revision is outside the operator ledger")
+            acknowledged = dict(doc.state.get("acknowledged_revisions") or {})
+            acknowledged[role] = max(int(acknowledged.get(role, 0)), revision)
+            doc.state["acknowledged_revisions"] = acknowledged
+            consumed = {int(value) for value in doc.state.get("consumed_once", [])}
+            consumed.update(
+                int(row["revision"])
+                for row in doc.records
+                if row["type"] == "directive"
+                and row["lifetime"] == "once"
+                and int(row["revision"]) <= revision
+                and (row["applies_to_roles"] == "all" or role in row["applies_to_roles"])
+            )
+            doc.state["consumed_once"] = sorted(consumed)
+            self._save(doc, checkpoint=True)
 
     def append(
         self,
-        record: DirectiveRecord | PreferenceRecord | CapabilityRecord | RevokeRecord,
+        record: OperatorRecord,
         *,
         expected_revision: int,
         mission_id: str = "",
     ) -> OperatorRecord:
-        self.root.mkdir(parents=True, exist_ok=True)
-        with self.lock_path.open("a+b") as lock:
-            with exclusive_file_lock(lock, lock_name="operator context lock"):
-                records = _read_native(self.ledger_path)
-                if not self.ledger_path.exists():
-                    records = _adapter_records(self.root)
-                    if records:
-                        self._append_lines(records)
-                current = records[-1].revision if records else 0
-                if int(expected_revision) != current:
-                    raise StaleOperatorContextWrite(
-                        f"stale operator context revision: expected "
-                        f"{expected_revision}, current {current}"
-                    )
-                payload = asdict(record)
-                payload["revision"] = current + 1
-                written = _record_from_dict(payload)
-                previous = records[-1] if records else None
-                if isinstance(written, DirectiveRecord) and isinstance(previous, DirectiveRecord):
-                    key = _standing_directive_key(written)
-                    if (
-                        key is not None
-                        and key == _standing_directive_key(previous)
-                        and written.source == previous.source
-                    ):
-                        # Only an immediate retry is idempotent. A reassertion
-                        # after another update retains its new revision/order.
-                        return previous
-                self._append_lines([written])
-                records.append(written)
-                cache = _read_cache(self.root)
-                bounded = dict(cache.get("bounded_missions") or {})
-                if isinstance(written, DirectiveRecord) and written.lifetime == "bounded_increment":
-                    bounded[str(written.revision)] = (
-                        str(mission_id).strip() or _current_mission_id(self.root)
-                    ) or _NO_MISSION
-                self._refresh_cache(records, cache=cache, bounded_missions=bounded)
-                return written
+        if isinstance(record, DirectiveRecord) and record.source.startswith("manager.supervision"):
+            raise ValueError("Manager supervision is advisory, not operator authority")
+        with self._locked():
+            doc = self._load()
+            if int(expected_revision) != doc.revision:
+                raise StaleOperatorContextWrite(
+                    f"stale operator context revision: expected {expected_revision}, current {doc.revision}"
+                )
+            payload = asdict(record)
+            payload["revision"] = doc.revision + 1
+            if isinstance(record, DirectiveRecord) and record.lifetime == "bounded_increment":
+                payload["mission_id"] = (
+                    str(mission_id).strip()
+                    or record.mission_id
+                    or _current_mission_id(self.root)
+                    or _NO_MISSION
+                )
+            written = _record_from_dict(payload)
+            previous = _record_from_dict(doc.records[-1]) if doc.records else None
+            if isinstance(written, DirectiveRecord) and isinstance(previous, DirectiveRecord):
+                key = _standing_directive_key(written)
+                if (
+                    key is not None
+                    and key == _standing_directive_key(previous)
+                    and written.source == previous.source
+                    and previous.revision == doc.revision
+                ):
+                    return previous
+            if isinstance(written, PreferenceRecord) and isinstance(previous, PreferenceRecord):
+                if (
+                    replace(written, revision=previous.revision) == previous
+                    and previous.revision == doc.revision
+                ):
+                    return previous
+            if isinstance(written, RevokeRecord) and written.target_revision >= written.revision:
+                raise ValueError("revocation must target an existing earlier revision")
+            doc.records.append(asdict(written))
+            doc.revision = written.revision
+            new_rows = doc.records if not self.ledger_path.exists() else [asdict(written)]
+            mutable_lifetime = isinstance(written, DirectiveRecord) and written.lifetime in {
+                "once",
+                "bounded_increment",
+            }
+            self._save(doc, new_rows=new_rows, checkpoint=mutable_lifetime)
+            return written
 
     def _append_lines(self, records: list[OperatorRecord]) -> None:
         payload = b"".join(
             (json.dumps(asdict(record), ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
             for record in records
         )
-        descriptor = os.open(
-            self.ledger_path,
-            os.O_APPEND | os.O_CREAT | os.O_WRONLY,
-            0o600,
-        )
+        descriptor = os.open(self.ledger_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
         try:
-            written = os.write(descriptor, payload)
-            if written != len(payload):
+            if os.write(descriptor, payload) != len(payload):
                 raise OSError("short write while appending operator context")
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
 
-    def _refresh_cache(
-        self,
-        records: list[OperatorRecord],
-        *,
-        cache: dict[str, Any],
-        bounded_missions: dict[str, str] | None = None,
-    ) -> None:
-        revoked = {
-            record.target_revision
-            for record in records
-            if isinstance(record, RevokeRecord)
-        }
-        active = [
-            asdict(record)
-            for record in records
-            if not isinstance(record, RevokeRecord) and record.revision not in revoked
-        ]
-        _write_cache(self.root, {
-            "version": 1,
-            "revision": records[-1].revision if records else 0,
-            "records": active,
-            "consumed_once": list(cache.get("consumed_once") or []),
-            "acknowledged_revisions": dict(cache.get("acknowledged_revisions") or {}),
-            "bounded_missions": bounded_missions
-            if bounded_missions is not None
-            else dict(cache.get("bounded_missions") or {}),
-        })
+    def _project_local(
+        self, role: Role, *, mission_id: str, consume_once: bool, shared_only: bool = False
+    ) -> OperatorContextProjection:
+        with self._locked():
+            doc = self._load()
+            records = [_record_from_dict(row) for row in doc.records]
+            revoked = {
+                record.target_revision for record in records if isinstance(record, RevokeRecord)
+            }
+            revoked.update(int(value) for value in doc.state.get("revoked", []))
+            consumed = {int(value) for value in doc.state.get("consumed_once", [])}
+            bounded = dict(doc.state.get("bounded_missions") or {})
+            heads = doc.state["preference_heads"]
+            current_mission = (
+                str(mission_id).strip() or _current_mission_id(self.root) or _NO_MISSION
+            )
+            visible: list[OperatorRecord] = []
+            newly_consumed: list[int] = []
+            for record in records:
+                if isinstance(record, RevokeRecord) or record.revision in revoked:
+                    continue
+                if shared_only and (
+                    not isinstance(record, PreferenceRecord) or record.scope != "global"
+                ):
+                    continue
+                applies = getattr(record, "applies_to_roles", "all")
+                if applies != "all" and role not in applies:
+                    continue
+                if isinstance(record, PreferenceRecord) and record.revision != int(
+                    heads[preference_key(asdict(record))]
+                ):
+                    continue
+                if isinstance(record, DirectiveRecord):
+                    if record.lifetime == "once" and record.revision in consumed:
+                        continue
+                    if record.lifetime == "bounded_increment":
+                        bound_to = record.mission_id or str(
+                            bounded.get(str(record.revision)) or _NO_MISSION
+                        )
+                        if bound_to != current_mission:
+                            continue
+                    if record.lifetime == "once" and consume_once:
+                        newly_consumed.append(record.revision)
+                visible.append(record)
+            if (
+                newly_consumed
+                or doc.needs_checkpoint
+                or doc.state.get("legacy_consumption_uncertain")
+            ):
+                doc.state["consumed_once"] = sorted(consumed | set(newly_consumed))
+                doc.state.pop("legacy_consumption_uncertain", None)
+                self._save(doc, checkpoint=True)
+            else:
+                self._write_projection(doc)
+            directives: list[DirectiveRecord] = []
+            seen: set[tuple[str, Scope, tuple[str, ...], bool]] = set()
+            for directive in sorted(
+                (record for record in visible if isinstance(record, DirectiveRecord)),
+                key=lambda record: (_SCOPE_ORDER[record.scope], record.revision),
+                reverse=True,
+            ):
+                key = _standing_directive_key(directive)
+                if key is not None and key in seen:
+                    continue
+                if key is not None:
+                    seen.add(key)
+                directives.append(directive)
+            preferences: dict[str, PreferenceRecord] = {}
+            capabilities: dict[str, CapabilityRecord] = {}
+            for record in sorted(
+                visible,
+                key=lambda record: (
+                    _SCOPE_ORDER[getattr(record, "scope", "project")],
+                    record.revision,
+                ),
+                reverse=True,
+            ):
+                if isinstance(record, PreferenceRecord):
+                    preferences.setdefault(record.kind, record)
+                elif isinstance(record, CapabilityRecord):
+                    capabilities.setdefault(record.kind, record)
+            return OperatorContextProjection(
+                doc.revision,
+                tuple(directives),
+                tuple(preferences.values()),
+                tuple(capabilities.values()),
+            )
 
     def project(
         self,
@@ -474,107 +700,54 @@ class OperatorContextStore:
     ) -> OperatorContextProjection:
         if role not in _ROLES:
             raise ValueError(f"unknown operator context role: {role}")
-        self.root.mkdir(parents=True, exist_ok=True)
-        with self.lock_path.open("a+b") as lock:
-            with exclusive_file_lock(lock, lock_name="operator context lock"):
-                records = self.records()
-                cache = _read_cache(self.root)
-                revoked = {
-                    record.target_revision
-                    for record in records
-                    if isinstance(record, RevokeRecord)
-                }
-                consumed = {int(value) for value in cache.get("consumed_once") or []}
-                bounded = {
-                    str(key): str(value)
-                    for key, value in dict(cache.get("bounded_missions") or {}).items()
-                }
-                current_mission = str(mission_id).strip() or _current_mission_id(self.root)
-                current_mission = current_mission or _NO_MISSION
-                visible: list[OperatorRecord] = []
-                newly_consumed: list[int] = []
-                for record in records:
-                    if isinstance(record, RevokeRecord) or record.revision in revoked:
-                        continue
-                    applies = getattr(record, "applies_to_roles", "all")
-                    if applies != "all" and role not in applies:
-                        continue
-                    if isinstance(record, DirectiveRecord):
-                        if record.lifetime == "once" and record.revision in consumed:
-                            continue
-                        if record.lifetime == "bounded_increment":
-                            bound_to = bounded.get(str(record.revision), "")
-                            if bound_to and bound_to != current_mission:
-                                continue
-                        if record.lifetime == "once" and consume_once:
-                            newly_consumed.append(record.revision)
-                    visible.append(record)
-                if newly_consumed:
-                    cache["consumed_once"] = sorted(consumed | set(newly_consumed))
-                if newly_consumed or int(cache.get("revision") or -1) != (
-                    records[-1].revision if records else 0
-                ):
-                    self._refresh_cache(records, cache=cache, bounded_missions=bounded)
-                ordered_directives = sorted(
-                    (record for record in visible if isinstance(record, DirectiveRecord)),
-                    key=lambda record: (_SCOPE_ORDER[record.scope], record.revision),
-                    reverse=True,
-                )
-                directives: list[DirectiveRecord] = []
-                seen_standing: set[tuple[str, Scope, tuple[str, ...], bool]] = set()
-                for directive in ordered_directives:
-                    key = _standing_directive_key(directive)
-                    if key is not None:
-                        if key in seen_standing:
-                            continue
-                        seen_standing.add(key)
-                    # Retain the latest active revision in the prompt while
-                    # leaving every historical row and tombstone in the ledger.
-                    directives.append(directive)
-                preferences_by_kind: dict[str, PreferenceRecord] = {}
-                for record in sorted(
-                    (record for record in visible if isinstance(record, PreferenceRecord)),
-                    key=lambda record: (_SCOPE_ORDER[record.scope], record.revision),
-                    reverse=True,
-                ):
-                    preferences_by_kind.setdefault(record.kind, record)
-                capabilities_by_kind: dict[str, CapabilityRecord] = {}
-                for record in sorted(
-                    (record for record in visible if isinstance(record, CapabilityRecord)),
-                    key=lambda record: (_SCOPE_ORDER[record.scope], record.revision),
-                    reverse=True,
-                ):
-                    capabilities_by_kind.setdefault(record.kind, record)
-                return OperatorContextProjection(
-                    revision=records[-1].revision if records else 0,
-                    directives=tuple(directives),
-                    preferences=tuple(preferences_by_kind.values()),
-                    capabilities=tuple(capabilities_by_kind.values()),
-                )
+        shared = None
+        if self.global_root is not None and self.global_root.resolve() != self.root.resolve():
+            shared = OperatorContextStore(self.global_root)._project_local(
+                role, mission_id="", consume_once=False, shared_only=True
+            )
+        local = self._project_local(role, mission_id=mission_id, consume_once=consume_once)
+        preferences = list(local.preferences)
+        sources = ["project"] * len(preferences)
+        seen = {record.kind for record in preferences}
+        if shared is not None:
+            for record in shared.preferences:
+                if record.scope == "global" and record.kind not in seen:
+                    preferences.append(record)
+                    sources.append("global")
+                    seen.add(record.kind)
+        return replace(
+            local,
+            preferences=tuple(preferences),
+            global_revision=shared.revision if shared is not None else 0,
+            preference_sources=tuple(sources),
+        )
 
     def settle_once(self, revision: int) -> None:
-        """Consume one exact one-shot directive after its work is committed."""
-        self.root.mkdir(parents=True, exist_ok=True)
-        with self.lock_path.open("a+b") as lock:
-            with exclusive_file_lock(lock, lock_name="operator context lock"):
-                records = self.records()
-                target = next(
-                    (record for record in records if record.revision == revision),
-                    None,
+        with self._locked():
+            doc = self._load()
+            target = next((row for row in doc.records if row["revision"] == revision), None)
+            if target is None and 0 < revision <= doc.base_revision:
+                return  # this identity is already in the closed checkpoint prefix
+            if target is None or target["type"] != "directive" or target["lifetime"] != "once":
+                raise ValueError(
+                    f"operator context revision {revision} is not a one-shot directive"
                 )
-                if not (
-                    isinstance(target, DirectiveRecord)
-                    and target.lifetime == "once"
-                ):
-                    raise ValueError(
-                        f"operator context revision {revision} is not a one-shot directive"
-                    )
-                cache = _read_cache(self.root)
-                consumed = {int(value) for value in cache.get("consumed_once") or []}
-                if revision in consumed:
-                    return
-                cache["consumed_once"] = sorted(consumed | {revision})
-                self._refresh_cache(records, cache=cache)
+            consumed = {int(value) for value in doc.state.get("consumed_once", [])}
+            if revision in consumed:
+                return
+            doc.state["consumed_once"] = sorted(consumed | {revision})
+            self._save(doc, checkpoint=True)
+
+    def compact(self) -> dict[str, int]:
+        with self._locked():
+            doc = self._load()
+            before = len(doc.records)
+            self._save(doc, checkpoint=True, compact=True)
+            return {
+                "revision": doc.revision,
+                "retained_records": len(doc.records),
+                "removed_records": before - len(doc.records),
+            }
 
 
 def append_directive(
@@ -597,9 +770,12 @@ def append_directive(
         revision=1,
         created_at=_utc_now(),
     )
-    return cast(DirectiveRecord, OperatorContextStore(life_dir).append(
-        record, expected_revision=expected_revision, mission_id=mission_id
-    ))
+    return cast(
+        DirectiveRecord,
+        OperatorContextStore(life_dir).append(
+            record, expected_revision=expected_revision, mission_id=mission_id
+        ),
+    )
 
 
 def append_preference(
@@ -610,6 +786,7 @@ def append_preference(
     expected_revision: int,
     scope: Scope = "project",
     applies_to_roles: AppliesToRoles = "all",
+    global_root: Path | str | None = None,
 ) -> PreferenceRecord:
     record = PreferenceRecord(
         kind=kind,
@@ -618,9 +795,11 @@ def append_preference(
         applies_to_roles=applies_to_roles,
         revision=1,
     )
-    return cast(PreferenceRecord, OperatorContextStore(life_dir).append(
-        record, expected_revision=expected_revision
-    ))
+    target = preference_state_root(life_dir, scope=scope, global_root=global_root)
+    return cast(
+        PreferenceRecord,
+        OperatorContextStore(target).append(record, expected_revision=expected_revision),
+    )
 
 
 def append_capability(
@@ -641,9 +820,10 @@ def append_capability(
         scope=scope,
         revision=1,
     )
-    return cast(CapabilityRecord, OperatorContextStore(life_dir).append(
-        record, expected_revision=expected_revision
-    ))
+    return cast(
+        CapabilityRecord,
+        OperatorContextStore(life_dir).append(record, expected_revision=expected_revision),
+    )
 
 
 def append_revoke(
@@ -652,15 +832,19 @@ def append_revoke(
     *,
     reason: str,
     expected_revision: int,
+    scope: Scope = "project",
+    global_root: Path | str | None = None,
 ) -> RevokeRecord:
     record = RevokeRecord(
         target_revision=int(target_revision),
         reason=str(reason).strip(),
         revision=1,
     )
-    return cast(RevokeRecord, OperatorContextStore(life_dir).append(
-        record, expected_revision=expected_revision
-    ))
+    target = preference_state_root(life_dir, scope=scope, global_root=global_root)
+    return cast(
+        RevokeRecord,
+        OperatorContextStore(target).append(record, expected_revision=expected_revision),
+    )
 
 
 _CREDENTIAL_ASSIGNMENT = re.compile(
@@ -688,8 +872,7 @@ def import_deterministic_credential(
     key_matches = [
         match
         for match in all_key_matches
-        if len(match.group("value")) >= 16
-        and not match.group("value").startswith("[")
+        if len(match.group("value")) >= 16 and not match.group("value").startswith("[")
     ]
     standalone_keys = list(_OPENAI_KEY.finditer(str(text or "")))
     if not all_key_matches and not standalone_keys:
@@ -740,12 +923,19 @@ def persist_intake_decision(
     *,
     source: str,
     mission_id: str = "",
+    global_root: Path | str | None = None,
 ) -> OperatorRecord | None:
     """Persist one Manager intake decision before the message is routed onward."""
     normalized = str(text or "").strip()
     if decision.kind == "ephemeral":
         return None
-    store = OperatorContextStore(life_dir)
+    target = (
+        preference_state_root(life_dir, scope=decision.scope, global_root=global_root)
+        if decision.kind == "preference"
+        or (decision.kind == "revocation" and decision.target_revision > 0)
+        else Path(life_dir)
+    )
+    store = OperatorContextStore(target)
     expected = store.revision
     if decision.kind == "preference":
         return append_preference(
@@ -755,6 +945,7 @@ def persist_intake_decision(
             scope=decision.scope,
             applies_to_roles=decision.applies_to_roles,
             expected_revision=expected,
+            global_root=global_root,
         )
     if decision.kind == "revocation" and decision.target_revision > 0:
         return append_revoke(
@@ -762,6 +953,8 @@ def persist_intake_decision(
             decision.target_revision,
             reason=normalized,
             expected_revision=expected,
+            scope=decision.scope,
+            global_root=global_root,
         )
     if decision.kind == "credential_grant":
         return append_directive(
@@ -826,10 +1019,11 @@ def build_operator_context_block(
     mission_id: str = "",
     live_turn: str = "",
     consume_once: bool = True,
+    global_root: Path | str | None = None,
 ) -> tuple[str, int]:
     if life_dir is None:
         return "", 0
-    projection = OperatorContextStore(life_dir).project(
+    projection = OperatorContextStore(life_dir, global_root=global_root).project(
         role, mission_id=mission_id, consume_once=consume_once
     )
     lines = [
@@ -848,6 +1042,20 @@ def build_operator_context_block(
             else ""
         )
         lines.append(f"- directive [{directive.scope}{flag}]: {directive.text}")
+    if role in {"planner", "engineer", "teammate"}:
+        from ..manager.directive import load_active_manager_directive
+
+        active = load_active_manager_directive(life_dir)
+        if active is not None and active.source.startswith("manager.supervision"):
+            lines.extend(
+                (
+                    "## Manager direction (project advisory)",
+                    "This is Manager judgment within the operator's existing constraints, "
+                    "not a new operator instruction or authorization. It cannot change "
+                    "acceptance, spending, credentials, or outward-action permission.",
+                    active.text,
+                )
+            )
     allowed_preferences = {
         "manager": {"interaction"},
         "planner": {"autonomy", "workflow"},
@@ -855,10 +1063,21 @@ def build_operator_context_block(
         "teammate": {"autonomy", "workflow"},
         "reviewer": {"interaction", "workflow"},
     }[role]
-    for preference in projection.preferences:
+    for index, preference in enumerate(projection.preferences):
         if preference.kind in allowed_preferences:
+            origin = (
+                projection.preference_sources[index] if projection.preference_sources else "project"
+            )
+            label = str(preference.scope)
+            if (
+                origin == "project"
+                and preference.scope == "global"
+                and operator_context_global_root(life_dir, global_root) is not None
+            ):
+                label = "project; legacy global label"
             lines.append(
-                f"- {preference.kind} preference [{preference.scope}]: {preference.value}"
+                f"- {preference.kind} preference [{label}]: {preference.value} "
+                f"(revision {preference.revision} in {origin} preference ledger)"
             )
     if role in {"engineer", "teammate"}:
         for capability in projection.capabilities:
@@ -873,7 +1092,14 @@ def build_operator_context_block(
             "the bar; they never reduce correctness, evidence, or independent-review "
             "standards."
         )
-    lines.extend(("", JUDGMENT_INSTRUCTION, f"operator_context_revision={projection.revision}"))
+    lines.extend(
+        (
+            "",
+            JUDGMENT_INSTRUCTION,
+            f"shared_preference_revision={projection.global_revision}",
+            f"operator_context_revision={projection.revision}",
+        )
+    )
     return "\n".join(lines), projection.revision
 
 
@@ -908,7 +1134,9 @@ __all__ = [
     "JUDGMENT_INSTRUCTION",
     "IntakeDecision",
     "LEDGER_FILENAME",
+    "OWNERSHIP_FILENAME",
     "OperatorContextProjection",
+    "OperatorContextCapacityError",
     "OperatorContextStore",
     "PreferenceRecord",
     "PROJECTION_FILENAME",
@@ -922,6 +1150,9 @@ __all__ = [
     "build_operator_context_block",
     "import_deterministic_credential",
     "operator_context_revision_from_text",
+    "operator_context_state_root",
+    "operator_context_global_root",
+    "preference_state_root",
     "persist_intake_decision",
     "persist_once_answer",
     "standing_sounding",

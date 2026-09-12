@@ -1,7 +1,7 @@
 import type { DispatchObserver } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useTranscript, useJournal, useGitDiff } from './hooks';
-import { api, isConnectionError, type EventMsg, type MessageRouteOverride } from './api';
+import { api, isConnectionError, newRequestId, type EventMsg, type MessageRouteOverride } from './api';
 import { initialMessageRoute, MESSAGE_ROUTE_KEY } from './lib/messageRoute';
 import { TopBar } from './components/TopBar';
 import { WorkspaceShell } from './components/WorkspaceShell';
@@ -77,6 +77,7 @@ import {
 type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'operations';
 interface ActiveMessageRequest {
   id: number;
+  serverRequestId: string;
   sid: string;
   controller: AbortController;
 }
@@ -237,9 +238,19 @@ export default function App() {
   }, []);
 
   const stopWaiting = useCallback(() => {
-    if (!cancelActiveMessage()) return;
-    notify('info', 'Stopped waiting for this reply. Server-side work may still finish in the project timeline.');
-  }, [cancelActiveMessage, notify]);
+    const request = messageRequestRef.current;
+    if (!request || !cancelActiveMessage()) return;
+    const epoch = messageEpochRef.current;
+    notify('info', t('chat.stoppingReply'));
+    // This POST has its own lifetime: aborting the SSE connection must not
+    // abort the cancellation that tells the server to release the Manager.
+    void api.cancelMessage(request.sid, request.serverRequestId).then((receipt) => {
+      if (messageEpochRef.current !== epoch) return;
+      notify('info', t(receipt.requested ? 'chat.stopReplyRequested' : 'chat.replyAlreadyFinished'));
+    }).catch((error: unknown) => {
+      if (messageEpochRef.current === epoch) notify('error', t('chat.stopReplyFailed', { error: errorText(error) }));
+    });
+  }, [cancelActiveMessage, notify, t]);
   const {
     activeSid,
     clearProjectSelection,
@@ -594,6 +605,7 @@ export default function App() {
 
     messageSubmitLockRef.current = true;
     let requestId: number;
+    let serverRequestId: string;
     let controller: AbortController;
     try {
       if (!attachments.length) {
@@ -606,8 +618,9 @@ export default function App() {
       }
 
       requestId = ++messageEpochRef.current;
+      serverRequestId = newRequestId();
       controller = new AbortController();
-      messageRequestRef.current = { id: requestId, sid: requestSid, controller };
+      messageRequestRef.current = { id: requestId, serverRequestId, sid: requestSid, controller };
     } finally {
       messageSubmitLockRef.current = false;
     }
@@ -780,6 +793,7 @@ export default function App() {
             signal: controller.signal,
             attachments: attachmentRefs,
             routeOverride,
+            requestId: serverRequestId,
           });
         } catch (error) {
           if (isCurrent()) streamErr = error as Error;

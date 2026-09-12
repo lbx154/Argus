@@ -174,6 +174,19 @@ class IdleCycleMixin:
             }
         return None
 
+    def _drain_peer_inbox(self) -> None:
+        """Process peer evidence separately from operator steering at a boundary."""
+        callback = getattr(getattr(self.config, "user_inbox", None), "drain_peer", None)
+        if not callable(callback):
+            return
+        stop = getattr(self.config, "stop_event", None)
+        if stop is not None and stop.is_set():
+            return
+        try:
+            callback(self._bound_manager, cancelled=stop.is_set if stop is not None else None)
+        except Exception:  # noqa: BLE001 - durable peers retry at the next boundary
+            log.warning("peer inbox remains pending", exc_info=True)
+
     def _drain_user_inbox(self, *, max_messages: int = 10) -> list[str]:
         """Pull all pending operator nudges from the configured inbox.
 
@@ -182,6 +195,7 @@ class IdleCycleMixin:
         from the user-supplied callable is swallowed — a flaky bus
         must never break a mission.
         """
+        self._drain_peer_inbox()
         cb = getattr(self.config, "user_inbox", None)
         if cb is None:
             return []
@@ -199,6 +213,7 @@ class IdleCycleMixin:
                 out.append(text)
         if out:
             try:
+                from ...core.operator_context import operator_context_state_root
                 from ...manager.directive import record_operator_messages
 
                 # Persistence must not depend on routing: a message that cannot
@@ -208,7 +223,7 @@ class IdleCycleMixin:
                 except Exception:  # noqa: BLE001
                     manager = None
                 record_operator_messages(
-                    self.memory.root,
+                    operator_context_state_root(self.memory) or self.memory.root,
                     out,
                     manager=manager,
                 )

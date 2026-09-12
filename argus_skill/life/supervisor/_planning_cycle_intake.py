@@ -191,7 +191,11 @@ class PlanningCycleIntakeMixin:
         immediately; returns ``None`` to continue the cycle.
         """
         revision_request = state.revision_request
-        from ...core.operator_context import OperatorContextStore, build_operator_context_block
+        from ...core.operator_context import (
+            OperatorContextStore,
+            build_operator_context_block,
+            operator_context_state_root,
+        )
 
         transient_messages = (
             self._take_operator_guidance_carryover() + self._drain_user_inbox()
@@ -204,7 +208,7 @@ class PlanningCycleIntakeMixin:
         # as well as the legacy one-shot operator note below.
         operator_context, _revision = build_operator_context_block(
             "planner",
-            self.memory.root,
+            operator_context_state_root(self.memory),
             live_turn="\n".join(transient_messages),
             consume_once=False,
         )
@@ -213,7 +217,7 @@ class PlanningCycleIntakeMixin:
         # revision that might arrive while Planner or Manager is running.
         self._planning_operator_context_revision = _revision
         state.has_unhandled_operator_input = (
-            _revision > OperatorContextStore(self.memory.root).acknowledged_revision("planner")
+            _revision > OperatorContextStore(operator_context_state_root(self.memory)).acknowledged_revision("planner")
         )
         state.fresh_operator_messages = list(dict.fromkeys(transient_messages))
         state.operator_messages = list(
@@ -221,6 +225,13 @@ class PlanningCycleIntakeMixin:
                 ([operator_context] if operator_context else [])
             )
         )
+        if not state.had_operator_messages and not state.has_unhandled_operator_input:
+            from ...manager.supervision import waiting_for_evidence
+
+            if waiting_for_evidence(operator_context_state_root(self.memory)):
+                self._enter_idle_backoff()
+                self._emit_status("Waiting for the requested operator facts; unchanged work is not being reviewed again")
+                return PLAN_AWAITING
         if transient_messages:
             self._clear_manager_planner_feedback()
             self._reset_idle_backoff()

@@ -402,6 +402,9 @@ def reset_manager_context(
 
 def shutdown_manager_bridge() -> None:
     """Release warm Manager runners and Copilot ACP children on Web shutdown."""
+    from ..manager.supervision import shutdown_supervision
+
+    shutdown_supervision()
     global _MANAGER_PREWARM_OWNER
 
     with _REGISTRY_LOCK:

@@ -398,7 +398,8 @@ class _ManagerSession:
     sibling ``.manager_session.lock`` serializes cross-process use so the cockpit
     front-end and the daemon never interleave a turn. Fail-open: any lock/IO
     error degrades to a plain no-session call — the Manager's decision must never
-    be blocked by this.
+    be blocked by this. Once a provider call starts, unexpected failures are
+    propagated; repeating an uncertain call could repeat tool effects.
 
     This is a "runner-like" wrapper: it exposes ``run_exec(prompt=, options=,
     run_label=)`` so it can be passed anywhere a runner is expected
@@ -414,27 +415,38 @@ class _ManagerSession:
         self.skill_paths: list[str] = []
 
     # --- persistent thread_id IO (corrupt/missing → None, never raises) ---
-    def _read_tid(self) -> str | None:
+    def _read_state(self) -> dict[str, Any]:
         try:
-            data = json.loads(self._session_path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
-                return None
-            tid = data.get("thread_id")
-            if not isinstance(tid, str):
-                return None
-            tid = tid.strip()
-            return tid or None
+            with self._session_path.open("rb") as handle:
+                raw = handle.read(128 * 1024 + 1)
+            if len(raw) > 128 * 1024:
+                return {}
+            value = json.loads(raw)
+            return value if isinstance(value, dict) else {}
         except Exception:  # noqa: BLE001 — missing/corrupt/unreadable → no session
-            return None
+            return {}
 
-    def _write_tid(self, tid: str) -> None:
+    def _read_tid(self) -> str | None:
+        tid = self._read_state().get("thread_id")
+        return tid.strip() or None if isinstance(tid, str) else None
+
+    def _write_tid(self, tid: str, *, state: dict[str, Any] | None = None) -> None:
         # Atomic replace so a concurrent reader never sees a half-written file.
         self.project_root.mkdir(parents=True, exist_ok=True)
         tmp = self._session_path.with_suffix(
             self._session_path.suffix + f".tmp.{os.getpid()}"
         )
-        tmp.write_text(json.dumps({"thread_id": tid}), encoding="utf-8")
-        os.replace(tmp, self._session_path)
+        try:
+            with tmp.open("w", encoding="utf-8") as handle:
+                json.dump({**(state or {}), "thread_id": tid}, handle, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, self._session_path)
+            from ..daemon.state import _fsync_directory
+
+            _fsync_directory(self.project_root)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     @property
     def thread_id(self) -> str | None:
@@ -444,6 +456,19 @@ class _ManagerSession:
 
     # --- the runner-like surface ---
     def run_exec(
+        self, *, prompt: str, options: Any, run_label: str,
+        resume_thread_id: str | None = None,
+    ) -> Any:
+        from .session_context import manager_interaction_priority
+
+        foreground = run_label in {"manager-quick-reply", "manager-ask", "simple-1"}
+        with manager_interaction_priority(self.project_root) if foreground else nullcontext():
+            return self._run_exec(
+                prompt=prompt, options=options, run_label=run_label,
+                resume_thread_id=resume_thread_id,
+            )
+
+    def _run_exec(
         self,
         *,
         prompt: str,
@@ -456,11 +481,10 @@ class _ManagerSession:
         The session lock serializes the cockpit and daemon's shared Manager
         thread. It is released by the OS if its owner exits.
 
-        Fail-open recovery: if anything in the session-mode path fails (lock setup,
-        a corrupt resume tid, a runner that does not accept ``resume_thread_id``),
-        we fall back to ONE plain no-session call — a deliberate recovery + runner
-        compatibility shim. The fallback runs AFTER the lock is released, never
-        nested under it.
+        Session setup failures can fall back to one plain call. Unexpected
+        errors after provider dispatch are never replayed. A specifically
+        rejected resume target can still rotate through the explicit branch
+        below, which carries the bounded saved conversation handoff.
         """
         from ..core.operator_context import build_operator_context_block
 
@@ -489,13 +513,32 @@ class _ManagerSession:
         except Exception:  # noqa: BLE001 — lock setup failed → no-session fail-open
             return _no_session()
 
+        provider_attempted = False
         try:
-            _acquire_session_lock(fh)
+            interruption = getattr(options, "external_interrupt_reason_provider", None)
+            _acquire_session_lock(
+                fh, cancelled=(lambda: bool(interruption())) if callable(interruption) else None,
+            )
             try:
+                from .session_context import remember_turn, session_handoff, session_identity
+
+                prior = self._read_state()
                 tid = self._read_tid()
+                if options is not None and not getattr(options, "model", ""):
+                    prior_model = (prior.get("identity") or {}).get("model", "")
+                    if prior_model:
+                        options = replace(options, model=prior_model)
+                identity = session_identity(self.runner, options)
+                call_prompt = prompt
+                rotation_reason = ""
+                if tid and prior.get("identity") not in (None, identity):
+                    rotation_reason = "the configured model or backend changed"
+                    call_prompt = session_handoff(prior, prompt, rotation_reason)
+                    tid = None
+                provider_attempted = True
                 result = gateway_run_exec(
                     self.runner,
-                    prompt=prompt,
+                    prompt=call_prompt,
                     options=options,
                     run_label=run_label,
                     resume_thread_id=tid,
@@ -507,20 +550,22 @@ class _ManagerSession:
                         "rotating to a fresh thread",
                         tid,
                     )
-                    try:
-                        self._session_path.unlink(missing_ok=True)
-                    except OSError:
-                        pass
+                    _check_lock_cancelled((lambda: bool(interruption())) if callable(interruption) else None)
+                    rotation_reason = "the previous provider thread is no longer resumable"
                     result = gateway_run_exec(
                         self.runner,
-                        prompt=prompt,
+                        prompt=session_handoff(prior, prompt, rotation_reason),
                         options=options,
                         run_label=run_label,
                     )
                 new = getattr(result, "thread_id", None)
-                if new:
+                if new and not (callable(interruption) and interruption()):
                     try:
-                        self._write_tid(str(new))
+                        self._write_tid(str(new), state={
+                            "version": 2, "identity": identity,
+                            "recent_turns": remember_turn(prior, prompt, result, run_label),
+                            "rotation_reason": rotation_reason,
+                        })
                     except Exception:  # noqa: BLE001 — persist is best-effort
                         pass
                 return result
@@ -529,9 +574,11 @@ class _ManagerSession:
                     portalocker.unlock(fh)
                 except Exception:  # noqa: BLE001
                     pass
-        except BackendLoginRequired:
+        except (BackendLoginRequired, ManagerLockCancelled):
             raise
-        except Exception:  # noqa: BLE001 — session-mode failed (lock released) → no-session
+        except Exception:  # noqa: BLE001 — only pre-dispatch session setup may degrade
+            if provider_attempted:
+                raise
             return _no_session()
         finally:
             try:
@@ -543,19 +590,11 @@ class _ManagerSession:
 def reset_manager_session(project_root: Path | str) -> bool:
     """Drop the Manager's persistent codex session pointer at ``project_root``.
 
-    EN: A new daemon is a fresh isolation generation — it must NOT resume the
-    prior daemon's Manager conversation, which otherwise grows unbounded across
-    generations until codex auto-compaction. Stage truth lives in
-    ``.argus/PIPELINE_STATE.json``, so dropping the thread_id pointer loses
-    nothing load-bearing; the on-disk codex transcript stays auditable.
-    中文：新 daemon 是全新的隔离代际，绝不能 resume 上一个 daemon 的 Manager
-    会话（它会跨代际无界增长，直到 codex 有损压缩）。stage 真相在
-    ``.argus/PIPELINE_STATE.json`` 里，清掉 thread_id 指针不丢任何承重信息；
-    盘上的 codex transcript 不动，仍可审计。
+    This is an explicit conversation reset. Ordinary daemon/frontend restarts
+    preserve the identity and resume it. Stage authority remains in the durable
+    pipeline state; resetting this pointer does not change team controls.
 
-    Best-effort, never raises (boot must not be blocked). Returns True if a
-    session pointer existed. / 尽力而为、绝不抛异常（不能阻塞 daemon 启动）；
-    原本存在会话指针时返回 True。
+    Best-effort, never raises. Returns True if a session pointer existed.
     """
     session_path = Path(project_root) / _SESSION_FILE
     try:

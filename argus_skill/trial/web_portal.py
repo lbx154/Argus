@@ -131,7 +131,7 @@ BLOCKED = re.compile(
     r"^/api/projects/[^/]+/daemon/(?:upgrade|upgrade-schedule|replace)(?:/|$)"
 )
 PROJECT_WRITES = re.compile(
-    r"^/api/projects/[^/]+/(?:attachments|message(?:/stream)?|tasks|nudge|note|"
+    r"^/api/projects/[^/]+/(?:attachments|message(?:/stream|/cancel)?|advisor/config|tasks|nudge|note|"
     r"plan|prompt/rewrite|reset|continuous|daemon/(?:start|stop)|mission/abort|"
     r"backlog/[^/]+/(?:answer|dispose|stop)|decisions/[^/]+/resolve|"
     r"reviews/final|map-notes)$"
@@ -139,7 +139,7 @@ PROJECT_WRITES = re.compile(
 # These operations must remain reachable while ordinary reads or message
 # streams occupy every workspace connection. Keep model-backed routes out.
 CONTROL_ROUTES = re.compile(
-    r"^/api/projects/[^/]+/(?:daemon/stop|mission/abort|backlog/[^/]+/stop)$"
+    r"^/api/projects/[^/]+/(?:daemon/stop|mission/abort|message/cancel|backlog/[^/]+/stop)$"
 )
 OBJECTIVE_ROUTES = re.compile(r"^/api/projects/[^/]+/continuous$")
 PLUGIN_WRITES = re.compile(

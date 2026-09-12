@@ -216,6 +216,41 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     return renderEvent({ ...event, type: canonical } as TypedArgusEvent, context);
   }
   switch (event.type) {
+    case 'advisor.consultation.requested':
+    case 'life.manager.supervision.issued':
+      return hidden();
+    case 'advisor.consultation.completed': {
+      const question = stringField(event, 'question').trim();
+      const answer = stringField(event, 'summary').trim();
+      if (!question && !answer) return hidden();
+      return model('advisor', 'role.advisor', '◇', [question, answer].filter(Boolean).join('\n'), 'info', { expandable: true });
+    }
+    case 'advisor.consultation.cancelled': {
+      const question = clean(stringField(event, 'question'), 160);
+      return model('advisor', 'role.advisor', '◇', `${localized(context, 'Consultation cancelled', '已取消咨询')}${question ? ` · ${question}` : ''}`, 'dim');
+    }
+    case 'advisor.consultation.failed':
+    case 'advisor.consultation.timed_out':
+    case 'advisor.consultation.model_mismatch': {
+      const reason = event.type.endsWith('model_mismatch')
+        ? localized(context, 'The provider returned a different model', '接入返回的模型与所选模型不一致')
+        : event.type.endsWith('timed_out') ? localized(context, 'The advisor did not respond in time', '顾问未在时限内返回')
+          : localized(context, 'The consultation did not finish', '顾问咨询未完成');
+      const question = clean(stringField(event, 'question'), 160);
+      return model('advisor', 'role.advisor', '◇', `${reason}${question ? ` · ${question}` : ''}`, 'warn', { expandable: true });
+    }
+    case 'life.manager.supervision.applied':
+      return model('manager', 'role.manager', '🧭', stringField(event, 'summary') || stringField(event, 'reason'), 'info', { expandable: true, rule: true });
+    case 'life.peer.message.processed':
+      return model('manager', 'role.peer', '↔', stringField(event, 'text'), 'info', { expandable: true });
+    case 'life.manager.supervision.failed': {
+      const status = stringField(event, 'status');
+      const cancelled = status === 'cancelled' || status === 'superseded';
+      const explanation = cancelled
+        ? localized(context, 'The previous team adjustment no longer applies', '先前的团队调整已失效')
+        : localized(context, 'The team adjustment could not be applied', '团队调整未能生效');
+      return model('manager', 'role.manager', '🧭', explanation, cancelled ? 'dim' : 'warn', { expandable: true });
+    }
     case 'engineer.progress':
       return progress(event, context);
     case 'life.manager.intent.started':
@@ -551,6 +586,8 @@ const LABELS: Record<string, [english: string, chinese: string]> = {
   'role.planner': ['Planner', 'Planner'],
   'role.engineer': ['Engineer', 'Engineer'],
   'role.reviewer': ['Reviewer', 'Reviewer'],
+  'role.advisor': ['Advisor', '顾问'],
+  'role.peer': ['Project exchange', '项目交流'],
   'role.critic': ['Critic', 'Critic'],
   'role.system': ['Argus', 'Argus'],
   'role.argus': ['Argus', 'Argus'],
