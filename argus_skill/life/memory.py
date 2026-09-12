@@ -9,6 +9,8 @@ Current storage shapes:
   Status field on each row toggles ``pending`` → ``running`` → ``done``
   / ``failed`` / ``skipped`` / ``superseded``. We rewrite the whole file on status
   changes; the file is small (tens-to-hundreds of items).
+  ``backlog.commit.json`` commits archive/live changes together and records the
+  storage version once recovery has finished. All Backlog access uses its lock.
 - ``IdentityCard``: a single ``identity.md`` markdown file the user
   edits freely. We just read it.
 The :class:`LifeMemory` facade bundles the global files plus a small
@@ -352,13 +354,27 @@ def _atomic_rewrite_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
             tmp_path = Path(fh.name)
             for row in rows:
                 fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp_path, path)
+        _fsync_parent(path)
     finally:
         if tmp_path is not None and tmp_path.exists():
             try:
                 tmp_path.unlink()
             except OSError:
                 pass
+
+
+def _fsync_parent(path: Path) -> None:
+    """Persist renames/creation on POSIX; Windows has no directory fsync API."""
+    if os.name == "nt":
+        return
+    fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _append_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
@@ -1164,12 +1180,26 @@ class Backlog:
     state (``failed`` / ``skipped`` / ``superseded`` / missing) is
     cascade-skipped on the
     next ``claim_next`` so a dead dependency can't wedge the queue.
+
+    Storage authority: a pending ``backlog.commit.json`` is the committed next
+    archive/live state, even when its caller saw an I/O error. Every public read
+    and mutation recovers it under the same lock before accessing rows. Once
+    applied, the record contains only its version and archive/live are current.
+    Terminal corrections append new revisions; stable item ids cannot be reused.
+    This protocol assumes every writer uses this version; stop older runtimes
+    before upgrading a shared backlog. It does not make external work exactly-once.
     """
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self.archive_path = self.path.with_name(f"{self.path.stem}.archive.jsonl")
+        self._commit_path = self.path.with_name(f"{self.path.stem}.commit.json")
         self._lock_path = self.path.parent / f"{self.path.name}.lock"
+
+    @property
+    def storage_paths(self) -> tuple[Path, Path, Path]:
+        """State files for cache invalidation and complete backups, including recovery."""
+        return self.path, self.archive_path, self._commit_path
 
     # --- io ---
     def _load(self) -> list[BacklogItem]:
@@ -1182,18 +1212,124 @@ class Backlog:
         ]
 
     def _save(self, items: Iterable[BacklogItem]) -> None:
-        # This partition is also the lazy migration: the first mutation of a
-        # legacy mixed backlog appends its terminal rows to the archive and
-        # rewrites only live rows to backlog.jsonl.
-        live: list[BacklogItem] = []
-        terminal: list[BacklogItem] = []
+        """Commit under _locked; the small record is the cross-file commit point."""
+        live: list[dict[str, Any]] = []
+        terminal: list[dict[str, Any]] = []
         for item in items:
-            (terminal if item.status in _TERMINAL_STATUSES else live).append(item)
-        _append_jsonl(
-            self.archive_path,
-            (item.to_jsonable() for item in terminal),
-        )
-        _atomic_rewrite_jsonl(self.path, (item.to_jsonable() for item in live))
+            partition = terminal if item.status in _TERMINAL_STATUSES else live
+            partition.append(item.to_jsonable())
+        if not terminal:
+            _atomic_rewrite_jsonl(self.path, live)
+            return
+        record = {
+            "version": 1,
+            "archive_offset": self.archive_path.stat().st_size if self.archive_path.exists() else 0,
+            "live": live,
+            "terminal": terminal,
+        }
+        # File fsync, rename, then parent fsync: after this point recovery must
+        # finish this state rather than retrying the old running mission.
+        _atomic_rewrite_jsonl(self._commit_path, [record])
+        self._apply_commit(record)
+
+    def _apply_commit(self, record: dict[str, Any]) -> None:
+        """Replay only this transaction's archive suffix; caller owns _locked."""
+        offset = record["archive_offset"]
+        size = self.archive_path.stat().st_size if self.archive_path.exists() else 0
+        if size < offset:
+            raise RuntimeError("backlog archive is shorter than its committed offset")
+        fd = os.open(self.archive_path, os.O_RDWR | os.O_CREAT, 0o600)
+        with os.fdopen(fd, "r+b") as handle:
+            # A previous replay may have stopped in a JSON row. Replacing from
+            # the saved offset makes partial/multiple replays idempotent, without
+            # scanning history. No other writer can append until recovery ends.
+            handle.seek(offset)
+            if offset:
+                handle.seek(offset - 1)
+                if handle.read(1) != b"\n":
+                    handle.write(b"\n")
+            for row in record["terminal"]:
+                handle.write((json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n").encode())
+            handle.truncate()
+            handle.flush()
+            os.fsync(handle.fileno())
+        _fsync_parent(self.archive_path)
+        _atomic_rewrite_jsonl(self.path, record["live"])
+        # Keep a version marker so legacy overlap reconciliation happens once,
+        # not on each daemon restart or each normal mission claim.
+        _atomic_rewrite_jsonl(self._commit_path, [{"version": 1}])
+
+    def _recover_commit(self) -> None:
+        """Single recovery/migration entry, always called with the backlog lock."""
+        if not self._commit_path.exists():
+            # Older writers could archive a terminal row but leave a running
+            # copy behind. Terminal archive wins over a live nonterminal copy.
+            # Mixed legacy files can also contain newer terminal corrections.
+            items = self._load()
+            archived = {item.id: item for item in self._load_archive()}
+            latest: dict[str, BacklogItem] = {}
+            for item in items:
+                previous = latest.get(item.id)
+                if (
+                    previous is not None
+                    and previous.status in _TERMINAL_STATUSES
+                    and item.status not in _TERMINAL_STATUSES
+                ):
+                    continue
+                latest[item.id] = item
+            reconciled = [
+                item for item in latest.values()
+                if item.status in _TERMINAL_STATUSES
+                or item.id not in archived
+                or archived[item.id].status not in _TERMINAL_STATUSES
+            ]
+            if len(reconciled) != len(items) or any(
+                item.status in _TERMINAL_STATUSES for item in reconciled
+            ):
+                self._save(reconciled)
+            _atomic_rewrite_jsonl(self._commit_path, [{"version": 1}])
+            return
+        try:
+            record = json.loads(self._commit_path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(record, dict)
+                or type(record.get("version")) is not int
+                or record["version"] != 1
+            ):
+                raise ValueError("unsupported commit version")
+            if record == {"version": 1}:
+                return
+            if set(record) != {"version", "archive_offset", "live", "terminal"}:
+                raise ValueError("incomplete commit record")
+            if type(record["archive_offset"]) is not int or record["archive_offset"] < 0:
+                raise ValueError("invalid archive offset")
+            if (
+                not isinstance(record["live"], list)
+                or not isinstance(record["terminal"], list)
+                or not record["terminal"]
+            ):
+                raise ValueError("invalid commit rows")
+            ids: set[str] = set()
+            for terminal, rows in ((False, record["live"]), (True, record["terminal"])):
+                for row in rows:
+                    if (
+                        not isinstance(row, dict)
+                        or not {"id", "ts", "title", "objective", "status"}.issubset(row)
+                        or not isinstance(row["id"], str)
+                        or not row["id"]
+                        or row["id"] in ids
+                    ):
+                        raise ValueError("invalid or duplicate committed item id")
+                    ids.add(row["id"])
+                    if (
+                        row["status"] not in _BACKLOG_STATUSES
+                        or (row["status"] in _TERMINAL_STATUSES) != terminal
+                    ):
+                        raise ValueError("invalid committed item status")
+                    BacklogItem.from_jsonable(row)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise RuntimeError(f"invalid backlog commit record: {self._commit_path}") from exc
+        self._apply_commit(record)
 
     def _dependency_history(self, items: Iterable[BacklogItem]) -> list[BacklogItem]:
         live = list(items)
@@ -1421,22 +1557,14 @@ class Backlog:
             with self._lock_path.open("a+b") as fh:
                 portalocker.lock(fh, portalocker.LOCK_EX)
                 try:
+                    self._recover_commit()
                     yield
                 finally:
                     portalocker.unlock(fh)
 
     # --- write ---
     def add(self, item: BacklogItem) -> BacklogItem:
-        with self._locked():
-            items = self._load()
-            # A freshly enqueued item has no journal history to migrate, so
-            # its zero streak is authoritative from the start. The dataclass
-            # default stays False: it marks pre-upgrade rows loaded from disk.
-            item.replan_streak_tracked = True
-            items.append(item)
-            self._validate_no_dependency_cycles(items)
-            self._save(items)
-        return item
+        return self.add_many([item])[0]
 
     def add_many(self, new_items: Iterable[BacklogItem]) -> list[BacklogItem]:
         """Atomically append one validated batch (used for Planner DAGs)."""
@@ -1795,7 +1923,7 @@ class Backlog:
                         setattr(archived, key, value)
                 if archived.status in _TERMINAL_STATUSES:
                     _expire_unanswered_operator_question(archived)
-                _append_jsonl(self.archive_path, [archived.to_jsonable()])
+                self._save([*items, archived])
             return archived
 
     def record_acceptance_dependency_assessment(
@@ -2370,11 +2498,13 @@ class Backlog:
 
     def active(self) -> list[BacklogItem]:
         """Read only the compact live backlog."""
-        return self._load()
+        with self._locked():
+            return self._load()
 
     def history(self) -> list[BacklogItem]:
         """Read terminal archive plus current live rows, oldest group first."""
-        rows = [*self._load_archive(), *self._load()]
+        with self._locked():
+            rows = [*self._load_archive(), *self._load()]
         # Terminal corrections are appended, never rewritten. Present the
         # latest state for each stable item id while retaining first-seen order.
         latest = {item.id: item for item in rows}
@@ -2382,7 +2512,8 @@ class Backlog:
         return [latest[item_id] for item_id in order]
 
     def pending(self) -> list[BacklogItem]:
-        items = [it for it in self._load() if it.status == "pending"]
+        with self._locked():
+            items = [it for it in self._load() if it.status == "pending"]
         items.sort(key=lambda it: (it.priority, it.ts))
         return items
 
@@ -2395,8 +2526,9 @@ class Backlog:
         dep-less item is always ready, so for a flat (no-deps) backlog
         ``ready()`` and ``pending()`` return the same list.
         """
-        items = self._load()
-        history = self._dependency_history(items)
+        with self._locked():
+            items = self._load()
+            history = self._dependency_history(items)
         done = self._done_ids([*history, *items])
         out = [it for it in items if self._is_ready(it, done)]
         out.sort(key=lambda it: (it.priority, it.ts))
