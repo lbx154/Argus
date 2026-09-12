@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.core.run_gateway import RunExecGateway, RunExecRequest, run_exec
+from argus_skill.core.run_gateway import (
+    RunExecGateway,
+    RunExecRequest,
+    run_exec,
+    run_interrupt_scope,
+)
 
 
 class _Backend:
@@ -99,6 +104,23 @@ def test_gateway_does_not_hide_backend_exceptions() -> None:
             options=RunnerOptions(),
             run_label="test",
         )
+
+
+def test_scoped_interrupt_preserves_options_and_existing_provider():
+    backend = _Backend()
+    original = lambda: "budget stop"
+    options = RunnerOptions(external_interrupt_reason_provider=original)
+    stopped = []
+    with run_interrupt_scope(lambda: "operator stop" if stopped else None):
+        run_exec(backend, prompt="scoped", options=options, run_label="manager")
+        scoped = backend.calls[-1]["options"]
+        assert scoped is not options
+        assert scoped.external_interrupt_reason_provider() == "budget stop"
+        stopped.append(True)
+        assert scoped.external_interrupt_reason_provider() == "operator stop"
+    assert options.external_interrupt_reason_provider is original
+    run_exec(backend, prompt="unrelated", options=None, run_label="engineer")
+    assert backend.calls[-1]["options"] is None
 
 
 def test_application_code_has_no_direct_backend_run_exec_bypass() -> None:

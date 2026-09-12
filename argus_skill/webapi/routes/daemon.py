@@ -209,10 +209,12 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
     @app.post("/api/projects/{sid}/continuous", dependencies=[Depends(ctx.require_auth)])
     async def _post_continuous(sid: str, body: ContinuousIn) -> dict[str, Any]:
         project_root = ctx.project_root_or_404(sid)
+        from ..project_crud import apply_continuous_update, start_continuous_update
+
         try:
-            ctx.not_found_if_none(
+            receipt = ctx.not_found_if_none(
                 await run_in_threadpool(
-                    server_mod.set_continuous,
+                    apply_continuous_update,
                     sid,
                     enabled=body.enabled,
                     objective=body.objective,
@@ -220,18 +222,16 @@ def register_daemon_routes(app, ctx: ServerContext, server_mod) -> None:
                 ),
                 sid,
             )
+            response: dict[str, Any] = {"ok": True}
+            if body.enabled:
+                response["daemon"] = await run_in_threadpool(
+                    start_continuous_update, sid, receipt,
+                    start=ctx.daemon_services.start, global_root=project_root,
+                )
+            return response
         except server_mod.ManagerHandoffSupersededError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except server_mod.ManagerHandoffError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        response: dict[str, Any] = {"ok": True}
-        if body.enabled:
-            response["daemon"] = await run_in_threadpool(
-                ctx.daemon_services.start,
-                sid,
-                global_root=project_root,
-                resume_continuous=True,
-            )
-        return response

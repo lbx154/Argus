@@ -16,6 +16,7 @@ import time
 import weakref
 from collections.abc import Iterator
 from contextlib import contextmanager
+from itertools import count
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,7 @@ _MANAGER_PREWARM_OWNER: str | None = None
 # generation bump lets any older turn notice that it was superseded before it
 # can commit/dispatch work after the operator has clocked the session out.
 _CONTROL_GENERATIONS: dict[str, int] = {}
+_CONTROL_SEQUENCE = count(1)
 _DEFAULT_WARM_CONTEXT_LIMIT = 8
 _DEFAULT_WARM_CONTEXT_IDLE_SECONDS = 30 * 60
 
@@ -54,10 +56,14 @@ def _lock_for(sid: str) -> threading.RLock:
 def manager_control_generation(sid: str) -> int:
     """Return the current in-process operator-control generation."""
     with _REGISTRY_LOCK:
-        return _CONTROL_GENERATIONS.get(sid, 0)
+        if sid not in _CONTROL_GENERATIONS:
+            _CONTROL_GENERATIONS[sid] = next(_CONTROL_SEQUENCE)
+        return _CONTROL_GENERATIONS[sid]
 
 
-def interrupt_manager_turns(sid: str) -> int:
+def interrupt_manager_turns(
+    sid: str, *, clear_continuous: bool = True, expected_generation: int | None = None,
+) -> int:
     """Supersede older Manager turns without waiting for their session lock.
 
     Persistent daemon/continuous state is changed by the pause handler. This
@@ -65,14 +71,32 @@ def interrupt_manager_turns(sid: str) -> int:
     dispatching stale work after that durable pause lands.
     """
     with _REGISTRY_LOCK:
-        generation = _CONTROL_GENERATIONS.get(sid, 0) + 1
+        if expected_generation is not None and _CONTROL_GENERATIONS.get(sid, 0) != expected_generation:
+            from ..manager.front_door import ManagerHandoffSupersededError
+
+            raise ManagerHandoffSupersededError("A newer control request superseded this request")
+        # A recreated/evicted context must never reuse an older request's token.
+        generation = next(_CONTROL_SEQUENCE)
         _CONTROL_GENERATIONS[sid] = generation
         state = _STATES.get(sid)
-        if state is not None:
+        if state is not None and clear_continuous:
             state.setdefault("config", {})["continuous"] = False
             state["continuous_objective"] = ""
             state.pop("_continuous_pending_manager_handoff", None)
         return generation
+
+
+def sync_manager_continuous(sid: str, generation: int, objective: str) -> None:
+    """Publish the committed view only while this request still owns its generation."""
+    with _REGISTRY_LOCK:
+        if _CONTROL_GENERATIONS.get(sid, 0) != generation:
+            from ..manager.front_door import ManagerHandoffSupersededError
+
+            raise ManagerHandoffSupersededError("A newer control request superseded this result")
+        state = _STATES.get(sid)
+        if state is not None:
+            state.setdefault("config", {})["continuous"] = True
+            state["continuous_objective"] = objective
 
 
 @contextmanager

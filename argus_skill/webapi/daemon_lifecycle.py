@@ -769,6 +769,13 @@ def stop_project_daemon(
     # verified daemon one second to honor its control marker, then terminate
     # only that captured process tree. Ordinary stop/drain semantics are
     # unchanged and remain available to lifecycle/upgrade flows.
+    if not drain:
+        # A Manager request runs in the web process, outside the daemon tree.
+        # Fence and interrupt it too so an old reply cannot enqueue work and
+        # start a fresh daemon after the operator has pressed Stop.
+        from .manager_state import interrupt_manager_turns
+
+        interrupt_manager_turns(sid, clear_continuous=False)
     rc = _srv().stop_daemon(
         life_dir,
         timeout=1.0 if force else 10.0,

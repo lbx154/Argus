@@ -31,6 +31,7 @@ from .manager_dispatch import (
     _handle_pending_question_turn,
     _handle_steer_control,
     _item_to_dict,
+    _manager_request_scope,
     _maybe_apply_config_intent,
     _maybe_greeting_reply,
     _run_triage_and_fallbacks,
@@ -154,6 +155,39 @@ def manager_message(
     source_message_id: str = "",
     route_override: str = "",
 ) -> dict[str, Any]:
+    """Run a Manager turn with request-scoped provider interruption."""
+    from ..core.run_gateway import run_interrupt_scope
+
+    generation = manager_control_generation(sid)
+
+    def is_cancelled() -> bool:
+        if manager_control_generation(sid) != generation:
+            return True
+        try:
+            return callable(cancelled) and bool(cancelled())
+        except Exception:  # noqa: BLE001 - retain the existing cancellation callback contract
+            return False
+
+    with run_interrupt_scope(lambda: "operator interrupted Manager request" if is_cancelled() else None):
+        return _manager_message(
+            sid, text, global_root=global_root, attachments=attachments,
+            on_fragment=on_fragment, cancelled=is_cancelled, source_channel=source_channel,
+            source_message_id=source_message_id, route_override=route_override,
+        )
+
+
+def _manager_message(
+    sid: str,
+    text: str,
+    *,
+    global_root: Path | str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
+    on_fragment: Any = None,
+    cancelled: Any = None,
+    source_channel: str = "web",
+    source_message_id: str = "",
+    route_override: str = "",
+) -> dict[str, Any]:
     """Route one operator message through the Manager front-door.
 
     Returns one of:
@@ -260,6 +294,8 @@ def manager_message(
     # Native domain commands stay on this session and do not run a classifier.
     from ..core.workbench_plugins import native_plugin_command
     with _lock_for(sid):
+        if _cancelled():
+            return _cancelled_result()
         plugin_reply = native_plugin_command(operator_text, sid=sid,
             life_dir=life_dir, global_root=mem.global_root)
         if plugin_reply is not None:
@@ -630,6 +666,14 @@ def manager_message(
 
 
 def manager_plan(
+    sid: str, text: str, *, global_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Keep plan previews interruptible while they own the Manager session."""
+    with _manager_request_scope(sid):
+        return _manager_plan(sid, text, global_root=global_root)
+
+
+def _manager_plan(
     sid: str,
     text: str,
     *,
@@ -779,6 +823,14 @@ def _rewrite_model_and_effort() -> tuple[str, str]:
 
 
 def manager_rewrite(
+    sid: str, text: str, *, global_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Keep prompt previews interruptible while they own the Manager session."""
+    with _manager_request_scope(sid):
+        return _manager_rewrite(sid, text, global_root=global_root)
+
+
+def _manager_rewrite(
     sid: str,
     text: str,
     *,
