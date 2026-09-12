@@ -34,7 +34,7 @@ def _capture_prompt(monkeypatch) -> str:
 
 
 def test_prompt_version_bumped_for_readability_rules():
-    assert map_narrative.PROMPT_VERSION == 17
+    assert map_narrative.PROMPT_VERSION == 18
 
 
 def test_prompt_speaks_of_any_kind_of_work_not_only_research(monkeypatch):
@@ -59,6 +59,6 @@ def test_prompt_leads_with_the_finding_not_the_activity(monkeypatch):
 
 def test_prompt_teaches_with_concrete_examples_without_defining_jargon_using_more_jargon(monkeypatch):
     prompt = _capture_prompt(monkeypatch)
-    assert "引入的新术语必须解释" in prompt
-    assert "给出对象或小数字，展示一次操作或比较" in prompt
-    assert "背景教学不是本次研究发现" in prompt
+    assert map_narrative.TEACHING_GUIDANCE in prompt
+    assert "Give finite objects or small values" in prompt
+    assert "Background teaching is not a finding from this run" in prompt

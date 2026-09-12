@@ -41,7 +41,7 @@ it('leads with a concept and example while retaining task scope, next steps, and
   expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('Concept explanation'));
   expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('Why this step helps'));
   expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('What this does and does not establish'));
-  expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('The recorded next step'));
+  expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('Assigned work and next steps'));
   expect(markup).toContain('View evidence');
   expect(markup).toContain('Illustrative example');
   expect(markup).toContain('How it connects to this step');
@@ -154,7 +154,7 @@ it('keeps evidence and follow-up available when the concept explanation is unava
   expect(markup).not.toContain('Counterexample');
   expect(markup).not.toContain('data-reader-teaching');
   expect(markup).toContain('the general problem remains open');
-  expect(markup).toContain('The recorded next step');
+  expect(markup).toContain('Assigned work and next steps');
 });
 
 it('keeps task facts and a usable concept when the separate reading check is unavailable', () => {
