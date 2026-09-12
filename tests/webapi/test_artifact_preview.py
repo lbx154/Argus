@@ -32,8 +32,11 @@ def test_packages_only_referenced_assets_and_resolves_nested_css(tmp_path):
     result = package.build()
     assert result["warnings"] == []
     assert set(package.files) == {"index.html", "styles/main.css", "image.svg", "app.js"}
-    css = re.search('data:text/css;base64,([^"#]+)', result["html"])[1]
-    assert "data:image/svg+xml;base64," in base64.b64decode(css).decode()
+    # The page's own stylesheet is inlined as a <style> block a strict host
+    # style policy accepts, not a data: URL it would refuse.
+    assert "data:text/css" not in result["html"]
+    css = re.search(r"<style>(.*?)</style>", result["html"], re.S)[1]
+    assert "data:image/svg+xml;base64," in css
     assert "data:text/javascript;base64," in result["html"]
     assert "<h1>Ready</h1>" in result["html"]
 

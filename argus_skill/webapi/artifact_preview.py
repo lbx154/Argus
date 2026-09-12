@@ -106,6 +106,37 @@ class HtmlPackage(HTMLParser):
         text = CSS_URL.sub(lambda m: 'url("' + self.asset(m[2], parent) + '")', text)
         return CSS_IMPORT.sub(lambda m: m[1] + '"' + self.asset(m[3], parent) + '"', text)
 
+    def stylesheet(self, url: str, parent: Path) -> str | None:
+        """Return a local stylesheet as text so it can be inlined as a <style>
+        block. A page's own stylesheet arrives this way rather than through a
+        ``data:`` URL, which a strict host style policy would refuse; only a
+        genuine, confined local ``.css`` file qualifies, everything else falls
+        back to the ordinary asset handling."""
+        parts = urlsplit(url.strip())
+        if parts.scheme or parts.netloc or not parts.path:
+            return None
+        try:
+            raw = unquote(parts.path).replace('\\', '/')
+            candidate = (self.root / raw.lstrip('/') if raw.startswith('/') else parent / raw).resolve()
+            relative = candidate.relative_to(self.root).as_posix()
+            if any(part.startswith('.') for part in Path(relative).parts):
+                return None
+            safe = safe_artifact_path(self.root, relative, allowed_suffixes=frozenset(STATIC_SUFFIXES))
+            if not safe or candidate.suffix.lower() != '.css' or not candidate.is_file():
+                return None
+            if relative in self.visiting:
+                return None
+            self.visiting.add(relative)
+            try:
+                return self.css(self.read(candidate).decode('utf-8', errors='replace'), candidate.parent)
+            finally:
+                self.visiting.discard(relative)
+        except (OSError, RuntimeError, ValueError):
+            warning = f'Could not include local resource: {parts.path[:200]}'
+            if warning not in self.warnings:
+                self.warnings.append(warning)
+            return None
+
     def module(self, text: str, parent: Path) -> str:
         return JS_IMPORT.sub(lambda m: m[1] + m[2] + self.asset(m[3], parent) + m[2], text)
 
@@ -118,6 +149,12 @@ class HtmlPackage(HTMLParser):
             return
         if tag == 'meta' and values.get('http-equiv', '').lower() == 'refresh':
             return
+        if tag == 'link' and 'stylesheet' in (values.get('rel') or '').lower().split() and values.get('href'):
+            inlined = self.stylesheet(values['href'], self.root)
+            if inlined is not None:
+                media = values.get('media')
+                self.emit('<style' + (' media="' + escape(media, quote=True) + '"' if media else '') + '>' + inlined + '</style>')
+                return
         self.in_style = (tag == 'style' and not self_closing) or self.in_style
         self.in_module = tag == 'script' and values.get('type') == 'module' and not self_closing or self.in_module
         rendered = []
