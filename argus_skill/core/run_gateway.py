@@ -27,6 +27,12 @@ def run_interrupt_scope(provider: Callable[[], str | None]) -> Iterator[None]:
         _INTERRUPT.reset(token)
 
 
+def current_run_interrupt_reason() -> str | None:
+    """Let synchronous call preparation observe the active cancellation scope."""
+    provider = _INTERRUPT.get()
+    return provider() if provider is not None else None
+
+
 @dataclass(frozen=True)
 class RunExecRequest:
     prompt: str
@@ -109,4 +115,4 @@ def run_exec(
     )
 
 
-__all__ = ["RunExecGateway", "RunExecRequest", "run_exec", "run_interrupt_scope"]
+__all__ = ["RunExecGateway", "RunExecRequest", "run_exec", "run_interrupt_scope", "current_run_interrupt_reason"]

@@ -10,6 +10,7 @@ import sqlite3
 import threading
 import time
 from contextlib import closing, contextmanager
+from contextvars import copy_context
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Sequence
@@ -17,6 +18,7 @@ from urllib.parse import urlsplit
 
 from ..core.copilot_http import COPILOT_HEADERS
 from ..core.json_codec import loads_finite_json
+from ..core.run_gateway import current_run_interrupt_reason
 from ..core.secret_guard import redact_secrets_text
 from .failure_experience_index import EmbeddingUnavailable, _guard_recall_database, _normalized
 from .recall_embedding import RecallEmbeddingConfig, _validated
@@ -121,6 +123,8 @@ class HttpEmbeddingAdapter:
                     db.execute("DELETE FROM vectors WHERE rowid=?", (rowid,))
 
     def _post(self, body: bytes, credential: str, timeout: float) -> bytes:
+        if current_run_interrupt_reason():
+            raise EmbeddingUnavailable("embedding request cancelled")
         if not _HTTP_SLOTS.acquire(blocking=False):
             raise EmbeddingUnavailable("embedding HTTP capacity is busy")
         target = urlsplit(self.config.endpoint)
@@ -138,15 +142,23 @@ class HttpEmbeddingAdapter:
         if credential:
             headers["Authorization"] = "Bearer " + credential
         done = threading.Event()
+        abandoned = threading.Event()
         result: list[bytes] = []
         active_socket: list[socket.socket] = []
         deadline = time.monotonic() + timeout
 
         def send() -> None:
             try:
-                connection.request("POST", target.path or "/", body, headers)
+                if abandoned.is_set() or current_run_interrupt_reason() or time.monotonic() >= deadline:
+                    return
+                connection.connect()
                 if connection.sock is not None:
                     active_socket.append(connection.sock)
+                # DNS/connect may finish after the caller has returned. Never
+                # turn that late connection into a new provider request.
+                if abandoned.is_set() or current_run_interrupt_reason() or time.monotonic() >= deadline:
+                    return
+                connection.request("POST", target.path or "/", body, headers)
                 response = connection.getresponse()
                 if response.status != 200:
                     return  # No redirects and no provider error bodies enter logs.
@@ -171,23 +183,38 @@ class HttpEmbeddingAdapter:
                 _HTTP_SLOTS.release()
                 done.set()
 
-        worker = threading.Thread(target=send, name="argus-embedding-http", daemon=True)
+        context = copy_context()
+        worker = threading.Thread(target=lambda: context.run(send), name="argus-embedding-http", daemon=True)
         try:
             worker.start()
         except RuntimeError:
             _HTTP_SLOTS.release()
             connection.close()
             raise EmbeddingUnavailable("embedding HTTP worker unavailable") from None
-        if not done.wait(timeout):
+        failure = ""
+        while not done.is_set():
+            if current_run_interrupt_reason():
+                failure = "embedding request cancelled"
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                failure = "embedding HTTP deadline exceeded"
+                break
+            done.wait(min(0.05, remaining))
+        if not failure and current_run_interrupt_reason():
+            failure = "embedding request cancelled"
+        if failure:
+            abandoned.set()
             # HTTPResponse may retain an fd after HTTPConnection.close().
             # Shutdown wakes that reader as well, including slow response bodies.
-            for stream in active_socket:
+            for stream in tuple(active_socket):
                 try:
                     stream.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
-            connection.close()
-            raise EmbeddingUnavailable("embedding HTTP deadline exceeded")
+            # The worker owns close/release. Closing its HTTPResponse or joining
+            # here could wait on the same blocked reader we are interrupting.
+            raise EmbeddingUnavailable(failure)
         if not result:
             raise EmbeddingUnavailable("embedding HTTP response unavailable or oversized")
         return result[0]
@@ -206,6 +233,8 @@ class HttpEmbeddingAdapter:
         return redact_secrets_text(text, known_values=(credential,) if credential else ())
 
     def _embed(self, text: str) -> Sequence[float]:
+        if current_run_interrupt_reason():
+            raise EmbeddingUnavailable("embedding request cancelled")
         if not isinstance(text, str) or not text.strip() or len(text.encode("utf-8")) > self.config.max_input_bytes:
             raise EmbeddingUnavailable("embedding input is empty or exceeds its byte limit")
         credential = os.environ.get(self.config.credential_env, "") if self.config.credential_env else ""
@@ -233,6 +262,8 @@ class HttpEmbeddingAdapter:
         body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()
         if len(body) > self.config.max_input_bytes + 2048:
             raise EmbeddingUnavailable("embedding request exceeds its byte limit")
+        if current_run_interrupt_reason():
+            raise EmbeddingUnavailable("embedding request cancelled")
         self._reserve(size)
         budget["calls"] += 1
         raw = self._post(body, credential, min(self.config.timeout_seconds, remaining))

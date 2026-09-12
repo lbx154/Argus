@@ -111,12 +111,19 @@ def _refreshes_mission_prelude(runner: Any) -> bool:
         return False
 
 
-def _mission_memory_prelude(memory: Any, item: BacklogItem) -> str:
-    try:
-        return memory.render_prelude(objective=item.objective)
-    except TypeError:
-        # Compatibility with narrow host-provided memory views.
-        return memory.render_prelude()
+def _mission_memory_prelude(memory: Any, item: BacklogItem, *, stop_event: Any = None) -> str:
+    from ...core.run_gateway import run_interrupt_scope
+
+    # The existing scope preserves request cancellation; this child scope also
+    # lets both Engineer and Planner memory preparation observe daemon stop.
+    with run_interrupt_scope(
+        lambda: "daemon stop requested" if stop_event is not None and stop_event.is_set() else None
+    ):
+        try:
+            return memory.render_prelude(objective=item.objective)
+        except TypeError:
+            # Compatibility with narrow host-provided memory views.
+            return memory.render_prelude()
 
 
 class MissionExecutionRuntimeMixin:
@@ -138,7 +145,9 @@ class MissionExecutionRuntimeMixin:
         # Mutable recall and operator projections must not become immutable
         # mission text. Capable runners read recall at each Engineer boundary;
         # their existing live-guidance hook reads OperatorContext separately.
-        prelude = "" if refresh_per_round else _mission_memory_prelude(self.memory, item)
+        prelude = "" if refresh_per_round else _mission_memory_prelude(
+            self.memory, item, stop_event=getattr(getattr(self, "config", None), "stop_event", None),
+        )
         from ...core.operator_context import (
             build_operator_context_block,
             operator_context_state_root,
@@ -750,7 +759,9 @@ class MissionExecutionRuntimeMixin:
 
                     def current_prelude() -> str:
                         try:
-                            recalled = _mission_memory_prelude(self.memory, item)
+                            recalled = _mission_memory_prelude(
+                                self.memory, item, stop_event=getattr(getattr(self, "config", None), "stop_event", None),
+                            )
                         except Exception:  # noqa: BLE001 — keep execution context if recall fails
                             log.warning("current mission memory unavailable", exc_info=True)
                             recalled = "Current recalled memory is unavailable."

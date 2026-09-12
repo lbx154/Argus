@@ -281,3 +281,23 @@ cursor is rebuilt through the existing bounded replay path, including rotated
 logs. This fixes the otherwise unchanged-file fast path that would have kept
 an old polluted projection. The public schema stays at 7; missing-history
 errors remain explicit, and repeated reads after reconstruction are stable.
+
+The interruption repair now observes the current request scope while waiting
+and adds the Supervisor stop event around both role-memory providers. A
+per-request abandonment latch and checks around worker startup/connection
+prevent a late worker from sending after its caller was cancelled. The caller
+shuts down the socket without joining the worker; the worker retains ownership
+of close and capacity release. A later uncancelled request remains usable.
+
+The same delayed local fixture measured stop-to-prelude return at 100.9 ms and
+stop-to-loop abort at 108.8 ms after the fix, compared with 6,206.8/6,215.0 ms on
+ec91. Only one HTTP request was made; there was no post-stop second request,
+no main-model call, and no canonical experience change. Its one reservation
+(198 input bytes) was retained. The fixture had not released its response when
+the caller returned; client-worker termination and full cleanup were checked
+separately. DNS/connect can still outlive the caller until transport/system
+limits; the per-call latch prevents a later POST. This is an isolated fixture
+measurement, not a production SLA or proof that every local storage wait is
+interruptible. The 68 focused regressions, lint and same-parameter mypy
+comparison (45 inherited diagnostics, none added) are recorded in
+`embedding-stop-audit-private`. No external provider was used.

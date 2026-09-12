@@ -266,6 +266,233 @@ def test_timeout_is_bounded_and_failure_consumes_shared_durable_budget(tmp_path,
     assert len(embedding_server.requests) == 1
 
 
+def test_cancelled_http_returns_before_response_and_keeps_its_budget(tmp_path, embedding_server):
+    from argus_skill.core.run_gateway import run_interrupt_scope
+
+    configure(tmp_path, embedding_server)
+    adapter = configured_embedder(tmp_path)
+    stopped = threading.Event()
+    embedding_server.gate = threading.Event()
+    before = set(threading.enumerate())
+
+    def invoke():
+        with run_interrupt_scope(lambda: "operator abort requested" if stopped.is_set() else None):
+            return adapter.embed("database")
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(invoke)
+        assert embedding_server.entered.wait(1)
+        http_workers = [t for t in threading.enumerate() if t not in before and t.name == "argus-embedding-http"]
+        assert len(http_workers) == 1
+        stopped.set()
+        try:
+            with pytest.raises(EmbeddingUnavailable, match="cancelled"):
+                pending.result(timeout=1)
+            # Early caller return is observed while the fixture still withholds
+            # its response. Worker termination is a separate assertion below.
+            assert not embedding_server.gate.is_set()
+            for worker in http_workers:
+                worker.join(1)
+            assert all(not worker.is_alive() for worker in http_workers)
+        finally:
+            embedding_server.gate.set()
+    with closing(sqlite3.connect(tmp_path / "embedding/usage.sqlite3")) as db:
+        reserved = db.execute("SELECT SUM(requests),SUM(input_bytes) FROM budget").fetchone()
+    assert reserved == (1, len("database"))
+    with run_interrupt_scope(lambda: "operator abort requested"):
+        with pytest.raises(EmbeddingUnavailable, match="cancelled"):
+            adapter.embed("second request")
+    assert len(embedding_server.requests) == 1
+    with closing(sqlite3.connect(tmp_path / "embedding/usage.sqlite3")) as db:
+        assert db.execute("SELECT SUM(requests),SUM(input_bytes) FROM budget").fetchone() == reserved
+    assert adapter.embed("fresh request") == [0.0, 1.0]
+    assert len(embedding_server.requests) == 2
+    with closing(sqlite3.connect(tmp_path / "embedding/usage.sqlite3")) as db:
+        assert db.execute("SELECT SUM(requests),SUM(input_bytes) FROM budget").fetchone() == (
+            2, len("database") + len("fresh request"),
+        )
+
+
+@pytest.mark.parametrize("boundary", ["worker_start", "connect"])
+def test_cancelled_late_worker_never_sends_http(tmp_path, embedding_server, monkeypatch, boundary):
+    import http.client
+
+    from argus_skill.core.run_gateway import run_interrupt_scope
+
+    configure(tmp_path, embedding_server)
+    adapter = configured_embedder(tmp_path)
+    stopped, entered, release = threading.Event(), threading.Event(), threading.Event()
+    workers = []
+
+    def delay():
+        workers.append(threading.current_thread())
+        entered.set()
+        assert release.wait(2)
+
+    if boundary == "worker_start":
+        original_run = threading.Thread.run
+
+        def run(thread):
+            if thread.name == "argus-embedding-http":
+                delay()
+            return original_run(thread)
+
+        monkeypatch.setattr(threading.Thread, "run", run)
+    else:
+        original_connect = http.client.HTTPConnection.connect
+
+        def connect(connection):
+            delay()
+            return original_connect(connection)
+
+        monkeypatch.setattr(http.client.HTTPConnection, "connect", connect)
+
+    def invoke():
+        with run_interrupt_scope(lambda: "operator abort requested" if stopped.is_set() else None):
+            return adapter.embed("database")
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(invoke)
+        assert entered.wait(1)
+        stopped.set()
+        try:
+            with pytest.raises(EmbeddingUnavailable, match="cancelled"):
+                pending.result(timeout=1)
+            assert not release.is_set()
+            # Once this call has been abandoned, even clearing the originating
+            # stop event must not let its delayed worker issue a POST.
+            stopped.clear()
+        finally:
+            release.set()
+            for worker in workers:
+                worker.join(1)
+    assert workers and all(not worker.is_alive() for worker in workers)
+    assert not embedding_server.requests
+    with closing(sqlite3.connect(tmp_path / "embedding/usage.sqlite3")) as db:
+        assert db.execute("SELECT SUM(requests),SUM(input_bytes) FROM budget").fetchone() == (1, len("database"))
+
+
+def test_already_cancelled_embedding_has_no_reservation_or_http(tmp_path, embedding_server):
+    from argus_skill.core.run_gateway import run_interrupt_scope
+
+    configure(tmp_path, embedding_server)
+    with run_interrupt_scope(lambda: "operator abort requested"):
+        with pytest.raises(EmbeddingUnavailable, match="cancelled"):
+            configured_embedder(tmp_path).embed("database")
+    assert not embedding_server.requests
+    assert not (tmp_path / "embedding/usage.sqlite3").exists()
+
+
+def _memory_with_two_embedding_channels(tmp_path, embedding_server):
+    memory = MemoryBundle.for_cwd(tmp_path, global_root=tmp_path / "global", fingerprint="project")
+    entry = memory.failure_experiences.append(experience("database"))
+    skill = memory.project_root / "skills/synthetic/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: synthetic\ndescription: database knowledge\n---\n# Database\nCheck cache consistency.\n")
+    canonical = memory.failure_experiences.path.read_bytes()
+    configure(memory.project_root, embedding_server)
+    return memory, entry, canonical
+
+
+def test_scope_cancel_during_actual_prelude_skips_second_embedding_and_main_model(tmp_path, embedding_server):
+    from argus_skill import SkillLoop, SkillLoopConfig
+    from argus_skill.adapters.memory_backend import MemoryBackend
+    from argus_skill.core.run_gateway import run_interrupt_scope
+
+    memory, entry, canonical = _memory_with_two_embedding_channels(tmp_path, embedding_server)
+    stopped = threading.Event()
+    embedding_server.gate = threading.Event()
+    backend = MemoryBackend()
+    loop = SkillLoop(
+        skills_dir=tmp_path / "skills", engineer_runner=backend,
+        config=SkillLoopConfig(engineer_model="offline", reviewer_model="offline",
+            workflow_mode="direct", active_vertical="software", max_rounds=1,
+            require_post_task_learning=False, wiki_enabled=False, auto_init_wiki=False),
+        prelude_context_provider=lambda: memory.render_prelude(objective="database cache"),
+    )
+
+    def invoke():
+        with run_interrupt_scope(lambda: "operator abort requested" if stopped.is_set() else None):
+            return loop.run("Check database cache consistency", workdir=tmp_path)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(invoke)
+        assert embedding_server.entered.wait(2)
+        workers = [t for t in threading.enumerate() if t.name == "argus-embedding-http"]
+        stopped.set()
+        try:
+            assert pending.result(timeout=1).status == "aborted"
+            assert not embedding_server.gate.is_set()
+            assert len(embedding_server.requests) == 1
+            assert backend.history == []
+            for worker in workers:
+                worker.join(1)
+            assert all(not worker.is_alive() for worker in workers)
+        finally:
+            embedding_server.gate.set()
+    assert memory.failure_experiences.path.read_bytes() == canonical
+    assert memory.failure_experiences.get(entry.id).state == "active"
+    with closing(sqlite3.connect(memory.project_root / "embedding/usage.sqlite3")) as db:
+        assert db.execute("SELECT SUM(requests) FROM budget").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("role", ["engineer", "planner"])
+def test_supervisor_stop_event_interrupts_both_current_memory_providers(tmp_path, embedding_server, role):
+    from types import SimpleNamespace
+
+    from argus_skill.apps._runtime_backends import _Outcome
+    from argus_skill.core.run_gateway import current_run_interrupt_reason
+    from argus_skill.life.memory import BacklogItem
+    from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
+    from argus_skill.life.supervisor._mission_execution_helpers import _MissionRunState
+    from argus_skill.manager.supervision import shutdown_supervision
+
+    memory, entry, canonical = _memory_with_two_embedding_channels(tmp_path, embedding_server)
+    stopped = threading.Event()
+    embedding_server.gate = threading.Event()
+    observed = []
+
+    class Runner:
+        def execute(self, *, prelude_context_provider=None, planner_context_provider=None, **_kwargs):
+            provider = prelude_context_provider if role == "engineer" else planner_context_provider
+            observed.append(provider())
+            # The temporary stop scope must not leak into an unrelated call.
+            assert current_run_interrupt_reason() is None
+            return _Outcome(success=False, status="aborted")
+
+    supervisor = LifeSupervisor(memory=memory, runner=Runner(),
+        sink=SimpleNamespace(handle_event=lambda _event: None),
+        config=LifeSupervisorConfig(project_worktree=tmp_path, stop_event=stopped,
+                                    runtime_context="ENGINEER_RUNTIME_ONLY"))
+    item = BacklogItem.new(title="next", objective="database cache")
+    state = _MissionRunState(item)
+    state.prelude = supervisor._build_mission_prelude(item)
+    state.cost_sink = SimpleNamespace(handle_event=lambda _event: None)
+    state.vertical_root = memory.project_root
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(supervisor._invoke_mission_runner, state)
+        assert embedding_server.entered.wait(2)
+        workers = [t for t in threading.enumerate() if t.name == "argus-embedding-http"]
+        stopped.set()
+        try:
+            pending.result(timeout=1)
+            assert state.exc_str is None
+            assert not embedding_server.gate.is_set()
+            assert len(embedding_server.requests) == 1
+            assert len(observed) == 1
+            assert ("ENGINEER_RUNTIME_ONLY" in observed[0]) == (role == "engineer")
+            for worker in workers:
+                worker.join(1)
+            assert all(not worker.is_alive() for worker in workers)
+        finally:
+            embedding_server.gate.set()
+            shutdown_supervision(memory.project_root)
+    assert memory.failure_experiences.path.read_bytes() == canonical
+    assert memory.failure_experiences.get(entry.id).state == "active"
+    with closing(sqlite3.connect(memory.project_root / "embedding/usage.sqlite3")) as db:
+        assert db.execute("SELECT SUM(requests) FROM budget").fetchone()[0] == 1
+
+
 def test_batch_budget_preserves_successful_work_for_incremental_reindex(tmp_path, embedding_server):
     configure(tmp_path, embedding_server, max_requests_per_batch=1)
     docs = [document("database"), document("filesystem")]
