@@ -956,7 +956,14 @@ class MissionExecutionRuntimeMixin:
     def _maybe_pause_for_recoverable_stop(
         self, state: _MissionRunState,
     ) -> dict[str, Any] | None:
-        """Return a pause result dict, or ``None`` to continue the lifecycle."""
+        """Persist a recoverable stop and return its public result, if handled.
+
+        A valid pause owns its backlog write and completion event. External
+        work that already changed is requeued without a completion event;
+        repeated permanent provider failures are parked for an operator answer.
+        An invalid external wait becomes an error for ordinary settlement.
+        ``None`` means the caller must continue through repair/stage settlement.
+        """
         outcome = state.outcome
         item = state.item
         if state.status == "paused_external_work":

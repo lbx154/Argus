@@ -181,8 +181,8 @@ class LifeSupervisorConfig:
 class _MissionRunner(Protocol):
     """Structural type for the MissionExecutor we drive.
 
-    We keep this loose so tests can substitute a fake without dragging
-    ArgusBot in. Real callers pass an ``argus_skill.daemon.mission_executor.MissionExecutor``.
+    Production uses ``argus_skill.apps._runtime._SkillLoopRunner``; tests can
+    substitute an executor without constructing its backend or role loop.
     """
 
     def execute(

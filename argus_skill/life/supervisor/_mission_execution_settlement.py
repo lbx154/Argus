@@ -561,6 +561,12 @@ class MissionExecutionSettlementMixin:
         return count
 
     def _finalize_mission_status(self, state: _MissionRunState) -> None:
+        """Resolve final status and persist the backlog outcome/operator question.
+
+        This consumes the already-settled repair, stage, and iteration decisions.
+        The resulting shared fields feed publication; local classification flags
+        do not escape this phase. The mission completion event is emitted later.
+        """
         item = state.item
         outcome = state.outcome
         status = state.status
@@ -1078,10 +1084,8 @@ class MissionExecutionSettlementMixin:
 
         state.success = success
         state.status = status
-        state.research_pause = research_pause
         state.replan_requested = replan_requested
         state.intentional_abort = intentional_abort
-        state.stage_reconciled_replan = stage_reconciled_replan
         state.err = err
         state.resumable = resumable
         state.outcome_dimensions = outcome_dimensions
@@ -1095,6 +1099,12 @@ class MissionExecutionSettlementMixin:
     def _emit_mission_outcome_and_build_result(
         self, state: _MissionRunState,
     ) -> dict[str, Any]:
+        """Publish a finalized outcome, refreshing usage after skill learning.
+
+        The backlog has already been settled. This phase adds delivery and
+        review evidence, records the completion event, and builds the caller's
+        result from that same settled state.
+        """
         item = state.item
         outcome = state.outcome
         success = state.success
