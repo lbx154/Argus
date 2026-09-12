@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any, Iterable, Mapping
 
 
@@ -114,6 +115,7 @@ def build_operator_decision(
     options: Iterable[Mapping[str, Any] | str] = (),
     evidence: Iterable[Mapping[str, Any]] = (),
     project_id: str = "",
+    previous_decision: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     agent_options = normalize_agent_options(options)
     card: dict[str, Any] = {
@@ -143,6 +145,18 @@ def build_operator_decision(
     }
     if project_id.strip():
         card["project_id"] = project_id.strip()
+    if (
+        previous_decision is not None
+        and previous_decision.get("status") == "pending"
+        and previous_decision.get("item_id") == item_id
+        and str(previous_decision.get("question") or "").strip() == card["question"]
+    ):
+        # Rebuilding an unanswered card must not make an old question look new.
+        # Older cards have no recorded time; keep that absence truthful too.
+        if "asked_at" in previous_decision:
+            card["asked_at"] = previous_decision["asked_at"]
+    else:
+        card["asked_at"] = time.time()
     return card
 
 

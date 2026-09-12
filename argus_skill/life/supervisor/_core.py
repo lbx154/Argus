@@ -672,6 +672,7 @@ class LifeSupervisor(
                     reason=str(challenge.get("manager_reason") or ""),
                     question=question,
                     project_id=self.memory.root.name,
+                    previous_decision=item.operator_decision,
                 )
                 self.memory.backlog.update(
                     item.id,

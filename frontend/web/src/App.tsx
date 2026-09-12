@@ -365,22 +365,6 @@ export default function App() {
   const guardianAlert = useMemo(() => activeGuardianAlert(events), [events]);
   const transcriptQ = useTranscript(loadedSid, standardWorkspaceView === 'activity', 120);
   const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
-  const {
-    answerPendingReply,
-    pendingReply,
-    pendingReplyBusy,
-    pendingReplyOpen,
-    setPendingReplyOpen,
-  } = usePendingReplySession({
-    activeSid,
-    // The map surfaces decisions through its banner and node highlight; the
-    // modal would cover the very trajectory the operator came to inspect.
-    autoOpen: workspaceView !== 'map',
-    backlog: snap?.backlog,
-    notify,
-    pendingQuestions: snap?.pending_questions,
-    refetchSnapshot: snapQ.refetch,
-  });
   const activityEvents = useMemo(() => {
     return mergeConversationEvents(
       events,
@@ -395,6 +379,23 @@ export default function App() {
     () => snap ? projectMissionView(snap, activityEvents, artifactsQ.data ?? []) : null,
     [activityEvents, artifactsQ.data, snap],
   );
+  const {
+    answerPendingReply,
+    pendingReply,
+    pendingReplyBusy,
+    pendingReplyOpen,
+    setPendingReplyOpen,
+  } = usePendingReplySession({
+    activeSid,
+    currentTaskId: missionView?.mission.id,
+    // The map surfaces decisions through its banner and node highlight; the
+    // modal would cover the very trajectory the operator came to inspect.
+    autoOpen: workspaceView !== 'map',
+    backlog: snap?.backlog,
+    notify,
+    pendingQuestions: snap?.pending_questions,
+    refetchSnapshot: snapQ.refetch,
+  });
   const reviewActivity = snap?.daemon.alive && missionView?.routing.vertical === 'research'
     ? missionView.active_role.startsWith('reviewer') ? 'reviewing'
       : missionView.active_role.startsWith('engineer') ? 'revising' : undefined
@@ -996,6 +997,7 @@ export default function App() {
                 {!kiosk && workspaceView !== 'map' ? <button type="button" onClick={() => setOverlay('operations')} className="rounded border border-line/60 px-2 py-1 text-xs text-ink-faint hover:border-blue/50 hover:text-blue">{t('mission.operations')}</button> : null}
               </div>
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
+                currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
                 conversationEvents={mapConversationEvents} connected={connected} artifacts={artifactsQ.data ?? []}
                 deliveryCount={deliveryHistory.length} onOpenDelivery={() => {
@@ -1051,6 +1053,7 @@ export default function App() {
                     <PendingBanner
                       questions={snap.pending_questions ?? []}
                       backlog={snap.backlog}
+                      currentTaskId={missionView?.mission.id}
                       onAnswer={() => setPendingReplyOpen(true)}
                     />
                     <ChatBox

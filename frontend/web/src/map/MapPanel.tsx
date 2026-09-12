@@ -123,6 +123,7 @@ export function MapCanvas({
   composer,
   activePhase,
   snapshot,
+  currentTaskId,
   events,
   pendingLabel,
   readOnly,
@@ -138,6 +139,7 @@ export function MapCanvas({
   composer: MapComposerProps;
   activePhase?: string;
   snapshot: Snapshot;
+  currentTaskId?: string | null;
   events: EventMsg[];
   pendingLabel?: string;
   readOnly: boolean;
@@ -1114,7 +1116,11 @@ export function MapCanvas({
           )}
         </p>
       </div>
-      {data.kind === 'live' && !readOnly && <PendingBanner questions={snapshot.pending_questions ?? []} backlog={snapshot.backlog} onAnswer={actions.onAnswer} onLocate={locateAttention} />}
+      {data.kind === 'live' && !readOnly && <PendingBanner questions={snapshot.pending_questions ?? []} backlog={snapshot.backlog}
+        currentTaskId={currentTaskId ?? snapshot.mission_view?.mission.id} onAnswer={actions.onAnswer} onLocate={(taskId) => {
+          const card = scene.cards.filter((item) => item.task.id === taskId).at(-1);
+          if (card) focus(card.id);
+        }} />}
       {camera.detailed && attentionIndex >= 0 && (
         <div className="map-attention-detail" role="status">
           <strong>{zh ? "待处理" : "Needs attention"} {attentionIndex + 1} / {attention.length}</strong>
@@ -1556,6 +1562,7 @@ export function MapCanvas({
  * only needs to follow its own (throttled) props, not that firehose. */
 export const MapPanel = memo(function MapPanel({
   snapshot,
+  currentTaskId,
   events,
   managerSteps = [],
   draft,
@@ -1578,6 +1585,7 @@ export const MapPanel = memo(function MapPanel({
   onAnswer,
 }: {
   snapshot: Snapshot;
+  currentTaskId?: string | null;
   events: EventMsg[];
   managerSteps?: Array<{ label: string; detail?: string }>;
   draft: string;
@@ -1910,6 +1918,7 @@ export const MapPanel = memo(function MapPanel({
             data={data}
             actions={actions}
             snapshot={snapshot}
+            currentTaskId={currentTaskId}
             events={events}
             pendingLabel={managerSteps.at(-1)?.detail || managerSteps.at(-1)?.label}
             viewKey={viewKey}
