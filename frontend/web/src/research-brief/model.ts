@@ -1,5 +1,6 @@
 import type { MissionView, Snapshot } from '../../../core/src/types';
 import type { MapSelection } from '../map/incremental';
+import { mapCopyKey, readerPreview } from '../map/copyMode';
 import type { Dataset, MapEvent, MapTask } from '../map/model';
 import { needsCardCopy, referenceText, type CardRequest, type MapCopy, type ReaderBrief } from '../map/presentation';
 
@@ -10,8 +11,8 @@ const SEMANTIC_EVENTS = new Set([
   'turn.asked', 'turn.replied',
 ]);
 
-export function briefCopyKey(sid: string, locale: string) {
-  return ['map-copy', 'project', sid, locale, sid] as const;
+export function briefCopyKey(sid: string, locale: string, preview = readerPreview()) {
+  return mapCopyKey('project', sid, locale, sid, preview);
 }
 
 export function briefSelection(snapshot: Snapshot, view: MissionView): MapSelection {

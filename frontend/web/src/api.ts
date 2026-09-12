@@ -17,6 +17,7 @@ import type {
   Snapshot,
 } from '../../core/src/types';
 import { ensureResponseOk } from '../../core/src/http';
+import { readerPreview, type ReaderPreview } from './map/copyMode';
 import {
   requireCompatibleApiMeta,
   requireSnapshotContract,
@@ -605,6 +606,14 @@ async function readSSE(
 
 let activeSnapshotPrewarmSid: string | null = null;
 
+/** An explicitly selected preview uses the normal web request and its own cache. */
+function mapCopyPath(source: string, name: string, values: Record<string, string>, sessionId?: string, preview = readerPreview()): string {
+  const params = new URLSearchParams(values);
+  if (sessionId) params.set('session_id', sessionId);
+  if (preview === 'source-first') params.set('preview', 'true');
+  return `/api/map-copy/${source}/${encodeURIComponent(name)}?${params}`;
+}
+
 export const api = {
   liveMap: (sid: string, signal?: AbortSignal, after?: string, selection?: import('./map/incremental').MapSelection) => {
     const params = new URLSearchParams();
@@ -623,11 +632,9 @@ export const api = {
     if (taskAfter) params.set('task_after', taskAfter);
     return getJson<import('./map/model').Dataset>(P(sid, '/map-history') + (params.size ? `?${params}` : ''), signal);
   },
-  mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string) => getJson<import('./map/presentation').MapCopy>(`/api/map-copy/${source}/${encodeURIComponent(name)}?locale=${locale}${sessionId ? `&session_id=${encodeURIComponent(sessionId)}` : ""}`, signal),
-  generateMapCopy: async (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string}, signal?: AbortSignal, sessionId?: string): Promise<import('./map/presentation').MapCopy> => {
-    const params = new URLSearchParams({ stream: 'true' });
-    if (sessionId) params.set('session_id', sessionId);
-    const response = await postResponse(`/api/map-copy/${source}/${encodeURIComponent(name)}?${params}`, body, signal);
+  mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview) => getJson<import('./map/presentation').MapCopy>(mapCopyPath(source, name, { locale }, sessionId, preview), signal),
+  generateMapCopy: async (source: string, name: string, body: {cards: import('./map/presentation').CardRequest[]; locale: string}, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview): Promise<import('./map/presentation').MapCopy> => {
+    const response = await postResponse(mapCopyPath(source, name, { stream: 'true' }, sessionId, preview), body, signal);
     const terminal = await readSSE(response, 'Explanation stream', undefined, signal);
     if (terminal.type === 'error') throw new Error(String(terminal.error ?? 'Explanation failed'));
     return terminal.result as import('./map/presentation').MapCopy;

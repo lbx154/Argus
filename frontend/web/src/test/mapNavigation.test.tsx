@@ -86,7 +86,7 @@ const searchCount = () => renderer.root.findByProps({ className: "map-search-cou
 
 beforeEach(() => {
   initialization.ready = false;
-  vi.stubGlobal("window", { addEventListener: vi.fn(), removeEventListener: vi.fn() });
+  vi.stubGlobal("window", { location: { search: '' }, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   client.setQueryData(['map-copy', 'project', 'navigation', 'en-US', 'navigation'], { cards: {}, relations: [], available: false });
   act(() => { renderer = create(<QueryClientProvider client={client}><MapCanvas {...props} /></QueryClientProvider>, {

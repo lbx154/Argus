@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
+import { readerPreview } from '../map/copyMode';
 import type { MissionView, Snapshot } from '../../../core/src/types';
 import { mergeMapProgress } from '../map/incremental';
 import type { Dataset } from '../map/model';
@@ -24,7 +25,8 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
   const taskId = view.mission.id;
   const selection = briefSelection(snapshot, view);
   const liveKey = briefLiveKey(sid, selection);
-  const copyKey = briefCopyKey(sid, locale);
+  const preview = readerPreview();
+  const copyKey = briefCopyKey(sid, locale, preview);
   const enabled = active && !!sid && !!taskId && snapshot.session.id === sid;
   const live = useQuery({
     queryKey: liveKey,
@@ -40,7 +42,7 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
   const copy = useQuery({
     queryKey: copyKey,
     queryFn: async ({ signal }) => {
-      const result = await api.mapCopy('project', sid, locale, signal, sid);
+      const result = await api.mapCopy('project', sid, locale, signal, sid, preview);
       const previous = client.getQueryData<MapCopy>(copyKey);
       return mergeMapCopy(previous, result, previous?.model_revision);
     },
@@ -57,7 +59,7 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
   const legacy = oldBriefService(copy.data);
   const canGenerate = enabled && !readOnly && !!task && copy.data?.available === true
     && !legacy && !live.isError && !copy.isError;
-  const generationScope = ['research-brief-generation', sid, taskId, locale, selection.eventSince] as const;
+  const generationScope = ['research-brief-generation', sid, taskId, locale, selection.eventSince, ...(preview ? [preview] : [])] as const;
   const generationVersion = Math.max(READER_BRIEF_VERSION, copy.data?.version ?? 0);
   // An earlier success or failure only applies to the draft/review settings used for that attempt.
   const generationKey = [...generationScope, generationVersion, copy.data?.model_revision ?? null, inputSignature] as const;
@@ -73,7 +75,7 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
       const requestedRevision = client.getQueryData<MapCopy>(copyKey)?.model_revision;
       // The request is task/source-scoped. A tab switch may stop observing it,
       // but completed text still belongs in the shared map cache.
-      const result = await api.generateMapCopy('project', sid, { cards: [briefRequest(task, evidence)], locale }, undefined, sid);
+      const result = await api.generateMapCopy('project', sid, { cards: [briefRequest(task, evidence)], locale }, undefined, sid, preview);
       const returned = result.cards?.[task.id];
       const valid = (returned?.version ?? 0) >= READER_BRIEF_VERSION && isReaderBrief(returned?.reader_brief);
       client.setQueryData<MapCopy>(copyKey, previous => mergeMapCopy(previous, result, requestedRevision));

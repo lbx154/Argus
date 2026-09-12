@@ -32,6 +32,19 @@ _LOCK = threading.Lock()
 _SOURCES: WeakValueDictionary = WeakValueDictionary()
 
 
+def copy_source(dataset_id: str, locale: str, *, preview: bool = False) -> str:
+    """A preview never replaces the normal reader's retained explanation."""
+    return dataset_id + ":" + locale + (":source-first" if preview else "")
+
+
+def copy_version(*, preview: bool = False) -> int:
+    if preview:
+        from .map_lesson import PREVIEW_VERSION
+
+        return PREVIEW_VERSION
+    return PROMPT_VERSION
+
+
 @contextmanager
 def _source_lock(root: Path, source: str):
     key = (str(root.resolve()), source)
@@ -308,13 +321,21 @@ def generation_context_tasks(all_tasks: list[dict], documents: list[dict], known
 def enrich(
     root: Path, dataset: dict, cards: list[dict], locale: str, *,
     project_root: Path | None = None,
+    preview: bool = False,
 ) -> dict:
     documents = card_evidence(dataset, cards)
-    source = dataset["id"] + ":" + locale
+    source = copy_source(dataset["id"], locale, preview=preview)
+    version = copy_version(preview=preview)
+    if preview:
+        from .map_lesson import PROCESS_VERSION, generate_source_first
+
+        review_version = PROCESS_VERSION
+    else:
+        review_version = TEACHING_REVIEW_VERSION
     config = resolve_map_model()
-    metadata = {"model_revision": config.revision}
+    metadata = {"model_revision": config.revision, "version": version}
     fingerprints = {
-        d["key"]: digest([PROMPT_VERSION, TEACHING_REVIEW_VERSION, config.revision, locale, {
+        d["key"]: digest([version, review_version, config.revision, locale, {
             k: v for k, v in d.items() if k != "task_revision" or d["dynamic"]
         }]) for d in documents
     }
@@ -336,9 +357,10 @@ def enrich(
         # Coalesce rapid progress updates and multiple open browser tabs.
         if (
             all(
-                existing.get(d["key"], {}).get("version") == PROMPT_VERSION
+                existing.get(d["key"], {}).get("version") == version
                 and existing[d["key"]].get("model_revision") == config.revision
-                and existing[d["key"]].get("teaching_review", {}).get("review_version") == TEACHING_REVIEW_VERSION
+                and (existing[d["key"]].get("teaching_process", {}).get("version") == review_version if preview
+                     else existing[d["key"]].get("teaching_review", {}).get("review_version") == review_version)
                 for d in todo
             )
             and time.time() - cache.get("attempt_at", 0) < 25
@@ -355,10 +377,15 @@ def enrich(
         prior_relation_tasks = cache.get("relation_tasks", {}) if cache.get("relation_context_version") == 2 else {}
         tasks = generation_context_tasks(all_tasks, todo[:8], prior_relation_tasks)
         relation_tasks = {t["id"]: digest(t) for t in tasks}
-        value = generate(
-            todo[:8], tasks, locale, config=config, project_root=project_root, global_root=root,
-            cached_reviews=cache.get("teaching_reviews", {}),
-        )
+        if preview:
+            value = generate_source_first(
+                todo[:8], tasks, locale, config=config, project_root=project_root, global_root=root,
+            )
+        else:
+            value = generate(
+                todo[:8], tasks, locale, config=config, project_root=project_root, global_root=root,
+                cached_reviews=cache.get("teaching_reviews", {}),
+            )
         wanted = {d["key"] for d in todo[:8]}
         generated = value.get("cards", [])
         if (
@@ -380,12 +407,14 @@ def enrich(
                 existing[card["key"]]["reader_brief"] = card["reader_brief"]
             if "teaching_review" in card:
                 existing[card["key"]]["teaching_review"] = card["teaching_review"]
+            if "teaching_process" in card:
+                existing[card["key"]]["teaching_process"] = copy.deepcopy(card["teaching_process"])
             if "source_snapshot" in card:
                 existing[card["key"]]["source_snapshot"] = copy.deepcopy(card["source_snapshot"])
             document = next(d for d in documents if d["key"] == card["key"])
             existing[card["key"]].update(
                 copy_revision=cache.get("cache_revision", 0) + 1,
-                version=PROMPT_VERSION,
+                version=version,
                 model_revision=config.revision,
                 fingerprint=fingerprints[card["key"]],
                 input_revision=fingerprints[card["key"]],
@@ -454,6 +483,6 @@ def enrich(
             "cards": existing,
             "relations": cache["relations"],
             "cached": False,
-            "version": PROMPT_VERSION,
+            "version": version,
             **metadata,
         }

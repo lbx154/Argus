@@ -103,10 +103,13 @@ def test_map_reads_certification_from_mission_outcome():
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_copy_routes_require_auth_and_check_task_event_ownership(tmp_path, monkeypatch, stream):
+@pytest.mark.parametrize("preview", [False, True])
+def test_copy_routes_require_auth_and_check_task_event_ownership(tmp_path, monkeypatch, stream, preview):
     sid, life = sample(tmp_path)
     client = TestClient(create_app(global_root=tmp_path, auth_token="test"))
     path = f"/api/map-copy/project/{sid}" + ("?stream=true" if stream else "")
+    if preview:
+        path += ("&" if stream else "?") + "preview=true"
     assert client.get(path).status_code == 401
     headers = {"Authorization": "Bearer test"}
     assert client.get(f"/api/projects/{sid}/map", headers=headers).status_code == 200
@@ -122,6 +125,57 @@ def test_copy_routes_require_auth_and_check_task_event_ownership(tmp_path, monke
 def _copy_stream_frames(response):
     return [json.loads(line.removeprefix("data: ")) for line in response.text.splitlines()
             if line.startswith("data: ")]
+
+
+@pytest.mark.parametrize("preview_cache_present", [False, True])
+def test_copy_preview_get_reads_only_its_cache_and_reports_its_version(tmp_path, monkeypatch, preview_cache_present):
+    sid, _ = sample(tmp_path)
+    reads = []
+    main = {"cards": {"main": {"title": "Existing explanation"}}, "relations": [], "cache_revision": 7}
+    preview = ({"cards": {"preview": {"title": "Source-first candidate"}}, "relations": [], "cache_revision": 2}
+               if preview_cache_present else {"cards": {}, "relations": [], "cache_revision": 0})
+    source = "live:" + sid + ":zh-CN"
+
+    def read_cache(root, key):
+        assert root == tmp_path
+        reads.append(key)
+        return {source: main, source + ":source-first": preview}[key]
+
+    monkeypatch.setattr(copy, "read_cache", read_cache)
+    monkeypatch.setattr(copy, "enrich", lambda *args, **kwargs: pytest.fail("A GET must not generate"))
+    client = TestClient(create_app(global_root=tmp_path))
+    path = f"/api/map-copy/project/{sid}"
+    normal = client.get(path).json()
+    candidate = client.get(path + "?preview=true").json()
+    assert normal["cards"] == main["cards"] and normal["version"] == 23
+    assert candidate["cards"] == preview["cards"] and candidate["version"] == 24
+    assert candidate["cache_revision"] == preview["cache_revision"] and normal["cache_revision"] == 7
+    assert reads == [source, source + ":source-first"]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("preview", [False, True])
+def test_copy_preview_post_reuses_enrichment_and_stream_without_changing_the_body(tmp_path, monkeypatch, stream, preview):
+    sid, life = sample(tmp_path)
+    body = {"cards": [{"key": "task-a", "task_id": "task-a", "kind": "task"}], "locale": "zh-CN"}
+    calls = []
+    result = {"cards": {}, "relations": [], "version": 24 if preview else 23}
+
+    def enrich(root, value, cards, locale, **kwargs):
+        calls.append((root, cards, locale, kwargs))
+        return result
+
+    monkeypatch.setattr(copy, "enrich", enrich)
+    client = TestClient(create_app(global_root=tmp_path))
+    response = client.post(f"/api/map-copy/project/{sid}",
+                           params={"stream": str(stream).lower(), "preview": str(preview).lower()}, json=body)
+    assert response.status_code == 200
+    if stream:
+        assert _copy_stream_frames(response) == [{"type": "heartbeat", "quiet_s": 0}, {"type": "done", "result": result}]
+    else:
+        assert response.json() == result
+    assert calls == [(tmp_path, [{**body["cards"][0], "event_ids": []}], "zh-CN",
+                      {"project_root": life, **({"preview": True} if preview else {})})]
 
 
 def test_copy_stream_returns_the_complete_json_result_with_one_enrichment(tmp_path, monkeypatch):
@@ -185,7 +239,8 @@ def test_copy_stream_reports_terminal_errors_and_keeps_json_http_errors(
     assert len(calls) == 2
 
 
-def test_copy_stream_checks_project_session_and_card_ownership_before_generation(tmp_path, monkeypatch):
+@pytest.mark.parametrize("preview", [False, True])
+def test_copy_stream_checks_project_session_and_card_ownership_before_generation(tmp_path, monkeypatch, preview):
     sid, _ = sample(tmp_path)
     body = {"cards": [{"key": "task-a", "task_id": "task-a", "kind": "task"}]}
 
@@ -195,6 +250,8 @@ def test_copy_stream_checks_project_session_and_card_ownership_before_generation
     monkeypatch.setattr(copy, "enrich", unexpected)
     client = TestClient(create_app(global_root=tmp_path))
     path = f"/api/map-copy/project/{sid}?stream=true"
+    if preview:
+        path += "&preview=true"
     assert client.post(path + "&session_id=s-foreign", json=body).status_code == 422
     assert client.post("/api/map-copy/project/s-missing?stream=true", json=body).status_code == 404
     for card in (
