@@ -992,6 +992,9 @@ class BacklogItem:
     parallel_safe: bool = False
     owns_paths: list[str] = field(default_factory=list)
     outcome: dict[str, Any] = field(default_factory=dict)
+    # Optional durable return receipt; kept separate from public outcome dimensions.
+    mission_result: dict[str, Any] | None = None
+    mission_delivery_id: str = ""
 
     @classmethod
     def new_id(cls) -> str:
@@ -1075,7 +1078,12 @@ class BacklogItem:
         )
 
     def to_jsonable(self) -> dict[str, Any]:
-        return asdict(self)
+        row = asdict(self)
+        if self.mission_result is None:
+            row.pop("mission_result")
+        if not self.mission_delivery_id:
+            row.pop("mission_delivery_id")
+        return row
 
     @classmethod
     def from_jsonable(cls, row: dict[str, Any]) -> "BacklogItem":
@@ -1166,6 +1174,8 @@ class BacklogItem:
                 if isinstance(row.get("outcome"), dict)
                 else {}
             ),
+            mission_result=(dict(row["mission_result"]) if isinstance(row.get("mission_result"), dict) else None),
+            mission_delivery_id=str(row.get("mission_delivery_id") or ""),
         )
 
 
@@ -1196,11 +1206,14 @@ class Backlog:
         self.archive_path = self.path.with_name(f"{self.path.stem}.archive.jsonl")
         self._commit_path = self.path.with_name(f"{self.path.stem}.commit.json")
         self._lock_path = self.path.parent / f"{self.path.name}.lock"
+        from .mission_delivery import PENDING_DIRECTORY
+
+        self._mission_deliveries_path = self.path.parent / PENDING_DIRECTORY
 
     @property
-    def storage_paths(self) -> tuple[Path, Path, Path]:
+    def storage_paths(self) -> tuple[Path, ...]:
         """State files for cache invalidation and complete backups, including recovery."""
-        return self.path, self.archive_path, self._commit_path
+        return self.path, self.archive_path, self._commit_path, self._mission_deliveries_path
 
     # --- io ---
     def _load(self) -> list[BacklogItem]:
@@ -1212,22 +1225,29 @@ class Backlog:
             for r in _read_jsonl(self.archive_path)
         ]
 
-    def _save(self, items: Iterable[BacklogItem]) -> None:
+    def _save(
+        self, items: Iterable[BacklogItem], *, mission_delivery: dict[str, Any] | None = None,
+    ) -> None:
         """Commit under _locked; the small record is the cross-file commit point."""
         live: list[dict[str, Any]] = []
         terminal: list[dict[str, Any]] = []
         for item in items:
             partition = terminal if item.status in _TERMINAL_STATUSES else live
             partition.append(item.to_jsonable())
-        if not terminal:
+        if not terminal and mission_delivery is None:
             _atomic_rewrite_jsonl(self.path, live)
             return
-        record = {
-            "version": 1,
+        record: dict[str, Any] = {
+            "version": 2 if mission_delivery is not None else 1,
             "archive_offset": self.archive_path.stat().st_size if self.archive_path.exists() else 0,
             "live": live,
             "terminal": terminal,
         }
+        if mission_delivery is not None:
+            from .mission_delivery import validate_mission_delivery
+
+            validate_mission_delivery(mission_delivery)
+            record["mission_deliveries"] = [mission_delivery]
         # File fsync, rename, then parent fsync: after this point recovery must
         # finish this state rather than retrying the old running mission.
         _atomic_rewrite_jsonl(self._commit_path, [record])
@@ -1256,6 +1276,10 @@ class Backlog:
             os.fsync(handle.fileno())
         _fsync_parent(self.archive_path)
         _atomic_rewrite_jsonl(self.path, record["live"])
+        for delivery in record.get("mission_deliveries", []):
+            _atomic_rewrite_jsonl(
+                self._mission_deliveries_path / f"{delivery['id']}.json", [delivery],
+            )
         # Keep a version marker so legacy overlap reconciliation happens once,
         # not on each daemon restart or each normal mission claim.
         _atomic_rewrite_jsonl(self._commit_path, [{"version": 1}])
@@ -1295,19 +1319,31 @@ class Backlog:
             if (
                 not isinstance(record, dict)
                 or type(record.get("version")) is not int
-                or record["version"] != 1
+                or record["version"] not in {1, 2}
             ):
                 raise ValueError("unsupported commit version")
             if record == {"version": 1}:
                 return
-            if set(record) != {"version", "archive_offset", "live", "terminal"}:
+            expected_fields = {"version", "archive_offset", "live", "terminal"}
+            if record["version"] == 2:
+                expected_fields.add("mission_deliveries")
+                from .mission_delivery import validate_mission_delivery
+
+                deliveries = record.get("mission_deliveries")
+                if not isinstance(deliveries, list) or not deliveries:
+                    raise ValueError("missing committed mission deliveries")
+                for delivery in deliveries:
+                    validate_mission_delivery(delivery)
+                if len({delivery["id"] for delivery in deliveries}) != len(deliveries):
+                    raise ValueError("duplicate committed mission delivery")
+            if set(record) != expected_fields:
                 raise ValueError("incomplete commit record")
             if type(record["archive_offset"]) is not int or record["archive_offset"] < 0:
                 raise ValueError("invalid archive offset")
             if (
                 not isinstance(record["live"], list)
                 or not isinstance(record["terminal"], list)
-                or not record["terminal"]
+                or (not record["terminal"] and record["version"] != 2)
             ):
                 raise ValueError("invalid commit rows")
             ids: set[str] = set()
@@ -1328,6 +1364,18 @@ class Backlog:
                     ):
                         raise ValueError("invalid committed item status")
                     BacklogItem.from_jsonable(row)
+            for delivery in record.get("mission_deliveries", []):
+                bound = next(
+                    (row for row in [*record["live"], *record["terminal"]] if row["id"] == delivery["item_id"]),
+                    None,
+                )
+                if (
+                    bound is None
+                    or bound.get("mission_delivery_id") != delivery["id"]
+                    or bound.get("mission_result") != delivery["result"]
+                    or bound.get("attempt") != delivery["attempt"]
+                ):
+                    raise ValueError("mission delivery is not bound to a committed row")
         except (ValueError, TypeError, KeyError) as exc:
             raise RuntimeError(f"invalid backlog commit record: {self._commit_path}") from exc
         self._apply_commit(record)
@@ -1863,7 +1911,18 @@ class Backlog:
             added_ids=(),
         )
 
-    def update(self, item_id: str, **fields: Any) -> BacklogItem | None:
+    def update(
+        self, item_id: str, *, _mission_delivery: dict[str, Any] | None = None,
+        **fields: Any,
+    ) -> BacklogItem | None:
+        if _mission_delivery is not None:
+            from .mission_delivery import validate_mission_delivery
+
+            validate_mission_delivery(_mission_delivery)
+            if _mission_delivery["item_id"] != item_id:
+                raise ValueError("mission delivery belongs to another backlog item")
+            fields["mission_delivery_id"] = _mission_delivery["id"]
+            fields["mission_result"] = dict(_mission_delivery["result"])
         with self._locked():
             items = self._load()
             out: BacklogItem | None = None
@@ -1900,7 +1959,7 @@ class Backlog:
                     out = it
                     break
             if out is not None:
-                self._save(items)
+                self._save(items, mission_delivery=_mission_delivery)
                 return out
             archived = next(
                 (
@@ -1911,6 +1970,8 @@ class Backlog:
                 None,
             )
             if archived is not None:
+                if _mission_delivery is not None and archived.mission_delivery_id == _mission_delivery["id"]:
+                    return archived
                 if "status" in fields:
                     new_status = str(fields.get("status") or "pending")
                     if new_status not in _TERMINAL_STATUSES:
@@ -1924,8 +1985,31 @@ class Backlog:
                         setattr(archived, key, value)
                 if archived.status in _TERMINAL_STATUSES:
                     _expire_unanswered_operator_question(archived)
-                self._save([*items, archived])
+                self._save([*items, archived], mission_delivery=_mission_delivery)
             return archived
+
+    def pending_mission_deliveries(self) -> list[dict[str, Any]]:
+        """Recover the commit, then read only unacknowledged completion records."""
+        from .mission_delivery import validate_mission_delivery
+
+        with self._locked():
+            records = []
+            for path in sorted(self._mission_deliveries_path.glob("*.json")):
+                record = json.loads(path.read_text(encoding="utf-8"))
+                validate_mission_delivery(record)
+                if path.stem != record["id"]:
+                    raise RuntimeError("mission delivery filename does not match its identity")
+                records.append(record)
+            return sorted(records, key=lambda row: (float(row["event"].get("ts") or 0), row["id"]))
+
+    def acknowledge_mission_delivery(self, delivery_id: str) -> None:
+        if len(delivery_id) != 64 or any(c not in "0123456789abcdef" for c in delivery_id):
+            raise ValueError("invalid mission delivery acknowledgement")
+        with self._locked():
+            path = self._mission_deliveries_path / f"{delivery_id}.json"
+            path.unlink(missing_ok=True)
+            if path.parent.exists():
+                _fsync_parent(path)
 
     def record_acceptance_dependency_assessment(
         self,

@@ -42,6 +42,7 @@ from ..core.event_catalog import (
     EventType,
     normalize_event_envelope,
 )
+from ..core.jsonl_reader import MAX_JSONL_RECORD_BYTES
 from ..core.secret_guard import (
     known_secret_values,
     redact_secrets_record,
@@ -54,6 +55,15 @@ EVENT_FILE = "events.jsonl"
 ROLL_FILE = "events.jsonl.1"
 EVENT_LOCK_FILE = "events.lock"
 log = logging.getLogger(__name__)
+
+
+def mission_delivery_was_persisted(life_dir: Path, delivery_id: str) -> bool:
+    """Check canonical completion acceptance before retrying a failed outbox ack."""
+    from ..core.mission_view._replay import events_locked
+    from .mission_event_index import mission_event_index
+
+    with events_locked(life_dir):
+        return mission_event_index(str(Path(life_dir).resolve())).contains(delivery_id)
 
 
 def event_log_paths(log_path: Path) -> list[Path]:
@@ -206,6 +216,8 @@ class JsonlEventSink:
                 except Exception:  # noqa: BLE001
                     pass
             return False
+        if safe_event.pop("_mission_delivery_duplicate", False):
+            return True
         if self._downstream is not None:
             try:
                 self._downstream.handle_event(safe_event)
@@ -247,7 +259,7 @@ class JsonlEventSink:
     # --- public so tests / migrations can drop one-shot lines --------
 
     def append(self, event: dict[str, Any]) -> bool:
-        return self._append(event)
+        return self._append(dict(event))
 
     # --- helpers -----------------------------------------------------
 
@@ -259,6 +271,11 @@ class JsonlEventSink:
             payload.pop("log_writer_version", None)
             payload["log_writer_version"] = 1
             line = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+            encoded_line = (line + "\n").encode("utf-8")
+            if payload.get("mission_delivery_id") and len(encoded_line) > MAX_JSONL_RECORD_BYTES:
+                # Every accepted completion must remain readable by receipt
+                # recovery. Leave an oversized delivery pending for repair.
+                return False
         except Exception:  # noqa: BLE001
             return False
         valid = not bool(payload.get("event_validation"))
@@ -281,18 +298,29 @@ class JsonlEventSink:
         with self._lock:
             try:
                 with events_locked(self._dir):
-                    self._maybe_roll()
-                    with self._path.open("a+b") as fh:
-                        if fh.tell():
-                            fh.seek(-1, os.SEEK_END)
-                            if fh.read(1) != b"\n":
-                                # Preserve an interrupted row, but do not join
-                                # the next valid event onto its partial JSON.
-                                fh.write(b"\n")
-                        fh.write((line + "\n").encode("utf-8"))
-                        fh.flush()
-                        os.fsync(fh.fileno())
-                    sync_directory(self._dir)
+                    from .mission_event_index import mission_event_index
+
+                    key = str(payload.get("mission_delivery_id") or "")
+                    index = mission_event_index(str(self._dir.resolve())) if key else None
+                    duplicate = index is not None and index.contains(key)
+                    if duplicate:
+                        event["_mission_delivery_duplicate"] = True
+                    else:
+                        self._maybe_roll()
+                        with self._path.open("a+b") as fh:
+                            if fh.tell():
+                                fh.seek(-1, os.SEEK_END)
+                                if fh.read(1) != b"\n":
+                                    # Preserve an interrupted row without joining it.
+                                    fh.write(b"\n")
+                            if index is not None:
+                                index.begin(key, fh)
+                            fh.write(encoded_line)
+                            fh.flush()
+                            os.fsync(fh.fileno())
+                        sync_directory(self._dir)
+                        if index is not None:
+                            index.finish(key)
             except Exception:  # noqa: BLE001
                 # Disk full / read-only / permission — keep silent so the
                 # supervisor doesn't crash. Operators see the warning in

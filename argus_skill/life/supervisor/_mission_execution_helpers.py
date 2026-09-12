@@ -91,6 +91,8 @@ class _MissionRunState:
     err: str = ""
     resumable: bool = False
     outcome_dimensions: dict[str, object] | None = None
+    # Finalization atomically binds this envelope to the backlog update.
+    completion_delivery: dict[str, Any] | None = None
 
 
 __all__ = ["_MissionRunState"]
