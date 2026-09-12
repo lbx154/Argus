@@ -27,6 +27,7 @@ same work many times over.
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 import time
@@ -37,12 +38,28 @@ TTL_ENV_VAR = "ARGUS_WEB_INDEX_CACHE_TTL"
 DEFAULT_SNAPSHOT_TTL_SECONDS = 5.0
 SNAPSHOT_TTL_ENV_VAR = "ARGUS_WEB_SNAPSHOT_CACHE_TTL"
 
-# This bounds a wedged cache-leader handoff; fallback computes instead of failing work.
+# A timed-out reader leaves the shared scan running rather than duplicating it.
 _LEADER_WAIT_TIMEOUT_SECONDS = 30.0
 
 # Query parameters are bounded (``limit`` is 1..2000), but a caller can still
 # mint many distinct keys. Keep the table small rather than trusting that.
 _MAX_ENTRIES = 64
+
+
+class CacheWaitTimeout(TimeoutError):
+    """The shared read is still running; HTTP callers may retry later."""
+
+    def __init__(self) -> None:
+        super().__init__("Snapshot refresh timed out; retry shortly.")
+
+
+def _finite_ttl(value: str | float) -> float:
+    """Invalid durations disable caching; mutable snapshots never live forever."""
+    try:
+        ttl = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    return ttl if math.isfinite(ttl) and ttl > 0.0 else 0.0
 
 
 def resolve_ttl_seconds(environ: dict[str, str] | None = None) -> float:
@@ -55,10 +72,7 @@ def resolve_ttl_seconds(environ: dict[str, str] | None = None) -> float:
     raw = str(env.get(TTL_ENV_VAR, "") or "").strip()
     if not raw:
         return DEFAULT_TTL_SECONDS
-    try:
-        return max(0.0, float(raw))
-    except ValueError:
-        return 0.0
+    return _finite_ttl(raw)
 
 
 def resolve_snapshot_ttl_seconds(environ: dict[str, str] | None = None) -> float:
@@ -67,10 +81,7 @@ def resolve_snapshot_ttl_seconds(environ: dict[str, str] | None = None) -> float
     raw = str(env.get(SNAPSHOT_TTL_ENV_VAR, "") or "").strip()
     if not raw:
         return DEFAULT_SNAPSHOT_TTL_SECONDS
-    try:
-        return max(0.0, float(raw))
-    except ValueError:
-        return 0.0
+    return _finite_ttl(raw)
 
 
 class _Entry:
@@ -88,7 +99,7 @@ class IndexCache:
     """Single-flight + short-TTL cache shared by one ``create_app`` instance."""
 
     def __init__(self, *, ttl_seconds: float | None = None) -> None:
-        self.ttl_seconds = resolve_ttl_seconds() if ttl_seconds is None else max(0.0, ttl_seconds)
+        self.ttl_seconds = resolve_ttl_seconds() if ttl_seconds is None else _finite_ttl(ttl_seconds)
         self._lock = threading.Lock()
         self._entries: dict[Any, _Entry] = {}
 
@@ -103,28 +114,26 @@ class IndexCache:
         callers must treat it as read-only; the listings cached here are
         serialized straight to JSON and never mutated.
 
-        Exceptions are propagated to every caller waiting on the same key and
-        are never cached — a scan that failed because a directory vanished
-        mid-walk must be retried, not remembered.
+        A flight shares its failure with its current waiters. Failures are not
+        cached: a later request can retry, but this cache never retries on behalf
+        of waiting callers. Timed-out waiters leave the original scan running so
+        a slow filesystem cannot turn one request burst into duplicate scans.
         """
         if not self.enabled:
             return compute()
 
-        while True:
-            entry, is_leader = self._claim(key)
-            if entry is None:
-                # Every retained slot is an active flight for another key.
-                # Fail open rather than growing an attacker-controlled table.
-                return compute()
-            if is_leader:
-                return self._run_as_leader(key, entry, compute)
-            if not entry.done.wait(timeout=_LEADER_WAIT_TIMEOUT_SECONDS):
-                return compute()
-            if entry.error is not None:
-                # The leader failed. Retry through the normal path so exactly
-                # one of the waiters becomes the next leader.
-                continue
-            return entry.value
+        entry, is_leader = self._claim(key)
+        if entry is None:
+            # Every retained slot is an active flight for another key.
+            # Bypass caching rather than growing an unbounded key table.
+            return compute()
+        if is_leader:
+            return self._run_as_leader(key, entry, compute)
+        if not entry.done.wait(timeout=_LEADER_WAIT_TIMEOUT_SECONDS):
+            raise CacheWaitTimeout()
+        if entry.error is not None:
+            raise entry.error
+        return entry.value
 
     def invalidate(self) -> None:
         """Drop every cached value.
