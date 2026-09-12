@@ -35,6 +35,16 @@ def offline(tmp_path, monkeypatch):
 
 def test_relocates_only_standard_runtime_metadata_and_uses_existing_activation(offline):
     root, directory, record, plugin, run = offline
+    operation_path = root / "extensions/crystalpilot/operation.json"
+
+    def activate(*args, **kwargs):
+        operation = tool.manager.read_json(operation_path)
+        assert operation["status"] == "running"
+        assert operation["action"] == "configure"
+        assert operation["identity"]
+        return run.return_value
+
+    run.side_effect = activate
     health = tool.provision(root, directory, record)
     assert health["components"][0]["status"] == "ready"
     command = run.call_args.args[0]
@@ -51,6 +61,7 @@ def test_relocates_only_standard_runtime_metadata_and_uses_existing_activation(o
     assert run.call_args.kwargs["env"]["TMP"] == payload["root"]
     plugin.shutdown_workers.assert_called_once()
     assert not (root / "extensions/registry.json").exists()
+    assert tool.manager.read_json(operation_path)["status"] == "completed"
 
 
 @pytest.mark.parametrize("mutation", ["wrong_digest", "outside_library", "escape_symlink", "outside_directory"])
@@ -105,6 +116,9 @@ def test_failed_plugin_probe_is_not_reported_as_success(offline):
     run.side_effect = RuntimeError("PLATON did not generate check.def")
     with pytest.raises(RuntimeError, match="check.def"):
         tool.provision(root, directory, record)
+    operation = tool.manager.read_json(root / "extensions/crystalpilot/operation.json")
+    assert operation["status"] == "failed"
+    assert "check.def" in operation["error"]
 
 
 def test_source_record_is_not_modified(offline):

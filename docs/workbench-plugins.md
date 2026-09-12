@@ -100,6 +100,8 @@ tenant-local resource directory, and preserves the installer's standard `libs`,
 `recipe`, `version` and executable metadata with relocated tenant-local paths.
 It uses the existing plugin lifecycle lock and busy guard: report busy accounts
 and retry when idle rather than stopping scientific jobs. The plugin's own
+operation record blocks new workbench mutations throughout provisioning and
+records success or failure for the interface. The plugin's own
 candidate activation runs `platon -z2` and requires generated `check.def` before
 atomically updating `software.json`; failure preserves the previous registration.
 The following full dependency health check must report PLATON ready.

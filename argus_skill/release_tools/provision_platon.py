@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import time
 from pathlib import Path
 
 import portalocker
 
 from ..core import plugin_manager as manager
 from ..core import plugin_runtime as runtime
+from ..core.process_identity import capture_process_identity
 
 
 ACTIVATE = """
@@ -64,18 +67,33 @@ def provision(root, directory, record):
         plugin = manager.load_plugin("crystalpilot", root)
         if plugin is None:
             raise manager.PluginError("CrystalPilot must be installed and enabled")
-        plugin.shutdown_workers()
-        python = manager.state_entry("crystalpilot", root)["python"]
-        env = runtime.clean_env()
-        # Dependency probes create scratch projects; keep them in this tenant.
-        env.update(TMPDIR=str(resources), TMP=str(resources), TEMP=str(resources))
-        output = runtime.run(
-            [python, "-I", "-c", ACTIVATE],
-            env=env,
-            input=json.dumps({"root": str(resources), "record": relocated}),
-            timeout=600,
-        )
-    return json.loads(output)
+        operation = {
+            "status": "running", "action": "configure", "progress": "Configuring PLATON",
+            "started": time.time(), "pid": os.getpid(),
+            "identity": capture_process_identity(os.getpid()),
+        }
+        manager.write_json(plugin_root / "operation.json", operation)
+        try:
+            plugin.shutdown_workers()
+            python = manager.state_entry("crystalpilot", root)["python"]
+            env = runtime.clean_env()
+            # Dependency probes create scratch projects; keep them in this tenant.
+            env.update(TMPDIR=str(resources), TMP=str(resources), TEMP=str(resources))
+            output = runtime.run(
+                [python, "-I", "-c", ACTIVATE],
+                env=env,
+                input=json.dumps({"root": str(resources), "record": relocated}),
+                timeout=600,
+            )
+            health = json.loads(output)
+            operation.update(status="completed", progress="PLATON ready")
+            return health
+        except BaseException as exc:
+            operation.update(status="failed", error=f"{type(exc).__name__}: {exc}")
+            raise
+        finally:
+            operation["completed"] = time.time()
+            manager.write_json(plugin_root / "operation.json", operation)
 
 
 def main(argv=None):
