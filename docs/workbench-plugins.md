@@ -67,6 +67,58 @@ load order before activation. Changed constraints require an update even when
 the plugin wheel version is unchanged. A module-only or lightweight health
 check is not sufficient proof that the scientific worker can start.
 
+### Offline PLATON provisioning for HTTPS-only tenants
+
+CrystalPilot 0.4.0's automatic PLATON setup requests a public CA intermediate
+over HTTP. Do not relax a tenant's HTTPS-only egress to accommodate that request.
+An operator may instead provision a previously verified, automatically installed
+PLATON resource directory from a trusted installation on the same OS/architecture.
+This is a host deployment operation, not a public executable-path API.
+
+Export **only the `platon` entry** from the source installation's
+`extensions/crystalpilot/resources/software.json` as `platon-record.json`.
+Copy its complete PLATON directory, including `lib`, relative symlinks and
+third-party license notices, into **each tenant's own**
+`extensions/crystalpilot/resources/software/` directory. Retain the recorded
+executable SHA-256 and original source record. Do not copy account configuration,
+credentials, research data, or a shared writable resource root. A public CA
+certificate is not a client credential, but this offline procedure needs neither
+certificate downloads nor certificate-store changes.
+
+From the account container, with its normal Argus root and Pi/backend environment:
+
+```
+python -m argus_skill.release_tools.provision_platon \
+  --root /tenant/home/.argus-skill \
+  --directory /tenant/home/.argus-skill/extensions/crystalpilot/resources/software/platon-reviewed \
+  --record /tenant/home/.argus-skill/extensions/crystalpilot/platon-record.json
+```
+
+The directory name need not match the source. This command checks the copied
+executable against its trusted source record, refuses paths/symlinks outside the
+tenant-local resource directory, and preserves the installer's standard `libs`,
+`recipe`, `version` and executable metadata with relocated tenant-local paths.
+It uses the existing plugin lifecycle lock and busy guard: report busy accounts
+and retry when idle rather than stopping scientific jobs. The plugin's own
+candidate activation runs `platon -z2` and requires generated `check.def` before
+atomically updating `software.json`; failure preserves the previous registration.
+The following full dependency health check must report PLATON ready.
+
+The `libs` field matters: an upstream compiler can embed the original absolute
+library directory in the executable. The plugin already translates this field
+into a library search path **only for its PLATON subprocess**. Path-only
+configuration discards it. No binary patch, global loader setting, vendor-source
+change, or container restart is required. These resource files and their
+registration survive release updates on the tenant volume. For fresh tenants,
+repeat the offline copy and provisioning after the normal constrained plugin
+preinstall; do not redistribute source installation credentials. Keep copies and
+probes to at most three accounts concurrently on the invitation deployment.
+
+This operation does not change Python packages or their active-registry
+`python_constraints`. Still retain the deployment's `pip check` and actual cold
+`create_worker` acceptance evidence. PLATON availability does not provision
+SHELXL/SHELXT: their licensed credentials must come from the license holder.
+
 ## Release maintenance
 
 The catalog is curated and pinned to reviewed HTTPS artifacts and SHA-256 digests. New plugin releases require a catalog update; this implementation does not automatically trust an online latest manifest. The public catalog at the distribution source helps maintainers inspect releases but does not override a user's bundled trust configuration.
