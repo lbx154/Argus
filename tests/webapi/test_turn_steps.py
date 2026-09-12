@@ -60,6 +60,17 @@ def test_finish_closes_open_steps() -> None:
     assert steps[0] == {"kind": "tool_use", "label": "⚙ view", "started_ts": 1.0, "ended_ts": 4.0, "status": "completed"}
 
 
+def test_failed_turn_does_not_complete_unfinished_tools() -> None:
+    steps = [
+        {"label": "read", "status": "completed", "ended_ts": 2.0},
+        {"label": "write", "status": "running", "ended_ts": 0.0},
+    ]
+    finish_turn_steps(steps, now=4.0, failed=True)
+    assert steps[0]["status"] == "completed"
+    assert steps[1]["status"] == "interrupted"
+    assert steps[1]["ended_ts"] == 4.0
+
+
 def test_journal_writes_steps_to_transcript_and_live_event(tmp_path: Path) -> None:
     fragments: list[tuple[str, dict]] = []
     emitter = _TurnEmitter(

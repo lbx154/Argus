@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.webapi import map_narrative as copy
-from argus_skill.webapi.map_view import normalize_events, read_map
+from argus_skill.webapi.map_view import normalize_events, read_map, turn_records
 from argus_skill.webapi.server import create_app
 
 
@@ -408,6 +408,76 @@ def test_a_chat_turn_with_tool_steps_becomes_a_card_on_the_map(tmp_path):
     assert [e["id"] for e in again["events"] if e["item_id"] == "turn:web-7"] == [
         "turn:web-7:work", "turn:web-7:reply",
     ]
+
+
+def _legacy_solo_rows(*, failed=False, observed=True, run_label="self-implement"):
+    return [
+        {"type": "ui.operator", "message_id": "web-legacy-operator",
+         "ts": 10, "text": "Create the workbook."},
+        {"type": "agent.io.start", "call_id": "solo-1", "run_label": run_label, "ts": 11},
+        {"type": "agent.io.complete", "call_id": "solo-1", "run_label": run_label, "ts": 12,
+         "exit_code": 0, "turn_completed": True, "turn_failed": failed,
+         "tool_activity_observed": observed, "fatal_error": "Hard idle timeout" if failed else None},
+        {"type": "ui.argus", "message_id": "web-legacy-argus", "ts": 13,
+         "text": "I am building it." if failed else "Created the workbook."},
+    ]
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_legacy_solo_receipts_recover_truthful_execution_without_inventing_tools(failed):
+    asks, turns = {}, {}
+    rows = _legacy_solo_rows(failed=failed)
+    assert turn_records(rows[:2], turns, asks) == {}
+    assert turn_records(rows[2:3], turns, asks) == {}
+    recovered = turn_records(rows[3:], turns, asks)["turn:web-legacy"]
+    assert asks == {}
+    assert recovered["card"]["status"] == ("failed" if failed else "done")
+    assert recovered["card"]["started_ts"] == 11
+    assert recovered["card"]["finished_ts"] == 13
+    work, reply = recovered["events"]
+    assert work["steps"] == []
+    assert work["tool_details_recorded"] is False
+    assert work["association"] == "single_active_window"
+    assert reply["status"] == recovered["card"]["status"]
+    if failed:
+        assert work["text"] == recovered["card"]["summary"] == "Hard idle timeout"
+
+
+@pytest.mark.parametrize(
+    "run_label", ["manager-quick-reply", "map-summary", "curator.distill", "self-learning-review"],
+)
+def test_background_or_context_only_calls_do_not_recover_solo_cards(run_label):
+    assert turn_records(_legacy_solo_rows(run_label=run_label)) == {}
+
+
+def test_legacy_recovery_requires_observed_tools_and_an_unambiguous_start():
+    assert turn_records(_legacy_solo_rows(observed=False)) == {}
+    rows = _legacy_solo_rows()
+    assert turn_records([rows[0], *rows[2:]]) == {}
+    other = {**rows[0], "message_id": "web-other-operator"}
+    assert turn_records([rows[0], other, *rows[1:]]) == {}
+
+
+def test_durable_tool_steps_take_priority_over_legacy_execution_receipts():
+    rows = _legacy_solo_rows()
+    rows[-1]["steps"] = [{"kind": "tool_use", "label": "read: actual.csv",
+                         "started_ts": 11, "ended_ts": 12, "status": "completed"}]
+    work = turn_records(rows)["turn:web-legacy"]["events"][0]
+    assert work["steps"][0]["label"] == "read: actual.csv"
+    assert "tool_details_recorded" not in work
+    assert work["association"] == "explicit"
+
+
+def test_successful_solo_retry_does_not_inherit_an_earlier_failure():
+    rows = _legacy_solo_rows(failed=True)
+    retry = _legacy_solo_rows()
+    retried = [
+        *rows[:3],
+        {**retry[1], "call_id": "solo-2", "ts": 13},
+        {**retry[2], "call_id": "solo-2", "ts": 14},
+        {**retry[3], "ts": 15},
+    ]
+    assert turn_records(retried)["turn:web-legacy"]["card"]["status"] == "done"
 
 
 def test_history_pages_carry_work_segments_and_turns_and_regrow_open_segments(tmp_path):

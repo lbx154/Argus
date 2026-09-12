@@ -61,6 +61,7 @@ export interface MapEvent {
   ts_end?: number;
   /** work.segment: the tool calls that followed the narration. */
   steps?: WorkStep[];
+  tool_details_recorded?: boolean;
   overflow?: number;
   role?: string;
   status?: string;

@@ -88,6 +88,44 @@ def test_completion_scope_survives_incremental_feed_and_old_history_cache(tmp_pa
     assert not completed["history_loading"]
 
 
+def test_legacy_solo_receipts_survive_history_pages_and_rebuild_old_cache(tmp_path, monkeypatch):
+    sid, life, _ = setup_session(tmp_path)
+    rows = [
+        {"type": "ui.operator", "message_id": "web-old-operator", "ts": 3, "text": "Read the file"},
+        {"type": "agent.io.start", "call_id": "solo", "run_label": "self-micro", "ts": 4},
+        {"type": "agent.io.complete", "call_id": "solo", "run_label": "self-micro", "ts": 5,
+         "exit_code": 0, "turn_failed": True, "fatal_error": "Hard idle timeout",
+         "tool_activity_observed": True},
+        {"type": "ui.argus", "message_id": "web-old-argus", "ts": 6, "text": "Reading the file."},
+    ]
+    for row in rows:
+        append(life, row)
+    original = (life / "events.jsonl").read_bytes()
+    value = read_map(sid, tmp_path, life, include_events=False)
+    with monkeypatch.context() as old:
+        old.setattr(map_history, "HISTORY_VERSION", map_history.HISTORY_VERSION - 1)
+        old.setattr(map_history, "turn_records", lambda *_args: {})
+        previous = map_history.history_page(tmp_path, life, value, None)
+
+    monkeypatch.setattr(map_history, "PAGE_BYTES", 1)
+    page = map_history.history_page(tmp_path, life, value, previous["history_cursor"])
+    assert page["reset_history"]
+    events = list(page["events"])
+    for _ in range(len(rows) + 1):
+        if not page["history_loading"]:
+            break
+        page = map_history.history_page(tmp_path, life, value, page["history_cursor"])
+        events.extend(page["events"])
+    assert not page["history_loading"]
+    recovered = [event for event in events if event["item_id"] == "turn:web-old"]
+    assert [event["type"] for event in recovered] == ["work.segment", "turn.replied"]
+    assert recovered[0]["tool_details_recorded"] is False
+    assert recovered[1]["status"] == "failed"
+    cards = MapFeed().read(sid, tmp_path, life)["tasks"]
+    assert next(card for card in cards if card["id"] == "turn:web-old")["status"] == "failed"
+    assert (life / "events.jsonl").read_bytes() == original
+
+
 def test_unknown_cursor_and_replaced_log_return_a_full_projection(tmp_path):
     sid, life, _ = setup_session(tmp_path)
     feed = MapFeed()

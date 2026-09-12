@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from ..agent_cli._env import _SYNCHRONOUS_MANAGER_TURN_LABELS
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
 from ..life.memory import LifeMemory, _jsonl_history_paths
@@ -269,7 +270,9 @@ def turn_records(
     the matching ``ui.operator`` row (same ``web-<n>`` id) supplies the ask.
     ``turns`` and ``asks`` persist between incremental reads, so cards derived
     earlier survive a read that only sees new rows, and an ask read on one
-    page still meets its reply on the next.
+    page still meets its reply on the next. Older non-streaming replies can
+    recover execution-level evidence from a uniquely associated SELF receipt;
+    missing per-tool details are never invented.
     """
     turns = turns if turns is not None else {}
     asks = asks if asks is not None else {}
@@ -284,17 +287,57 @@ def turn_records(
             while len(asks) > 50:
                 asks.pop(next(iter(asks)))
             continue
+        run_label = str(row.get("run_label") or "")
+        if run_label in _SYNCHRONOUS_MANAGER_TURN_LABELS:
+            call_id = str(row.get("call_id") or "")
+            if row.get("type") == "agent.io.start" and call_id and len(asks) == 1:
+                ask = next(iter(asks.values()))
+                ask.setdefault("calls", {})[call_id] = {
+                    "started_ts": _timestamp(row.get("ts")),
+                }
+            elif row.get("type") == "agent.io.complete" and call_id:
+                for ask in asks.values():
+                    call = ask.get("calls", {}).get(call_id)
+                    if call is None:
+                        continue
+                    exit_code = row.get("exit_code")
+                    failed = (
+                        row.get("turn_failed") is True
+                        or row.get("turn_completed") is False
+                        or bool(row.get("fatal_error"))
+                        or isinstance(exit_code, int) and exit_code != 0
+                    )
+                    call.update(
+                        ended_ts=_timestamp(row.get("ts")),
+                        observed=row.get("tool_activity_observed") is True,
+                        status="failed" if failed else (
+                            "completed" if exit_code == 0 else "unknown"
+                        ),
+                        error=text(row.get("fatal_error"), SEGMENT_TEXT_LIMIT),
+                    )
+                    break
         if row.get("type") != "ui.argus" or not message_id.endswith("-argus"):
-            continue
-        steps = [step for step in row.get("steps") or [] if isinstance(step, dict) and step.get("label")]
-        if not steps:
             continue
         turn_id = message_id[: -len("-argus")]
         ask = asks.pop(turn_id, {})
+        steps = [step for step in row.get("steps") or [] if isinstance(step, dict) and step.get("label")]
+        calls = [call for call in ask.get("calls", {}).values() if call.get("ended_ts")]
+        observed = [call for call in calls if call.get("observed")]
+        if not steps and not observed:
+            continue
+        recovered = not steps
+        latest = calls[-1] if calls else {}
+        failed = row.get("success") is False or latest.get("status") == "failed"
+        status = "failed" if failed else (
+            "unknown" if recovered and latest.get("status") != "completed"
+            and row.get("success") is not True else "done"
+        )
         asked = text(ask.get("text"), 4000).strip()
         reply = text(row.get("text"), 4000).strip()
-        started = min((_timestamp(step.get("started_ts")) for step in steps), default=0.0)
-        finished = max((_timestamp(step.get("ended_ts")) for step in steps), default=0.0)
+        timing = steps or observed
+        started = min((_timestamp(step.get("started_ts")) for step in timing), default=0.0)
+        finished = max((_timestamp(step.get("ended_ts")) for step in timing), default=0.0)
+        error = latest.get("error") if failed else ""
         replied_at = _timestamp(row.get("ts"))
         card_id = f"turn:{turn_id}"
         title = asked.splitlines()[0] if asked else (reply.splitlines()[0] if reply else turn_id)
@@ -305,10 +348,10 @@ def turn_records(
                 "ts": _timestamp(ask.get("ts")) or started or replied_at,
                 "title": text(title, 120),
                 "objective": asked,
-                "status": "done",
+                "status": status,
                 "deps": [],
                 "role": "manager",
-                "summary": text(reply, 400),
+                "summary": text(error or reply, 400),
                 "started_ts": started or None,
                 "finished_ts": replied_at or finished or None,
             },
@@ -319,9 +362,11 @@ def turn_records(
                     "type": "work.segment",
                     "ts": started or replied_at,
                     "ts_end": finished or replied_at,
-                    "association": "explicit",
+                    "association": "single_active_window" if recovered else "explicit",
                     "role": "manager",
-                    "text": "",
+                    "text": error or "",
+                    "status": "failed" if failed else "recorded",
+                    **({"tool_details_recorded": False} if recovered else {}),
                     "steps": [
                         {
                             "kind": str(step.get("kind") or "tool_use"),
@@ -342,7 +387,7 @@ def turn_records(
                     "association": "explicit",
                     "role": "manager",
                     "text": reply,
-                    "status": "done",
+                    "status": status,
                 },
             ],
         }

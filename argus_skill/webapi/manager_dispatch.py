@@ -346,14 +346,17 @@ def record_turn_step(
 def finish_turn_steps(
     steps: list[dict[str, Any]],
     now: float | None = None,
+    *,
+    failed: bool = False,
 ) -> list[dict[str, Any]]:
     """Close any step still open when the reply lands; return the list."""
     ts = float(now if now is not None else time.time())
     for step in steps:
-        if not step.get("ended_ts"):
+        unfinished = not step.get("ended_ts")
+        if unfinished:
             step["ended_ts"] = ts
         if str(step.get("status") or "") in ("", "running"):
-            step["status"] = "completed"
+            step["status"] = "interrupted" if failed and unfinished else "completed"
     return steps
 
 
@@ -395,7 +398,9 @@ class _TurnEmitter:
             if key in result
         }
         if self.steps:
-            metadata["steps"] = finish_turn_steps(self.steps)
+            metadata["steps"] = finish_turn_steps(
+                self.steps, failed=result.get("success") is False,
+            )
             result["steps"] = metadata["steps"]
         _journal_argus_reply(
             self.life_dir,
@@ -1181,7 +1186,7 @@ def _run_triage_and_fallbacks(
             mem,
             send_body,
             chat_state,
-            on_fragment=emitter.fragment if callable(on_fragment) else None,
+            on_fragment=emitter.fragment,
             route=route,
             self_mode=self_mode,
             root_task_id=root_task_id,

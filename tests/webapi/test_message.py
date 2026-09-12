@@ -95,6 +95,49 @@ def test_message_chat_reply_passthrough(client: TestClient, monkeypatch) -> None
     assert body["reply"] == "你好呀 👋"
 
 
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+def test_self_steps_reach_the_map_with_or_without_streaming(
+    client: TestClient, tmp_path: Path, monkeypatch, streaming: bool, failed: bool,
+) -> None:
+    from argus_skill.webapi.map_view import read_map
+
+    def classify(_mem, _body, state, **_kwargs):
+        state["_frontdoor_self_mode"] = "implement"
+        return None, None, "simple"
+
+    def triage(_mem, _body, state, *, on_fragment=None, **_kwargs):
+        assert callable(on_fragment)
+        on_fragment("phase", {"kind": "tool_use", "label": "read: input.csv",
+                              "call_id": "read-1", "status": "running"})
+        on_fragment("phase", {"kind": "tool_result", "label": "read complete",
+                              "call_id": "read-1", "status": "completed"})
+        on_fragment("phase", {"kind": "command_execution", "label": "write report",
+                              "call_id": "write-1", "status": "running"})
+        if failed:
+            state["_self_failure"] = "The execution stopped before completion."
+            return state["_self_failure"]
+        on_fragment("phase", {"kind": "tool_result", "label": "write complete",
+                              "call_id": "write-1", "status": "completed"})
+        return "The report was written."
+
+    monkeypatch.setattr(config_intent, "_front_door_classify", classify)
+    monkeypatch.setattr(front_door, "manager_triage", triage)
+    suffix = "/message/stream" if streaming else "/message"
+    response = client.post(f"/api/projects/s-msgtest0{suffix}", json={"text": "Write the report."})
+    assert response.status_code == 200
+    life = tmp_path / "projects/s-msgtest0"
+    events = [json.loads(line) for line in (life / "events.jsonl").read_text().splitlines()]
+    reply = next(event for event in reversed(events) if event["type"] == "ui.argus")
+    assert [step["call_id"] for step in reply["steps"]] == ["read-1", "write-1"]
+    assert reply["steps"][0]["status"] == "completed"
+    assert reply["steps"][1]["status"] == ("interrupted" if failed else "completed")
+    data = read_map("s-msgtest0", tmp_path, life)
+    assert len(data["tasks"]) == 1
+    assert data["tasks"][0]["status"] == ("failed" if failed else "done")
+    assert data["events"][-1]["status"] == ("failed" if failed else "done")
+
+
 def test_queued_manager_message_cannot_resurrect_deleted_project(
     tmp_path: Path, monkeypatch,
 ) -> None:
