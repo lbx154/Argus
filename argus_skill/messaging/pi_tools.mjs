@@ -19,4 +19,3 @@ export function peerExtension(submit, Type) {
       Type.Object({message_id:Type.String()}), "status");
   };
 }
-

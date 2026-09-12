@@ -24,4 +24,3 @@ export function advisorExtension(submit, Type) {
     },
   });
 }
-
