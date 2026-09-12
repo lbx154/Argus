@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import App from './App';
 import { adoptTokenFromUrl } from './api';
 import { BootSplash } from './components/BootSplash';
 import { I18nProvider, useI18n } from './i18n';
@@ -13,6 +12,10 @@ import '@fontsource-variable/geist-mono';
 import 'katex/dist/katex.min.css';
 import './index.css';
 
+const isAdminData = window.location.pathname === '/admin/data' || window.location.pathname.startsWith('/admin/data/');
+const App = lazy(() => import('./App'));
+const AdminDataApp = lazy(() => import('./admin-data/AdminDataApp'));
+
 // A cockpit left open across an update can still reference a deleted hashed
 // chunk. Reload the no-store shell before React turns that import into a blank UI.
 installStaleChunkRecovery(window, () => window.location.reload(), {
@@ -22,7 +25,7 @@ installStaleChunkRecovery(window, () => window.location.reload(), {
 
 // Runs before the first request so a QR-paired phone is authenticated for
 // every later load, not just the one carrying `?token=`.
-adoptTokenFromUrl();
+if (!isAdminData) adoptTokenFromUrl();
 
 const embeddedDesktop = window.parent !== window;
 document.documentElement.dataset.argusEmbedded = String(embeddedDesktop);
@@ -41,7 +44,11 @@ function WebApp() {
   const [booting, setBooting] = useState(!embeddedDesktop);
   return (
     <>
-      <WorkspaceErrorBoundary locale={locale}><App /></WorkspaceErrorBoundary>
+      <WorkspaceErrorBoundary locale={locale}>
+        <Suspense fallback={<div className="grid min-h-screen place-items-center text-sm text-ink-faint">{locale === 'zh-CN' ? '正在加载工作台…' : 'Loading workbench…'}</div>}>
+          {isAdminData ? <AdminDataApp /> : <App />}
+        </Suspense>
+      </WorkspaceErrorBoundary>
       {booting ? <BootSplash onDone={() => setBooting(false)} /> : null}
     </>
   );

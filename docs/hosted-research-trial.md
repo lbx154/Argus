@@ -28,6 +28,20 @@ Both logins can coexist in one browser, and signing out of either leaves the
 other session intact. The administrator key grants data-backend access; opening
 a project still requires an ordinary invitation, including for `trial-11`.
 
+The user workbench and `/admin/data` use the same `frontend/web` React build.
+`src/main.tsx` selects `App` or `admin-data/AdminDataApp` by pathname. Both use
+`WorkspaceShell`, `WorkspaceHeader`, `WorkspaceSidePanel`, `useWorkbenchTheme`
+and the existing UI primitives, fonts, Markdown renderer and theme tokens.
+The data view calls `/admin/api/training/*`; it does not initialize user-workspace
+state. Project names come from the existing tenant project directory and are
+joined by tenant and SID. Loading more observations merges each episode by its
+recorded sequence; the displayed loaded count is separate from the retained total.
+
+`argus_skill/trial/data_page.py` only registers the page routes. The portal renders
+the shared build and serves its relative assets through `/admin/assets/*` for an
+administrator, or `/assets/*` for an invitation session. Configure `frontend_dir`
+to a completed build before enabling the data page; a missing build returns 503.
+
 ## Mission map
 
 The configured hosted frontend is shared by all authenticated invitation

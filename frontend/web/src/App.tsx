@@ -4,6 +4,7 @@ import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProje
 import { api, isConnectionError, type EventMsg, type MessageRouteOverride } from './api';
 import { initialMessageRoute, MESSAGE_ROUTE_KEY } from './lib/messageRoute';
 import { TopBar } from './components/TopBar';
+import { WorkspaceShell } from './components/WorkspaceShell';
 import { EventStream, latestConversationDelivery } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
 import { ComposerRuntime } from './components/ComposerRuntime';
@@ -885,13 +886,12 @@ export default function App() {
   }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, chatPending, stopWaiting, locale, t]);
 
   return (
-    <div
+    <WorkspaceShell
       ref={shellRef}
       style={{
         '--sidebar-width': `${leftWidth}px`,
         '--preview-width': `${rightWidth}px`,
       } as React.CSSProperties}
-      className="workbench-shell ambient-canvas flex w-screen max-w-full overflow-hidden text-ink"
     >
       <ConnectionProblemBanner
         error={connectionError}
@@ -1232,6 +1232,6 @@ export default function App() {
           onOpenSessions={() => setSidebarOpen(true)}
         />
       ) : null}
-    </div>
+    </WorkspaceShell>
   );
 }

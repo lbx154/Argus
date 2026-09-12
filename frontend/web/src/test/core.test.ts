@@ -591,8 +591,8 @@ describe('shared frontend core', () => {
     expect(css).toContain('--brand-eye: 255 255 255');
     expect(css).toContain('--brand-pupil: 32 35 38');
     expect(css).toContain('--brand-highlight: 255 255 255');
-    expect(html).toContain('href="/favicon-dark.svg" media="(prefers-color-scheme: dark)"');
-    expect(html).toContain('href="/apple-touch-icon-dark.png" media="(prefers-color-scheme: dark)"');
+    expect(html).toContain('href="./favicon-dark.svg" media="(prefers-color-scheme: dark)"');
+    expect(html).toContain('href="./apple-touch-icon-dark.png" media="(prefers-color-scheme: dark)"');
     expect(manifest).toContain('/icon-dark-192.png');
     expect(manifest).toContain('/icon-dark-512.png');
     expect(manifest).toContain('/icon-maskable-dark-512.png');

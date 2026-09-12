@@ -4,6 +4,7 @@ import json
 import time
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from argus_skill.trial import web_portal as portal
@@ -18,6 +19,117 @@ def admin_login(client, config, *, readonly=False):
     assert response.status_code == 200
     assert response.json() == {"redirect": "/admin/data"}
     return response
+
+
+@pytest.fixture
+def frontend_dist(tmp_path):
+    root = tmp_path / "frontend"
+    (root / "assets/chunks").mkdir(parents=True)
+    (root / "index.html").write_text('''<!doctype html><html><head>
+<link rel="icon" href="./favicon.svg"><link rel="manifest" href="./manifest.webmanifest">
+<link rel="stylesheet" href="./assets/index-abcdefgh.css">
+<link rel="preload" href="./assets/geist-a1b2c3d4.woff2" as="font">
+<script>window.theme=1</script></head><body><div id="root"></div>
+<script type="module" src="./assets/index-abcdefgh.js"></script></body></html>''')
+    files = {
+        "assets/index-abcdefgh.js": 'import("./chunks/workbench.js");',
+        "assets/chunks/workbench.js": 'export const page="shared-react";',
+        "assets/index-abcdefgh.css": '@font-face{src:url("./geist-a1b2c3d4.woff2")}',
+        "assets/geist-a1b2c3d4.woff2": "synthetic-font",
+        "favicon.svg": "<svg></svg>", "favicon-dark.svg": "<svg></svg>",
+        "manifest.webmanifest": '{"name":"Argus"}',
+        "apple-touch-icon.png": "synthetic-icon", "apple-touch-icon-dark.png": "synthetic-dark-icon",
+    }
+    for name, content in files.items():
+        (root / name).write_text(content)
+    return root, files
+
+
+def test_admin_react_build_and_all_assets_work_without_invitation_cookie(provisioned, frontend_dist):
+    config, vault, _ = provisioned
+    frontend, files = frontend_dist
+    config["frontend_dir"] = str(frontend)
+    calls = []
+    with client_for(provisioned, lambda request: calls.append(request)) as client:
+        admin_login(client, config, readonly=True)
+        assert portal.COOKIE not in client.cookies
+        for path in ("/admin/data", "/admin/data/", "/admin/data/projects/project-one"):
+            page = client.get(path)
+            assert page.status_code == 200
+            assert 'id="root"' in page.text
+            assert 'src="/admin/assets/index-abcdefgh.js"' in page.text
+            assert 'href="/admin/assets/index-abcdefgh.css"' in page.text
+            assert 'href="/admin/assets/geist-a1b2c3d4.woff2"' in page.text
+            assert 'href="/admin/favicon.svg"' in page.text
+            assert 'href="/admin/manifest.webmanifest"' in page.text
+            policy = page.headers["content-security-policy"]
+            nonce = policy.split("'nonce-", 1)[1].split("'", 1)[0]
+            assert f'<script nonce="{nonce}">' in page.text
+            assert "base-uri 'none'" in policy and "script-src 'self'" in policy
+            assert page.headers["cache-control"] == "no-store"
+        assert client.head("/admin/data/projects/project-one").content == b""
+        for name, content in files.items():
+            asset = client.get("/admin/" + name)
+            assert asset.status_code == 200 and asset.text == content
+            assert asset.headers["x-content-type-options"] == "nosniff"
+        script = client.get("/admin/assets/index-abcdefgh.js")
+        assert "javascript" in script.headers["content-type"]
+        assert script.headers["cache-control"] == "private, max-age=31536000, immutable"
+        assert client.head("/admin/assets/index-abcdefgh.js").content == b""
+        assert client.get("/admin/data/app.js").status_code == 404
+        assert client.get("/admin/assets/previous.js").status_code == 404
+        assert client.get("/assets/index-abcdefgh.js").status_code == 401
+        assert client.get("/admin/status").headers["content-type"] == "application/json"
+        assert client.get("/admin/api/does-not-exist", headers={"Accept": "text/html"}).status_code == 404
+        assert not calls
+        login(client, vault)
+        ordinary = client.get("/")
+        assert 'src="/assets/index-abcdefgh.js"' in ordinary.text
+        assert 'href="/favicon.svg"' in ordinary.text
+        assert client.get("/assets/index-abcdefgh.js").text == files["assets/index-abcdefgh.js"]
+        assert not calls
+
+
+def test_trial_and_anonymous_sessions_cannot_load_admin_build(provisioned, frontend_dist):
+    config, vault, _ = provisioned
+    config["frontend_dir"] = str(frontend_dist[0])
+    with client_for(provisioned) as client:
+        for authenticated in (False, True):
+            if authenticated:
+                login(client, vault)
+            for path in ("/admin/data", "/admin/data/projects/project-one"):
+                response = client.get(path)
+                assert response.status_code == 303
+                assert response.headers["location"] == "/admin/login"
+            for path in ("/admin/assets/index-abcdefgh.js", "/admin/assets/geist-a1b2c3d4.woff2", "/admin/favicon.svg"):
+                response = client.get(path)
+                assert response.status_code == 401
+                assert response.headers["cache-control"] == "no-store"
+                assert "shared-react" not in response.text
+
+
+def test_admin_assets_are_confined_to_dist_and_missing_build_is_explicit(provisioned, frontend_dist, tmp_path):
+    config, _, _ = provisioned
+    with client_for(provisioned) as client:
+        admin_login(client, config)
+        page = client.get("/admin/data")
+        assert page.status_code == 503 and "frontend_dir" in page.json()["detail"]
+        assert client.get("/admin/assets/index-abcdefgh.js").status_code == 503
+    frontend, _ = frontend_dist
+    config["frontend_dir"] = str(frontend)
+    outside = tmp_path / "outside.js"
+    outside.write_text("outside-build-secret")
+    (frontend / "assets/escape.js").symlink_to(outside)
+    with client_for(provisioned) as client:
+        admin_login(client, config)
+        for path in ("/admin/assets/escape.js", "/admin/assets/%2e%2e/%2e%2e/outside.js",
+                     "/admin/assets/%252e%252e/outside.js", "/admin/assets/%5coutside.js"):
+            response = client.get(path)
+            assert response.status_code == 404
+            assert "outside-build-secret" not in response.text
+        (frontend / "index.html").unlink()
+        page = client.get("/admin/data")
+        assert page.status_code == 503 and "frontend_dir" in page.json()["detail"]
 
 
 def test_admin_login_page_has_working_nonce_and_never_discloses_configured_credentials(provisioned):
@@ -131,10 +243,11 @@ def test_new_config_can_drop_admin_backend_or_keep_exact_trial11_migration_alias
     assert len(settings.tenants) == 11
 
 
-def test_admin_data_routes_use_only_admin_cookie_and_ignore_trial_consent_state(provisioned, tmp_path):
+def test_admin_data_routes_use_only_admin_cookie_and_ignore_trial_consent_state(provisioned, tmp_path, frontend_dist):
     from argus_skill.trial.analytics import Analytics
 
     config, vault, _ = provisioned
+    config["frontend_dir"] = str(frontend_dist[0])
     analytics = Analytics(tmp_path / "research", {
         "trial-11": {"data_dir": tmp_path / "trial-11", "internal_test": True},
     }, config["state_dir"] + "/usage.sqlite3", tmp_path / "compute.sqlite3")
@@ -151,7 +264,8 @@ def test_admin_data_routes_use_only_admin_cookie_and_ignore_trial_consent_state(
         assert client.get("/admin/login").status_code == 200
         admin_login(client, config)
         response = client.get("/admin/data")
-        assert response.status_code == 200 and "数据工作台" in response.text
-        assert client.get("/admin/data/app.js").status_code == 200
+        assert response.status_code == 200 and 'id="root"' in response.text
+        assert client.get("/admin/assets/index-abcdefgh.js").status_code == 200
+        assert client.get("/admin/api/training/collaboration").headers["content-type"] == "application/json"
         assert client.get("/admin/status").json()["role"] == "admin"
         assert client.get("/api/projects").status_code == 401

@@ -184,27 +184,3 @@ assert.match(heading.textContent,/http.response/);
 assert.match(heading.textContent,/Visible <script>example<\/script> answer/);
 assert.equal(heading.children.length,0);
 """)
-
-
-def test_data_workbench_keeps_raw_inspection_separate_from_quality_review():
-    from argus_skill.trial.data_page import SCRIPT as DATA_SCRIPT
-
-    javascript(r"""
-const task={tenant_id:'tenant-one',sid:'project',task_id:'task'};
-const episode={episode_id:5,task_id:'task',role:'planner',label:'规划',state:'capturing',
-  collection:{event_count:1,complete:false},quality:{state:'not_evaluated'},events:[
-    {id:'actual-event',sequence:0,kind:'context',payload:{messages:[{role:'user',content:'Actual planning input'}],tools:[]}}]};
-preview={projects:[{...task,eligible:true}],candidates:[],offset:0,has_more_projects:false};
-activeTask=task;activeProject=preview.projects[0];readonly=false;
-const candidate=observationCandidate(episode,task);preview.candidates=[candidate];
-inspect(candidate);
-assert.match(el('messages').textContent,/Actual planning input/);
-assert.match(el('sample-state').textContent,/1 条真实事件/);
-assert.match(el('sample-badges').textContent,/尚未验收/);
-el('format').value='episode';el('format').onchange();
-assert.deepEqual(JSON.parse(el('formats').textContent),episode);
-el('sample-kind').value='chat';el('sample-kind').oninput();
-assert.equal(document.querySelectorAll('.sample').length,1);
-el('select-sample-project').onclick();
-assert.equal(el('download').disabled,false);
-""", script=DATA_SCRIPT, startup="load();")
