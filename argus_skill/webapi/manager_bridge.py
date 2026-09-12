@@ -252,6 +252,10 @@ def _manager_message(
     turn_steps: list[dict[str, Any]] = []
 
     def _fragment(kind: str, payload: dict[str, Any]) -> None:
+        # A provider can emit buffered output after its interrupt was accepted.
+        # Do not let that old turn reappear in the operator's current stream.
+        if _cancelled():
+            return
         if kind == "phase":
             record_turn_step(turn_steps, payload)
         if not callable(on_fragment):
@@ -581,6 +585,7 @@ def _manager_message(
             frontdoor_failure,
             on_fragment,
             emitter,
+            cancelled=_cancelled,
         )
         if triage_result is not None:
             if _cancelled():

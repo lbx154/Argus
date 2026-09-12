@@ -1189,6 +1189,8 @@ def _run_triage_and_fallbacks(
     frontdoor_failure: str,
     on_fragment: Any,
     emitter: _TurnEmitter,
+    *,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any] | None:
     """Run Manager triage (chat/SELF path) and its three fail-closed
     fallbacks. Returns a terminal chat reply dict, or ``None`` when none of
@@ -1228,6 +1230,11 @@ def _run_triage_and_fallbacks(
         )
     except Exception:  # noqa: BLE001 — triage failure biases to task
         reply = None
+
+    # A provider may return a buffered reply or failure after interruption.
+    # Reject it before durable UI/transcript writes and self-learning hooks.
+    if cancelled is not None and cancelled():
+        return _cancelled_result()
 
     if reply is not None:
         result: dict[str, Any] = {"kind": "chat"}
