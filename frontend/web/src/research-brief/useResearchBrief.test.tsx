@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api';
 import type { Dataset } from '../map/model';
 import type { MapCopy } from '../map/presentation';
-import { briefCopyKey, briefLiveKey, briefSelection } from './model';
+import { briefCopyKey, briefLiveKey, briefSelection, READER_BRIEF_VERSION } from './model';
 import { useResearchBrief, type ResearchBriefOptions } from './useResearchBrief';
 import { completedCopy, inputs, source } from './testFixtures';
 
@@ -24,8 +24,8 @@ async function mount(props: ResearchBriefOptions = inputs()) {
 beforeEach(() => {
   vi.useFakeTimers();
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
-  client.setQueryData(briefCopyKey('s-research', 'en-US'), { cards: {}, relations: [], available: true, version: 10 });
-  vi.spyOn(api, 'mapCopy').mockResolvedValue({ cards: {}, relations: [], available: true, version: 10 });
+  client.setQueryData(briefCopyKey('s-research', 'en-US'), { cards: {}, relations: [], available: true, version: READER_BRIEF_VERSION });
+  vi.spyOn(api, 'mapCopy').mockResolvedValue({ cards: {}, relations: [], available: true, version: READER_BRIEF_VERSION });
   vi.spyOn(api, 'liveMap').mockResolvedValue(source);
 });
 
@@ -38,6 +38,36 @@ afterEach(() => {
 });
 
 describe('semantic generation and shared cache lifecycle', () => {
+  it('upgrades an unreviewed older explanation without presenting it as the current reading card', async () => {
+    const old = completedCopy(source.tasks[0], ['start-a', 'main-a']);
+    old.cards.a.version = 11;
+    client.setQueryData(briefCopyKey('s-research', 'en-US'), old);
+    let finish!: (copy: MapCopy) => void;
+    const generate = vi.spyOn(api, 'generateMapCopy').mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    await mount();
+    expect(result.task?.objective).toBe(source.tasks[0].objective);
+    expect(result.brief).toBeUndefined();
+    expect(result.generating).toBe(true);
+    expect(generate).toHaveBeenCalledTimes(1);
+    await act(async () => finish(completedCopy(source.tasks[0], ['start-a', 'main-a'])));
+    await flush();
+    expect(result.brief).toBeDefined();
+  });
+
+  it('keeps task facts when teaching cannot be checked and does not buy an automatic retry loop', async () => {
+    const copy = completedCopy(source.tasks[0], ['start-a', 'main-a']);
+    copy.cards.a.reader_brief = { ...copy.cards.a.reader_brief!, concept: null };
+    copy.cards.a.teaching_review = { status: 'unavailable', kind: 'model_teaching_review',
+      reason: 'The example could not be established.', reviewed_at: null, review_version: 1 };
+    const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue(copy);
+    await mount();
+    expect(result.teachingUnavailable).toBe(true);
+    expect(result.brief?.concept).toBeNull();
+    expect(result.brief?.scope).toBe(copy.cards.a.reader_brief.scope);
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
   it('generates one current card, shares the map cache and does not regenerate for tool/text changes', async () => {
     const generate = vi.spyOn(api, 'generateMapCopy').mockImplementation(async (_source, _sid, body) => completedCopy(source.tasks[0], body.cards[0].event_ids));
     const props = inputs();

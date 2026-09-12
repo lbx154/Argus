@@ -9,7 +9,7 @@ import { readableToolProgress } from '../../lib/feedSteps';
 import { RawDisclosure } from '../../components/primitives';
 import { deriveProgressEstimate } from '../progressEstimate';
 import type { MissionDagNode } from '../types';
-import { formatDuration, statusTone } from '../utils';
+import { formatDuration } from '../utils';
 import { useWorkbenchText } from '../useWorkbenchText';
 import type { ActiveWorkbenchPageProps } from './pageTypes';
 
@@ -93,10 +93,8 @@ export function ExperimentsPage(props: ActiveWorkbenchPageProps) {
 
         <aside className="experiment-v3-side">
           <section className="ros-card experiment-team"><header><div><h2>{text('团队如何协作', 'How the team works together')}</h2></div></header><p className="work-team-note">{text('不同角色分工接力；是否正在执行，以当前状态记录为准。', 'Roles share the work and hand results to each other. Current status shows who is actually working.')}</p><div>{AGENT_ROLES.map((name) => {
-            const role = props.snapshot.roles.find((item) => item.role === name);
             const active = running && progress.runtime.role === name;
-            const idleStatus = role?.status && !ACTIVE.has(role.status) ? role.status : 'idle';
-            return <article className={active ? 'is-active' : ''} key={name}><span data-role-dot={name} className="role-dot" style={{ backgroundColor: agentRoleColor(name) }} aria-hidden="true" /><div><strong>{roleLabel(name, text)}</strong><p>{agentRoleDescription(name, t)}</p></div>{active ? <Badge tone="live" dot>{text('执行中', 'Working')}</Badge> : <Badge tone={statusTone(idleStatus)}>{statusLabel(idleStatus, text)}</Badge>}</article>;
+            return <article className={active ? 'is-active' : ''} key={name}><span data-role-dot={name} className="role-dot" style={{ backgroundColor: agentRoleColor(name) }} aria-hidden="true" /><div><strong>{roleLabel(name, text)}</strong><p>{agentRoleDescription(name, t)}</p></div>{active ? <Badge tone="live" dot>{text('执行中', 'Working')}</Badge> : <Badge tone="neutral">{text('未在执行', 'Not working')}</Badge>}</article>;
           })}</div></section>
           <section className="ros-card estimate-note"><header><div><h2>{text('还需要多久', 'How much longer?')}</h2></div></header><div><p><strong>{text('暂无法可靠预计', 'No reliable estimate yet')}</strong>{progress.etaUnavailableReason}</p><div className="work-evidence-note"><ShieldCheck size={15} /><span>{text('真实已用时间和已完成工作可以统计。读文件、运行命令或审查结束，都不能换算成整体目标的完成百分比。', 'Elapsed time and completed work can be counted. File reads, commands, and the end of a review do not establish a completion percentage for the overall goal.')}</span></div>{props.controls.error ? <div className="inline-error">{props.controls.error}</div> : null}</div></section>
         </aside>

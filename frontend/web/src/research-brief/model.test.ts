@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { splitDraft } from '../map/presentation';
 import {
   briefCopyKey, briefEvidence, briefInputSignature, briefLiveKey, briefRequest, briefSelection,
-  currentBriefData, isReaderBrief, needsBrief, oldBriefService, questionAboutStep,
+  currentBriefData, isReaderBrief, needsBrief, oldBriefService, questionAboutStep, READER_BRIEF_VERSION,
 } from './model';
 import { completedCopy, inputs, readerBrief, source } from './testFixtures';
 
@@ -38,8 +38,8 @@ describe('one task’s explanatory evidence', () => {
     expect(needsBrief(source, task, evidence, cached)).toBe(false);
     const legacy = { ...cached, version: 9, cards: { a: { ...cached.cards.a, reader_brief: undefined, version: 9 } } };
     expect(needsBrief(source, task, evidence, legacy)).toBe(true);
-    expect(oldBriefService(legacy, legacy.cards.a)).toBe(true);
-    expect(oldBriefService({ ...legacy, version: 10 }, legacy.cards.a)).toBe(false);
+    expect(oldBriefService(legacy)).toBe(true);
+    expect(oldBriefService({ ...legacy, version: READER_BRIEF_VERSION })).toBe(false);
     expect(isReaderBrief(readerBrief)).toBe(true);
     expect(isReaderBrief({ ...readerBrief, concept: {} })).toBe(false);
   });

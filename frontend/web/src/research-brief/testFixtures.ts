@@ -2,6 +2,7 @@ import { emptyMissionView } from '../../../core/src/missionView';
 import type { Snapshot } from '../../../core/src/types';
 import type { Dataset, MapTask } from '../map/model';
 import type { MapCopy, ReaderBrief } from '../map/presentation';
+import { READER_BRIEF_VERSION } from './model';
 
 export const readerBrief: ReaderBrief = {
   why: 'Checking the stated conditions prevents extending a limited result to every case.',
@@ -40,8 +41,8 @@ export function inputs(taskId = 'a') {
 
 export function completedCopy(task: MapTask, eventIds: string[], generatedAt = 10): MapCopy {
   return { cards: { [task.id]: { title: task.title, summary: 'A bounded result', detail: 'Original evidence remains available.',
-    reader_brief: readerBrief, generated_at: generatedAt, version: 10, task_status: task.status, task_revision: task.revision,
+    reader_brief: readerBrief, generated_at: generatedAt, version: READER_BRIEF_VERSION, task_status: task.status, task_revision: task.revision,
     task_content_revision: task.content_revision, event_ids: eventIds, copy_revision: generatedAt,
     event_revisions: eventIds.map(id => source.events.find(event => event.id === id)?.revision ?? id),
-  } }, relations: [], available: true, version: 10, cache_revision: generatedAt };
+  } }, relations: [], available: true, version: READER_BRIEF_VERSION, cache_revision: generatedAt };
 }

@@ -423,6 +423,9 @@ export function toolTarget(ev: EventMsg): string {
 /** A tool action in the main status line; its full arguments stay in the record. */
 export function readableToolProgress(event: EventMsg, locale: Locale): { title: string; detail: string } | null {
   const kind = progressKind(event);
+  if (kind === 'command_execution') {
+    return { title: locale === 'zh-CN' ? '正在运行命令' : 'Running a command', detail: '' };
+  }
   if (!['tool_use', 'file_change'].includes(kind)) return null;
   const action = toolAction(toolName(event), kind);
   const labels: Record<ToolAction, [string, string]> = {

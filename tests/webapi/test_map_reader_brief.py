@@ -33,7 +33,7 @@ def project(tmp_path):
     life = tmp_path / "projects" / sid
     memory = LifeMemory.open(life)
     memory.backlog.add(BacklogItem(
-        id="a", ts=1, title="Check the exception", objective="Check the stated conditions", status="running",
+        id="a", ts=1, title="Check the exception", objective="Check the stated conditions", status="running", started_ts=2,
         goal_contribution="Determine where the argument applies", plan_hypothesis="A boundary case may fail",
         non_goals=["A proof of every case"], acceptance_check="Record the conditions and a reproducible check",
         outcome={"execution_status": "running", "review_status": "not_reviewed", "resumable": True},
@@ -53,10 +53,12 @@ def test_task_purpose_scope_and_review_provenance_reach_the_card_evidence(tmp_pa
     assert task["goal_contribution"] == "Determine where the argument applies"
     assert task["plan_hypothesis"] == "A boundary case may fail"
     assert task["non_goals"] == ["A proof of every case"]
-    assert task["outcome"] == {"execution_status": "running", "review_status": "not_reviewed", "resumable": True}
+    assert task["outcome"] == {}
+    assert task["recorded_outcome"] == {"execution_status": "running", "review_status": "not_reviewed", "resumable": True}
     request = {"key": "a", "task_id": "a", "kind": "task", "event_ids": ["review-a"]}
     document = map_narrative.card_evidence(data, [request])[0]
-    assert document["task"]["outcome"]["review_status"] == "not_reviewed"
+    assert document["task"]["outcome"] == {}
+    assert document["task"]["outcome_source"]["status"] == "not_recorded_for_current_attempt"
     assert document["events"][0]["review_source"] == "engineer_self_review"
     assert document["events"][0]["review_skipped"] is False
     assert document["events"][0]["round_index"] == 2
@@ -129,7 +131,11 @@ def test_brief_is_cached_with_source_revisions_and_does_not_change_research(tmp_
     assert before == {name: (life / name).read_bytes() for name in before}
 
     # A later review-state change makes the current brief eligible for refresh.
-    memory.backlog.update("a", outcome={"execution_status": "completed", "review_status": "accepted"})
+    outcome = {"execution_status": "completed", "review_status": "accepted"}
+    memory.backlog.update("a", status="done", finished_ts=20, outcome=outcome)
+    with (life / "events.jsonl").open("a") as stream:
+        stream.write(json.dumps({"event_id": "done-a", "item_id": "a", "type": "life.mission.completed",
+                                 "ts": 20, "outcome": outcome}) + "\n")
     source = data["id"] + ":zh-CN"
     cache = map_narrative.read_cache(tmp_path, source)
     cache["attempt_at"] = 0

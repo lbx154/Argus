@@ -51,13 +51,14 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
   const evidence = useMemo(() => briefEvidence(live.data, task, selection.eventSince), [live.data, task, selection.eventSince]);
   const inputSignature = briefInputSignature(task, evidence);
   const card = taskId ? copy.data?.cards[taskId] : undefined;
-  const brief = isReaderBrief(card?.reader_brief) ? card.reader_brief : undefined;
+  const brief = (card?.version ?? 0) >= READER_BRIEF_VERSION && isReaderBrief(card?.reader_brief)
+    ? card!.reader_brief : undefined;
   const needsUpdate = needsBrief(live.data, task, evidence, copy.data);
-  const legacy = oldBriefService(copy.data, card);
+  const legacy = oldBriefService(copy.data);
   const canGenerate = enabled && !readOnly && !!task && copy.data?.available === true
     && !legacy && !live.isError && !copy.isError;
   const generationScope = ['research-brief-generation', sid, taskId, locale, selection.eventSince] as const;
-  const generationKey = [...generationScope, inputSignature] as const;
+  const generationKey = [...generationScope, READER_BRIEF_VERSION, inputSignature] as const;
   // A task can receive its final review/certification while its first explanation
   // is still being written. Finish that request before generating the latest
   // input; intermediate states should not create parallel model calls.
@@ -72,7 +73,7 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
       // but completed text still belongs in the shared map cache.
       const result = await api.generateMapCopy('project', sid, { cards: [briefRequest(task, evidence)], locale }, undefined, sid);
       const returned = result.cards?.[task.id];
-      const valid = isReaderBrief(returned?.reader_brief);
+      const valid = (returned?.version ?? 0) >= READER_BRIEF_VERSION && isReaderBrief(returned?.reader_brief);
       const oldVersion = result.version ?? returned?.version;
       const normalized = !valid && typeof oldVersion === 'number' && oldVersion < READER_BRIEF_VERSION
         ? { ...result, version: oldVersion } : result;
@@ -108,6 +109,7 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
     generationError: needsUpdate ? generation.error : null,
     generationUnavailable: generation.data?.available === false && needsUpdate,
     generationAvailable: copy.data?.available === true,
+    teachingUnavailable: !!brief && card?.teaching_review?.status === 'unavailable',
     retry,
   };
 }

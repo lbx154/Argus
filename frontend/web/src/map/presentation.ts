@@ -36,6 +36,14 @@ export interface CardCopy {
   detail: string;
   /** Optional for existing cached cards created before presentation schema 10. */
   reader_brief?: ReaderBrief;
+  /** A teaching-text check is separate from the research task's review. */
+  teaching_review?: {
+    status: 'accepted' | 'corrected' | 'unavailable';
+    kind: 'model_teaching_review';
+    reason: string;
+    reviewed_at: number | null;
+    review_version: number;
+  };
   generated_at: number;
   task_revision?: string;
   task_content_revision?: string;

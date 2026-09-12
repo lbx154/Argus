@@ -4,9 +4,16 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 import { api } from '../api';
 import { splitDraft } from '../map/presentation';
+import { MarkdownContent } from '../components/MarkdownContent';
+import type { ReactNode } from 'react';
 import ResearchBrief from './ResearchBrief';
 import { briefCopyKey, briefLiveKey, briefSelection, currentBriefData } from './model';
 import { completedCopy, inputs, source } from './testFixtures';
+
+vi.mock('../components/Modal', () => ({
+  Modal: ({ open, children }: { open: boolean; children: ReactNode }) => open ? <div role="dialog">{children}</div> : null,
+  ModalHeader: ({ title }: { title: string }) => <h2>{title}</h2>,
+}));
 
 let renderer: ReactTestRenderer | undefined;
 let client: QueryClient | undefined;
@@ -20,16 +27,38 @@ function cachedClient() {
   return client;
 }
 
-it('shows purpose, concept and scope by default while retaining the original objective and teaching boundary', () => {
+it('puts scope and next steps before background concepts and keeps evidence in the fixed footer', () => {
   const props = inputs(), queryClient = cachedClient();
   const markup = renderToStaticMarkup(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} readOnly /></QueryClientProvider>);
   expect(markup).toContain('Why this step helps');
   expect(markup).toContain('Counterexample');
   expect(markup).toContain('the general problem remains open');
   expect(markup).toContain('Background explanations are not research progress');
-  expect(markup).toContain(source.tasks[0].objective);
+  expect(markup.indexOf('What this does and does not establish')).toBeLessThan(markup.indexOf('One useful concept'));
+  expect(markup.indexOf('The recorded next step')).toBeLessThan(markup.indexOf('One useful concept'));
+  expect(markup).toContain('View evidence');
   expect(markup).toContain('See an illustrative example');
-  expect(markup).toContain('main-a');
+  expect(markup).not.toContain('main-a');
+  expect(markup).toContain('data-testid="research-brief-footer"');
+});
+
+it('opens readable source text before the folded original JSON without generating an explanation', () => {
+  const props = inputs(), queryClient = cachedClient();
+  const data = currentBriefData(source, props.sid, 'a');
+  data.events = data.events.map(event => event.id === 'main-a' ? { ...event, text: 'SUMMARY=Checked the stated conditions.\nDecision: continue\nMILESTONE_STATUS=pending\nNEXT_ACTION=Check the remaining case.' } : event);
+  queryClient.setQueryData(briefLiveKey(props.sid, briefSelection(props.snapshot, props.view)), data);
+  const generate = vi.spyOn(api, 'generateMapCopy');
+  act(() => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} readOnly /></QueryClientProvider>); });
+  const open = renderer!.root.findAllByType('button').find(item => item.children.includes('View evidence'))!;
+  act(() => open.props.onClick());
+  const record = renderer!.root.findByProps({ 'data-event-id': 'main-a' });
+  expect(record.findByType(MarkdownContent).props.children).toBe('Checked the stated conditions.\nCheck the remaining case.');
+  expect(record.findByType('time').props.dateTime).toBe('1970-01-01T00:00:04.000Z');
+  expect(record.findByType('code').children).toContain('round.main.completed');
+  expect(record.findByType('details').props.open).toBeUndefined();
+  expect(record.findByType('pre').children.join('')).toContain('MILESTONE_STATUS=pending');
+  expect(JSON.stringify(renderer!.toJSON())).toContain(source.tasks[0].objective);
+  expect(generate).not.toHaveBeenCalled();
 });
 
 it('fills a referenced draft when asked and does not send a model request', () => {
@@ -41,6 +70,20 @@ it('fills a referenced draft when asked and does not send a model request', () =
   expect(onAsk).toHaveBeenCalledTimes(1);
   expect(splitDraft(onAsk.mock.calls[0][0]).refs[0]).toMatchObject({ source: 'live:s-research', task_id: 'a', event_ids: ['start-a', 'main-a'] });
   expect(generate).not.toHaveBeenCalled();
+});
+
+it('keeps evidence and follow-up available when the concept explanation is unavailable', () => {
+  const props = inputs(), queryClient = cachedClient();
+  const copy = completedCopy(source.tasks[0], ['start-a', 'main-a']);
+  copy.cards.a.reader_brief = { ...copy.cards.a.reader_brief!, concept: null };
+  copy.cards.a.teaching_review = { status: 'unavailable', kind: 'model_teaching_review', reason: 'internal_failure_code', reviewed_at: null, review_version: 1 };
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US'), copy);
+  const markup = renderToStaticMarkup(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} onAsk={() => {}} /></QueryClientProvider>);
+  expect(markup).toContain('You can keep asking about this step');
+  expect(markup).toContain('View evidence');
+  expect(markup).toContain('Ask about this step');
+  expect(markup).not.toContain('internal_failure_code');
+  expect(markup).not.toContain('Counterexample');
 });
 
 it('contains a record-read failure inside the card and leaves the original goal and neighboring content visible', async () => {

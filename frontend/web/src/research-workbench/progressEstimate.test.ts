@@ -293,6 +293,31 @@ function renderPage(value: Snapshot, taskEvents: EventMsg[] = events) {
 describe('ExperimentsPage recorded work presentation', () => {
   afterEach(() => vi.useRealTimers());
 
+  it('does not present a non-running role’s previous blocked or completed status as its current state', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const value = snapshot();
+    value.roles.push({ role: 'reviewer', backend: 'pi', backend_label: 'Pi', model: 'm', effort: null,
+      active: false, label: 'idle', status: 'blocked', age_s: 600 });
+    const team = renderPage(value).match(/<section class="ros-card experiment-team">[\s\S]*?<\/section>/)?.[0] ?? '';
+    expect(team).toContain('Working');
+    expect(team.match(/Not working/g)).toHaveLength(3);
+    expect(team).not.toContain('Blocked');
+    expect(team).not.toContain('Completed');
+  });
+
+  it('keeps the current command body in a closed raw disclosure', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const markup = renderPage(snapshot(), [{ ...events[1], text: 'python - <<\'PY\'\nraw_command_payload_marker\nPY' }]);
+    const callout = markup.slice(markup.indexOf('class="current-step-callout"'), markup.indexOf('class="progress-number"'));
+    expect(callout).toContain('Running a command');
+    expect(callout).toContain('Original call record');
+    expect(callout).toContain('raw_command_payload_marker');
+    expect(callout).not.toMatch(/<details[^>]*\sopen/);
+    expect(callout.replace(/<details[\s\S]*?<\/details>/g, '')).not.toContain('raw_command_payload_marker');
+  });
+
   it('shows actual mathematical work and pending checks without a paper stage rail or proof percentage', () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);

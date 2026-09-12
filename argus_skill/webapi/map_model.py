@@ -99,7 +99,11 @@ def run_map_model(
     *,
     project_root: Path,
     global_root: Path,
+    deadline: float | None = None,
 ) -> dict:
+    deadline = deadline if deadline is not None else time.monotonic() + 180
+    if time.monotonic() >= deadline:
+        raise OSError("map text generation timed out")
     backend = AgentCliBackend(
         backend=config.backend, runner_bin=config.runner_bin,
         default_extra_args=list(config.extra_args),
@@ -107,7 +111,6 @@ def run_map_model(
     backend.set_usage_context(project_root=project_root, global_root=global_root)
     scratch = global_root / "map-presentation"
     scratch.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + 180
     try:
         # A separate, read-only turn cannot resume or edit the research conversation.
         with tempfile.TemporaryDirectory(prefix="generation-", dir=scratch) as workdir:

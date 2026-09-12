@@ -1,9 +1,9 @@
 import type { MissionView, Snapshot } from '../../../core/src/types';
 import type { MapSelection } from '../map/incremental';
 import type { Dataset, MapEvent, MapTask } from '../map/model';
-import { needsCardCopy, referenceText, type CardCopy, type CardRequest, type MapCopy, type ReaderBrief } from '../map/presentation';
+import { needsCardCopy, referenceText, type CardRequest, type MapCopy, type ReaderBrief } from '../map/presentation';
 
-export const READER_BRIEF_VERSION = 10;
+export const READER_BRIEF_VERSION = 12;
 const SEMANTIC_EVENTS = new Set([
   'life.planner.task_added', 'life.mission.started', 'round.main.completed', 'round.review.completed',
 ]);
@@ -77,13 +77,13 @@ export function isReaderBrief(value: unknown): value is ReaderBrief {
 
 export function needsBrief(data: Dataset | undefined, task: MapTask | undefined, events: MapEvent[], copy?: MapCopy): boolean {
   if (!data || !task) return false;
-  return !isReaderBrief(copy?.cards[task.id]?.reader_brief)
+  return (copy?.cards[task.id]?.version ?? 0) < READER_BRIEF_VERSION
+    || !isReaderBrief(copy?.cards[task.id]?.reader_brief)
     || needsCardCopy(briefRequest(task, events), data, copy, new Map(events.map(event => [event.id, event])));
 }
 
-export function oldBriefService(copy: MapCopy | undefined, card?: CardCopy): boolean {
-  return !!copy && typeof copy.version === 'number' && copy.version < READER_BRIEF_VERSION
-    && !isReaderBrief(card?.reader_brief);
+export function oldBriefService(copy: MapCopy | undefined): boolean {
+  return !!copy && typeof copy.version === 'number' && copy.version < READER_BRIEF_VERSION;
 }
 
 export function questionAboutStep(sid: string, task: MapTask, events: readonly MapEvent[], zh: boolean): string {

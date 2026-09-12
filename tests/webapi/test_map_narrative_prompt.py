@@ -29,7 +29,7 @@ def _capture_prompt(monkeypatch) -> str:
 
 
 def test_prompt_version_bumped_for_readability_rules():
-    assert map_narrative.PROMPT_VERSION == 11
+    assert map_narrative.PROMPT_VERSION == 12
 
 
 def test_prompt_speaks_of_any_kind_of_work_not_only_research(monkeypatch):

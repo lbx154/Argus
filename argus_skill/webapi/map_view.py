@@ -10,6 +10,7 @@ from ..agent_cli._env import _SYNCHRONOUS_MANAGER_TURN_LABELS
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
 from ..life.memory import LifeMemory, _jsonl_history_paths
+from .map_outcomes import project_map_outcomes, public_outcome
 
 TASK_FIELDS = (
     "id",
@@ -83,20 +84,6 @@ def task_content_revision(task: dict) -> str:
     return digest({k: task.get(k) for k in (
         "title", "objective", "acceptance_check", "goal_contribution", "plan_hypothesis", "non_goals",
     )})
-
-
-def public_outcome(value) -> dict:
-    """Keep existing outcome dimensions, without promoting reports to verdicts."""
-    if not isinstance(value, dict):
-        return {}
-    result = {
-        key: text(value[key], 120)
-        for key in ("execution_status", "review_status", "stage_certification", "interruption_kind")
-        if isinstance(value.get(key), str)
-    }
-    if isinstance(value.get("resumable"), bool):
-        result["resumable"] = value["resumable"]
-    return result
 
 
 def with_revisions(value: dict) -> dict:
@@ -550,6 +537,12 @@ def read_map(
         if team_sources is not None and team_sources[0] == bindings else None,
     ) if include_events else ([], False, ())
     state["team_signature"] = team_signature
+    visible_events = [*events[-2000:], *team_events]
+    tasks = project_map_outcomes(tasks, visible_events)
+    for task in tasks:
+        # An outcome binding can change when a lifecycle event arrives even if
+        # the backlog row is unchanged. Its response revision must change too.
+        task["revision"] = digest({key: value for key, value in task.items() if key != "revision"})
     return with_revisions({
         "id": f"live:{sid}",
         "title": meta.display_name if meta else sid,
@@ -557,7 +550,7 @@ def read_map(
         "description": "",
         "read_only": False,
         "tasks": tasks,
-        "events": [*events[-2000:], *team_events],
+        "events": visible_events,
         "coverage": {"truncated": truncated or len(events) > 2000 or team_truncated
                      or bool(state.get("team_bindings_truncated"))},
     })

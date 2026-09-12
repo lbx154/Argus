@@ -32,6 +32,13 @@ it('describes a file operation without copying its content into the status line'
   expect(readableToolProgress({ type: 'engineer.progress', kind: 'agent_message', text: event.text }, 'zh-CN')).toBeNull();
 });
 
+it('summarizes a multiline command without placing its source in the status line', () => {
+  const event = { type: 'engineer.progress', kind: 'command_execution', text: 'python - <<\'PY\'\nprint("command body")\nPY' };
+  expect(readableToolProgress(event, 'zh-CN')).toEqual({ title: '正在运行命令', detail: '' });
+  expect(readableToolProgress(event, 'en')).toEqual({ title: 'Running a command', detail: '' });
+  expect(event.text).toContain('command body');
+});
+
 let clock = 0;
 const call = (tool: string, args: Record<string, unknown>, extra: Record<string, unknown> = {}): EventMsg => ({
   type: 'engineer.progress',

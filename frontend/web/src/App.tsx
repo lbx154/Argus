@@ -992,7 +992,7 @@ export default function App() {
               /></Suspense>}
               <div className={`${workspaceView === 'workbench' || workspaceView === 'map' ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`}>
                 <GuardianBanner alert={guardianAlert} />
-                {missionView?.mission.id && activeSid ? <div className="max-h-[38vh] shrink-0 overflow-y-auto scroll-thin">
+                {missionView?.mission.id && activeSid ? <div className="flex min-h-0 shrink-0 flex-col">
                   <ResearchBrief key={activeSid} sid={activeSid} snapshot={snap} view={missionView}
                     active={workspaceView === 'mission' || workspaceView === 'activity'} readOnly={kiosk}
                     onAsk={draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); }} />
