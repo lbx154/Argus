@@ -5,7 +5,8 @@ suffix. A pending receipt binds the next event to one inode/offset, so a crash
 between log fsync and acknowledgement needs one record read, not a history scan.
 The index is derived: if lost, or a pending inode was replaced by a copied
 backup, it is rebuilt once from retained canonical logs. Rebuilds scan retained
-bytes once with bounded record buffers; ordinary receipts never scan history.
+bytes once with bounded record buffers; ordinary receipts read their event at
+the recorded offset, checking the current log before enumerating archives.
 """
 from __future__ import annotations
 
@@ -14,8 +15,9 @@ import os
 import uuid
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, BinaryIO, TypeGuard
+from typing import Any, BinaryIO, Iterator, TypeGuard
 
+from ..core.event_catalog import EventType
 from ..core.jsonl_reader import MAX_JSONL_RECORD_BYTES
 
 INDEX_FILE = "mission-events.index.jsonl"
@@ -24,6 +26,16 @@ MAX_INDEX_RECORD_BYTES = 4096
 
 def _is_delivery_id(value: Any) -> TypeGuard[str]:
     return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+
+
+def is_mission_delivery_event(event: Any) -> TypeGuard[dict[str, Any]]:
+    return (
+        isinstance(event, dict)
+        and _is_delivery_id(event.get("mission_delivery_id"))
+        and event.get("type") == EventType.LIFE_MISSION_COMPLETED
+        and event.get("event_id") == f"mission-{event['mission_delivery_id']}"
+        and not event.get("event_validation")
+    )
 
 
 class MissionEventIndex:
@@ -93,8 +105,8 @@ class MissionEventIndex:
                         event = json.loads(line)
                     except (ValueError, UnicodeDecodeError, RecursionError):
                         continue
-                    key = event.get("mission_delivery_id") if isinstance(event, dict) else None
-                    if _is_delivery_id(key) and event.get("event_id") == f"mission-{key}":
+                    if is_mission_delivery_event(event):
+                        key = event["mission_delivery_id"]
                         recovered[key] = {
                             "id": key, "state": "written", "device": stat.st_dev,
                             "inode": stat.st_ino, "offset": offset,
@@ -124,6 +136,8 @@ class MissionEventIndex:
         self.refresh()
 
     def begin(self, key: str, handle: BinaryIO) -> None:
+        if not _is_delivery_id(key):
+            raise ValueError("invalid mission delivery id")
         stat = os.fstat(handle.fileno())
         self.append({
             "id": key, "state": "pending", "device": stat.st_dev,
@@ -138,13 +152,16 @@ class MissionEventIndex:
         row = self.rows.get(key)
         if row is None:
             return False
-        if row["state"] == "written":
-            return True
         from ..core.mission_view._replay import sync_directory
         from .event_log import event_log_paths
 
+        def candidates() -> Iterator[Path]:
+            current = self.root / "events.jsonl"
+            yield current
+            yield from (path for path in event_log_paths(current) if path != current)
+
         found_identity = False
-        for path in event_log_paths(self.root / "events.jsonl"):
+        for path in candidates():
             if not path.is_file():
                 continue
             stat = path.stat()
@@ -155,6 +172,8 @@ class MissionEventIndex:
                 handle.seek(row["offset"])
                 line = handle.readline(MAX_JSONL_RECORD_BYTES + 1)
                 if len(line) > MAX_JSONL_RECORD_BYTES:
+                    if row["state"] == "written":
+                        continue
                     raise ValueError("oversized pending mission completion event")
                 if not line.endswith(b"\n"):
                     continue
@@ -163,18 +182,21 @@ class MissionEventIndex:
                 except (ValueError, UnicodeDecodeError, RecursionError):
                     continue
                 if (
-                    not isinstance(event, dict) or event.get("mission_delivery_id") != key
-                    or event.get("event_id") != f"mission-{key}"
+                    not is_mission_delivery_event(event)
+                    or event["mission_delivery_id"] != key
                 ):
                     continue
+                if row["state"] == "written":
+                    return True
                 # A prior fsync failure must converge before we acknowledge it.
                 os.fsync(handle.fileno())
             sync_directory(self.root)
             self.finish(key)
             return True
-        if not found_identity:
+        if not found_identity or row["state"] == "written":
             # A copied backup preserves delivery IDs but changes inode/device.
-            # Rebuild only this exceptional path, then use stable IDs again.
+            # An earlier log snapshot can also invalidate a written receipt.
+            # Rebuild these exceptional paths, then use stable IDs again.
             self._rebuild()
             self.refresh()
             recovered = self.rows.get(key)

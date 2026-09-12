@@ -265,7 +265,13 @@ class JsonlEventSink:
 
     def _append(self, event: dict[str, Any]) -> bool:
         try:
+            from .mission_event_index import is_mission_delivery_event
+
             payload = self._normalize(event)
+            if "mission_delivery_id" in payload and not is_mission_delivery_event(payload):
+                # The delivery namespace is reserved for validated completion
+                # envelopes. Reject before touching its durable receipt index.
+                return False
             # A fixed final envelope field lets an unlogged compatibility view
             # notice canonical ownership even if its projection callback fails.
             payload.pop("log_writer_version", None)

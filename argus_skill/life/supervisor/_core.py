@@ -2157,9 +2157,11 @@ class LifeSupervisor(
             return True
         project = getattr(self.memory, "project", None)
         root = Path(getattr(project, "root", None) or self.memory.root)
-        self._publish_mission_completion_message(event)
-        if not any(turn.get("message_id") == f"mission-result-{delivery_id}" for turn in read_turns(root)):
-            return False
+        message_id = f"mission-result-{delivery_id}"
+        if not any(turn.get("message_id") == message_id for turn in read_turns(root)):
+            self._publish_mission_completion_message(event)
+            if not any(turn.get("message_id") == message_id for turn in read_turns(root)):
+                return False
         with (root / "transcript.jsonl").open("r+b") as handle:
             os.fsync(handle.fileno())
         _fsync_parent(root / "transcript.jsonl")

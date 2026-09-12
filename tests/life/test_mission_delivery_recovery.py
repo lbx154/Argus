@@ -297,6 +297,88 @@ def test_copied_backup_recovers_pending_receipt_without_duplicate_completion(tmp
     assert rebuilds == [restored]
 
 
+@pytest.mark.parametrize("invalid", [
+    {"mission_delivery_id": "invalid"},
+    {"mission_delivery_id": "g" * 64},
+    {"mission_delivery_id": 123},
+    {"mission_delivery_id": ""},
+    {"mission_delivery_id": None},
+    {"type": "life.status"},
+    {"event_id": "unrelated-event"},
+    {"event_schema_version": -1},
+])
+def test_invalid_delivery_envelope_cannot_poison_later_completion(tmp_path, invalid):
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    item, record = _claimed(backlog)
+    index = mission_event_index(str(tmp_path.resolve()))
+    index.refresh()
+    before = index.path.read_bytes()
+    sink = JsonlEventSink(None, life_dir=tmp_path)
+    assert not sink.append({**record["event"], **invalid})
+    assert index.path.read_bytes() == before
+    assert not (tmp_path / "events.jsonl").exists()
+    backlog.update(item.id, status="done", _mission_delivery=record)
+    assert drain_mission_deliveries(backlog, sink.handle_event)
+    assert backlog.pending_mission_deliveries() == []
+    assert [row["mission_delivery_id"] for row in _rows(tmp_path)] == [record["id"]]
+
+
+@pytest.mark.parametrize("restoration", ["partial", "earlier", "copied_earlier", "same_size"])
+def test_stale_written_receipt_cannot_ack_missing_completion(tmp_path, monkeypatch, restoration):
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    item, record = _claimed(backlog)
+    backlog.update(item.id, status="done", _mission_delivery=record)
+    sink = JsonlEventSink(None, life_dir=tmp_path)
+    assert sink.append({"type": "life.status", "text": "before completion"})
+    event_path = tmp_path / "events.jsonl"
+    previous = event_path.read_bytes()
+    with monkeypatch.context() as fault:
+        fault.setattr(backlog, "acknowledge_mission_delivery", lambda _key: (_ for _ in ()).throw(OSError("ack lost")))
+        assert not drain_mission_deliveries(backlog, sink.handle_event)
+    canonical = event_path.read_bytes()
+    index = mission_event_index(str(tmp_path.resolve()))
+    assert index.rows[record["id"]]["state"] == "written"
+    if restoration == "partial":
+        event_path.write_bytes(canonical[:-10])
+    elif restoration == "earlier":
+        event_path.write_bytes(previous)
+    elif restoration == "copied_earlier":
+        replacement = tmp_path / "earlier.events"
+        replacement.write_bytes(previous)
+        replacement.replace(event_path)
+    else:
+        event_path.write_bytes(canonical.replace(record["id"].encode(), b"c" * 64))
+        assert event_path.stat().st_size == len(canonical)
+    assert not [row for row in _rows(tmp_path) if row.get("mission_delivery_id") == record["id"]]
+    rebuild = MissionEventIndex._rebuild
+    rebuilds = []
+
+    def counted_rebuild(current):
+        rebuilds.append(current.root)
+        return rebuild(current)
+
+    monkeypatch.setattr(MissionEventIndex, "_rebuild", counted_rebuild)
+    assert drain_mission_deliveries(backlog, sink.handle_event)
+    assert backlog.pending_mission_deliveries() == []
+    assert backlog.claim_next() is None
+    assert len(backlog.history()) == 1
+    assert len([row for row in _rows(tmp_path) if row.get("mission_delivery_id") == record["id"]]) == 1
+    assert rebuilds == [tmp_path]
+
+
+def test_written_receipt_checks_current_offset_without_enumerating_archives(tmp_path, monkeypatch):
+    from argus_skill.life import event_log
+
+    backlog = Backlog(tmp_path / "backlog.jsonl")
+    item, record = _claimed(backlog)
+    backlog.update(item.id, status="done", _mission_delivery=record)
+    sink = JsonlEventSink(None, life_dir=tmp_path)
+    assert drain_mission_deliveries(backlog, sink.handle_event)
+    monkeypatch.setattr(event_log, "event_log_paths", lambda _path: pytest.fail("enumerated archive history"))
+    _require_bounded_receipt_reads(monkeypatch, tmp_path)
+    assert mission_event_index(str(tmp_path.resolve())).contains(record["id"])
+
+
 def _require_bounded_receipt_reads(monkeypatch, root):
     open_file = Path.open
 
@@ -332,7 +414,10 @@ def test_receipt_rebuild_skips_oversized_rows_in_bounded_chunks(tmp_path, monkey
     fake_key, key = "a" * 64, "b" * 64
 
     def encoded(delivery_id):
-        return (json.dumps({"mission_delivery_id": delivery_id, "event_id": f"mission-{delivery_id}"}) + "\n").encode()
+        return (json.dumps({
+            "type": EventType.LIFE_MISSION_COMPLETED,
+            "mission_delivery_id": delivery_id, "event_id": f"mission-{delivery_id}",
+        }) + "\n").encode()
 
     oversized = b"x" * (MAX_JSONL_RECORD_BYTES * 3 + 7) + encoded(fake_key)
     (tmp_path / "events.jsonl").write_bytes(oversized + encoded(key) + b"y" * (MAX_JSONL_RECORD_BYTES + 5))
