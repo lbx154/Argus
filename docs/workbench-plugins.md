@@ -59,6 +59,14 @@ automatic setup. A successful install makes the workbench available but does
 not imply that optional licensed components are installed; check their health
 rows separately.
 
+The curated CrystalPilot 0.4.0 environment constrains NumPy to `<2`: its
+distributed cctbx wheel can crash when loaded after NumPy 2. The installer
+passes catalog constraints through both pip installation stages, checks
+dependency consistency, and cold-imports the scientific registry in its real
+load order before activation. Changed constraints require an update even when
+the plugin wheel version is unchanged. A module-only or lightweight health
+check is not sufficient proof that the scientific worker can start.
+
 ## Release maintenance
 
 The catalog is curated and pinned to reviewed HTTPS artifacts and SHA-256 digests. New plugin releases require a catalog update; this implementation does not automatically trust an online latest manifest. The public catalog at the distribution source helps maintainers inspect releases but does not override a user's bundled trust configuration.

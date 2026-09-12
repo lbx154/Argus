@@ -9,6 +9,8 @@
       "session_bindings": "plugins/crystalpilot/bindings.json",
       "factory": "argus_crystalpilot.host:CrystalPilotPlugin",
       "installer": "argus_crystalpilot.installation",
+      "python_constraints": ["numpy<2"],
+      "validation_imports": ["numpy", "crystalpilot.refine.project"],
       "setup": {
         "module": "argus_crystalpilot.dependencies",
         "actions": [

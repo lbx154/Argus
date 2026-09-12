@@ -112,6 +112,14 @@ def installed_digest(row, root):
     return None
 
 
+def matches_catalog(row, spec, root):
+    return (
+        row.get("version") == spec["version"]
+        and installed_digest(row, root) == spec.get("artifact", {}).get("sha256")
+        and row.get("python_constraints", []) == spec.get("python_constraints", [])
+    )
+
+
 def compatibility(spec, *, env=None, system=None):
     from types import SimpleNamespace
 
@@ -252,11 +260,7 @@ def plugin_rows(root=None):
                 "enabled": bool(state.get("enabled")),
                 "installed_version": state.get("version"),
                 "update_available": bool(
-                    state.get("version")
-                    and (
-                        state.get("version") != spec["version"]
-                        or installed_digest(state, root) != spec.get("artifact", {}).get("sha256")
-                    )
+                    state.get("version") and not matches_catalog(state, spec, root)
                 ),
                 "operation": operation,
                 "health": read_json(install_root(root) / name / "resources" / "health.json"),
@@ -450,6 +454,14 @@ def _install(name, spec, root, action="install"):
         _fetch(spec, wheel)
         _extract(wheel, target / "package")
         write_json(target / "plugin.json", spec)
+        install_env = os.environ.copy()
+        constraints = spec.get("python_constraints", [])
+        if constraints:
+            constraint_file = target / "python-constraints.txt"
+            constraint_file.write_text("\n".join(constraints) + "\n", encoding="utf-8")
+            install_env["PIP_CONSTRAINT"] = " ".join(filter(None, [
+                install_env.get("PIP_CONSTRAINT"), str(constraint_file),
+            ]))
         operation["progress"] = "安装独立运行环境（首次可能需要几分钟）"
         write_json(operation_path, operation)
         executable = _python(root)
@@ -470,6 +482,7 @@ def _install(name, spec, root, action="install"):
                 stdout=output,
                 stderr=output,
                 timeout=900,
+                env=install_env,
             )
             subprocess.run(
                 [str(py), "-m", spec["installer"], "--prefix", str(science)],
@@ -477,6 +490,7 @@ def _install(name, spec, root, action="install"):
                 stdout=output,
                 stderr=output,
                 timeout=1800,
+                env=install_env,
             )
             subprocess.run(
                 [str(py), "-m", spec["installer"], "--check"],
@@ -485,6 +499,20 @@ def _install(name, spec, root, action="install"):
                 stderr=output,
                 timeout=120,
             )
+            subprocess.run(
+                [str(py), "-m", "pip", "check"],
+                check=True, stdout=output, stderr=output, timeout=120,
+            )
+            if spec.get("validation_imports"):
+                subprocess.run(
+                    [
+                        str(py), "-I", "-X", "faulthandler", "-c",
+                        "import importlib,sys; "
+                        "[importlib.import_module(name) for name in sys.argv[1:]]",
+                        *spec["validation_imports"],
+                    ],
+                    check=True, stdout=output, stderr=output, timeout=120,
+                )
         if spec.get("setup", {}).get("automatic"):
             _run_setup(name, spec, root, str(py), "repair")
         candidate = {
@@ -494,6 +522,7 @@ def _install(name, spec, root, action="install"):
             "enabled": True,
             "installed": time.time(),
             "sha256": spec["artifact"]["sha256"],
+            "python_constraints": constraints,
         }
         # Validate import, interface, identity and vertical on the current host
         # before changing the active registry or stopping the old worker.
@@ -605,9 +634,7 @@ def mutate(name, action, root=None, *, payload=None):
                 raise PluginError(c["reason"])
             if action == "update" and not row.get("release"):
                 raise PluginError("插件尚未安装")
-            if row.get("version") == spec["version"] and installed_digest(row, root) == spec.get(
-                "artifact", {}
-            ).get("sha256"):
+            if matches_catalog(row, spec, root):
                 raise PluginError("此版本已安装，可启用插件。")
             return _start_job(root, name, action, _install, (name, spec, root, action))
         if action in spec.get("setup", {}).get("actions", []):
@@ -656,9 +683,7 @@ def preinstall_need(name, root=None):
     row = state_entry(name, root)
     if not row.get("release"):
         return "install"
-    if row.get("version") != spec["version"] or installed_digest(row, root) != spec.get(
-        "artifact", {}
-    ).get("sha256"):
+    if not matches_catalog(row, spec, root):
         return "update"
     if not row.get("enabled"):
         return "enable"

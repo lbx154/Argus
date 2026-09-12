@@ -31,6 +31,7 @@ def current_row(**changes):
         "enabled": True,
         "installed": 1.0,
         "sha256": spec["artifact"]["sha256"],
+        "python_constraints": spec.get("python_constraints", []),
     }
     row.update(changes)
     return row
@@ -71,6 +72,19 @@ def test_current_plugin_is_left_untouched(host, monkeypatch):
     for _ in range(2):
         assert pm.preinstall(host, ids=["crystalpilot"]) == {"crystalpilot": {"status": "ready"}}
     assert not (pm.install_root(host) / "crystalpilot" / "operation.json").exists()
+
+
+def test_changed_scientific_constraints_require_an_update(host, slow_install):
+    release, calls = slow_install
+    release.set()
+    write_registry(host, current_row(python_constraints=[]))
+    assert pm.preinstall_need("crystalpilot", host) == "update"
+    assert pm.plugin_rows(host)[0]["update_available"] is True
+    assert pm.preinstall(host, ids=["crystalpilot"], wait=True, timeout=10) == {
+        "crystalpilot": {"status": "completed", "action": "update"},
+    }
+    assert calls == ["update"]
+    assert pm.preinstall_need("crystalpilot", host) is None
 
 
 def test_missing_plugin_is_installed_once_even_when_asked_again(host, slow_install):

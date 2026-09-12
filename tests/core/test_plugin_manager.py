@@ -77,6 +77,48 @@ def test_archive_traversal_is_rejected(tmp_path):
     assert not (tmp_path / "outside.py").exists()
 
 
+@pytest.mark.parametrize("import_fails", [False, True])
+def test_install_constrains_nested_pip_and_requires_real_scientific_imports(
+    empty_host, monkeypatch, import_fails,
+):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    spec = {**pm.catalog()["crystalpilot"], "setup": {"automatic": False}}
+    prior = {"old-plugin": {"enabled": True}}
+    pm.write_json(pm.install_root(empty_host) / "registry.json", prior)
+    monkeypatch.setattr(pm, "_fetch", lambda *a: None)
+    monkeypatch.setattr(pm, "_extract", lambda *a: None)
+    monkeypatch.setattr(pm, "_python", lambda *a: sys.executable)
+    monkeypatch.setattr(pm, "_busy", lambda *a: None)
+    monkeypatch.setattr(pm, "load_plugin", lambda *a, **kw: None)
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        if "-X" in command and import_fails:
+            raise subprocess.CalledProcessError(-11, command)
+
+    monkeypatch.setattr(pm.subprocess, "run", run)
+    pm._install("crystalpilot", spec, empty_host)
+    install_calls = [kw for command, kw in calls if "install" in command or spec["installer"] in command and "--prefix" in command]
+    assert len(install_calls) == 2
+    assert all("PIP_CONSTRAINT" in kw["env"] for kw in install_calls)
+    assert install_calls[0]["env"] == install_calls[1]["env"]
+    assert any(command[1:] == ["-m", "pip", "check"] for command, _ in calls)
+    assert any(command[-2:] == ["numpy", "crystalpilot.refine.project"] for command, _ in calls)
+    operation = pm.read_json(pm.install_root(empty_host) / "crystalpilot" / "operation.json")
+    if import_fails:
+        assert operation["status"] == "failed" and "SIGSEGV" in operation["error"]
+        assert pm.registry(empty_host) == prior
+    else:
+        assert operation["status"] == "completed"
+        constraint_file = Path(install_calls[0]["env"]["PIP_CONSTRAINT"].split()[-1])
+        assert constraint_file.read_text() == "numpy<2\n"
+        assert pm.registry(empty_host)["crystalpilot"]["python_constraints"] == ["numpy<2"]
+
+
 def test_manage_requires_auth_and_does_not_launch_missing_plugin(empty_host):
     from fastapi.testclient import TestClient
 
