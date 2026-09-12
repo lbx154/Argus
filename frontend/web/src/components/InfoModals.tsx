@@ -2,7 +2,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { MapModelSettings } from '../map/MapModelSettings';
 import { useDoctor, useConfig, useIdentity, useTranscript } from '../hooks';
 import { Modal, ModalHeader } from './Modal';
-import { Spinner, EmptyHint } from './primitives';
+import { Spinner, EmptyHint, RawDisclosure } from './primitives';
+import { lastMeaningfulLine } from '../lib/rawSummary';
 import { effortColor } from '../lib/theme';
 import { ago } from '../lib/format';
 import { useEffect, useState, type FormEvent } from 'react';
@@ -133,10 +134,16 @@ export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean
             </div>
           ))}
         </div>}
-        {!isLoading && !isError && data?.log_tail && (
+        {!isLoading && !isError && data?.log_tail?.trim() && (
           <div className="mt-4">
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('doctor.daemonLog')}</div>
-            <pre className="max-h-48 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-3 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">{data.log_tail}</pre>
+            <p className="text-xs leading-5 text-ink-dim">
+              <span className="text-ink-faint">{t('doctor.lastEntry')} · </span>
+              {lastMeaningfulLine(data.log_tail)}
+            </p>
+            <RawDisclosure>
+              <pre className="mt-1 max-h-48 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-3 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">{data.log_tail}</pre>
+            </RawDisclosure>
           </div>
         )}
       </div>

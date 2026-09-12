@@ -20,7 +20,9 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
 import { requestFailureText, routeRefused } from '../lib/requestFailure';
+import { metricsFigures, outputSummary } from '../lib/rawSummary';
 import { ResourceStatusView } from './ResourceStatus';
+import { RawDisclosure } from './primitives';
 
 type QuickAction = 'task' | 'nudge' | 'note' | 'plan';
 type OperationTab = 'work' | 'runtime' | 'system' | 'recovery';
@@ -66,7 +68,8 @@ export function OperationsModal({
   const [text, setText] = useState('');
   const [workdir, setWorkdir] = useState(snap.session.workdir ?? snap.session.cwd ?? '');
   const [skillsArgs, setSkillsArgs] = useState('ls');
-  const [output, setOutput] = useState('');
+  // What a command came back with: the sentence on the page, the record in a fold.
+  const [output, setOutput] = useState<{ text: string; raw?: string } | null>(null);
   const [failure, setFailure] = useState<{ text: string; technical: string } | null>(null);
   const [unavailable, setUnavailable] = useState<ReadonlySet<Capability>>(() => new Set());
   const [skillsOutput, setSkillsOutput] = useState('');
@@ -150,11 +153,13 @@ export function OperationsModal({
   const run = async (key: string, operation: () => Promise<unknown>, success: string | null) => {
     if (busy) return;
     setBusy(key);
-    setOutput('');
+    setOutput(null);
     setFailure(null);
     try {
       const result = await operation();
-      if (success !== null) setOutput(success || JSON.stringify(result, null, 2));
+      if (success !== null) {
+        setOutput(success ? { text: success } : { text: t('operations.done'), raw: JSON.stringify(result, null, 2) });
+      }
       onChanged();
     } catch (error) {
       reportFailure(error);
@@ -169,11 +174,13 @@ export function OperationsModal({
     if (action === 'plan') {
       await run('quick', async () => {
         const plan = await api.previewPlan(sid, body);
-        setOutput([
-          ...plan.steps.map((step, index) => `${index + 1}. ${step.title}${step.detail ? ` — ${step.detail}` : ''}`),
-          ...plan.notes.map((note) => `Note: ${note}`),
-          ...(plan.error ? [`Error: ${plan.error}`] : []),
-        ].join('\n'));
+        setOutput({
+          text: [
+            ...plan.steps.map((step, index) => `${index + 1}. ${step.title}${step.detail ? ` — ${step.detail}` : ''}`),
+            ...plan.notes.map((note) => `Note: ${note}`),
+            ...(plan.error ? [`Error: ${plan.error}`] : []),
+          ].join('\n'),
+        });
         return plan;
       }, null);
       return;
@@ -221,7 +228,7 @@ export function OperationsModal({
           ['system', t('operations.system'), faChartLine],
           ['recovery', t('operations.recovery'), faTrashArrowUp],
         ] as const).map(([value, label, icon]) => (
-          <button key={value} type="button" onClick={() => { setTab(value); setOutput(''); setFailure(null); }} aria-current={tab === value ? 'page' : undefined} className={`flex h-8 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-xs font-medium ${tab === value ? 'bg-blue/10 text-blue' : 'text-ink-faint hover:bg-bg hover:text-ink'}`}><FontAwesomeIcon icon={icon} /><span>{label}</span></button>
+          <button key={value} type="button" onClick={() => { setTab(value); setOutput(null); setFailure(null); }} aria-current={tab === value ? 'page' : undefined} className={`flex h-8 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-xs font-medium ${tab === value ? 'bg-blue/10 text-blue' : 'text-ink-faint hover:bg-bg hover:text-ink'}`}><FontAwesomeIcon icon={icon} /><span>{label}</span></button>
         ))}
       </div>
       <div className="grid max-h-[76vh] gap-3 overflow-y-auto bg-bg p-3 scroll-thin lg:grid-cols-2">
@@ -308,16 +315,46 @@ export function OperationsModal({
             <input value={skillsArgs} onChange={(event) => setSkillsArgs(event.target.value)} className="h-9 min-w-0 flex-1 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" placeholder="ls, stats, show NAME…" />
             <button type="button" disabled={!!busy} onClick={() => void run('skills', async () => { const result = await api.skills(sid, skillsArgs); setSkillsOutput(result); return result; }, null)} title={t('operations.runSkill')} aria-label={t('operations.runSkill')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/50 text-xs text-blue disabled:opacity-40"><FontAwesomeIcon icon={faPlay} /></button>
           </div>
-          {skillsOutput ? <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-bg p-3 font-mono text-xs text-ink-dim scroll-thin">{skillsOutput}</pre> : null}
+          {skillsOutput ? (() => {
+            const glance = outputSummary(skillsOutput);
+            return (
+              <div className="mt-3 text-xs text-ink-dim">
+                <p className="break-words">
+                  {glance.first}
+                  {glance.lines > 1 ? <span className="text-ink-faint"> · {t('operations.outputLines', { count: glance.lines })}</span> : null}
+                </p>
+                <RawDisclosure>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-bg p-3 font-mono text-xs text-ink-dim scroll-thin">{skillsOutput}</pre>
+                </RawDisclosure>
+              </div>
+            );
+          })() : null}
         </section> : null}
 
         {tab === 'system' && !unavailable.has('metrics') ? <section className="rounded-lg border border-line bg-panel p-4">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-dim">{t('operations.metrics')}</h3>
           <div className="mt-3 flex items-center gap-3">
-            <span className={`rounded px-2 py-1 text-xs font-semibold ${metrics?.slo?.status === 'healthy' ? 'bg-ok/10 text-ok' : 'bg-warn/10 text-warn'}`}>{metrics?.slo?.status ?? 'loading'}</span>
-            <span className="text-xs text-ink-faint">event validation failures: {metrics?.event_validation_failures ?? '—'}</span>
+            <span className={`rounded px-2 py-1 text-xs font-semibold ${metrics?.slo?.status === 'healthy' ? 'bg-ok/10 text-ok' : 'bg-warn/10 text-warn'}`}>
+              {!metrics ? t('operations.slo.loading') : t(metrics.slo?.status === 'healthy' ? 'operations.slo.healthy' : 'operations.slo.degraded')}
+            </span>
+            <span className="text-xs text-ink-faint">{t('operations.validationFailures', { count: metrics?.event_validation_failures ?? '—' })}</span>
           </div>
-          {metrics ? <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-bg p-3 font-mono text-[10px] text-ink-dim scroll-thin">{JSON.stringify({ web: metrics.web, provider: metrics.provider, cost_control: metrics.cost_control }, null, 2)}</pre> : null}
+          {metrics ? (
+            <p className="mt-3 text-xs text-ink-dim">
+              {metricsFigures(metrics).map((figure, index) => (
+                <span key={figure.key}>
+                  {index > 0 ? <span className="text-ink-faint"> · </span> : null}
+                  <span className="text-ink-faint">{t(`operations.metric.${figure.key}`)} </span>
+                  <span className="font-mono tabular-nums text-ink">{figure.value}</span>
+                </span>
+              ))}
+            </p>
+          ) : null}
+          {metrics ? (
+            <RawDisclosure>
+              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-bg p-3 font-mono text-[10px] text-ink-dim scroll-thin">{JSON.stringify({ web: metrics.web, provider: metrics.provider, cost_control: metrics.cost_control }, null, 2)}</pre>
+            </RawDisclosure>
+          ) : null}
         </section> : null}
 
         {tab === 'system' && !unavailable.has('resources') ? <ResourceStatusView status={resources} error={resourceError} /> : null}
@@ -346,14 +383,22 @@ export function OperationsModal({
           <div className="rounded-lg border border-line bg-panel p-3 text-sm text-ink-dim lg:col-span-2">
             <p>{failure.text}</p>
             {failure.technical ? (
-              <details className="mt-1 text-xs text-ink-faint">
-                <summary className="cursor-pointer hover:text-ink">{t('operations.technicalDetails')}</summary>
+              <RawDisclosure label={t('operations.technicalDetails')}>
                 <pre className="mt-1 whitespace-pre-wrap font-mono">{failure.technical}</pre>
-              </details>
+              </RawDisclosure>
             ) : null}
           </div>
         ) : null}
-        {output ? <pre className="rounded-lg border border-line bg-panel p-3 font-mono text-xs whitespace-pre-wrap text-ink-dim lg:col-span-2">{output}</pre> : null}
+        {output ? (
+          <div className="rounded-lg border border-line bg-panel p-3 text-sm text-ink-dim lg:col-span-2">
+            <p className="whitespace-pre-wrap break-words">{output.text}</p>
+            {output.raw ? (
+              <RawDisclosure>
+                <pre className="mt-1 whitespace-pre-wrap font-mono text-xs">{output.raw}</pre>
+              </RawDisclosure>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </Modal>
   );

@@ -8,16 +8,22 @@ import {
 } from '../../core/src/events.js';
 import { formatMissionRouting } from '../../core/src/missionView.js';
 import { missionOutcomePresentation } from '../../core/src/missionOutcome.js';
+import {
+  renderLine,
+  type RenderContext,
+  type RenderedLine,
+} from '../../core/src/eventRender/index.js';
 
 export { isReasoning, mergeFragment };
 
 /**
- * Clean, whitelisted event rendering for the terminal — the twin of the web's
- * lib/eventRender.ts and a faithful port of the Python cockpit
- * (cli/event_format.py + apps/cli/_follow.py). The daemon's raw events.jsonl is
- * noisy: raw CLI framing (``agent.io.*``), telemetry, empty progress. The REPL
- * shows a WHITELIST — each meaningful event → role, glyph, one clean line;
- * everything else is HIDDEN. No more ``agent.io.stream`` flooding the feed.
+ * Clean, whitelisted event rendering for the terminal — a port of the Python
+ * cockpit (cli/event_format.py + apps/cli/_follow.py). The daemon's raw
+ * events.jsonl is noisy: raw CLI framing (``agent.io.*``), telemetry, empty
+ * progress. The REPL shows a WHITELIST — each meaningful event → role, glyph,
+ * one clean line; everything the whitelist does not name goes through the
+ * shared renderer (frontend/core/src/eventRender), which the web feed reads
+ * for every event; what neither knows is HIDDEN.
  */
 
 export type Tone = 'bright' | 'dim' | 'accent' | 'ok' | 'warn' | 'err' | 'info';
@@ -219,8 +225,6 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     const glyph = st === 'done' ? '✅' : st === 'blocked' || st === 'no_progress' ? '⛔' : '↻';
     return { role: 'reviewer', label: 'Reviewer', glyph, text: `${reviewVerdict(st)} · ${trunc(S(ev, 'reason'), 200)}`, tone };
   }
-  if (t === 'life.iteration.critic') return { role: 'critic', label: 'Critic', glyph: '👔', text: `${S(ev, 'decision') || ''} ${trunc(S(ev, 'reason'), 160)}`, tone: 'info' };
-  if (t === 'life.iteration.continued') return { role: 'critic', label: 'Critic', glyph: '🔁', text: 'lined up the next iteration', tone: 'dim' };
   if (t === 'life.mission.completed' || t === 'mission.completed' || t === 'loop.completed') {
     const presentation = missionOutcomePresentation(ev);
     const summary = trunc(S(ev, 'summary'), 240);
@@ -239,9 +243,6 @@ export function renderEvent(ev: EventMsg): Rendered | null {
   if (t === 'loop.done') return { role: 'engineer', label: 'Engineer', glyph: '🏁', text: `the run finished ${trunc(S(ev, 'text'), 140)}`, tone: 'dim' };
 
   if (t === 'life.inbox.queued') return { role: 'system', label: 'You', glyph: '📥', text: `you added guidance · ${trunc(S(ev, 'text'), 180)}`, tone: 'accent' };
-  if (t === 'final.report.ready' || t === 'pptx.report.ready') return { role: 'system', label: 'Argus', glyph: '📄', text: 'report ready', tone: 'accent' };
-  if (t === 'plan.completed') return { role: 'planner', label: 'Planner', glyph: '📋', text: 'plan completed', tone: 'accent' };
-  if (t === 'daemon.stopping') return { role: 'system', label: 'Argus', glyph: '🛑', text: 'Argus is stopping', tone: 'err' };
   if (t === 'daemon.parked') {
     return {
       role: 'system',
@@ -287,21 +288,6 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     return { role: 'system', label: 'Watch', glyph: '⛔', text: `blocked — needs you · ${trunc(S(ev, 'text') || S(ev, 'reason'), 150)}`, tone: 'err', rule: true };
   if (t === 'life.daemon.idle_timeout')
     return { role: 'system', label: 'Watch', glyph: '🟦', text: trunc(S(ev, 'text') || 'nothing to do for a while — standing by', 150), tone: 'dim' };
-  // round.watchdog.* only reach the feed in "full" verbosity — still render them.
-  if (t === 'round.watchdog.restart_requested')
-    return { role: 'system', label: 'Watch', glyph: '🔄', text: `the round got stuck — starting it again · ${trunc(S(ev, 'reason'), 170)}`, tone: 'warn' };
-  if (t === 'engineer.failure_nudge')
-    return { role: 'engineer', label: 'Engineer', glyph: '⚠', text: `the same tool keeps failing — ${trunc(S(ev, 'text') || S(ev, 'reason'), 170)}`, tone: 'warn' };
-  if (t === 'mission.idle')
-    return { role: 'system', label: 'Argus', glyph: '🟦', text: trunc(S(ev, 'text') || 'idle — waiting for the next task', 160), tone: 'dim' };
-  // Catch-all: any event the daemon flagged for the operator's eyes, surfaced
-  // loud even if its type has no bespoke renderer above (harness marks it, the
-  // cockpit shows it — the guardian never swallows an alert).
-  if ((ev as Record<string, unknown>).operator_alert === true) {
-    const body = trunc(S(ev, 'text') || S(ev, 'reason') || t, 170);
-    if (body) return { role: 'system', label: 'Watch', glyph: '👁', text: body, tone: 'err', rule: true };
-  }
-
   // Operator ↔ Manager conversation, injected locally so it flows inline with
   // the mission feed (the Manager reply lives in transcript, not events).
   if (t === 'ui.operator') return { role: 'system', label: 'You', glyph: '›', text: S(ev, 'text'), tone: 'accent', rule: true };
@@ -316,8 +302,44 @@ export function renderEvent(ev: EventMsg): Rendered | null {
     return body ? { role: 'manager', label: 'Steps', glyph: '⋮', text: body, tone: 'dim' } : null;
   }
 
+  // Catalog events this whitelist does not enumerate render through the
+  // shared semantic renderer, so the terminal shows the same line as every
+  // other frontend instead of dropping the event.
+  const shared = renderLine(ev, SHARED_RENDER_CONTEXT);
+  if (shared) return fromSharedLine(shared);
+
+  // Catch-all: any event the daemon flagged for the operator's eyes, surfaced
+  // loud even if its type has no bespoke renderer above (harness marks it, the
+  // cockpit shows it — the guardian never swallows an alert).
+  if ((ev as Record<string, unknown>).operator_alert === true) {
+    const body = trunc(S(ev, 'text') || S(ev, 'reason') || t, 170);
+    if (body) return { role: 'system', label: 'Watch', glyph: '👁', text: body, tone: 'err', rule: true };
+  }
+
   // Everything else (agent.io.*, internal bookkeeping) → hidden.
   return null;
+}
+
+const SHARED_RENDER_CONTEXT: RenderContext = {
+  locale: 'en',
+  showReasoning: true,
+  unknownEventPolicy: 'hide',
+  density: 'full',
+};
+
+/** A shared-renderer line in this file's Rendered shape. The terminal speaks
+ *  as the watcher — every notice is labelled Watch, as the whitelist above does. */
+function fromSharedLine(line: RenderedLine): Rendered {
+  return {
+    role: line.role,
+    label: line.labelKey === 'event.notice' ? 'Watch' : line.label,
+    glyph: line.glyph,
+    text: line.text,
+    tone: line.tone,
+    ...(line.rule ? { rule: true } : {}),
+    ...(line.reasoning ? { reasoning: true } : {}),
+    ...(line.expand ? { expand: true } : {}),
+  };
 }
 
 /** message_id for streaming coalescing (empty when the event is not a stream). */

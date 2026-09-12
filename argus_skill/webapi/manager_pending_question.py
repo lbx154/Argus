@@ -109,7 +109,7 @@ def _emit_ui_turn(
         from ..life.event_log import JsonlEventSink
 
         event = {
-            "type": f"ui.{role}",
+            "type": "ui.argus" if role == "argus" else "ui.operator",
             "agent_layer": "manager" if role == "argus" else "operator",
             "message_id": message_id,
             "text": text,

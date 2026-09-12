@@ -191,6 +191,9 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "delivery_id"?: string;
   "delivery"?: { "schema_version"?: number; "delivery_id"?: string; "kind"?: string; "item_id"?: string; "title"?: string; "summary"?: string; "status"?: string; "review_status"?: string; "delivered_at"?: number; "primary_target"?: Record<string, unknown> | null; "targets"?: Array<Record<string, unknown>>; } | null;
   "operator_question"?: string;
+  "stop_reason"?: string;
+  "failure_kind"?: string;
+  "failure_cause"?: string;
 }
 
 export interface RoundStartEvent extends EventMsg {
@@ -259,6 +262,8 @@ export interface RoundReviewCompletedEvent extends EventMsg {
   "backend_unavailable"?: boolean;
   "usage_scope"?: "delta";
   "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
+  "failure_kind"?: string;
+  "failure_cause"?: string;
 }
 
 export interface RoundSecretRedactedEvent extends EventMsg {
@@ -1211,6 +1216,557 @@ export interface OperatorAlertEvent extends EventMsg {
   "operator_alert"?: true;
 }
 
+export interface LifeMissionProviderConfigurationDisabledEvent extends EventMsg {
+  type: "life.mission.provider_configuration_disabled";
+  payload_schema_version?: 1;
+  "item_id": string;
+  "title"?: string;
+  "streak": number;
+  "signature"?: string;
+  "error"?: string;
+  "operator_alert": true;
+  "text"?: string;
+}
+
+export interface LifeIterationContinuedEvent extends EventMsg {
+  type: "life.iteration.continued";
+  payload_schema_version?: 1;
+  "item_id": string;
+  "requeued": boolean;
+  "status": string;
+  "cycles_done"?: number;
+  "cycles_max"?: number;
+  "cost_so_far_usd"?: number;
+  "new_objective"?: string;
+}
+
+export interface LifeReviewWaivedEvent extends EventMsg {
+  type: "life.review.waived";
+  payload_schema_version?: 1;
+  "item_id"?: string;
+  "title"?: string;
+  "text": string;
+  "reason": string;
+}
+
+export interface LifePostMissionStopEvent extends EventMsg {
+  type: "life.post_mission.stop";
+  payload_schema_version?: 1;
+  "reason": string;
+  "item_id"?: string | null;
+  "status"?: string | null;
+}
+
+export interface LifeExecutionHostBlockedEvent extends EventMsg {
+  type: "life.execution_host.blocked";
+  payload_schema_version?: 1;
+  "item_id"?: string;
+  "blocked_item_id"?: string;
+  "reason": string;
+  "operator_alert": true;
+  "recoverable"?: boolean;
+}
+
+export interface LifeAuthFailureEvent extends EventMsg {
+  type: "life.auth_failure";
+  payload_schema_version?: 1;
+  "item_id": string;
+  "text"?: string;
+}
+
+export interface LifeSupervisorErrorEvent extends EventMsg {
+  type: "life.supervisor.error";
+  payload_schema_version?: 1;
+  "error": string;
+  "recovered_item_ids"?: Array<string>;
+}
+
+export interface LifeLearnedVerticalPromotedEvent extends EventMsg {
+  type: "life.learned_vertical.promoted";
+  payload_schema_version?: 1;
+  "vertical": string;
+}
+
+export interface LifeLearnedVerticalPromotionFailedEvent extends EventMsg {
+  type: "life.learned_vertical.promotion_failed";
+  payload_schema_version?: 1;
+  "vertical": string;
+  "error": string;
+}
+
+export interface LifeManagerIntentSupersededEvent extends EventMsg {
+  type: "life.manager.intent.superseded";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "intent_id": string;
+  "item_id"?: string | null;
+  "source": "user" | "daemon_boot";
+  "text"?: string;
+}
+
+export interface LifeManagerGoalContractFailedEvent extends EventMsg {
+  type: "life.manager.goal_contract.failed";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "error_type"?: string;
+  "error": string;
+  "text"?: string;
+}
+
+export interface LifeManagerFeedbackPersistedEvent extends EventMsg {
+  type: "life.manager.feedback.persisted";
+  payload_schema_version?: 1;
+  "stage": string;
+  "reason"?: string;
+  "diagnostic"?: string;
+}
+
+export interface LifeManagerFeedbackUnresolvedEvent extends EventMsg {
+  type: "life.manager.feedback.unresolved";
+  payload_schema_version?: 1;
+  "reason": string;
+}
+
+export interface LifeManagerFeedbackExhaustedEvent extends EventMsg {
+  type: "life.manager.feedback.exhausted";
+  payload_schema_version?: 1;
+  "stage"?: string;
+  "diagnostic"?: string;
+  "reason"?: string;
+  "attempts": number;
+  "suggested_sleep_s"?: number;
+}
+
+export interface LifeManagerProjectReportEvent extends EventMsg {
+  type: "life.manager.project_report";
+  payload_schema_version?: 1;
+  "stage"?: string;
+  "report": string;
+  "stage_count"?: number;
+  "transition_count"?: number;
+  "rollback_count"?: number;
+  "message_id": string;
+}
+
+export interface LifeManagerProjectReportFailedEvent extends EventMsg {
+  type: "life.manager.project_report.failed";
+  payload_schema_version?: 1;
+  "error": string;
+}
+
+export interface LifePlannerDeferredEvent extends EventMsg {
+  type: "life.planner.deferred";
+  payload_schema_version?: 1;
+  "reason": string;
+  "agent_layer"?: string;
+}
+
+export interface LifePlannerSupersededEvent extends EventMsg {
+  type: "life.planner.superseded";
+  payload_schema_version?: 1;
+  "cycle": number;
+  "reason"?: string;
+}
+
+export interface LifePlannerWaitOverriddenEvent extends EventMsg {
+  type: "life.planner.wait_overridden";
+  payload_schema_version?: 1;
+  "cycle": number;
+  "task_title": string;
+  "reason"?: string;
+}
+
+export interface LifePlannerWaitingContractNormalizedEvent extends EventMsg {
+  type: "life.planner.waiting_contract.normalized";
+  payload_schema_version?: 1;
+  "blocker_fingerprint"?: string;
+  "recheck_token"?: string;
+  "reasons": Array<string>;
+  "degraded"?: boolean;
+  "wait_mode"?: string;
+  "wake_on"?: Array<string>;
+}
+
+export interface LifePlannerExternalPollSuppressedEvent extends EventMsg {
+  type: "life.planner.external_poll_suppressed";
+  payload_schema_version?: 1;
+  "cycle": number;
+  "source"?: string;
+  "work_ids": Array<string>;
+  "recheck_token"?: string;
+  "suppressed_task_titles"?: Array<string>;
+}
+
+export interface LifePlannerVerdictDiscardedEvent extends EventMsg {
+  type: "life.planner.verdict.discarded";
+  payload_schema_version?: 1;
+  "cycle": number;
+  "reason": string;
+  "delivery_id"?: string;
+}
+
+export interface LifePlannerFinalSubmissionSkippedEvent extends EventMsg {
+  type: "life.planner.final_submission_skipped";
+  payload_schema_version?: 1;
+  "item_id": string;
+  "title"?: string;
+  "reason": string;
+  "agent_layer"?: string;
+}
+
+export interface LifePlannerContinuationRequiredEvent extends EventMsg {
+  type: "life.planner.continuation_required";
+  payload_schema_version?: 1;
+  "cycle": number;
+  "reason"?: string;
+  "suggested_sleep_s"?: number;
+}
+
+export interface LifePlannerCompletionRejectedEvent extends EventMsg {
+  type: "life.planner.completion_rejected";
+  payload_schema_version?: 1;
+  "stage"?: string;
+  "reason": string;
+  "diagnostic"?: string;
+}
+
+export interface LifePlannerCompletionCircuitOpenedEvent extends EventMsg {
+  type: "life.planner.completion_circuit_opened";
+  payload_schema_version?: 1;
+  "stage"?: string;
+  "diagnostic"?: string;
+  "reason"?: string;
+  "consecutive_rejections": number;
+  "threshold"?: number;
+  "operator_alert": true;
+  "text"?: string;
+}
+
+export interface LifePlannerCompletionCircuitHoldingEvent extends EventMsg {
+  type: "life.planner.completion_circuit_holding";
+  payload_schema_version?: 1;
+  "diagnostic"?: string;
+  "reason"?: string;
+  "consecutive_rejections": number;
+  "suggested_sleep_s"?: number;
+}
+
+export interface LifePlannerCompletionCircuitNotifyFailedEvent extends EventMsg {
+  type: "life.planner.completion_circuit.notify_failed";
+  payload_schema_version?: 1;
+  "error": string;
+}
+
+export interface PlanDraftStartEvent extends EventMsg {
+  type: "plan.draft.start";
+  payload_schema_version?: 1;
+  "objective"?: string;
+}
+
+export interface PlanDraftDoneEvent extends EventMsg {
+  type: "plan.draft.done";
+  payload_schema_version?: 1;
+  "steps": number;
+  "notes"?: number;
+}
+
+export interface PlanDraftFailedEvent extends EventMsg {
+  type: "plan.draft.failed";
+  payload_schema_version?: 1;
+  "reason": string;
+}
+
+export interface LifePlanRevisionRolledBackEvent extends EventMsg {
+  type: "life.plan.revision.rolled_back";
+  payload_schema_version?: 1;
+  "old_plan_id": string;
+  "old_plan_version"?: number;
+  "superseded_item_ids"?: Array<string>;
+  "reason"?: string;
+}
+
+export interface RoundReviewerBackendFailureBackoffEvent extends EventMsg {
+  type: "round.reviewer_backend_failure.backoff";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "round_max"?: number;
+  "seconds": number;
+  "text"?: string;
+}
+
+export interface RoundBackendFailureBackoffEvent extends EventMsg {
+  type: "round.backend_failure.backoff";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "round_max"?: number;
+  "seconds": number;
+  "same_cause_streak"?: number;
+  "signature"?: string;
+  "operator_alert"?: boolean;
+  "text"?: string;
+  "failure_cause"?: string;
+}
+
+export interface RoundBackendFailureHoldInterruptedEvent extends EventMsg {
+  type: "round.backend_failure.hold_interrupted";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "round_max"?: number;
+  "stop_kind"?: string;
+  "text"?: string;
+}
+
+export interface RoundWatchdogRetryEvent extends EventMsg {
+  type: "round.watchdog.retry";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "attempt": number;
+  "max_attempts": number;
+  "fresh_session"?: boolean;
+  "checkpoint_path"?: string;
+  "checkpoint_available"?: boolean;
+  "operator_alert"?: true;
+  "fatal_error"?: string | null;
+}
+
+export interface RoundWatchdogRetryExhaustedEvent extends EventMsg {
+  type: "round.watchdog.retry_exhausted";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "attempt": number;
+  "max_attempts": number;
+  "fresh_session"?: boolean;
+  "checkpoint_path"?: string;
+  "checkpoint_available"?: boolean;
+  "operator_alert"?: true;
+  "fatal_error"?: string | null;
+}
+
+export interface RoundModelConfigurationErrorEvent extends EventMsg {
+  type: "round.model_configuration_error";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "round_max"?: number;
+  "agent_layer"?: string;
+  "model"?: string | null;
+  "error": string;
+  "operator_alert": true;
+  "text"?: string;
+  "failure_cause"?: string;
+}
+
+export interface RoundProviderTurnCapRestartEvent extends EventMsg {
+  type: "round.provider_turn_cap.restart";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "round_max"?: number;
+  "streak": number;
+  "streak_limit": number;
+  "checkpoint_path"?: string;
+  "checkpoint_available"?: boolean;
+  "wind_down_summary_chars"?: number;
+  "input_tokens"?: number;
+  "cached_input_tokens"?: number;
+  "output_tokens"?: number;
+  "text"?: string;
+}
+
+export interface RoundProviderTurnCapReviewerRestartEvent extends EventMsg {
+  type: "round.provider_turn_cap.reviewer_restart";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "round_max"?: number;
+  "text"?: string;
+}
+
+export interface RoundOrphanProcessGroupEvent extends EventMsg {
+  type: "round.orphan_process_group";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "process_group_id": number;
+  "cleanup_succeeded"?: boolean;
+  "operator_alert": true;
+  "text"?: string;
+}
+
+export interface RoundExternalWorkWaitStartedEvent extends EventMsg {
+  type: "round.external_work_wait.started";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "round_max"?: number;
+  "work_id": string;
+  "waited_total_s"?: number;
+  "text"?: string;
+}
+
+export interface RoundExternalWorkWaitCompletedEvent extends EventMsg {
+  type: "round.external_work_wait.completed";
+  payload_schema_version?: 1;
+  "round_index": number;
+  "round_max"?: number;
+  "work_id": string;
+  "reason"?: string;
+  "waited_total_s"?: number;
+  "text"?: string;
+}
+
+export interface LifeDaemonReadyEvent extends EventMsg {
+  type: "life.daemon.ready";
+  payload_schema_version?: 1;
+}
+
+export interface LifeDaemonDegradedEvent extends EventMsg {
+  type: "life.daemon.degraded";
+  payload_schema_version?: 1;
+  "health": "degraded";
+  "objective_dispatched": boolean;
+  "error"?: string;
+  "text"?: string;
+}
+
+export interface IdeaPortfolioFormedEvent extends EventMsg {
+  type: "idea.portfolio.formed";
+  payload_schema_version?: 1;
+  "team_root"?: string;
+  "width"?: number;
+  "route_count": number;
+  "task_count"?: number;
+  "selection"?: Record<string, unknown>;
+  "policy"?: string;
+  "text"?: string;
+}
+
+export interface IdeaPortfolioNestedSkippedEvent extends EventMsg {
+  type: "idea.portfolio.nested_skipped";
+  payload_schema_version?: 1;
+  "team_task_id": string;
+  "text"?: string;
+}
+
+export interface TeamLearningReviewStartedEvent extends EventMsg {
+  type: "team.learning.review.started";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "mission_objective"?: string;
+  "mission_success": boolean;
+}
+
+export interface TeamLearningReviewSkippedEvent extends EventMsg {
+  type: "team.learning.review.skipped";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "mission_success": boolean;
+  "reason": string;
+}
+
+export interface TeamLearningReviewCompletedEvent extends EventMsg {
+  type: "team.learning.review.completed";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "mission_success"?: boolean;
+  "created": number;
+  "updated": number;
+  "quarantined": number;
+  "paths"?: Array<string>;
+}
+
+export interface TeamLearningReviewFailedEvent extends EventMsg {
+  type: "team.learning.review.failed";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "mission_success"?: boolean;
+  "error": string;
+}
+
+export interface TeamLearningPromotionQuarantinedEvent extends EventMsg {
+  type: "team.learning.promotion.quarantined";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "path": string;
+  "moved_to": string;
+  "marker"?: string;
+  "reason"?: string;
+}
+
+export interface SelfLearningReviewStartedEvent extends EventMsg {
+  type: "self.learning.review.started";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "operator_turn_count": number;
+}
+
+export interface SelfLearningReviewCompletedEvent extends EventMsg {
+  type: "self.learning.review.completed";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "operator_turn_count"?: number;
+  "error"?: string;
+  "learning_applied": boolean;
+  "created"?: Array<string>;
+  "updated"?: Array<string>;
+  "removed"?: Array<string>;
+}
+
+export interface SelfLearningReviewFailedEvent extends EventMsg {
+  type: "self.learning.review.failed";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "operator_turn_count"?: number;
+  "error": string;
+}
+
+export interface DomainPromotionEvent extends EventMsg {
+  type: "domain.promotion";
+  payload_schema_version?: 1;
+  "text": string;
+}
+
+export interface ManagerLiveViewUpdatedEvent extends EventMsg {
+  type: "manager.live_view.updated";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "title": string;
+  "paths": Array<string>;
+  "reason"?: string;
+  "explicit_clear": boolean;
+  "source"?: string;
+  "text"?: string;
+}
+
+export interface ManagerLiveViewRejectedEvent extends EventMsg {
+  type: "manager.live_view.rejected";
+  payload_schema_version?: 1;
+  "error": string;
+  "text"?: string;
+}
+
+export interface UserNoteEvent extends EventMsg {
+  type: "user.note";
+  payload_schema_version?: 1;
+  "id"?: string;
+  "title"?: string;
+  "summary"?: string;
+  "text"?: string;
+  "tags"?: Array<string>;
+}
+
+export interface UiOperatorEvent extends EventMsg {
+  type: "ui.operator";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "message_id": string;
+  "text": string;
+}
+
+export interface UiArgusEvent extends EventMsg {
+  type: "ui.argus";
+  payload_schema_version?: 1;
+  "agent_layer"?: string;
+  "message_id": string;
+  "text": string;
+  "steps"?: Array<Record<string, unknown>>;
+}
+
 export interface EventPayloadByType {
   "agent.io.start": AgentIoStartEvent;
   "agent.io.stream": AgentIoStreamEvent;
@@ -1321,6 +1877,67 @@ export interface EventPayloadByType {
   "life.research.second_reading": LifeResearchSecondReadingEvent;
   "life.letter.written": LifeLetterWrittenEvent;
   "operator_alert": OperatorAlertEvent;
+  "life.mission.provider_configuration_disabled": LifeMissionProviderConfigurationDisabledEvent;
+  "life.iteration.continued": LifeIterationContinuedEvent;
+  "life.review.waived": LifeReviewWaivedEvent;
+  "life.post_mission.stop": LifePostMissionStopEvent;
+  "life.execution_host.blocked": LifeExecutionHostBlockedEvent;
+  "life.auth_failure": LifeAuthFailureEvent;
+  "life.supervisor.error": LifeSupervisorErrorEvent;
+  "life.learned_vertical.promoted": LifeLearnedVerticalPromotedEvent;
+  "life.learned_vertical.promotion_failed": LifeLearnedVerticalPromotionFailedEvent;
+  "life.manager.intent.superseded": LifeManagerIntentSupersededEvent;
+  "life.manager.goal_contract.failed": LifeManagerGoalContractFailedEvent;
+  "life.manager.feedback.persisted": LifeManagerFeedbackPersistedEvent;
+  "life.manager.feedback.unresolved": LifeManagerFeedbackUnresolvedEvent;
+  "life.manager.feedback.exhausted": LifeManagerFeedbackExhaustedEvent;
+  "life.manager.project_report": LifeManagerProjectReportEvent;
+  "life.manager.project_report.failed": LifeManagerProjectReportFailedEvent;
+  "life.planner.deferred": LifePlannerDeferredEvent;
+  "life.planner.superseded": LifePlannerSupersededEvent;
+  "life.planner.wait_overridden": LifePlannerWaitOverriddenEvent;
+  "life.planner.waiting_contract.normalized": LifePlannerWaitingContractNormalizedEvent;
+  "life.planner.external_poll_suppressed": LifePlannerExternalPollSuppressedEvent;
+  "life.planner.verdict.discarded": LifePlannerVerdictDiscardedEvent;
+  "life.planner.final_submission_skipped": LifePlannerFinalSubmissionSkippedEvent;
+  "life.planner.continuation_required": LifePlannerContinuationRequiredEvent;
+  "life.planner.completion_rejected": LifePlannerCompletionRejectedEvent;
+  "life.planner.completion_circuit_opened": LifePlannerCompletionCircuitOpenedEvent;
+  "life.planner.completion_circuit_holding": LifePlannerCompletionCircuitHoldingEvent;
+  "life.planner.completion_circuit.notify_failed": LifePlannerCompletionCircuitNotifyFailedEvent;
+  "plan.draft.start": PlanDraftStartEvent;
+  "plan.draft.done": PlanDraftDoneEvent;
+  "plan.draft.failed": PlanDraftFailedEvent;
+  "life.plan.revision.rolled_back": LifePlanRevisionRolledBackEvent;
+  "round.reviewer_backend_failure.backoff": RoundReviewerBackendFailureBackoffEvent;
+  "round.backend_failure.backoff": RoundBackendFailureBackoffEvent;
+  "round.backend_failure.hold_interrupted": RoundBackendFailureHoldInterruptedEvent;
+  "round.watchdog.retry": RoundWatchdogRetryEvent;
+  "round.watchdog.retry_exhausted": RoundWatchdogRetryExhaustedEvent;
+  "round.model_configuration_error": RoundModelConfigurationErrorEvent;
+  "round.provider_turn_cap.restart": RoundProviderTurnCapRestartEvent;
+  "round.provider_turn_cap.reviewer_restart": RoundProviderTurnCapReviewerRestartEvent;
+  "round.orphan_process_group": RoundOrphanProcessGroupEvent;
+  "round.external_work_wait.started": RoundExternalWorkWaitStartedEvent;
+  "round.external_work_wait.completed": RoundExternalWorkWaitCompletedEvent;
+  "life.daemon.ready": LifeDaemonReadyEvent;
+  "life.daemon.degraded": LifeDaemonDegradedEvent;
+  "idea.portfolio.formed": IdeaPortfolioFormedEvent;
+  "idea.portfolio.nested_skipped": IdeaPortfolioNestedSkippedEvent;
+  "team.learning.review.started": TeamLearningReviewStartedEvent;
+  "team.learning.review.skipped": TeamLearningReviewSkippedEvent;
+  "team.learning.review.completed": TeamLearningReviewCompletedEvent;
+  "team.learning.review.failed": TeamLearningReviewFailedEvent;
+  "team.learning.promotion.quarantined": TeamLearningPromotionQuarantinedEvent;
+  "self.learning.review.started": SelfLearningReviewStartedEvent;
+  "self.learning.review.completed": SelfLearningReviewCompletedEvent;
+  "self.learning.review.failed": SelfLearningReviewFailedEvent;
+  "domain.promotion": DomainPromotionEvent;
+  "manager.live_view.updated": ManagerLiveViewUpdatedEvent;
+  "manager.live_view.rejected": ManagerLiveViewRejectedEvent;
+  "user.note": UserNoteEvent;
+  "ui.operator": UiOperatorEvent;
+  "ui.argus": UiArgusEvent;
 }
 
 export type TypedArgusEvent = EventPayloadByType[keyof EventPayloadByType];

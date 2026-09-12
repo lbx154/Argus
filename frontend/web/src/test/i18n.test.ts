@@ -2,8 +2,10 @@ import { describe, expect, test } from 'vitest';
 import { COMMANDS } from '../../../core/src/commands';
 import { translate } from '../i18n';
 import { commandDescription, commandGroup } from '../lib/commandI18n';
-import { renderEvent } from '../lib/eventRender';
+import { renderLine, type RenderContext } from '../../../core/src/eventRender';
 import { roleLabel } from '../research-workbench/enumLabels';
+
+const ZH: RenderContext = { locale: 'zh-CN', showReasoning: true, unknownEventPolicy: 'hide', density: 'compact' };
 
 describe('web localization', () => {
   test.each(['Manager', 'Planner', 'Engineer', 'Reviewer'])('keeps the %s role name in both languages', (role) => {
@@ -25,12 +27,12 @@ describe('web localization', () => {
   });
 
   test('localizes generated event status but preserves model text', () => {
-    expect(renderEvent({ type: 'round.start', round: 2 }, 'zh-CN')?.text).toBe('第 2 轮');
-    expect(renderEvent({
+    expect(renderLine({ type: 'round.start', round: 2 }, ZH)?.text).toBe('第 2 轮');
+    expect(renderLine({
       type: 'engineer.progress',
       kind: 'assistant_message',
       text: 'Keep this model response unchanged.',
       agent_layer: 'engineer',
-    }, 'zh-CN')?.text).toBe('Keep this model response unchanged.');
+    }, ZH)?.text).toBe('Keep this model response unchanged.');
   });
 });

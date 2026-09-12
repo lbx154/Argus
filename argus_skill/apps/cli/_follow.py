@@ -129,7 +129,7 @@ def _follow_layer_from_event(event: dict, current: str) -> str:
         return "manager"
     if etype in {"round.review.started", "round.review.completed"}:
         return "reviewer"
-    if etype in {"life.iteration.critic", "life.iteration.continued"}:
+    if etype == "life.iteration.continued":
         return "critic"
     if etype.startswith("life.planner."):
         return "planner"
@@ -778,19 +778,6 @@ def _format_follow_event_body(
             "blocked": f"Needs an external decision after round {round_index}.",
         }.get(status, f"Finished checking round {round_index}.")
         return f"✅ [{_follow_layer_label('reviewer')}] {verdict}" + (
-            f" {reason}" if reason else ""
-        )
-
-    if etype == "life.iteration.critic":
-        stop = bool(event.get("stop"))
-        count = int(event.get("improvement_count") or 0)
-        reason = _clean_follow_text(str(event.get("reason") or ""), limit=None)
-        verdict = (
-            "The iteration review found no further changes."
-            if stop
-            else f"The iteration review queued {count} improvement(s)."
-        )
-        return f"👔 [{_follow_layer_label('critic')}] {verdict}" + (
             f" {reason}" if reason else ""
         )
 

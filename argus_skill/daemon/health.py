@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core.event_catalog import EventType
+
 HEALTH_FILENAME = "daemon.health.json"
 HEALTH_SCHEMA_VERSION = 1
 # This classifies missing semantic progress for diagnostics; it never kills work.
@@ -19,47 +21,47 @@ _WINDOWS_REPLACE_ATTEMPTS = 6
 _WINDOWS_REPLACE_INITIAL_DELAY_SECONDS = 0.01
 
 _ACTIVE_EVENTS = frozenset({
-    "life.manager.intent.started",
-    "life.mission.started",
-    "life.planner.start",
-    "loop.start",
-    "provider.request.started",
-    "round.review.started",
-    "round.start",
+    EventType.LIFE_MANAGER_INTENT_STARTED,
+    EventType.LIFE_MISSION_STARTED,
+    EventType.LIFE_PLANNER_START,
+    EventType.LOOP_START,
+    EventType.PROVIDER_REQUEST_STARTED,
+    EventType.ROUND_REVIEW_STARTED,
+    EventType.ROUND_START,
 })
 _IDLE_EVENTS = frozenset({
-    "life.daemon.ready",
-    "life.mission.completed",
-    "life.mission.failed",
-    "life.mission.skipped",
-    "loop.done",
+    EventType.LIFE_DAEMON_READY,
+    EventType.LIFE_MISSION_COMPLETED,
+    EventType.LIFE_MISSION_FAILED,
+    EventType.LIFE_MISSION_SKIPPED,
+    EventType.LOOP_DONE,
 })
 _WAITING_EVENTS = frozenset({
-    "life.budget.pause",
-    "life.operator_question.pending",
-    "life.planner.terminal_idle",
-    "life.planner.waiting",
+    EventType.LIFE_BUDGET_PAUSE,
+    EventType.LIFE_OPERATOR_QUESTION_PENDING,
+    EventType.LIFE_PLANNER_TERMINAL_IDLE,
+    EventType.LIFE_PLANNER_WAITING,
 })
 _DEGRADED_EVENTS = frozenset({
-    "life.daemon.degraded",
-    "life.planner.error",
-    "life.supervisor.error",
+    EventType.LIFE_DAEMON_DEGRADED,
+    EventType.LIFE_PLANNER_ERROR,
+    EventType.LIFE_SUPERVISOR_ERROR,
 })
 _PROGRESS_EVENTS = frozenset({
-    "agent.io.complete",
-    "engineer.progress",
-    "life.inbox.drained",
-    "life.manager.intent.completed",
-    "life.daemon.ready",
-    "life.mission.completed",
-    "life.mission.failed",
-    "life.mission.skipped",
-    "life.plan.revision.committed",
-    "life.planner.task_added",
-    "life.planner.verdict",
-    "provider.request.completed",
-    "round.main.completed",
-    "round.review.completed",
+    EventType.AGENT_IO_COMPLETE,
+    EventType.ENGINEER_PROGRESS,
+    EventType.LIFE_INBOX_DRAINED,
+    EventType.LIFE_MANAGER_INTENT_COMPLETED,
+    EventType.LIFE_DAEMON_READY,
+    EventType.LIFE_MISSION_COMPLETED,
+    EventType.LIFE_MISSION_FAILED,
+    EventType.LIFE_MISSION_SKIPPED,
+    EventType.LIFE_PLAN_REVISION_COMMITTED,
+    EventType.LIFE_PLANNER_TASK_ADDED,
+    EventType.LIFE_PLANNER_VERDICT,
+    EventType.PROVIDER_REQUEST_COMPLETED,
+    EventType.ROUND_MAIN_COMPLETED,
+    EventType.ROUND_REVIEW_COMPLETED,
 })
 
 
@@ -171,7 +173,7 @@ class DaemonHealthTracker:
                 self._last_write_monotonic = monotonic_now
 
     def mark_ready(self) -> None:
-        self.observe({"type": "life.daemon.ready", "ts": time.time()})
+        self.observe({"type": EventType.LIFE_DAEMON_READY, "ts": time.time()})
 
 
 def read_daemon_health(

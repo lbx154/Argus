@@ -214,22 +214,46 @@ def _event_type_references(source: str) -> set[str]:
     return values
 
 
+_CASE_LABEL = re.compile(r"case ['\"]([a-z][a-z0-9_.]*)['\"]:")
+_CASE_LABELS_ONLY = re.compile(r"(?:case ['\"][a-z][a-z0-9_.]*['\"]:\s*)+")
+
+
+def _shared_hidden_types(block: str) -> set[str]:
+    """The types the shared renderer deliberately hides: the run of ``case``
+    labels (comment lines allowed between them) that ends in its fallback."""
+    run: list[str] = []
+    for line in block.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//"):
+            continue
+        if stripped.startswith("return fallback(event, context);"):
+            return set(run)
+        if _CASE_LABELS_ONLY.fullmatch(stripped):
+            run.extend(_CASE_LABEL.findall(stripped))
+        else:
+            run = []
+    return set()
+
+
 def _coverage() -> dict[str, Any]:
     catalog = {item.value for item in EventType}
-    web_source = (ROOT / "frontend/web/src/lib/eventRender.ts").read_text(encoding="utf-8")
+    shared_source = (ROOT / "frontend/core/src/eventRender/index.ts").read_text(encoding="utf-8")
     tui_source = (ROOT / "frontend/tui/src/eventRender.ts").read_text(encoding="utf-8")
     follow_source = (ROOT / "argus_skill/apps/cli/_follow.py").read_text(encoding="utf-8")
     format_source = (ROOT / "argus_skill/cli/event_format.py").read_text(encoding="utf-8")
-    web_block = _function_block(web_source, "export function renderEvent")
+    shared_block = _function_block(shared_source, "export function renderEvent")
     tui_block = _function_block(tui_source, "export function renderEvent")
     follow_block = _function_block(follow_source, "def _format_follow_event_body")
 
-    explicit_web_hidden = set(re.findall(
-        r"if \(t === ['\"]([^'\"]+)['\"]\) return null", web_block,
-    )) & catalog
+    shared_hidden = _shared_hidden_types(shared_block) & catalog
+    shared_referenced = _event_type_references(shared_block) & catalog
+    tui_referenced = _event_type_references(tui_block) & catalog
     renderers = {
-        "web": (_event_type_references(web_block) & catalog, explicit_web_hidden, "hide"),
-        "tui": (_event_type_references(tui_block) & catalog, set(), "hide"),
+        # The web feed renders every event through the shared renderer.
+        "web": (shared_referenced, shared_hidden, "hide"),
+        # The terminal keeps a whitelist of its own and renders the rest through
+        # the shared renderer.
+        "tui": (tui_referenced | shared_referenced, shared_hidden - tui_referenced, "hide"),
         "python_cli": (
             (_event_type_references(follow_block) | _event_type_references(format_source)) & catalog,
             set(),

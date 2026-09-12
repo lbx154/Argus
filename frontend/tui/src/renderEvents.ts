@@ -5,19 +5,10 @@ import type { Readable, Writable } from 'node:stream';
 import type { TypedArgusEvent } from '../../core/src/eventPayloads.generated.js';
 import {
   renderEvent,
+  renderLabel,
   renderText,
   type RenderContext,
-  type RenderModel,
 } from '../../core/src/eventRender/index.js';
-
-const ROLE_LABELS: Record<string, string> = {
-  manager: 'Manager',
-  planner: 'Planner',
-  engineer: 'Engineer',
-  reviewer: 'Reviewer',
-  critic: 'Critic',
-  system: 'Argus',
-};
 
 export function parseRenderEventsArgs(argv: string[]): RenderContext {
   const context: RenderContext = {
@@ -48,17 +39,11 @@ export function parseRenderEventsArgs(argv: string[]): RenderContext {
   return context;
 }
 
-function modelLabel(model: RenderModel, context: RenderContext): string {
-  if (model.labelKey === 'role.operator') return context.locale === 'zh-CN' ? '你' : 'You';
-  return ROLE_LABELS[model.role]
-    ?? `${model.role.slice(0, 1).toUpperCase()}${model.role.slice(1)}`;
-}
-
 export function renderEventLine(event: TypedArgusEvent, context: RenderContext): string {
   const model = renderEvent(event, context);
   if (model.visibility === 'hidden') return '';
   const body = renderText(model).replace(/\s+/g, ' ').trim();
-  return [model.glyph, `[${modelLabel(model, context)}]`, body].filter(Boolean).join(' ');
+  return [model.glyph, `[${renderLabel(model.labelKey, context.locale)}]`, body].filter(Boolean).join(' ');
 }
 
 /** Each non-empty NDJSON input record produces exactly one physical output line. */

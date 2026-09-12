@@ -17,11 +17,10 @@ export function eventColor(ev: EventMsg): string {
   if (t === 'mission.completed' || t === 'loop.completed') {
     return ev.success === false ? theme.error : theme.success;
   }
-  if (t === 'mission.error' || t === 'command.error' || t === 'daemon.stopping') return theme.error;
+  if (t === 'mission.error' || t === 'command.error') return theme.error;
   if (t === 'round.main.completed') return theme.info;
   if (t === 'round.checks.completed') return theme.warning;
-  if (t === 'plan.completed' || t.startsWith('distill.')) return theme.accent;
-  if (t === 'final.report.ready' || t === 'pptx.report.ready') return theme.accent;
+  if (t.startsWith('distill.')) return theme.accent;
   if (t === 'life.inbox.queued' || t === 'life.inbox.drained') return theme.accent;
   if (
     t === 'mission.started' ||

@@ -211,16 +211,10 @@ test('semantic renderer shadows current TUI with full-density policy and triaged
     'life.phase.started': { text: 'entering implementation' },
     // The old TUI leaks recognized credentials; the semantic core redacts them.
     'engineer.progress.secret-redaction': { text: 'using token <REDACTED:github-token>' },
-    // These are semantic distinctions/events that the old whitelist currently loses.
+    // A semantic distinction the old whitelist's own task_skipped line loses.
     'life.planner.task_skipped.review-purchase-deferred': { text: 'put off another paper review Purchase another paper review' },
-    'life.planner.normalized': { text: 'tidied the plan · removed duplicate planner task' },
     // The old renderer leaves a trailing space when this schema has no objective field.
     'life.planner.start': { text: 'planning' },
-    'life.planner.waiting': { role: 'planner', visibility: 'normal' },
-    'life.planner.waiting.waiting-resource': { text: 'waiting · subagent state waiting_resource is a healthy resource wait' },
-    'life.planner.waiting_woken': { role: 'planner', visibility: 'normal' },
-    'life.planner.terminal_idle': { role: 'planner', visibility: 'normal' },
-    'life.planner.verification_probe': { role: 'planner', visibility: 'normal' },
   };
 
   for (const fixture of EVENT_CORPUS.fixtures) {
@@ -261,6 +255,8 @@ test('render-events streams semantic-core corpus events as one plain line per ND
 
   assert.equal(
     rendered,
-    '🧭 [Manager] 判断这是什么样的请求…\n• [Argus] [future.event] kept for grep\n\n',
+    '🧭 [Manager] 判断这是什么样的请求…\n'
+    + '• [Argus] [future.event] kept for grep\n'
+    + '⛔ [监控] 卡住了 — 需要你来处理 · Renderer event detail\n',
   );
 });

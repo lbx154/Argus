@@ -260,7 +260,6 @@ class _DaemonSink:
                 log.exception("daemon: health telemetry update failed")
         kind = event.get("type") or event.get("kind") or ""
         if kind in (
-            "life.mission.done",
             "life.mission.completed",
             "life.mission.failed",
             "life.mission.skipped",

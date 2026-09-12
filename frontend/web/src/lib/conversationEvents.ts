@@ -1,6 +1,5 @@
 import type { EventMsg } from '../api';
-import { mergeFragment } from './eventRender';
-import type { FragmentMode } from '../../../core/src/events';
+import { mergeFragment, type FragmentMode } from '../../../core/src/events';
 
 interface TranscriptTurn {
   ts: number;

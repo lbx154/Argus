@@ -3,9 +3,19 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import type { ArtifactInfo, EventMsg } from '../api';
 import type { DeliveryReceipt } from '../../../core/src/types';
-import { renderEvent, toneColor, isReasoning, eventKey, mergeFragment, type Rendered } from '../lib/eventRender';
-import { eventMatchesView, fragmentMode, type EventViewFilter } from '../../../core/src/events';
-import { theme } from '../lib/theme';
+import type { RenderedLine } from '../../../core/src/eventRender';
+import { isReasoning, type EventViewFilter } from '../../../core/src/events';
+import {
+  foldFeedRows,
+  groupSummary,
+  renderFeedRows,
+  rowPreview,
+  type FeedGroup,
+  type FeedRow,
+  type FeedRowInput,
+  type StepStatus,
+} from '../lib/feedSteps';
+import { theme, toneColor } from '../lib/theme';
 import { clockOf } from '../lib/format';
 import { PanelHeader, EmptyHint } from './primitives';
 import { MarkdownContent } from './MarkdownContent';
@@ -17,7 +27,7 @@ import { TurnSteps } from './TurnSteps';
 import { turnStepsFrom } from '../../../core/src/phaseTrail';
 import { plainDetail } from '../lib/plainStatus';
 
-type ActivityRow = { ev: EventMsg; r: Rendered; key: string };
+type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
 const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'] as const;
 const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was interrupted due to a server error\. Retrying\.\.\.)/gi;
@@ -38,11 +48,33 @@ export function activeProviderRequest(events: EventMsg[]): EventMsg | null {
   return Array.from(active.values()).at(-1) ?? null;
 }
 
-function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: boolean; last: boolean }) {
-  const { locale } = useI18n();
+function EventRow({
+  ev,
+  r,
+  first,
+  last,
+  latest,
+  repeat = 1,
+  status = '',
+  result,
+}: {
+  ev: EventMsg;
+  r: RenderedLine;
+  first: boolean;
+  last: boolean;
+  /** The newest event behind this row — its clock is the one shown. */
+  latest?: EventMsg;
+  /** How many identical rows this one stands for. */
+  repeat?: number;
+  status?: StepStatus;
+  result?: FeedRowInput;
+}) {
+  const { locale, t } = useI18n();
   const roleHue = theme.role[r.role] ?? theme.inkFaint;
   const color = toneColor(r.tone);
   const plain = plainDetail(r.text, locale);
+  const resultText = result ? plainDetail(result.r.text, locale).text : '';
+  const tooltip = [plain.technical, resultText ? `${t('stream.stepResult')}: ${resultText}` : ''].filter(Boolean).join('\n');
   return (
     <div
       className={`event-activity-row group relative grid grid-cols-[16px_minmax(0,1fr)] gap-3 px-4 py-3 transition-colors hover:bg-bg/70 ${last ? 'animate-appear' : ''} ${r.reasoning ? 'opacity-60' : ''}`}
@@ -66,15 +98,145 @@ function EventRow({ ev, r, first, last }: { ev: EventMsg; r: Rendered; first: bo
             {r.label}
           </span>
           <span className="text-xs" style={{ color }}>{r.glyph}</span>
+          {repeat > 1 ? (
+            <span
+              className="rounded bg-line/60 px-1 font-mono text-[10px] tabular-nums text-ink-dim"
+              title={t('stream.repeated', { count: repeat })}
+              data-repeat={repeat}
+            >
+              ×{repeat}
+            </span>
+          ) : null}
+          {status === 'failed' ? <span className="text-xs text-err">{t('stream.stepFailed')}</span> : null}
           <time className="ml-auto font-mono text-xs tabular-nums text-ink-faint opacity-0 transition-opacity group-hover:opacity-100">
-            {clockOf(ev)}
+            {clockOf(latest ?? ev)}
           </time>
         </div>
-        <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${r.reasoning ? 'italic' : ''}`} style={{ color }} title={plain.technical || undefined}>
+        <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${r.reasoning ? 'italic' : ''}`} style={{ color }} title={tooltip || undefined}>
           {plain.text}
         </div>
       </div>
     </div>
+  );
+}
+
+/** Consecutive calls of one tool as one line — "Read 5 files: …" — that opens to its steps. */
+function FeedGroupRow({
+  group,
+  first,
+  last,
+  open,
+  onToggle,
+}: {
+  group: FeedGroup;
+  first: boolean;
+  last: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const { locale, t } = useI18n();
+  const roleHue = theme.role[group.r.role] ?? theme.inkFaint;
+  const color = toneColor(group.r.tone);
+  const summary = groupSummary(group, t, locale);
+  return (
+    <div
+      className={`event-activity-row group relative grid grid-cols-[16px_minmax(0,1fr)] gap-3 px-4 py-3 transition-colors hover:bg-bg/70 ${last ? 'animate-appear' : ''}`}
+      data-feed-group={group.action}
+      data-open={open ? 'true' : 'false'}
+    >
+      <div className="relative flex justify-center">
+        {!first ? <span className="absolute -top-2.5 h-4 w-px bg-line/60" /> : null}
+        {!last ? <span className="absolute -bottom-2.5 top-2 w-px bg-line/60" /> : null}
+        <span
+          className="relative z-10 mt-1.5 h-2 w-2 rounded-full border-2 border-panel"
+          style={{ backgroundColor: roleHue, boxShadow: `0 0 0 1px ${roleHue}55` }}
+        />
+      </div>
+      <div className="min-w-0">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          title={t(open ? 'stream.fold.collapse' : 'stream.fold.expand')}
+          className="block w-full rounded text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-blue-sky"
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className="truncate text-xs font-semibold uppercase tracking-[0.06em]"
+              style={{ color: roleHue }}
+              title={group.r.label}
+            >
+              {group.r.label}
+            </span>
+            <span className="text-xs" style={{ color }}>{group.r.glyph}</span>
+            <span className="font-mono text-[10px] tabular-nums text-ink-faint">{group.calls}</span>
+            <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="m6 3.5 4.5 4.5L6 12.5" />
+            </svg>
+            <time className="ml-auto font-mono text-xs tabular-nums text-ink-faint opacity-0 transition-opacity group-hover:opacity-100">
+              {clockOf(group.latest)}
+            </time>
+          </div>
+          <div className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5" style={{ color }}>
+            {summary}
+          </div>
+        </button>
+        {open ? (
+          <div className="mt-1 border-l border-line/50">
+            {group.steps.map((step, index) => (
+              <EventRow
+                key={step.key}
+                ev={step.ev}
+                r={step.r}
+                first={index === 0}
+                last={index === group.steps.length - 1}
+                latest={step.latest}
+                repeat={step.repeat}
+                status={step.status}
+                result={step.result}
+              />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** The folded rows of one list, with each group's open state kept while the feed grows. */
+function FeedRows({ rows }: { rows: FeedRow[] }) {
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
+  const toggle = (key: string) => setOpenGroups((current) => {
+    const next = new Set(current);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  });
+  return (
+    <>
+      {rows.map((row, index) => row.kind === 'group' ? (
+        <FeedGroupRow
+          key={row.key}
+          group={row}
+          first={index === 0}
+          last={index === rows.length - 1}
+          open={openGroups.has(row.key)}
+          onToggle={() => toggle(row.key)}
+        />
+      ) : (
+        <EventRow
+          key={row.key}
+          ev={row.ev}
+          r={row.r}
+          first={index === 0}
+          last={index === rows.length - 1}
+          latest={row.latest}
+          repeat={row.repeat}
+          status={row.status}
+          result={row.result}
+        />
+      ))}
+    </>
   );
 }
 
@@ -85,7 +247,7 @@ function ConversationRow({
   onOpenArtifact,
 }: {
   ev: EventMsg;
-  r: Rendered;
+  r: RenderedLine;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
 }) {
@@ -170,6 +332,8 @@ function RoleLogGroup({
   const color = theme.role[role];
   const logScroller = useRef<HTMLDivElement>(null);
   const tailLength = rows[rows.length - 1]?.r.text.length ?? 0;
+  const folded = useMemo(() => foldFeedRows(rows, locale), [rows, locale]);
+  const preview = folded.length ? rowPreview(folded[folded.length - 1], t, locale) : '';
   useEffect(() => {
     if (!open) return;
     const frame = window.requestAnimationFrame(() => {
@@ -199,8 +363,8 @@ function RoleLogGroup({
           style={{ background: color }}
         />
         <span className="text-xs font-semibold text-ink-dim">{roleLabel(role, t)}</span>
-        <span className="font-mono text-xs text-ink-faint">{rows.length}</span>
-        {rows.length > 0 ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">{plainDetail(rows[rows.length - 1].r.text, locale).text}</span> : <span className="flex-1" />}
+        <span className="font-mono text-xs text-ink-faint">{folded.length}</span>
+        {preview ? <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">{preview}</span> : <span className="flex-1" />}
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>
@@ -209,9 +373,7 @@ function RoleLogGroup({
         <div className="grid grid-rows-[1fr]">
           <div className="min-h-0 overflow-hidden">
             <div ref={logScroller} className="max-h-72 overflow-x-hidden overflow-y-auto border-t border-line/40 scroll-thin">
-              {rows.length > 0 ? rows.map(({ ev, r, key }, index) => (
-                <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === rows.length - 1} />
-              )) : <div className="px-4 py-3 text-xs text-ink-faint">{t('stream.noLogs')}</div>}
+              {folded.length > 0 ? <FeedRows rows={folded} /> : <div className="px-4 py-3 text-xs text-ink-faint">{t('stream.noLogs')}</div>}
             </div>
           </div>
         </div>
@@ -220,7 +382,7 @@ function RoleLogGroup({
   );
 }
 
-function partitionRoleRows(rows: ActivityRow[]) {
+export function partitionRoleRows(rows: ActivityRow[]) {
   const roleRows: Record<typeof ROLE_ORDER[number], ActivityRow[]> = {
     manager: [],
     planner: [],
@@ -242,8 +404,9 @@ function partitionRoleRows(rows: ActivityRow[]) {
 }
 
 function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
+  const folded = useMemo(() => foldFeedRows(rows, locale), [rows, locale]);
   return (
     <section className="border-b border-line/50" data-system-open={open ? 'true' : 'false'}>
       <button
@@ -253,7 +416,7 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
         className="flex h-10 w-full items-center gap-2 px-4 text-left text-xs text-ink-faint hover:bg-bg/60"
       >
         <span>{t('stream.system')}</span>
-        <span className="font-mono">{rows.length}</span>
+        <span className="font-mono">{folded.length}</span>
         <span className="flex-1" />
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
@@ -261,9 +424,7 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
       </button>
       {open ? (
         <div className="border-t border-line/40">
-          {rows.map(({ ev, r, key }, index) => (
-            <EventRow key={key} ev={ev} r={r} first={index === 0} last={index === rows.length - 1} />
-          ))}
+          <FeedRows rows={folded} />
         </div>
       ) : null}
     </section>
@@ -486,52 +647,14 @@ export function EventStream({
     ? Math.max(0, Math.floor((activityTick - Number(activeProvider.ts ?? 0) * 1_000) / 1_000))
     : 0;
 
-  // render + whitelist + COALESCE streaming message fragments once per change.
-  // engineer.progress message events stream in fragments sharing a message_id
-  // (replace=True); the REPL collapses them to one line — we keep the longest
-  // fragment at its first position so a streaming reply is ONE growing row, not
-  // a char-by-char flood.
+  // render + whitelist + COALESCE streaming message fragments once per change
+  // (see renderFeedRows). Folding into steps happens per displayed list, in the
+  // role and system groups, where "consecutive" means what the reader sees.
   const baseRows = useMemo(() => {
-    const out: { ev: EventMsg; r: Rendered; key: string }[] = [];
-    const msgRow = new Map<string, number>(); // message_id → index in out
-    let hiddenReasoning = 0;
     const displayEvents = skipFirst > 0
       ? deferredEvents.slice(skipFirst)
       : deferredEvents;
-    displayEvents.forEach((ev, i) => {
-      const r = renderEvent(ev, locale);
-      if (!r) return; // non-whitelisted → hidden
-      if (r.reasoning && !showReasoning) {
-        hiddenReasoning++;
-        return;
-      }
-      if (!eventMatchesView(ev, r, filter, query)) return;
-      const rec = ev as Record<string, unknown>;
-      const mid = String(rec.message_id ?? '');
-      const isMsg =
-        !!mid &&
-        String(rec.type) === 'engineer.progress' &&
-        ['assistant_message', 'agent_message', 'message'].includes(String(rec.kind));
-      if (isMsg && msgRow.has(mid)) {
-        const idx = msgRow.get(mid)!;
-        // grow the streaming message (merge blocks) instead of dropping shorter
-        // fragments — a multi-block reply must not look truncated.
-        out[idx] = {
-          ...out[idx],
-          ev: { ...out[idx].ev, ...ev },
-          r: {
-            ...out[idx].r,
-            ...r,
-            text: mergeFragment(out[idx].r.text, r.text, fragmentMode(ev)),
-          },
-        };
-        return;
-      }
-      const entry = { ev, r, key: eventKey(ev, i) };
-      if (isMsg) msgRow.set(mid, out.length);
-      out.push(entry);
-    });
-    return { list: out, hiddenReasoning };
+    return renderFeedRows(displayEvents, { locale, showReasoning, filter, query });
   }, [deferredEvents, showReasoning, filter, query, skipFirst, locale]);
 
   const rows = baseRows;

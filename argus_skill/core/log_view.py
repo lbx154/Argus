@@ -116,7 +116,6 @@ def advance(state: LogState, etype: str, event: dict[str, Any]) -> str:
         EventType.ROUND_START,
         EventType.ROUND_MAIN_COMPLETED,
         EventType.ROUND_REVIEW_COMPLETED,
-        "engineer.failure_nudge",
         EventType.LIFE_MANAGER_STAGE_DECISION,
     ):
         r = _round_of(event)
