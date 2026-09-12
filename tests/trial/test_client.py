@@ -229,6 +229,7 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
     )}
     env.update(
         ARGUS_SKILL_HOME=str(tmp_path / "argus"),
+        XDG_CACHE_HOME=str(tmp_path / "cache"),
         PYTHONPATH=str(project),
         CI="true",
         ARGUS_TRIAL_KEY=credential,
@@ -248,16 +249,25 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
         # A fresh Python process proves persisted trial routing; this goes
         # through Argus's actual worker launch, not a manually configured CLI.
         label = "simple-1" if transport_mode == "acp" else "trial-tool-smoke"
+        # The readiness probe owns an unrelated temporary sandbox. This file
+        # round trip must explicitly grant the fixture's working directory.
         probe = (
-            "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
-            "r=run_read_only_agent_prompt(backend='copilot', executable=shutil.which('copilot'), "
-            f"model='gpt-4.1', run_label={label!r}, prompt='Read "
-            + str(tmp_path / "evidence.txt") + " and report TRIAL_TOOL_OK.'); "
+            "from argus_skill.adapters.agent_cli_backend import AgentCliBackend; "
+            "from argus_skill.core.models import RunnerOptions; "
+            "from argus_skill.core.run_gateway import run_exec; "
+            "runner=AgentCliBackend(backend='copilot', runner_bin=shutil.which('copilot')); "
+            f"o=RunnerOptions(model='gpt-4.1', working_dir={str(tmp_path)!r}, "
+            "sandbox_mode='read-only', force_safe_mode=True, skip_git_repo_check=True); "
+            f"r=run_exec(runner, resume_thread_id=None, options=o, run_label={label!r}, "
+            f"prompt={'Read ' + str(tmp_path / 'evidence.txt') + ' and report TRIAL_TOOL_OK.'!r}); "
+            "assert r.exit_code == 0 and not r.fatal_error and r.tool_activity_observed, r; "
+            "assert 'TRIAL_TOOL_OK' in r.last_agent_message, r; "
             if local_tool == "view" else
             "from argus_skill.core.agent_probe import run_agent_repair_prompt; "
             "r=run_agent_repair_prompt(backend='copilot', executable=shutil.which('copilot'), "
             f"working_dir={str(tmp_path)!r}, model='gpt-4.1', run_label={label!r}, "
             "prompt='Create result.txt with trial-local-patch-evidence using apply_patch, then report TRIAL_TOOL_OK.'); "
+            "assert r.ok and 'TRIAL_TOOL_OK' in r.output, r; "
         )
         if transport_mode == "acp":
             prompt = (
@@ -281,7 +291,6 @@ def test_real_argus_setup_and_copilot_tool_round_trip(tmp_path, monkeypatch, loc
             )
         else:
             probe += (
-                "assert r.ok and 'TRIAL_TOOL_OK' in r.output, r; "
                 "from argus_skill.core.agent_probe import run_read_only_agent_prompt; "
                 "r=run_read_only_agent_prompt(backend='copilot',executable=shutil.which('copilot'),"
                 "model='gpt-5.5',run_label='trial-reject-smoke',prompt='TRIAL_REJECT_REQUEST'); "
