@@ -4,6 +4,9 @@
 提交点和恢复路径，并能局部修改行为。本文描述代码结构；它不进入任何角色 prompt。
 概念定义见 [Core Concepts](CORE_CONCEPTS.md)。
 
+第二批从 `9885fb19f` 继续，并合并 `origin/main` 的 `1e09263e1`。
+这一批明确 API 服务依赖、完善控制面等待和事件投影恢复，并收敛并发查询的失败行为。
+
 ## 阅读入口
 
 ```mermaid
@@ -37,6 +40,8 @@ Reviewer 的语义判断和 Host 的状态提交发生在不同位置；定位�
 | 任务领取、状态、终态归档 | [`life/memory.py`](../argus_skill/life/memory.py) 的 `Backlog` | 所有读改写遵循同一个 Backlog 锁与恢复协议 |
 | 阶段推进与回退 | [`manager/_stage_ops.py`](../argus_skill/manager/_stage_ops.py)、[`skills/stage_machine.py`](../argus_skill/skills/stage_machine.py) | Manager 决策及提交，Vertical 提供规则，状态机执行规则 |
 | 模型调用与后端 | [`core/run_gateway.py`](../argus_skill/core/run_gateway.py)、[`core/ports.py`](../argus_skill/core/ports.py) | provider 进程与解析细节留在 adapter / agent_cli |
+| 项目/任务 HTTP 服务依赖 | [`webapi/daemon_services.py`](../argus_skill/webapi/daemon_services.py)、`create_app` / `ServerContext` | 每个 app 持有自己的状态读取和启动服务；业务函数仅接收所需操作 |
+| 并发查询合并、失败、等待超时 | [`webapi/index_cache.py`](../argus_skill/webapi/index_cache.py) | 一轮查询共享结果或失败；超时不启动重复扫描 |
 | 展示状态与事件回放 | [`life/event_log.py`](../argus_skill/life/event_log.py)、[`core/mission_view`](../argus_skill/core/mission_view) | 展示投影不负责决定任务或项目完成 |
 
 ## 状态所有权
@@ -52,7 +57,7 @@ Reviewer 的语义判断和 Host 的状态提交发生在不同位置；定位�
 | 项目完成 | `core.project_api.complete_project` | 校验证据来源后写 lifecycle；不由 UI 或角色会话直接写 DONE |
 | daemon 连续运行配置 | `daemon.state` 的 generation / compare-and-swap | 决定是否继续调度；不代替任务验收结果 |
 | 角色会话 | `core.role_session` | 可轮换、可重建的上下文；任务权威仍来自持久任务与契约 |
-| 事件与运行视图 | `JsonlEventLog` → `core.mission_view` | 事件追加与投影更新不是同一事务；投影不能成为执行权威 |
+| 事件与运行视图 | `JsonlEventSink` → `core.mission_view` | 日志先落盘，视图与已消费位置原子保存；失败由读取补齐，投影不承担执行权威 |
 
 ## 单任务执行顺序
 
@@ -78,8 +83,8 @@ Reviewer 的语义判断和 Host 的状态提交发生在不同位置；定位�
   结果查询或对账；不能仅凭模型会话里有一句“完成”跳过核验。
 - Manager pipeline lock 当前仍跨整个 supervisor pass 持有。外部意图提交通过 yield 握手
   等待任务边界；本轮没有改变这个并发契约。
-- 事件、视图、阶段、项目 lifecycle 与 daemon 配置分别提交。本轮没有把这些文件变成一个事务，
-  也没有把 event log 升级为唯一事件溯源数据库。
+- 阶段、项目 lifecycle、daemon 配置仍分别提交。事件日志与视图也分别写入，
+  但视图与已消费日志位置属于同一个 checkpoint；日志不代替这些执行状态的权威。
 
 ### Backlog 完成提交协议
 
@@ -104,12 +109,78 @@ POSIX 下同步文件和父目录；Windows 下同步文件并原子替换，不
 上线此存储协议前须停止访问同一 backlog 的旧版本写进程，再统一升级；旧写进程不认识提交记录。
 既有 archive/live 行格式保持兼容，新增加的 commit 文件负责恢复。
 
+### API 服务依赖
+
+`create_app(daemon_services=DaemonServices(read_status=..., start=...))` 为单个 app
+提供两个窄操作，默认在 app 创建时捕获具体实现。`ServerContext` 保存该实例。
+`project_crud.delete_project` 只接收状态读取操作；`mission_items.get_status` 接收状态读取操作，
+`enqueue_task_command` 接收启动操作。项目和任务业务模块不再导入 `server` 或 `_server_module`。
+
+测试直接注入服务，或 patch 实际业务模块，避免依赖 `server` 的全局名字转发。
+HTTP 路径、返回结构与直接 Python 调用保留兼容。`daemon_lifecycle` / `daemon_upgrade`
+内部仍有旧的反向依赖，后续迁移；这批没有把所有后台服务宣称为完全实例隔离。
+
+### 查询缓存的失败与等待契约
+
+`IndexCache.get(key, compute)` 对同 key 的并发读只执行一份 `compute`：
+
+- 正常完成：共享只读结果，缓存到有限 TTL；显式失效会把旧的进行中查询与新读隔离。
+- 查询失败：当前等待者收到该次失败；失败不缓存，后来的新请求可以再试。缓存层不替等待者循环重试。
+- 等待超过 30 秒：抛出 `CacheWaitTimeout`，HTTP 返回 `503`、`detail` 和 `Retry-After: 1`。
+  原查询继续运行，完成后仍能供后来的请求复用；其他 key 不被它阻塞。
+- 非有限 TTL（如 `inf`、`nan`）按无效配置处理并禁用缓存，避免可变快照永久不更新。
+
+该等待上限约束跟随者，不会强行中止执行查询的线程。外部 I/O 自身仍需要各自的超时。
+缓存键表最多保留 64 项；不同 key 的容量耗尽路径仍直接执行，不承担全局请求限流。
+
+### 控制面等待与取消
+
+bounded 与 continuous handoff 都在提交前请求让出任务边界。当前任务结束后，Supervisor
+会先让 Manager 提交，再继续领取后续任务；这里提供任务边界让出，不承诺严格 FIFO。
+
+每个等待者持有 `.manager_pipeline_yields/<token>.json`，请求者只释放自己的记录，
+无需共同读改写一份队列表或获取额外 metadata 锁。释放先记录 `released` 再删除文件，
+删除失败不会继续阻塞 daemon。旧 `.manager_pipeline_yield.json` 保留读取兼容。
+进程存活统一使用 `core.daemon_lock.is_pid_running`，避免在 Windows 上误用 `os.kill(pid, 0)`。
+
+`manager_pipeline_boundary` 把取消回调传给原生 `Manager.pipeline_lock`；daemon 传入 stop 信号，
+Web TEAM 请求通过 `enqueue_mission` 传入原有取消回调。锁竞争可等待，取消可在等待期间退出；
+坏文件描述符、锁服务不可用等真正故障直接抛出，不伪装成永久竞争。旧无参锁替身只做进入前后检查。
+
+完整缩短持锁范围仍有两个前提：执行上下文不能再临时修改共享 Manager/Runner 字段，
+任务结算须全程绑定目标版本与 claim。当前保留执行期间的粗锁与工作目录所有权。
+
+### 事件投影恢复
+
+恢复实现集中在 [`core/mission_view/_replay.py`](../argus_skill/core/mission_view/_replay.py)。
+`JsonlEventSink` 先追加并同步日志，释放日志锁，再请求投影读取已落盘事件；回调参数不会被重复应用。
+reader 和 writer 都遵循 `events.lock` → `mission-view.lock` 的顺序。
+
+`mission-view.json` 内部同时保存视图和 `_event_cursor`。只有这次 checkpoint 成功，
+才算消费了对应日志前缀；失败后从上一次 checkpoint 重放，因此不会在半完成状态上再次累计拒绝次数。
+游标追踪文件身份、位置和边界内容指纹，能跨轮转定位 retained generation，并适应正常备份复制后的 inode 变化。
+
+旧视图初始化、截断后的重建和落后追赶按字节预算分批；快照的 `projection_sync` 标明
+`current`、`catching_up` 或 `waiting_for_line`。未变化的完整快照只检查当前日志元数据，
+不打开日志、不枚举历史目录、不重写 checkpoint。API 返回移除内部 `_event_cursor`，保留同步状态供诊断。
+直接调用 `update_mission_view_event` 而不写日志的兼容模式标为 `unlogged`，不伪造可恢复日志进度。
+直接投影会记录当时日志位置。后续 canonical writer 在每行末尾写 `log_writer_version`，
+reader 从基准位置有界查找这个 Host 标记，并能跨分块、轮转继续查找；接管不依赖投影回调成功，
+也不依赖最后一行恰好来自 canonical writer。纯旧格式人工 review tail 保留原兼容行为。
+
+回放统一复用 `validate_event_envelope`：生产写入保持默认严格校验，旧日志允许缺失较新的必需字段，
+已提供字段仍检查类型和值。损坏 JSON、无效记录和超大行计入 `skipped_rows` / `oversized_rows`，
+原始日志保持完整；超大行的跳过进度也持久保存，不能阻塞后续有效事件。
+
+日志和 checkpoint 的同步写入增加了写路径成本；正常读路径因此可以增量对账。
+这项保证覆盖日志到视图的恢复，不改变外部任务操作的幂等责任。
+
 ## 常见问题如何追踪
 
 | 现象 | 先查的事实 | 后续代码入口 |
 | --- | --- | --- |
 | 一个任务显示完成，但项目仍在运行 | Backlog 任务终态、当前阶段、项目完成证据、continuous generation 分别是什么 | `project_api.complete_project` → Supervisor 的 bounded/open-ended 完成路径 |
-| 页面停止更新，事件仍在增加 | event log 是否追加成功，Mission View 是否落后 | `JsonlEventLog._append` → `core.mission_view` 的 reducer / snapshot |
+| 页面停止更新，事件仍在增加 | event log 是否追加成功，Mission View 是否落后 | `JsonlEventSink._append` → `core.mission_view` 的 reducer / snapshot |
 | 重启后再次运行一个任务 | commit 是否待恢复，live/archive 中的同一任务 ID，orphan 重试次数 | `Backlog._recover_commit` → `reap_orphans`；外部操作另外对账 |
 | 修改目标迟迟未生效 | 指令是否已接收，Manager yield 请求与 pipeline lock，当前执行是否到达任务边界 | `front_door` → `manager._session_ops` → `daemon._life_worker_run` |
 | 阶段回退被拒绝 | 当前 Vertical 契约的回退能力与目标阶段顺序 | `stage_rollback_error` → `_set_stage`；不是按领域名称猜规则 |
@@ -126,23 +197,35 @@ POSIX 下同步文件和父目录；Windows 下同步文件并原子替换，不
 | M1 / P0 完成提交恢复 | 已实现并验证 | `Backlog`：明确 archive/live 的提交权威与恢复入口；Web/终端读取同步恢复 | 提交记录落盘后任一应用步骤失败，重启不重领该任务；恢复再中断可重试；正常 claim 不新增历史扫描 |
 | M2 / P1 显式执行状态 | 已实现并验证 | `_MissionRunState` 与 `_run_one`：声明全部字段、阶段职责和早退副作用 | 保持当前执行行为和磁盘格式；覆盖 claim 失效、暂停、继续迭代、阶段短路、正常结算 |
 | M3 / P1 领域规则归位 | 已实现并验证 | `VerticalContract` 声明回退能力；状态机负责规则 | research 行为保持；自定义名字的 Vertical 可声明同一能力；允许回退的领域保持原行为 |
-| M4 / P1 API 依赖明确化 | 待实施 | 从 `project_crud` / `mission_items` 开始，把 `_srv()` 回调改为显式传入所需服务；`create_app` 负责组装 | 两个 app 实例依赖独立；领域服务不再导入 `server`；迁移对应 API 测试后删兼容入口；最后迁移 daemon lifecycle/upgrade |
-| M5 / P1 缩短控制面锁 | 待实施，依赖 M1/M2 | Manager 意图接收与安全边界应用分开；模型调用和长任务执行移出状态提交锁 | 指令接收有持久确认；expected revision 冲突可见；并发修改不丢目标，不让陈旧执行完成新任务；保留工作目录单写约束 |
+| M4 / P1 API 依赖明确化 | 首批已实现并验证 | `project_crud` / `mission_items` 的反向依赖改为显式操作；`create_app` 组装 `DaemonServices` | 两个 app 的服务独立；架构测试禁止回查 server；后续继续迁移 daemon lifecycle/upgrade |
+| M5 / P1 缩短控制面锁 | 前置改善已实现并验证 | bounded/continuous handoff 让出任务边界；取消和停止可中断锁等待；真实锁错误直接报出 | 保留粗锁；最终短锁依赖共享 Manager/Runner 上下文隔离，以及结算全过程 goal revision/claim CAS |
 | M6 / P2 拆出独立调度组件 | 待实施，依赖 M2/M3 | 按上下文准备、运行结果结算、规划输入分批替换共享 `self` 的 mixin | 每批组件输入/输出和副作用可列清；调用者不再需要其内部字段；对应原 mixin 删除；保留任务级集成测试 |
-| M7 / P2 投影恢复对账 | 待实施 | 事件到 Mission View 增加明确的持久进度与重放边界 | 日志成功、投影失败后可补齐；重复重放不重复计数；旧事件与轮转日志兼容 |
+| M7 / P2 投影恢复对账 | 已实现并验证 | 事件到 Mission View 增加明确的持久进度与重放边界 | 日志成功、投影失败后可补齐；重复重放不重复计数；旧事件与轮转日志兼容 |
+| M8 / P1 查询失败合并 | 已实现并验证 | 统一缓存失败/超时语义，避免并发查询放大故障负载 | 40 个同轮失败查询只执行一次扫描；等待超时不重复扫描；后续请求仍能恢复 |
 
-下一批先做 M4，再做 M5；M6 按具体依赖边界逐个迁移。每个任务单独形成可审查补丁，
+后续继续 M4 的 daemon 服务迁移、M5 的上下文隔离与短提交；M6 按具体依赖边界逐个迁移。每个任务单独形成可审查补丁，
 不把 API、存储格式、阶段语义和部署方式同时改掉。
 
 ## 修改后的验证
 
-本批整合验证（2026-09-12，Linux / Python 3.12）：运行时与架构回归 **560 项通过**，
+第一批整合验证（2026-09-12，Linux / Python 3.12）：运行时与架构回归 **560 项通过**，
 Web/终端回归 **86 项通过**；全仓 `ruff check argus_skill tests` 与 `git diff --check` 通过。
 存储与显式运行状态还经过交叉代码审查；故障恢复测试使用临时目录中的真实子进程退出。
+
+第二批主回归：`core` / `life` / `manager` / `daemon` 与关联集成测试 **2,954 项通过、4 项跳过**；
+全部 WebAPI 测试 **605 项通过、2 项跳过**。收尾的恢复、锁、缓存、API 服务与架构边界补测
+**213 项通过**（与主回归有重叠），后续新增的模式接管/旧字段兼容用例所在三文件 **123 项通过**。
+全仓 Ruff 与 diff 检查通过。跳过项使用现有平台/环境条件，本地未运行原生 Windows/macOS 构建。
+
+优化证据以受控测试说明边界：40 个同轮失败查询从 40 次扫描变为 1 次；持锁 0.8 秒、
+0.1 秒后取消的测试中，三次等待耗时中位数从 0.8009 秒降至 0.2002 秒。
+已有超过 400KB 日志新增一条事件时，完整 snapshot 的日志读取量小于 4KB；
+未变化 snapshot 的日志打开与历史目录枚举次数均为 0。这些不是部署吞吐量承诺。
 
 本地开发使用已安装依赖的 Python；以下命令不启动真实模型，也不部署服务：
 
 ```bash
+python -m pytest tests/core/test_mission_view_replay.py tests/manager/test_pipeline_boundary.py tests/daemon/test_pipeline_lock_stop.py tests/webapi/test_daemon_services.py tests/webapi/test_index_cache_failures.py
 python -m pytest tests/life/test_backlog_commit_recovery.py tests/life/test_mission_execution_contract.py tests/skills/test_stage_rollback_policy.py tests/apps/test_backlog_views.py tests/webapi/test_map_incremental.py
 python -m pytest tests/test_architecture_invariants.py tests/core/test_contract_authority.py tests/core/test_event_catalog.py
 python -m pytest tests/life/test_memory.py tests/life/test_memory_split.py tests/life/test_backlog_dag.py tests/life/test_backlog_replacement.py tests/life/test_state_machine_guards.py
