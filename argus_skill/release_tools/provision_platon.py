@@ -14,7 +14,6 @@ from ..core import plugin_manager as manager
 from ..core import plugin_runtime as runtime
 from ..core.process_identity import capture_process_identity
 
-
 ACTIVATE = """
 import json
 import sys
