@@ -187,6 +187,7 @@ export function MissionControl({
   onOpenDelivery,
   gitDiff,
   onNotify,
+  onAsk,
   connected = true,
   events = [],
 }: {
@@ -198,6 +199,7 @@ export function MissionControl({
   onOpenDelivery?: (delivery: DeliveryReceipt) => void;
   gitDiff?: GitDiffView;
   onNotify?: (tone: 'success' | 'error', message: string) => void;
+  onAsk?: (draft: string) => void;
   connected?: boolean;
   events?: EventMsg[];
 }) {
@@ -343,6 +345,30 @@ export function MissionControl({
   };
   const replayRows = view.timeline.slice(0, replayIndex + 1).slice(-12).reverse();
   const selectedTask = view.dag.find((node) => node.id === selectedTaskId);
+  const noTaskYet = snapshot && connected && snapshot.daemon.read_status !== 'error'
+    && !teamEngaged && !needsAttention && ['', 'idle', 'waiting'].includes(missionStatus)
+    && !snapshot.backlog.length && !view.role_work.length && !view.timeline.length
+    && !view.mission.summary && !hasFullOutput && !delivery && !view.artifacts.length
+    && !hasCapabilities && !artifacts.some(artifact => artifact.exists)
+    && !(gitDiff?.available && (gitDiff.status || gitDiff.diff));
+  if (noTaskYet) {
+    const zh = locale === 'zh-CN';
+    const savedObjective = snapshot.session.objective?.trim();
+    return <section className="min-h-0 flex-1 overflow-y-auto bg-panel px-5 py-8 scroll-thin" aria-label={t('mission.control')} data-testid="project-ready">
+      <div className="mx-auto max-w-2xl">
+        <h1 className="text-lg font-semibold text-ink">{zh ? '还没有安排执行任务' : 'No work has been assigned yet'}</h1>
+        {savedObjective ? <div className="mt-3 text-sm leading-relaxed text-ink-dim"><MarkdownContent>{savedObjective}</MarkdownContent></div> : null}
+        <p className="mt-3 text-sm leading-relaxed text-ink-dim">{zh
+          ? '在下方告诉 Manager 你想完成什么，也可以直接询问这个项目的进展。'
+          : 'Tell the Manager what you want to accomplish below, or ask about this project’s progress.'}</p>
+        {onAsk ? <button type="button" className="mt-4 rounded-lg border border-line px-3 py-2 text-sm text-ink hover:border-blue" onClick={() => onAsk(zh
+          ? '这个项目目前做到了哪一步？有哪些结果，下一步是什么？'
+          : 'Where does this project stand? What results do we have, and what comes next?')}>
+          {zh ? '问 Manager 项目现状' : 'Ask the Manager about this project'}
+        </button> : null}
+      </div>
+    </section>;
+  }
   return (
     <section className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-panel scroll-thin" aria-label={t('mission.control')}>
       <header className="border-b border-line/60 px-5 py-5">

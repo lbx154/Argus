@@ -49,11 +49,6 @@ export function ReaderExplanationStatus({ generatedAt, pending = false, generati
   </div>;
 }
 
-export function readerExplanationBoundary(zh: boolean) {
-  return zh ? '背景教学不计作研究进展；子任务完成不表示整个目标已经解决。'
-    : 'Background explanations are not research progress; finishing one task does not establish the overall goal.';
-}
-
 /** Pure presentation shared by current research and an explicitly selected historical card. */
 export function ReaderExplanation({ brief, identity, detail, readingUnavailable = false, teachingUnavailable = false, artifacts, onOpenArtifact }: {
   brief: ReaderBrief; identity: string; detail?: string; readingUnavailable?: boolean; teachingUnavailable?: boolean;

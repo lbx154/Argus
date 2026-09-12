@@ -8,7 +8,7 @@ import { useI18n } from '../i18n';
 import { dateOf } from '../lib/format';
 import { questionAboutStep } from './model';
 import { useResearchBrief } from './useResearchBrief';
-import { ReaderExplanation, ReaderExplanationStatus, ShortText, readerExplanationBoundary } from './ReaderExplanation';
+import { ReaderExplanation, ReaderExplanationStatus, ShortText } from './ReaderExplanation';
 import { ReaderEvidence } from './ReaderEvidence';
 import { selectReaderEvidence } from './evidence';
 
@@ -48,19 +48,18 @@ export default function ResearchBrief(props: ResearchBriefProps) {
   const hasProblem = !!result.readError || !!result.generationError || unavailable;
   const explanationStatus = <ReaderExplanationStatus generatedAt={card?.generated_at} pending={result.needsUpdate} generating={result.generating} hasExplanation={!!brief} />;
 
-  const boundary = readerExplanationBoundary(zh);
   const explanation = <>
     {brief ? <ReaderExplanation brief={brief} identity={task?.id || props.view.mission.id} detail={card?.detail} readingUnavailable={result.readingUnavailable} teachingUnavailable={result.teachingUnavailable} /> : <div className="mt-3 text-[13px] leading-6 text-ink-dim">
       <ShortText value={objective || text('任务目标尚未记录。', 'The task objective has not been recorded yet.')} expandLabel={text('完整任务目标', 'Full task objective')} />
-      <p className="mt-1 text-xs text-ink-faint">{result.loading ? text('正在读取任务记录，原始目标会一直保留。', 'Loading the task records; the original objective remains visible.')
+      <p className="mt-1 text-xs text-ink-faint">{result.loading ? text('正在读取任务记录。', 'Loading task records.')
         : result.generating ? text('正在根据任务记录整理说明，可以先阅读原始目标。', 'Preparing an explanation from the task records; you can read the original objective meanwhile.')
-        : props.readOnly ? text('此处还没有阅读说明。只读模式可以查看已有记录，不会发起解释生成。', 'No explanation is available yet. Read-only mode shows existing records without generating new text.')
+        : props.readOnly ? text('还没有生成说明，可以查看任务目标与依据。', 'No explanation has been saved yet. View the task objective and evidence below.')
         : text('解说暂不可用，可以先查看任务目标与依据。', 'An explanation is not available yet. You can still view the task objective and evidence.')}</p>
     </div>}
     {result.generating && brief ? <p className="mt-2 text-[11px] text-ink-faint">{text('正在依据新记录更新；上方暂时保留之前的说明。', 'Updating from new records; the previous explanation remains visible above.')}{generatedAt ? ` ${generatedAt}` : ''}</p> : null}
-    {hasProblem ? <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-faint" role="status"><span>{result.readError ? text('记录暂时读取失败；已显示内容仍保留。', 'Records could not be refreshed; previously loaded content is retained.')
-      : result.generationError ? text('说明生成未完成；不会自动重复请求。', 'The explanation could not be prepared. This request will not be repeated automatically.')
-        : text('解说服务暂不可用；任务记录不受影响。', 'Explanations are temporarily unavailable; the task records remain available.')}</span>
+    {hasProblem ? <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-faint" role="status"><span>{result.readError ? text('暂时无法刷新说明。', 'Could not refresh the explanation.')
+      : result.generationError ? text('这次说明没有生成成功。', 'The explanation could not be prepared.')
+        : text('说明服务暂不可用。', 'Explanations are temporarily unavailable.')}</span>
       {props.active && (!props.readOnly || result.readError) ? <Button className="inline-flex items-center gap-1 text-xs" disabled={result.generating || result.loading} onClick={() => void result.retry()}><RefreshCw size={12} />{text('重试', 'Retry')}</Button> : null}</div> : null}
   </>;
 
@@ -81,12 +80,11 @@ export default function ResearchBrief(props: ResearchBriefProps) {
         <Button className="inline-flex items-center gap-1 text-xs" onClick={() => setEvidenceOpen(true)}><BookOpen size={12} />{text('查看依据', 'View evidence')}</Button>
         {props.onAsk && task && !props.readOnly ? <Button className="inline-flex items-center gap-1 text-xs" onClick={() => props.onAsk?.(questionAboutStep(props.sid, task, evidence, zh))}><MessageCircle size={12} />{compact && !zh ? <>Ask<span className="sr-only"> about latest progress</span></> : text('询问最新进展', 'Ask about latest progress')}</Button> : null}
       </div>
-      {!compact ? <p className="mt-1 text-[11px] text-ink-faint">{boundary}</p> : null}
     </footer>
   </section>
     <Modal open={readingOpen} onClose={() => setReadingOpen(false)} label={text('任务说明', 'Task explanation')}>
       <ModalHeader title={text('读懂这一步', 'Understand this step')} sub={title || props.view.mission.title} />
-      <div className="px-6 pb-6" data-testid="research-brief-reading">{explanationStatus}{explanation}<p className="mt-3 border-t border-line/50 pt-2 text-[11px] text-ink-faint">{boundary}</p></div>
+      <div className="px-6 pb-6" data-testid="research-brief-reading">{explanationStatus}{explanation}</div>
     </Modal>
     <Modal open={evidenceOpen} onClose={() => setEvidenceOpen(false)} label={text('这一步的依据', 'Evidence for this step')}>
       <ModalHeader title={text('这一步的依据', 'Evidence for this step')} sub={card?.title || task?.title || props.view.mission.title} />

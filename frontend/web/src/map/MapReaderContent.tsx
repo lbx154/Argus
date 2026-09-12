@@ -4,7 +4,7 @@ import { RawDisclosure } from '../components/primitives';
 import { useI18n } from '../i18n';
 import { cleanDeliverySummary } from '../components/deliveryPresentation';
 import { isReaderBrief, READER_BRIEF_VERSION } from '../research-brief/model';
-import { ReaderExplanation, ReaderExplanationStatus, readerExplanationBoundary } from '../research-brief/ReaderExplanation';
+import { ReaderExplanation, ReaderExplanationStatus } from '../research-brief/ReaderExplanation';
 import type { MapEvent, MapTask } from './model';
 import type { CardCopy, CardRequest } from './presentation';
 import { ReaderEvidence, ReaderEvidenceSummary } from '../research-brief/ReaderEvidence';
@@ -48,6 +48,5 @@ export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, 
     <RawDisclosure label={zh ? '查看依据' : 'View evidence'}>
       <ReaderEvidence selection={sources} showSummary={false} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
     </RawDisclosure>
-    <p className="mt-3 border-t border-line/50 pt-2 text-[11px] text-ink-faint">{readerExplanationBoundary(zh)}</p>
   </div>;
 }

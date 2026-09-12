@@ -1010,6 +1010,7 @@ export default function App() {
                     onOpenArtifact={focusDeliveryPath}
                     onOpenDelivery={openDelivery}
                     onNotify={notify}
+                    onAsk={kiosk ? undefined : draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); }}
                   />
                 ) : (
                   <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>

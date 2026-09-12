@@ -37,7 +37,7 @@ it('leads with a concept and example while retaining task scope, next steps, and
   expect(markup).toContain('Why this step helps');
   expect(markup).toContain('Counterexample');
   expect(markup).toContain('the general problem remains open');
-  expect(markup).toContain('Background explanations are not research progress');
+  expect(markup).not.toContain('Background explanations are not research progress');
   expect(markup.indexOf('One useful concept')).toBeLessThan(markup.indexOf('Illustrative example'));
   expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('Concept explanation'));
   expect(markup.indexOf('Illustrative example')).toBeLessThan(markup.indexOf('Why this step helps'));
@@ -194,7 +194,7 @@ it('contains a record-read failure inside the card and leaves the original goal 
   const rendered = JSON.stringify(renderer!.toJSON());
   expect(rendered).toContain('Other page content');
   expect(rendered).toContain(source.tasks[0].objective);
-  expect(rendered).toContain('Records could not be refreshed');
+  expect(rendered).toContain('Could not refresh the explanation');
   expect(generate).not.toHaveBeenCalled();
 });
 
