@@ -174,6 +174,81 @@ def test_private_training_policy_only_fills_selected_member_and_preserves_browse
         assert current.permissions("trial-01") == previous
 
 
+@pytest.mark.parametrize("tenant", ["trial-04", "trial-10"])
+def test_offline_member_can_redeem_invitation_without_fabricating_browser_acceptance(
+    provisioned, tmp_path, tenant,
+):
+    from argus_skill.trial.analytics import Analytics
+
+    config, vault, store = provisioned
+    analytics = Analytics(
+        tmp_path / "analytics",
+        {key: {"data_dir": tmp_path / key, "internal_test": True} for key in config["tenants"]},
+        store.path, tmp_path / "compute.sqlite3",
+    )
+    analytics.record_consent(tenant, "operator-analytics-v1")
+    policy = {
+        "mode": "internal_team_offline", "tenant_ids": ["trial-04", "trial-10"],
+        "evidence_note": "Owner confirms prior offline authorization for these internal team members.",
+    }
+    config = {**config, "team_training_policy": policy}
+    transport = httpx.MockTransport(lambda request: httpx.Response(
+        200, stream=Chunks([b'{"ok":true}']), headers={"content-type": "application/json"},
+    ))
+    cookie = None
+    original_permission = None
+    for restart in (False, True):
+        app = portal.create_app(config, analytics=analytics, transport=transport)
+        with TestClient(app, base_url=ORIGIN, follow_redirects=False) as client:
+            if restart:
+                client.cookies.set(portal.COOKIE, cookie)
+                assert client.get("/api/plugins").status_code == 200
+                assert client.get("/trial/data-permissions").json() == original_permission
+                client.cookies.clear()
+            entry = client.get("/invite")
+            assert ' disabled hidden>' in entry.text
+            assert "Owner confirms" not in entry.text and tenant not in entry.text
+            assert client.post("/invite/login", json={"code": vault.credential(tenant)}).status_code == 403
+            login(client, vault, tenant=tenant)
+            cookie = client.cookies.get(portal.COOKIE)
+            assert client.get("/api/plugins").status_code == 200
+            permission = client.get("/trial/data-permissions").json()
+            assert permission["research_consent_current"] and permission["authorization_active"]
+            assert permission["internal_training"] and not permission["external_sharing"]
+            assert permission["onboarding"] is None
+            assert permission["authorization"]["source"] == "operator_attested_offline"
+            if original_permission is None:
+                original_permission = permission
+            else:
+                assert permission == original_permission
+            client.cookies.clear()
+            assert client.post("/invite/login", headers={"Origin": ORIGIN}, json={
+                "code": vault.credential("trial-02"),
+            }).status_code == 403
+            assert analytics.consented("trial-02", analytics.notice_version) is restart
+            assert client.post("/invite/login", headers={"Origin": ORIGIN}, json={
+                "code": vault.credential("trial-02"), "team_training_policy": policy,
+            }).status_code == 400
+            assert client.post("/invite/login", headers={"Origin": ORIGIN}, json={
+                "code": vault.credential("trial-02"), "data_notice_accepted": True,
+                "notice_version": analytics.notice_version,
+            }).status_code == 200
+            assert client.get("/trial/data-permissions").json()["onboarding"] is not None
+    with TestClient(app, base_url=ORIGIN, follow_redirects=False) as client:
+        login(client, vault, tenant=tenant)
+        notice = client.get("/trial/data-permissions").json()["notice_version"]
+        assert client.put("/trial/data-permissions", headers={"Origin": ORIGIN}, json={
+            "notice_version": notice, "internal_training": False, "external_sharing": False,
+        }).status_code == 200
+        client.cookies.clear()
+        login(client, vault, tenant=tenant)
+        assert client.get("/api/plugins").status_code == 200
+        assert client.get("/trial/data-permissions").json()["internal_training"] is False
+    with analytics._db() as db:
+        assert db.execute(
+            "SELECT count(*) FROM training_onboarding_acceptances WHERE tenant_id=?", (tenant,),
+        ).fetchone()[0] == 0
+
 def test_login_page_and_unauthenticated_routes(provisioned):
     calls = []
     with client_for(provisioned, lambda request: calls.append(request)) as client:

@@ -497,7 +497,7 @@ def json_body(body: bytes) -> dict:
 
 
 def login_page(nonce: str, token_limit: int | None = WEB_TOKEN_LIMIT,
-               notice_version: str | None = None) -> str:
+               notice_version: str | None = None, *, defer_notice: bool = False) -> str:
     if token_limit is None:
         quota_copy = "每个邀请码不设累计 token 上限，输入与输出仍按实际用量记录；上游服务限流仍然适用。"
     else:
@@ -526,6 +526,11 @@ def login_page(nonce: str, token_limit: int | None = WEB_TOKEN_LIMIT,
         '记录可能包含可识别信息；可在研究记录页面撤回未来导出授权，已交付副本不能自动召回。</label>'
         if notice_version else ""
     )
+    if notice:
+        notice = (
+            '<fieldset id="data-notice-fields" style="border:0;padding:0;margin:0;min-width:0"'
+            + (" disabled hidden" if defer_notice else "") + ">" + notice + "</fieldset>"
+        )
     return """<!doctype html><html lang="zh-CN"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Argus · 邀请码入口</title>
 <style>
@@ -563,11 +568,16 @@ button.disabled=true;document.querySelector('#error').textContent='';
 const value=code.value.trim();code.value='';
 const payload={code:value,readonly:document.querySelector('#readonly').checked};
 const notice=document.querySelector('#data-notice');
-if(notice){payload.data_notice_accepted=notice.checked;payload.notice_version=notice.dataset.version;
+const noticeFields=document.querySelector('#data-notice-fields');
+if(notice&&!noticeFields.disabled){payload.data_notice_accepted=notice.checked;payload.notice_version=notice.dataset.version;
 payload.external_sharing_accepted=document.querySelector('#external-sharing-notice').checked;}
 try{const response=await fetch('/invite/login',{method:'POST',credentials:'same-origin',
 headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-if(!response.ok)throw Error();const result=await response.json();location.replace(result.redirect);
+const result=await response.json();
+if(response.status===403&&noticeFields?.disabled&&result.detail==='Please confirm the trial data notice'){
+noticeFields.hidden=false;noticeFields.disabled=false;code.value=value;
+document.querySelector('#error').textContent='请确认当前试用告知后继续。';return;}
+if(!response.ok)throw Error();location.replace(result.redirect);
 }catch{document.querySelector('#error').textContent='邀请码验证未成功，请检查后重试。'}
 finally{button.disabled=false;}});
 </script></html>"""
@@ -862,6 +872,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         nonce = secrets.token_urlsafe(24)
         return HTMLResponse(login_page(
             nonce, settings.token_limit, analytics.notice_version if analytics else None,
+            defer_notice=settings.team_training_policy is not None,
         ), headers={
             "content-security-policy": CSP.replace("script-src 'self'", f"script-src 'nonce-{nonce}'")
         })
@@ -903,19 +914,27 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         if tenant not in settings.tenants:
             raise HTTPException(401, "邀请码无效，请重新输入")
         if analytics is not None:
-            if (data.get("data_notice_accepted") is not True
-                    or data.get("notice_version") != analytics.notice_version):
-                raise HTTPException(403, "Please confirm the trial data notice")
-            from .analytics import AnalyticsError
+            offline_member = (
+                settings.team_training_policy is not None
+                and tenant in settings.team_training_policy["tenant_ids"]
+            )
+            explicit_notice = data.keys() & {
+                "data_notice_accepted", "notice_version", "external_sharing_accepted",
+            }
+            if not offline_member or explicit_notice:
+                if (data.get("data_notice_accepted") is not True
+                        or data.get("notice_version") != analytics.notice_version):
+                    raise HTTPException(403, "Please confirm the trial data notice")
+                from .analytics import AnalyticsError
 
-            try:
-                await run_in_threadpool(
-                    app.state.training_data.accept_onboarding, tenant, analytics.notice_version,
-                    accepted=True, external_sharing=data.get("external_sharing_accepted", False),
-                    record_research=True,
-                )
-            except AnalyticsError as exc:
-                raise HTTPException(exc.status, exc.code) from None
+                try:
+                    await run_in_threadpool(
+                        app.state.training_data.accept_onboarding, tenant, analytics.notice_version,
+                        accepted=True, external_sharing=data.get("external_sharing_accepted", False),
+                        record_research=True,
+                    )
+                except AnalyticsError as exc:
+                    raise HTTPException(exc.status, exc.code) from None
             await run_in_threadpool(app.state.journal.poll, tenant)
         await run_in_threadpool(app.state.store.tester_id, tenant)
         response = JSONResponse({"redirect": "/invite"})
