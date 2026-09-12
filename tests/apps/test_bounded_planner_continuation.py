@@ -204,9 +204,15 @@ def test_supervisor_to_execute_to_planner_preserves_shared_continuation(
     assert "A passed the original check." in requests[0]
     assert "B is complete; do not repeat A or B." in requests[0]
     assert "LATEST_OPERATOR_REPLY: continue C only" in requests[0]
+    from argus_skill.core.operator_context import build_operator_context_block
+
+    engineer_context = runner.state.prelude_context_provider() + build_operator_context_block(
+        "engineer", memory.root, mission_id=item.id, consume_once=False,
+    )[0]
     for private in ("ENGINEER_ROLE_ONLY", "ENGINEER_ONLY_RUNTIME", "VERTICAL_ENGINEER_ONLY"):
         assert private not in requests[0]
-        assert private in runner.state.full_task
+        assert private not in runner.state.full_task
+        assert private in engineer_context
     assert runner.state.review_objective == (
         "Complete A then B then C.\n"
         "Acceptance check: C passes the original independent check\n"

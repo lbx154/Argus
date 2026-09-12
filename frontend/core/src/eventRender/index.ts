@@ -110,6 +110,7 @@ function supervisionFailure(event: TypedArgusEvent, context: RenderContext): { t
   }
   const reasons: Record<string, [string, string]> = {
     trial_quota_exceeded: ['The remaining trial quota cannot cover this Manager check.', '剩余试用额度不足以启动这次 Manager 检查。'],
+    observation_incomplete: ['Manager could not fully read the required project evidence; this check has stopped.', 'Manager 未能完整读取所需的项目资料，这次检查已停止。'],
     timeout: ['The model did not respond before the Manager check timed out.', '模型未在时限内返回，Manager 这次检查已结束。'],
     cancelled: ['This Manager check was cancelled.', '已取消这次 Manager 检查。'],
     superseded: ['New input or evidence superseded this Manager check.', '新的操作或证据已取代这次 Manager 检查。'],

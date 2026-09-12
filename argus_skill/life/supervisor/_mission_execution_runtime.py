@@ -101,6 +101,24 @@ def dispose_maintenance_worktree(
         sidecar.unlink(missing_ok=True)
 
 
+def _refreshes_mission_prelude(runner: Any) -> bool:
+    """Only an explicit runner capability may replace snapshot context."""
+    from inspect import signature
+
+    try:
+        return "prelude_context_provider" in signature(runner.execute).parameters
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _mission_memory_prelude(memory: Any, item: BacklogItem) -> str:
+    try:
+        return memory.render_prelude(objective=item.objective)
+    except TypeError:
+        # Compatibility with narrow host-provided memory views.
+        return memory.render_prelude()
+
+
 class MissionExecutionRuntimeMixin:
     if TYPE_CHECKING:
         memory: _MemoryView
@@ -114,11 +132,13 @@ class MissionExecutionRuntimeMixin:
     def _build_mission_prelude(
         self, item: BacklogItem, *, for_planner: bool = False,
     ) -> str:
-        try:
-            prelude = self.memory.render_prelude(objective=item.objective)
-        except TypeError:
-            # Compatibility with narrow host-provided memory views.
-            prelude = self.memory.render_prelude()
+        refresh_per_round = not for_planner and _refreshes_mission_prelude(
+            getattr(self, "runner", None)
+        )
+        # Mutable recall and operator projections must not become immutable
+        # mission text. Capable runners read recall at each Engineer boundary;
+        # their existing live-guidance hook reads OperatorContext separately.
+        prelude = "" if refresh_per_round else _mission_memory_prelude(self.memory, item)
         from ...core.operator_context import (
             build_operator_context_block,
             operator_context_state_root,
@@ -127,7 +147,7 @@ class MissionExecutionRuntimeMixin:
         # Bounded Planner projects its own current OperatorContext immediately
         # before drafting. Never mix in this Engineer-role snapshot.
         operator_context = ""
-        if not for_planner:
+        if not for_planner and not refresh_per_round:
             operator_context, _revision = build_operator_context_block(
                 "engineer",
                 operator_context_state_root(self.memory),
@@ -725,7 +745,25 @@ class MissionExecutionRuntimeMixin:
                     execute_kwargs["original_objective"] = original_objective
                 if "review_objective" in params or _accepts_kw:
                     execute_kwargs["review_objective"] = review_objective
-                if "planner_context" in params or _accepts_kw:
+                if "prelude_context_provider" in params:
+                    static_prelude = str(execute_kwargs["prelude_context"])
+
+                    def current_prelude() -> str:
+                        try:
+                            recalled = _mission_memory_prelude(self.memory, item)
+                        except Exception:  # noqa: BLE001 — keep execution context if recall fails
+                            log.warning("current mission memory unavailable", exc_info=True)
+                            recalled = "Current recalled memory is unavailable."
+                        return "\n\n".join(block for block in (
+                            static_prelude, recalled,
+                        ) if block)
+
+                    execute_kwargs["prelude_context_provider"] = current_prelude
+                if "planner_context_provider" in params:
+                    execute_kwargs["planner_context_provider"] = (
+                        lambda: self._build_planner_continuation_context(item)
+                    )
+                elif "planner_context" in params or _accepts_kw:
                     execute_kwargs["planner_context"] = (
                         self._build_planner_continuation_context(item)
                     )

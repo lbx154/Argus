@@ -67,6 +67,7 @@ describe('the web feed line', () => {
     expect(zh({ ...failed, failure_stage: 'provider' })?.text).not.toContain('团队调整');
     expect(zh({ ...failed, failure_stage: 'commit' })?.text).not.toContain('团队调整');
     expect(zh({ ...failed, failure_stage: 'decision' })?.text).toContain('判断或引用依据');
+    expect(zh({ ...failed, failure_stage: 'decision', error_code: 'observation_incomplete' })?.text).toBe('Manager 未能完整读取所需的项目资料，这次检查已停止。');
     expect(zh({ ...failed, error_code: 'constructor', summary: 'untrusted raw error' })?.text).toBe('Manager 未能完成这次检查。');
   });
 

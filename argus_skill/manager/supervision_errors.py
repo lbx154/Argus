@@ -45,6 +45,8 @@ def _provider_failure_metadata(result: Any, exc: Exception) -> dict[str, str]:
 def _failure_reason(stage: str, metadata: dict[str, Any], *, issued: bool = False) -> str:
     """Receipt and event text never interpolate backend or exception diagnostics."""
     code = str(metadata.get("error_code") or "")
+    if code == "observation_incomplete":
+        return "Required project facts could not be fully read; this check cannot justify further team changes."
     if stage == "commit":
         if metadata.get("status") == "superseded":
             if code == "timeout":
@@ -72,5 +74,7 @@ def _failure_reason(stage: str, metadata: dict[str, Any], *, issued: bool = Fals
     if clause:
         return f"The Manager evidence check stopped because {clause}; prior controls remain authoritative."
     if stage == "decision":
+        if metadata.get("incomplete_requirements"):
+            return "The Manager check could not fully observe required project facts; inspect observation_limitations before retrying."
         return "The Manager decision or its cited evidence could not be validated; prior controls remain authoritative."
     return "The model call did not complete the Manager evidence check; prior controls remain authoritative."

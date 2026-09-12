@@ -710,7 +710,7 @@ class FailureExperienceStore:
             return ""
         if not hits or max_chars <= 0:
             return ""
-        has_success = any(hit.experience.status == "completed" for hit in hits)
+        has_success = any(hit.experience.status in {"done", "completed"} for hit in hits)
         lines = [
             ("### Prior mission experiences (advisory, compact)" if has_success
              else "### Prior failure experiences (advisory, compact)"),

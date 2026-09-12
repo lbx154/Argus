@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type AdvisorConfig } from '../api';
 import { useI18n } from '../i18n';
@@ -8,10 +8,10 @@ export function AdvisorSettings({ sid, primaryModel }: { sid: string; primaryMod
   const zh = locale === 'zh-CN';
   const text = (chinese: string, english: string) => zh ? chinese : english;
   const client = useQueryClient();
-  const modelList = useId();
   const query = useQuery({ queryKey: ['advisor-settings', sid],
     queryFn: ({ signal }) => api.advisorSettings(sid, signal), enabled: !!sid, retry: false });
   const [draft, setDraft] = useState<AdvisorConfig | null>(null);
+  const [customModel, setCustomModel] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
@@ -19,6 +19,9 @@ export function AdvisorSettings({ sid, primaryModel }: { sid: string; primaryMod
   currentSid.current = sid;
   useEffect(() => {
     setDraft(query.data?.saved ?? null);
+    const saved = query.data?.saved;
+    setCustomModel(Boolean(saved?.model && !query.data?.model_options?.some(option =>
+      option.backend === saved.backend && option.model === saved.model)));
   }, [sid, query.data]);
   useEffect(() => {
     setError('');
@@ -26,6 +29,10 @@ export function AdvisorSettings({ sid, primaryModel }: { sid: string; primaryMod
     setBusy(false);
   }, [sid]);
   const update = (patch: Partial<AdvisorConfig>) => { setDraft(value => value && { ...value, ...patch }); setSaved(false); };
+  const models = query.data?.model_options ?? [];
+  const modelKey = (backend: string, model: string) => JSON.stringify([backend, model]);
+  const selectedModel = draft && models.some(option => option.backend === draft.backend && option.model === draft.model)
+    ? modelKey(draft.backend, draft.model) : '';
   const save = async () => {
     if (!draft || busy) return;
     const target = sid;
@@ -57,22 +64,34 @@ export function AdvisorSettings({ sid, primaryModel }: { sid: string; primaryMod
           {text('允许团队咨询顾问', 'Let the team consult the advisor')}
         </label>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {models.length > 0 ? <label className="text-xs text-ink-dim sm:col-span-2">{text('顾问使用的模型', 'Advisor model')}
+            <select aria-label={text('选择顾问模型', 'Choose advisor model')} value={customModel ? 'custom' : selectedModel} disabled={busy}
+              onChange={event => {
+                if (event.target.value === 'custom') { setCustomModel(true); return; }
+                const choice = models.find(option => modelKey(option.backend, option.model) === event.target.value);
+                if (choice) { setCustomModel(false); update({ backend: choice.backend, model: choice.model }); }
+              }} className="mt-1 h-9 w-full rounded border border-line bg-bg px-2 text-xs text-ink">
+              <option value="" disabled>{text('选择模型', 'Choose a model')}</option>
+              {models.map(option => <option key={modelKey(option.backend, option.model)} value={modelKey(option.backend, option.model)}>{option.model}</option>)}
+              <option value="custom">{text('配置其他模型…', 'Configure another model…')}</option>
+            </select>
+          </label> : null}
+          {customModel || models.length === 0 ? <>
           <label className="text-xs text-ink-dim">{text('接入', 'Runner')}
-            <select value={draft.backend} disabled={busy} onChange={event => update({ backend: event.target.value })}
+            <select aria-label={text('顾问接入', 'Advisor runner')} value={draft.backend} disabled={busy} onChange={event => update({ backend: event.target.value })}
               className="mt-1 h-9 w-full rounded border border-line bg-bg px-2 text-xs text-ink">
               <option value="">{text('选择接入', 'Choose a runner')}</option>
               {query.data?.supported_backends.map(backend => <option key={backend} value={backend}>{backend}</option>)}
             </select>
           </label>
           <label className="text-xs text-ink-dim">{text('顾问使用的模型', 'Advisor model ID')}
-            <input value={draft.model} list={modelList} disabled={busy} onChange={event => update({ model: event.target.value })}
+            <input value={draft.model} disabled={busy} onChange={event => update({ model: event.target.value })}
               placeholder={text('填写该接入的模型标识', 'Model ID for this runner')}
               className="mt-1 h-9 w-full rounded border border-line bg-bg px-2 text-xs text-ink" />
-            <datalist id={modelList}>{query.data?.model_options?.filter(option => option.backend === draft.backend)
-              .map(option => <option key={option.model} value={option.model} />)}</datalist>
           </label>
+          </> : null}
           <label className="text-xs text-ink-dim">{text('思考强度', 'Reasoning effort')}
-            <select value={draft.effort} disabled={busy} onChange={event => update({ effort: event.target.value })}
+            <select aria-label={text('顾问思考强度', 'Advisor reasoning effort')} value={draft.effort} disabled={busy} onChange={event => update({ effort: event.target.value })}
               className="mt-1 h-9 w-full rounded border border-line bg-bg px-2 text-xs text-ink">
               <option value="">{text('模型默认', 'Model default')}</option>
               {[['minimal', '最低'], ['low', '低'], ['medium', '中'], ['high', '高'], ['xhigh', '很高'], ['max', '最高']].map(([value, label]) => <option key={value} value={value}>{zh ? label : value}</option>)}

@@ -25,7 +25,14 @@ from ._session_ops import (
     clear_manager_pipeline_yield,
     request_manager_pipeline_yield,
 )
-from .observation import ManagerObservation, _digest, _semantic, control_identity, observe_project
+from .observation import (
+    ManagerObservation,
+    _digest,
+    _read_object,
+    _semantic,
+    control_identity,
+    observe_project,
+)
 from .session_context import manager_session_yield_reason
 from .stage_decider import extract_answer
 from .supervision_errors import _failure_reason, _provider_failure_metadata
@@ -61,11 +68,7 @@ def _write(path: Path, record: dict[str, Any]) -> None:
 
 
 def _read(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-        return value if isinstance(value, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    return _read_object(path)
 
 
 def _latest_record(root: Path) -> dict[str, Any]:
@@ -225,6 +228,10 @@ def _apply(
             if not acquired:
                 raise RuntimeError("daemon control is busy")
             observation = observe_project(root, event=event)
+            if observation.incomplete_requirements:
+                record["observation_limitations"] = observation.facts["limitations"]
+                record["incomplete_requirements"] = list(observation.incomplete_requirements)
+                raise SupervisionSuperseded("required project facts could not be fully observed")
             if cancelled() or not (
                 observation.control_revision == record["control_revision"]
                 or _owns_reserved_control(root, record)
@@ -303,6 +310,7 @@ def _deliver(
         code = interruption_code() if interruption_code else ("cancelled" if cancelled() else None)
         code = code or ("timeout" if isinstance(exc, TimeoutError) else None)
         code = code or ("cancelled" if isinstance(exc, CancelledError) else None)
+        code = code or ("observation_incomplete" if record.get("incomplete_requirements") else None)
         code = code or ("superseded" if superseded else None)
         record["status"] = "superseded" if superseded else "issued"
         record["error"] = type(exc).__name__
@@ -342,7 +350,7 @@ def supervise(
             latest = _latest_record(root)
             if latest.get("status") == "issued":
                 return _deliver(root, latest.get("source_event", {}), latest, cancelled or (lambda: False))
-            if (latest.get("status") == "applied" and latest.get("evidence_revision") == observation.evidence_revision
+            if (not observation.incomplete_requirements and latest.get("status") == "applied" and latest.get("evidence_revision") == observation.evidence_revision
                     and observation.control_revision in {
                 latest.get("control_revision"), latest.get("applied_control_revision"),
             }):
@@ -352,7 +360,7 @@ def supervise(
             ).hexdigest()
             path = root / "manager-supervision" / f"{identity}.json"
             previous = _read(path)
-            if previous.get("status") == "applied" and observation.control_revision in {
+            if not observation.incomplete_requirements and previous.get("status") == "applied" and observation.control_revision in {
                 previous.get("control_revision"), previous.get("applied_control_revision"),
             }:
                 return previous
@@ -381,8 +389,13 @@ def supervise(
                 "evidence_revision": observation.evidence_revision,
                 "control_revision": observation.control_revision,
                 "trigger": {key: event[key] for key in ("type", "item_id", "event_id") if key in event},
-                "source_event": observation.facts["recent_events"][-1] if event else {},
+                "source_event": (observation.facts["recent_events"][-1]
+                                 if observation.facts["recent_events"] else {
+                    key: event[key] for key in ("type", "item_id", "event_id", "agent_layer", "round_index") if key in event
+                }) if event else {},
                 "available_refs": observation.facts["evidence_refs"],
+                "observation_limitations": observation.facts["limitations"],
+                "incomplete_requirements": list(observation.incomplete_requirements),
                 "evidence_refs": [], "cited_refs": [],
                 "created_at": time.time(), "status": "evaluating",
             }
@@ -390,6 +403,10 @@ def supervise(
             failure_stage = "provider"
             result = None
             try:
+                if observation.incomplete_requirements:
+                    failure_stage = "decision"
+                    record["error_code"] = "observation_incomplete"
+                    raise ValueError("required project facts could not be fully observed")
                 session: Any = _ManagerSession(backend, root) if backend is not None else manager._session
                 from ._helpers import _manager_model, _manager_reasoning_effort
 

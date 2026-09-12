@@ -18,6 +18,7 @@ import stat
 import tempfile
 import time
 from pathlib import Path
+from typing import Callable
 
 from ..core.knobs import resolve_role_reasoning_effort
 from ..core.ports import EventSink
@@ -418,7 +419,9 @@ class SkillLoopExecuteMixin:
         sink: EventSink,
         preload_injects: list[str] | None = None,  # noqa: ARG002 — protocol parity
         prelude_context: str = "",
+        prelude_context_provider: Callable[[], str] | None = None,
         planner_context: str = "",
+        planner_context_provider: Callable[[], str] | None = None,
         seed_thread_id: str | None = None,
         scope: str = "",
         preplanned: bool = False,
@@ -452,9 +455,11 @@ class SkillLoopExecuteMixin:
             return chat_outcome
 
         ex_state = _ExecuteState()
+        ex_state.prelude_context_provider = prelude_context_provider
         # This is an explicitly shared projection. Engineer prelude_context may
         # contain role-exclusive runtime instructions and must never be reused.
         ex_state.planner_context = planner_context
+        ex_state.planner_context_provider = planner_context_provider
         self._build_execute_config(
             ex_state,
             working_dir_override=working_dir_override,
@@ -823,6 +828,7 @@ class SkillLoopExecuteMixin:
             skill_store=skill_store,
             on_event=sink.handle_event,
             extra_guidance_provider=extra_guidance_provider,
+            prelude_context_provider=getattr(ex_state, "prelude_context_provider", None),
         )
 
     def _prepare_execute_mission_context(
@@ -839,7 +845,7 @@ class SkillLoopExecuteMixin:
         thread id to chain off of, and normalize the structural scope tag.
         """
         full_task = objective
-        if prelude_context:
+        if prelude_context and getattr(ex_state, "prelude_context_provider", None) is None:
             full_task = f"{prelude_context}\n---\n## Live objective\n{objective}"
         # Use the seed for the first execute() of this runner; subsequent
         # execute() calls (LifeSupervisor may run several missions in one
@@ -901,11 +907,26 @@ class SkillLoopExecuteMixin:
                     "text": "Planner project grounding and decomposition started",
                 }
             )
+            shared_context = ex_state.planner_context
+            context_provider = getattr(ex_state, "planner_context_provider", None)
+            if context_provider is not None:
+                try:
+                    shared_context = str(context_provider() or "").strip()
+                except Exception:  # noqa: BLE001 — never fall back to old recalled claims
+                    log.warning("current Planner memory unavailable", exc_info=True)
+                    shared_context = "Current shared memory is unavailable."
+                shared_context = (
+                    "## Current shared Planner context\n"
+                    "This projection replaces earlier recalled memory for this request. "
+                    "An omitted experience requires a fresh read of its current state "
+                    "and revision before reuse; omission alone does not mean revocation.\n\n"
+                    + (shared_context or "No current shared memory.")
+                )
             plan = draft_plan(
                 getattr(self, "planner_backend", None) or self._backend,
                 bounded_planner_request(
                     objective,
-                    shared_context=ex_state.planner_context,
+                    shared_context=shared_context,
                     checkpoint_path=getattr(config, "checkpoint_path", None),
                     operator_state_root=getattr(
                         config, "operator_question_policy_root", None

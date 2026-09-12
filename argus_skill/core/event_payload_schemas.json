@@ -706,7 +706,7 @@
         },
         "error_code": {
           "type": "string",
-          "enum": ["trial_quota_exceeded", "timeout", "cancelled", "superseded"]
+          "enum": ["trial_quota_exceeded", "timeout", "cancelled", "superseded", "observation_incomplete"]
         },
         "backend_exit_code": {
           "type": "integer"

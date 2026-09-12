@@ -58,15 +58,54 @@ def manager_session_yield_reason(root: Path | str) -> str | None:
     return None
 
 
+def _supervision_excerpt(prompt: str) -> str:
+    """Retain the observed work, not repeated supervision instructions."""
+    from ..core.json_codec import loads_finite_json
+    from .observation_projection import EVIDENCE_PREAMBLE
+
+    _, separator, body = prompt.partition(EVIDENCE_PREAMBLE)
+    try:
+        # The session appends its current OperatorContext after the observation.
+        # Read just the leading JSON object, preserving the finite-value check.
+        end = json.JSONDecoder().raw_decode(body)[1] if separator and len(body) <= 65536 else 0
+        facts = loads_finite_json(body[:end]) if end else None
+    except (TypeError, ValueError):
+        facts = None
+    if not isinstance(facts, dict):
+        return "Project supervision requested; its structured observation was unavailable for this excerpt."
+
+    def excerpt(value: Any, limit: int) -> str:
+        text = str(value or "")
+        return text if len(text) <= limit else text[:limit - 1] + "…"
+
+    events = facts.get("recent_events")
+    event = events[-1] if isinstance(events, list) and events and isinstance(events[-1], dict) else {}
+    task_rows = facts.get("tasks")
+    tasks = [task for task in task_rows if isinstance(task, dict)] if isinstance(task_rows, list) else []
+    tasks.sort(key=lambda task: task.get("id") != event.get("item_id"))
+    summary = {
+        "objective_excerpt": excerpt(facts.get("objective"), 400),
+        "evidence_revision": excerpt(facts.get("evidence_revision"), 64),
+        "trigger": {"type": excerpt(event.get("type"), 80), "item_id": excerpt(event.get("item_id"), 80),
+                    "reason_excerpt": excerpt(event.get("reason") or event.get("summary"), 400)},
+        "tasks": [{"id": excerpt(task.get("id"), 80), "status": excerpt(task.get("status"), 30),
+                   "objective_excerpt": excerpt(task.get("objective"), 150),
+                   "acceptance_excerpt": excerpt(task.get("acceptance_check"), 150)} for task in tasks[:2]],
+    }
+    return json.dumps(summary, ensure_ascii=False, allow_nan=False)
+
+
 def remember_turn(previous: dict[str, Any], prompt: str, result: Any, run_label: str) -> list[dict[str, str]]:
     """Keep a small, redacted continuity handoff for explicit model rotation."""
     from ..core.secret_guard import known_secret_values, redact_secrets_record
 
+    # Redact before excerpting; cutting a credential first can defeat matching.
+    prompt = redact_secrets_record(prompt, known_values=known_secret_values())
     # Retain the actual request rather than the surrounding instruction boilerplate.
     match = re.search(r"(?:^|\n)(?:Message|Task|Question|Operator response):\n", prompt)
     request = prompt[match.end():] if match else prompt
-    request = request.split("\n\n## ", 1)[0]
-    answer = str(getattr(result, "last_agent_message", "") or "")
+    request = _supervision_excerpt(prompt) if run_label == "manager-supervision" else request.split("\n\n## ", 1)[0]
+    answer = redact_secrets_record(str(getattr(result, "last_agent_message", "") or ""), known_values=known_secret_values())
     turn = {
         "kind": run_label,
         "request_excerpt": request[:2000],

@@ -1030,6 +1030,9 @@ def build_operator_context_block(
         "## OperatorContext",
         "Safety and correctness policy outrank every preference. This context may "
         "tighten behavior but never grants sandbox or authorization permission.",
+        "This projection replaces earlier OperatorContext blocks for this role and "
+        "mission. Omission does not establish that an underlying record was revoked. "
+        "The current task and explicit user instructions remain in force.",
     ]
     if live_turn.strip():
         lines.append(f"- live turn (highest precedence): {live_turn.strip()}")
