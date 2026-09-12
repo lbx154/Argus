@@ -54,3 +54,33 @@ def test_admin_pi_configuration_preserves_state_and_never_embeds_provider_secret
 def test_admin_pi_does_not_fall_back_to_another_backend_when_binary_is_missing(tmp_path):
     with pytest.raises(ValueError, match="Argus-Pi executable"):
         configure_provider(tmp_path, tmp_path / "missing", Mock(spec=Vault))
+
+
+def test_existing_workspace_enrolls_with_trial_meter_and_live_capture_without_moving_projects(tmp_path, monkeypatch):
+    root = tmp_path / "original-state"
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
+    project = root / "projects" / "s-existing"
+    project.mkdir(parents=True)
+    transcript = project / "transcript.jsonl"
+    transcript.write_text('{"text":"original project history"}\n')
+    binary = tmp_path / "pi"
+    binary.write_text("#!/bin/sh\nexit 0\n")
+    binary.chmod(0o700)
+    vault = Mock(spec=Vault)
+    vault.credential.return_value = "argus_trial_" + "a" * 64
+    socket = tmp_path / "run" / "training.sock"
+    with patch.dict(os.environ, {"ARGUS_ADMIN_PROVIDER_TOKEN": "old-provider-secret"}):
+        configure_provider(root, binary, vault, tenant="trial-11", training_socket=socket)
+        vault.read.assert_not_called()
+        vault.credential.assert_called_once_with("trial-11")
+        provider = json.loads((root / "argus-pi" / "models.json").read_text())["providers"]["argus"]
+        assert provider["api"] == "openai-completions"
+        assert provider["apiKey"] == vault.credential.return_value
+        assert provider["baseUrl"] == "http://127.0.0.1:18765/v1"
+        assert "headers" not in provider and "old-provider-secret" not in json.dumps(provider)
+        assert "ARGUS_ADMIN_PROVIDER_TOKEN" not in os.environ
+        assert os.environ["ARGUS_TRAINING_BRIDGE_SOCKET"] == str(socket)
+        assert os.environ["ARGUS_TRIAL_HARNESS"] == "argus-pi"
+        assert os.environ["ARGUS_SKILL_HOME"] == str(root)
+        assert os.environ["ARGUS_SKILL_PI_SESSION_DIR"] == str(root / "pi-sessions")
+    assert transcript.read_text() == '{"text":"original project history"}\n'

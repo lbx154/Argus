@@ -16,7 +16,7 @@ from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 
-from .analytics import AnalyticsError
+from .analytics import AnalyticsError, _directory
 from .collaboration_data import _role
 from .training_capture import HOSTED_PROFILE, OBSERVED_POLICY
 from .training_data import _json
@@ -86,19 +86,19 @@ def _fingerprint(info):
 class _SessionSource:
     """Open only the configured tenant's native directory, without symlinks."""
 
-    def __init__(self, root, session_id):
+    def __init__(self, root, session_id, *, parts=_SESSION_PARTS):
         self.root = Path(root).absolute()
         self.session_id = session_id
+        self.parts = parts
         self.stack = ExitStack()
 
     def __enter__(self):
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         try:
             self.directories = []
-            descriptor = os.open(self.root, flags)
-            self.stack.callback(os.close, descriptor)
+            descriptor = self.stack.enter_context(_directory(self.root))
             self.directories.append((descriptor, os.fstat(descriptor)))
-            for part in _SESSION_PARTS:
+            for part in self.parts:
                 descriptor = os.open(part, flags, dir_fd=descriptor)
                 self.stack.callback(os.close, descriptor)
                 self.directories.append((descriptor, os.fstat(descriptor)))
@@ -133,8 +133,8 @@ class _SessionSource:
                     original.st_dev, original.st_ino, original.st_mode,
                 ):
                     raise _Skip("session_file_changed")
-                if index < len(_SESSION_PARTS):
-                    current = os.stat(_SESSION_PARTS[index], dir_fd=descriptor, follow_symlinks=False)
+                if index < len(self.parts):
+                    current = os.stat(self.parts[index], dir_fd=descriptor, follow_symlinks=False)
             if self._matches() != [self.name]:
                 raise _Skip("session_file_changed")
             current = os.stat(self.name, dir_fd=self.directories[-1][0], follow_symlinks=False)
@@ -285,8 +285,9 @@ def recover_episode(training, episode_id):
     try:
         with training.analytics._db() as db:
             original, runtime, floor, now = _eligible(training, db, episode_id)
-        root = training.analytics._tenant(original["tenant_id"])["data_dir"]
-        with _SessionSource(root, original["session_id"]) as source:
+        tenant = training.analytics._tenant(original["tenant_id"])
+        root = tenant.get("global_root", tenant["data_dir"] / "home/.argus-skill")
+        with _SessionSource(root, original["session_id"], parts=("pi-sessions",)) as source:
             messages, metadata = source.read(training, floor, now)
             with training.controls.capture_lock, training.analytics._db() as db:
                 db.execute("BEGIN IMMEDIATE")

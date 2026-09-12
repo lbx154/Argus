@@ -6,6 +6,7 @@ or a live model acceptance result. No existing tenant state is opened.
 import json
 import os
 import re
+import socketserver
 import struct
 import subprocess
 import tempfile
@@ -23,7 +24,7 @@ from argus_skill.trial.analytics import Analytics, AnalyticsError
 from argus_skill.trial.journey_journal import Journal
 from argus_skill.trial.research_controls import ResearchControls
 from argus_skill.trial.store import Store
-from argus_skill.trial.training_bridge import TrainingBridge, _Handler, _Server
+from argus_skill.trial.training_bridge import HostPeerVerifier, TrainingBridge, _Handler, _Server
 from argus_skill.trial.training_capture import HOSTED_PROFILE
 from argus_skill.trial.training_data import NOTICE_VERSION, TrainingData
 
@@ -329,8 +330,15 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
     http = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
     threading.Thread(target=http.serve_forever, daemon=True).start()
     monkeypatch.setattr(bridge_module, "IMAGE_PACKAGE", Path(runtime.EXTENSION).parent)
-    bridge = TrainingBridge(training, "tenant-one", lambda peer, **kw: {
-        "pid": peer[0], "started": "synthetic-peer-fixture", "source_sha256": {"fixture": "a" * 64}})
+    class WorkspaceSocket(socketserver.BaseRequestHandler):
+        def handle(self):
+            pass
+
+    workspace_socket = socketserver.UnixStreamServer(str(tmp_path / "web.sock"), WorkspaceSocket)
+    threading.Thread(target=workspace_socket.serve_forever, daemon=True).start()
+    bridge = TrainingBridge(training, "tenant-one", HostPeerVerifier(
+        "tenant-one", training.analytics.tenants["tenant-one"]["data_dir"], workspace_socket.server_address,
+    ))
     server = _Server(str(tmp_path / "training.sock"), _Handler)
     server.bridge = bridge
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -434,5 +442,7 @@ def test_real_pi_cli_actual_provider_payload_and_bash_receipts(training, tmp_pat
     finally:
         server.shutdown()
         server.server_close()
+        workspace_socket.shutdown()
+        workspace_socket.server_close()
         http.shutdown()
         http.server_close()

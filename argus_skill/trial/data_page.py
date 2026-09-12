@@ -331,7 +331,7 @@ async function load(offset=0){
   const params=new URLSearchParams({purpose:el('purpose').value||'internal_training',offset:String(offset)});
   if(el('tenant').value.trim())params.set('tenant',el('tenant').value.trim());
   try{
-    const[taskData,identity,collector,audit]=await Promise.all([api('/admin/api/training/collaboration?'+params),api('/invite/status'),
+    const[taskData,identity,collector,audit]=await Promise.all([api('/admin/api/training/collaboration?'+params),api('/admin/status'),
       api('/admin/api/research/status').catch(error=>({state:'unavailable',detail:error.message})),api('/admin/api/training/audit').catch(error=>({events:[],error:error.message}))]);
     if(current!==version)return;
     readonly=identity.role!=='admin'||identity.readonly!==false;overview=taskData;

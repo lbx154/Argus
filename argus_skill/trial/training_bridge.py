@@ -31,6 +31,8 @@ from .training_capture import (
 
 IMAGE_PACKAGE = Path("/opt/argus/argus_skill/trial")
 EXTENSION_NAME = "pi_training_extension.mjs"
+
+
 def _process(pid):
     """Use start ticks as well as PID so a recycled process cannot inherit a lease."""
     directory = Path("/proc") / str(pid)
@@ -124,6 +126,27 @@ class PeerVerifier:
             self.verified.clear()
         self.verified[cache_key] = result
         return result
+
+
+class HostPeerVerifier(PeerVerifier):
+    """The preserved local workspace uses the same UDS parent/child binding.
+
+    It already lives on the host, so no container volume marker is expected.
+    The actual workspace web listener owns registration, including daemon
+    launches; an unrelated host process cannot register an episode.
+    """
+
+    def _image_identity(self, proc, uid):
+        actual, expected = proc["root"].stat(), Path("/").stat()
+        if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+            raise AnalyticsError(403, "training_peer_tenant_mismatch")
+        return {}
+
+    @staticmethod
+    def accepts_extension(path):
+        # The authorized local web parent selects its installed observer path.
+        # A release directory change must not disable the next genuine call.
+        return isinstance(path, str) and Path(path).is_absolute() and Path(path).name == EXTENSION_NAME
 
 
 @dataclass
@@ -286,7 +309,9 @@ class TrainingBridge:
                 if not isinstance(argv, list) or not 1 <= len(argv) <= 512 or any(not isinstance(arg, str) or len(arg) > 4096 for arg in argv):
                     raise ValueError("Invalid runtime launch")
                 extensions = [argv[index + 1] for index, arg in enumerate(argv[:-1]) if arg in {"-e", "--extension"}]
-                if str(IMAGE_PACKAGE / EXTENSION_NAME) not in extensions:
+                accepts_extension = getattr(self.verify, "accepts_extension", None)
+                if (not any(accepts_extension(path) for path in extensions) if accepts_extension
+                        else str(IMAGE_PACKAGE / EXTENSION_NAME) not in extensions):
                     raise AnalyticsError(403, "training_observer_arguments_mismatch")
                 parent = self._parent(peer, value["sid"])
                 # Registration is metadata-only; grant eligibility is checked
@@ -451,7 +476,9 @@ def start_training_bridges(training, tenants):
             server = _Server(str(path), _Handler)
             path.chmod(0o600)
             mode = path.stat()
-            server.bridge = TrainingBridge(training, tenant, PeerVerifier(tenant, training.analytics.tenants[tenant]["data_dir"], uds))
+            configured = training.analytics.tenants[tenant]
+            verifier = HostPeerVerifier if configured.get("runtime_mode") == "host" else PeerVerifier
+            server.bridge = TrainingBridge(training, tenant, verifier(tenant, configured["data_dir"], uds))
             owner.servers.append((server, path, (mode.st_dev, mode.st_ino)))
             threading.Thread(target=server.serve_forever, daemon=True, name="training-bridge").start()
     except Exception:

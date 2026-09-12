@@ -197,16 +197,23 @@ class Analytics:
             raise ValueError("token_limit must be a positive integer or null")
         self.token_limit = token_limit
         self.tenants = {}
-        if not 1 <= len(tenants) <= 10:
-            raise ValueError("Expected 1..10 configured invitation accounts")
+        if not 1 <= len(tenants) <= 100:
+            raise ValueError("Expected 1..100 configured invitation accounts")
         for tenant, config in tenants.items():
             if not _ID.fullmatch(tenant) or type(config.get("internal_test")) is not bool:
                 raise ValueError("Invalid tenant configuration")
             path = Path(config["data_dir"])
             if not path.is_absolute() or ".." in path.parts:
                 raise ValueError("data_dir must be an absolute path")
+            global_root = Path(config.get("global_root", path / "home/.argus-skill"))
+            if not global_root.is_absolute() or ".." in global_root.parts:
+                raise ValueError("global_root must be an absolute path")
+            runtime_mode = config.get("runtime_mode", "container")
+            if runtime_mode not in ("container", "host"):
+                raise ValueError("runtime_mode must be container or host")
             self.tenants[tenant] = {
-                "data_dir": path, "internal_test": config["internal_test"],
+                "data_dir": path, "global_root": global_root, "runtime_mode": runtime_mode,
+                "internal_test": config["internal_test"],
             }
         self.notice_version = notice_version
         self.retention_days = retention_days
@@ -215,7 +222,7 @@ class Analytics:
         state_dir = Path(state_dir).absolute()
         # The operator-owned index must never be placed in a tenant's writable tree.
         for config in self.tenants.values():
-            if state_dir.resolve().is_relative_to(config["data_dir"].resolve()):
+            if any(state_dir.resolve().is_relative_to(config[field].resolve()) for field in ("data_dir", "global_root")):
                 raise ValueError("analytics state must be separate from tenant data")
         state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = state_dir / "analytics.sqlite3"
@@ -567,7 +574,7 @@ class Analytics:
     @contextmanager
     def _projects_dir(self, tenant):
         self._require_consent(tenant)
-        path = self.tenants[tenant]["data_dir"] / "home/.argus-skill/projects"
+        path = self.tenants[tenant]["global_root"] / "projects"
         try:
             with _directory(path) as fd:
                 yield fd

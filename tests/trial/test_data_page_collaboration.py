@@ -47,7 +47,7 @@ api=async path=>{
   }
   if(path.includes('/collaboration?'))return overviewResponse;
   if(path.includes('/collaboration/'))return detail;
-  if(path==='/invite/status')return {role:'admin',readonly:readonlyIdentity};
+  if(path==='/admin/status')return {role:'admin',readonly:readonlyIdentity};
   if(path.endsWith('/audit'))return {events:[]};
   return {state:'running'};
 };

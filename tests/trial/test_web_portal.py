@@ -27,7 +27,7 @@ def provisioned(tmp_path):
     key.write_bytes(Fernet.generate_key())
     key.chmod(0o600)
     vault = Vault(key, state / "github-token.enc")
-    store = Store(state / "usage.sqlite3")
+    store = Store(state / "usage.sqlite3", key_limit=len(portal.TENANT_IDS))
     for tenant in portal.TENANT_IDS:
         store.issue(tenant, vault.credential(tenant))
     config = {
@@ -173,7 +173,7 @@ def test_analytics_requires_explicit_versioned_notice_and_guards_old_sessions(pr
             row = db.execute("SELECT tenant_id,method,path,status FROM events "
                              "WHERE path='/api/projects' ORDER BY id LIMIT 1").fetchone()
             assert tuple(row) == ("trial-01", "GET", "/api/projects", 200)
-        assert client.get("/admin/api/dashboard").status_code == 403
+        assert client.get("/admin/api/dashboard").status_code == 401
         with analytics._db() as db:
             db.execute("DELETE FROM consents WHERE version=?", (analytics.notice_version,))
         assert client.get("/api/projects").status_code == 401
@@ -256,7 +256,7 @@ def test_research_lifespan_replay_feedback_export_deletion_and_restart(provision
         assert "Compare the synthetic" not in json.dumps(audit)
         client.cookies.clear()
         client.cookies.set(portal.COOKIE, tester_cookie)
-        assert client.get(admin_base + "/replay").status_code == 403
+        assert client.get(admin_base + "/replay").status_code == 401
         assert client.post(tester_base + "/feedback", headers={"Origin": ORIGIN}, json={
             "verdict": "met_need", "task_id": "task-one", "note": "Explicit tester evaluation",
         }).json()["inferred_success"] is False
@@ -649,33 +649,25 @@ def test_quota_isolation_persistence_and_no_recovery(provisioned, monkeypatch):
         assert db.execute("SELECT count(*) FROM trial_requests WHERE state='active'").fetchone()[0] == 1
 
 
-def test_admin_exchange_strips_token_and_preserves_project(provisioned):
+def test_legacy_admin_exchange_only_enters_private_data_backend(provisioned):
     config, vault, _ = provisioned
     calls = []
-
-    def upstream(request):
-        calls.append(request)
-        return httpx.Response(200, stream=Chunks([b"admin workspace"]))
-
-    with client_for(provisioned, upstream) as client:
+    with client_for(provisioned, lambda request: calls.append(request)) as client:
         token = config["admin_login_token"]
-        result = client.get("/", params={"token": token, "project": "demo", "kiosk": "1", "other": "x"})
+        result = client.get("/", params={"token": token, "project": "demo", "kiosk": "1"})
         assert result.status_code == 303
-        assert result.headers["location"] == "/?project=demo&kiosk=1"
+        assert result.headers["location"] == "/admin/data"
         assert token not in result.text + str(result.headers)
-        assert not calls
-        assert client.get(result.headers["location"]).status_code == 200
-        assert calls[-1].url.host == "host.docker.internal"
-        assert calls[-1].headers["authorization"] == "Bearer " + config["admin"]["token"]
-        assert token not in str(calls[-1].headers) + str(calls[-1].url)
-        assert "token" not in str(calls[-1].url)
-        status = client.get("/invite/status").json()
+        assert portal.ADMIN_COOKIE in result.cookies and portal.COOKIE not in result.cookies
+        status = client.get("/admin/status").json()
         assert status["role"] == "admin" and status["readonly"] is True
         assert "tokens_used" not in status
-        assert client.post("/api/projects/demo/message", json={}, headers={"Origin": ORIGIN}).status_code == 403
+        assert client.get("/invite/status").status_code == 401
+        assert client.post("/api/projects/demo/message", json={}, headers={"Origin": ORIGIN}).status_code == 401
         assert client.get("/", params={"token": vault.credential("trial-01")}).status_code == 401
         assert client.get("/", params={"token": "wrong"}).status_code == 401
         assert client.get("/", params={"token": token}, headers={"Origin": "https://evil.test"}).status_code == 403
+        assert not calls
 
 
 @pytest.mark.parametrize("method", ["POST", "PATCH", "PUT", "DELETE", "OPTIONS", "TRACE"])
@@ -752,8 +744,8 @@ def test_model_configuration_is_readable_without_allowing_changes(provisioned):
             }).status_code == 403
 
 
-@pytest.mark.parametrize("role", ["trial", "admin"])
-def test_hosted_frontend_is_authenticated_and_keeps_apis_tenant_scoped(provisioned, tmp_path, role):
+@pytest.mark.parametrize("tenant", ["trial-01", "trial-11"])
+def test_hosted_frontend_is_authenticated_and_keeps_apis_tenant_scoped(provisioned, tmp_path, tenant):
     config, vault, _ = provisioned
     frontend = tmp_path / "frontend"
     (frontend / "assets").mkdir(parents=True)
@@ -769,13 +761,7 @@ def test_hosted_frontend_is_authenticated_and_keeps_apis_tenant_scoped(provision
     with client_for(provisioned, upstream) as client:
         assert client.get("/").status_code == 303
         assert client.get("/assets/app.js").status_code == 401
-        if role == "admin":
-            response = client.post("/admin/login", headers={"Origin": ORIGIN}, json={
-                "admin_login_token": config["admin_login_token"], "readonly": True,
-            })
-            assert response.status_code == 200
-        else:
-            login(client, vault, readonly=True)
+        login(client, vault, tenant=tenant, readonly=True)
         response = client.get("/")
         nonce = response.headers["content-security-policy"].split("'nonce-", 1)[1].split("'", 1)[0]
         assert f'<script nonce="{nonce}">' in response.text
@@ -783,7 +769,7 @@ def test_hosted_frontend_is_authenticated_and_keeps_apis_tenant_scoped(provision
         assert not calls
         assert client.get("/assets/previous.js").text == "old-container-response"
         assert client.get("/api/projects/p/status").status_code == 200
-        backend = config["admin"] if role == "admin" else config["tenants"]["trial-01"]
+        backend = config["tenants"][tenant]
         assert all(call.headers["authorization"] == f"Bearer {backend['token']}" for call in calls)
         assert client.post("/assets/app.js", headers={"Origin": ORIGIN}).status_code == 403
 
@@ -1132,8 +1118,9 @@ def test_http_uds_pools_are_selected_by_cookie_not_browser_input(provisioned, mo
             assert request.extensions["argus_backend"] == tenant
         assert client.get("/", params={"token": config["admin_login_token"]}).status_code == 303
         assert client.get("/api/projects").status_code == 200
-        assert requests[-1][0] is None
-        assert requests[-1][1].url.host == "127.0.0.1"
+        assert requests[-1][0] == config["tenants"]["trial-02"]["uds"]
+        assert requests[-1][1].extensions["argus_backend"] == "trial-02"
+        assert client.get("/admin/status").json()["role"] == "admin"
     assert all(pool.closed for pool in pools.values())
     assert app.state.client.is_closed
 
@@ -1274,8 +1261,8 @@ def test_compute_is_not_an_admin_identity_or_unconfigured_fallback(provisioned):
     compute_config(provisioned)
     with client_for(provisioned, lambda request: calls.append(request)) as client:
         client.get("/", params={"token": config["admin_login_token"]})
-        assert client.get("/compute/status").status_code == 403
-        assert client.post("/compute/jobs", headers={"Origin": ORIGIN}, json={}).status_code == 403
+        assert client.get("/compute/status").status_code == 401
+        assert client.post("/compute/jobs", headers={"Origin": ORIGIN}, json={}).status_code == 401
         assert not calls
         login(client, vault)
         for method, path in (("POST", "/compute/admin/reset"), ("GET", "/compute/../compute/admin"),
@@ -1394,9 +1381,9 @@ def test_dashboard_rejects_admin_and_missing_compute_without_upstream(provisione
     compute_config(provisioned)
     with client_for(provisioned, lambda request: calls.append(request)) as client:
         assert client.get("/", params={"token": config["admin_login_token"]}).status_code == 303
-        assert 'href="/invite/compute"' not in client.get("/invite").text
-        assert client.get("/invite/compute").status_code == 403
-        assert client.get("/invite/compute.js").status_code == 403
+        assert 'id="login"' in client.get("/invite").text
+        assert client.get("/invite/compute").status_code == 401
+        assert client.get("/invite/compute.js").status_code == 401
         assert not calls
 
 
@@ -1451,19 +1438,20 @@ def test_private_admin_rotation_revokes_only_admin_sessions(provisioned, change)
     with client_for(provisioned) as client:
         result = client.get("/", params={"token": config["admin_login_token"], "kiosk": "1"})
         assert result.status_code == 303
-        admin_cookie = result.cookies[portal.COOKIE]
+        admin_cookie = result.cookies[portal.ADMIN_COOKIE]
         payload = vault.cipher.decrypt(admin_cookie.encode()).decode()
         assert config["admin_login_token"] not in payload
         assert config["admin"]["token"] not in payload
         assert "admin_binding" in payload
-        assert "admin_binding" not in client.get("/invite/status").json()
+        assert "admin_binding" not in client.get("/admin/status").json()
         tenant_cookie = login(client, vault).cookies[portal.COOKIE]
     if change == "rotate":
         config["admin_login_token"] += "-rotated"
     else:
         config.pop("admin_login_token")
     with client_for(provisioned) as client:
-        client.cookies.set(portal.COOKIE, admin_cookie)
+        client.cookies.set(portal.ADMIN_COOKIE, admin_cookie, path="/admin")
+        assert client.get("/admin/status").status_code == 401
         assert client.get("/api/projects").status_code == 401
         client.cookies.clear()
         client.cookies.set(portal.COOKIE, tenant_cookie)
@@ -1472,7 +1460,7 @@ def test_private_admin_rotation_revokes_only_admin_sessions(provisioned, change)
             client.cookies.clear()
             response = client.get("/", params={"token": config["admin_login_token"]})
             assert response.status_code == 303
-            assert client.get("/invite/status").json()["role"] == "admin"
+            assert client.get("/admin/status").json()["role"] == "admin"
 
 
 @pytest.mark.parametrize("invalid", ["", False, "has whitespace", "argus_trial_" + "a" * 64])
@@ -1490,29 +1478,17 @@ def test_private_admin_login_cannot_reuse_backend_credentials(provisioned):
     assert portal.Settings.load({**config, "admin_login_token": None}).admin_login_token is None
 
 
-def test_private_admin_websocket_still_uses_internal_demo_token(provisioned, monkeypatch):
+def test_private_admin_cookie_never_authenticates_frontend_websocket(provisioned, monkeypatch):
     config, _, _ = provisioned
     connections = []
-
-    def connect(uri, **kwargs):
-        socket = FakeSocket()
-        connections.append((uri, kwargs, socket))
-        return socket
-
-    monkeypatch.setattr(portal, "websocket_connect", connect)
+    monkeypatch.setattr(portal, "websocket_connect", lambda *args, **kwargs: connections.append(args))
     with client_for(provisioned) as client:
         client.get("/", params={"token": config["admin_login_token"], "kiosk": "1"})
-        with client.websocket_connect("wss://portal.test/api/projects/demo/stream", headers={"Origin": ORIGIN}) as ws:
-            assert ws.receive_json() == {"event": "ready"}
-            ws.send_text("not permitted")
-            with pytest.raises(WebSocketDisconnect) as exc:
-                ws.receive_text()
-            assert exc.value.code == 4403
-        uri, options, socket = connections[0]
-        assert uri == "ws://host.docker.internal:8896/api/projects/demo/stream?token=" + config["admin"]["token"]
-        assert options["extra_headers"]["Authorization"] == "Bearer " + config["admin"]["token"]
-        assert config["admin_login_token"] not in uri + str(options)
-        assert socket.closed and not socket.messages
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect("wss://portal.test/api/projects/demo/stream", headers={"Origin": ORIGIN}):
+                pass
+        assert exc.value.code == 4401
+        assert not connections
 
 
 def test_web_allowance_default_does_not_change_store_desktop_default(provisioned):
