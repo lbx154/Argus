@@ -106,6 +106,74 @@ def login(client, vault, tenant="trial-01", readonly=False):
     return response
 
 
+def test_private_training_policy_supports_eleven_members_and_requires_analytics(provisioned):
+    config, _, _ = provisioned
+    members = sorted(config["tenants"])
+    policy = {"mode": "internal_team_offline", "tenant_ids": members,
+              "evidence_note": "Owner explicitly authorized internal-team training."}
+    settings = portal.Settings.load({**config, "team_training_policy": policy})
+    assert len(settings.team_training_policy["tenant_ids"]) == 11
+    with pytest.raises(ValueError, match="requires configured analytics"):
+        portal.create_app({**config, "team_training_policy": policy})
+    for invalid in (
+        {**policy, "tenant_ids": ["trial-12"]},
+        {**policy, "tenant_ids": ["trial-10", "trial-10"]},
+        {**policy, "mode": "browser_acceptance"},
+    ):
+        with pytest.raises(ValueError):
+            portal.Settings.load({**config, "team_training_policy": invalid})
+
+
+def test_private_training_policy_only_fills_selected_member_and_preserves_browser_grants(provisioned, tmp_path):
+    from argus_skill.trial.analytics import Analytics
+    from argus_skill.trial.journey_journal import Journal
+    from argus_skill.trial.research_controls import ResearchControls
+    from argus_skill.trial.training_data import TrainingData
+
+    config, vault, store = provisioned
+    now = [2_000_000_000.0]
+    analytics = Analytics(
+        tmp_path / "analytics",
+        {tenant: {"data_dir": tmp_path / tenant, "internal_test": False} for tenant in config["tenants"]},
+        store.path, tmp_path / "compute.sqlite3", clock=lambda: now[0],
+    )
+    analytics.notice_version = COMBINED_NOTICE_VERSION
+    training = TrainingData(analytics, Journal(analytics), ResearchControls(analytics))
+    previous = training.accept_onboarding(
+        "trial-01", COMBINED_NOTICE_VERSION, accepted=True, external_sharing=True, record_research=True,
+    )
+    now[0] += 10
+    policy = {"mode": "internal_team_offline", "tenant_ids": ["trial-10"],
+              "evidence_note": "Owner explicitly authorized internal-team training."}
+    app = portal.create_app({**config, "team_training_policy": policy}, analytics=analytics,
+                           transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+    current = app.state.training_data
+    assert current.permissions("trial-01") == previous
+    enabled = current.permissions("trial-10")
+    assert enabled["internal_training"] and not enabled["external_sharing"]
+    assert enabled["granted_at"]["internal_training"] == now[0]
+    assert enabled["authorization"]["effective_at"] is None
+    assert enabled["onboarding"] is None
+    with analytics._db() as db:
+        assert {row[0] for row in db.execute("SELECT DISTINCT tenant_id FROM training_permissions")} == {
+            "trial-01", "trial-10",
+        }
+        assert [row[0] for row in db.execute("SELECT tenant_id FROM training_offline_authorizations")] == ["trial-10"]
+    now[0] += 10
+    with TestClient(app, base_url=ORIGIN, follow_redirects=False) as client:
+        response = client.post("/invite/login", headers={"Origin": ORIGIN}, json={
+            "code": vault.credential("trial-10"), "data_notice_accepted": True,
+            "notice_version": COMBINED_NOTICE_VERSION,
+        })
+        assert response.status_code == 200
+        permission = client.get("/trial/data-permissions").json()
+        assert permission["internal_training"]
+        assert permission["granted_at"] == enabled["granted_at"]
+        assert permission["authorization"] == enabled["authorization"]
+        assert permission["onboarding"]["accepted_at"] == now[0]
+        assert current.permissions("trial-01") == previous
+
+
 def test_login_page_and_unauthenticated_routes(provisioned):
     calls = []
     with client_for(provisioned, lambda request: calls.append(request)) as client:

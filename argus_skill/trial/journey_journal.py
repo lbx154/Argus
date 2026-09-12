@@ -724,6 +724,34 @@ class Journal:
         return {"state": "observed", "pending": len(rows) > MAX_HTTP_ROWS,
                 "unfinished_observations": unfinished}, inserted
 
+    def ensure_project(self, tenant, sid):
+        """Index one authorized live project without scanning or pruning others.
+
+        Runtime registration needs the project's consent/deletion boundary,
+        not a synchronous replay of its whole tenant. Initialize the source
+        cursor once so the background poll can retain subsequent events.
+        """
+        with self.analytics._project(tenant, sid) as directory:
+            with self.analytics._db() as db:
+                self._authorize(db, tenant, sid)
+                row = db.execute(
+                    "SELECT checkpoint FROM journey_projects WHERE tenant_id=? AND sid=? AND notice_version=?",
+                    self._key(tenant, sid),
+                ).fetchone()
+                if row is not None:
+                    checkpoint = json.loads(row["checkpoint"])
+                    if checkpoint.get("runtime", {}).get("identity"):
+                        return
+                state = self._project(db, tenant, sid)
+                if _server_replay_notice(self.analytics.notice_version):
+                    checkpoint = json.loads(state["checkpoint"])
+                    runtime, _count = self._runtime(db, tenant, sid, directory, {})
+                    checkpoint["runtime"] = runtime
+                    db.execute(
+                        "UPDATE journey_projects SET checkpoint=? WHERE tenant_id=? AND sid=? AND notice_version=?",
+                        (_json(checkpoint), *self._key(tenant, sid)),
+                    )
+
     def poll(self, tenant_id=None):
         self.prune()
         result = {"projects": 0, "inserted_events": 0, "tenants_without_consent": 0,

@@ -210,6 +210,7 @@ class Settings:
     token_limit: int | None = WEB_TOKEN_LIMIT
     frontend_dir: Path | None = None
     public_origin: str | None = None
+    team_training_policy: dict | None = None
 
     @classmethod
     def load(cls, source: dict | str | Path | None = None) -> Settings:
@@ -223,7 +224,7 @@ class Settings:
             not isinstance(data, dict) or not required <= data.keys()
             or data.keys() - required - {
                 "admin", "secure_cookie", "compute_url", "compute_uds", "admin_login_token", "token_limit",
-                "frontend_dir", "public_origin",
+                "frontend_dir", "public_origin", "team_training_policy",
             }
         ):
             raise ValueError("Invalid web portal configuration fields")
@@ -299,8 +300,13 @@ class Settings:
                 public_origin = "https://" + authority + (f":{port}" if port not in (None, 443) else "")
             except ValueError:
                 raise ValueError("public_origin must be an exact HTTPS origin") from None
+        team_training_policy = data.get("team_training_policy")
+        if team_training_policy is not None:
+            from .training_data import validate_team_training_policy
+
+            team_training_policy = validate_team_training_policy(team_training_policy, tenants)
         return cls(state, key, tenants, admin, secure, compute, admin_login_token, token_limit, frontend,
-                   public_origin)
+                   public_origin, team_training_policy)
 
 
 class BackendTransport(httpx.AsyncBaseTransport):
@@ -657,9 +663,14 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             if analytics is not None:
                 from .training_bridge import start_training_bridges
 
-                training_bridges = await run_in_threadpool(
-                    start_training_bridges, app.state.training_data, settings.tenants,
-                )
+                await run_in_threadpool(analytics.open_storage)
+                try:
+                    training_bridges = await run_in_threadpool(
+                        start_training_bridges, app.state.training_data, settings.tenants,
+                    )
+                except BaseException:
+                    await run_in_threadpool(analytics.close_storage)
+                    raise
                 async def collect():
                     from .interaction_capture import prune_interactions
 
@@ -692,6 +703,8 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
                         await worker
                 if training_bridges is not None:
                     await run_in_threadpool(training_bridges.close)
+                if analytics is not None:
+                    await run_in_threadpool(analytics.close_storage)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(SecurityHeaders)
@@ -754,6 +767,8 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
     app.state.session = session
     app.state.settings = settings
     app.state.analytics = analytics
+    if settings.team_training_policy is not None and analytics is None:
+        raise ValueError("team_training_policy requires configured analytics")
     if analytics is not None:
         analytics.token_limit = settings.token_limit
         from .analytics_routes import register_analytics
@@ -772,6 +787,11 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             app, analytics, session, journal=app.state.journal,
             controls=app.state.research_controls,
         )
+        if settings.team_training_policy is not None:
+            for tenant in settings.team_training_policy["tenant_ids"]:
+                app.state.training_data.apply_offline_team_authorization(
+                    tenant, team_policy=settings.team_training_policy,
+                )
         app.state.research_status = {"state": "starting"}
 
     @app.middleware("http")
@@ -832,7 +852,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
     async def invitation(request: Request):
         identity = session(request)
         if identity is not None and (
-            analytics is None or analytics.consented(identity["tenant"], analytics.notice_version)
+            analytics is None or await run_in_threadpool(analytics.consented, identity["tenant"], analytics.notice_version)
         ):
             return HTMLResponse(launcher_page(
                 identity, settings.compute is not None, analytics is not None,
@@ -1096,7 +1116,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             await ws.close(code=4401)
             return
         if (analytics is not None and identity["role"] == "trial"
-                and not analytics.consented(identity["tenant"], analytics.notice_version)):
+                and not await run_in_threadpool(analytics.consented, identity["tenant"], analytics.notice_version)):
             await ws.close(code=4401)
             return
         if not same_origin(ws) or not WS_ROUTE.fullmatch("/" + path) or not canonical_path("/" + path):

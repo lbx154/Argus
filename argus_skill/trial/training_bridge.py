@@ -12,6 +12,7 @@ import os
 import secrets
 import socket
 import socketserver
+import sqlite3
 import stat
 import struct
 import threading
@@ -192,13 +193,16 @@ class TrainingBridge:
         action = data.get("action") if isinstance(data, dict) else None
         try:
             result = self._dispatch(data, peer)
-        except (AnalyticsError, ValueError, TypeError, OSError, KeyError, IndexError) as exc:
-            code = exc.code if isinstance(exc, AnalyticsError) else "training_bridge_request_rejected"
+        except (AnalyticsError, ValueError, TypeError, OSError, KeyError, IndexError, sqlite3.Error) as exc:
+            code = (exc.code if isinstance(exc, AnalyticsError) else "training_storage_unavailable"
+                    if isinstance(exc, sqlite3.Error) else "training_bridge_request_rejected")
             with self.lock:
                 self.counts["registration_failed" if action == "register" else "requests_rejected"] += 1
                 if code.startswith(("training_peer_", "training_producer_", "training_observer_", "training_pi_")):
                     self.counts["producer_verification_failed"] += 1
                 self.last_error_code = code
+            if isinstance(exc, sqlite3.Error):
+                raise AnalyticsError(503, code) from None
             raise
         with self.lock:
             if action == "register":
@@ -316,7 +320,7 @@ class TrainingBridge:
                 parent = self._parent(peer, value["sid"])
                 # Registration is metadata-only; grant eligibility is checked
                 # before the producer even projects private in-memory messages.
-                self.training.journal.poll(self.tenant)
+                self.training.journal.ensure_project(self.tenant, value["sid"])
                 access = self.training.capture.authorize(self.tenant, value["sid"])
                 if not access["enabled"]:
                     return {"enabled": False}

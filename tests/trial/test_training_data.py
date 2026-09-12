@@ -792,6 +792,88 @@ def test_offline_policy_is_private_preserves_revocations_and_never_resurrects_de
 
 
 
+def _authorization_state(data):
+    with data.analytics._db() as db:
+        return {table: [tuple(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY rowid")]
+                for table in ("training_permissions", "training_permission_history",
+                              "training_tool_episodes", "training_sample_reviews")}
+
+
+def test_offline_policy_preserves_existing_grants_episodes_and_reviews(training):
+    data, _, now = training
+    data.analytics.notice_version = COMBINED_NOTICE_VERSION
+    data.accept_onboarding(
+        "tenant-one", COMBINED_NOTICE_VERSION, accepted=True, external_sharing=True, record_research=True,
+    )
+    now[0] += 1
+    assert forward_episode(training, pi_observations(now[0]))["state"] == "complete"
+    candidate = data.preview("internal_training", selection())["candidates"][0]
+    unpack(data, review={"content_approved": True, "tool_context_approved": True,
+                         "approved_event_ids": [candidate["event_id"]], "reviewer_kind": "human_operator"})
+    original = _authorization_state(data)
+    assert original["training_tool_episodes"] and original["training_sample_reviews"]
+    policy = {"mode": "internal_team_offline", "tenant_ids": ["tenant-one"],
+              "evidence_note": "Owner explicitly authorized internal-team training."}
+    now[0] += 10
+    permission = data.apply_offline_team_authorization("tenant-one", team_policy=policy)
+    assert _authorization_state(data) == original
+    recorded_at = permission["authorization"]["recorded_at"]
+    assert recorded_at == now[0] and permission["authorization"]["effective_at"] is None
+    assert permission["internal_training"] and not permission["external_sharing"]
+    now[0] += 10
+    repeated = data.apply_offline_team_authorization("tenant-one", team_policy=policy)
+    assert repeated["authorization"]["recorded_at"] == recorded_at
+    assert _authorization_state(data) == original
+
+
+@pytest.mark.parametrize("internal", [False, True])
+def test_offline_policy_preserves_older_notice_grants_and_revocations(training, internal):
+    data, _, now = training
+    grant(data, internal=internal)
+    with data.analytics._db() as db:
+        db.execute("UPDATE training_permissions SET notice_version='retired'")
+    original = _authorization_state(data)
+    now[0] += 10
+    policy = {"mode": "internal_team_offline", "tenant_ids": ["tenant-one"],
+              "evidence_note": "Owner explicitly authorized internal-team training."}
+    permission = data.apply_offline_team_authorization("tenant-one", team_policy=policy)
+    assert not permission["internal_training"]
+    assert _authorization_state(data) == original
+
+
+def test_offline_browser_acceptance_preserves_grant_data_and_explicit_revocation(training):
+    data, _, now = training
+    data.analytics.notice_version = COMBINED_NOTICE_VERSION
+    policy = {"mode": "internal_team_offline", "tenant_ids": ["tenant-one"],
+              "evidence_note": "Owner explicitly authorized internal-team training."}
+    original_permission = data.apply_offline_team_authorization("tenant-one", team_policy=policy)
+    now[0] += 1
+    assert forward_episode(training, pi_observations(now[0]))["state"] == "complete"
+    candidate = data.preview("internal_training", selection())["candidates"][0]
+    unpack(data, review={"content_approved": True, "tool_context_approved": True,
+                         "approved_event_ids": [candidate["event_id"]], "reviewer_kind": "human_operator"})
+    original = _authorization_state(data)
+    for _ in range(2):
+        now[0] += 10
+        permission = data.accept_onboarding(
+            "tenant-one", COMBINED_NOTICE_VERSION, accepted=True, record_research=True,
+        )
+        assert permission["granted_at"] == original_permission["granted_at"]
+        assert permission["authorization"] == original_permission["authorization"]
+        assert permission["onboarding"]["last_accepted_at"] == now[0]
+        assert _authorization_state(data) == original
+        assert data.preview("internal_training", selection())["counts"]["tool_sft"] == 1
+    grant(data, internal=False)
+    revoked = _authorization_state(data)
+    assert not revoked["training_tool_episodes"] and not revoked["training_sample_reviews"]
+    now[0] += 10
+    assert not data.apply_offline_team_authorization("tenant-one", team_policy=policy)["internal_training"]
+    assert not data.accept_onboarding(
+        "tenant-one", COMBINED_NOTICE_VERSION, accepted=True, record_research=True,
+    )["internal_training"]
+    assert _authorization_state(data) == revoked
+
+
 def test_combined_acceptance_external_choice_is_separate_and_strict(training):
     data, _, now = training
     data.analytics.notice_version = COMBINED_NOTICE_VERSION

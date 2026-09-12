@@ -80,6 +80,14 @@ existing team policy through the separate offline-authorization mechanism. An
 offline policy is identified as operator-attested authorization, not a fabricated
 browser receipt. An unknown historical effective date does not authorize backfill.
 
+For an explicitly authorized internal team, the private portal configuration can
+set `team_training_policy` with `mode: "internal_team_offline"`, selected
+`tenant_ids`, and an `evidence_note` recording the owner's declaration. It activates
+that policy on the live collector and supplies missing internal-training grants.
+Existing grants, withdrawals and captured episodes are preserved; restarting the
+service or repeating an ordinary invitation login does not reset their boundary.
+This configuration does not authorize external sharing.
+
 Internal training and external sharing are separate purposes. External sharing is
 off by default and needs its own authorization and export review. Revocation,
 notice changes and project deletion are checked again during collection/export.
@@ -89,6 +97,12 @@ HTTP and runtime observations, with stable identities, ingestion sequence,
 truncation and gap markers. Initial observation and source replacement establish
 a collection boundary; existing bytes are not retrospectively imported.
 Sequence is ingestion order, not a proof of causal order or successful work.
+
+The running portal holds an idle WAL connection and uses SQLite's `NORMAL`
+synchronous mode for analytics. This prevents every streamed observation from
+forcing a disk flush and every short connection from checkpointing on close.
+Registration indexes the current project instead of replaying the whole tenant;
+database checks in request middleware run outside the asynchronous event loop.
 
 Project research copies can be deleted with a tombstone that disables future
 collection for that project. Research retention is at most 30 days, with additional

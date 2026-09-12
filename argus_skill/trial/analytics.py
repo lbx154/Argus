@@ -29,6 +29,7 @@ import os
 import re
 import sqlite3
 import stat
+import threading
 import time
 from collections.abc import Mapping
 from contextlib import closing, contextmanager
@@ -226,6 +227,8 @@ class Analytics:
                 raise ValueError("analytics state must be separate from tenant data")
         state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = state_dir / "analytics.sqlite3"
+        self._storage_anchor = None
+        self._storage_lock = threading.Lock()
         if self.path.is_symlink():
             raise ValueError("analytics database may not be a symlink")
         with self._db() as db:
@@ -253,8 +256,37 @@ class Analytics:
     def _db(self):
         with closing(sqlite3.connect(self.path, timeout=5)) as db:
             db.row_factory = sqlite3.Row
+            # WAL commits stay transactional without a device flush for every
+            # HTTP counter or streamed token. Checkpoints retain WAL recovery.
+            db.execute("PRAGMA synchronous=NORMAL")
             with db:
                 yield db
+
+    def open_storage(self):
+        """Keep an idle WAL reader attached for the portal's lifetime.
+
+        Closing the last short-lived connection checkpoints and unlinks WAL.
+        Under a busy filesystem that flush can hold an exclusive database lock
+        for seconds, blocking both new observations and ordinary page requests.
+        This anchor owns no transaction and does not serialize actual readers.
+        """
+        with self._storage_lock:
+            if self._storage_anchor is None:
+                anchor = sqlite3.connect(self.path, timeout=5, isolation_level=None, check_same_thread=False)
+                try:
+                    anchor.execute("PRAGMA synchronous=NORMAL")
+                    anchor.execute("SELECT count(*) FROM sqlite_master").fetchone()
+                    anchor.execute("PRAGMA query_only=ON")
+                except BaseException:
+                    anchor.close()
+                    raise
+                self._storage_anchor = anchor
+
+    def close_storage(self):
+        with self._storage_lock:
+            anchor, self._storage_anchor = self._storage_anchor, None
+            if anchor is not None:
+                anchor.close()
 
     def _tenant(self, tenant):
         if tenant not in self.tenants:
