@@ -575,6 +575,7 @@ def render_full_checklist_body(
 
 CHECKLIST_STAGE_ORDER = CANONICAL_STAGE_ORDER
 CHECKLIST_ITEMS = STAGE_CHECKLISTS
+ALLOW_STAGE_ROLLBACK = False
 completion_gate = "certified"
 MISSION_KIND = "research"
 PAPER_MISSION = True
