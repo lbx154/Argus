@@ -135,7 +135,7 @@ def test_only_bounded_context_is_sent_and_tool_ticks_do_not_invalidate_review():
     run = Mock(return_value={"reviews": {"a": accepted()}})
     _, _, cache = invoke({"a": concept()}, run, context=context)
     prompt = run.call_args.args[0]
-    sent = json.loads(prompt.split("Teaching passages:\n", 1)[1])
+    sent = json.loads(prompt.split("Teaching passages:\n", 1)[1])["passages"]
     assert sent["a"]["concept"] == concept()
     assert len(sent["a"]["context"]["objective"]) == teaching.CONTEXT_LIMITS["objective"]
     assert len(sent["a"]["context"]["summary"]) == teaching.CONTEXT_LIMITS["summary"]
@@ -208,7 +208,7 @@ def test_unknown_tool_ticks_and_large_fields_are_not_source_evidence_or_cache_de
     response = {"reviews": {"a": accepted()}, "readings": {"a": accepted()}}
     run = Mock(return_value=copy.deepcopy(response))
     _, _, cache = invoke({"a": concept()}, run, context={"a": source}, reading={"a": reading()})
-    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])["a"]["context"]
+    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])["passages"]["a"]["context"]
     encoded = json.dumps(sent)
     assert "PRIVATE_UNKNOWN_OUTPUT" not in encoded and "GENERATED_PROSE_IS_NOT_SOURCE" not in encoded
     assert "cursor" not in encoded and "steps" not in encoded
@@ -258,6 +258,43 @@ def test_source_projection_preserves_all_selected_ids_and_loss_flags_across_norm
     again["task"]["outcome"]["review_status"] = "local change"
     again["events"][0]["text"] = "Another local change"
     assert projected == snapshot and source == before
+
+
+def test_related_task_projection_is_bounded_idempotent_and_excludes_unrelated_payloads():
+    source = {"related_tasks": [
+        {"id": f"task-{i}", "title": f"Neighbor {i}", "objective": "o" * 501,
+         "deps": [f"dep-{j}" for j in range(teaching.MAX_RELATED_TASKS + 1)],
+         "tool_output": "UNRELATED_TOOL_PAYLOAD", "source_snapshot": {"text": "old generated copy"}}
+        for i in range(teaching.MAX_RELATED_TASKS + 2)
+    ]}
+    before = copy.deepcopy(source)
+    projected = teaching.teaching_context(source)
+    assert len(projected["related_tasks"]) == teaching.MAX_RELATED_TASKS
+    assert projected["related_tasks_truncated"] is True
+    assert projected["related_tasks"][0]["id"] == "task-0"
+    assert projected["related_tasks"][0]["objective_truncated"] is True
+    assert projected["related_tasks"][0]["deps_truncated"] is True
+    assert "status" not in projected["related_tasks"][0]
+    assert "UNRELATED_TOOL_PAYLOAD" not in json.dumps(projected)
+    assert "old generated copy" not in json.dumps(projected)
+    assert teaching.teaching_context(projected) == projected
+    assert source == before
+
+
+def test_changed_related_task_goal_invalidates_the_teaching_receipt():
+    context = {"a": {**selected_source_context(), "related_tasks": [{
+        "id": "f20a4421fc3f", "title": "Determine the exact prime set", "objective": "Test p=13", "deps": [],
+    }]}}
+    response = {"reviews": {"a": accepted()}, "readings": {"a": accepted()}}
+    _, _, cache = invoke({"a": concept()}, Mock(return_value=copy.deepcopy(response)), context=context, reading={"a": reading()})
+    context["a"]["related_tasks"][0]["objective"] = "Also determine the p=11 boundary"
+    run = Mock(return_value=copy.deepcopy(response))
+    _, _, updates = invoke({"a": concept()}, run, context=context, reading={"a": reading()}, cached_reviews=cache)
+    run.assert_called_once()
+    payload = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])
+    assert payload["related_tasks"] == context["a"]["related_tasks"]
+    assert payload["passages"]["a"]["context"]["related_task_ids"] == ["f20a4421fc3f"]
+    assert set(updates).isdisjoint(cache)
 
 
 def test_unavailable_model_verdict_hides_example_and_is_cached():
@@ -382,7 +419,7 @@ def test_supplied_reading_correction_is_atomic_and_separate_from_concept_accepta
     assert receipts["a"]["reading_replacement"] == decision["replacement"]
     assert set(receipts["a"]["reading_replacement"]) == set(teaching.READING_LIMITS)
     assert all(receipts["a"]["reading_replacement"][field] != before[field] for field in before)
-    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])
+    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])["passages"]
     assert sent["a"]["reading"] == before
     assert next(iter(updates.values()))["reading_decision"]["replacement"] == decision["replacement"]
     assert draft == before and len(updates) == 1
@@ -393,7 +430,7 @@ def test_null_concept_still_checks_reading_without_inventing_a_concept_verdict()
     usable, receipts, updates = invoke({"a": None}, run, reading={"a": reading()})
     run.assert_called_once()
     prompt, schema = run.call_args.args
-    passages = json.loads(prompt.split("Teaching passages:\n", 1)[1])
+    passages = json.loads(prompt.split("Teaching passages:\n", 1)[1])["passages"]
     assert passages["a"]["concept"] is None and passages["a"]["reading"] == reading()
     assert schema["properties"]["reviews"]["properties"] == {}
     assert usable["a"] is None and "status" not in receipts["a"]
@@ -473,7 +510,7 @@ def test_checked_text_fields_redacts_candidates_without_removing_the_final_condi
     assert teaching.checked_text_fields(draft, teaching.READING_LIMITS, "invalid_reading") == expected
     run = Mock(return_value={"reviews": {}, "readings": {"a": accepted()}})
     _, receipts, updates = invoke({"a": None}, run, reading={"a": draft})
-    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])
+    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])["passages"]
     assert sent["a"]["reading"] == expected
     assert receipts["a"]["reading_review"]["status"] == "accepted"
     assert receipts["a"]["reading_replacement"] == expected
@@ -487,7 +524,7 @@ def test_accepted_reading_preserves_every_original_character_including_limit_bou
     before = copy.deepcopy(draft)
     run = Mock(return_value={"reviews": {}, "readings": {"a": accepted()}})
     _, receipts, cache = invoke({"a": None}, run, reading={"a": draft})
-    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])
+    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])["passages"]
     assert sent["a"]["reading"] == before
     assert receipts["a"]["reading_review"]["status"] == "accepted"
     assert receipts["a"]["reading_replacement"] == before

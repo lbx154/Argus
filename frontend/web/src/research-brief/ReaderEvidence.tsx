@@ -2,18 +2,20 @@ import type { ArtifactInfo } from '../api';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { RawDisclosure } from '../components/primitives';
 import { useI18n } from '../i18n';
-import { plainDetail, plainEventName } from '../lib/plainStatus';
+import { plainDetail, plainEventName, plainStatus } from '../lib/plainStatus';
+import type { CardSourceSnapshot } from '../map/presentation';
 import { readableRecord } from '../map/submap';
 import { evidenceDates, hasTruncatedFields, type EvidenceState, type EvidenceTask, type ReaderEvidenceSelection, type UsedEvidence } from './evidence';
 
 type ReadingArtifacts = { artifacts?: ArtifactInfo[]; onOpenArtifact?: (path: string) => void };
 const prose = (value: unknown) => typeof value === 'string' ? value : '';
 
-function SourceJson({ record, kind = 'event' }: { record: Record<string, unknown>; kind?: 'task' | 'excerpt' | 'event' | 'full-record' }) {
+function SourceJson({ record, kind = 'event' }: { record: Record<string, unknown>; kind?: 'task' | 'related-task' | 'excerpt' | 'event' | 'full-record' }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const label = kind === 'full-record' ? zh ? '查看同版本完整记录' : 'View the complete record from the same version'
     : kind === 'task' ? zh ? '任务材料（JSON）' : 'Task material (JSON)'
+    : kind === 'related-task' ? zh ? '相邻任务材料（JSON）' : 'Related task material (JSON)'
     : kind === 'excerpt' ? zh ? '生成时材料节选（JSON）' : 'Retained source excerpt (JSON)'
       : zh ? '原始记录（JSON）' : 'Original record (JSON)';
   const disclosure = <RawDisclosure label={label}>
@@ -88,6 +90,29 @@ function EventMaterial({ row, currentReason, ...artifacts }: ReadingArtifacts & 
   </section>;
 }
 
+function RelatedTaskMaterial({ snapshot, ...artifacts }: ReadingArtifacts & { snapshot: CardSourceSnapshot }) {
+  const { locale } = useI18n();
+  const zh = locale === 'zh-CN', tasks = snapshot.related_tasks ?? [];
+  if (!tasks.length && !snapshot.related_tasks_truncated) return null;
+  return <section className="mt-3 border-t border-line/50 pt-3" data-evidence-related-tasks>
+    <p className="text-xs text-ink-faint">{zh ? '相邻任务不代表本项交接。以下仅展示生成时保存的相邻任务材料。' : 'Related tasks do not establish a handoff from this task. Only related task material retained at generation time is shown below.'}</p>
+    {snapshot.related_tasks_truncated ? <p className="text-xs text-ink-faint">{zh ? '生成材料只包含部分相邻任务。' : 'The generation material contains only some related tasks.'}</p> : null}
+    <RawDisclosure label={zh ? `生成时保存的相邻任务（${tasks.length}）` : `Related tasks retained at generation time (${tasks.length})`}>
+      {tasks.map((record, index) => <section key={`${record.id}:${index}`} className="mt-3 border-t border-line/50 pt-3" data-evidence-related-task={record.id}>
+        {prose(record.title) ? <h3 className="text-xs font-medium text-ink">{prose(record.title)}</h3> : null}
+        <p className="text-xs text-ink-faint">{zh ? '任务 ID：' : 'Task ID: '}<code className="break-all">{record.id}</code></p>
+        {prose(record.objective) ? <MarkdownContent {...artifacts}>{prose(record.objective)}</MarkdownContent> : null}
+        {prose(record.status) ? <p className="text-xs text-ink-faint">{zh ? '保存时状态：' : 'Retained status: '}{plainStatus(prose(record.status), locale)}</p> : null}
+        {Array.isArray(record.deps) ? <p className="text-xs text-ink-faint">{zh ? '依赖任务：' : 'Dependencies: '}{record.deps.length
+          ? record.deps.filter((id): id is string => typeof id === 'string').map((id, depIndex) => <span key={`${id}:${depIndex}`}>{depIndex ? ', ' : ''}<code className="break-all">{id}</code></span>)
+          : zh ? '无' : 'None'}</p> : null}
+        {hasTruncatedFields(record) ? <p className="text-xs text-ink-faint">{zh ? '保留的是材料节选，部分内容已截短。' : 'This retained excerpt includes shortened content.'}</p> : null}
+        <SourceJson record={record} kind="related-task" />
+      </section>)}
+    </RawDisclosure>
+  </section>;
+}
+
 /** The same source grouping is used by current research and historical task/step readers. */
 export function ReaderEvidence({ selection, showSummary = true, ...artifacts }: ReadingArtifacts & {
   selection: ReaderEvidenceSelection; showSummary?: boolean;
@@ -107,6 +132,7 @@ export function ReaderEvidence({ selection, showSummary = true, ...artifacts }: 
       {selection.usedTask ? <TaskMaterial group="used" taskId={selection.taskId} {...selection.usedTask} {...artifacts} /> : null}
       {selection.used.map((row, index) => <EventMaterial key={`${row.id}:${index}`} row={row} {...artifacts} />)}
       {!selection.used.length ? <p className="text-xs text-ink-faint">{zh ? '没有已记录的说明来源事件。' : 'No source events are recorded for this explanation.'}</p> : null}
+      {selection.snapshot ? <RelatedTaskMaterial snapshot={selection.snapshot} {...artifacts} /> : null}
     </div>
     <div className="mt-4 border-t border-line pt-3" data-evidence-group="current">
       <h2 className="text-sm font-medium text-ink">{zh ? '当前记录 · 不作为上方说明的来源' : 'Current records · not attributed to the explanation above'}</h2>

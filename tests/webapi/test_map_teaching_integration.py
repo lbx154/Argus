@@ -32,7 +32,7 @@ def reading_fields(value):
     }
 
 
-def capture_generation_sources(monkeypatch, documents):
+def capture_generation_sources(monkeypatch, documents, tasks=None):
     """Exercise both transports with supplied verdicts, never a model endpoint."""
     observed = {}
     calls = []
@@ -42,13 +42,19 @@ def capture_generation_sources(monkeypatch, documents):
         if "cards" in schema["properties"]:
             observed["draft"] = json.loads(prompt.split("\n研究记录：\n", 1)[1])
             return {"cards": {doc["key"]: copy.deepcopy(card()) for doc in documents}, "relations": []}
-        observed["checker"] = json.loads(prompt.split("Teaching passages:\n", 1)[1])
+        observed["checker_payload"] = json.loads(prompt.split("Teaching passages:\n", 1)[1])
+        observed["checker"] = copy.deepcopy(observed["checker_payload"]["passages"])
+        related = {task["id"]: task for task in observed["checker_payload"]["related_tasks"]}
+        for row in observed["checker"].values():
+            context = row["context"]
+            if "related_task_ids" in context:
+                context["related_tasks"] = [copy.deepcopy(related[task_id]) for task_id in context.pop("related_task_ids")]
         verdict = {"status": "accepted", "reason": "Supplied transport-test verdict", "findings": [], "replacement": None}
         return {section: {key: copy.deepcopy(verdict) for key in schema["properties"][section]["properties"]}
                 for section in ("reviews", "readings")}
 
     monkeypatch.setattr(map_narrative, "run_map_model", run)
-    observed["result"] = map_narrative.generate(documents, [{"id": doc["task_id"]} for doc in documents], "en-US",
+    observed["result"] = map_narrative.generate(documents, tasks if tasks is not None else [{"id": doc["task_id"]} for doc in documents], "en-US",
                                                 config=MapModel("pi", "gpt-5.5", "medium", "argus-pi"), project_root=None, global_root=None)
     assert len(calls) == 2
     return observed
@@ -85,7 +91,7 @@ def test_draft_and_checker_share_actual_task_evidence_and_attribution_without_mu
         checked = observed["checker"][key]["context"]
         assert observed["checker"][key]["reading"] == reading_fields(card())
         snapshot = next(row for row in observed["result"]["cards"] if row["key"] == key)["source_snapshot"]
-        assert snapshot["version"] == 1 and snapshot["card_key"] == key and snapshot["task_id"] == original["task_id"]
+        assert snapshot["version"] == map_narrative.SOURCE_SNAPSHOT_VERSION and snapshot["card_key"] == key and snapshot["task_id"] == original["task_id"]
         assert {field: value for field, value in snapshot.items()
                 if field not in {"version", "card_key", "task_id", "captured_at"}} == checked
         assert checked["task"] == sent["task"]
@@ -134,6 +140,44 @@ def test_upstream_evidence_truncation_remains_visible_to_both_draft_and_checker(
     assert dataset == before and documents == document_snapshot
 
 
+def test_bsd_neighbor_goals_are_shared_once_with_checker_and_retained_by_id(monkeypatch):
+    # Offline source fixture reproducing the two neighboring goals which the
+    # earlier draft saw but its checker and saved evidence did not receive.
+    source = document()
+    source.update(key="1e8d7b0d1acf", task_id="1e8d7b0d1acf")
+    other = document()
+    other.update(key="another-card", task_id="another-task")
+    neighbors = [
+        {"id": "f20a4421fc3f", "title": "Extend the multiplicative irreducible Serre-weight obstruction to its exact prime set",
+         "objective": "Determine coverage at p=13 as well as p=5,7 and why the same argument stops at p=11 and p>=17.", "deps": []},
+        {"id": "ba728f561897", "title": "Test the multiplicative p=3 branch of semistable rank-one BSD",
+         "objective": "Determine the 3-part formula, distinguishing irreducible and reducible residual representations and split versus nonsplit reduction.", "deps": []},
+    ]
+    tasks = [{"id": source["task_id"]}, {"id": other["task_id"]}, *neighbors]
+    before = copy.deepcopy(tasks)
+    observed = capture_generation_sources(monkeypatch, [source, other], tasks)
+    draft, checker = observed["draft"], observed["checker_payload"]
+    assert "tasks" not in draft  # No extra long source available only to the draft.
+    draft_table = {task["id"]: task for task in draft["related_tasks"]}
+    checker_table = {task["id"]: task for task in checker["related_tasks"]}
+    assert draft_table == checker_table
+    for neighbor in neighbors:
+        assert checker_table[neighbor["id"]] == neighbor
+        assert "status" not in checker_table[neighbor["id"]]  # Missing state stays unknown.
+        assert json.dumps(draft).count(neighbor["objective"]) == 1
+        assert json.dumps(checker).count(neighbor["objective"]) == 1
+    for sent in draft["cards"]:
+        checked = checker["passages"][sent["key"]]["context"]
+        assert checked["related_task_ids"] == sent["related_task_ids"]
+        snapshot = next(row["source_snapshot"] for row in observed["result"]["cards"] if row["key"] == sent["key"])
+        assert snapshot["related_tasks"] == [draft_table[key] for key in sent["related_task_ids"]]
+        assert {neighbor["id"] for neighbor in neighbors} <= set(sent["related_task_ids"])
+        assert "related_task_ids" not in snapshot  # Saved evidence is self-contained.
+    assert tasks == before
+    neighbors[0]["objective"] = "A later edited goal"
+    assert checker_table["f20a4421fc3f"]["objective"] != neighbors[0]["objective"]
+
+
 def test_source_snapshot_binds_the_pre_generation_material_when_live_task_and_events_change(monkeypatch):
     source = document()
     source.update(key="start-a", kind="execution")
@@ -153,7 +197,7 @@ def test_source_snapshot_binds_the_pre_generation_material_when_live_task_and_ev
             source["events"].append({"id": "completed-a", "item_id": "a", "type": "round.main.completed", "text": "Later progress"})
             now["value"] = 1100.0
             return {"cards": {"start-a": copy.deepcopy(card())}, "relations": []}
-        observed["checker"] = json.loads(prompt.split("Teaching passages:\n", 1)[1])["start-a"]["context"]
+        observed["checker"] = json.loads(prompt.split("Teaching passages:\n", 1)[1])["passages"]["start-a"]["context"]
         now["value"] = 1200.0
         verdict = {"status": "accepted", "reason": "Supplied transport-test verdict", "findings": [], "replacement": None}
         return {"reviews": {"start-a": copy.deepcopy(verdict)}, "readings": {"start-a": copy.deepcopy(verdict)}}
@@ -189,7 +233,9 @@ def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_bac
 
     monkeypatch.setattr(map_narrative, "run_map_model", run)
     dataset = {"id": "live:snapshots", "tasks": [{"id": "a", "title": "Task", "objective": "The initial goal",
-                                                  "status": "running", "revision": "task-before", "deps": []}],
+                                                  "status": "running", "revision": "task-before", "deps": []},
+                                                 {"id": "f20a4421fc3f", "title": "Exact prime set", "objective": "Test p=13", "status": "pending", "deps": []},
+                                                 {"id": "ba728f561897", "title": "Multiplicative p=3 branch", "objective": "Determine the 3-part formula", "status": "done", "deps": []}],
                "events": [{"id": "start-a", "item_id": "a", "type": "life.mission.started", "ts": 900,
                            "text": "The initial record", "revision": "event-before"}]}
     before = copy.deepcopy(dataset)
@@ -199,6 +245,7 @@ def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_bac
     snapshot = saved["source_snapshot"]
     assert len(calls) == 2 and snapshot["captured_at"] == 1000.0
     assert snapshot["task"]["objective"] == "The initial goal" and snapshot["source_ids"] == ["start-a"]
+    assert snapshot["related_tasks"] == dataset["tasks"][1:]
     assert saved["task_revision"] == "task-before" and saved["event_revisions"] == ["event-before"]
     cache_source = "live:snapshots:en-US"
     assert map_narrative.read_cache(tmp_path, cache_source)["cards"]["a"]["source_snapshot"] == snapshot
@@ -207,6 +254,7 @@ def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_bac
 
     later = copy.deepcopy(dataset)
     later["tasks"][0].update(objective="A changed goal", revision="task-after")
+    later["tasks"][1].update(objective="A later neighboring goal", status="done")
     later["events"].append({"id": "completed-a", "item_id": "a", "type": "round.main.completed", "ts": 950,
                             "text": "New progress", "revision": "new-event"})
     later_request = [{**request[0], "event_ids": ["start-a", "completed-a"]}]
@@ -354,7 +402,7 @@ def test_corrected_detail_keeps_its_final_condition_in_the_same_persisted_card(t
         calls.append(schema)
         if "cards" in schema["properties"]:
             return {"cards": {"a": copy.deepcopy(original)}, "relations": []}
-        candidate = json.loads(prompt.split("Teaching passages:\n", 1)[1])["a"]["reading"]
+        candidate = json.loads(prompt.split("Teaching passages:\n", 1)[1])["passages"]["a"]["reading"]
         assert candidate == reading_fields(original)
         return {"reviews": {"a": {"status": "accepted", "reason": "Supplied transport verdict",
                                    "findings": [], "replacement": None}},
@@ -412,7 +460,7 @@ def test_secret_redaction_precedes_checking_and_keeps_the_same_conditions_in_sto
     def run(prompt, schema, _config, **_kwargs):
         if "cards" in schema["properties"]:
             return {"cards": {"a": copy.deepcopy(generated)}, "relations": []}
-        candidate = json.loads(prompt.split("Teaching passages:\n", 1)[1])["a"]["reading"]
+        candidate = json.loads(prompt.split("Teaching passages:\n", 1)[1])["passages"]["a"]["reading"]
         checked.append(candidate)
         assert candidate["detail"] == expected and fake_token not in prompt
         verdict = {"status": "accepted", "reason": "Supplied transport verdict", "findings": [], "replacement": None}
