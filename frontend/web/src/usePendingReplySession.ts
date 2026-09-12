@@ -8,6 +8,7 @@ const errorText = (error: unknown): string =>
 
 interface UsePendingReplySessionOptions {
   activeSid: string | null;
+  currentTaskId?: string | null;
   /** Auto-surface the dialog for a newly seen decision. The map keeps its own
    * banner and node highlight, so it opts out; false never opens uninvited. */
   autoOpen?: boolean;
@@ -35,38 +36,60 @@ const writePrompted = (value: string) => {
 
 export function usePendingReplySession({
   activeSid,
+  currentTaskId,
   autoOpen = true,
   backlog,
   notify,
   pendingQuestions,
   refetchSnapshot,
 }: UsePendingReplySessionOptions) {
-  const [pendingReplyOpen, setPendingReplyOpen] = useState(false);
+  const [openedReply, setOpenedReply] = useState<{
+    sid: string;
+    card: OperatorDecisionCard;
+  } | null>(null);
   const [pendingReplyBusy, setPendingReplyBusy] = useState(false);
   const promptedReplyRef = useRef('');
 
-  const pendingReply = useMemo<OperatorDecisionCard | null>(() => {
+  const decisionCards = useMemo<OperatorDecisionCard[]>(() => {
     const backlogRows = (backlog ?? []).map<Record<string, unknown>>((item) => ({
       ...item,
       operator_decision: (item as unknown as Record<string, unknown>).operator_decision,
     }));
-    return operatorDecisionCards(pendingQuestions ?? [], backlogRows)[0] ?? null;
-  }, [backlog, pendingQuestions]);
+    return operatorDecisionCards(pendingQuestions ?? [], backlogRows, currentTaskId);
+  }, [backlog, pendingQuestions, currentTaskId]);
+  const preferredReply = decisionCards[0] ?? null;
+  const hasSnapshot = backlog !== undefined || pendingQuestions !== undefined;
+  const pendingReplyOpen = openedReply !== null && openedReply.sid === activeSid;
+  // Keep the question being edited/submitted stable when the daemon moves to
+  // another task. Its current-task label can still follow the live mission.
+  const pendingReply = pendingReplyOpen ? {
+    ...openedReply.card,
+    is_current_task: currentTaskId ? openedReply.card.item_id === currentTaskId : undefined,
+  } : preferredReply;
+  const setPendingReplyOpen = (open: boolean) => {
+    if (!open) {
+      setOpenedReply(null);
+    } else if (activeSid && preferredReply) {
+      setOpenedReply(previous => previous?.sid === activeSid
+        ? previous : { sid: activeSid, card: preferredReply });
+    }
+  };
 
   useEffect(() => {
-    if (!pendingReply || !activeSid) {
-      setPendingReplyOpen(false);
-      return;
+    if (openedReply && (openedReply.sid !== activeSid || (
+      hasSnapshot && !decisionCards.some(card => card.id === openedReply.card.id)
+    ))) {
+      setOpenedReply(null);
     }
-    if (!autoOpen) return;
-    const key = `${activeSid}:${pendingReply.id}`;
+    if (!activeSid || !preferredReply || !autoOpen || pendingReplyOpen || pendingReplyBusy) return;
+    const key = `${activeSid}:${preferredReply.id}`;
     // Session storage remembers across reloads: a decision hijacks the screen
     // once per tab, not on every visit while it stays unanswered.
     if (promptedReplyRef.current === key || readPrompted() === key) return;
     promptedReplyRef.current = key;
     writePrompted(key);
-    setPendingReplyOpen(true);
-  }, [activeSid, autoOpen, pendingReply]);
+    setOpenedReply({ sid: activeSid, card: preferredReply });
+  }, [activeSid, autoOpen, decisionCards, hasSnapshot, preferredReply, openedReply, pendingReplyOpen, pendingReplyBusy]);
 
   const answerPendingReply = async (optionId: string, note: string) => {
     if (!activeSid || !pendingReply || pendingReplyBusy) return;
@@ -87,7 +110,8 @@ export function usePendingReplySession({
         );
         return;
       }
-      setPendingReplyOpen(false);
+      // A request may finish after the operator has opened another dialog.
+      setOpenedReply(current => current === openedReply ? null : current);
       await refetchSnapshot();
       if (result.daemon && Number(result.daemon.rc ?? 0) !== 0) {
         notify(

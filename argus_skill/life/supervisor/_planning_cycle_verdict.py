@@ -127,6 +127,7 @@ class PlanningCycleVerdictMixin:
                 reason=reason or "Planner produced no executable task.",
                 question=question,
                 project_id=self.memory.root.name,
+                previous_decision=item.operator_decision,
             )
         except Exception:  # noqa: BLE001 - the plain question is sufficient
             card = {}

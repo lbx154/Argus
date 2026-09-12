@@ -443,6 +443,7 @@ def _apply_framework_deployment_decision(
                 str(card.get("id") or decision_id),
             ],
             "question": pending_question,
+            "asked_at": time.time(),
             "reason": (
                 "The reviewed change reached only part of its publication route."
             ),

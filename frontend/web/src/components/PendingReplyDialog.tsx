@@ -3,6 +3,7 @@ import type { OperatorDecisionCard } from '../../../core/src/decisions';
 import { Modal, ModalHeader } from './Modal';
 import { isImeComposing } from '../lib/ime';
 import { useI18n } from '../i18n';
+import { PendingDecisionContext } from './PendingDecisionContext';
 
 export type PendingReply = OperatorDecisionCard;
 
@@ -59,8 +60,9 @@ export function PendingReplyDialog({
 
   return (
     <Modal open={open} onClose={busy ? () => undefined : onClose} label={t('decision.operator')} width="max-w-2xl">
-      <ModalHeader title={t('decision.required')} sub={reply.title} />
+      <ModalHeader title={t('decision.required')} sub={reply.title !== reply.task_title ? reply.title : undefined} />
       <div className="space-y-4 px-5 py-4">
+        <PendingDecisionContext card={reply} />
         {reply.reason ? (
           <section className="rounded-md border border-gold/30 bg-gold/5 p-3">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-gold">{t('decision.whyBlocked')}</div>

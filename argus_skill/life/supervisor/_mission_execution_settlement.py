@@ -860,6 +860,7 @@ class MissionExecutionSettlementMixin:
                 ],
                 evidence=list(item.context_refs),
                 project_id=self.memory.root.name,
+                previous_decision=item.operator_decision,
             )
             decision_card["decision_kind"] = "framework_deployment"
             from ._mission_execution_runtime import _maintenance_sidecar_path
@@ -930,6 +931,7 @@ class MissionExecutionSettlementMixin:
                 options=list(getattr(outcome, "operator_options", []) or []),
                 evidence=evidence,
                 project_id=decision_root.name,
+                previous_decision=item.operator_decision,
             )
             # Status and the authority-bearing question must reach disk in one
             # backlog transaction. Keep the row nonterminal so dependency

@@ -265,7 +265,7 @@ describe('shared frontend core', () => {
     expect(html).toContain('Decision required');
     expect(html).toContain('Which dataset should the process use?');
     expect(html).toContain('Choose dataset');
-    expect(html).toContain('The Manager applies your choice');
+    expect(html).toContain('Your answer applies to this task.');
   });
 
   it('renders Settings and icon-only theme controls in the sidebar footer', () => {

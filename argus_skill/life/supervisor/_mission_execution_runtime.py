@@ -1200,6 +1200,7 @@ class MissionExecutionRuntimeMixin:
             ],
             evidence=list(getattr(item, "context_refs", None) or []),
             project_id=self.memory.root.name,
+            previous_decision=item.operator_decision,
         )
         pause_outcome = mission_outcome_dimensions(
             status="paused_operator",

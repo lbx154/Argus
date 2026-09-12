@@ -3,11 +3,36 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
+
 from argus_skill.core.operator_decision import build_operator_decision
 from argus_skill.daemon.state import read_continuous_state, write_continuous_config
 from argus_skill.life.memory import BacklogItem, MemoryBundle
 from argus_skill.manager import front_door
 from argus_skill.webapi import manager_pending_question
+
+
+@pytest.mark.parametrize("asked_at", [100.0, None])
+def test_snapshot_preserves_question_time_without_backfilling_legacy_cards(
+    tmp_path, asked_at,
+) -> None:
+    from argus_skill.webapi.project_state import build_snapshot
+
+    mem, card = _blocked_project(tmp_path)
+    if asked_at is None:
+        card.pop("asked_at")
+    else:
+        card["asked_at"] = asked_at
+    mem.backlog.update("item", operator_decision=card)
+
+    for compact in (False, True):
+        snapshot = build_snapshot("s-decision", global_root=tmp_path, compact=compact)
+        assert snapshot is not None
+        projected = snapshot["backlog"][0]["operator_decision"]
+        assert projected.get("asked_at") == asked_at
+        assert ("asked_at" in projected) == (asked_at is not None)
+        if compact:
+            assert snapshot["pending_questions"][0]["operator_decision"] == projected
 
 
 def _blocked_project(tmp_path, sid: str = "s-decision"):
@@ -198,6 +223,7 @@ def test_repeated_decision_is_idempotent_across_reopened_memory(
         ],
     )
     deployment_card["decision_kind"] = "framework_deployment"
+    deployment_card["asked_at"] = 1.0
     mem.backlog.update(
         maintenance.id,
         status="paused_operator",
@@ -284,6 +310,7 @@ def test_repeated_decision_is_idempotent_across_reopened_memory(
     current = next(row for row in mem.backlog.history() if row.id == maintenance.id)
     assert current.operator_decision["id"] != deployment_card["id"]
     assert current.operator_decision["status"] == "pending"
+    assert current.operator_decision["asked_at"] > deployment_card["asked_at"]
     assert [
         option["id"] for option in current.operator_decision["options"]
     ] == ["adopt"]

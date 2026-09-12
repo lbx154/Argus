@@ -25,6 +25,11 @@ export interface OperatorDecisionCard {
   selected_option: string;
   note: string;
   legacy?: boolean;
+  /** When this question was actually raised, if recorded by the producer. */
+  asked_at?: number;
+  task_title?: string;
+  task_status?: string;
+  is_current_task?: boolean;
 }
 
 const text = (value: unknown): string => String(value ?? '').trim();
@@ -48,8 +53,14 @@ const customDecisionOption = (title: string, question: string): DecisionOption =
 export function operatorDecisionCards(
   pending: Array<Record<string, unknown>>,
   backlog: Array<Record<string, unknown>>,
+  currentTaskId?: string | null,
 ): OperatorDecisionCard[] {
   const rows = [...pending, ...backlog];
+  const backlogById = new Map(backlog.map(row => [text(row.id), row]));
+  const taskContext = (itemId: string, row: Record<string, unknown>) => {
+    const owner = backlogById.get(itemId) ?? (text(row.id) === itemId ? row : undefined);
+    return { task_title: text(owner?.title) || undefined, task_status: text(owner?.status) || undefined };
+  };
   const cards: OperatorDecisionCard[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
@@ -69,9 +80,10 @@ export function operatorDecisionCards(
             .map((option) => ({ ...option, requires_note: option.requires_note === true }))
         : [];
       options.push(customDecisionOption(text(card.title), text(card.question)));
+      const ownerId = text(card.item_id) || itemId;
       cards.push({
         id,
-        item_id: text(card.item_id) || itemId,
+        item_id: ownerId,
         revision: Number(card.revision ?? 1),
         status: 'pending',
         title: text(card.title) || text(row.title) || 'Decision required',
@@ -86,6 +98,9 @@ export function operatorDecisionCards(
         options_source: options.length ? 'agent' : 'none',
         selected_option: '',
         note: '',
+        ...taskContext(ownerId, row),
+        ...(typeof card.asked_at === 'number' && Number.isFinite(card.asked_at) && card.asked_at > 0
+          ? { asked_at: card.asked_at } : {}),
       });
       continue;
     }
@@ -108,7 +123,10 @@ export function operatorDecisionCards(
       selected_option: '',
       note: '',
       legacy: true,
+      ...taskContext(itemId, row),
     });
   }
-  return cards;
+  if (!currentTaskId) return cards;
+  const scoped = cards.map(card => ({ ...card, is_current_task: card.item_id === currentTaskId }));
+  return [...scoped.filter(card => card.is_current_task), ...scoped.filter(card => !card.is_current_task)];
 }
