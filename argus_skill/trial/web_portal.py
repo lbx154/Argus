@@ -128,6 +128,14 @@ PROJECT_WRITES = re.compile(
     r"backlog/[^/]+/(?:answer|dispose|stop)|decisions/[^/]+/resolve|"
     r"reviews/final|map-notes)$"
 )
+PLUGIN_WRITES = re.compile(
+    r"^/api/plugins/crystalpilot/(?:launch|preferences|config|"
+    r"manage/(?:health|repair|shelx)|"
+    r"projects/(?:open|settings|restart_engine|mcp_status|upload|import-structure)|"
+    r"threads/(?:send|interrupt|steer|rename|compact|fork)|approvals/decide|"
+    r"system/pick_folder|ui/diagnostics|"
+    r"wb/refine/analysis/jobs(?:/[^/]+/(?:cancel|release))?)$"
+)
 WS_ROUTE = re.compile(r"^/api/projects/[^/]+/stream$")
 # The website preview page ships its own content-security-policy that sandboxes
 # the delivered site and denies it every network destination; its policy is kept
@@ -422,7 +430,7 @@ def permitted(path: str, method: str) -> bool:
         return True
     if method == "POST":
         return bool(
-            PROJECT_WRITES.fullmatch(path) or path == "/api/daemons"
+            PROJECT_WRITES.fullmatch(path) or PLUGIN_WRITES.fullmatch(path) or path == "/api/daemons"
             or re.fullmatch(r"/api/map-copy/(?:project|dataset)/[^/]+", path)
             or re.fullmatch(r"/api/trash/[^/]+/restore", path)
         )
@@ -1062,6 +1070,20 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         headers = {key: value for key, value in headers.items() if credential not in value}
         if PREVIEW_PAGE_ROUTE.fullmatch(path) and "content-security-policy" in upstream.headers:
             headers["content-security-policy"] = upstream.headers["content-security-policy"]
+        if (
+            path.startswith("/plugins/crystalpilot/")
+            and request.method == "GET"
+            and upstream.headers.get("content-type", "").startswith("text/html")
+        ):
+            document = (await upstream.aread()).decode("utf-8")
+            await upstream.aclose()
+            nonce = secrets.token_urlsafe(24)
+            content = re.sub(r"<script(?=[\s>])", f'<script nonce="{nonce}"', document)
+            return HTMLResponse(content, headers={
+                "content-security-policy": CSP.replace(
+                    "script-src 'self'", f"script-src 'self' 'nonce-{nonce}'",
+                ),
+            })
         return ProxyResponse(upstream, headers, capture)
 
     @app.websocket("/{path:path}")

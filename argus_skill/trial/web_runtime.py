@@ -64,6 +64,9 @@ def main() -> None:
         raise RuntimeError("The account's isolated persistent filesystem is not mounted")
     root = global_root()
     root.mkdir(parents=True, exist_ok=True)
+    from .plugins import configure_plugins
+
+    configure_plugins(root)
     configure_provider(root, config)
     if not list_projects(global_root=root, include_empty=True):
         create_daemon(name=config["name"], workdir="/tenant/workspace", global_root=root)
