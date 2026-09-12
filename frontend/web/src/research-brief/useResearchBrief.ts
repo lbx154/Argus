@@ -7,7 +7,7 @@ import { mergeMapProgress } from '../map/incremental';
 import type { Dataset } from '../map/model';
 import { mergeMapCopy, needsCardCopy, type MapCopy } from '../map/presentation';
 import {
-  briefCopyKey, briefEvidence, briefInputSignature, briefLiveKey, briefRequest, briefSelection,
+  briefCopyKey, briefEvidence, briefInputSignature, briefLiveKey, briefRelatedInputSignature, briefRequest, briefSelection,
   currentBriefData, isReaderBrief, needsBrief, oldBriefService, READER_BRIEF_VERSION,
 } from './model';
 
@@ -55,14 +55,16 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
   const card = taskId ? copy.data?.cards[taskId] : undefined;
   const brief = (card?.version ?? 0) >= READER_BRIEF_VERSION && isReaderBrief(card?.reader_brief)
     ? card!.reader_brief : undefined;
-  const needsUpdate = needsBrief(live.data, task, evidence, copy.data);
+  const relatedInput = briefRelatedInputSignature(live.data, card);
+  const needsUpdate = needsBrief(live.data, task, evidence, copy.data) || relatedInput !== null;
   const legacy = oldBriefService(copy.data);
   const canGenerate = enabled && !readOnly && !!task && copy.data?.available === true
     && !legacy && !live.isError && !copy.isError;
-  const generationScope = ['research-brief-generation', sid, taskId, locale, selection.eventSince, ...(preview ? [preview] : [])] as const;
+  const generationScope = ['research-brief-generation', sid, taskId, locale, selection.eventSince, preview] as const;
   const generationVersion = Math.max(READER_BRIEF_VERSION, copy.data?.version ?? 0);
   // An earlier success or failure only applies to the draft/review settings used for that attempt.
-  const generationKey = [...generationScope, generationVersion, copy.data?.model_revision ?? null, inputSignature] as const;
+  const generationPrefix = [...generationScope, generationVersion, copy.data?.model_revision ?? null, inputSignature] as const;
+  const generationKey = [...generationPrefix, relatedInput] as const;
   // A task can receive its final review/certification while its first explanation
   // is still being written. Finish that request before generating the latest
   // input; intermediate states should not create parallel model calls.
@@ -78,12 +80,22 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
       const result = await api.generateMapCopy('project', sid, { cards: [briefRequest(task, evidence)], locale }, undefined, sid, preview);
       const returned = result.cards?.[task.id];
       const valid = (returned?.version ?? 0) >= READER_BRIEF_VERSION && isReaderBrief(returned?.reader_brief);
-      client.setQueryData<MapCopy>(copyKey, previous => mergeMapCopy(previous, result, requestedRevision));
       // Coalescing can return a previous valid brief with retry_after. Its
       // existence alone does not mean the newly requested evidence was read.
-      const current = valid && (returned?.version ?? 0) >= generationVersion && !!live.data && !needsCardCopy(briefRequest(task, evidence), live.data, result,
+      const current = valid && !result.retry_after && result.available !== false &&
+        (returned?.version ?? 0) >= generationVersion && !!live.data && !needsCardCopy(briefRequest(task, evidence), live.data, result,
         new Map(evidence.map(event => [event.id, event])));
-      return { available: current, retryAfter: result.retry_after ?? null, inputSignature };
+      const receipt = { available: current, retryAfter: result.retry_after ?? null, inputSignature };
+      const returnedRelatedInput = briefRelatedInputSignature(live.data, returned);
+      if (returnedRelatedInput !== relatedInput) {
+        // Updating the card stamp must not immediately buy another explanation.
+        // This receipt covers only the cursor captured by this request and its
+        // returned card, never a newer cursor/card from another reader. An
+        // unavailable receipt keeps the existing explicit retry behavior.
+        client.setQueryData([...generationPrefix, returnedRelatedInput], receipt);
+      }
+      client.setQueryData<MapCopy>(copyKey, previous => mergeMapCopy(previous, result, requestedRevision));
+      return receipt;
     },
     enabled: canGenerate && needsUpdate && !previouslyFailed && activeGenerations === 0,
     // One attempt per semantic input, including across unmount/remount. A failed

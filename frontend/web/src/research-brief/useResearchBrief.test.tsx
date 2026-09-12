@@ -21,6 +21,15 @@ async function mount(props: ResearchBriefOptions = inputs()) {
   await flush();
 }
 
+const neighbor = { id: 'b', title: 'Neighbor', objective: 'Old neighboring goal', status: 'pending', deps: [] };
+function relatedCopy(related: typeof neighbor | null = neighbor, generatedAt = 10): MapCopy {
+  const copy = completedCopy(source.tasks[0], ['start-a', 'main-a'], generatedAt);
+  copy.cards.a.reader_brief = { ...copy.cards.a.reader_brief!, next: related ? `${related.objective}: ${related.status}` : 'No neighboring assignment remains.' };
+  copy.cards.a.source_snapshot = { version: 2, card_key: 'a', task_id: 'a', captured_at: generatedAt - 1,
+    task: { objective: source.tasks[0].objective }, events: [], source_ids: [], related_tasks: related ? [{ ...related }] : [] };
+  return copy;
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
@@ -39,6 +48,184 @@ afterEach(() => {
 });
 
 describe('semantic generation and shared cache lifecycle', () => {
+  it('does not count a pending preview request as normal generation after switching back', async () => {
+    vi.stubGlobal('window', { location: { search: '?reader_preview=source-first' } });
+    const previewKey = briefCopyKey('s-research', 'en-US');
+    client.setQueryData(previewKey, { cards: {}, relations: [], available: true, version: 24 });
+    let finishPreview!: (copy: MapCopy) => void;
+    const normal = completedCopy(source.tasks[0], ['start-a', 'main-a']);
+    normal.cards.a.title = 'Normal explanation';
+    const generate = vi.spyOn(api, 'generateMapCopy')
+      .mockReturnValueOnce(new Promise(resolve => { finishPreview = resolve; }))
+      .mockResolvedValueOnce(normal);
+    await mount();
+    expect(generate).toHaveBeenCalledTimes(1);
+    vi.stubGlobal('window', { location: { search: '' } });
+    act(() => renderer!.update(tree(inputs())));
+    await flush(); await flush();
+    expect(generate.mock.calls.map(call => call[5])).toEqual(['source-first', null]);
+    expect(result.card?.title).toBe('Normal explanation');
+    expect(result.generating).toBe(false);
+    const preview = completedCopy(source.tasks[0], ['start-a', 'main-a'], 20);
+    preview.version = 24; preview.cards.a.version = 24; preview.cards.a.title = 'Preview explanation';
+    await act(async () => { finishPreview(preview); });
+    await flush();
+    expect(client.getQueryData<MapCopy>(previewKey)?.cards.a.title).toBe('Preview explanation');
+    expect(result.card?.title).toBe('Normal explanation');
+    expect(result.generating).toBe(false);
+  });
+
+  it.each([null, 'source-first'] as const)('rechecks hidden related goals, status and deletion once per cursor in %s mode', async preview => {
+    vi.stubGlobal('window', { location: { search: preview ? '?reader_preview=source-first' : '' } });
+    const copyKey = briefCopyKey('s-research', 'en-US');
+    const props = inputs();
+    const liveKey = briefLiveKey(props.sid, briefSelection(props.snapshot, props.view));
+    const retained = relatedCopy();
+    const before = structuredClone(retained);
+    client.setQueryData(copyKey, retained);
+    const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue(retained);
+    await mount({ ...props, readOnly: true });
+    expect(generate).not.toHaveBeenCalled();
+    act(() => renderer!.update(tree({ ...props, active: false })));
+    await flush();
+    expect(generate).not.toHaveBeenCalled();
+    act(() => renderer!.update(tree(props)));
+    await flush(); await flush();
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls[0][5]).toBe(preview);
+    expect(result.needsUpdate).toBe(false);
+    act(() => { renderer!.unmount(); renderer = undefined; });
+    await mount(props);
+    expect(generate).toHaveBeenCalledTimes(1); // The receipt survives remount.
+
+    const publish = async (cursor: string, related: typeof neighbor | null) => {
+      vi.mocked(api.liveMap).mockResolvedValue({ ...source, cursor, incremental: true,
+        tasks: related ? [{ ...source.tasks[1], ...related }] : [],
+        events: [{ id: 'neighbor-progress', item_id: 'b', type: 'round.main.completed', ts: 30, text: 'Other task record' }],
+        removed_task_ids: related ? [] : ['b'],
+      });
+      await act(async () => { await client.refetchQueries({ queryKey: liveKey }); });
+      await flush(); await flush();
+    };
+    await publish('unrelated-change', neighbor);
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.card).toEqual(before.cards.a); // Cached verification needs no new card version.
+    expect(result.needsUpdate).toBe(false);
+
+    let finish!: (copy: MapCopy) => void;
+    generate.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const edited = { ...neighbor, objective: 'New neighboring goal' };
+    await publish('neighbor-goal-changed', edited);
+    expect(generate).toHaveBeenCalledTimes(3);
+    expect(result.needsUpdate).toBe(true);
+    expect(result.generating).toBe(true);
+    expect(result.card).toEqual(before.cards.a);
+    const changed = relatedCopy(edited, 11);
+    await act(async () => { finish(changed); });
+    await flush(); await flush();
+    expect(result.brief?.next).toContain(edited.objective);
+    expect(result.needsUpdate).toBe(false);
+    expect(generate).toHaveBeenCalledTimes(3); // A new copy stamp does not trigger itself.
+
+    const cancelled = { ...edited, status: 'cancelled' };
+    generate.mockResolvedValue(relatedCopy(cancelled, 12));
+    await publish('neighbor-cancelled', cancelled);
+    expect(generate).toHaveBeenCalledTimes(4);
+    expect(result.brief?.next).toContain('cancelled');
+    generate.mockResolvedValue(relatedCopy(null, 13));
+    await publish('neighbor-deleted', null);
+    expect(generate).toHaveBeenCalledTimes(5);
+    expect(result.card?.source_snapshot?.related_tasks).toEqual([]);
+    expect(result.needsUpdate).toBe(false);
+    expect(client.getQueryData<Dataset>(liveKey)?.tasks.map(task => task.id)).toEqual(['a']);
+    expect(result.loadedEvents?.every(event => event.item_id === 'a')).toBe(true);
+    expect(retained).toEqual(before);
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+    expect(generate).toHaveBeenCalledTimes(5);
+  });
+
+  it('keeps coalesced hidden-source copy pending and permits explicit retry on the same cursor', async () => {
+    const retained = relatedCopy();
+    client.setQueryData(briefCopyKey('s-research', 'en-US'), retained);
+    const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue({ ...retained, retry_after: 25 });
+    await mount();
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(result.brief).toEqual(retained.cards.a.reader_brief);
+    expect(result.needsUpdate).toBe(true);
+    expect(result.generationUnavailable).toBe(true); // The existing retry button remains available.
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+    expect(generate).toHaveBeenCalledTimes(1);
+    const updated = relatedCopy({ ...neighbor, objective: 'A revised hidden assignment' }, 11);
+    generate.mockResolvedValue(updated);
+    await act(async () => { await result.retry(); });
+    await flush(); await flush();
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.brief?.next).toContain('A revised hidden assignment');
+    expect(result.needsUpdate).toBe(false);
+    expect(result.generationUnavailable).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares an in-flight check and lets its late response acknowledge only the captured cursor', async () => {
+    const retained = relatedCopy();
+    client.setQueryData(briefCopyKey('s-research', 'en-US'), retained);
+    const props = inputs();
+    const liveKey = briefLiveKey(props.sid, briefSelection(props.snapshot, props.view));
+    let finish!: (copy: MapCopy) => void;
+    const latest = relatedCopy({ ...neighbor, objective: 'Latest hidden goal' }, 12);
+    const generate = vi.spyOn(api, 'generateMapCopy')
+      .mockReturnValueOnce(new Promise(resolve => { finish = resolve; }))
+      .mockResolvedValueOnce(latest);
+    await act(async () => { renderer = create(<QueryClientProvider client={client}><Probe {...props} /><Probe {...props} /></QueryClientProvider>); });
+    await flush(); await flush();
+    expect(generate).toHaveBeenCalledTimes(1);
+    for (const cursor of ['intermediate-cursor', 'latest-cursor']) {
+      act(() => { client.setQueryData<Dataset>(liveKey, previous => ({ ...previous!, cursor })); });
+      await flush();
+    }
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(result.generating).toBe(true);
+    await act(async () => { finish(relatedCopy(neighbor, 11)); });
+    await flush(); await flush();
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.brief?.next).toContain('Latest hidden goal');
+    expect(result.needsUpdate).toBe(false);
+    await flush(); await flush();
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let an old related-source receipt confirm the new review configuration', async () => {
+    const key = briefCopyKey('s-research', 'en-US');
+    const retained = relatedCopy();
+    retained.model_revision = 'review-old'; retained.cards.a.model_revision = 'review-old';
+    client.setQueryData(key, retained);
+    let finishOld!: (copy: MapCopy) => void;
+    let finishNew!: (copy: MapCopy) => void;
+    const generate = vi.spyOn(api, 'generateMapCopy')
+      .mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }))
+      .mockReturnValueOnce(new Promise(resolve => { finishNew = resolve; }));
+    await mount();
+    act(() => { client.setQueryData(key, { ...retained, model_revision: 'review-new' }); });
+    await flush();
+    expect(generate).toHaveBeenCalledTimes(1);
+    const old = relatedCopy(neighbor, 11);
+    old.model_revision = 'review-old'; old.cards.a.model_revision = 'review-old';
+    await act(async () => { finishOld(old); });
+    await flush(); await flush();
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.needsUpdate).toBe(true);
+    expect(result.generating).toBe(true);
+    expect(client.getQueryData<MapCopy>(key)?.model_revision).toBe('review-new');
+    const current = relatedCopy({ ...neighbor, objective: 'Checked with current review settings' }, 12);
+    current.model_revision = 'review-new'; current.cards.a.model_revision = 'review-new';
+    await act(async () => { finishNew(current); });
+    await flush(); await flush();
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.needsUpdate).toBe(false);
+    expect(result.card?.model_revision).toBe('review-new');
+  });
+
   it('keeps normal and preview text separate when switching mode without a page reload', async () => {
     vi.stubGlobal('window', { location: { search: '' } });
     const normal = completedCopy(source.tasks[0], ['start-a', 'main-a']);
@@ -190,6 +377,7 @@ describe('semantic generation and shared cache lifecycle', () => {
     expect(client.getQueryData<MapCopy>(briefCopyKey(props.sid, 'en-US'))?.cards.a.reader_brief).toBeDefined();
     const liveKey = briefLiveKey(props.sid, briefSelection(props.snapshot, props.view));
     act(() => { client.setQueryData<Dataset>(liveKey, previous => ({ ...previous!,
+      cursor: 'tool-only-cursor',
       tasks: previous!.tasks.map(task => ({ ...task, revision: 'tool-noise' })),
       events: [...previous!.events, { id: 'delta', item_id: 'a', type: 'work.segment', ts: 8, text: 'More public text' }],
     })); });
