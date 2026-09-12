@@ -207,6 +207,27 @@ def test_a_scheme_this_checker_cannot_interrogate_says_so(tmp_path: Path) -> Non
     assert resolution.endpoint == ""
 
 
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [(429, "Too Many Requests"), (403, "Forbidden"), (503, "Service Unavailable")],
+)
+def test_an_arxiv_http_failure_cannot_refute_a_citation(
+    tmp_path: Path, status: int, body: str,
+) -> None:
+    _project(tmp_path, source_id="arxiv:2504.01234v2")
+    payload = resolve_citation(
+        tmp_path,
+        claim_id="C1",
+        assumption_id="rh",
+        fetch=lambda url: (status, body),
+    )
+    assert payload["resolution"]["outcome"] == "unreachable"
+    assert f"HTTP {status}" in payload["resolution"]["detail"]
+    assert payload["recorded"]["verdict"] == Verdict.INCONCLUSIVE.value
+    assert _status(tmp_path) is CitationStatus.INCONCLUSIVE
+    assert _status(tmp_path) not in DELIVERABLE_STATUSES
+
+
 def test_arxiv_answers_two_hundred_for_a_paper_that_does_not_exist(
     tmp_path: Path,
 ) -> None:
