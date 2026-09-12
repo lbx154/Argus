@@ -8,6 +8,7 @@
 // separately so it can live in a tooltip instead of the page.
 
 import type { Locale } from '../i18n';
+import { humanizeHarnessNote, splitHarnessRecord, TECHNICAL_MARKER_PREFIX } from './harnessNotes';
 
 type Pair = readonly [zh: string, en: string];
 
@@ -584,4 +585,86 @@ export function plainDetail(raw: string | null | undefined, locale: Locale, sour
     text: rendered.join('').replace(/\n{3,}/g, '\n\n').trim(),
     technical: technical.join(' '),
   };
+}
+
+/** Presentation of known supervisor report templates, called only for mission_result
+ * events. Unknown reports and research passages are not translated or summarized. */
+export function plainTaskReport(raw: string, locale: Locale): PlainDetail | null {
+  const parts = raw.split(/(\r?\n)/);
+  const first = parts.findIndex((part, index) => index % 2 === 0 && part.trim() !== '');
+  const opening = parts[first]?.trim() ?? '';
+  const continued = opening.match(/^(?:Task continued|任务已继续)(?: · (.+))?$/);
+  const incomplete = opening.match(/^Could not complete (.+)\.$/) ?? opening.match(/^未能完成：(.+)。$/);
+  if (!continued && !incomplete) return null;
+
+  const zh = locale === 'zh-CN';
+  const technical: string[] = [];
+  let fence = '';
+  let researchSummary = false;
+  const rendered = parts.map((part, index) => {
+    if (index % 2 === 1) return part;
+    if (index === first) {
+      if (continued) {
+        const suffix = continued[1] ?? '';
+        const reviewed = suffix.match(/^(.*?) · review=(\S+)$/);
+        const title = reviewed ? reviewed[1] : suffix;
+        return [
+          zh ? '当时记录：工作继续推进。' : 'Recorded then: work continued.',
+          title ? `${zh ? '任务：' : 'Task: '}${title}` : '',
+          reviewed ? `${zh ? '当时记录的审阅状态：' : 'Review status recorded then: '}${plainRouteStatus(reviewed[2], locale)}` : '',
+        ].filter(Boolean).join('\n');
+      }
+      const subject = incomplete![1];
+      return /^(?:the current task|当前任务)$/.test(subject)
+        ? zh ? '当时这项任务未能完成。' : 'This task had not completed at that time.'
+        : zh ? `当时未能完成：${subject}。` : `Not completed at that time: ${subject}.`;
+    }
+    // Supervisor summaries can contain arbitrary multiline research, including
+    // unfenced Next:/Reason: examples. Keep that entire tail, even a final
+    // continuation sentence, rather than guessing where the summary ends.
+    if (/^(?:Progress|Mission summary|本次进展|本次完成)[:：]/.test(part)) researchSummary = true;
+    if (researchSummary) return part;
+    // Example messages in code also stay intact.
+    const marker = part.match(/^\s*(`{3,}|~{3,})/);
+    if (marker) {
+      if (!fence) fence = marker[1][0];
+      else if (fence === marker[1][0]) fence = '';
+      return part;
+    }
+    if (fence) return part;
+    if (/^(?:Nothing is queued yet; the Planner is deciding what comes next\.|计划里暂时没有下一项，Planner 正在决定接下来做什么。)$/.test(part)) {
+      return zh ? '当时尚未排入下一项任务，规划者还在决定接下来做什么。'
+        : 'At that time, nothing was queued and the Planner was still deciding what to do next.';
+    }
+    const next = part.match(/^(?:Next(?: action| up)?|下一步|接下来做)[:：]\s*(.*)$/);
+    if (next) {
+      const action = /^(?:Argus will diagnose the failure and choose a safe next step\.|Argus 会诊断原因并选择可恢复的方案。)$/.test(next[1])
+        ? zh ? '诊断当时的原因，再选择可恢复的方案。' : 'Diagnose the cause and choose a recovery approach.'
+        : next[1];
+      return `${zh ? '当时记录的下一步：' : 'Next step recorded at the time: '}${action}`;
+    }
+    const reason = part.match(/^(?:Reason:|原因：)\s*(.*)$/);
+    if (reason) {
+      const record = splitHarnessRecord(reason[1]);
+      // This exact sentence is emitted by operator_interrupt_review_decision.
+      // A mention of interruption inside ordinary research prose is insufficient.
+      if (record.prose === "Argus was stopped by its operator in the middle of this round; the Engineer's work so far is kept and nothing was retried.") {
+        const note = humanizeHarnessNote(reason[1], zh);
+        if (record.receipt) technical.push(record.receipt);
+        return zh ? `当时${note.summary}。已做的工作保留，当时没有重试。`
+          : `At that time, ${note.summary}. Work done so far was kept, and no retry was made then.`;
+      }
+      const detail = plainDetail(reason[1], locale);
+      if (detail.text !== reason[1].trim() || detail.technical) {
+        if (detail.technical) technical.push(detail.technical);
+        return `${zh ? '当时记录的原因：' : 'Reason recorded at the time: '}${detail.text}`;
+      }
+    }
+    if (TECHNICAL_MARKER_PREFIX.test(part.trim())) {
+      technical.push(part);
+      return '';
+    }
+    return part;
+  });
+  return { text: rendered.join(''), technical: technical.join('\n') };
 }

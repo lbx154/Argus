@@ -3,7 +3,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
-import type { RenderedLine } from '../../../core/src/eventRender';
+import { redactSecrets, type RenderedLine } from '../../../core/src/eventRender';
 import { isReasoning, type EventViewFilter } from '../../../core/src/events';
 import {
   foldFeedRows,
@@ -17,7 +17,7 @@ import {
 } from '../lib/feedSteps';
 import { theme, toneColor } from '../lib/theme';
 import { clockOf, dateOf } from '../lib/format';
-import { PanelHeader, EmptyHint } from './primitives';
+import { PanelHeader, EmptyHint, RawDisclosure } from './primitives';
 import { MarkdownContent } from './MarkdownContent';
 import { ArgusMark } from './Wordmark';
 import { useI18n } from '../i18n';
@@ -26,7 +26,7 @@ import { roleLabel } from '../lib/enumLabels';
 import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
 import { TurnSteps } from './TurnSteps';
 import { turnStepsFrom } from '../../../core/src/phaseTrail';
-import { plainDetail } from '../lib/plainStatus';
+import { plainDetail, plainTaskReport } from '../lib/plainStatus';
 import { activeProviderRequest, currentWorkStatus, eventTaskId } from '../lib/workStatus';
 import { readableRecord } from '../map/submap';
 import { WorkStatusBar } from './WorkStatusBar';
@@ -244,6 +244,10 @@ function ConversationRow({
   const { t, locale } = useI18n();
   const operator = String(ev.type) === 'ui.operator';
   const taskReceipt = !operator && ev.mission_result === true;
+  // Preserve the full recorded message, including research/control-like lines.
+  // Reuse the core's existing secret handling without its prose/whitespace filter.
+  const reportText = taskReceipt ? redactSecrets(typeof ev.text === 'string' ? ev.text : r.text).text : r.text;
+  const report = taskReceipt ? plainTaskReport(reportText, locale) : null;
   const recordedAt = taskReceipt ? dateOf(ev) : null;
   const draft = operator ? splitDraft(r.text) : null;
   const references = draft?.refs ?? [];
@@ -271,7 +275,9 @@ function ConversationRow({
     );
   });
   return (
-    <article ref={rowRef} data-task-receipt={taskReceipt || undefined} className="conversation-row group mx-auto w-full max-w-full px-4 py-3 sm:px-6 lg:max-w-[61.8vw]">
+    <article ref={rowRef} data-task-receipt={taskReceipt || undefined}
+      data-task-receipt-id={taskReceipt ? String(ev.message_id || ev.event_id || '') : undefined}
+      className="conversation-row group mx-auto w-full max-w-full px-4 py-3 sm:px-6 lg:max-w-[61.8vw]">
       {operator ? (
         <div className="flex items-end justify-end gap-2">
           <CopyButton
@@ -315,8 +321,8 @@ function ConversationRow({
                 {locale === 'zh-CN' ? '任务回报 · 当时记录' : 'Task report · Recorded then'}
               </span> : null}
               <CopyButton
-                text={r.text}
-                label={t('copy.message')}
+                text={reportText}
+                label={report ? (locale === 'zh-CN' ? '复制原始回报' : 'Copy original report') : t('copy.message')}
                 copiedLabel={t('copy.copied')}
                 className="ml-auto opacity-60 sm:opacity-0 sm:group-hover:opacity-100"
               />
@@ -330,7 +336,10 @@ function ConversationRow({
               }) : clockOf(ev)}{responseLatency}</time>
             </div>
             {steps.length ? <TurnSteps steps={steps} live={ev.live === true} /> : null}
-            {r.text ? <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{r.text}</MarkdownContent> : null}
+            {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{report?.text ?? reportText}</MarkdownContent></div> : null}
+            {report ? <RawDisclosure className="task-receipt-original" label={locale === 'zh-CN' ? '查看原始回报（含技术记录）' : 'View original report (including technical records)'}>
+              <pre data-task-receipt-original className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-3 font-mono text-xs text-ink-dim">{reportText}</pre>
+            </RawDisclosure> : null}
           </div>
         </div>
       )}
@@ -591,6 +600,9 @@ function ConversationThread({
   const replyParts = group.rows
     .filter((row) => row.ev.type === 'ui.argus')
     .map((row) => {
+      // Historical reports keep their complete event text for the original view
+      // and copy action, including whitespace and any embedded runtime notice.
+      if (row.ev.mission_result === true) return { reply: row, messages: [] };
       const messages = row.r.text.match(RUNTIME_INFO_PATTERN) ?? [];
       const text = row.r.text.replace(RUNTIME_INFO_PATTERN, '').trim();
       const working = Array.isArray(row.ev.steps) && row.ev.steps.length > 0;

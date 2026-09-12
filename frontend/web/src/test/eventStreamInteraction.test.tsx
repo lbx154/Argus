@@ -6,6 +6,7 @@ import { emptyMissionView } from '../../../core/src/missionView';
 import { CopyButton } from '../components/CopyButton';
 import { EventStream } from '../components/EventStream';
 import { referenceText } from '../map/presentation';
+import { CONTINUED_TASK_REPORT, INTERRUPTED_TASK_REPORT } from './taskReportFixtures';
 
 vi.mock('../lib/motion', () => ({ useGsapMotion: () => {} }));
 vi.mock('../components/MarkdownContent', () => ({
@@ -199,6 +200,63 @@ function runtimeFixture(alive = true) {
 }
 
 describe('historical task receipts', () => {
+  it.each([
+    [CONTINUED_TASK_REPORT, 'Recorded then: work continued.'],
+    [INTERRUPTED_TASK_REPORT, 'This task had not completed at that time.'],
+  ])('shows a historical explanation and a collapsed, exact original for a recognized report', (text, expected) => {
+    const value = runtimeFixture();
+    const receipt = { type: 'ui.argus', text, ts: 1789216023.4750645,
+      message_id: 'mission-result-old-task', mission_result: true, item_id: 'old-task', success: false };
+    act(() => { renderer = create(<EventStream {...value} events={[receipt, ...value.events]}
+      connected showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
+    const row = renderer!.root.findByProps({ 'data-task-receipt-id': receipt.message_id });
+    const prose = visibleText(row.findByProps({ 'data-task-receipt-prose': true }));
+    expect(prose).toContain(expected);
+    expect(prose).not.toContain('Technical record:');
+    expect(row.findByProps({ 'data-task-receipt-original': true }).children).toEqual([text]);
+    expect(row.findByType('details').props.open).not.toBe(true);
+    expect(row.findByType(CopyButton).props.text).toBe(text);
+    expect(row.findByType(CopyButton).props.label).toBe('Copy original report');
+    expect(row.findByType('time').props.dateTime).toBe('2026-09-12T12:27:03.475Z');
+    expect(renderer!.root.findByProps({ 'data-testid': 'work-status' }).props['data-state']).toBe('running');
+    expect(receipt.text).toBe(text);
+  });
+
+  it('preserves the entire original report inside a conversation, including whitespace and runtime-like summary text', () => {
+    const text = `\n${CONTINUED_TASK_REPORT}\nProgress: A quoted status string follows.\nInfo: Operation cancelled by user\n  Next: this belongs to the research summary.\nMILESTONE_STATUS=literal research sample\n`;
+    mount([
+      { type: 'ui.operator', text: 'Continue the work.', ts: 1 },
+      { type: 'ui.argus', text, ts: 2, mission_result: true, message_id: 'mission-result-with-summary' },
+    ]);
+    const row = renderer!.root.findByProps({ 'data-task-receipt-id': 'mission-result-with-summary' });
+    expect(row.findByProps({ 'data-task-receipt-original': true }).children).toEqual([text]);
+    expect(row.findByType(CopyButton).props.text).toBe(text);
+    expect(visibleText(row.findByProps({ 'data-task-receipt-prose': true }))).toContain('Info: Operation cancelled by user\n  Next: this belongs to the research summary.');
+    expect(visibleText(row.findByProps({ 'data-task-receipt-prose': true }))).toContain('MILESTONE_STATUS=literal research sample');
+  });
+
+  it('keeps the existing core secret handling in the original view and copy action', () => {
+    const text = `${CONTINUED_TASK_REPORT}\nProgress: Configuration receipt\nAuthorization: Bearer example-secret-value`;
+    mount([{ type: 'ui.argus', text, ts: 1, mission_result: true, message_id: 'report-with-header' }]);
+    const row = renderer!.root.findByProps({ 'data-task-receipt-id': 'report-with-header' });
+    const original = row.findByProps({ 'data-task-receipt-original': true }).children.join('');
+    expect(original).toContain('Authorization: <REDACTED:token>');
+    expect(original).not.toContain('example-secret-value');
+    expect(visibleText(row.findByProps({ 'data-task-receipt-prose': true }))).not.toContain('example-secret-value');
+    expect(row.findByType(CopyButton).props.text).toBe(original);
+  });
+
+  it('leaves an unfamiliar mathematical report and an ordinary reply using a known template untouched', () => {
+    const unknown = 'The dimension is 6.\nNext: Verify the source.\nTechnical record: is a literal column label.\nMILESTONE_STATUS=literal research sample';
+    mount([
+      { type: 'ui.argus', text: unknown, ts: 1, mission_result: true, message_id: 'unknown-report' },
+      { type: 'ui.argus', text: INTERRUPTED_TASK_REPORT, ts: 2 },
+    ]);
+    expect(renderer!.root.findAllByProps({ 'data-markdown': true }).map(node => node.children)).toEqual([[unknown], [INTERRUPTED_TASK_REPORT]]);
+    expect(renderer!.root.findAllByProps({ 'data-task-receipt-original': true })).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({ 'data-task-receipt': true })).toHaveLength(1);
+  });
+
   it('labels only receipt metadata, preserves its recorded time and original text, and leaves current work running', () => {
     const value = runtimeFixture();
     const text = 'External interrupt: daemon stop requested\nNext: Argus will diagnose recovery.';
