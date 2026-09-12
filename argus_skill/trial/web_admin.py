@@ -7,6 +7,7 @@ import os
 import secrets
 import stat
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import CLIENT_MODEL
@@ -191,51 +192,171 @@ def mount_storage(root: Path, uid: int, gid: int) -> None:
     print("Ten independent 100-GiB tenant filesystems mounted; existing data preserved")
 
 
+def _tenant_number(number) -> None:
+    if type(number) is not int or not 1 <= number <= 10:
+        raise ValueError("Invalid tenant number")
+
+
+def _inspect_container(name: str) -> dict | None:
+    """Return the container's inspect record, or None only when it truly is absent."""
+    result = subprocess.run(
+        ["docker", "container", "inspect", name], capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        return json.loads(result.stdout)[0]
+    # Failure to reach Docker is not proof that the container doesn't exist.
+    if "No such container" not in result.stderr and "No such object" not in result.stderr:
+        raise RuntimeError(result.stderr.strip())
+    return None
+
+
+def _run_command(root: Path, key: str, tenant: Path, image: str) -> list[str]:
+    """The full isolation-flag argv that launches one tenant workspace container."""
+    name = f"argus-web-{key}"
+    command = [
+        "docker", "run", "-d", "--name", name,
+        "--label", f"argus.web.tenant={key}", "--restart", "unless-stopped",
+        "--cgroup-parent", "argus-trial.slice",
+        "--network", "none", "--read-only", "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges", "--pids-limit", "-1",
+        "--cpus", "8", "--memory", "32g", "--memory-swap", "32g",
+        "--tmpfs", "/tmp:rw,nosuid,nodev,size=1g,mode=1777",
+        "--shm-size", "256m", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
+        "--mount", f"type=bind,src={tenant / 'data'},dst=/tenant",
+        "--mount", f"type=bind,src={tenant / 'run'},dst=/run/argus-web",
+        "--mount", f"type=bind,src={tenant / 'bootstrap'},dst=/bootstrap,readonly",
+    ]
+    for source, destination in (
+        ("model-socket", "meter"), ("compute-socket", "compute"), ("egress-socket", "egress"),
+    ):
+        command += ["--mount", f"type=bind,src={root / source},dst=/{destination},readonly"]
+    command.append(image)
+    return command
+
+
+def _launch(root: Path, key: str, tenant: Path, image: str) -> None:
+    subprocess.run(_run_command(root, key, tenant, image), check=True)
+    # Docker can normalize -1 to null on creation and inherit a daemon limit.
+    subprocess.run(["docker", "update", "--pids-limit", "-1", f"argus-web-{key}"], check=True)
+
+
 def start_containers(root: Path, *, numbers=range(1, 11),
                      image: str = DEFAULT_WEB_IMAGE) -> None:
     for number in numbers:
-        if type(number) is not int or not 1 <= number <= 10:
-            raise ValueError("Invalid tenant number")
+        _tenant_number(number)
         key = f"trial-{number:02d}"
         tenant = root / "tenants" / key
         if not os.path.ismount(tenant / "data"):
             raise ValueError(f"Tenant filesystem is not mounted: {key}")
         name = f"argus-web-{key}"
-        existing = subprocess.run(
-            ["docker", "container", "inspect", name],
-            capture_output=True, text=True,
-        )
-        if existing.returncode == 0:
-            data = json.loads(existing.stdout)[0]
+        data = _inspect_container(name)
+        if data is not None:
             if data["Config"].get("Labels", {}).get("argus.web.tenant") != key:
                 raise ValueError(f"Container name is already owned by something else: {name}")
+            # Existing containers keep their image; upgrading them is `roll-containers`.
             subprocess.run(["docker", "update", "--pids-limit", "-1", name], check=True)
             subprocess.run(["docker", "start", name], check=True)
             continue
-        # Failure to reach Docker is not proof that the container doesn't exist.
-        if "No such container" not in existing.stderr and "No such object" not in existing.stderr:
-            raise RuntimeError(existing.stderr.strip())
-        command = [
-            "docker", "run", "-d", "--name", name,
-            "--label", f"argus.web.tenant={key}", "--restart", "unless-stopped",
-            "--cgroup-parent", "argus-trial.slice",
-            "--network", "none", "--read-only", "--cap-drop", "ALL",
-            "--security-opt", "no-new-privileges", "--pids-limit", "-1",
-            "--cpus", "8", "--memory", "32g", "--memory-swap", "32g",
-            "--tmpfs", "/tmp:rw,nosuid,nodev,size=1g,mode=1777",
-            "--shm-size", "256m", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
-            "--mount", f"type=bind,src={tenant / 'data'},dst=/tenant",
-            "--mount", f"type=bind,src={tenant / 'run'},dst=/run/argus-web",
-            "--mount", f"type=bind,src={tenant / 'bootstrap'},dst=/bootstrap,readonly",
-        ]
-        for source, destination in (
-            ("model-socket", "meter"), ("compute-socket", "compute"), ("egress-socket", "egress"),
-        ):
-            command += ["--mount", f"type=bind,src={root / source},dst=/{destination},readonly"]
-        command.append(image)
-        subprocess.run(command, check=True)
-        # Docker can normalize -1 to null on creation and inherit a daemon limit.
-        subprocess.run(["docker", "update", "--pids-limit", "-1", name], check=True)
+        _launch(root, key, tenant, image)
+
+
+def roll_containers(root: Path, *, numbers=range(1, 11),
+                    image: str = DEFAULT_WEB_IMAGE) -> dict[str, str]:
+    """Recreate every tenant on ``image`` as one version, keeping a rollback each.
+
+    Unlike ``start-containers`` this replaces running containers, so a tenant's
+    active tasks are interrupted; the previous container is drained and retained
+    as ``<name>-rollback`` for recovery. A tenant already on ``image`` is left
+    untouched, so the roll is idempotent.
+    """
+    results: dict[str, str] = {}
+    for number in numbers:
+        _tenant_number(number)
+        key = f"trial-{number:02d}"
+        tenant = root / "tenants" / key
+        if not os.path.ismount(tenant / "data"):
+            raise ValueError(f"Tenant filesystem is not mounted: {key}")
+        name = f"argus-web-{key}"
+        data = _inspect_container(name)
+        if data is None:
+            _launch(root, key, tenant, image)
+            results[key] = "created"
+            continue
+        if data["Config"].get("Labels", {}).get("argus.web.tenant") != key:
+            raise ValueError(f"Container name is already owned by something else: {name}")
+        if data["Config"]["Image"] == image:
+            results[key] = "current"
+            continue
+        rollback = f"{name}-rollback"
+        previous = _inspect_container(rollback)
+        if previous is not None:
+            if previous["Config"].get("Labels", {}).get("argus.web.tenant") != key:
+                raise ValueError(f"Rollback name is already owned by something else: {rollback}")
+            subprocess.run(["docker", "rm", "-f", rollback], check=True)
+        # Drain the running container, then set it aside under the rollback name.
+        subprocess.run(["docker", "stop", "--time", "30", name], check=True)
+        subprocess.run(["docker", "rename", name, rollback], check=True)
+        try:
+            _launch(root, key, tenant, image)
+        except subprocess.CalledProcessError:
+            # Recreate failed: discard the half-made container and restore service.
+            if _inspect_container(name) is not None:
+                subprocess.run(["docker", "rm", "-f", name], check=True)
+            subprocess.run(["docker", "rename", rollback, name], check=True)
+            subprocess.run(["docker", "start", name], check=True)
+            results[key] = "failed-rolled-back"
+            raise
+        results[key] = "upgraded"
+    return results
+
+
+def _release_version(source: Path, *, allow_dirty: bool = False) -> str:
+    """The single version stamp for a release: the source checkout's commit."""
+    sha = subprocess.run(
+        ["git", "-C", str(source), "rev-parse", "--short", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    dirty = subprocess.run(
+        ["git", "-C", str(source), "status", "--porcelain"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    if dirty and not allow_dirty:
+        raise ValueError("Refusing to release a dirty checkout; commit first or pass --allow-dirty")
+    return sha + ("+dirty" if dirty else "")
+
+
+def release(root: Path, *, image: str, source: Path, numbers=range(1, 11),
+            allow_dirty: bool = False, restart_portal: bool = True) -> dict:
+    """Ship frontend, portal and tenant image as one version, backend first.
+
+    The tenant containers roll to ``image`` before the portal is pointed at this
+    source's built frontend and restarted, so the frontend never advertises a
+    route the running backend lacks. A ``release.json`` manifest records the one
+    version tying the three pieces together, for audit and rollback.
+    """
+    version = _release_version(source, allow_dirty=allow_dirty)
+    rolled = roll_containers(root, image=image, numbers=numbers)
+    manifest = {
+        "version": version,
+        "image": image,
+        "source": str(source),
+        "frontend_dir": None,
+        "rolled_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "tenants": rolled,
+    }
+    frontend = source / "frontend/web/dist"
+    if (frontend / "index.html").is_file():
+        portal_path = root / "portal.json"
+        portal = json.loads(portal_path.read_text())
+        portal["frontend_dir"] = str(frontend)
+        write_private(portal_path, json.dumps(portal, indent=2).encode())
+        manifest["frontend_dir"] = str(frontend)
+    write_private(root / "release.json", json.dumps(manifest, indent=2).encode())
+    if restart_portal:
+        subprocess.run(["systemctl", "--user", "restart", "argus-web-trial-portal"], check=True)
+    print(f"Released {version} on {image}; tenants: " +
+          ", ".join(f"{key}={state}" for key, state in rolled.items()))
+    return manifest
 
 
 def serve_meter(root: Path) -> None:
@@ -255,12 +376,21 @@ def serve_meter(root: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("init", "mount-storage", "start-containers", "serve-meter"))
+    parser.add_argument("command", choices=(
+        "init", "mount-storage", "start-containers", "roll-containers", "release", "serve-meter",
+    ))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--admin-token-file", type=Path)
     parser.add_argument("--admin-url", default="http://127.0.0.1:8896")
     parser.add_argument("--image", default=DEFAULT_WEB_IMAGE,
-                        help="Image for new workspace containers; existing containers keep their image")
+                        help="Image for new workspace containers; existing containers keep their "
+                             "image unless rolled with roll-containers/release")
+    parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[2],
+                        help="Checkout whose commit stamps the release and supplies the frontend")
+    parser.add_argument("--allow-dirty", action="store_true",
+                        help="Permit releasing a source checkout with uncommitted changes")
+    parser.add_argument("--no-restart-portal", action="store_true",
+                        help="Roll containers and write the manifest without restarting the portal")
     parser.add_argument("--uid", type=int, default=os.getuid())
     parser.add_argument("--gid", type=int, default=os.getgid())
     args = parser.parse_args()
@@ -274,6 +404,11 @@ def main() -> None:
         mount_storage(root, args.uid, args.gid)
     elif args.command == "start-containers":
         start_containers(root, image=args.image)
+    elif args.command == "roll-containers":
+        roll_containers(root, image=args.image)
+    elif args.command == "release":
+        release(root, image=args.image, source=args.source.resolve(),
+                allow_dirty=args.allow_dirty, restart_portal=not args.no_restart_portal)
     else:
         serve_meter(root)
 
