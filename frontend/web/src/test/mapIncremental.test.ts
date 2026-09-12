@@ -76,11 +76,13 @@ it('updates Team observations by identity and removes deleted workers without lo
   expect(historyPage.events).toEqual([first.events[0], changed]);
 });
 
-it("keeps closed step copy when its task progresses or model selection changes", () => {
+it("keeps closed step copy on later task progress and refreshes it for changed explanation settings", () => {
   const progressed = { ...first, tasks: [{ ...first.tasks[0], status: "done", revision: "r2", finished_ts: 9999 }] };
-  const copy = { cards: { e1: saved }, relations: [], model_revision: "different" };
+  const copy = { cards: { e1: saved }, relations: [], model_revision: saved.model_revision };
   const request = { key: "e1", task_id: "a", kind: "review", event_ids: ["e1"] };
   expect(needsCardCopy(request, progressed, copy)).toBe(false);
+  expect(needsCardCopy(request, progressed, { ...copy, model_revision: "different" })).toBe(true);
+  expect(copy.cards.e1).toBe(saved);
   expect(needsCardCopy(request, { ...progressed, events: [{ ...first.events[0], revision: "corrected" }] }, copy)).toBe(true);
   expect(needsCardCopy(request, { ...progressed, tasks: [{ ...progressed.tasks[0], content_revision: "edited-objective" }] }, copy)).toBe(true);
 });

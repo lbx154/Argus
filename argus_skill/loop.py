@@ -249,6 +249,7 @@ class SkillLoop(
             reviewer_config=ReviewerConfig(
                 model=self.config.resolved_reviewer_model(),
                 active_vertical=self.config.active_vertical,
+                workflow_mode=self.config.workflow_mode,
                 vertical_state_root=(
                     str(self.config.vertical_state_root)
                     if self.config.vertical_state_root is not None

@@ -243,6 +243,7 @@ def generate(
         card.update(checked_text_fields({field: card.get(field) for field in CARD_TEXT_LIMITS},
                                         CARD_TEXT_LIMITS, "invalid card copy"))
         card["reader_brief"] = _reader_brief(card.get("reader_brief"))
+    review_config = config.for_review()
     approved, checks, cache_updates = review_concepts(
         {key: card["reader_brief"]["concept"] for key, card in value["cards"].items()},
         reading={key: {
@@ -250,13 +251,13 @@ def generate(
             **{field: card["reader_brief"][field] for field in BRIEF_LIMITS},
         } for key, card in value["cards"].items()},
         run=lambda review_prompt, review_schema: run_map_model(
-            review_prompt, review_schema, config, project_root=project_root,
+            review_prompt, review_schema, review_config, project_root=project_root,
             global_root=global_root, deadline=deadline,
         ),
         locale=locale,
         context=source_context,
         cached_reviews=cached_reviews or {},
-        model_revision=getattr(config, "revision", "unknown"),
+        model_revision=review_config.revision,
     )
     for key, card in value["cards"].items():
         card["source_snapshot"] = source_snapshots[key]
@@ -306,7 +307,7 @@ def enrich(
     config = resolve_map_model()
     metadata = {"model_revision": config.revision}
     fingerprints = {
-        d["key"]: digest([PROMPT_VERSION, TEACHING_REVIEW_VERSION, config.revision if d["dynamic"] else None, locale, {
+        d["key"]: digest([PROMPT_VERSION, TEACHING_REVIEW_VERSION, config.revision, locale, {
             k: v for k, v in d.items() if k != "task_revision" or d["dynamic"]
         }]) for d in documents
     }

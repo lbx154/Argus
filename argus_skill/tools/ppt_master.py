@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -229,6 +230,46 @@ def _python_has_pip(python: str) -> bool:
     return result.returncode == 0
 
 
+def _dependency_presence(
+    python: str,
+    requirements: Path,
+) -> tuple[list[str], str | None]:
+    """Check distribution presence; the pinned minimum versions are not evaluated."""
+    names: list[str] = []
+    for raw_line in requirements.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9._-]*)>=\S+", line)
+        if match is None:
+            return [], f"unsupported requirement syntax: {line}"
+        names.append(match.group(1))
+    try:
+        result = subprocess.run(
+            [
+                python,
+                "-c",
+                (
+                    "import importlib.metadata, sys\n"
+                    "for name in sys.argv[1:]:\n"
+                    "    try:\n"
+                    "        importlib.metadata.distribution(name)\n"
+                    "    except importlib.metadata.PackageNotFoundError:\n"
+                    "        print(name)\n"
+                ),
+                *names,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        return [], str(exc)
+    if result.returncode != 0:
+        return [], (result.stderr or result.stdout).strip() or f"exit {result.returncode}"
+    return result.stdout.splitlines(), None
+
+
 def _install_requirements(python: str, requirements: Path) -> None:
     if _python_has_pip(python):
         command = [python, "-m", "pip", "install", "-r", str(requirements)]
@@ -363,17 +404,25 @@ def ppt_master_status(
             loaded = {}
         if isinstance(loaded, dict):
             manifest = loaded
-    dependencies_installed = bool(manifest.get("dependencies_installed"))
+    dependencies_recorded = bool(manifest.get("dependencies_installed"))
     recorded_python = str(manifest.get("python_executable") or "")
     expected_python = _python_executable()
     same_python = bool(recorded_python) and (
         Path(recorded_python).expanduser().resolve()
         == Path(expected_python).expanduser().resolve()
     )
-    if not same_python:
-        dependencies_installed = False
     missing = [relative for relative in _REQUIRED_PATHS if not (target / relative).is_file()]
     installed = target.is_dir()
+    requirements = root / "requirements.txt"
+    missing_dependencies: list[str] = []
+    dependency_probe_error: str | None = None
+    dependencies_installed = False
+    if dependencies_recorded and same_python and requirements.is_file():
+        missing_dependencies, dependency_probe_error = _dependency_presence(
+            expected_python,
+            requirements,
+        )
+        dependencies_installed = not missing_dependencies and dependency_probe_error is None
     dirty = _tracked_changes(target, git) if installed and git and revision else ""
     valid = installed and not missing and revision == expected_revision and not dirty
     if not installed:
@@ -384,6 +433,13 @@ def ppt_master_status(
         detail = f"revision {revision or 'unknown'}; expected {expected_revision}"
     elif dirty:
         detail = "tracked toolkit files are modified"
+    elif dependency_probe_error:
+        detail = f"dependency presence probe failed: {dependency_probe_error}"
+    elif missing_dependencies:
+        detail = (
+            "missing dependency distributions for this Python: "
+            + ", ".join(missing_dependencies)
+        )
     elif not dependencies_installed:
         detail = "toolkit installed; dependencies not recorded for this Python"
     else:

@@ -34,6 +34,12 @@ def request_payload(chat: dict) -> dict:
         # Completion validates the requested effort before this wire conversion.
         "reasoning": {"effort": chat.get("reasoning_effort") or REASONING_EFFORT},
     }
+    if chat.get("response_format"):
+        response_format = chat["response_format"]
+        output_format = {"type": response_format["type"]}
+        if response_format["type"] == "json_schema":
+            output_format.update(response_format["json_schema"])
+        payload["text"] = {"format": output_format}
     if chat.get("tools"):
         payload["tools"] = [{**tool[tool["type"]], "type": tool["type"]} for tool in chat["tools"]]
         for tool in payload["tools"]:

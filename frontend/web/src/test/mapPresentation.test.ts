@@ -44,6 +44,22 @@ it('refreshes stable old cards for a newer server version and keeps late respons
   expect(late.cards[task.id].title).toBe(updated.title);
 });
 
+it.each(['task', 'earlier-review'])('requires the current draft/review settings for %s without changing retained copy', (key) => {
+  const task: MapTask = { id: 'task', title: 'Recorded task', objective: 'Original objective', status: 'done', revision: 'task-v1', content_revision: 'content-v1' };
+  const data: Dataset = { id: 'live:project', kind: 'live', title: '', description: '', read_only: false, tasks: [task],
+    events: [{ id: 'event', item_id: task.id, type: 'round.review.completed', ts: 1, text: 'Original event', revision: 'event-v1' }] };
+  const request = { key, task_id: task.id, kind: key === task.id ? 'task' : 'review', event_ids: ['event'] };
+  const card = { title: 'Retained title', summary: 'Retained summary', detail: 'Original conditions', generated_at: 2,
+    version: 21, model_revision: 'previous-pipeline', task_revision: task.revision, task_content_revision: task.content_revision,
+    task_status: task.status, event_ids: ['event'], event_revisions: ['event-v1'] };
+  const copy = { version: 21, model_revision: 'current-pipeline', cards: { [key]: card }, relations: [] };
+  const before = structuredClone({ data, copy });
+  expect(needsCardCopy(request, data, copy)).toBe(true);
+  expect(needsCardCopy(request, data, { ...copy, model_revision: card.model_revision })).toBe(false);
+  expect(needsCardCopy(request, data, { ...copy, cards: { [key]: { ...card, model_revision: undefined } } })).toBe(true);
+  expect({ data, copy }).toEqual(before);
+});
+
 describe("map presentation and references", () => {
   it("keeps source and exact node identity in the same composer draft", () => {
     const ref = {

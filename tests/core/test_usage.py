@@ -130,6 +130,74 @@ def test_usage_ledger_is_idempotent_by_call_id(tmp_path: Path) -> None:
     assert len((project / "usage.jsonl").read_text().splitlines()) == 1
 
 
+@pytest.mark.parametrize(
+    ("stop_reason", "error_message"),
+    [
+        ("error", ""),
+        ("aborted", ""),
+        ("pending", "provider unavailable"),
+    ],
+)
+def test_pi_empty_failure_usage_does_not_settle_unknown_cost(
+    tmp_path: Path,
+    stop_reason: str,
+    error_message: str,
+) -> None:
+    events = []
+    if stop_reason == "pending":
+        events.append(
+            {
+                "type": "attempt_error",
+                "error": error_message,
+            }
+        )
+    events.append(
+        {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [],
+                "stopReason": stop_reason,
+                "errorMessage": error_message,
+                "usage": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "totalTokens": 0,
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
+                        "total": 0,
+                    },
+                },
+            },
+        }
+    )
+    usage = extract_token_usage(events)
+    record = build_usage_record(
+        call_id="retry-exhausted",
+        project_root=tmp_path,
+        mission_id="finance",
+        provider="pi",
+        model="gpt-5.6-sol",
+        run_label="probe",
+        started_at=1.0,
+        completed_at=2.0,
+        status="error",
+        token_usage=usage,
+        provider_cost_usd=usage.provider_cost_usd,
+        error=error_message,
+    )
+
+    assert usage.observed is False
+    assert usage.provider_cost_usd is None
+    assert record.pricing_status == "partial"
+    assert record.cost_usd is None
+
+
 def test_pending_tokens_are_reconciled_and_persisted_when_pricing_becomes_available(
     tmp_path: Path, monkeypatch,
 ) -> None:

@@ -636,6 +636,8 @@ class ReviewerConfig:
     paper_pass_cache: dict[str, tuple[str, str]] = field(
         default_factory=dict, repr=False, compare=False
     )
+    # Standalone reviews discover persisted policy; mission callers supply theirs.
+    workflow_mode: str | None = None
 
 
 def _load_wiki_curator_skill_if_present(
@@ -791,6 +793,7 @@ class Reviewer:
             working_dir=config.working_dir,
             vertical_state_root=config.vertical_state_root,
             vertical=config.active_vertical,
+            workflow_mode=config.workflow_mode,
         )
         static, delta_base = self._render(
             operation=operation,
@@ -1104,6 +1107,7 @@ class Reviewer:
         working_dir: str | Path | None = None,
         vertical_state_root: str | Path | None = None,
         vertical: str = "",
+        workflow_mode: str | None = None,
     ) -> tuple[str, str]:
         """F7: render the reviewer prompt as ``(static_preamble, round_delta)``.
 
@@ -1140,6 +1144,7 @@ class Reviewer:
             working_dir=working_dir,
             vertical_state_root=vertical_state_root,
             vertical=vertical,
+            workflow_mode=workflow_mode,
         )
 
     def _build_prompt(self, **kwargs: Any) -> str:

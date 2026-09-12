@@ -90,6 +90,25 @@ class Snippy(BaseModel):
     enabled: bool
 
 
+class SimpleResponseFormat(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type: Literal["text", "json_object"]
+
+
+class JsonSchemaOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str
+    schema_: dict = Field(alias="schema")
+    strict: bool | None = None
+    description: str | None = None
+
+
+class JsonSchemaResponseFormat(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type: Literal["json_schema"]
+    json_schema: JsonSchemaOutput
+
+
 class Completion(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     model: Literal["argus-trial"]
@@ -106,6 +125,7 @@ class Completion(BaseModel):
     frequency_penalty: float | None = Field(default=None, ge=-2, le=2)
     presence_penalty: float | None = Field(default=None, ge=-2, le=2)
     reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] | None = None
+    response_format: SimpleResponseFormat | JsonSchemaResponseFormat | None = None
     snippy: Snippy | None = None
     stop: str | list[str] | None = None
     # Accepted for OpenAI-compatible clients; never allow storage or n>1.
@@ -144,7 +164,7 @@ def prepare(data: dict, model: str) -> tuple[dict, int]:
             raise TrialError(400, "invalid_tools", "Only local function and custom tools are supported.")
     if isinstance(parsed.tool_choice, dict) and parsed.tool_choice.get("type") not in ("function", "custom"):
         raise TrialError(400, "invalid_tools", "Only local function and custom tool choices are supported.")
-    payload = parsed.model_dump(exclude_none=True)
+    payload = parsed.model_dump(exclude_none=True, by_alias=True)
     output = payload.pop("max_completion_tokens", None) or payload.pop("max_tokens", None) or MAX_OUTPUT_TOKENS
     payload.update(model=model, max_tokens=output)
     # Text-only requests: reserve UTF-8 bytes plus protocol/tool framing and

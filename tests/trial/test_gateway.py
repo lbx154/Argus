@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -660,6 +661,135 @@ def test_reasoning_default_and_existing_wire_values_are_not_remapped(override, e
     assert payload["reasoning"] == {"effort": expected}
     assert "reasoning_effort" not in payload
     assert payload["model"] == "gpt-5.5" and payload["store"] is False
+
+
+OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {"result": {"anyOf": [{"$ref": "#/$defs/record"}, {"type": "null"}]}},
+    "required": ["result"],
+    "additionalProperties": False,
+    "$defs": {"record": {
+        "type": "object",
+        "properties": {"label": {"type": "string", "minLength": 1, "maxLength": 80},
+                       "note": {"enum": [None, "checked"]}},
+        "required": ["label", "note"],
+        "additionalProperties": False,
+    }},
+}
+
+
+def test_schema_utf8_bytes_increase_the_actual_request_reservation(settings, monkeypatch):
+    reservations = []
+    requests = []
+
+    def handler(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json=response_data())
+
+    schema = copy.deepcopy(OUTPUT_SCHEMA)
+    schema["$defs"]["record"]["description"] = ""
+    body = {**PAYLOAD, "response_format": {"type": "json_schema", "json_schema": {
+        "name": "reading", "schema": schema, "strict": True,
+    }}}
+    large_description = "条件" * 5000
+    with TestClient(create_app(settings, transport=httpx.MockTransport(handler))) as client:
+        auth = issued_auth(client)
+        reserve = client.app.state.store.reserve
+
+        def observed_reserve(key_id, amount):
+            reservations.append(amount)
+            return reserve(key_id, amount)
+
+        monkeypatch.setattr(client.app.state.store, "reserve", observed_reserve)
+        assert client.post("/v1/chat/completions", headers=auth, json=body).status_code == 200
+        schema["$defs"]["record"]["description"] = large_description
+        assert client.post("/v1/chat/completions", headers=auth, json=body).status_code == 200
+        assert len(reservations) == len(requests) == 2
+        assert requests[0]["text"]["format"]["schema"]["$defs"]["record"]["description"] == ""
+        assert requests[1]["text"]["format"]["schema"] == schema
+        assert reservations[1] - reservations[0] == len(large_description.encode("utf-8")) == 30_000
+        status = client.get("/trial/status", headers=auth).json()
+        assert status["tokens_used"] == 30 and status["active_requests"] == 0
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("response_format,expected_format", [
+    (None, None),
+    ({"type": "text"}, {"type": "text"}),
+    ({"type": "json_object"}, {"type": "json_object"}),
+    ({"type": "json_schema", "json_schema": {"name": "reading", "schema": OUTPUT_SCHEMA,
+                                             "strict": True, "description": "A complete reading · 原样保留"}},
+     {"type": "json_schema", "name": "reading", "schema": OUTPUT_SCHEMA,
+      "strict": True, "description": "A complete reading · 原样保留"}),
+    ({"type": "json_schema", "json_schema": {"name": "reading", "schema": OUTPUT_SCHEMA, "strict": False}},
+     {"type": "json_schema", "name": "reading", "schema": OUTPUT_SCHEMA, "strict": False}),
+    ({"type": "json_schema", "json_schema": {"name": "reading", "schema": OUTPUT_SCHEMA}},
+     {"type": "json_schema", "name": "reading", "schema": OUTPUT_SCHEMA}),
+], ids=["omitted", "text", "json-object", "strict-schema", "non-strict-schema", "schema-defaults"])
+def test_response_formats_reach_upstream_once_without_changing_schema_or_legacy_requests(
+    settings, stream, response_format, expected_format,
+):
+    requests = []
+    reply = '{"result":{"label":"ready","note":null}}'
+
+    def handler(request):
+        assert str(request.url) == "https://api.githubcopilot.com/responses"
+        wire = json.loads(request.content)
+        requests.append(wire)
+        expected = {"model": "gpt-5.5", "input": PAYLOAD["messages"], "stream": stream,
+                    "max_output_tokens": 100, "store": False, "reasoning": {"effort": "high"}}
+        if expected_format is not None:
+            expected["text"] = {"format": expected_format}
+        assert wire == expected
+        data = response_data()
+        data["output"][0]["content"][0]["text"] = reply
+        if stream:
+            events = [{"type": "response.output_text.delta", "delta": reply[:15]},
+                      {"type": "response.output_text.delta", "delta": reply[15:]},
+                      {"type": "response.completed", "response": data}]
+            return httpx.Response(200, text="".join("data: " + json.dumps(event) + "\n\n" for event in events),
+                                  headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json=data)
+
+    body = {**PAYLOAD, "stream": stream, "store": False}
+    if response_format is not None:
+        body["response_format"] = copy.deepcopy(response_format)
+    before = copy.deepcopy(body)
+    with TestClient(create_app(settings, transport=httpx.MockTransport(handler))) as client:
+        auth = issued_auth(client)
+        result = client.post("/v1/chat/completions", headers=auth, json=body)
+        assert result.status_code == 200, result.text
+        assert len(requests) == 1 and body == before
+        if stream:
+            chunks = [json.loads(line[6:]) for line in result.text.splitlines()
+                      if line.startswith("data: ") and line != "data: [DONE]"]
+            text = "".join(choice["delta"].get("content", "") for chunk in chunks for choice in chunk["choices"])
+            assert text == reply and "data: [DONE]" in result.text
+            assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
+        else:
+            assert result.json()["choices"][0]["message"]["content"] == reply
+            assert result.json()["choices"][0]["finish_reason"] == "stop"
+        status = client.get("/trial/status", headers=auth).json()
+        assert status["tokens_used"] == 15 and status["active_requests"] == 0
+
+
+@pytest.mark.parametrize("response_format", [
+    {"type": "unsupported"},
+    {"type": "json_schema", "json_schema": {"name": "reading"}},
+    {"type": "json_schema", "json_schema": {"name": "reading", "schema": OUTPUT_SCHEMA, "strict": "true"}},
+])
+def test_invalid_response_format_is_rejected_before_an_upstream_request(settings, response_format):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=response_data())
+
+    with TestClient(create_app(settings, transport=httpx.MockTransport(handler))) as client:
+        auth = issued_auth(client)
+        result = client.post("/v1/chat/completions", headers=auth, json={**PAYLOAD, "response_format": response_format})
+        assert result.status_code == 400 and requests == []
+        assert client.get("/trial/status", headers=auth).json()["tokens_used"] == 0
 
 
 @pytest.mark.parametrize("stream", [False, True])

@@ -123,6 +123,7 @@ export function needsCardCopy(
   const task = data.tasks.find((t) => t.id === card.task_id);
   if (!saved || !task) return true;
   if ((saved.version ?? 0) < (copy?.version ?? 0)) return true;
+  if (copy?.model_revision && saved.model_revision !== copy.model_revision) return true;
   const dynamic = [task.id, task.id + ":active", task.id + ":outcome"].includes(card.key);
   if (dynamic || !saved.task_content_revision || !task.content_revision) {
     if (task.revision && saved.task_revision !== task.revision) return true;

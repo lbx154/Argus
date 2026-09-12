@@ -35,7 +35,7 @@ class _CopilotWriteState:
 
 @dataclass
 class _OpenCodeWriteState:
-    """Per-run write-side accumulator for the OpenCode event consumer.
+    """Per-run write-side accumulator for OpenCode and Pi streaming text.
 
     ``open_index`` is the ``agent_messages`` slot of the assistant reply
     currently streaming (``None`` between steps). OpenCode emits text as
@@ -306,6 +306,7 @@ class EventConsumerMixin:
                 event=event,
                 thread_id=thread_id,
                 agent_messages=agent_messages,
+                write_state=write_state,
                 turn_completed=turn_completed,
                 turn_failed=turn_failed,
                 fatal_error=fatal_error,
@@ -599,6 +600,7 @@ class EventConsumerMixin:
         event: dict,
         thread_id: str | None,
         agent_messages: list[str],
+        write_state: _OpenCodeWriteState | None = None,
         turn_completed: bool,
         turn_failed: bool,
         fatal_error: str | None,
@@ -617,6 +619,10 @@ class EventConsumerMixin:
             if str(message.get("role") or "").strip() != "assistant":
                 return thread_id, turn_completed, turn_failed, fatal_error
             text = EventConsumerMixin._extract_claude_message_text(message)
+            open_index = write_state.open_index if write_state is not None else None
+            if write_state is not None and open_index is not None and 0 <= open_index < len(agent_messages):
+                del agent_messages[open_index]
+                write_state.open_index = None
             if text and (not agent_messages or agent_messages[-1] != text):
                 agent_messages.append(text)
             stop_reason = str(message.get("stopReason") or "").strip().lower()
@@ -630,7 +636,16 @@ class EventConsumerMixin:
         if event_type == "message_update":
             delta = event.get("assistantMessageEvent")
             delta = delta if isinstance(delta, dict) else {}
-            if str(delta.get("type") or "").strip() == "error":
+            delta_type = str(delta.get("type") or "").strip()
+            if delta_type == "text_delta":
+                text = delta.get("delta")
+                if (
+                    write_state is not None
+                    and isinstance(text, str)
+                    and text
+                ):
+                    _append_opencode_text(agent_messages, write_state, text)
+            elif delta_type == "error":
                 turn_failed = True
                 if fatal_error is None:
                     detail = str(

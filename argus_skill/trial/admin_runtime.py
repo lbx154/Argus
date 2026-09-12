@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from . import CLIENT_MODEL
+from . import CLIENT_MODEL, MAP_REASONING_DEFAULTS
 from .copilot import BASE_URL, HEADERS, Copilot
 from .secrets import Vault, write_private
 
@@ -43,7 +43,7 @@ def configure_provider(root: Path, agent_bin: Path, vault: Vault, *, tenant: str
         "ARGUS_SKILL_BACKEND_AUTH_MODE": "subscription_cli",
         "ARGUS_SKILL_PI_PROVIDER": "argus",
         "ARGUS_SKILL_COPILOT_TRIAL": "0",
-        "ARGUS_SKILL_MAP_REASONING_EFFORT": resolve_knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "medium").value,
+        **{name: resolve_knob(name, default).value for name, default in MAP_REASONING_DEFAULTS.items()},
         **{knob.name: CLIENT_MODEL for knob in KNOBS if knob.name.endswith("_MODEL")},
     }
     for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "SUPERVISOR", "CURATOR"):

@@ -64,6 +64,15 @@ and 1,548 hours it needed a human research decision about **once every 310 hours
 
 **Native backends:** `GitHub Copilot CLI` · `Pi` · `OpenAI Codex CLI` · `Claude Code` · `Cursor CLI` · `OpenCode` · `Grok Build` · `Qoder` · `DeepSeek Harness`
 
+**Argus-Pi (optional preview):** We also maintain
+[Argus-Pi](https://github.com/Argus-AiTeam/Argus-Pi), a lightly customized fork of
+[Pi](https://github.com/earendil-works/pi) with small, Argus-focused improvements
+to task prompts, PDF reading, and execution/retry status reporting. It is available
+to try as a source preview; see the [trial instructions](#argus-pi-preview). It is
+optional, and you can continue using any of the other supported backends.
+Argus remains the Driver for scheduling, role assignment, and task lifecycle;
+Argus-Pi focuses on the Harness for model and tool execution.
+
 **Harbor evaluation:** Harbor Framework can invoke the complete bounded Argus
 Manager/Planner/Engineer/Reviewer runtime as a custom agent. See
 **[Harbor integration](docs/harbor.md)**.
@@ -114,6 +123,106 @@ prerequisite for the separate Harbor evaluation integration.
 | Grok Build | `grok` | [Official install](https://x.ai/cli) | `grok login` |
 | Qoder CLI | `qoder` | `npm install -g @qoder-ai/qodercli` | `qodercli login` |
 | DeepSeek Harness | `dsh` | `npm install -g @deepseek-ai/dsh` | Configure `DEEPSEEK_API_KEY` or the dsh Models page |
+
+<a id="argus-pi-preview"></a>
+<details>
+<summary><strong>Try Argus-Pi: install, connect and roll back</strong></summary>
+
+This optional trial assumes Argus is already installed. You also need Git,
+Node.js **22.19+** and npm. Argus-Pi is currently a **source preview**, not a
+separately published npm package or desktop installer. Installing the upstream
+Pi npm package does not install Argus-Pi.
+
+**1. Build a separate checkout in a new terminal.** Run each command only after
+the previous one succeeds; do not overwrite your existing global Pi installation.
+
+```bash
+git clone --branch main https://github.com/Argus-AiTeam/Argus-Pi.git
+cd Argus-Pi
+npm ci --ignore-scripts
+npm run hydrate:model-data
+npm run build:offline
+npm rebuild --workspace=@earendil-works/pi-coding-agent --ignore-scripts
+node packages/coding-agent/dist/bundle/cli.js --version
+node packages/coding-agent/dist/bundle/cli.js --list-models
+```
+
+The fork reuses Pi's existing authentication under `~/.pi/agent`. If needed,
+run `node packages/coding-agent/dist/bundle/cli.js`, use `/login`, then exit.
+Choose a model your account can actually use, including its provider prefix.
+The model list alone is not a successful inference check; setup below runs a
+real turn. Never paste credentials into a task or issue. To isolate Pi's own
+configuration too, set `PI_CODING_AGENT_DIR` before login and throughout the trial.
+
+**2. Configure this trial terminal.** Still at the checkout root, set the following
+process-local variables, replacing **`provider/model`** with your selected model.
+Remove any inherited per-role backend/model/runner overrides in this terminal;
+they can take precedence over the shared settings. Do not put these trial settings
+in your shell startup files or persistent system environment.
+
+macOS / Linux:
+
+```bash
+export ARGUS_SKILL_HOME="$HOME/.argus-pi-preview"
+export ARGUS_SKILL_RUNNER_BACKEND=pi
+export ARGUS_SKILL_RUNNER_BIN="$PWD/node_modules/.bin/argus-pi"
+export ARGUS_SKILL_MODEL="provider/model"
+"$ARGUS_SKILL_RUNNER_BIN" --version
+mkdir -p "$HOME/argus-pi-preview-workspace"
+cd "$HOME/argus-pi-preview-workspace"
+git init -q
+```
+
+Windows PowerShell:
+
+```powershell
+$env:ARGUS_SKILL_HOME = "$HOME\.argus-pi-preview"
+$env:ARGUS_SKILL_RUNNER_BACKEND = "pi"
+$env:ARGUS_SKILL_RUNNER_BIN = (Resolve-Path ".\node_modules\.bin\argus-pi.cmd" -ErrorAction Stop).Path
+$env:ARGUS_SKILL_MODEL = "provider/model"
+& $env:ARGUS_SKILL_RUNNER_BIN --version
+New-Item -ItemType Directory -Force "$HOME\argus-pi-preview-workspace" | Out-Null
+Set-Location "$HOME\argus-pi-preview-workspace"
+git init -q
+```
+
+Use a new, empty trial workspace, not a production project or the Argus-Pi
+checkout. The backend name remains **`pi`**; the explicit executable path selects
+the fork. The separate Argus state directory keeps trial configuration and
+missions apart from your normal installation. This is **not a filesystem sandbox**.
+
+**3. Verify, then launch.** In that same terminal and workspace, run the following
+one at a time. Stop on any error; do not continue to the next command.
+
+```bash
+argus --setup --backend pi --non-interactive
+argus --backend pi doctor --deep --advisor none
+argus --config-help
+argus
+```
+
+Check that `ARGUS_SKILL_RUNNER_BIN` points into your Argus-Pi checkout. Start with
+a small, reversible task confined to the trial workspace. Setup, deep diagnostics
+and tasks can consume your provider's quota or paid usage; "preview" does not mean
+free inference.
+
+**4. Stop and roll back.** After leaving the UI, keep the trial terminal's
+environment and working directory and run:
+
+```bash
+argus --daemon-stop --drain
+argus --status
+```
+
+Wait for the trial daemon to stop, then close that terminal and use your normal
+Argus launch command in a fresh terminal. If the trial terminal was already closed,
+restore its `ARGUS_SKILL_HOME` and workspace before issuing the stop command.
+Closing a terminal alone does not guarantee that background work has stopped.
+There is no need to uninstall upstream Pi or delete the trial records.
+`PI_HARNESS_PROFILE=stock` switches compatibility behavior inside the fork; it is
+**not** a replacement for returning to the original executable.
+
+</details>
 
 **Choose your installation channel.** The commands below install the official
 source repository's `main` branch directly from GitHub, not from PyPI. To
