@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 import time
 
 from fastapi import HTTPException, Query, Request
@@ -10,9 +11,92 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from starlette.concurrency import run_in_threadpool
 
 LOG = logging.getLogger(__name__)
+HTTP_OBSERVATION = "argus.http_observation"
 
 
-def register_analytics(app, analytics, session) -> None:
+class RequestObservation:
+    """Metadata only; existing response-body captures remain independent."""
+
+    def __init__(self, analytics, tenant, method, path, *, clock=None):
+        self.analytics, self.tenant, self.method, self.path = analytics, tenant, method, path
+        self.clock = clock or time.monotonic
+        self.started = self.clock()
+        self.event_id = None
+        self._headers_recorded = False
+        self._finished = False
+        self._lock = threading.Lock()
+
+    def headers(self, status, content_type):
+        elapsed = (self.clock() - self.started) * 1000
+        media = content_type.split(";", 1)[0].strip().lower()
+        response_type = "sse" if media == "text/event-stream" else (
+            "json" if media == "application/json" or media.endswith("+json") else "other"
+        )
+        with self._lock:
+            if self._headers_recorded:
+                return
+            self._headers_recorded = True
+            self.event_id = self.analytics.record_request(
+                self.tenant, self.method, self.path, status, elapsed,
+                header_elapsed_ms=elapsed, response_type=response_type,
+            )
+
+    def finish(self, status, completed, content_type):
+        # Same callback contract as the existing interaction capture. HTTP
+        # status/content type were observed at headers; neither implies EOF.
+        with self._lock:
+            if self._finished or self.event_id is None:
+                return
+            self._finished = True
+            self.analytics.finish_request(
+                self.tenant, self.event_id, (self.clock() - self.started) * 1000, completed,
+            )
+
+
+class HttpResponseObservation:
+    """Observe successful ASGI body sends without buffering or parsing the body."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        from .web_portal import finish_capture
+
+        completed, status, content_type = False, 500, ""
+
+        async def observed_send(message):
+            nonlocal completed, status, content_type
+            if message["type"] == "http.response.start":
+                status = message["status"]
+                content_type = next((value.decode("latin-1") for name, value in message.get("headers", [])
+                                     if name.lower() == b"content-type"), "")
+                observation = scope.get(HTTP_OBSERVATION)
+                if observation is not None:
+                    try:
+                        await run_in_threadpool(observation.headers, status, content_type)
+                    except (sqlite3.Error, OSError):
+                        LOG.exception("Trial request observation could not be persisted")
+                        message = {**message, "headers": [*message.get("headers", []),
+                            (b"x-argus-analytics-error", b"recording-unavailable")]}
+            await send(message)
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                # Only a successful terminal send establishes server-observed
+                # body completion. It does not certify client acknowledgement.
+                completed = True
+                # Settle before the application runs any response background
+                # task, whose duration/failure is not HTTP delivery evidence.
+                await finish_capture(scope.get(HTTP_OBSERVATION), status, True, content_type)
+
+        try:
+            await self.app(scope, receive, observed_send)
+        finally:
+            await finish_capture(scope.get(HTTP_OBSERVATION), status, completed, content_type)
+
+
+def register_analytics(app, analytics, session, *, observe_responses=True) -> None:
     from .analytics import AnalyticsError
     from .web_portal import require_origin
 
@@ -50,18 +134,13 @@ def register_analytics(app, analytics, session) -> None:
             if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
                 return RedirectResponse("/invite", status_code=303)
             return JSONResponse({"detail": "Please confirm the trial data notice"}, status_code=401)
-        started = time.monotonic()
-        response = await call_next(request)
-        if consented:
-            try:
-                await run_in_threadpool(
-                    analytics.record_request, tenant, request.method, request.url.path,
-                    response.status_code, (time.monotonic() - started) * 1000,
-                )
-            except (sqlite3.Error, OSError):
-                LOG.exception("Trial request observation could not be persisted")
-                response.headers["X-Argus-Analytics-Error"] = "recording-unavailable"
-        return response
+        observation = RequestObservation(analytics, tenant, request.method, request.url.path) if consented else None
+        if observation is not None:
+            request.scope[HTTP_OBSERVATION] = observation
+        return await call_next(request)
+
+    if observe_responses:
+        app.add_middleware(HttpResponseObservation)
 
     @app.get("/admin")
     @app.get("/admin/app.js")

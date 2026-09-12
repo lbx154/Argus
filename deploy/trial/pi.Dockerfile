@@ -8,11 +8,17 @@ COPY --from=argus-pi /packages /opt/argus-pi/packages
 COPY argus_skill /opt/argus/argus_skill
 COPY frontend/web/dist /opt/argus/frontend/web/dist
 COPY frontend/tui/bundle/argus.mjs /opt/argus/frontend/tui/bundle/argus.mjs
-RUN pip install --no-cache-dir 'psutil>=5.9.8' \
+# WEB_BASE_IMAGE may be an older prepared image without the shared search tool.
+RUN if ! command -v rg >/dev/null 2>&1; then \
+        apt-get update \
+        && apt-get install -y --no-install-recommends ripgrep \
+        && apt-get clean; \
+    fi \
+    && pip install --no-cache-dir 'psutil>=5.9.8' \
     && chmod -R a+rX /opt/argus/argus_skill /opt/argus/frontend \
     && ln -s /opt/argus-pi/packages/coding-agent/dist/bundle/cli.js /usr/local/bin/argus-pi \
     && ln -s /usr/local/bin/argus-pi /usr/local/bin/pi \
-    && node --version && argus-pi --version
+    && node --version && argus-pi --version && rg --version
 ENV ARGUS_TRIAL_HARNESS=argus-pi \
     ARGUS_SKILL_COPILOT_TRIAL=0 \
     ARGUS_SKILL_RUNNER_BACKEND=pi \

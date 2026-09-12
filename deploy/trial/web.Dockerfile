@@ -3,7 +3,7 @@ FROM python:3.12-slim-trixie
 ARG TRIAL_UID=1000
 ARG TRIAL_GID=100
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git socat tini \
+    && apt-get install -y --no-install-recommends ca-certificates git ripgrep socat tini \
     && apt-get clean \
     && useradd --no-log-init --uid "$TRIAL_UID" --gid "$TRIAL_GID" \
         --home-dir /tenant/home trial
