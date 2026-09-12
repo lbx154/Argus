@@ -45,6 +45,7 @@ def test_admin_pi_configuration_preserves_state_and_never_embeds_provider_secret
         provider = json.loads(config_text)["providers"]["argus"]
         assert provider["api"] == "openai-responses"
         assert provider["apiKey"] == "$ARGUS_ADMIN_PROVIDER_TOKEN"
+        assert provider["models"][0]["compat"]["supportsStrictMode"] is True
         assert "fixture-provider-credential" not in config_text
         assert "fixture-provider-credential" not in json.dumps(persisted)
     assert transcript.read_text() == '{"text":"existing conversation"}\n'

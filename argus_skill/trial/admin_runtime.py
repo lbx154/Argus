@@ -28,7 +28,10 @@ def configure_provider(root: Path, agent_bin: Path, vault: Vault) -> None:
         "api": "openai-responses",
         "apiKey": "$ARGUS_ADMIN_PROVIDER_TOKEN",
         "headers": {**HEADERS, "X-Initiator": "agent"},
-        "models": [{"id": CLIENT_MODEL, "reasoning": True}],
+        "models": [{
+            "id": CLIENT_MODEL, "reasoning": True,
+            "compat": {"supportsStrictMode": True},
+        }],
     }}}).encode())
     knobs = {
         "ARGUS_SKILL_RUNNER_BACKEND": "pi",
