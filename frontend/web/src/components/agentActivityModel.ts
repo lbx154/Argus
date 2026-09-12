@@ -27,18 +27,19 @@ export function activityTitle(kind: string, zh: boolean, tool = ''): string {
   };
   return (titles[kind] ?? [kind, kind])[zh ? 0 : 1];
 }
-export function agentWork(view: MissionView | null | undefined, role: string, taskId?: string): MissionRoleWorkItem[] {
+export function agentWork(view: MissionView | null | undefined, role: string, taskId?: string, notBefore = 0): MissionRoleWorkItem[] {
   const unique = new Map<string, MissionRoleWorkItem>();
   for (const row of view?.role_work ?? []) {
-    if (row.role !== role || !PUBLIC_KINDS.has(row.kind)) continue;
+    if (row.role !== role || !PUBLIC_KINDS.has(row.kind) || row.ts < notBefore) continue;
     const owner = row.item_id || row.mission_id;
     if (taskId && owner !== taskId) continue;
     unique.set(row.id, { ...row, detail: cleanActivityText(row.detail) });
   }
   return [...unique.values()].sort((a, b) => b.ts - a.ts);
 }
-export function latestAgentTool(events: EventMsg[], role: string, taskId?: string) {
+export function latestAgentTool(events: EventMsg[], role: string, taskId?: string, notBefore = 0) {
   return [...events].reverse().find((event) => event.type === 'engineer.progress'
+    && Number(event.ts || 0) >= notBefore
     && ['tool_use', 'command_execution', 'file_change'].includes(String(event.kind))
     && String(event.agent_layer || event.actor || event.role) === role
     && (!taskId || String(event.item_id || event.mission_id) === taskId));

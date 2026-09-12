@@ -56,11 +56,25 @@ def resolve_map_model() -> MapModel:
     )
 
 
-def _parse_document(raw: str, output_schema: dict) -> dict:
-    """Accept JSON or the observed premature cards-root closure, without rewriting prose."""
-    raw = raw.strip()
-    if raw.startswith("```") and raw.endswith("```"):
-        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+def _literal_unknown_escapes(raw: str) -> str:
+    """Preserve literal backslashes that cannot represent a JSON escape."""
+    parts, quoted, index = [], False, 0
+    while index < len(raw):
+        char = raw[index]
+        if char == '"':
+            quoted = not quoted
+        if quoted and char == "\\" and index + 1 < len(raw):
+            if raw[index + 1] not in '\\"/bfnrtu':
+                parts.append("\\")
+            parts.append(raw[index:index + 2])
+            index += 2
+        else:
+            parts.append(char)
+            index += 1
+    return "".join(parts)
+
+
+def _document_value(raw: str):
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as original:
@@ -82,6 +96,22 @@ def _parse_document(raw: str, output_schema: dict) -> dict:
         except (ValueError, TypeError):
             raise original from None
         logging.getLogger(__name__).warning("Recovered premature closure in map presentation object")
+    return value
+
+
+def _parse_document(raw: str, output_schema: dict) -> dict:
+    """Read the shared draft/check format, preserving prose and schema checks."""
+    raw = raw.strip()
+    if raw.startswith("```") and raw.endswith("```"):
+        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    try:
+        value = _document_value(raw)
+    except json.JSONDecodeError:
+        literal = _literal_unknown_escapes(raw)
+        if literal == raw:
+            raise
+        value = _document_value(literal)
+        logging.getLogger(__name__).warning("Preserved literal backslashes in map presentation JSON")
     if not isinstance(value, dict):
         raise ValueError("invalid card document")
     try:

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { emptyMissionView } from '../../../core/src/missionView';
 import type { Snapshot } from '../../../core/src/types';
-import { activeProviderRequest, currentWorkStatus, workStatusLabel } from '../lib/workStatus';
+import { activeProviderRequest, currentWorkStartedAt, currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 
 function fixture(alive = true): Snapshot {
   return {
@@ -12,6 +12,19 @@ function fixture(alive = true): Snapshot {
 }
 
 describe('shared work status', () => {
+  it('shares the recorded attempt boundary without applying another task’s start', () => {
+    const snapshot = fixture(), view = emptyMissionView();
+    Object.assign(view.mission, { id: 'current', started_at: 200 });
+    snapshot.backlog = [{ id: 'current', title: 'Current', objective: '', status: 'running', priority: 1, started_ts: 210 }];
+    expect(currentWorkStartedAt(snapshot, view, 'current')).toBe(210);
+    snapshot.daemon.started_at_iso = '1970-01-01T00:04:00Z';
+    expect(currentWorkStartedAt(snapshot, view, 'current')).toBe(240);
+    expect(currentWorkStartedAt(undefined, view, 'current')).toBe(200);
+    expect(currentWorkStartedAt(undefined, view, 'history')).toBe(0);
+    view.mission.started_at = null;
+    expect(currentWorkStartedAt(undefined, view, 'current')).toBe(0);
+  });
+
   it('uses a live role rather than daemon existence to claim active work', () => {
     const snapshot = fixture();
     const view = emptyMissionView();

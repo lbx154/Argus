@@ -26,6 +26,14 @@ export function recordedEventRole(event: EventMsg): string {
   return /^(manager|planner|engineer|reviewer)(?:[-.:]|$)/.exec(value)?.[1] || '';
 }
 
+/** The recorded start boundary for this task's current attempt and daemon run. */
+export function currentWorkStartedAt(snapshot: Snapshot | undefined, view: MissionView | null | undefined, taskId: string): number {
+  const task = snapshot?.backlog?.find(item => item.id === taskId);
+  const boot = Date.parse(snapshot?.daemon.started_at_iso || '') / 1000;
+  return Math.max(view?.mission.id === taskId ? view.mission.started_at || 0 : 0,
+    task?.started_ts || 0, Number.isFinite(boot) ? boot : 0);
+}
+
 /** A completion belongs to its call or task, never to every concurrent task. */
 export function activeProviderRequest(events: EventMsg[], notBefore = 0): EventMsg | null {
   const calls = new Map<string, EventMsg>();
@@ -53,8 +61,7 @@ export function currentWorkStatus(
 ): WorkStatus {
   const taskId = view?.mission.id || snapshot?.backlog?.find(item => ACTIVE.has(item.status))?.id || '';
   const task = snapshot?.backlog?.find(item => item.id === taskId);
-  const boot = Date.parse(snapshot?.daemon.started_at_iso || '') / 1000;
-  const started = Math.max(view?.mission.started_at || 0, task?.started_ts || 0, Number.isFinite(boot) ? boot : 0);
+  const started = currentWorkStartedAt(snapshot, view, taskId);
   const liveRoles = snapshot?.roles?.filter(role => role.active) || [];
   const parallel = (snapshot?.backlog?.filter(item => ACTIVE.has(item.status)).length || 0) > 1;
   const roleWork = new Map<string, MissionView['role_work'][number]>();

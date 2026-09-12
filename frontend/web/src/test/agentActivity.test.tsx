@@ -40,4 +40,51 @@ describe('Agent activity', () => {
     expect(html).toContain('Checking 500 weighted maps.'); expect(html).toContain('example-model');
     expect(html).toContain('aria-pressed="true"'); expect(html).not.toContain('private scratchpad');
   });
+
+  it('keeps an earlier attempt’s shutdown in history without using it as the current activity summary', () => {
+    const view = emptyMissionView();
+    Object.assign(view.mission, { id: 'current', started_at: 200, status: 'working' });
+    const stopped = { ...record('stopped-review', 'review', 'The previous attempt was stopped.'), ts: 150, status: 'skipped' };
+    view.role_work = [stopped, { ...record('new-tool', 'tool_use', 'using a tool'), ts: 210 }];
+    const html = renderToStaticMarkup(<AgentActivity view={view} roles={[role]} taskId="current" selectedRole="engineer" />);
+    const current = html.split('class="agent-current"')[1].split('class="agent-records-heading"')[0];
+    expect(current).toContain('Using a tool');
+    expect(current).not.toContain(stopped.detail);
+    expect(html).toContain(stopped.detail);
+    expect(agentWork(view, 'engineer', 'current').map(row => row.id)).toContain(stopped.id);
+  });
+
+  it('does not promote old tools or history to active work before the new attempt records progress', () => {
+    const view = emptyMissionView();
+    Object.assign(view.mission, { id: 'current', started_at: 200, status: 'working' });
+    view.role_work = [{ ...record('old', 'agent_message', 'Previous attempt progress.'), ts: 150 }];
+    const events = [{ type: 'engineer.progress', kind: 'tool_use', agent_layer: 'engineer', item_id: 'current', tool_name: 'bash', ts: 151 }];
+    const html = renderToStaticMarkup(<AgentActivity view={view} roles={[role]} events={events} taskId="current" selectedRole="engineer" />);
+    const current = html.split('class="agent-current"')[1].split('class="agent-records-heading"')[0];
+    expect(current).toContain('No work recorded for this attempt yet');
+    expect(current).not.toContain('Previous attempt progress');
+    expect(current).not.toContain('Running a command');
+    expect(html).toContain('class="agent-record" data-active="false"');
+  });
+
+  it('retains records when no start is known or a different historical task is selected', () => {
+    const view = emptyMissionView();
+    view.mission.id = 'current';
+    view.role_work = [record('old', 'agent_message', 'Recorded result.')];
+    const show = () => renderToStaticMarkup(<AgentActivity view={view} roles={[role]} taskId="current" selectedRole="engineer" />)
+      .split('class="agent-current"')[1].split('class="agent-records-heading"')[0];
+    expect(show()).toContain('Recorded result.');
+    Object.assign(view.mission, { id: 'another', started_at: 200, status: 'working' });
+    expect(show()).toContain('Recorded result.');
+  });
+
+  it.each(['manager', 'planner'])('keeps unfiltered %s activity that continues across tasks', (name) => {
+    const view = emptyMissionView();
+    Object.assign(view.mission, { id: 'current', started_at: 200, status: 'working' });
+    view.role_work = [{ ...record('ongoing-plan', 'assistant_message', 'Preparing the next task.', 'next-task'), role: name, ts: 190 }];
+    const html = renderToStaticMarkup(<AgentActivity view={view} roles={[{ ...role, role: name }]} selectedRole={name} />);
+    const current = html.split('class="agent-current"')[1].split('class="agent-records-heading"')[0];
+    expect(current).toContain('Preparing the next task.');
+    expect(current).toContain('LIVE');
+  });
 });
