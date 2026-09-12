@@ -1,4 +1,6 @@
+import asyncio
 import json
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -100,10 +102,11 @@ def test_map_reads_certification_from_mission_outcome():
     assert events[0]["stage_certification"] == "intentionally_skipped"
 
 
-def test_copy_routes_require_auth_and_check_task_event_ownership(tmp_path, monkeypatch):
+@pytest.mark.parametrize("stream", [False, True])
+def test_copy_routes_require_auth_and_check_task_event_ownership(tmp_path, monkeypatch, stream):
     sid, life = sample(tmp_path)
     client = TestClient(create_app(global_root=tmp_path, auth_token="test"))
-    path = f"/api/map-copy/project/{sid}"
+    path = f"/api/map-copy/project/{sid}" + ("?stream=true" if stream else "")
     assert client.get(path).status_code == 401
     headers = {"Authorization": "Bearer test"}
     assert client.get(f"/api/projects/{sid}/map", headers=headers).status_code == 200
@@ -111,8 +114,164 @@ def test_copy_routes_require_auth_and_check_task_event_ownership(tmp_path, monke
         "cards": [{"key": "a", "task_id": "task-a", "kind": "review", "event_ids": ["foreign"]}],
         "locale": "zh-CN",
     }
+    assert client.post(path, json=bad).status_code == 401
     assert client.post(path, json=bad, headers=headers).status_code == 422
     assert not (tmp_path / "map-presentation").exists()
+
+
+def _copy_stream_frames(response):
+    return [json.loads(line.removeprefix("data: ")) for line in response.text.splitlines()
+            if line.startswith("data: ")]
+
+
+def test_copy_stream_returns_the_complete_json_result_with_one_enrichment(tmp_path, monkeypatch):
+    sid, life = sample(tmp_path)
+    body = {"cards": [{"key": "task-a", "task_id": "task-a", "kind": "task"}]}
+    result = {
+        "cards": {"task-a": {"title": "覆盖率比较", "source_snapshot": {"version": 1}}},
+        "relations": [], "cached": False, "version": copy.PROMPT_VERSION,
+        "cache_revision": 3, "model_revision": "offline-fixture",
+    }
+    calls = []
+
+    def enrich(root, value, cards, locale, **kwargs):
+        calls.append((root, value["id"], cards, locale, kwargs))
+        return result
+
+    monkeypatch.setattr(copy, "enrich", enrich)
+    client = TestClient(create_app(global_root=tmp_path))
+    path = f"/api/map-copy/project/{sid}"
+    response = client.post(path + "?stream=true", json=body)
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["x-accel-buffering"] == "no"
+    assert _copy_stream_frames(response) == [
+        {"type": "heartbeat", "quiet_s": 0}, {"type": "done", "result": result},
+    ]
+    assert len(calls) == 1 and calls[0][-1] == {"project_root": life}
+    ordinary = client.post(path, json=body)
+    assert ordinary.status_code == 200 and ordinary.json() == result
+    assert ordinary.headers["content-type"].startswith("application/json")
+    assert len(calls) == 2 and calls[0] == calls[1]
+
+
+@pytest.mark.parametrize("failure, status, detail", [
+    (ValueError("invalid output"), 422, "card content could not be prepared"),
+    (TimeoutError("model timed out"), 503, "card text is temporarily unavailable"),
+    (RuntimeError("provider unavailable"), 503, "card text is temporarily unavailable"),
+])
+def test_copy_stream_reports_terminal_errors_and_keeps_json_http_errors(
+    tmp_path, monkeypatch, failure, status, detail,
+):
+    sid, _ = sample(tmp_path)
+    body = {"cards": [{"key": "task-a", "task_id": "task-a", "kind": "task"}]}
+    calls = []
+
+    def fail(*args, **kwargs):
+        calls.append(1)
+        raise failure
+
+    monkeypatch.setattr(copy, "enrich", fail)
+    client = TestClient(create_app(global_root=tmp_path))
+    path = f"/api/map-copy/project/{sid}"
+    response = client.post(path + "?stream=true", json=body)
+    assert response.status_code == 200
+    assert _copy_stream_frames(response) == [
+        {"type": "heartbeat", "quiet_s": 0},
+        {"type": "error", "error": detail, "status": status},
+    ]
+    ordinary = client.post(path, json=body)
+    assert ordinary.status_code == status and ordinary.json() == {"detail": detail}
+    assert len(calls) == 2
+
+
+def test_copy_stream_checks_project_session_and_card_ownership_before_generation(tmp_path, monkeypatch):
+    sid, _ = sample(tmp_path)
+    body = {"cards": [{"key": "task-a", "task_id": "task-a", "kind": "task"}]}
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("An invalid request started enrichment")
+
+    monkeypatch.setattr(copy, "enrich", unexpected)
+    client = TestClient(create_app(global_root=tmp_path))
+    path = f"/api/map-copy/project/{sid}?stream=true"
+    assert client.post(path + "&session_id=s-foreign", json=body).status_code == 422
+    assert client.post("/api/map-copy/project/s-missing?stream=true", json=body).status_code == 404
+    for card in (
+        {"key": "foreign", "task_id": "task-a", "kind": "task"},
+        {"key": "task-a", "task_id": "foreign", "kind": "task"},
+        {"key": "task-a", "task_id": "task-a", "kind": "task", "event_ids": ["foreign"]},
+    ):
+        response = client.post(path, json={"cards": [card]})
+        assert response.status_code == 422
+        assert response.headers["content-type"].startswith("application/json")
+
+
+def test_copy_stream_heartbeats_before_generation_and_keeps_cache_after_disconnect(tmp_path, monkeypatch):
+    from argus_skill.webapi import server
+    from argus_skill.webapi.routes.map_live import MapCopyIn
+
+    sid, _ = sample(tmp_path)
+    release = threading.Event()
+    completed = threading.Event()
+    calls = []
+    original_enrich = copy.enrich
+
+    def generate(documents, *args, **kwargs):
+        calls.append(1)
+        assert release.wait(5), "Offline generation fixture was not released"
+        return {"cards": [{"key": document["key"], "title": "覆盖率比较",
+                           "summary": "用独立样本检查覆盖率。", "detail": "比较覆盖率和区间宽度。"}
+                          for document in documents], "relations": []}
+
+    def enrich(*args, **kwargs):
+        result = original_enrich(*args, **kwargs)
+        completed.set()
+        return result
+
+    monkeypatch.setattr(copy, "generate", generate)
+    monkeypatch.setattr(copy, "enrich", enrich)
+    monkeypatch.setattr(copy, "configured", lambda: True)
+    monkeypatch.setattr(server, "_manager_stream_heartbeat_seconds", lambda: 0.01)
+    app = create_app(global_root=tmp_path)
+    endpoint = next(route.endpoint for route in app.routes
+                    if getattr(route, "path", "") == "/api/map-copy/{source}/{name}"
+                    and "POST" in route.methods)
+    received = []
+
+    async def disconnect_while_generating():
+        response = await endpoint(
+            "project", sid,
+            MapCopyIn(cards=[{"key": "task-a", "task_id": "task-a", "kind": "task"}]),
+            stream=True,
+        )
+        disconnected = asyncio.Event()
+
+        async def receive():
+            await disconnected.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            if message["type"] == "http.response.body" and message.get("body"):
+                received.append(json.loads(message["body"].decode().removeprefix("data: ")))
+                assert not completed.is_set()
+                if len(received) == 2:
+                    disconnected.set()
+
+        await asyncio.wait_for(response({"type": "http", "asgi": {"spec_version": "2.0"}}, receive, send), 2)
+
+    try:
+        asyncio.run(disconnect_while_generating())
+        assert [frame["type"] for frame in received] == ["heartbeat", "heartbeat"]
+        assert not completed.is_set()
+    finally:
+        release.set()
+        assert completed.wait(2), "Disconnected generation did not finish caching"
+
+    assert calls == [1]
+    cache = copy.read_cache(tmp_path, "live:" + sid + ":zh-CN")
+    assert cache["cards"]["task-a"]["title"] == "覆盖率比较"
+    assert cache["cache_revision"] == 1
 
 
 def test_generation_is_cached_and_does_not_change_backlog(tmp_path, monkeypatch):

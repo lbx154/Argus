@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import queue
+import threading
 from typing import Literal
 
 from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
+from starlette.responses import StreamingResponse
 
 from .. import map_narrative
 from ..map_feed import MapFeed
@@ -25,6 +29,13 @@ class MapCardIn(BaseModel):
 class MapCopyIn(BaseModel):
     cards: list[MapCardIn] = Field(min_length=1, max_length=16)
     locale: Literal["zh-CN", "en-US"] = "zh-CN"
+
+
+def _copy_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, ValueError):
+        logging.getLogger(__name__).warning("Map copy validation failed: %s", exc)
+        return HTTPException(422, "card content could not be prepared")
+    return HTTPException(503, "card text is temporarily unavailable")
 
 
 def register_map_live_routes(app, ctx, read_dataset):
@@ -132,18 +143,61 @@ def register_map_live_routes(app, ctx, read_dataset):
     async def make_copy(
         source: Literal["project", "dataset"], name: str, body: MapCopyIn,
         session_id: str | None = None,
+        stream: bool = False,
     ):
         value = await run_in_threadpool(load, source, name, body.cards)
         root, project_root = owner(source, name, session_id)
         if project_root is None:
             raise HTTPException(422, "select a session for map summaries")
+        cards = [c.model_dump() for c in body.cards]
+
+        def generate():
+            try:
+                return map_narrative.enrich(
+                    root, value, cards, body.locale, project_root=project_root,
+                )
+            except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
+                raise _copy_error(exc) from exc
+
+        if not stream:
+            return await run_in_threadpool(generate)
+
+        # Keep card/event ownership failures as HTTP errors before committing
+        # the stream. The shared enrichment still owns generation and caching.
         try:
-            return await run_in_threadpool(
-                map_narrative.enrich, root, value, [c.model_dump() for c in body.cards], body.locale,
-                project_root=project_root,
-            )
+            await run_in_threadpool(map_narrative.card_evidence, value, cards)
         except ValueError as exc:
-            logging.getLogger(__name__).warning("Map copy validation failed: %s", exc)
-            raise HTTPException(422, "card content could not be prepared") from exc
-        except (OSError, TimeoutError, RuntimeError) as exc:
-            raise HTTPException(503, "card text is temporarily unavailable") from exc
+            raise _copy_error(exc) from exc
+
+        from .. import server
+
+        items: queue.Queue[dict | None] = queue.Queue()
+        items.put({"type": "heartbeat", "quiet_s": 0})
+
+        def run():
+            try:
+                items.put({"type": "done", "result": generate()})
+            except HTTPException as exc:
+                items.put({"type": "error", "error": exc.detail, "status": exc.status_code})
+            except Exception:  # noqa: BLE001 — report a terminal frame after headers were sent
+                logging.getLogger(__name__).exception("Map copy stream failed")
+                items.put({"type": "error", "error": "card text is temporarily unavailable", "status": 500})
+            finally:
+                items.put(None)
+
+        # Like Manager streaming, the worker outlives a disconnected browser.
+        # A completed generation remains available through the existing cache.
+        threading.Thread(target=run, name="map-copy-stream", daemon=True).start()
+
+        def frames():
+            for item in server._iter_manager_stream_items(
+                items, heartbeat_s=server._manager_stream_heartbeat_seconds() or 5.0,
+            ):
+                if item.get("heartbeat"):
+                    item = {"type": "heartbeat", "quiet_s": item["quiet_s"]}
+                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            frames(), media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
