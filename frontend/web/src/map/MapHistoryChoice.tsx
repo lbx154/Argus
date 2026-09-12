@@ -26,7 +26,9 @@ export function MapHistoryChoice({ open, info, zh, onChoose, readOnly = false }:
           </button>
           <button type="button" onClick={() => onChoose({ mode: "full" })}>
             <strong>{zh ? "从头加载" : "Load from the beginning"}</strong>
-            <span>{zh ? "分批加载完整历史，再补齐需要的摘要" : "Load the complete history in pages, then prepare missing summaries"}</span>
+            <span>{readOnly
+              ? (zh ? "分批加载历史记录，查看已有说明" : "Load history in pages and view existing explanations")
+              : (zh ? "分批加载历史记录；打开卡片阅读时，再整理它的说明" : "Load history in pages; prepare an explanation when you open a card to read")}</span>
           </button>
           <button type="button" onClick={() => onChoose({ mode: "off" })}>
             <strong>{zh ? "不开启地图模式" : "Keep map mode off"}</strong>
