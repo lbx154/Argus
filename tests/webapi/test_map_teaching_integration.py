@@ -1,12 +1,13 @@
 """End-to-end presentation plumbing; supplied model verdicts are not fact checks."""
 import copy
 import json
-from types import SimpleNamespace
+from dataclasses import replace
 
 import pytest
 
 from argus_skill.webapi import map_narrative
 from argus_skill.webapi import map_teaching_review as teaching
+from argus_skill.webapi.map_model import MapModel
 
 
 def document():
@@ -48,7 +49,7 @@ def capture_generation_sources(monkeypatch, documents):
 
     monkeypatch.setattr(map_narrative, "run_map_model", run)
     observed["result"] = map_narrative.generate(documents, [{"id": doc["task_id"]} for doc in documents], "en-US",
-                                                config=SimpleNamespace(revision="model-a"), project_root=None, global_root=None)
+                                                config=MapModel("pi", "gpt-5.5", "medium", "argus-pi"), project_root=None, global_root=None)
     assert len(calls) == 2
     return observed
 
@@ -159,7 +160,7 @@ def test_source_snapshot_binds_the_pre_generation_material_when_live_task_and_ev
 
     monkeypatch.setattr(map_narrative, "run_map_model", run)
     result = map_narrative.generate([source], [{"id": "a"}], "en-US",
-                                   config=SimpleNamespace(revision="model-a"), project_root=None, global_root=None)
+                                   config=MapModel("pi", "gpt-5.5", "medium", "argus-pi"), project_root=None, global_root=None)
     snapshot = result["cards"][0]["source_snapshot"]
     assert snapshot["card_key"] == "start-a" and snapshot["task_id"] == "a"
     assert snapshot["captured_at"] == 1000.0 < now["value"]
@@ -176,7 +177,7 @@ def test_source_snapshot_binds_the_pre_generation_material_when_live_task_and_ev
 def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_backfill_it(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(map_narrative, "configured", lambda: True)
-    monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: SimpleNamespace(revision="model-a"))
+    monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: MapModel("pi", "gpt-5.5", "medium", "argus-pi"))
     monkeypatch.setattr(map_narrative.time, "time", lambda: 1000.0)
 
     def run(_prompt, schema, _config, **_kwargs):
@@ -234,7 +235,7 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
                "scope": "The reported result is a lower bound, not an exact count."}
 
     def run(prompt, schema, _config, **kwargs):
-        observed.append((prompt, kwargs["deadline"]))
+        observed.append((prompt, kwargs["deadline"], _config))
         if "cards" in schema["properties"]:
             return {"cards": {"a": copy.deepcopy(original)}, "relations": []}
         return {"reviews": {"a": {
@@ -248,9 +249,13 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
         }}}
 
     monkeypatch.setattr(map_narrative, "run_map_model", run)
-    kwargs = {"config": SimpleNamespace(revision="model-a"), "project_root": None, "global_root": None}
+    monkeypatch.setattr(map_narrative.time, "monotonic", lambda: 1000.0)
+    config = MapModel("pi", "gpt-5.5", "medium", "argus-pi", review_effort="high")
+    kwargs = {"config": config, "project_root": None, "global_root": None}
     result = map_narrative.generate([document()], [{"id": "a"}], "en-US", **kwargs)
     assert len(observed) == 2 and observed[0][1] == observed[1][1]
+    assert observed[0][1] == 1170.0
+    assert observed[0][2].effort == "medium" and observed[1][2].effort == "high"
     saved = result["cards"][0]
     assert saved["reader_brief"]["concept"] == replacement
     assert saved["teaching_review"]["status"] == "corrected"
@@ -263,6 +268,11 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
     assert len(observed) == 3  # A new draft, with no repeated concept review.
     assert again["cards"][0]["reader_brief"]["concept"] == replacement
     assert reading_fields(again["cards"][0]) == reading
+    # Same source and draft, but a different checker must not reuse its receipt.
+    kwargs["config"] = replace(config, review_effort="medium")
+    map_narrative.generate([document()], [{"id": "a"}], "en-US",
+                           cached_reviews=result["teaching_reviews"], **kwargs)
+    assert len(observed) == 5 and observed[-1][2].effort == "medium"
 
 
 def test_failed_teaching_check_keeps_task_facts_but_does_not_publish_the_unchecked_example(monkeypatch):
@@ -278,7 +288,7 @@ def test_failed_teaching_check_keeps_task_facts_but_does_not_publish_the_uncheck
 
     monkeypatch.setattr(map_narrative, "run_map_model", run)
     result = map_narrative.generate([document()], [{"id": "a"}], "en-US",
-                                   config=SimpleNamespace(revision="model-a"), project_root=None, global_root=None)
+                                   config=MapModel("pi", "gpt-5.5", "medium", "argus-pi"), project_root=None, global_root=None)
     assert calls == 2
     saved = result["cards"][0]
     assert saved["reader_brief"]["concept"] is None
@@ -312,7 +322,7 @@ def test_unusable_reading_replacement_never_partially_applies_scope_or_card_text
 
     monkeypatch.setattr(map_narrative, "run_map_model", run)
     result = map_narrative.generate([document()], [{"id": "a"}], "en-US",
-                                   config=SimpleNamespace(revision="model-a"), project_root=None, global_root=None)
+                                   config=MapModel("pi", "gpt-5.5", "medium", "argus-pi"), project_root=None, global_root=None)
     saved = result["cards"][0]
     assert len(calls) == 2
     assert reading_fields(saved) == reading_fields(original)
@@ -323,7 +333,7 @@ def test_unusable_reading_replacement_never_partially_applies_scope_or_card_text
 
 def configured_enrichment(monkeypatch):
     monkeypatch.setattr(map_narrative, "configured", lambda: True)
-    monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: SimpleNamespace(revision="model-a"))
+    monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: MapModel("pi", "gpt-5.5", "medium", "argus-pi"))
     dataset = {"id": "live:checked-text", "tasks": [{"id": "a", "title": "Task", "objective": "Original objective",
                                                    "status": "running", "revision": "task-v1", "deps": []}],
                "events": []}
@@ -439,8 +449,9 @@ def test_narration_context_keeps_current_cards_and_direct_dependencies_without_u
 
 
 @pytest.mark.parametrize("with_concept", [True, False])
-def test_cached_card_does_not_bypass_a_new_model_or_teaching_checker(tmp_path, monkeypatch, with_concept):
-    config = SimpleNamespace(revision="model-a")
+@pytest.mark.parametrize("key", ["a", "a:brief"])
+def test_cached_card_does_not_bypass_a_new_model_or_teaching_checker(tmp_path, monkeypatch, with_concept, key):
+    config = MapModel("pi", "gpt-5.5", "medium", "argus-pi")
     calls = []
     monkeypatch.setattr(map_narrative, "configured", lambda: True)
     monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: config)
@@ -456,22 +467,22 @@ def test_cached_card_does_not_bypass_a_new_model_or_teaching_checker(tmp_path, m
 
     monkeypatch.setattr(map_narrative, "generate", generate)
     dataset = {"id": "live:cache", "tasks": [{"id": "a", "title": "Task", "status": "pending", "deps": []}], "events": []}
-    request = [{"key": "a", "task_id": "a", "kind": "task", "event_ids": []}]
+    request = [{"key": key, "task_id": "a", "kind": "task", "event_ids": []}]
     first = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
     assert map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)["cached"]
     assert len(calls) == 1
-    config.revision = "model-b"
+    config = replace(config, review_effort="high")
     second = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
-    assert len(calls) == 2 and second["cards"]["a"]["model_revision"] == "model-b"
+    assert len(calls) == 2 and second["cards"][key]["model_revision"] == config.revision
     monkeypatch.setattr(map_narrative, "TEACHING_REVIEW_VERSION", 99)
     third = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
     assert len(calls) == 3
-    assert first["cards"]["a"]["input_revision"] != third["cards"]["a"]["input_revision"]
+    assert first["cards"][key]["input_revision"] != third["cards"][key]["input_revision"]
 
 
 def test_later_focused_cards_can_add_relationships_for_their_own_context(tmp_path, monkeypatch):
     monkeypatch.setattr(map_narrative, "configured", lambda: True)
-    monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: SimpleNamespace(revision="model-a"))
+    monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: MapModel("pi", "gpt-5.5", "medium", "argus-pi"))
     seen = []
 
     def generate(documents, tasks, *_args, **_kwargs):

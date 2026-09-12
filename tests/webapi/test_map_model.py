@@ -100,9 +100,28 @@ def test_map_inherits_research_role_and_persisted_overrides(monkeypatch):
     assert map_model.resolve_map_model() == before
 
 
+def test_review_override_changes_only_the_checker_and_its_effective_revision(monkeypatch):
+    monkeypatch.setenv("ARGUS_SKILL_ENGINEER_REASONING_EFFORT", "high")
+    monkeypatch.setenv("ARGUS_SKILL_MAP_REASONING_EFFORT", "medium")
+    monkeypatch.setenv("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto")
+    inherited = map_model.resolve_map_model()
+    assert inherited.for_review().effort == "medium"
+    monkeypatch.setenv("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "high")
+    changed = map_model.resolve_map_model()
+    review = changed.for_review()
+    assert changed.effort == inherited.effort == "medium"
+    assert review.effort == "high"
+    assert (review.backend, review.model, review.runner_bin, review.extra_args) == (
+        inherited.backend, inherited.model, inherited.runner_bin, inherited.extra_args)
+    assert changed.revision != inherited.revision
+    assert review.revision != inherited.for_review().revision
+    assert map_model.resolve_role_config("engineer").effort == "high"
+
+
 def test_map_settings_use_existing_config_endpoint(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_MAP_MODEL", "auto")
     monkeypatch.setenv("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto")
+    monkeypatch.setenv("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto")
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")
     write_session_meta(tmp_path, SessionMeta(id="s-settings", created=1, last_active=1))
     with TestClient(create_app(global_root=tmp_path, auth_token="test")) as client:
@@ -119,9 +138,17 @@ def test_map_settings_use_existing_config_endpoint(tmp_path, monkeypatch):
         assert map_model.resolve_map_model().model == "gpt-5.4-mini"
         assert client.post(path, json={**request, "value": "not a model"}, headers=headers).status_code == 400
         assert client.post(path, json={"name": "ARGUS_SKILL_MAP_REASONING_EFFORT", "value": "invalid"}, headers=headers).status_code == 400
+        review_request = {"name": "ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "value": "high"}
+        changed = client.post(path, json=review_request, headers=headers)
+        assert changed.status_code == 200 and not changed.json()["restart_required"]
+        assert map_model.resolve_map_model().for_review().effort == "high"
+        assert client.post(path, json={**review_request, "value": "invalid"}, headers=headers).status_code == 400
+        assert client.post(path, json={**review_request, "value": "auto"}, headers=headers).status_code == 200
+        assert map_model.resolve_map_model().for_review().effort == map_model.resolve_map_model().effort
 
 
-def test_map_runner_uses_shared_usage_ledger_and_read_only_turn(tmp_path, monkeypatch):
+@pytest.mark.parametrize("runner", ["codex", "pi"])
+def test_map_runner_uses_shared_usage_ledger_and_read_only_turn(tmp_path, monkeypatch, runner):
     observed = []
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "100")
@@ -131,6 +158,7 @@ def test_map_runner_uses_shared_usage_ledger_and_read_only_turn(tmp_path, monkey
         options = kwargs["options"]
         assert options.disable_tools and options.force_safe_mode
         assert options.sandbox_mode == "read-only"
+        assert options.output_schema == {}
         assert kwargs.get("resume_thread_id") is None
         observed.append(options)
         return AgentRunResult(
@@ -142,7 +170,7 @@ def test_map_runner_uses_shared_usage_ledger_and_read_only_turn(tmp_path, monkey
 
     monkeypatch.setattr(AgentCliRunner, "run_exec", run)
     project = tmp_path / "projects/s-map"
-    config = map_model.MapModel("codex", "gpt-5.4-mini", "low", sys.executable)
+    config = map_model.MapModel(runner, "gpt-5.4-mini", "low", sys.executable)
     result = map_model.run_map_model("Summarize these records", {}, config, project_root=project, global_root=tmp_path)
     assert result == {"cards": {}, "relations": []} and len(observed) == 1
     rows = UsageLedger(project).records()

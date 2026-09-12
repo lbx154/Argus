@@ -38,6 +38,68 @@ afterEach(() => {
 });
 
 describe('semantic generation and shared cache lifecycle', () => {
+  it.each(['completed', 'failed'])('rechecks after saving review settings despite a %s attempt for the previous pipeline', async (previousAttempt) => {
+    const key = briefCopyKey('s-research', 'en-US');
+    const beforeSource = structuredClone(source);
+    const retained = completedCopy(source.tasks[0], ['start-a', 'main-a'], 8);
+    retained.model_revision = previousAttempt === 'completed' ? 'review-medium' : 'earlier-pipeline';
+    retained.cards.a.model_revision = retained.model_revision;
+    retained.cards.a.source_snapshot = {
+      version: 1, card_key: 'a', task_id: 'a', captured_at: 7,
+      task: { title: source.tasks[0].title, objective: source.tasks[0].objective, attempt: 1 },
+      source_ids: ['start-a', 'main-a'],
+      events: source.events.filter(event => ['start-a', 'main-a'].includes(event.id)).map(event => ({ ...event })),
+    };
+    const beforeCard = structuredClone(retained.cards.a);
+    let stored: MapCopy = previousAttempt === 'completed'
+      ? { cards: {}, relations: [], available: true, version: READER_BRIEF_VERSION, model_revision: 'review-medium' }
+      : { ...retained, model_revision: 'review-medium' };
+    client.setQueryData(key, stored);
+    vi.mocked(api.mapCopy).mockImplementation(async () => stored);
+    let finish!: (copy: MapCopy) => void;
+    const pending = new Promise<MapCopy>(resolve => { finish = resolve; });
+    const generate = vi.spyOn(api, 'generateMapCopy').mockImplementationOnce(async () => {
+      if (previousAttempt === 'failed') throw new Error('Previous review unavailable');
+      stored = retained;
+      return retained;
+    }).mockReturnValueOnce(pending);
+    const save = vi.spyOn(api, 'setConfig').mockImplementation(async () => {
+      stored = { ...stored, model_revision: 'review-high' };
+      return { restart_required: false };
+    });
+    await mount();
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(result.card).toEqual(beforeCard);
+    expect(result.generationError instanceof Error).toBe(previousAttempt === 'failed');
+
+    // Same save and map-copy invalidation used by the existing Settings callback.
+    await act(async () => {
+      await api.setConfig('s-research', 'ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT', 'high');
+      await client.invalidateQueries({ queryKey: ['map-copy'] });
+    });
+    await flush(); await flush();
+    expect(save).toHaveBeenCalledWith('s-research', 'ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT', 'high');
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.needsUpdate).toBe(true);
+    expect(result.generating).toBe(true);
+    expect(result.card).toEqual(beforeCard);
+    expect(result.brief).toEqual(beforeCard.reader_brief);
+    expect(generate.mock.calls[1][2].cards).toEqual([{ key: 'a', task_id: 'a', kind: 'task', event_ids: ['start-a', 'main-a'] }]);
+
+    const updated = completedCopy(source.tasks[0], ['start-a', 'main-a'], 12);
+    updated.model_revision = 'review-high';
+    updated.cards.a.model_revision = 'review-high';
+    updated.cards.a.source_snapshot = { ...retained.cards.a.source_snapshot, captured_at: 11 };
+    await act(async () => { stored = updated; finish(updated); });
+    await flush();
+    expect(result.needsUpdate).toBe(false);
+    expect(result.card?.model_revision).toBe('review-high');
+    expect(result.card?.source_snapshot?.events).toEqual(beforeCard.source_snapshot?.events);
+    expect(source).toEqual(beforeSource);
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
   it('retains compatible Chinese copy while a newer server version refreshes the same input', async () => {
     const previous = completedCopy(source.tasks[0], ['start-a', 'main-a']);
     previous.cards.a.title = '已有中文说明';

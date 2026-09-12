@@ -325,7 +325,7 @@ def test_feed_preserves_loaded_evidence_when_the_live_log_rolls_over(tmp_path):
     assert [event["id"] for event in continued["events"]] == ["after-roll"]
 
 
-def test_completed_child_copy_is_stable_across_later_progress_and_model_changes(tmp_path, monkeypatch):
+def test_completed_child_copy_ignores_later_progress_but_rechecks_requested_model_changes(tmp_path, monkeypatch):
     sid, life, memory = setup_session(tmp_path)
     append(life, {"event_id": "review", "type": "round.review.completed", "ts": 3, "text": "First review"})
     calls = []
@@ -339,11 +339,17 @@ def test_completed_child_copy_is_stable_across_later_progress_and_model_changes(
     request = [{"key": "review", "task_id": "a", "kind": "review", "event_ids": ["review"]}]
     first = map_narrative.enrich(tmp_path, read_map(sid, tmp_path, life), request, "en-US", project_root=life)
     memory.backlog.update("a", status="done", notes="Later successful result", finished_ts=99)
-    monkeypatch.setenv("ARGUS_SKILL_MAP_MODEL", "different-model")
     second = map_narrative.enrich(tmp_path, read_map(sid, tmp_path, life), request, "en-US", project_root=life)
     assert second["cached"] and len(calls) == 1
     assert second["cards"]["review"] == first["cards"]["review"]
     assert "status" not in calls[0][0]["task"]
+    monkeypatch.setenv("ARGUS_SKILL_MAP_MODEL", "different-model")
+    third = map_narrative.enrich(tmp_path, read_map(sid, tmp_path, life), request, "en-US", project_root=life)
+    assert not third["cached"] and len(calls) == 2
+    assert third["cards"]["review"]["model_revision"] != first["cards"]["review"]["model_revision"]
+    # Re-checking historical copy must still use that step's original evidence.
+    assert calls[1][0]["task"] == calls[0][0]["task"]
+    assert calls[1][0]["events"] == calls[0][0]["events"]
 
 
 @pytest.mark.parametrize("version", [None, 5, 6])

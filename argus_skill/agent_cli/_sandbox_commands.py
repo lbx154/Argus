@@ -452,6 +452,11 @@ class CommandBuilderMixin:
             )
         if merged_extra_args:
             command.extend(merged_extra_args)
+        if getattr(options, "output_schema", None) is not None:
+            schema_path = getattr(options, "_output_schema_path", None)
+            if not schema_path:
+                raise ValueError("Codex output_schema transport was not prepared")
+            command.extend(["--output-schema", schema_path])
         if resume_thread_id:
             command.append(resume_thread_id)
         # Always stream the prompt through stdin so multiline prompts survive
@@ -722,6 +727,14 @@ class CommandBuilderMixin:
         if not options.disable_tools:
             for path in getattr(options, "trusted_extensions", None) or []:
                 command.extend(["--extension", path])
+        if getattr(options, "output_schema", None) is not None:
+            from ._structured_output import PI_OUTPUT_SCHEMA_EXTENSION, output_schema_json
+
+            output_schema_json(BACKEND_PI, options)
+            if not PI_OUTPUT_SCHEMA_EXTENSION.is_file():
+                raise ValueError("Pi native output_schema extension is unavailable")
+            # Capture must observe the schema after this extension applies it.
+            command.extend(["--extension", str(PI_OUTPUT_SCHEMA_EXTENSION)])
         training_extension = getattr(options, "_training_extension", None)
         if training_extension:
             command.extend(["--extension", training_extension])

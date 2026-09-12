@@ -84,13 +84,16 @@ def test_existing_workspace_enrolls_with_trial_meter_and_live_capture_without_mo
         assert os.environ["ARGUS_SKILL_HOME"] == str(root)
         assert os.environ["ARGUS_SKILL_PI_SESSION_DIR"] == str(root / "pi-sessions")
         assert os.environ["ARGUS_SKILL_MAP_REASONING_EFFORT"] == "medium"
+        assert os.environ["ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT"] == "high"
     assert transcript.read_text() == '{"text":"original project history"}\n'
 
 
 def test_native_restart_keeps_explicit_map_effort_and_research_effort(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.delenv("ARGUS_SKILL_MAP_REASONING_EFFORT", raising=False)
+    monkeypatch.delenv("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", raising=False)
     write_persisted_knobs({"ARGUS_SKILL_MAP_REASONING_EFFORT": "low",
+                          "ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT": "medium",
                           "ARGUS_SKILL_ENGINEER_REASONING_EFFORT": "high"})
     binary = tmp_path / "pi"
     binary.write_text("#!/bin/sh\nexit 0\n")
@@ -102,4 +105,5 @@ def test_native_restart_keeps_explicit_map_effort_and_research_effort(tmp_path, 
         assert os.environ["ARGUS_SKILL_MAP_REASONING_EFFORT"] == "low"
         saved = read_persisted_knobs()
         assert saved["ARGUS_SKILL_MAP_REASONING_EFFORT"] == "low"
+        assert saved["ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT"] == "medium"
         assert saved["ARGUS_SKILL_ENGINEER_REASONING_EFFORT"] == "high"

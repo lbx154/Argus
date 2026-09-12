@@ -74,6 +74,9 @@ class RunnerOptions:
     # Remove all model-visible tools for prompts that contain untrusted
     # diagnostic text. Unsupported backends must fail closed before spawning.
     disable_tools: bool = False
+    # Native JSON Schema output for a tools-disabled text call. Supported
+    # transports must enforce it; unsupported backends fail before spawning.
+    output_schema: dict[str, Any] | None = None
     # Strong process-level confinement used by isolated framework maintenance. Unlike
     # backend-native sandbox flags, this applies to every CLI backend and fails
     # closed when the host cannot provide isolation.

@@ -116,6 +116,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob("ARGUS_SKILL_ENGINEER_MODEL", "auto", "model for the L1 engineer; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_MAP_MODEL", "auto", "map summaries model; auto follows the research engineer model", "models", cockpit=True),
     Knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto", "map summaries reasoning effort; auto follows the research engineer", "reasoning", cockpit=True),
+    Knob("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto", "map teaching review reasoning effort; auto follows map summaries", "reasoning", cockpit=True),
     Knob("ARGUS_SKILL_REVIEWER_MODEL", "auto", "model for the L2 reviewer; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_SUPERVISOR_MODEL", "auto", "model for supervised subagent health decisions; auto uses the selected backend's default", "models", cockpit=True),
     Knob("ARGUS_SKILL_PLAN_MODEL", "auto", "model for the L4 planner; auto uses the selected backend's default", "models", cockpit=True),
@@ -464,7 +465,7 @@ def normalize_cockpit_knob_value(name: str, value: str) -> str:
         raise ValueError("config value cannot be empty")
     if name == "ARGUS_SKILL_MAP_MODEL" and raw.lower() == "auto":
         return "auto"
-    if name == "ARGUS_SKILL_MAP_REASONING_EFFORT":
+    if name in {"ARGUS_SKILL_MAP_REASONING_EFFORT", "ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT"}:
         effort = raw.lower()
         if effort not in {"auto", "low", "medium", "high", "xhigh", "max"}:
             raise ValueError(f"{name} must be auto, low, medium, high, xhigh, or max")

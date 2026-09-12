@@ -98,6 +98,18 @@ class RunExecMixin:
         options,
         run_label: str | None = None,
     ) -> AgentRunResult:
+        from ._structured_output import structured_output_call
+
+        with structured_output_call(self.backend, options) as prepared:
+            return self._run_prepared_exec(
+                prompt=prompt, resume_thread_id=resume_thread_id,
+                options=prepared, run_label=run_label,
+            )
+
+    def _run_prepared_exec(
+        self, *, prompt: str, resume_thread_id: str | None, options,
+        run_label: str | None = None,
+    ) -> AgentRunResult:
         options = self._apply_sandbox_policy(options)
         if self.before_exec is not None:
             self.before_exec()

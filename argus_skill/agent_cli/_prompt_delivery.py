@@ -357,6 +357,15 @@ class PromptDeliveryMixin:
         if self.backend == BACKEND_PI and getattr(options, "_training_environment", None):
             env = dict(os.environ) if env is None else env
             env.update(options._training_environment)
+        if self.backend == BACKEND_PI:
+            from ._structured_output import PI_OUTPUT_SCHEMA_ENV, output_schema_json
+
+            env = dict(os.environ) if env is None else env
+            # This is a runner-owned per-call transport, never ambient config.
+            env.pop(PI_OUTPUT_SCHEMA_ENV, None)
+            encoded = output_schema_json(BACKEND_PI, options)
+            if encoded is not None:
+                env[PI_OUTPUT_SCHEMA_ENV] = encoded
         repaired = runner_child_environment(
             executable or getattr(self, "agent_bin", ""),
             env=env,

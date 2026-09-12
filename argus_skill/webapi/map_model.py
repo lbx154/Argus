@@ -9,7 +9,7 @@ import shlex
 import shutil
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from jsonschema import Draft202012Validator, ValidationError
@@ -30,6 +30,7 @@ class MapModel:
     effort: str | None
     runner_bin: str
     extra_args: tuple[str, ...] = ()
+    review_effort: str | None = None
 
     @property
     def available(self) -> bool:
@@ -37,13 +38,18 @@ class MapModel:
 
     @property
     def revision(self) -> str:
-        return digest([self.backend, self.model, self.effort, self.runner_bin, self.extra_args])
+        return digest([self.backend, self.model, self.effort, self.runner_bin, self.extra_args,
+                       self.review_effort or self.effort])
+
+    def for_review(self) -> MapModel:
+        return replace(self, effort=self.review_effort or self.effort, review_effort=None)
 
 
 def resolve_map_model() -> MapModel:
     research = resolve_role_config("engineer")
     model = resolve_knob("ARGUS_SKILL_MAP_MODEL", "auto").value
     effort = resolve_knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "auto").value
+    review_effort = resolve_knob("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "auto").value
     runner = resolve_runner_bin_setting("engineer", backend=research.backend)
     if not runner and research.backend != "memory":
         runner = default_runner_bin(normalize_runner_backend(research.backend))
@@ -53,6 +59,7 @@ def resolve_map_model() -> MapModel:
         effort=research.effort if effort.lower() == "auto" else effort,
         runner_bin=runner,
         extra_args=tuple(shlex.split(os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", ""))),
+        review_effort=None if review_effort.lower() == "auto" else review_effort,
     )
 
 
@@ -144,11 +151,6 @@ def run_map_model(
     try:
         # A separate, read-only turn cannot resume or edit the research conversation.
         with tempfile.TemporaryDirectory(prefix="generation-", dir=scratch) as workdir:
-            extra_args = []
-            if config.backend == "codex":
-                schema_path = Path(workdir) / "output-schema.json"
-                schema_path.write_text(json.dumps(output_schema), encoding="utf-8")
-                extra_args = ["--output-schema", str(schema_path)]
             result = run_exec(
                 backend,
                 prompt=prompt,
@@ -160,7 +162,7 @@ def run_map_model(
                     sandbox_mode="read-only",
                     force_safe_mode=True,
                     disable_tools=True,
-                    extra_args=extra_args,
+                    output_schema=output_schema if config.backend in {"codex", "pi"} else None,
                     external_interrupt_reason_provider=lambda: (
                         "Map text generation timed out" if time.monotonic() >= deadline else None
                     ),

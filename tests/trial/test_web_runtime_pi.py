@@ -32,18 +32,22 @@ def test_pi_profile_selects_all_roles_and_own_provider(tmp_path, monkeypatch):
     (None, None, "medium"), ("low", None, "low"), ("high", None, "high"),
     ("auto", None, "auto"), ("high", "low", "low"),
 ])
-def test_restart_preserves_map_preference_without_lowering_research_roles(tmp_path, monkeypatch, saved_effort, environment_effort, expected):
+@pytest.mark.parametrize("knob,default", [("ARGUS_SKILL_MAP_REASONING_EFFORT", "medium"),
+                                         ("ARGUS_SKILL_MAP_REVIEW_REASONING_EFFORT", "high")])
+def test_restart_preserves_map_preference_without_lowering_research_roles(tmp_path, monkeypatch, saved_effort, environment_effort, expected, knob, default):
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_TRIAL_HARNESS", "argus-pi")
-    monkeypatch.delenv("ARGUS_SKILL_MAP_REASONING_EFFORT", raising=False)
+    monkeypatch.delenv(knob, raising=False)
+    if saved_effort is None and environment_effort is None:
+        expected = default
     if saved_effort is not None:
-        write_persisted_knobs({"ARGUS_SKILL_MAP_REASONING_EFFORT": saved_effort})
+        write_persisted_knobs({knob: saved_effort})
     if environment_effort is not None:
-        monkeypatch.setenv("ARGUS_SKILL_MAP_REASONING_EFFORT", environment_effort)
+        monkeypatch.setenv(knob, environment_effort)
     with patch.dict(os.environ):
         configure_provider(tmp_path, {"api_key": "test-only-credential"})
         saved = read_persisted_knobs()
-        assert os.environ["ARGUS_SKILL_MAP_REASONING_EFFORT"] == expected
-        assert saved["ARGUS_SKILL_MAP_REASONING_EFFORT"] == expected
+        assert os.environ[knob] == expected
+        assert saved[knob] == expected
         assert all(saved[f"ARGUS_SKILL_{role}_REASONING_EFFORT"] == "high"
                    for role in ("MANAGER", "PLANNER", "ENGINEER", "REVIEWER"))

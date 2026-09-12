@@ -6,6 +6,7 @@ import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
 from argus_skill.webapi import map_narrative
+from argus_skill.webapi.map_model import MapModel
 
 
 def _capture_prompt(monkeypatch) -> str:
@@ -31,7 +32,7 @@ def _capture_prompt(monkeypatch) -> str:
         [{"key": "k", "task_id": "task"}],
         [{"id": "task"}],
         "zh-CN",
-        config=None,
+        config=MapModel("pi", "gpt-5.5", "medium", "argus-pi"),
         project_root=None,
         global_root=None,
     )
@@ -93,7 +94,7 @@ def test_model_transport_accepts_the_complete_limit_and_rejects_an_extra_charact
 
     monkeypatch.setattr(map_narrative, "run_map_model", run)
     result = map_narrative.generate([{"key": "k", "task_id": "task"}], [{"id": "task"}], "en-US",
-                                   config=None, project_root=None, global_root=None)
+                                   config=MapModel("pi", "gpt-5.5", "medium", "argus-pi"), project_root=None, global_root=None)
     assert len(calls) == 2
     assert result["cards"][0][field] == "x" * (limit - 1) + "!"
     assert set(result["cards"][0]["reader_brief"]) == {"why", "scope", "next", "concept"}

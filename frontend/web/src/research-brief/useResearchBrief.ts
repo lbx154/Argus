@@ -59,7 +59,8 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
     && !legacy && !live.isError && !copy.isError;
   const generationScope = ['research-brief-generation', sid, taskId, locale, selection.eventSince] as const;
   const generationVersion = Math.max(READER_BRIEF_VERSION, copy.data?.version ?? 0);
-  const generationKey = [...generationScope, generationVersion, inputSignature] as const;
+  // An earlier success or failure only applies to the draft/review settings used for that attempt.
+  const generationKey = [...generationScope, generationVersion, copy.data?.model_revision ?? null, inputSignature] as const;
   // A task can receive its final review/certification while its first explanation
   // is still being written. Finish that request before generating the latest
   // input; intermediate states should not create parallel model calls.

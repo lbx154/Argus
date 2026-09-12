@@ -496,6 +496,14 @@ class AgentCliBackend:
             watchdog_soft_idle_seconds=soft_idle,
             watchdog_hard_idle_seconds=hard_idle,
         )
+        if getattr(options, "output_schema", None) is not None:
+            from ...agent_cli._structured_output import output_schema_json
+
+            if "output_schema" not in option_fields:
+                raise ValueError("the installed runner does not support native output_schema")
+            # A separate JSON value prevents changes in another caller's options
+            # from changing this invocation after translation.
+            kwargs["output_schema"] = json.loads(output_schema_json(self._backend_name, options))
         for plugin_field in ("trusted_extensions", "trusted_tool_names", "extension_env"):
             if plugin_field in option_fields:
                 kwargs[plugin_field] = getattr(options, plugin_field, None)

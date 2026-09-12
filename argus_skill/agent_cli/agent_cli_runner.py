@@ -98,6 +98,7 @@ class RunnerOptions:
     # the process-wide ARGUS_SKILL_SAFE_MODE setting.
     force_safe_mode: bool = False
     disable_tools: bool = False
+    output_schema: dict | None = None
     isolate_workdir: bool = False
     skip_git_repo_check: bool = False
     # Enable codex's native live web_search tool (``-c web_search="live"``).
@@ -127,6 +128,7 @@ class RunnerOptions:
     # dataclasses.replace. They are never populated from ordinary user options.
     _training_extension: str | None = field(default=None, repr=False, compare=False)
     _training_environment: PrivateRunnerEnvironment | None = field(default=None, repr=False, compare=False)
+    _output_schema_path: str | None = field(default=None, repr=False, compare=False)
 
 
 class AgentCliRunner(
