@@ -1126,7 +1126,7 @@ def test_specific_phone_and_other_sensitive_indicators_still_quarantine(text):
 
 
 def test_data_workbench_and_audit_reuse_admin_session_boundary(training):
-    from argus_skill.trial.data_page import PAGE, SCRIPT
+    from fastapi.responses import HTMLResponse
 
     data, _, _ = training
     app = FastAPI()
@@ -1134,21 +1134,39 @@ def test_data_workbench_and_audit_reuse_admin_session_boundary(training):
         "tester": {"role": "trial", "tenant": "tenant-one", "readonly": False},
         "admin": {"role": "admin", "tenant": "admin", "readonly": True},
     }
+    async def render_page(request):
+        return HTMLResponse('<main id="react-root">Shared frontend</main>')
+
     register_training_routes(app, data.analytics, lambda request: identities.get(request.headers.get("x-role")),
-                             journal=data.journal, controls=data.controls)
+                             journal=data.journal, controls=data.controls, page_renderer=render_page)
     with TestClient(app) as client:
-        for path in ("/admin/data", "/admin/data/app.js", "/admin/api/training/audit"):
+        for path in ("/admin/data", "/admin/data/projects/p", "/admin/api/training/audit"):
             assert client.get(path).status_code == 401
             assert client.get(path, headers={"x-role": "tester"}).status_code == 403
             assert client.get(path, headers={"x-role": "admin"}).status_code == 200
-        assert client.get("/admin/data", headers={"x-role": "admin"}).text == PAGE
-        assert client.get("/admin/data/app.js", headers={"x-role": "admin"}).text == SCRIPT
+        assert 'id="react-root"' in client.get("/admin/data", headers={"x-role": "admin"}).text
+        assert client.get("/admin/data/app.js", headers={"x-role": "admin"}).status_code == 404
+        audit = client.get("/admin/api/training/audit", headers={"x-role": "admin", "Accept": "text/html"})
+        assert audit.headers["content-type"] == "application/json"
+        assert isinstance(audit.json(), dict)
     grant(data)
     chat(training, text="Customer alice@example.org")
     preview = data.preview("internal_training", selection())
     assert preview["diagnostics"] and not preview["candidates"]
     assert "alice@example.org" not in json.dumps(preview["diagnostics"])
     assert preview["capture_status"]["scope"] == "retained_tool_episodes_for_configured_tenants"
+
+
+def test_data_workbench_without_renderer_reports_missing_build(training):
+    data, _, _ = training
+    app = FastAPI()
+    register_training_routes(app, data.analytics, lambda request: {"role": "admin", "readonly": False},
+                             journal=data.journal, controls=data.controls)
+    with TestClient(app) as client:
+        response = client.get("/admin/data")
+        assert response.status_code == 503
+        assert "frontend_dir" in response.json()["detail"]
+        assert client.get("/admin/api/training/audit").status_code == 200
 
 
 def test_review_receipt_survives_refresh_but_never_a_changed_sample(training):

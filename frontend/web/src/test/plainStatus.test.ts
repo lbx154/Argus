@@ -44,6 +44,37 @@ describe('plainStatus', () => {
     expect(plainStatus('', 'zh-CN')).toBe('');
   });
 
+  it.each([
+    ['using a tool', '正在使用工具'],
+    ['Running a command', '正在运行命令'],
+    ['running project command', '正在运行命令'],
+    ['inspecting project state', '正在查看项目状态'],
+    ['Reporting progress', '正在汇报进展'],
+    ['Working', '正在工作'],
+  ])('localizes the generic activity %s even when the view declares Chinese', (raw, expected) => {
+    expect(plainStatus(raw, 'zh-CN', { kind: 'live_activity', language: 'zh' })).toBe(expected);
+  });
+
+  it('preserves concrete activity descriptions and recognized words inside longer text', () => {
+    const source = { kind: 'live_activity', language: 'zh' };
+    const detail = '正在核对 Lemma 4，并记录反例。';
+    expect(plainStatus(detail, 'zh-CN', source)).toBe(detail);
+    const specific = 'Using a tool to verify Lemma 4';
+    expect(plainStatus(specific, 'zh-CN', source)).toBe(specific);
+  });
+
+  it('keeps a specific status kind authoritative over a generic activity label', () => {
+    expect(plainStatus('Working', 'zh-CN', { kind: 'mission_failed', language: 'en' }))
+      .toBe('任务没能完成。');
+    expect(plainStatus('using a tool', 'zh-CN', { kind: 'progress_command', language: 'en' }))
+      .toBe('正在运行命令');
+  });
+
+  it('retains the legacy activity fallback for an unrecognized kind', () => {
+    expect(plainStatus('using a tool', 'zh-CN', { kind: 'unknown_activity', language: 'en' }))
+      .toBe('正在使用工具');
+  });
+
   it('renders statuses, stop kinds, progress and bookkeeping events', () => {
     expect(plainRouteStatus('failed', 'zh-CN')).toBe('失败');
     expect(plainRouteStatus('pending', 'en')).toBe('Waiting');

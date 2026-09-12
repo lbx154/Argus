@@ -75,6 +75,7 @@ from websockets.legacy.client import connect as websocket_connect
 from websockets.legacy.client import unix_connect as websocket_unix_connect
 
 from . import WEB_TOKEN_LIMIT
+from .data_page import FRONTEND_BUILD_MISSING, register_data_page
 from .secrets import Vault
 from .store import Store, TrialError
 
@@ -88,6 +89,10 @@ ADMIN_COOKIE_DOMAIN = b"argus-web-private-admin-session-v2\x00"
 TENANT_IDS = {f"trial-{number:02d}" for number in range(1, 12)}
 LEGACY_TENANT_IDS = TENANT_IDS - {"trial-11"}
 SAFE_METHODS = {"GET", "HEAD"}
+FRONTEND_PUBLIC_FILES = {
+    "/favicon.svg", "/favicon-dark.svg", "/manifest.webmanifest",
+    "/apple-touch-icon.png", "/apple-touch-icon-dark.png",
+}
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; "
@@ -348,7 +353,7 @@ class SecurityHeaders:
                     message["status"] in {200, 304}
                     and scope.get("method") in SAFE_METHODS
                     and re.fullmatch(
-                        r"/assets/[\w.-]+-[A-Za-z0-9_-]{8}\.(?:js|mjs|css|woff2?|ttf)",
+                        r"/(?:admin/)?assets/[\w.-]+-[A-Za-z0-9_-]{8}\.(?:js|mjs|css|woff2?|ttf)",
                         scope.get("path", ""),
                     )
                 ):
@@ -633,10 +638,33 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
 
     def frontend_document():
         nonlocal frontend_cache
+        if frontend_index is None:
+            raise HTTPException(503, FRONTEND_BUILD_MISSING)
         modified = frontend_index.stat().st_mtime_ns
         if frontend_cache[0] != modified:
             frontend_cache = (modified, frontend_index.read_text())
         return frontend_cache[1]
+
+    async def render_frontend(request: Request):
+        try:
+            document = await run_in_threadpool(frontend_document)
+        except FileNotFoundError:
+            raise HTTPException(503, FRONTEND_BUILD_MISSING) from None
+        # Resolve the same build's entry assets for both namespaces, including
+        # direct navigation to nested SPA routes. Module imports and CSS font
+        # URLs then resolve relative to their own asset URL as usual.
+        asset_root = "/admin/" if request.url.path.startswith("/admin/") else "/"
+        document = re.sub(
+            r'''(\b(?:src|href)=["'])(?:\./|/)?(assets/[^"']+|favicon(?:-dark)?\.svg|manifest\.webmanifest|apple-touch-icon(?:-dark)?\.png)(["'])''',
+            lambda match: match[1] + asset_root + match[2] + match[3], document,
+        )
+        nonce = secrets.token_urlsafe(24)
+        content = re.sub(r"<script(?=[\s>])", f'<script nonce="{nonce}"', document)
+        return HTMLResponse("" if request.method == "HEAD" else content, headers={
+            "content-security-policy": CSP.replace(
+                "script-src 'self'", f"script-src 'self' 'nonce-{nonce}'",
+            ),
+        })
 
     @asynccontextmanager
     async def lifespan(app):
@@ -797,7 +825,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         register_research(app, analytics, session, journal=Journal(analytics))
         register_training_routes(
             app, analytics, session, journal=app.state.journal,
-            controls=app.state.research_controls,
+            controls=app.state.research_controls, page_renderer=render_frontend,
         )
         if settings.team_training_policy is not None:
             for tenant in settings.team_training_policy["tenant_ids"]:
@@ -805,10 +833,30 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
                     tenant, team_policy=settings.team_training_policy,
                 )
         app.state.research_status = {"state": "starting"}
+    else:
+        register_data_page(app, session, page_renderer=render_frontend)
+
+    async def administrator_asset(request: Request):
+        if read_session(request, admin=True) is None:
+            raise HTTPException(401, "请先登录数据后台")
+        path = request.url.path.removeprefix("/admin")
+        if not canonical_path(path):
+            raise HTTPException(404, "Not found")
+        if frontend is None:
+            raise HTTPException(503, FRONTEND_BUILD_MISSING)
+        # StaticFiles confines paths and symlinks to the configured dist.
+        # Administrator requests never fall back to a tenant's older bundle.
+        return await frontend.get_response(path.lstrip("/"), request.scope)
+
+    app.add_api_route("/admin/assets/{path:path}", administrator_asset, methods=["GET", "HEAD"])
+    for path in sorted(FRONTEND_PUBLIC_FILES):
+        app.add_api_route("/admin" + path, administrator_asset, methods=["GET", "HEAD"])
 
     @app.middleware("http")
     async def administrator_entry(request: Request, call_next):
-        if request.method == "GET" and request.url.path in {"/admin", "/admin/data"} and session(request) is None:
+        if (request.method in SAFE_METHODS
+                and (request.url.path in {"/admin", "/admin/data"} or request.url.path.startswith("/admin/data/"))
+                and session(request) is None):
             return RedirectResponse("/admin/login", status_code=303)
         return await call_next(request)
 
@@ -1011,18 +1059,8 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             and request.method in SAFE_METHODS and canonical_path(path)
         ):
             if path in {"/", "/index.html"}:
-                nonce = secrets.token_urlsafe(24)
-                document = await run_in_threadpool(frontend_document)
-                content = re.sub(r"<script(?=[\s>])", f'<script nonce="{nonce}"', document)
-                return HTMLResponse("" if request.method == "HEAD" else content, headers={
-                    "content-security-policy": CSP.replace(
-                        "script-src 'self'", f"script-src 'self' 'nonce-{nonce}'",
-                    ),
-                })
-            if path.startswith("/assets/") or path in {
-                "/favicon.svg", "/favicon-dark.svg", "/manifest.webmanifest",
-                "/apple-touch-icon.png", "/apple-touch-icon-dark.png",
-            }:
+                return await render_frontend(request)
+            if path.startswith("/assets/") or path in FRONTEND_PUBLIC_FILES:
                 try:
                     return await frontend.get_response(path.lstrip("/"), request.scope)
                 except StarletteHTTPException as exc:

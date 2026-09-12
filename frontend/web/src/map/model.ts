@@ -18,6 +18,10 @@ export interface MapTask
   superseded_by_plan_id?: string;
   superseded_reason?: string;
   acceptance_check?: string;
+  goal_contribution?: string;
+  plan_hypothesis?: string;
+  non_goals?: string[];
+  outcome?: Partial<NonNullable<BacklogItem['outcome']>>;
   /** 'turn': a single-agent conversation turn that used tools, shown as a card. */
   kind?: string;
   /** Synthesized team branch node (display/navigation only, never a card). */

@@ -347,7 +347,7 @@ def test_completed_child_copy_is_stable_across_later_progress_and_model_changes(
 
 
 @pytest.mark.parametrize("version", [None, 5, 6])
-def test_legacy_copy_migrates_without_model_requests(tmp_path, monkeypatch, version):
+def test_legacy_copy_remains_readable_when_generation_is_unavailable(tmp_path, monkeypatch, version):
     sid, life, _ = setup_session(tmp_path)
     value = read_map(sid, tmp_path, life)
     saved = {"version": version, "model_revision": "earlier-model",
@@ -356,10 +356,12 @@ def test_legacy_copy_migrates_without_model_requests(tmp_path, monkeypatch, vers
     path = map_narrative.cache_path(tmp_path, value["id"] + ":en-US")
     path.parent.mkdir()
     path.write_text(json.dumps({"cards": {"a": saved}, "relations": []}))
+    monkeypatch.setattr(map_narrative, "configured", lambda: False)
     monkeypatch.setattr(map_narrative, "generate", lambda *a, **k: (_ for _ in ()).throw(AssertionError("regenerated")))
     result = map_narrative.enrich(tmp_path, value, [{"key": "a", "task_id": "a", "kind": "task", "event_ids": []}], "en-US", project_root=life)
-    assert result["cached"] and result["cards"]["a"]["generated_at"] == 1
-    assert result["cards"]["a"]["input_revision"]
+    assert result["available"] is False and result["cards"]["a"]["generated_at"] == 1
+    assert "reader_brief" not in result["cards"]["a"]
+    assert "input_revision" not in result["cards"]["a"]
 
 
 def test_different_sessions_can_prepare_copy_concurrently(tmp_path, monkeypatch):

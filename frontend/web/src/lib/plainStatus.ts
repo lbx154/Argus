@@ -8,6 +8,7 @@
 // separately so it can live in a tooltip instead of the page.
 
 import type { Locale } from '../i18n';
+import { humanizeHarnessNote, splitHarnessRecord, TECHNICAL_MARKER_PREFIX } from './harnessNotes';
 
 type Pair = readonly [zh: string, en: string];
 
@@ -179,6 +180,8 @@ const STATUSES: Record<string, Pair> = {
   stopped: ['已停止', 'Stopped'],
   cancelled: ['已停止', 'Stopped'],
   aborted: ['已停止', 'Stopped'],
+  paused_external_work: ['等待外部工作完成', 'Waiting for external work'],
+  superseded: ['已由新方案替代', 'Replaced by a newer plan'],
 };
 
 /** Why a round produced no judgment or a task stopped, by the backend's cause code. */
@@ -220,6 +223,7 @@ const STAGES: Record<string, Pair> = {
   review: ['最终审核', 'Final review'],
   delivery: ['成果交付', 'Delivery'],
   optimize: ['优化', 'Optimization'],
+  solve: ['推导与验证', 'Derivation and verification'],
   hold: ['已暂停', 'Paused'],
   paused: ['已暂停', 'Paused'],
 };
@@ -292,8 +296,18 @@ export function plainProgress(done: number, total: number, locale: Locale): stri
 
 type Render = string | ((match: RegExpMatchArray, locale: Locale) => string);
 
+/** Runtime labels can remain English inside an otherwise localized mission view. */
+const ACTIVITY_PHRASES: Array<[RegExp, string]> = [
+  [/^Reporting progress$/i, 'progress_message'],
+  [/^(?:Running a command|running project command)$/i, 'progress_command'],
+  [/^Using a tool$/i, 'progress_tool'],
+  [/^inspecting project state$/i, 'progress_inspecting'],
+  [/^Working$/i, 'live_activity'],
+];
+
 /** Legacy English titles and labels (the TS mirror reducer and older snapshots), matched whole. */
 const PHRASES: Array<[RegExp, Render]> = [
+  ...ACTIVITY_PHRASES,
   [/^(?:Review not performed|No review this round)$/i, 'round_not_judged'],
   [/^Goal framed$/i, 'goal_framed'],
   [/^(?:Grounding project|Project grounding started)$/i, 'grounding_started'],
@@ -305,10 +319,6 @@ const PHRASES: Array<[RegExp, Render]> = [
   [/^Project reviewed$/i, 'project_finished'],
   [/^Research branch added$/i, 'research_route_added'],
   [/^Task added$/i, 'task_added'],
-  [/^Reporting progress$/i, 'progress_message'],
-  [/^(?:Running a command|running project command)$/i, 'progress_command'],
-  [/^(?:Using a tool|using a tool)$/i, 'progress_tool'],
-  [/^inspecting project state$/i, 'progress_inspecting'],
   [/^(?:Engineer handoff ready|Work ready for review)$/i, 'engineer_round_finished'],
   [/^(?:Review started|Reviewing benchmark evidence)$/i, 'checking_started'],
   [/^(?:Continuing before review|Continued before review)$/i, 'continuing_before_check'],
@@ -324,7 +334,6 @@ const PHRASES: Array<[RegExp, Render]> = [
   [/^Awaiting Planner$/i, 'planner_waiting'],
   [/^Ready for a new mission$/i, 'mission_ready'],
   [/^Waiting$/i, 'waiting'],
-  [/^Working$/i, 'live_activity'],
   [/^Capability unlocked$/i, 'capability_unlocked'],
   [/^Capability upgraded$/i, 'capability_upgraded'],
   [/^Capability promoted to source$/i, 'capability_promoted'],
@@ -361,8 +370,10 @@ function uiLanguage(locale: Locale): string {
 }
 
 /**
- * A title or short label in plain words. When the backend names what happened
- * with a kind and already wrote the sentence in the reader's language, that
+ * A title or short label in plain words. Known generic runtime activities are
+ * localized first only when no specific kind is supplied. When the backend
+ * names what happened with a kind and already wrote a specific sentence in
+ * the reader's language, that
  * sentence is used as it came; a kind in another language is rendered from the
  * table; text without a kind is matched against the legacy phrases; anything
  * else is returned unchanged.
@@ -370,6 +381,11 @@ function uiLanguage(locale: Locale): string {
 export function plainStatus(raw: string | null | undefined, locale: Locale, source?: PlainSource | string | null): string {
   const text = String(raw ?? '').trim();
   const origin: PlainSource = typeof source === 'string' ? { kind: source } : source ?? {};
+  if (!origin.kind || origin.kind === 'live_activity') {
+    for (const [pattern, kind] of ACTIVITY_PHRASES) {
+      if (pattern.test(text)) return pick(PLAIN_BY_KIND[kind], locale);
+    }
+  }
   const own = origin.kind ? PLAIN_BY_KIND[origin.kind] : undefined;
   if (origin.kind) {
     const otherLanguage = Boolean(origin.language) && origin.language !== uiLanguage(locale);
@@ -569,4 +585,86 @@ export function plainDetail(raw: string | null | undefined, locale: Locale, sour
     text: rendered.join('').replace(/\n{3,}/g, '\n\n').trim(),
     technical: technical.join(' '),
   };
+}
+
+/** Presentation of known supervisor report templates, called only for mission_result
+ * events. Unknown reports and research passages are not translated or summarized. */
+export function plainTaskReport(raw: string, locale: Locale): PlainDetail | null {
+  const parts = raw.split(/(\r?\n)/);
+  const first = parts.findIndex((part, index) => index % 2 === 0 && part.trim() !== '');
+  const opening = parts[first]?.trim() ?? '';
+  const continued = opening.match(/^(?:Task continued|任务已继续)(?: · (.+))?$/);
+  const incomplete = opening.match(/^Could not complete (.+)\.$/) ?? opening.match(/^未能完成：(.+)。$/);
+  if (!continued && !incomplete) return null;
+
+  const zh = locale === 'zh-CN';
+  const technical: string[] = [];
+  let fence = '';
+  let researchSummary = false;
+  const rendered = parts.map((part, index) => {
+    if (index % 2 === 1) return part;
+    if (index === first) {
+      if (continued) {
+        const suffix = continued[1] ?? '';
+        const reviewed = suffix.match(/^(.*?) · review=(\S+)$/);
+        const title = reviewed ? reviewed[1] : suffix;
+        return [
+          zh ? '当时记录：工作继续推进。' : 'Recorded then: work continued.',
+          title ? `${zh ? '任务：' : 'Task: '}${title}` : '',
+          reviewed ? `${zh ? '当时记录的审阅状态：' : 'Review status recorded then: '}${plainRouteStatus(reviewed[2], locale)}` : '',
+        ].filter(Boolean).join('\n');
+      }
+      const subject = incomplete![1];
+      return /^(?:the current task|当前任务)$/.test(subject)
+        ? zh ? '当时这项任务未能完成。' : 'This task had not completed at that time.'
+        : zh ? `当时未能完成：${subject}。` : `Not completed at that time: ${subject}.`;
+    }
+    // Supervisor summaries can contain arbitrary multiline research, including
+    // unfenced Next:/Reason: examples. Keep that entire tail, even a final
+    // continuation sentence, rather than guessing where the summary ends.
+    if (/^(?:Progress|Mission summary|本次进展|本次完成)[:：]/.test(part)) researchSummary = true;
+    if (researchSummary) return part;
+    // Example messages in code also stay intact.
+    const marker = part.match(/^\s*(`{3,}|~{3,})/);
+    if (marker) {
+      if (!fence) fence = marker[1][0];
+      else if (fence === marker[1][0]) fence = '';
+      return part;
+    }
+    if (fence) return part;
+    if (/^(?:Nothing is queued yet; the Planner is deciding what comes next\.|计划里暂时没有下一项，Planner 正在决定接下来做什么。)$/.test(part)) {
+      return zh ? '当时尚未排入下一项任务，规划者还在决定接下来做什么。'
+        : 'At that time, nothing was queued and the Planner was still deciding what to do next.';
+    }
+    const next = part.match(/^(?:Next(?: action| up)?|下一步|接下来做)[:：]\s*(.*)$/);
+    if (next) {
+      const action = /^(?:Argus will diagnose the failure and choose a safe next step\.|Argus 会诊断原因并选择可恢复的方案。)$/.test(next[1])
+        ? zh ? '诊断当时的原因，再选择可恢复的方案。' : 'Diagnose the cause and choose a recovery approach.'
+        : next[1];
+      return `${zh ? '当时记录的下一步：' : 'Next step recorded at the time: '}${action}`;
+    }
+    const reason = part.match(/^(?:Reason:|原因：)\s*(.*)$/);
+    if (reason) {
+      const record = splitHarnessRecord(reason[1]);
+      // This exact sentence is emitted by operator_interrupt_review_decision.
+      // A mention of interruption inside ordinary research prose is insufficient.
+      if (record.prose === "Argus was stopped by its operator in the middle of this round; the Engineer's work so far is kept and nothing was retried.") {
+        const note = humanizeHarnessNote(reason[1], zh);
+        if (record.receipt) technical.push(record.receipt);
+        return zh ? `当时${note.summary}。已做的工作保留，当时没有重试。`
+          : `At that time, ${note.summary}. Work done so far was kept, and no retry was made then.`;
+      }
+      const detail = plainDetail(reason[1], locale);
+      if (detail.text !== reason[1].trim() || detail.technical) {
+        if (detail.technical) technical.push(detail.technical);
+        return `${zh ? '当时记录的原因：' : 'Reason recorded at the time: '}${detail.text}`;
+      }
+    }
+    if (TECHNICAL_MARKER_PREFIX.test(part.trim())) {
+      technical.push(part);
+      return '';
+    }
+    return part;
+  });
+  return { text: rendered.join(''), technical: technical.join('\n') };
 }

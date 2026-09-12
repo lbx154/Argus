@@ -83,8 +83,8 @@ export function formatRelativeTime(ts: string | number | Date, locale: Locale = 
   }).format(date);
 }
 
-/** local wall-clock HH:MM:SS for a stream event, tolerant of ts/time shapes. */
-export function clockOf(ev: Record<string, unknown>): string {
+/** Local date for a stream event, tolerant of ts/time shapes. */
+export function dateOf(ev: Record<string, unknown>): Date | null {
   const raw = ev.ts ?? ev.time;
   let ms: number | null = null;
   if (typeof raw === 'number') ms = raw > 1e12 ? raw : raw * 1000;
@@ -92,8 +92,15 @@ export function clockOf(ev: Record<string, unknown>): string {
     const p = Date.parse(raw);
     if (!isNaN(p)) ms = p;
   }
-  if (ms == null) return '';
+  if (ms == null || !Number.isFinite(ms)) return null;
   const d = new Date(ms);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** local wall-clock HH:MM:SS for a stream event, tolerant of ts/time shapes. */
+export function clockOf(ev: Record<string, unknown>): string {
+  const d = dateOf(ev);
+  if (!d) return '';
   const p = (x: number) => String(x).padStart(2, '0');
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }

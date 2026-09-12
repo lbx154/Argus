@@ -510,7 +510,7 @@
   background: rgb(var(--line) / 0.5);
   color: rgb(var(--ink));
 }
-.macro-reader h3 {
+.macro-reader > h3 {
   font-size: 18px;
   line-height: 1.4;
   font-weight: 600;
@@ -528,21 +528,21 @@
   /* Comfortable measure: content holds a centered ~64ch column in wide readers. */
   padding-inline: max(0px, calc((100% - 64ch) / 2));
 }
-.macro-reader-body p {
+.macro-reader-markdown p {
   margin: 0 0 12px;
 }
-.macro-reader-body ul,
-.macro-reader-body ol {
+.macro-reader-markdown ul,
+.macro-reader-markdown ol {
   padding-left: 24px;
   margin: 10px 0 14px;
 }
-.macro-reader-body h1,
-.macro-reader-body h2,
-.macro-reader-body h3 {
+.macro-reader-markdown h1,
+.macro-reader-markdown h2,
+.macro-reader-markdown h3 {
   line-height: 1.45;
   margin: 18px 0 8px;
 }
-.macro-reader-body code {
+.macro-reader-markdown code {
   font-size: 0.9em;
 }
 .macro-reader footer {
@@ -967,11 +967,11 @@
 .map-card-copy code, .submap-step-copy code { font-size: .94em; border-radius: 3px; padding: 0 3px; background: rgb(var(--blue) / .06); }
 .markdown-excerpt-link { color: rgb(var(--blue)); }
 .markdown-excerpt-item + .markdown-excerpt-item::before { content: ' · '; color: rgb(var(--ink-faint)); }
-.macro-reader-body table { table-layout: auto; }
-.macro-reader-body h1 { font-size: 1.2em; }
-.macro-reader-body h2 { font-size: 1.1em; }
-.macro-reader-body h3 { font-size: 1em; }
-.macro-reader-body th, .macro-reader-body td { min-width: 5em; }
+.macro-reader-markdown table { table-layout: auto; }
+.macro-reader-markdown h1 { font-size: 1.2em; }
+.macro-reader-markdown h2 { font-size: 1.1em; }
+.macro-reader-markdown h3 { font-size: 1em; }
+.macro-reader-markdown th, .macro-reader-markdown td { min-width: 5em; }
 .macro-reader-body .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
 
 /* Step outcome is legible per card: status recolors the meta, terminal failure

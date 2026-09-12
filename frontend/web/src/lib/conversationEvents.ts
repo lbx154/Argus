@@ -175,12 +175,13 @@ export function mergeConversationEvents(
   transcript: TranscriptTurn[],
   localEvents: EventMsg[],
 ): EventMsg[] {
-  const liveCounts = new Map<string, number>();
-  liveEvents.forEach((event) => {
+  const liveByContent = new Map<string, number[]>();
+  const mergedLive = [...liveEvents];
+  liveEvents.forEach((event, index) => {
     const type = String(event.type ?? '');
     if (type !== 'ui.operator' && type !== 'ui.argus') return;
     const key = `${type}\u0000${String(event.text ?? '')}`;
-    liveCounts.set(key, (liveCounts.get(key) ?? 0) + 1);
+    liveByContent.set(key, [index, ...(liveByContent.get(key) ?? [])]);
   });
   const history: EventMsg[] = transcript.map((turn) => ({
     type: turn.role === 'operator' ? 'ui.operator' : 'ui.argus',
@@ -200,15 +201,35 @@ export function mergeConversationEvents(
   for (let index = history.length - 1; index >= 0; index -= 1) {
     const event = history[index];
     const key = `${String(event.type)}\u0000${String(event.text ?? '')}`;
-    const count = liveCounts.get(key) ?? 0;
-    if (count > 0) {
+    const candidates = liveByContent.get(key) ?? [];
+    const messageId = transcript[index].message_id;
+    const compatible = (liveIndex: number) => {
+      const live = mergedLive[liveIndex];
+      if (event.item_id && live.item_id && event.item_id !== live.item_id) return false;
+      // Receipt prose is often a repeated template. Require its durable
+      // message identity before removing history or carrying task metadata.
+      return event.mission_result !== true && live.mission_result !== true
+        || Boolean(messageId && live.message_id === messageId);
+    };
+    let match = candidates.findIndex(liveIndex => compatible(liveIndex)
+      && Boolean(messageId && mergedLive[liveIndex].message_id === messageId));
+    if (match < 0) match = candidates.findIndex(compatible);
+    if (match >= 0) {
       keepHistory[index] = false;
-      liveCounts.set(key, count - 1);
+      const [liveIndex] = candidates.splice(match, 1);
+      const live = mergedLive[liveIndex];
+      if (messageId && live.message_id === messageId) {
+        const missing: Partial<EventMsg> = {};
+        for (const field of ['mission_result', 'item_id', 'success'] as const) {
+          if ((live[field] == null || live[field] === '') && event[field] != null) missing[field] = event[field];
+        }
+        mergedLive[liveIndex] = { ...live, ...missing };
+      }
     }
   }
   const confirmed = [
     ...history.filter((_event, index) => keepHistory[index]),
-    ...liveEvents,
+    ...mergedLive,
   ];
   const keepConfirmed = new Array(confirmed.length).fill(true);
   const claimedConfirmed = new Set<number>();

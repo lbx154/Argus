@@ -262,7 +262,7 @@ describe('EventStream role grouping', () => {
       onToggleReasoning: () => undefined,
     }));
 
-    expect(html).toContain('Background activity');
+    expect(html).toContain('Project work progress');
     expect(html).toContain('data-role="planner"');
     expect(html).toContain('data-role="engineer"');
     expect(html).toContain('data-role="reviewer"');

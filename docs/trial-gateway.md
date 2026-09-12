@@ -53,12 +53,20 @@ Explicit project/role overrides retain precedence; remove them when converting
 an existing project. Trial usage counts tokens but has zero user dollar cost;
 it does not wait for personal Copilot billing reconciliation.
 
-The trial provider is **`gpt-5.5` with reasoning effort `high`**, exposed as
+The trial provider is **`gpt-5.5` with default reasoning effort `high`**, exposed as
 `argus-trial`. Clients retain the text/tool Chat Completions contract. The gateway
 translates requests, streamed text and local function/custom calls to Copilot `/responses`
-(the model rejects `/chat/completions`). Model and high effort are enforced on
-the server for existing clients too; there is no fallback to GPT-4.1. New desktop
-setup persists GPT-5.5 and high role efforts. Images, embeddings and Anthropic
+(the model rejects `/chat/completions`). The server controls model selection;
+there is no fallback to GPT-4.1. An explicit `reasoning_effort` is validated by
+the existing request schema and forwarded as Responses `reasoning.effort`;
+omitting it, or sending `null`, uses `high`. The accepted values remain `none`,
+`low`, `medium`, `high`, and `xhigh`. New desktop setup and hosted defaults still
+configure the research roles with high effort. Separately configured map-summary
+calls can use `low` or `medium` without changing those role settings.
+Hosted web workspaces default map summaries to `medium` when no environment or
+persisted preference exists. Startup preserves an explicit map setting, so an
+operator's summary preference survives a workspace restart.
+Images, embeddings and Anthropic
 wire requests remain unsupported. Argus sends `User-Agent: Argus/0.1.1` for status and
 Copilot BYOK requests: the existing Cloudflare site rejects the CLI's default
 agent header with HTTP 403. No browser challenge is needed with the Argus header.
@@ -145,8 +153,10 @@ In Pi's `models.json`, configure:
 Supply the invitation key privately in `ARGUS_TRIAL_KEY`, then select
 `pi --provider argus-trial --model argus-trial --thinking high`.
 The public gateway accepts Chat Completions and translates to Responses itself;
-do not point Pi's `openai-responses` adapter at this endpoint. Model and effort
-remain server-controlled. Pi JSON mode can exit zero on a provider error, so
+do not point Pi's `openai-responses` adapter at this endpoint. Model selection
+remains server-controlled. Pi sends its configured thinking level as the
+top-level `reasoning_effort`; the gateway preserves validated explicit values
+and defaults to `high` when the field is absent. Pi JSON mode can exit zero on a provider error, so
 consumers must inspect `stopReason` / `errorMessage`; Argus already does.
 
 Copilot ACP can similarly report a query error as assistant text followed by

@@ -89,7 +89,7 @@ it("updates task summaries on real progress and reuses richer cached evidence", 
   const request = { key: "a", task_id: "a", kind: "task", event_ids: [] };
   const copy = { cards: { a: saved }, relations: [] };
   expect(needsCardCopy(request, first, copy)).toBe(false);
-  expect(needsCardCopy(request, first, { ...copy, version: 99 })).toBe(false);
+  expect(needsCardCopy(request, first, { ...copy, version: 99 })).toBe(true);
   expect(needsCardCopy(request, { ...first, tasks: [{ ...first.tasks[0], revision: "new" }] }, copy)).toBe(true);
 });
 

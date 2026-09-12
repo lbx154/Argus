@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from .analytics import AnalyticsError
@@ -10,8 +10,9 @@ from .collaboration_data import CollaborationData
 from .training_data import TrainingData
 
 
-def register_training_routes(app, analytics, session, *, journal=None, controls=None):
+def register_training_routes(app, analytics, session, *, journal=None, controls=None, page_renderer=None):
     """Register before the portal catch-all; reuse existing ResearchControls."""
+    from .data_page import register_data_page
     from .research_controls import ResearchControls
     from .web_portal import json_body, read_body, require_origin
 
@@ -20,6 +21,7 @@ def register_training_routes(app, analytics, session, *, journal=None, controls=
     app.state.training_data = training
     collaboration = CollaborationData(training)
     app.state.collaboration_data = collaboration
+    register_data_page(app, session, page_renderer=page_renderer)
 
     def identity(request, *, admin=False, mutation=False):
         value = session(request)
@@ -40,15 +42,6 @@ def register_training_routes(app, analytics, session, *, journal=None, controls=
             raise HTTPException(exc.status, exc.code) from None
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
-
-    @app.get("/admin/data")
-    @app.get("/admin/data/app.js")
-    async def data_page(request: Request):
-        identity(request, admin=True)
-        from .data_page import PAGE, SCRIPT
-
-        return (Response(SCRIPT, media_type="application/javascript")
-                if request.url.path.endswith(".js") else HTMLResponse(PAGE))
 
     @app.get("/trial/data-permissions")
     async def permissions(request: Request):

@@ -28,7 +28,39 @@ Both logins can coexist in one browser, and signing out of either leaves the
 other session intact. The administrator key grants data-backend access; opening
 a project still requires an ordinary invitation, including for `trial-11`.
 
+The user workbench and `/admin/data` use the same `frontend/web` React build.
+`src/main.tsx` selects `App` or `admin-data/AdminDataApp` by pathname. Both use
+`WorkspaceShell`, `WorkspaceHeader`, `WorkspaceSidePanel`, `useWorkbenchTheme`
+and the existing UI primitives, fonts, Markdown renderer and theme tokens.
+The data view calls `/admin/api/training/*`; it does not initialize user-workspace
+state. Project names come from the existing tenant project directory and are
+joined by tenant and SID. Loading more observations merges each episode by its
+recorded sequence; the displayed loaded count is separate from the retained total.
+
+`argus_skill/trial/data_page.py` only registers the page routes. The portal renders
+the shared build and serves its relative assets through `/admin/assets/*` for an
+administrator, or `/assets/*` for an invitation session. Configure `frontend_dir`
+to a completed build before enabling the data page; a missing build returns 503.
+
 ## Mission map
+
+The conversation, mission view, workbench and progress panel share the current
+work-status projection. A live server is not itself evidence that the selected
+task is executing. Paused tasks, concurrent tasks, retry waits and disconnected
+browsers retain their distinct states and the time of the last associated
+progress record. The workbench counts recorded work items; it does not turn that
+fraction, a saved file or an ended review call into proof that the overall goal
+was reached. Remaining time is shown as unknown without a comparable workload.
+
+The conversation's **Understand this step** card reuses the map's generated-copy
+cache. It explains the purpose, one relevant concept with an illustrative example,
+the supported scope and the recorded next step. Explanations cite the task's
+existing event identities and never change task or review state. Only meaningful
+task milestones request fresh text; tool updates do not trigger repeated model
+calls or background generation of the whole history. Original records remain
+readable if explanation generation is unavailable. Autonomous work has its own
+progress section, so a new chat question does not claim ownership of unrelated
+work already in progress.
 
 The configured hosted frontend is shared by all authenticated invitation
 workspaces, including `trial-11`. Their project APIs remain separately routed; sharing
