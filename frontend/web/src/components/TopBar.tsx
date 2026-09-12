@@ -1,3 +1,4 @@
+import { WorkspaceHeader } from './WorkspaceShell';
 import type { Snapshot, Role } from '../api';
 import type { MissionView } from '../../../core/src/types';
 import { theme } from '../lib/theme';
@@ -80,7 +81,7 @@ export function TopBar({
     : t('common.reconnecting');
 
   return (
-    <header className="chrome-seam-surface glass-panel glass-panel--raised flex h-12 min-w-0 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-4">
+    <WorkspaceHeader>
       {onOpenSessions ? (
         <button type="button" onClick={onOpenSessions} aria-label={t('topbar.openSessions')} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink lg:hidden">
           <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.25">
@@ -163,6 +164,6 @@ export function TopBar({
           </button>
         </>
       ) : null}
-    </header>
+    </WorkspaceHeader>
   );
 }

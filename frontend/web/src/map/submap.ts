@@ -342,9 +342,15 @@ export function stepsSummary(steps: WorkStep[], overflow: number, zh: boolean): 
 function workSegmentStep(event: MapEvent, zh: boolean): SubmapStep {
   const steps = event.steps ?? [];
   const narration = readableRecord(event.text);
+  const missingDetails = event.tool_details_recorded === false;
+  const evidenceNote = missingDetails
+    ? zh ? "执行日志确认发生过工具活动，但这一轮没有记录详细工具步骤。"
+      : "Execution logs confirm tool activity, but detailed tool steps were not recorded for this turn."
+    : "";
   const single = event.role === "manager";
   const shape = stepsSummary(steps, event.overflow ?? 0, zh);
-  const title = titleClause(narration)
+  const title = (missingDetails ? zh ? "已记录的执行" : "Recorded execution" : "")
+    || titleClause(narration)
     || (single
       ? zh ? "Argus 动手查证" : "Argus did the work"
       : steps.length
@@ -358,8 +364,8 @@ function workSegmentStep(event: MapEvent, zh: boolean): SubmapStep {
     kind: event.role === "reviewer" ? "review" : "execution",
     title,
     summary: clipSentence(narration) || shape || undefined,
-    detail: [narration, lines.join("\n")].filter(Boolean).join("\n\n") || noDetails(zh),
-    status: steps.some((step) => step.status === "failed") ? "failed" : "recorded",
+    detail: [evidenceNote, narration, lines.join("\n")].filter(Boolean).join("\n\n") || noDetails(zh),
+    status: event.status || (steps.some((step) => step.status === "failed") ? "failed" : "recorded"),
     ts: event.ts,
     source: event.association === "single_active_window" ? "interval" : "event",
     eventIds: [event.id],
@@ -450,7 +456,7 @@ export function buildSubmap(
         title: zh ? "Argus 的回答" : "What Argus answered",
         summary: clipSentence(answer) || undefined,
         detail: answer || noDetails(zh),
-        status: "done",
+        status: e.status || "done",
         ts: e.ts,
         source: "event",
         eventIds: [e.id],

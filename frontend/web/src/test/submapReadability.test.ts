@@ -31,6 +31,23 @@ const event = (
   ...extra,
 });
 
+it("keeps failed historical SELF work neutral about missing tool details", () => {
+  const steps = buildSubmap({ ...task, kind: "turn", status: "failed" }, [
+    event("e1", "work.segment", {
+      role: "manager", status: "failed", steps: [],
+      tool_details_recorded: false, association: "single_active_window",
+      text: "Hard idle timeout",
+    }),
+    event("e2", "turn.replied", { status: "failed", text: "I am building it." }),
+  ], false);
+  const work = steps.find(step => step.id === "e1")!;
+  expect(work.title).toBe("Recorded execution");
+  expect(work.detail).toContain("detailed tool steps were not recorded");
+  expect(work.source).toBe("interval");
+  expect(work.status).toBe("failed");
+  expect(steps.find(step => step.id === "e2")!.status).toBe("failed");
+});
+
 describe("humanizeHarnessNote", () => {
   it("turns the provider-turn-cap record into one colleague sentence and moves the receipt aside", () => {
     const en = humanizeHarnessNote(LIVE_RECEIPT, false);

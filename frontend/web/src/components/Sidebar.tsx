@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProjectRow } from '../api';
 import { PluginLauncher } from './PluginLauncher';
+import { WorkspaceSidePanel } from './WorkspaceShell';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
 import { ago, uptime } from '../lib/format';
@@ -121,13 +122,7 @@ export function Sidebar({
   const groupIsCollapsed = (path: string) => collapsedGroups.has(path) && !query.trim();
 
   return (
-    <aside
-      data-state={slim ? 'collapsed' : 'expanded'}
-      data-resizable-panel="left"
-      className={`glass-panel glass-panel--side fixed inset-y-0 left-0 z-50 flex h-full shrink-0 flex-col border-r transition-[width,transform,visibility] duration-panel ease-panel lg:visible lg:static lg:z-auto lg:translate-x-0 ${
-        slim ? 'w-14' : 'w-64 lg:w-[var(--sidebar-width)]'
-      } ${mobileOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'}`}
-    >
+    <WorkspaceSidePanel mobileOpen={mobileOpen} collapsed={collapsed}>
       <div className={`chrome-seam-surface flex h-12 shrink-0 items-center border-b border-line/50 ${slim ? 'justify-center' : 'justify-between px-4'}`}>
         {slim ? (
           <Wordmark size={22} compact />
@@ -351,6 +346,6 @@ export function Sidebar({
           </div>
         </>
       ) : null}
-    </aside>
+    </WorkspaceSidePanel>
   );
 }

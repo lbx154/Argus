@@ -1,18 +1,13 @@
 import {
-  startTransition,
   useCallback,
   useEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { type ThemeMode } from './components/TopBar';
+import { useWorkbenchTheme } from './useWorkbenchTheme';
 import { readLocalStorage, writeLocalStorage } from './lib/storage';
 import { preferredPreviewWidth, PREVIEW_DEFAULT_WIDTH, PREVIEW_MAX_WIDTH } from './lib/previewLayout';
-import {
-  readThemeStyle,
-  normalizeThemeStyle,
-} from './lib/themePreference';
 
 type WorkspaceView = 'mission' | 'activity' | 'workbench' | 'map';
 const WORKSPACE_VIEWS: readonly WorkspaceView[] = ['mission', 'activity', 'workbench', 'map'];
@@ -28,13 +23,6 @@ function isWorkspaceView(value: string | null): value is WorkspaceView {
 function storedBoolean(key: string, fallback: boolean): boolean {
   const value = readLocalStorage(key);
   return value == null ? fallback : value === 'true';
-}
-
-function publishThemeMode(themeMode: ThemeMode): void {
-  document.documentElement.dataset.theme = themeMode;
-  if (window.parent !== window) {
-    window.parent.postMessage({ type: 'argus:theme-changed', payload: themeMode }, '*');
-  }
 }
 
 export function useWorkbenchLayout() {
@@ -68,18 +56,7 @@ export function useWorkbenchLayout() {
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => storedBoolean('argus.sidebar.expanded.v4', true));
-  const [manualTheme, setManualTheme] = useState<ThemeMode | null>(() => {
-    const desktop = params.get('desktopTheme');
-    if (desktop === 'light' || desktop === 'dark') return desktop;
-    const stored = readLocalStorage('argus.theme');
-    return stored === 'light' || stored === 'dark' ? stored : null;
-  });
-  const themeStyle = readThemeStyle();
-  const [systemDark, setSystemDark] = useState(
-    () => window.matchMedia('(prefers-color-scheme: dark)').matches,
-  );
-  const themeMode: ThemeMode = manualTheme ?? (systemDark ? 'dark' : 'light');
-  const themeModeRef = useRef(themeMode);
+  const { themeMode, themeStyle, cycleTheme } = useWorkbenchTheme();
   const shellRef = useRef<HTMLDivElement>(null);
   const resizeFrameRef = useRef<number | null>(null);
 
@@ -93,43 +70,6 @@ export function useWorkbenchLayout() {
   useEffect(() => {
     writeLocalStorage('argus.reasoning.visible.v1', String(showReasoning));
   }, [showReasoning]);
-
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const syncSystemTheme = () => setSystemDark(media.matches);
-    syncSystemTheme();
-    media.addEventListener('change', syncSystemTheme);
-    return () => media.removeEventListener('change', syncSystemTheme);
-  }, []);
-
-  useEffect(() => {
-    themeModeRef.current = themeMode;
-    publishThemeMode(themeMode);
-  }, [themeMode]);
-
-  useEffect(() => {
-    document.documentElement.dataset.themeStyle = themeStyle;
-    normalizeThemeStyle();
-  }, [themeStyle]);
-
-  useEffect(() => {
-    if (window.parent !== window) {
-      window.parent.postMessage({ type: 'argus:theme-preference', payload: manualTheme || 'system' }, '*');
-    }
-  }, [manualTheme]);
-
-  const cycleTheme = useCallback(() => {
-    const next = themeModeRef.current === 'light' ? 'dark' : 'light';
-    themeModeRef.current = next;
-    publishThemeMode(next);
-    writeLocalStorage('argus.theme', next);
-    const url = new URL(window.location.href);
-    if (url.searchParams.has('desktopTheme')) {
-      url.searchParams.set('desktopTheme', next);
-      window.history.replaceState(window.history.state, '', url.toString());
-    }
-    startTransition(() => setManualTheme(next));
-  }, []);
 
   const openPreview = useCallback(() => {
     setRightPanelOpen(true);
