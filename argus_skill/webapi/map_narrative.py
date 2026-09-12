@@ -25,7 +25,7 @@ from .map_teaching_review import (
 )
 from .map_view import digest, task_content_revision, text
 
-PROMPT_VERSION = 20
+PROMPT_VERSION = 21
 SOURCE_SNAPSHOT_VERSION = 1
 _LOCK = threading.Lock()
 _SOURCES: WeakValueDictionary = WeakValueDictionary()
