@@ -21,7 +21,7 @@ vi.mock('../components/Modal', () => ({
 
 let renderer: ReactTestRenderer | undefined;
 let client: QueryClient | undefined;
-afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; client?.clear(); vi.restoreAllMocks(); vi.useRealTimers(); });
+afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; client?.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 function cachedClient() {
   const props = inputs();
@@ -53,6 +53,24 @@ it('reads from the full problem through definition, example and connection befor
   expect(markup).toContain('View evidence');
   expect(markup).not.toContain('main-a');
   expect(markup).toContain('data-testid="research-brief-footer"');
+});
+
+it('uses the current card’s learning path in the shared reader while retaining evidence and scope', () => {
+  const props = inputs(), queryClient = cachedClient();
+  const copy = completedCopy(source.tasks[0], ['start-a', 'main-a']);
+  copy.cards.a.learning_path = { question: 'Current task teaching question', steps: [{ title: 'Current task meaning',
+    explanation: 'Current task explanation', example: 'Current task illustration',
+    check: { question: 'Current task check', answer: 'Current task answer' } }] };
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US'), copy);
+  const generate = vi.spyOn(api, 'generateMapCopy');
+  act(() => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} readOnly /></QueryClientProvider>); });
+  const explanation = renderer!.root.findByType(ReaderExplanation);
+  expect(explanation.props.learningPath).toEqual(copy.cards.a.learning_path);
+  expect(explanation.findByProps({ 'data-reader-learning-path': 'a' }).findAllByType('li')).toHaveLength(1);
+  expect(explanation.findAllByType(MarkdownContent).map(node => node.props.children)).toContain(copy.cards.a.reader_brief!.scope);
+  act(() => renderer!.root.findAllByType('button').find(node => node.children.includes('View evidence'))!.props.onClick());
+  expect(renderer!.root.findByType(ReaderEvidence).props.selection.taskId).toBe('a');
+  expect(generate).not.toHaveBeenCalled();
 });
 
 it('opens readable source text before the folded original JSON without generating an explanation', () => {
@@ -154,6 +172,79 @@ it('opens the existing explanation from compact chrome while retaining source an
   expect(details.findByType(MarkdownContent).props.children).toBe(completedCopy(source.tasks[0], ['start-a']).cards.a.detail);
   expect(reading.findAllByType('span').some(item => item.children.join('').includes('update pending'))).toBe(true);
   expect(onAsk).not.toHaveBeenCalled();
+  expect(generate).not.toHaveBeenCalled();
+});
+
+it('keeps a desktop reader on its selected task through a background task switch and the original pending generation', async () => {
+  vi.useFakeTimers();
+  const props = inputs(), next = inputs('b'), queryClient = cachedClient();
+  const previous = completedCopy(source.tasks[0], ['start-a'], 7);
+  previous.cards.a.reader_brief = { ...previous.cards.a.reader_brief!, why: 'Earlier explanation of task A.' };
+  const other = completedCopy(source.tasks[1], ['review-b'], 20);
+  other.cards.b.reader_brief = { ...other.cards.b.reader_brief!, why: 'Current explanation of task B.' };
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US'), { ...previous, cards: { ...previous.cards, ...other.cards } });
+  queryClient.setQueryData(briefLiveKey(next.sid, briefSelection(next.snapshot, next.view)), currentBriefData(source, next.sid, 'b'));
+  let finish!: (copy: MapCopy) => void;
+  const generate = vi.spyOn(api, 'generateMapCopy').mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  const live = vi.spyOn(api, 'liveMap'), copyRead = vi.spyOn(api, 'mapCopy');
+  await act(async () => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} /></QueryClientProvider>); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  act(() => renderer!.root.findAllByType('button').find(node => node.children.includes('Read explanation'))!.props.onClick());
+  const reading = () => renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' });
+  expect(reading().props['data-task-id']).toBe('a');
+  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('Earlier explanation of task A.');
+
+  await act(async () => renderer!.update(<QueryClientProvider client={queryClient}><ResearchBrief {...next} /></QueryClientProvider>));
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  expect(reading().props['data-task-id']).toBe('a');
+  expect(reading().findByType(ReaderEvidence).props.selection.taskId).toBe('a');
+  expect(renderer!.root.findByProps({ 'data-testid': 'research-brief-body' }).findByType(ReaderExplanation).props.brief.why).toBe('Current explanation of task B.');
+
+  const completed = completedCopy(source.tasks[0], ['start-a', 'main-a'], 30);
+  completed.cards.a.reader_brief = { ...completed.cards.a.reader_brief!, why: 'The completed explanation of task A.' };
+  completed.cards.a.source_snapshot = { version: 2, card_key: 'a', task_id: 'a', captured_at: 6,
+    task: { ...source.tasks[0] }, source_ids: ['start-a', 'main-a'],
+    events: source.events.filter(event => ['start-a', 'main-a'].includes(event.id)).map(event => ({ ...event })) };
+  await act(async () => finish(completed));
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  expect(reading().findByType(ReaderExplanation).props.brief.why).toBe('The completed explanation of task A.');
+  const retained = reading().findByType(ReaderEvidence).props.selection;
+  expect(retained.taskId).toBe('a');
+  expect(retained.snapshot).toEqual(completed.cards.a.source_snapshot);
+  expect(retained.used.map((row: { id: string }) => row.id)).toEqual(['start-a', 'main-a']);
+  expect(reading().findAllByType(MarkdownContent).map(node => node.props.children).join('\n')).not.toContain('Other task accepted');
+  expect(renderer!.root.findByProps({ 'data-testid': 'research-brief-body' }).findByType(ReaderExplanation).props.brief.why).toBe('Current explanation of task B.');
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(live).not.toHaveBeenCalled();
+  expect(copyRead).not.toHaveBeenCalled();
+
+  const otherProject = { ...next, sid: 's-other', active: false,
+    snapshot: { ...next.snapshot, session: { ...next.snapshot.session, id: 's-other' } } };
+  act(() => renderer!.update(<QueryClientProvider client={queryClient}><ResearchBrief {...otherProject} /></QueryClientProvider>));
+  expect(renderer!.root.findAllByProps({ 'data-testid': 'research-brief-reading' })).toHaveLength(0);
+  act(() => renderer!.update(<QueryClientProvider client={queryClient}><ResearchBrief {...next} active={false} /></QueryClientProvider>));
+  expect(renderer!.root.findAllByProps({ 'data-testid': 'research-brief-reading' })).toHaveLength(0);
+});
+
+it('keeps an opened reader in its captured cache mode while the current panel changes mode', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('window', { location: { search: '?reader_preview=source-first' } });
+  const props = inputs(), queryClient = cachedClient();
+  const oldMode = completedCopy(source.tasks[0], ['start-a', 'main-a']);
+  oldMode.cards.a.reader_brief = { ...oldMode.cards.a.reader_brief!, why: 'Source-first retained content.' };
+  const newMode = completedCopy(source.tasks[0], ['start-a', 'main-a']);
+  newMode.cards.a.reader_brief = { ...newMode.cards.a.reader_brief!, why: 'Learning-path retained content.' };
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US', 'source-first'), oldMode);
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US', 'learning-path'), newMode);
+  const generate = vi.spyOn(api, 'generateMapCopy');
+  act(() => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} readOnly /></QueryClientProvider>); });
+  act(() => renderer!.root.findAllByType('button').find(node => node.children.includes('Read explanation'))!.props.onClick());
+  vi.stubGlobal('window', { location: { search: '?reader_preview=learning-path' } });
+  act(() => renderer!.update(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} readOnly /></QueryClientProvider>));
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  expect(renderer!.root.findByProps({ 'data-testid': 'research-brief-reading' }).findByType(ReaderExplanation).props.brief.why).toBe('Source-first retained content.');
+  expect(renderer!.root.findByProps({ 'data-testid': 'research-brief-body' }).findByType(ReaderExplanation).props.brief.why).toBe('Learning-path retained content.');
   expect(generate).not.toHaveBeenCalled();
 });
 

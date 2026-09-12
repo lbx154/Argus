@@ -1,4 +1,5 @@
 import type { EventMsg, MissionView, Snapshot } from '../../../core/src/types';
+import { operatorDecisionCards } from '../../../core/src/decisions';
 import type { Locale } from '../i18n';
 
 export interface WorkStatus {
@@ -8,7 +9,7 @@ export interface WorkStatus {
   title: string;
   activityAt: number | null;
   activityAgeSeconds: number | null;
-  reason: 'provider_wait' | 'no_recent_progress' | 'awaiting_next_step' | 'not_running' | 'task_failed' | '';
+  reason: 'provider_wait' | 'no_recent_progress' | 'awaiting_next_step' | 'not_running' | 'task_failed' | 'operator_input' | '';
 }
 
 const ACTIVE = new Set(['running', 'in_progress', 'claimed', 'active', 'working', 'grounding', 'framed']);
@@ -81,7 +82,8 @@ export function currentWorkStatus(
   }).map(event => timestamp(event.ts));
   for (const item of view?.role_work || []) {
     const id = item.item_id || item.mission_id;
-    if ((!taskId || id === taskId) && item.ts >= started) times.push(timestamp(item.ts));
+    if ((!taskId || id === taskId) && item.ts >= started
+      && item.kind !== 'waiting' && !['waiting', 'idle'].includes(item.status)) times.push(timestamp(item.ts));
   }
   const known = times.filter((time): time is number => time !== null && time <= nowSeconds + 5);
   const activityAt = known.length ? Math.max(...known) : null;
@@ -93,7 +95,9 @@ export function currentWorkStatus(
   if (!snapshot || snapshot.daemon.read_status === 'error') return { ...result, state: 'unknown' };
   const missionState = String(task?.status || view?.mission.status || '').toLowerCase();
   if (PAUSED.has(missionState) || missionState.startsWith('paused_') || missionState === 'research_incomplete') {
-    return { ...result, state: 'paused', role: '', reason: 'not_running' };
+    const needsReply = operatorDecisionCards(snapshot.pending_questions ?? [], snapshot.backlog.map(item => ({ ...item })), taskId)
+      .some(card => card.item_id === taskId);
+    return { ...result, state: 'paused', role: '', reason: needsReply ? 'operator_input' : 'not_running' };
   }
   if (['failed', 'error'].includes(missionState)) return { ...result, state: 'step_finished', role: '', reason: 'task_failed' };
   if (FINISHED.has(missionState)) return { ...result, role: '',
@@ -113,8 +117,10 @@ export function currentWorkStatus(
   return { ...result, state: 'waiting', reason: 'awaiting_next_step' };
 }
 
-export function workStatusLabel(status: WorkStatus, locale: Locale): string {
+export function workStatusLabel(status: WorkStatus, locale: Locale, connected = true): string {
   const zh = locale === 'zh-CN';
+  if (!connected) return zh ? '实时连接已断开' : 'Live connection lost';
+  if (status.reason === 'operator_input') return zh ? '当前任务等待你的回复' : 'This task is waiting for your reply';
   if (status.reason === 'task_failed') return zh ? '这一步执行未完成' : 'Execution of this step did not finish';
   if (status.state === 'running') {
     const roles: Record<string, [string, string]> = {

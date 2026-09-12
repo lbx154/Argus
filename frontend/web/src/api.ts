@@ -611,6 +611,7 @@ function mapCopyPath(source: string, name: string, values: Record<string, string
   const params = new URLSearchParams(values);
   if (sessionId) params.set('session_id', sessionId);
   if (preview === 'source-first') params.set('preview', 'true');
+  if (preview === 'learning-path') params.set('preview', 'learning-path');
   return `/api/map-copy/${source}/${encodeURIComponent(name)}?${params}`;
 }
 

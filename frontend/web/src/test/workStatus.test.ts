@@ -54,6 +54,38 @@ describe('shared work status', () => {
     expect(currentWorkStatus(snapshot, view).state).toBe('unknown');
   });
 
+  it('identifies the current paused task waiting for an answer without stopping the daemon', () => {
+    const snapshot = fixture(), view = emptyMissionView();
+    view.mission.id = 'current';
+    view.mission.status = 'blocked';
+    snapshot.backlog = [
+      { id: 'old', title: 'Old question', objective: '', status: 'paused_operator', priority: 1, pending_question: 'Recorded provider error' },
+      { id: 'current', title: 'Author details', objective: '', status: 'paused_operator', priority: 1, pending_question: 'Provide the author details' },
+    ];
+    const state = currentWorkStatus(snapshot, view);
+    expect(state).toMatchObject({ state: 'paused', taskId: 'current', reason: 'operator_input' });
+    expect(workStatusLabel(state, 'zh-CN')).toBe('当前任务等待你的回复');
+    expect(workStatusLabel(state, 'en')).toBe('This task is waiting for your reply');
+    expect(snapshot.daemon.alive).toBe(true);
+    snapshot.backlog[1].pending_question = '';
+    expect(currentWorkStatus(snapshot, view).reason).toBe('not_running');
+    expect(workStatusLabel(state, 'zh-CN', false)).toBe('实时连接已断开');
+  });
+
+  it('does not turn repeated planner waiting notices into fresh research progress', () => {
+    const snapshot = fixture(), view = emptyMissionView();
+    Object.assign(view.mission, { id: 'current', status: 'blocked', started_at: 100 });
+    view.role_work = [
+      { id: 'actual-work', item_id: 'current', ts: 110, role: 'engineer', kind: 'tool_use', title: 'Read source', detail: '', status: 'done' },
+      { id: 'waiting', mission_id: 'current', ts: 195, role: 'planner', kind: 'waiting', title: 'Waiting for author facts', detail: '', status: 'waiting' },
+      { id: 'idle', mission_id: 'current', ts: 198, role: 'planner', kind: 'planning', title: 'Idle', detail: '', status: 'idle' },
+    ];
+    expect(currentWorkStatus(snapshot, view, [{ type: 'life.planner.waiting', item_id: 'current', ts: 199 }], 200))
+      .toMatchObject({ activityAt: 110, activityAgeSeconds: 90 });
+    view.role_work = view.role_work.slice(1);
+    expect(currentWorkStatus(snapshot, view, [], 200).activityAt).toBeNull();
+  });
+
   it('does not use other tasks or old attempts as fresh progress for the current step', () => {
     const view = emptyMissionView();
     Object.assign(view.mission, { id: 'current', started_at: 100, status: 'working' });

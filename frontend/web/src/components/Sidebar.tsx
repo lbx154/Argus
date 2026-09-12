@@ -5,7 +5,8 @@ import { WorkspaceSidePanel } from './WorkspaceShell';
 import { AppearanceControls } from './AppearanceControls';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
-import { ago, uptime } from '../lib/format';
+import { formatRelativeTime, uptime } from '../lib/format';
+import { workStatusLabel, type WorkStatus } from '../lib/workStatus';
 import { filterProjects, hasHumanProjectLabel } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -46,6 +47,7 @@ export function recommendedSidebarScope(
 export function Sidebar({
   projects,
   activeId,
+  activeWork,
   localCwd,
   onSelect,
   onPrefetch,
@@ -66,6 +68,7 @@ export function Sidebar({
 }: {
   projects: ProjectRow[];
   activeId: string | null;
+  activeWork?: { sessionId: string; status: WorkStatus; connected: boolean };
   localCwd: string;
   onSelect: (id: string) => void;
   onPrefetch?: (id: string) => void;
@@ -84,7 +87,7 @@ export function Sidebar({
   themeMode: ThemeMode;
   onCycleTheme: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [scope, setScope] = useState<Scope>('local');
   const initialScopeResolved = useRef(false);
   const [query, setQuery] = useState('');
@@ -226,6 +229,8 @@ export function Sidebar({
                 </button>
                 {!groupIsCollapsed(path) ? rows.map((project) => {
                   const active = project.id === activeId;
+                  const work = active && activeWork?.sessionId === project.id ? activeWork : undefined;
+                  const workLabel = work ? workStatusLabel(work.status, locale, work.connected) : undefined;
                   const hasHumanLabel = hasHumanProjectLabel(project);
                   const name = hasHumanLabel
                     ? (project.label || project.display_name || '').trim()
@@ -267,12 +272,15 @@ export function Sidebar({
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
                         </div>
                         <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-3.5 text-[11px] text-ink-faint">
-                          <span className={`min-w-0 truncate ${updateRequired ? 'text-warn' : ''}`}>
+                          <span className={`min-w-0 truncate ${updateRequired ? 'text-warn' : ''}`} title={workLabel}
+                            data-session-work-state={work?.status.state}>
                             {updateRequired
                               ? t('sidebar.updateRequired')
-                              : project.daemon_alive
+                              : workLabel ?? (project.daemon_alive
                                 ? t('sidebar.runningFor', { uptime: uptime(project.uptime_seconds) })
-                                : ago(project.last_active)}
+                                : project.last_active > 0
+                                  ? t('sidebar.lastActive', { time: formatRelativeTime(project.last_active, locale) })
+                                  : t('sidebar.stopped'))}
                           </span>
                           {updateAvailable && (
                             <span

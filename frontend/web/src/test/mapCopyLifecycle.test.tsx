@@ -23,8 +23,11 @@ const empty: MapCopy = { cards: {}, relations: [], available: true };
 let client: QueryClient;
 let renderer: ReactTestRenderer | undefined;
 
-function Probe({ paused = false, allowGeneration = true, zh = false }: { paused?: boolean; allowGeneration?: boolean; zh?: boolean }) {
-  useMapCopy(data, "task", zh, allowGeneration, undefined, "session", paused);
+let latest!: ReturnType<typeof useMapCopy>;
+function Probe({ paused = false, allowGeneration = true, zh = false, source = data, readingKey = 'task' }: {
+  paused?: boolean; allowGeneration?: boolean; zh?: boolean; source?: Dataset; readingKey?: string | null;
+}) {
+  latest = useMapCopy(source, "task", zh, allowGeneration, undefined, "session", paused, false, readingKey);
   return null;
 }
 
@@ -146,7 +149,7 @@ it("naturally rechecks an open historical step after saving review settings whil
   expect(generate).toHaveBeenCalledTimes(1);
 });
 
-it("resumes failed summary generation when a paused session resumes without new records", async () => {
+it("does not retry failed summary generation when the daemon resumes without new source records", async () => {
   const generate = vi.spyOn(api, "generateMapCopy").mockRejectedValue(new Error("Runner unavailable"));
   act(() => { renderer = create(tree(true)); });
   await act(async () => { await vi.advanceTimersByTimeAsync(700); });
@@ -156,6 +159,179 @@ it("resumes failed summary generation when a paused session resumes without new 
 
   act(() => renderer!.update(tree(false)));
   await act(async () => { await vi.advanceTimersByTimeAsync(700); });
+  expect(generate).toHaveBeenCalledTimes(1);
+});
+
+it('retains a failed semantic attempt across noise, reading changes and unmount/remount', async () => {
+  const generate = vi.spyOn(api, 'generateMapCopy').mockRejectedValue(new Error('Provider limit'));
+  let source = data;
+  let readingKey: string | null = 'task';
+  const render = () => <QueryClientProvider client={client}><Probe source={source} readingKey={readingKey} /></QueryClientProvider>;
+  act(() => { renderer = create(render()); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(latest.generationError).toBeInstanceOf(Error);
+  source = { ...data, cursor: 'new-poll-cursor', tasks: [{ ...data.tasks[0], revision: 'noise-only' }],
+    events: [{ id: 'waiting', item_id: 'task', type: 'life.planner.waiting', ts: 999, text: 'Still waiting', revision: 'waiting-2' }] };
+  act(() => renderer!.update(render()));
+  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  readingKey = null;
+  act(() => renderer!.update(render()));
+  readingKey = 'task';
+  act(() => renderer!.update(render()));
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  act(() => renderer!.unmount());
+  act(() => { renderer = create(render()); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(latest.generationError).toBeInstanceOf(Error);
+  expect(latest.generating).toBe(false);
+});
+
+it('allows new attempts for meaningful source, selected event, model, version and preview changes', async () => {
+  vi.stubGlobal('window', { location: { search: '' } });
+  const generate = vi.spyOn(api, 'generateMapCopy').mockRejectedValue(new Error('Cannot prepare this input'));
+  let source: Dataset = { ...data, events: [{ id: 'review', item_id: 'task', type: 'round.review.completed',
+    text: 'A recorded result', ts: 20, revision: 'event-1' }] };
+  const render = () => <QueryClientProvider client={client}><Probe source={source} /></QueryClientProvider>;
+  act(() => { renderer = create(render()); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  source = { ...source, tasks: [{ ...source.tasks[0], title: 'A changed research question' }] };
+  act(() => renderer!.update(render()));
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(2);
+  source = { ...source, events: [{ ...source.events[0], text: 'A new independently checked result', revision: 'event-2' }] };
+  act(() => renderer!.update(render()));
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(3);
+  act(() => { client.setQueryData(key, { ...empty, model_revision: 'new-model', version: 24 }); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(4);
+  act(() => { client.setQueryData(key, { ...empty, model_revision: 'new-model', version: 25 }); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(5);
+  vi.stubGlobal('window', { location: { search: '?reader_preview=learning-path' } });
+  client.setQueryData([...key, 'learning-path'], { ...empty, model_revision: 'new-model', version: 25 });
+  act(() => renderer!.update(render()));
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(6);
+});
+
+it('keeps historical failure attached to the original step when current task execution changes', async () => {
+  const generate = vi.spyOn(api, 'generateMapCopy').mockRejectedValue(new Error('Historical explanation failed'));
+  const event = { id: 'old', item_id: 'task', type: 'round.review.completed', text: 'Original review', ts: 2, revision: 'old-event' };
+  const step: SubmapStep = { id: 'old', kind: 'review', title: 'Review', detail: event.text, ts: 2, status: 'done', source: 'event', eventIds: ['old'] };
+  let source: Dataset = { ...data, events: [event] };
+  function Historical() { latest = useMapCopy(source, 'task', false, true, [step], 'session', false, false, 'old'); return null; }
+  const render = () => <QueryClientProvider client={client}><Historical /></QueryClientProvider>;
+  act(() => { renderer = create(render()); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  source = { ...source, tasks: [{ ...source.tasks[0], status: 'running', revision: 'later-attempt', attempt: 2,
+    started_ts: 100, summary: 'Later progress', pending_question: 'A later question' }] };
+  act(() => renderer!.update(render()));
+  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  source = { ...source, tasks: [{ ...source.tasks[0], acceptance_check: 'A changed research requirement' }] };
+  act(() => renderer!.update(render()));
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(2);
+});
+
+it('retries only by the explicit control after failure and retains the previous explanation', async () => {
+  const retained: MapCopy = { ...empty, version: 25, cards: { task: {
+    title: 'Retained title', summary: 'Retained summary', detail: 'Retained evidence', generated_at: 10, version: 24,
+    task_revision: '1', task_status: 'done',
+  } } };
+  client.setQueryData(key, retained);
+  let finish!: (value: MapCopy) => void;
+  const generate = vi.spyOn(api, 'generateMapCopy').mockRejectedValueOnce(new Error('First request failed'))
+    .mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  act(() => { renderer = create(tree(false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(latest.copy?.cards.task).toEqual(retained.cards.task);
+  act(() => renderer!.update(tree(false, false)));
+  await act(async () => { await latest.retry(); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  act(() => renderer!.update(tree(false)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  act(() => { void latest.retry(); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  expect(generate).toHaveBeenCalledTimes(2);
+  expect(latest.generationError).toBeNull();
+  expect(latest.generating).toBe(true);
+  expect(latest.copy?.cards.task).toEqual(retained.cards.task);
+  const updated = { ...retained, cards: { task: { ...retained.cards.task, version: 25, generated_at: 20 } } };
+  await act(async () => { finish(updated); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.generationError).toBeNull();
+  expect(latest.readingNeedsUpdate).toBe(false);
+});
+
+it('honors a successful server coalescing delay and eventually refreshes the new source', async () => {
+  const updated: MapCopy = { ...empty, cards: { task: {
+    title: 'Updated', summary: 'New result', detail: 'Complete conditions', generated_at: 10, task_revision: '1', task_status: 'done',
+  } } };
+  const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValueOnce({ ...empty, retry_after: 25 }).mockResolvedValue(updated);
+  act(() => { renderer = create(tree(false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(24000); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(latest.generationUnavailable).toBe(false);
+  expect(latest.generationError).toBeNull();
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(generate).toHaveBeenCalledTimes(2);
+  expect(latest.copy?.cards.task.title).toBe('Updated');
+  expect(latest.readingNeedsUpdate).toBe(false);
+  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  expect(generate).toHaveBeenCalledTimes(2);
+});
+
+it('does not loop when a response has no complete result or server-directed retry', async () => {
+  const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue(empty);
+  act(() => { renderer = create(tree(false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(latest.generationUnavailable).toBe(true);
+  await act(async () => { await latest.retry(); await vi.advanceTimersByTimeAsync(25); });
+  expect(generate).toHaveBeenCalledTimes(2);
+});
+
+it('does not duplicate an in-flight semantic attempt when the canvas remounts', async () => {
+  let finish!: (value: MapCopy) => void;
+  const generate = vi.spyOn(api, 'generateMapCopy').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  act(() => { renderer = create(tree(false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  act(() => renderer!.unmount());
+  act(() => { renderer = create(tree(false)); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(latest.generating).toBe(true);
+  await act(async () => { finish({ ...empty, cards: { task: {
+    title: 'Completed once', summary: 'Result', detail: 'Source', generated_at: 1, task_revision: '1', task_status: 'done',
+  } } }); await vi.advanceTimersByTimeAsync(25); });
+  expect(latest.copy?.cards.task.title).toBe('Completed once');
+});
+
+it('keeps a failed card visibly failed while another card in the same map is generating', async () => {
+  const source: Dataset = { ...data, tasks: [...data.tasks, { ...data.tasks[0], id: 'other', title: 'Another task' }] };
+  let focused = 'task';
+  const render = () => <QueryClientProvider client={client}><Reader /></QueryClientProvider>;
+  function Reader() { latest = useMapCopy(source, focused, false, true, undefined, 'session'); return null; }
+  const failure = new Error('First card failed');
+  const generate = vi.spyOn(api, 'generateMapCopy').mockRejectedValueOnce(failure).mockReturnValueOnce(new Promise(() => {}));
+  act(() => { renderer = create(render()); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(latest.generationError).toBe(failure);
+  focused = 'other';
+  act(() => renderer!.update(render()));
+  await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+  expect(generate).toHaveBeenCalledTimes(2);
+  focused = 'task';
+  act(() => renderer!.update(render()));
+  expect(latest.generating).toBe(true);
+  expect(latest.generationError).toBe(failure);
+  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
   expect(generate).toHaveBeenCalledTimes(2);
 });
 

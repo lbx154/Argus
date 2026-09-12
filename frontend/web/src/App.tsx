@@ -28,6 +28,7 @@ import { DaemonManageModal } from './components/DaemonManageModal';
 import { Sidebar } from './components/Sidebar';
 import { ProjectInspectorModal } from './components/ProjectInspectorModal';
 import { TaskDetailModal } from './components/TaskDetailModal';
+import { currentWorkStatus } from './lib/workStatus';
 import { SplitHandle } from './components/SplitHandle';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAnglesLeft } from '@fortawesome/free-solid-svg-icons';
@@ -921,6 +922,11 @@ export default function App() {
         <Sidebar
           projects={projects}
           activeId={activeSid}
+          activeWork={loadedSid ? {
+            sessionId: loadedSid,
+            status: currentWorkStatus(snap, missionView, activityEvents),
+            connected: connected && !snapQ.isError,
+          } : undefined}
           localCwd={localCwd}
           onSelect={(id) => {
             selectProject(id);

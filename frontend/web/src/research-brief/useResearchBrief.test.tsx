@@ -39,24 +39,24 @@ afterEach(() => {
 });
 
 describe('semantic generation and shared cache lifecycle', () => {
-  it('keeps normal and preview text separate when switching mode without a page reload', async () => {
+  it.each(['source-first', 'learning-path'] as const)('keeps normal and %s text separate when switching mode without a page reload', async mode => {
     vi.stubGlobal('window', { location: { search: '' } });
     const normal = completedCopy(source.tasks[0], ['start-a', 'main-a']);
     normal.cards.a.title = 'Normal retained explanation';
     client.setQueryData(briefCopyKey('s-research', 'en-US'), normal);
     const preview = structuredClone(normal);
-    preview.version = 24;
-    preview.cards.a.version = 24;
+    preview.version = mode === 'source-first' ? 24 : 25;
+    preview.cards.a.version = preview.version;
     preview.cards.a.title = 'Separate preview explanation';
     vi.mocked(api.mapCopy).mockResolvedValue(preview);
     const generate = vi.spyOn(api, 'generateMapCopy');
     await mount({ ...inputs(), readOnly: true });
     expect(result.card?.title).toBe(normal.cards.a.title);
-    vi.stubGlobal('window', { location: { search: '?reader_preview=source-first' } });
+    vi.stubGlobal('window', { location: { search: `?reader_preview=${mode}` } });
     await act(async () => { renderer!.update(tree({ ...inputs(), readOnly: true })); });
     await flush(); await flush();
     expect(result.card?.title).toBe(preview.cards.a.title);
-    expect(api.mapCopy).toHaveBeenLastCalledWith('project', 's-research', 'en-US', expect.any(AbortSignal), 's-research', 'source-first');
+    expect(api.mapCopy).toHaveBeenLastCalledWith('project', 's-research', 'en-US', expect.any(AbortSignal), 's-research', mode);
     vi.stubGlobal('window', { location: { search: '' } });
     await act(async () => { renderer!.update(tree({ ...inputs(), readOnly: true })); });
     await flush();
@@ -287,15 +287,24 @@ describe('semantic generation and shared cache lifecycle', () => {
     expect(result.card?.generated_at).toBe(12);
   });
 
-  it('keeps a coalesced older brief marked for update without an automatic request loop', async () => {
+  it('keeps a coalesced older brief until the server delay then applies the new material', async () => {
     const previous = completedCopy(source.tasks[0], ['start-a'], 7);
     client.setQueryData(briefCopyKey('s-research', 'en-US'), previous);
-    const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue({ ...previous, retry_after: 25 });
+    const updated = completedCopy(source.tasks[0], ['start-a', 'main-a'], 12);
+    const generate = vi.spyOn(api, 'generateMapCopy')
+      .mockResolvedValueOnce({ ...previous, retry_after: 25 }).mockResolvedValueOnce(updated);
     await mount();
     expect(result.brief).toEqual(previous.cards.a.reader_brief);
     expect(result.needsUpdate).toBe(true);
-    await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(24_000); });
     expect(generate).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    await flush();
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.needsUpdate).toBe(false);
+    expect(result.card?.generated_at).toBe(12);
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+    expect(generate).toHaveBeenCalledTimes(2);
   });
 
   it('stops on an older service without repeatedly requesting an unavailable upgrade', async () => {
@@ -305,6 +314,21 @@ describe('semantic generation and shared cache lifecycle', () => {
     expect(result.legacy).toBe(true);
     await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
     expect(generate).not.toHaveBeenCalled();
+  });
+
+  it('stops after the delayed refresh fails even though the earlier response had retry_after', async () => {
+    const previous = completedCopy(source.tasks[0], ['start-a'], 7);
+    client.setQueryData(briefCopyKey('s-research', 'en-US'), previous);
+    const generate = vi.spyOn(api, 'generateMapCopy')
+      .mockResolvedValueOnce({ ...previous, retry_after: 25 })
+      .mockRejectedValueOnce(new Error('Provider unavailable'));
+    await mount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(26_000); });
+    await flush();
+    expect(result.generationError).toBeInstanceOf(Error);
+    expect(result.brief).toEqual(previous.cards.a.reader_brief);
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+    expect(generate).toHaveBeenCalledTimes(2);
   });
 
   it('retains the known server version without looping when a response contains legacy copy without a brief', async () => {

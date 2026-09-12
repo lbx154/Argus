@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api } from '../api';
 import type { MapCopy } from '../map/presentation';
+import type { ReaderPreview } from '../map/copyMode';
 
 const nativeFetch = globalThis.fetch;
 const encoder = new TextEncoder();
@@ -52,7 +53,8 @@ afterEach(async () => {
 });
 
 it.each([
-  ['', false], ['?reader_preview=other', false], ['?project=research&reader_preview=source-first', true],
+  ['', null], ['?reader_preview=other', null], ['?project=research&reader_preview=source-first', 'true'],
+  ['?project=research&reader_preview=learning-path', 'learning-path'],
 ])('selects the same map-copy cache and generation mode from %s', async (search, preview) => {
   vi.stubGlobal('window', { location: { search } });
   const fetch = await serve((response, request) => {
@@ -74,20 +76,28 @@ it.each([
     const url = new URL(request.path, 'http://argus.test');
     expect(url.pathname).toBe('/api/map-copy/project/research%20name');
     expect(url.searchParams.get('session_id')).toBe('s research');
-    expect(url.searchParams.get('preview')).toBe(preview ? 'true' : null);
+    expect(url.searchParams.get('preview')).toBe(preview);
     expect(url.searchParams.get(index ? 'stream' : 'locale')).toBe(index ? 'true' : 'zh-CN');
     expect(request.headers.authorization).toBe('Bearer test-pairing-token');
   });
 });
 
-it('keeps a scheduled request in its captured mode after the page URL changes', async () => {
-  vi.stubGlobal('window', { location: { search: '?reader_preview=source-first' } });
-  await serve(response => {
-    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    response.end(frame({ type: 'done', result: complete }));
+it.each<ReaderPreview>([null, 'source-first', 'learning-path'])('keeps scheduled GET and POST requests in captured mode %s after the page URL changes', async preview => {
+  vi.stubGlobal('window', { location: { search: preview === 'learning-path' ? '?reader_preview=source-first' : '?reader_preview=learning-path' } });
+  await serve((response, request) => {
+    if (request.method === 'GET') {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify(complete));
+    } else {
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      response.end(frame({ type: 'done', result: complete }));
+    }
   });
-  await api.generateMapCopy('project', 'research', requestBody, undefined, 's research', null);
-  expect(new URL(requests[0].path, 'http://argus.test').searchParams.has('preview')).toBe(false);
+  await api.mapCopy('project', 'research', 'zh-CN', undefined, 's research', preview);
+  await api.generateMapCopy('project', 'research', requestBody, undefined, 's research', preview);
+  expect(requests.map(request => request.method)).toEqual(['GET', 'POST']);
+  for (const request of requests) expect(new URL(request.path, 'http://argus.test').searchParams.get('preview'))
+    .toBe(preview === 'source-first' ? 'true' : preview);
 });
 
 it('waits through 125 seconds of HTTP heartbeats and returns only the complete explanation at 130 seconds', async () => {

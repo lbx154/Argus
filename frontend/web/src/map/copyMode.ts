@@ -1,9 +1,10 @@
-export type ReaderPreview = 'source-first' | null;
+export type ReaderPreview = 'source-first' | 'learning-path' | null;
 
 /** Keep HTTP selection and both readers' browser caches in the same mode. */
 export function readerPreview(): ReaderPreview {
   const page = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
-  return page.get('reader_preview') === 'source-first' ? 'source-first' : null;
+  const preview = page.get('reader_preview');
+  return preview === 'source-first' || preview === 'learning-path' ? preview : null;
 }
 
 export function mapCopyKey(source: string, name: string, locale: string, sessionId?: string, preview = readerPreview()) {

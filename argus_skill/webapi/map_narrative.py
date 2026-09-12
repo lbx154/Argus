@@ -8,6 +8,7 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Literal
 from weakref import WeakValueDictionary
 
 from ..core.file_lock import exclusive_file_lock
@@ -28,16 +29,22 @@ from .map_view import digest, task_content_revision, text
 
 PROMPT_VERSION = 23
 SOURCE_SNAPSHOT_VERSION = 2
+Preview = bool | Literal["learning-path"]
 _LOCK = threading.Lock()
 _SOURCES: WeakValueDictionary = WeakValueDictionary()
 
 
-def copy_source(dataset_id: str, locale: str, *, preview: bool = False) -> str:
+def copy_source(dataset_id: str, locale: str, *, preview: Preview = False) -> str:
     """A preview never replaces the normal reader's retained explanation."""
-    return dataset_id + ":" + locale + (":source-first" if preview else "")
+    suffix = ":learning-path" if preview == "learning-path" else ":source-first" if preview else ""
+    return dataset_id + ":" + locale + suffix
 
 
-def copy_version(*, preview: bool = False) -> int:
+def copy_version(*, preview: Preview = False) -> int:
+    if preview == "learning-path":
+        from .map_learning import PREVIEW_VERSION
+
+        return PREVIEW_VERSION
     if preview:
         from .map_lesson import PREVIEW_VERSION
 
@@ -321,7 +328,7 @@ def generation_context_tasks(all_tasks: list[dict], documents: list[dict], known
 def enrich(
     root: Path, dataset: dict, cards: list[dict], locale: str, *,
     project_root: Path | None = None,
-    preview: bool = False,
+    preview: Preview = False,
 ) -> dict:
     documents = card_evidence(dataset, cards)
     source = copy_source(dataset["id"], locale, preview=preview)
@@ -329,7 +336,12 @@ def enrich(
     if preview:
         from .map_lesson import PROCESS_VERSION, generate_source_first
 
-        review_version = PROCESS_VERSION
+        if preview == "learning-path":
+            from .map_learning import PROCESS_VERSION as LEARNING_PROCESS_VERSION
+
+            review_version = LEARNING_PROCESS_VERSION
+        else:
+            review_version = PROCESS_VERSION
     else:
         review_version = TEACHING_REVIEW_VERSION
     config = resolve_map_model()
@@ -380,6 +392,7 @@ def enrich(
         if preview:
             value = generate_source_first(
                 todo[:8], tasks, locale, config=config, project_root=project_root, global_root=root,
+                **({"learning_path": True} if preview == "learning-path" else {}),
             )
         else:
             value = generate(
@@ -399,12 +412,18 @@ def enrich(
                                             CARD_TEXT_LIMITS, "invalid card copy"))
             if "reader_brief" in card:
                 card["reader_brief"] = _reader_brief(card["reader_brief"])
+            if "learning_path" in card:
+                from .map_learning import checked_learning_path
+
+                card["learning_path"] = checked_learning_path(card["learning_path"])
         for card in generated:
             existing[card["key"]] = {
                 field: card[field] for field in CARD_TEXT_LIMITS
             }
             if "reader_brief" in card:
                 existing[card["key"]]["reader_brief"] = card["reader_brief"]
+            if "learning_path" in card:
+                existing[card["key"]]["learning_path"] = copy.deepcopy(card["learning_path"])
             if "teaching_review" in card:
                 existing[card["key"]]["teaching_review"] = card["teaching_review"]
             if "teaching_process" in card:
