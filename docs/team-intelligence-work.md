@@ -14,7 +14,7 @@ User objective, 2026-09-12: make Argus an evidence-driven, adaptable team that a
 | User and project learning | Explicit scope, override, revoke and one-time instruction behavior survives restart and compaction; relevant corrections reach subsequent role prompts | Global preference defaults and project override, bounded checkpoints and real prompt roots fixed; related tests passed |
 | Bounded, revisable experience and vector retrieval | Real settlement/learning updates stable records; retire/merge replaces vectors; retrieval excludes superseded content; long-run active/history storage remains bounded | Canonical lifecycle, scoped correction tools, successful observations, current Markdown recall and bounded optional HTTP adapter committed and independently checked. Default retrieval uses lexical hashing. The one real embedding attempt returned HTTP 400; real semantic retrieval is not established |
 | Evidence-driven self-improvement | Accepted/rejected lessons cite real outcomes; usage or similarity alone is never evidence of correctness | Correction requires revision and reason. Host reads bounded scoped evidence bytes and records their hashes; symlink/FIFO isolation and concurrent index updates are tested. A byte hash does not establish that the model's interpretation is true |
-| User-perspective trial and coordination | Real invite login, ordinary-user UI, Manager inquiry, advisor and control flows exercised; findings drive changes; concurrent source preserved | Latest observed live b084d44f93 merged. Ordinary live invitation observations and isolated full control acceptance recorded; no deployment by this thread |
+| User-perspective trial and coordination | Real invite login, ordinary-user UI, Manager inquiry, advisor and control flows exercised; findings drive changes; concurrent source preserved | Latest observed live 26886021c5 merged. Ordinary live invitation observations and isolated full control acceptance recorded; no deployment by this thread |
 
 ## Integration boundaries
 
@@ -25,7 +25,7 @@ Development checkout: `/data/v-boxiuli/argus-team-intelligence-20260912`, branch
 - Memory: canonical sources remain distinguishable; derived indexes can be replaced. Start from the actual FailureExperienceStore write/read paths, then fix profile scope and durable peer messages.
 - Root agent: integration, trial observations, user-facing API/UI and hosted model selection; keep independent implementation tests before integration checks.
 
-The other checkout `/data/v-boxiuli/argus-observable-research-20260912` committed structured-output work as `d4418c5db`, shared explanation SSE as `6dbfca40ba`, terminal HTTP observation as `c7b8851b8`, and reader continuity/related evidence as `177c4b4fc` / `b084d44f93`; all are merged. Its latest observed release source is `/data/v-boxiuli/argus-unified-reuse-b084d44f93-20260912`. Recheck live source before publishing; earlier rollout baselines are obsolete. The shared coordination note does not establish that the other session has acknowledged it.
+The other checkout `/data/v-boxiuli/argus-observable-research-20260912` committed structured-output work as `d4418c5db`, shared explanation SSE as `6dbfca40ba`, terminal HTTP observation as `c7b8851b8`, reader continuity/related evidence as `177c4b4fc` / `b084d44f93`, and source-first lesson preview as `26886021c5`; all are merged. Its latest observed release source is `/data/v-boxiuli/argus-unified-reuse-26886021c5-20260912`. Recheck live source before publishing; earlier rollout baselines are obsolete. The shared coordination note does not establish that the other session has acknowledged it.
 
 The focused control contract and actual browser acceptance are documented in
 `docs/web-control-responsiveness.md`. Old and new writers must not mix when
@@ -53,6 +53,17 @@ response and verifies the session still answers a ping; all 20 related tests
 and 20 separately parametrized cancellation/cleanup repetitions passed. This
 changes the test lifecycle, not production cancellation behavior.
 
+The final complete baseline on immutable `e4aa47e68` passed 9,942 tests with
+56 skips and no failures/errors. All 9,998 collected tests ran exactly once,
+grouped by file in four processes with independent short temporary roots.
+An earlier shard harness used paths too long for Unix sockets and exposed a
+readonly file fixture outside its probe directory; that invalid run is retained
+and marked terminated. The fixture now uses the actual readonly worker with an
+explicit workspace and isolated cache. After the subsequent 268 live merge,
+337 affected backend/control checks and all 879 frontend tests passed, with
+standard type/build checks. These follow-up checks are distinct from the
+complete baseline; unchanged suites were not rerun for unrelated UI changes.
+
 After merging b084, all 296 map/control backend checks and all 856 frontend
 tests passed; the standard frontend build includes TypeScript and generated
 contract checks. The merged changes do not alter request cancellation or model
@@ -67,6 +78,13 @@ Filtered task views ask the backend to validate an open reader once per source
 cursor when its neighbors are hidden; unchanged sources reuse the cache without
 a model call. Shared in-flight requests cannot certify cards they did not
 submit. This does not change task state or cancel independent map generation.
+
+`0faeddbb9` extends the source check to the shared research reader. Normal and
+preview requests have distinct fixed mode fields, so an unfinished preview
+cannot block normal reading. Receipts bind the captured source cursor, card,
+model settings and input; cached success cannot swallow a later source check.
+Coalesced or unavailable replies retain the old explanation as pending and
+preserve the existing explicit retry action. Readonly views do not generate.
 
 The real Engineer consultation used 3 requests / 3,708 metered tokens. Further
 Manager, Planner and Reviewer acceptance used 8 upstream requests / 14,853
