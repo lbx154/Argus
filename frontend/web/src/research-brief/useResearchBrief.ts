@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import type { MissionView, Snapshot } from '../../../core/src/types';
 import { mergeMapProgress } from '../map/incremental';
@@ -56,7 +56,12 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
   const legacy = oldBriefService(copy.data, card);
   const canGenerate = enabled && !readOnly && !!task && copy.data?.available === true
     && !legacy && !live.isError && !copy.isError;
-  const generationKey = ['research-brief-generation', sid, taskId, locale, selection.eventSince, inputSignature] as const;
+  const generationScope = ['research-brief-generation', sid, taskId, locale, selection.eventSince] as const;
+  const generationKey = [...generationScope, inputSignature] as const;
+  // A task can receive its final review/certification while its first explanation
+  // is still being written. Finish that request before generating the latest
+  // input; intermediate states should not create parallel model calls.
+  const activeGenerations = useIsFetching({ queryKey: generationScope });
   const previouslyFailed = client.getQueryState(generationKey)?.status === 'error';
   const generation = useQuery({
     queryKey: generationKey,
@@ -78,7 +83,7 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
         new Map(evidence.map(event => [event.id, event])));
       return { available: current, retryAfter: result.retry_after ?? null, inputSignature };
     },
-    enabled: canGenerate && needsUpdate && !previouslyFailed,
+    enabled: canGenerate && needsUpdate && !previouslyFailed && activeGenerations === 0,
     // One attempt per semantic input, including across unmount/remount. A failed
     // generation is retried only by the button or by genuinely new evidence.
     staleTime: Infinity, gcTime: 2 * 60 * 60 * 1000,
@@ -98,7 +103,7 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
     needsUpdate: needsUpdate && generation.data?.available !== true,
     legacy,
     loading: enabled && (live.isPending || copy.isPending),
-    generating: generation.isFetching,
+    generating: generation.isFetching || activeGenerations > 0,
     readError: live.error || copy.error,
     generationError: needsUpdate ? generation.error : null,
     generationUnavailable: generation.data?.available === false && needsUpdate,

@@ -1,3 +1,6 @@
+import { translate } from '../i18n';
+import { agentRoleName, isAgentRole } from '../lib/agentRoles';
+
 export type WorkbenchText = (zh: string, en: string) => string;
 
 const STATUS_LABELS: Record<string, readonly [string, string]> = {
@@ -41,10 +44,6 @@ const STATUS_LABELS: Record<string, readonly [string, string]> = {
 };
 
 const ROLE_LABELS: Record<string, readonly [string, string]> = {
-  manager: ['Manager', 'Manager'],
-  planner: ['Planner', 'Planner'],
-  engineer: ['Engineer', 'Engineer'],
-  reviewer: ['Reviewer', 'Reviewer'],
   system: ['Argus', 'Argus'],
   operator: ['你', 'You'],
   stopped: ['已暂停', 'Paused'],
@@ -87,6 +86,8 @@ export function statusLabel(value: string | null | undefined, text: WorkbenchTex
 }
 
 export function roleLabel(value: string | null | undefined, text: WorkbenchText): string {
+  const role = String(value ?? '').toLowerCase();
+  if (isAgentRole(role)) return agentRoleName(role, key => text(translate(key, {}, 'zh-CN'), translate(key, {}, 'en')));
   return label(value, ROLE_LABELS, ['Argus', 'Argus'], text);
 }
 

@@ -7,7 +7,7 @@ import { Button, Chip, RawDisclosure, Spinner, StatusDot } from '../components/p
 import { CopyButton } from '../components/CopyButton';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { Modal } from '../components/Modal';
-import { theme } from '../lib/theme';
+import { AGENT_ROLES, agentRoleColor, agentRoleDescription } from '../lib/agentRoles';
 import { useWorkbenchTheme } from '../useWorkbenchTheme';
 import { adminAPI, AdminAPIError } from './api';
 import { episodeRole, mergeObservationPages, normalizeRole, parseTaskLink, projectKey, projectName, taskName } from './model';
@@ -17,7 +17,6 @@ import { adminProjectURL, automaticProjectSelection, openMatchingUserProject } f
 import { dateLabel, roleName, stateLabel, useAdminText } from './copy';
 import './admin-data.css';
 
-const ROLES = ['manager', 'planner', 'engineer', 'reviewer'] as const;
 const TENANTS = Array.from({ length: 11 }, (_, index) => `trial-${String(index + 1).padStart(2, '0')}`);
 const retry = (count: number, error: Error) => count < 1 && !(error instanceof AdminAPIError && [401, 403].includes(error.status));
 
@@ -170,10 +169,6 @@ export default function AdminDataApp() {
   const errorMessage = (error: unknown) => error instanceof AdminAPIError && error.status === 401
     ? text('数据后台登录已过期，请重新登录。', 'Your administrator session expired. Sign in again.')
     : error instanceof Error ? error.message : text('暂时无法读取数据。', 'Data is temporarily unavailable.');
-  const roleDescription: Record<string, string> = {
-    manager: text('理解目标、协调任务', 'Understands goals and coordinates work'), planner: text('拆解任务、调整计划', 'Breaks down work and revises plans'),
-    engineer: text('调用工具、执行任务', 'Uses tools and carries out tasks'), reviewer: text('检查证据、审查结果', 'Checks evidence and reviews results'),
-  };
 
   return <WorkspaceShell className="admin-data-workspace h-full" style={{ '--sidebar-width': '292px' } as CSSProperties}>
     {sidebarOpen ? <button type="button" className="admin-data-scrim lg:hidden" aria-label={text('关闭项目列表', 'Close projects')} onClick={() => setSidebarOpen(false)} /> : null}
@@ -215,10 +210,10 @@ export default function AdminDataApp() {
             {!currentProject.eligible ? <div className="admin-data-notice" role="status">{text('当前用途下没有可读取的授权记录。请选择其他项目或数据用途。', 'No authorized records are available for this purpose. Choose another project or purpose.')}<RawDisclosure><pre>{currentProject.reason}</pre></RawDisclosure></div> : <>
               {taskId && resolvedTask ? <RawDisclosure label={text('任务目标与来源', 'Task objective and source')}><div className="admin-data-prose"><MarkdownContent>{resolvedTask.objective || resolvedTask.request?.text || resolvedTask.title}</MarkdownContent></div><code>{resolvedTask.task_id}</code></RawDisclosure> : null}
               {scopeReady ? <><div className="admin-data-role-heading"><div><h2><Users size={17} />{text('多 Agent 过程', 'Multi-agent processes')}</h2><p>{text('查看各角色实际留下的记录。角色缺失、中断和质量验收分别标记。', 'Inspect the records each role actually produced. Missing roles, interruptions and review status are shown separately.')}</p></div><button type="button" className={`admin-data-text-button ${activeRole === null ? 'active' : ''}`} onClick={() => { setActiveRole(null); setEpisodeId(null); }}>{text('全部角色', 'All roles')}</button></div>
-              <div className="admin-data-roles">{ROLES.map(role => {
+              <div className="admin-data-roles">{AGENT_ROLES.map(role => {
                 const summary = roleSummaries.get(role), retained = Math.max(summary?.episodes || 0, episodes.filter(episode => episodeRole(episode) === role).length);
                 const loaded = episodes.filter(episode => episodeRole(episode) === role).length;
-                return <button type="button" key={role} data-testid={`role-${role}`} className={`admin-data-role ${activeRole === role ? 'active' : ''}`} style={{ '--role-color': theme.role[role] } as CSSProperties} aria-pressed={activeRole === role} onClick={() => { setActiveRole(role); setEpisodeId(null); }}><span className="admin-data-role-label"><span className="admin-data-role-mark">{roleName(role, locale).slice(0, 1)}</span><strong>{roleName(role, locale)}</strong><span>{role}</span></span><span className="admin-data-role-description">{roleDescription[role]}</span><span className="admin-data-role-count">{retained ? `${retained.toLocaleString(locale)} ${text('段过程', 'processes')}` : summary?.observations ? text('仅有活动记录', 'Activity records only') : text('尚未采到记录', 'No records captured')}</span><span className="admin-data-role-footnote">{loaded ? `${text('正文已加载', 'Content loaded')} ${loaded.toLocaleString(locale)}` : text('按原始记录归属角色', 'Role comes from recorded metadata')}</span></button>;
+                return <button type="button" key={role} data-testid={`role-${role}`} className={`admin-data-role ${activeRole === role ? 'active' : ''}`} style={{ '--role-color': agentRoleColor(role) } as CSSProperties} aria-pressed={activeRole === role} onClick={() => { setActiveRole(role); setEpisodeId(null); }}><span className="admin-data-role-label"><span className="admin-data-role-mark">{roleName(role, locale).slice(0, 1)}</span><strong>{roleName(role, locale)}</strong><span>{role}</span></span><span className="admin-data-role-description">{agentRoleDescription(role, t)}</span><span className="admin-data-role-count">{retained ? `${retained.toLocaleString(locale)} ${text('段过程', 'processes')}` : summary?.observations ? text('仅有活动记录', 'Activity records only') : text('尚未采到记录', 'No records captured')}</span><span className="admin-data-role-footnote">{loaded ? `${text('正文已加载', 'Content loaded')} ${loaded.toLocaleString(locale)}` : text('按原始记录归属角色', 'Role comes from recorded metadata')}</span></button>;
               })}</div>
               {(roleSummaries.get('unknown')?.episodes || episodes.some(episode => episodeRole(episode) === 'unknown')) ? <button type="button" className="admin-data-unknown" onClick={() => { setActiveRole('unknown'); setEpisodeId(null); }}><FileJson size={14} />{text('另有角色未记录的过程，保留原样查看', 'Some processes have no recorded role. View them as captured.')} <ArrowRight size={13} /></button> : null}
               <div className="admin-data-record-heading"><div><h2>{activeRole ? roleName(activeRole, locale) : text('全部保留过程', 'All retained processes')}</h2><p>{episodes.length.toLocaleString(locale)} {text('段已加载', 'processes loaded')} · {loadedEventCount.toLocaleString(locale)} {text('条原始事件', 'raw events')} {observations.hasNextPage ? text('· 还有后续页', '· more pages available') : ''}</p></div>{visibleEpisodes.length ? <select className="admin-data-episode-select" aria-label={text('选择过程记录', 'Select a process')} value={selectedEpisode?.episode_id ?? ''} onChange={event => setEpisodeId(Number(event.target.value))}>{visibleEpisodes.map(episode => <option key={episode.episode_id} data-testid={`episode-${episode.episode_id}`} value={episode.episode_id}>#{episode.episode_id} · {roleName(episode.role, locale)} · {dateLabel(episode.started_at, locale)}</option>)}</select> : null}</div>

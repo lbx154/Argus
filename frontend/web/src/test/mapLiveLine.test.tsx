@@ -16,7 +16,7 @@ describe("the living status line", () => {
   it("speaks Chinese when the map does, and stays quiet about time it does not know", () => {
     let root!: ReturnType<typeof create>;
     act(() => { root = create(<LiveLine role="reviewer" since={null} zh />); });
-    expect(text(root)).toBe("审阅者正在处理");
+    expect(text(root)).toBe("复核正在处理");
     act(() => root.unmount());
   });
 });

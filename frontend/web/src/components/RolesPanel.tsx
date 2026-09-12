@@ -1,9 +1,8 @@
 import type { Role } from '../api';
 import { useI18n } from '../i18n';
 import { theme, effortColor } from '../lib/theme';
+import { AGENT_ROLES, agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { PanelHeader } from './primitives';
-
-const ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
 
 /** age_s (seconds since the role's last event) → "now"/"Ns"/"Nm"/"Nh". */
 function ageLabel(age: number | null): string {
@@ -21,8 +20,8 @@ function ageLabel(age: number | null): string {
 export function RolesPanel({ roles }: { roles: Role[] }) {
   const { t } = useI18n();
   const byRole = new Map(roles.map((r) => [r.role, r]));
-  const ordered = ORDER.map((r) => byRole.get(r)).filter(Boolean) as Role[];
-  const extra = roles.filter((r) => !ORDER.includes(r.role));
+  const ordered = AGENT_ROLES.map((r) => byRole.get(r)).filter(Boolean) as Role[];
+  const extra = roles.filter((r) => !isAgentRole(r.role));
   const all = [...ordered, ...extra];
 
   return (
@@ -44,7 +43,7 @@ export function RolesPanel({ roles }: { roles: Role[] }) {
                   className="text-[11px] font-medium capitalize"
                   style={{ color: r.active ? hue : theme.inkDim }}
                 >
-                  {r.role}
+                  {isAgentRole(r.role) ? agentRoleName(r.role, t) : r.role}
                 </span>
               </div>
               <div className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={r.model}>{r.model || '—'}</div>

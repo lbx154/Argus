@@ -4,6 +4,7 @@ import { api } from '../api';
 import { ArgusMark } from '../components/Brand';
 import { Badge, EmptyState, Markdown } from '../components/Common';
 import { roleLabel, statusLabel } from '../enumLabels';
+import { AGENT_ROLES } from '../../lib/agentRoles';
 import type { EventMsg, PromptRewrite, Role } from '../types';
 import { eventDetail, eventRole, eventTitle, formatClock } from '../utils';
 import { useManagerRun } from '../useManagerRun';
@@ -12,7 +13,7 @@ import type { WorkspacePageProps } from './pageTypes';
 
 const SUGGESTIONS = [
   ['总结当前研究进展、最强证据和最大风险', 'Summarize current progress, strongest evidence, and biggest risk'],
-  ['Reviewer 最近要求补充什么？', 'What did the Reviewer most recently request?'],
+  ['复核最近要求补充什么？', 'What did the Reviewer most recently request?'],
   ['下一步最小且最有信息量的实验是什么？', 'What is the smallest, most informative next experiment?'],
 ] as const;
 
@@ -24,7 +25,6 @@ function ToolTrace({ events, roles, connected }: { events: EventMsg[]; roles: Ro
   }).slice(-100).reverse(), [events]);
   const [filter, setFilter] = useState<'all' | 'commands' | 'files' | 'review'>('all');
   const [expanded, setExpanded] = useState('');
-  const roleNames = ['manager', 'planner', 'engineer', 'reviewer'];
   const visible = rows.filter((event) => {
     const kind = String(event.kind ?? '');
     const detail = eventDetail(event, 800);
@@ -39,10 +39,10 @@ function ToolTrace({ events, roles, connected }: { events: EventMsg[]; roles: Ro
     <div className="copilot-trace copilot-trace-v2">
       <div className="copilot-trace__header"><div><span>ARGUS TEAM</span><strong>{text('谁正在做什么', 'Who is doing what')}</strong></div><Badge tone={connected ? 'live' : 'warn'} dot>{connected ? text('实时', 'Live') : text('轮询中', 'Polling')}</Badge></div>
       <div className="team-pipeline">
-        {roleNames.map((name, index) => {
+        {AGENT_ROLES.map((name, index) => {
           const role = roles.find((item) => item.role === name);
           const count = rows.filter((event) => eventRole(event) === name).length;
-          return <div className={role?.active ? 'is-active' : role?.status === 'done' ? 'is-done' : ''} key={name}><span className={`role-orb role-orb--${name}`} /> <strong>{roleLabel(name, text)}</strong><small>{role?.active ? role.label : statusLabel(role?.status || 'waiting', text)} · {count}</small>{index < roleNames.length - 1 ? <b>↓</b> : null}</div>;
+          return <div className={role?.active ? 'is-active' : role?.status === 'done' ? 'is-done' : ''} key={name}><span className={`role-orb role-orb--${name}`} /> <strong>{roleLabel(name, text)}</strong><small>{role?.active ? role.label : statusLabel(role?.status || 'waiting', text)} · {count}</small>{index < AGENT_ROLES.length - 1 ? <b>↓</b> : null}</div>;
         })}
       </div>
       {current ? <section className="current-operation"><span><Activity size={15} /></span><div><small>{text('当前最新动作', 'Latest action')} · {formatClock(current.ts, locale)}</small><strong>{eventTitle(current)}</strong><code>{eventDetail(current, 180)}</code></div></section> : null}

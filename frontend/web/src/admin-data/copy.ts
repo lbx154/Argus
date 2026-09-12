@@ -1,4 +1,5 @@
-import { useI18n, type Locale } from '../i18n';
+import { translate, useI18n, type Locale } from '../i18n';
+import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 
 export function useAdminText() {
   const { locale, t, setLocale } = useI18n();
@@ -12,9 +13,9 @@ export function dateLabel(value: number | null | undefined, locale: Locale): str
 }
 
 export function roleName(role: string, locale: Locale): string {
+  if (isAgentRole(role)) return agentRoleName(role, key => translate(key, {}, locale));
   const names: Record<string, [string, string]> = {
-    manager: ['统筹', 'Manager'], planner: ['规划', 'Planner'], engineer: ['执行', 'Engineer'],
-    reviewer: ['审查', 'Reviewer'], operator: ['用户', 'User'], unknown: ['角色未记录', 'Unassigned role'],
+    operator: ['用户', 'User'], unknown: ['角色未记录', 'Unassigned role'],
     system: ['系统', 'System'], developer: ['运行指令', 'Instructions'], user: ['用户 / 任务', 'User / task'],
     assistant: ['模型', 'Assistant'], tool: ['工具', 'Tool'],
   };

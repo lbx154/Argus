@@ -2,6 +2,7 @@ import { Activity, AlertTriangle, Check, Circle, Clock3, Pause, Play, RefreshCw,
 import { useEffect, useMemo, useState } from 'react';
 import { Badge, EmptyState, EventTimeline } from '../components/Common';
 import { roleLabel, statusLabel } from '../enumLabels';
+import { AGENT_ROLES, agentRoleDescription } from '../../lib/agentRoles';
 import { isBookkeepingEvent, plainDetail, plainStage } from '../../lib/plainStatus';
 import { workStatusLabel } from '../../lib/workStatus';
 import { readableToolProgress } from '../../lib/feedSteps';
@@ -14,10 +15,9 @@ import type { ActiveWorkbenchPageProps } from './pageTypes';
 
 const DONE = new Set(['done', 'completed', 'accepted', 'success']);
 const ACTIVE = new Set(['running', 'in_progress', 'claimed', 'active', 'working']);
-const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
 
 export function ExperimentsPage(props: ActiveWorkbenchPageProps) {
-  const { locale, text } = useWorkbenchText();
+  const { locale, text, t } = useWorkbenchText();
   const [now, setNow] = useState(() => Date.now() / 1_000);
   const [selectedTask, setSelectedTask] = useState('');
   useEffect(() => {
@@ -43,12 +43,6 @@ export function ExperimentsPage(props: ActiveWorkbenchPageProps) {
     { label: text('已完成的工作', 'Completed work'), items: dag.filter((task) => DONE.has(task.status)) },
     { label: text('进行中与待处理', 'Active and remaining work'), items: dag.filter((task) => !DONE.has(task.status)) },
   ];
-  const rolePurpose: Record<string, string> = {
-    manager: text('理解你的目标，协调工作', 'Understands your goal and coordinates work'),
-    planner: text('拆解问题，安排下一步', 'Breaks down the problem and plans the next step'),
-    engineer: text('查资料、写证明或代码、运行验证', 'Researches, writes proofs or code, and runs checks'),
-    reviewer: text('检查结果与证据，指出缺口', 'Checks results and evidence and identifies gaps'),
-  };
 
   const stop = async (drain: boolean) => {
     const message = drain
@@ -98,11 +92,11 @@ export function ExperimentsPage(props: ActiveWorkbenchPageProps) {
         </main>
 
         <aside className="experiment-v3-side">
-          <section className="ros-card experiment-team"><header><div><h2>{text('团队如何协作', 'How the team works together')}</h2></div></header><p className="work-team-note">{text('不同角色分工接力；是否正在执行，以当前状态记录为准。', 'Roles share the work and hand results to each other. Current status shows who is actually working.')}</p><div>{ROLE_ORDER.map((name) => {
+          <section className="ros-card experiment-team"><header><div><h2>{text('团队如何协作', 'How the team works together')}</h2></div></header><p className="work-team-note">{text('不同角色分工接力；是否正在执行，以当前状态记录为准。', 'Roles share the work and hand results to each other. Current status shows who is actually working.')}</p><div>{AGENT_ROLES.map((name) => {
             const role = props.snapshot.roles.find((item) => item.role === name);
             const active = running && progress.runtime.role === name;
             const idleStatus = role?.status && !ACTIVE.has(role.status) ? role.status : 'idle';
-            return <article className={active ? 'is-active' : ''} key={name}><span data-role-dot={name} className={`role-dot role-dot--${name}`} aria-hidden="true" /><div><strong>{roleLabel(name, text)}</strong><p>{rolePurpose[name]}</p></div>{active ? <Badge tone="live" dot>{text('执行中', 'Working')}</Badge> : <Badge tone={statusTone(idleStatus)}>{statusLabel(idleStatus, text)}</Badge>}</article>;
+            return <article className={active ? 'is-active' : ''} key={name}><span data-role-dot={name} className={`role-dot role-dot--${name}`} aria-hidden="true" /><div><strong>{roleLabel(name, text)}</strong><p>{agentRoleDescription(name, t)}</p></div>{active ? <Badge tone="live" dot>{text('执行中', 'Working')}</Badge> : <Badge tone={statusTone(idleStatus)}>{statusLabel(idleStatus, text)}</Badge>}</article>;
           })}</div></section>
           <section className="ros-card estimate-note"><header><div><h2>{text('还需要多久', 'How much longer?')}</h2></div></header><div><p><strong>{text('暂无法可靠预计', 'No reliable estimate yet')}</strong>{progress.etaUnavailableReason}</p><div className="work-evidence-note"><ShieldCheck size={15} /><span>{text('真实已用时间和已完成工作可以统计。读文件、运行命令或审查结束，都不能换算成整体目标的完成百分比。', 'Elapsed time and completed work can be counted. File reads, commands, and the end of a review do not establish a completion percentage for the overall goal.')}</span></div>{props.controls.error ? <div className="inline-error">{props.controls.error}</div> : null}</div></section>
         </aside>

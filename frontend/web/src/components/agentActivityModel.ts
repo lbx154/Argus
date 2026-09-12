@@ -1,7 +1,7 @@
 import type { EventMsg, MissionRoleWorkItem, MissionView, Role } from '../../../core/src/types';
 import { visibleAgentText } from '../../../core/src/events';
 
-export const AGENT_ROLES = ['manager', 'planner', 'engineer', 'reviewer'] as const;
+export { AGENT_ROLES } from '../lib/agentRoles';
 const PUBLIC_KINDS = new Set(['grounding', 'task', 'decision', 'agent_message', 'assistant_message', 'command_execution', 'tool_use', 'handoff', 'review', 'verdict', 'completion', 'plan', 'file_change', 'result']);
 const GENERIC = /^(using a tool|running project command|inspecting project state|working|reporting progress|暂无详细记录)$/i;
 export function cleanActivityText(value: string): string {

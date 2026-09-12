@@ -17,6 +17,7 @@ import {
   type DisplayConfigKnob,
 } from '../lib/configSurface';
 import { roleLabel } from '../lib/enumLabels';
+import { agentRoleDescription, isAgentRole } from '../lib/agentRoles';
 import { useI18n } from '../i18n';
 import { requestFailureText } from '../lib/requestFailure';
 import {
@@ -45,14 +46,6 @@ const GROUP_TEXT: Record<string, string> = {
   Limits: 'settings.group.limits',
   Safety: 'settings.group.safety',
   Interface: 'settings.group.interface',
-};
-
-const ROLE_DESCRIPTION_TEXT: Record<string, string> = {
-  manager: 'settings.role.managerDoc',
-  planner: 'settings.role.plannerDoc',
-  engineer: 'settings.role.engineerDoc',
-  reviewer: 'settings.role.reviewerDoc',
-  curator: 'settings.role.curatorDoc',
 };
 
 type Translate = (key: string, variables?: Record<string, string | number>) => string;
@@ -413,7 +406,7 @@ export function ConfigModal({
                                 </span>
                               )}
                             </div>
-                            {ROLE_DESCRIPTION_TEXT[role.role] && <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">{t(ROLE_DESCRIPTION_TEXT[role.role])}</p>}
+                            {(isAgentRole(role.role) || role.role === 'curator') && <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">{isAgentRole(role.role) ? agentRoleDescription(role.role, t) : t('settings.role.curatorDoc')}</p>}
                           </div>
                         ))}
                       </div>

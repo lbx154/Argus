@@ -23,6 +23,7 @@ import { ArgusMark } from './Wordmark';
 import { useI18n } from '../i18n';
 import { CopyButton } from './CopyButton';
 import { roleLabel } from '../lib/enumLabels';
+import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
 import { TurnSteps } from './TurnSteps';
 import { turnStepsFrom } from '../../../core/src/phaseTrail';
 import { plainDetail } from '../lib/plainStatus';
@@ -34,7 +35,6 @@ import { splitDraft } from '../map/presentation';
 
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 type ConversationGroup = { key: string; operator: ActivityRow; rows: ActivityRow[] };
-const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'] as const;
 const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was interrupted due to a server error\. Retrying\.\.\.)/gi;
 
 function EventRow({

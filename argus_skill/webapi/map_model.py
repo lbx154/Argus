@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shlex
 import shutil
@@ -10,6 +11,8 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+from jsonschema import Draft202012Validator, ValidationError
 
 from ..adapters.agent_cli_backend import AgentCliBackend
 from ..agent_cli.runner_backend import default_runner_bin, normalize_runner_backend
@@ -51,6 +54,42 @@ def resolve_map_model() -> MapModel:
         runner_bin=runner,
         extra_args=tuple(shlex.split(os.environ.get("ARGUS_SKILL_RUNNER_EXTRA_ARGS", ""))),
     )
+
+
+def _parse_document(raw: str, output_schema: dict) -> dict:
+    """Accept JSON or the observed premature cards-root closure, without rewriting prose."""
+    raw = raw.strip()
+    if raw.startswith("```") and raw.endswith("```"):
+        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as original:
+        # One observed response closed the top-level object after `cards`, then
+        # continued with ,"relations":[...]}. Parse both complete sections;
+        # never strip arbitrary prose, invent fields, or accept a second result.
+        try:
+            cards, end = json.JSONDecoder().raw_decode(raw)
+            tail = raw[end:].lstrip()
+            if not isinstance(cards, dict) or set(cards) != {"cards"} or not isinstance(cards["cards"], dict):
+                raise ValueError
+            if not tail.startswith(","):
+                raise ValueError
+            relations = json.loads("{" + tail[1:])
+            if (not isinstance(relations, dict) or set(relations) != {"relations"}
+                    or not isinstance(relations["relations"], list)):
+                raise ValueError
+            value = {**cards, **relations}
+        except (ValueError, TypeError):
+            raise original from None
+        logging.getLogger(__name__).warning("Recovered premature closure in map presentation object")
+    if not isinstance(value, dict):
+        raise ValueError("invalid card document")
+    try:
+        Draft202012Validator(output_schema).validate(value)
+    except ValidationError:
+        # Do not include model content in server validation logs.
+        raise ValueError("invalid card document schema") from None
+    return value
 
 
 def run_map_model(
@@ -101,10 +140,4 @@ def run_map_model(
         raise OSError("map text generation did not complete")
     if result.tool_activity_observed:
         raise ValueError("map text generation attempted to use tools")
-    raw = result.last_agent_message.strip()
-    if raw.startswith("```") and raw.endswith("```"):
-        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-    value = json.loads(raw)
-    if not isinstance(value, dict):
-        raise ValueError("invalid card document")
-    return value
+    return _parse_document(result.last_agent_message, output_schema)

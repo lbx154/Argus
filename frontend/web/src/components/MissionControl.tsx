@@ -12,6 +12,7 @@ import {
   formatMissionElapsed,
 } from '../../../core/src/missionView';
 import { theme } from '../lib/theme';
+import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
 import { errorText } from '../lib/format';
 import { plainDetail, plainStatus, plainStopSentence } from '../lib/plainStatus';
 import { MarkdownContent } from './MarkdownContent';
@@ -24,14 +25,13 @@ import {
   statusLabel,
 } from '../lib/enumLabels';
 
-const ROLE_ORDER = ['manager', 'planner', 'engineer', 'reviewer'];
 const ACTIVE_WORK_STATUSES = ['active', 'running', 'in_progress', 'claimed'];
 const TERMINAL_MISSION_STATUSES = ['complete', 'completed', 'done', 'success', 'incomplete', 'stalled', 'blocked', 'ended'];
 const MILLISECONDS_PER_DAY = 86_400_000;
 const EVENT_DETAIL_PREVIEW_LENGTH = 300;
 
 function missionRoleLabel(role: string, t: (key: string) => string) {
-  return ROLE_ORDER.includes(role) ? t(`role.${role}`) : roleLabel(role, t);
+  return roleLabel(role, t);
 }
 
 function isFailedMissionEvent(item: MissionTimelineItem) {

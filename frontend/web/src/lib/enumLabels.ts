@@ -1,4 +1,5 @@
 import type { MissionOutcomeDimensions, MissionView } from '../../../core/src/types';
+import { agentRoleName, isAgentRole } from './agentRoles';
 
 type Translate = (key: string, variables?: Record<string, string | number>) => string;
 
@@ -36,10 +37,6 @@ const STATUS_KEYS: Record<string, string> = {
 };
 
 const ROLE_KEYS: Record<string, string> = {
-  manager: 'label.role.manager',
-  planner: 'label.role.planner',
-  engineer: 'label.role.engineer',
-  reviewer: 'label.role.reviewer',
   system: 'label.role.argus',
   operator: 'label.role.you',
 };
@@ -144,7 +141,8 @@ export function statusLabel(value: string | null | undefined, t: Translate): str
 }
 
 export function roleLabel(value: string | null | undefined, t: Translate): string {
-  return t(ROLE_KEYS[String(value ?? '').toLowerCase()] ?? 'label.role.argus');
+  const role = String(value ?? '').toLowerCase();
+  return isAgentRole(role) ? agentRoleName(role, t) : t(ROLE_KEYS[role] ?? 'label.role.argus');
 }
 
 export function workKindLabel(value: string | null | undefined, t: Translate): string {

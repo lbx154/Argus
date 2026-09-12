@@ -1,20 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Activity, Check, ChevronDown, Clock3, FileText, Pause, Terminal, X } from 'lucide-react';
 import type { EventMsg, MissionView, Role } from '../../../core/src/types';
 import { useI18n } from '../i18n';
 import { MarkdownContent } from './MarkdownContent';
+import { agentRoleColor, agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { AGENT_ROLES, activityTitle, agentIsActive, agentWork, latestAgentTool } from './agentActivityModel';
 import './agentActivity.css';
 
-const ROLE_NAMES: Record<string, [string, string]> = {
-  manager: ['统筹', 'Manager'], planner: ['规划', 'Planner'], engineer: ['执行', 'Engineer'], reviewer: ['审查', 'Reviewer'],
-};
 export function AgentActivity({ view, roles = [], events = [], taskId, paused = false, selectedRole,
   onSelectRole, onClose, showTabs = true }: {
   view?: MissionView | null; roles?: Role[]; events?: EventMsg[]; taskId?: string; paused?: boolean;
   selectedRole?: string; onSelectRole?: (role: string) => void; onClose?: () => void; showTabs?: boolean;
 }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const zh = locale === 'zh-CN';
   const [choice, setChoice] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now);
@@ -35,13 +33,13 @@ export function AgentActivity({ view, roles = [], events = [], taskId, paused = 
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [active]);
-  const name = (value: string) => ROLE_NAMES[value]?.[zh ? 0 : 1] || value;
-  return <section className="agent-activity" aria-label={zh ? 'Agent 工作详情' : 'Agent work details'}>
+  const name = (value: string) => isAgentRole(value) ? agentRoleName(value, t) : value;
+  return <section className="agent-activity" style={{ '--agent-role-color': agentRoleColor(role) } as CSSProperties} aria-label={zh ? 'Agent 工作详情' : 'Agent work details'}>
     <header className="agent-activity-heading"><span><Activity size={15} />{zh ? 'Agent 动态' : 'Agent activity'}</span>
       {onClose && <button type="button" onClick={onClose} aria-label={zh ? '关闭 Agent 详情' : 'Close Agent details'}><X size={17} /></button>}
     </header>
     {showTabs && <div className="agent-activity-tabs" role="group" aria-label={zh ? '筛选 Agent' : 'Filter agents'}>
-      {AGENT_ROLES.map((value) => <button type="button" key={value} data-role={value} aria-pressed={role === value}
+      {AGENT_ROLES.map((value) => <button type="button" key={value} data-role={value} aria-pressed={role === value} style={{ '--agent-role-color': agentRoleColor(value) } as CSSProperties}
         onClick={() => { setChoice(value); onSelectRole?.(value); }}>
         <i data-active={agentIsActive(view, roles, value, paused, taskId)} />{name(value)}
       </button>)}

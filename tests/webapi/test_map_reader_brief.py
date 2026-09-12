@@ -124,7 +124,7 @@ def test_brief_is_cached_with_source_revisions_and_does_not_change_research(tmp_
     assert saved["reader_brief"] == brief()
     assert saved["event_ids"] == ["review-a"]
     assert saved["event_revisions"] == [data["events"][0]["revision"]]
-    assert saved["task_status"] == "running" and saved["version"] == 10
+    assert saved["task_status"] == "running" and saved["version"] == map_narrative.PROMPT_VERSION
     assert saved == first["cards"]["a"] and data == original
     assert before == {name: (life / name).read_bytes() for name in before}
 
@@ -158,4 +158,4 @@ def test_requested_legacy_card_is_upgraded_without_losing_evidence(tmp_path, pro
     ], "en-US", project_root=life)
     assert result["cards"]["a"]["reader_brief"]["concept"] is None
     assert result["cards"]["a"]["event_ids"] == ["review-a"]
-    assert result["cards"]["a"]["version"] == 10
+    assert result["cards"]["a"]["version"] == map_narrative.PROMPT_VERSION

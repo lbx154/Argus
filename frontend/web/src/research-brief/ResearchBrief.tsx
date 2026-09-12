@@ -69,6 +69,7 @@ export default function ResearchBrief(props: ResearchBriefProps) {
     </div> : <div className="mt-3 text-[13px] leading-6 text-ink-dim">
       <ShortText value={objective || text('任务目标尚未记录。', 'The task objective has not been recorded yet.')} expandLabel={text('完整任务目标', 'Full task objective')} />
       <p className="mt-1 text-xs text-ink-faint">{result.loading ? text('正在读取任务记录，原始目标会一直保留。', 'Loading the task records; the original objective remains visible.')
+        : result.generating ? text('正在根据任务记录整理说明，可以先阅读原始目标。', 'Preparing an explanation from the task records; you can read the original objective meanwhile.')
         : props.readOnly ? text('此处还没有阅读说明。只读模式可以查看已有记录，不会发起解释生成。', 'No explanation is available yet. Read-only mode shows existing records without generating new text.')
         : text('解说暂不可用，可以先查看下方原始目标与记录。', 'An explanation is not available yet. You can still read the original objective and records below.')}</p>
     </div>}

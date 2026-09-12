@@ -79,6 +79,35 @@ describe('semantic generation and shared cache lifecycle', () => {
     expect(client.getQueryData<Dataset>(key)?.cursor).toBe('cursor-2');
   });
 
+  it('waits for an in-flight explanation and skips intermediate task states', async () => {
+    let finish!: (copy: MapCopy) => void;
+    let latestTask = source.tasks[0];
+    const generate = vi.spyOn(api, 'generateMapCopy')
+      .mockReturnValueOnce(new Promise(resolve => { finish = resolve; }))
+      .mockImplementation(async (_source, _sid, body) => completedCopy(latestTask, body.cards[0].event_ids));
+    const props = inputs();
+    await mount(props);
+    const key = briefLiveKey(props.sid, briefSelection(props.snapshot, props.view));
+    const changeSummary = (summary: string) => act(() => {
+      latestTask = { ...latestTask, summary, revision: summary, content_revision: summary };
+      client.setQueryData<Dataset>(key, previous => ({ ...previous!,
+        tasks: previous!.tasks.map(task => task.id === 'a' ? latestTask : task),
+      }));
+    });
+    changeSummary('Review recorded; certification pending.');
+    await flush();
+    changeSummary('Review recorded; stage remains uncertified.');
+    await flush();
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(result.generating).toBe(true);
+    await act(async () => finish(completedCopy(source.tasks[0], ['start-a', 'main-a'])));
+    await flush(); await flush();
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.task?.summary).toBe('Review recorded; stage remains uncertified.');
+    await flush();
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
   it('does not retry failed generation on polling, hide/show or remount; the button retries it', async () => {
     const generate = vi.spyOn(api, 'generateMapCopy').mockRejectedValue(new Error('Narration unavailable'));
     const props = inputs();

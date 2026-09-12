@@ -2,6 +2,7 @@ import { WorkspaceHeader } from './WorkspaceShell';
 import type { Snapshot, EventMsg } from '../api';
 import type { MissionView } from '../../../core/src/types';
 import { theme } from '../lib/theme';
+import { roleLabel } from '../lib/enumLabels';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
 import { DaemonSpendBadge } from './DaemonSpendBadge';
@@ -90,7 +91,7 @@ export function TopBar({
         {roleActive || focus ? <div className="flex min-w-0 items-center gap-2">
           {roleActive ? <span
             data-role-dot={roleName}
-            aria-label={t('topbar.roleActive', { role: roleName })}
+            aria-label={t('topbar.roleActive', { role: roleLabel(roleName, t) })}
             className="h-2 w-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none"
             style={{ background: theme.role[roleName] || 'rgb(var(--ink-faint))' }}
           /> : null}

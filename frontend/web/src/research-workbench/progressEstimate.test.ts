@@ -6,9 +6,10 @@ import { deriveProgressEstimate } from './progressEstimate';
 import { ExperimentsPage } from './pages/ExperimentsPage';
 import type { ActiveWorkbenchPageProps } from './pages/pageTypes';
 import type { EventMsg, Snapshot } from './types';
+import { translate } from '../i18n';
 
 vi.mock('./useWorkbenchText', () => ({
-  useWorkbenchText: () => ({ locale: 'en', text: (_zh: string, en: string) => en }),
+  useWorkbenchText: () => ({ locale: 'en', text: (_zh: string, en: string) => en, t: (key: string) => translate(key, {}, 'en') }),
 }));
 
 function snapshot(overrides: { alive?: boolean; activeStatus?: string; reviewStatus?: string; complete?: boolean } = {}): Snapshot {

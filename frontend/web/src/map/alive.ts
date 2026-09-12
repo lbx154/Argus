@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { translate } from '../i18n';
+import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 
 /** The atlas moves the way a colleague's whiteboard does: cards settle into a
  * new arrangement instead of teleporting, relations light up under the
@@ -104,11 +106,8 @@ export function elapsedLabel(seconds: number, zh: boolean): string {
   return zh ? `${h} 小时 ${rest} 分` : `${h} h ${String(rest).padStart(2, "0")} min`;
 }
 
-export const ROLE_NAMES: Record<string, [string, string]> = {
-  engineer: ["工程师", "Engineer"],
-  reviewer: ["审阅者", "Reviewer"],
-  planner: ["规划者", "Planner"],
-  manager: ["主持人", "Manager"],
-};
-export const roleName = (role: string | undefined, zh: boolean) =>
-  role ? (ROLE_NAMES[role]?.[zh ? 0 : 1] ?? role.charAt(0).toUpperCase() + role.slice(1)) : (zh ? "Argus" : "Argus");
+export function roleName(role: string | undefined, zh: boolean): string {
+  if (!role) return 'Argus';
+  return isAgentRole(role) ? agentRoleName(role, key => translate(key, {}, zh ? 'zh-CN' : 'en'))
+    : role.charAt(0).toUpperCase() + role.slice(1);
+}

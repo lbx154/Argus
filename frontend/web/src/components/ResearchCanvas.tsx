@@ -11,7 +11,8 @@ import { HtmlPreview } from './HtmlPreview';
 import { JsonPreview, TablePreview } from './DataPreview';
 import { MarkdownContent } from './MarkdownContent';
 import { displayObjective, formatMissionElapsed } from '../../../core/src/missionView';
-import { useI18n } from '../i18n';
+import { translate, useI18n, type Locale } from '../i18n';
+import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { PdfPreview } from './PdfPreview';
 import { isMarkdownArtifact } from '../lib/artifactPresentation';
 import { theme } from '../lib/theme';
@@ -99,13 +100,6 @@ export function defaultPreviewPath(
   return selectPreferredPreviewArtifact(artifacts)?.path ?? '';
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  manager: 'Manager',
-  planner: 'Planner',
-  engineer: 'Engineer',
-  reviewer: 'Reviewer',
-};
-
 export interface LiveMissionStatus {
   role: string;
   roleLabel: string;
@@ -128,6 +122,7 @@ export function selectLiveMissionStatus(
   view?: MissionView | null,
   events: EventMsg[] = [],
   snapshot?: Snapshot,
+  locale: Locale = 'en',
 ): LiveMissionStatus | null {
   if (snapshot && currentWorkStatus(snapshot, view, events).state !== 'running') return null;
   if (missionIsComplete(view)) return null;
@@ -149,7 +144,7 @@ export function selectLiveMissionStatus(
   }
   return {
     role,
-    roleLabel: ROLE_LABELS[role] ?? role,
+    roleLabel: isAgentRole(role) ? agentRoleName(role, key => translate(key, {}, locale)) : role,
     label: roleView?.label || 'Working',
     detail,
   };
@@ -344,8 +339,8 @@ export function ResearchCanvas({
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState('');
   const liveStatus = useMemo(
-    () => connected ? selectLiveMissionStatus(missionView, activityEvents, snapshot) : null,
-    [activityEvents, missionView, snapshot, connected],
+    () => connected ? selectLiveMissionStatus(missionView, activityEvents, snapshot, locale) : null,
+    [activityEvents, missionView, snapshot, connected, locale],
   );
 
   useEffect(() => {

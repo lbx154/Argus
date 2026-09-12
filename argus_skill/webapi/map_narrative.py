@@ -13,7 +13,7 @@ from ..core.file_lock import exclusive_file_lock
 from .map_model import MapModel, resolve_map_model, run_map_model
 from .map_view import digest, task_content_revision, text
 
-PROMPT_VERSION = 10
+PROMPT_VERSION = 11
 BRIEF_LIMITS = {"why": 500, "scope": 700, "next": 500}
 CONCEPT_LIMITS = {"name": 80, "explanation": 600, "example": 400, "connection": 400}
 _LOCK = threading.Lock()
@@ -195,6 +195,7 @@ def generate(
 - reader_brief：给没有本领域背景的读者一份短阅读简报，含以下字段；每项用一至三句完整的短句，不重复 detail：
   - why：本步为什么值得做、它怎样帮助原任务。依据 objective、goal_contribution、plan_hypothesis；假设仍是待验证假设，不能写成已成立。没有目的记录就明确说目的未记录。
   - concept：至多解释一个本步实际出现、最妨碍读者理解的概念，结构为 name、explanation、example、connection。explanation 用日常词先解释，再给必要术语；example 给一个标明“示意例子”的小例子，connection 说明它为什么出现在本步。背景教学和示意例子不是本次研究发现、实验结果或证明证据。没有适合且能准确解释的概念就返回 null，不硬凑百科。
+    不要用新的未解释术语定义这个术语，专业等价名称可以省略；若必须提及，先用日常语言说明。例子必须有具体对象、小数字或可跟随的动作，展示概念怎样起作用，不能只把定义改写成“越多就越大”一类空泛比较。涉及“独立”“相同”“有效”等关键条件，要用例子说明这些条件是什么意思；简化类比也要明确不能类比的边界。
   - scope：说明记录正在讨论或声称支持的具体范围，以及还没有解决什么。优先保留 non_goals、条件、失败与未核验项；子任务 done、一次调用结束、结构检查通过不等于整个目标解决。研究者报告、执行者自检和独立审阅的判断必须分开说；review_skipped=true 表示没有审阅，review_source=engineer_self_review 表示执行者自检。没有明确的独立复核记录就说“尚未见独立复核记录”，不把角色名、旧成果或语气当成复核证据。
   - next：只写所选事件的 next_action、明确的交接说明或任务记录中的下一步，说明必要条件；没有下一步来源就明确说“下一步尚未记录”（英文用同义句）。不要替研究者新规划，不把 pending_question 说成已回答，不预测发现或完成时间。
 简报只依据本次提供的任务和所选事件；没有读取产物原文、外部论文或完整依赖图，不声称已查阅或核验它们。路径可用于定位，但引用标题/链接不等于已核验来源。event_ids 由系统绑定所选记录；不能捏造新证据或让简报改变任务、审阅与成果状态。历史子卡只解释其所选事件当时的事实，不能把当前任务结论套到旧轮次。
@@ -245,7 +246,7 @@ def enrich(
         metadata["cache_revision"] = cache.get("cache_revision", 0)
         existing = cache.get("cards", {})
         # Old copy remains readable without generation. A requested refresh
-        # upgrades legacy text lacking a brief rather than certifying it as v10.
+        # upgrades legacy text lacking a brief rather than marking it current.
         migrated = False
         for document in documents:
             saved = existing.get(document["key"], {})
