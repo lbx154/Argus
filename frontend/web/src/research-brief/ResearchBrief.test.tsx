@@ -5,6 +5,9 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { api } from '../api';
 import { splitDraft } from '../map/presentation';
 import { MarkdownContent } from '../components/MarkdownContent';
+import type { Dataset } from '../map/model';
+import type { MapCopy } from '../map/presentation';
+import { ReaderEvidence } from './ReaderEvidence';
 import type { ReactNode } from 'react';
 import ResearchBrief from './ResearchBrief';
 import { briefCopyKey, briefLiveKey, briefSelection, currentBriefData } from './model';
@@ -110,7 +113,7 @@ it('fills a referenced draft when asked and does not send a model request', () =
   const props = inputs(), queryClient = cachedClient(), onAsk = vi.fn();
   const generate = vi.spyOn(api, 'generateMapCopy');
   act(() => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} onAsk={onAsk} /></QueryClientProvider>); });
-  const button = renderer!.root.findAllByType('button').find(item => item.children.includes('Ask about this step'))!;
+  const button = renderer!.root.findAllByType('button').find(item => item.children.includes('Ask about latest progress'))!;
   act(() => button.props.onClick());
   expect(onAsk).toHaveBeenCalledTimes(1);
   expect(splitDraft(onAsk.mock.calls[0][0]).refs[0]).toMatchObject({ source: 'live:s-research', task_id: 'a', event_ids: ['start-a', 'main-a'] });
@@ -146,7 +149,7 @@ it('keeps evidence and follow-up available when the concept explanation is unava
   const markup = renderToStaticMarkup(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} onAsk={() => {}} /></QueryClientProvider>);
   expect(markup).toContain('You can keep asking about this step');
   expect(markup).toContain('View evidence');
-  expect(markup).toContain('Ask about this step');
+  expect(markup).toContain('Ask about latest progress');
   expect(markup).not.toContain('internal_failure_code');
   expect(markup).not.toContain('Counterexample');
   expect(markup).not.toContain('data-reader-teaching');
@@ -165,7 +168,7 @@ it('keeps task facts and a usable concept when the separate reading check is una
   expect(markup).toContain('the general problem remains open');
   expect(markup).toContain('Counterexample');
   expect(markup).toContain('View evidence');
-  expect(markup).toContain('Ask about this step');
+  expect(markup).toContain('Ask about latest progress');
 });
 
 it('contains a record-read failure inside the card and leaves the original goal and neighboring content visible', async () => {
@@ -181,4 +184,56 @@ it('contains a record-read failure inside the card and leaves the original goal 
   expect(rendered).toContain(source.tasks[0].objective);
   expect(rendered).toContain('Records could not be refreshed');
   expect(generate).not.toHaveBeenCalled();
+});
+
+it('keeps retained source excerpts and same-version originals distinct while a newer explanation is pending', async () => {
+  vi.useFakeTimers();
+  const props = inputs(), queryClient = cachedClient(), onAsk = vi.fn();
+  const copy = completedCopy(source.tasks[0], ['main-a'], 7);
+  const taskMaterial = { title: source.tasks[0].title, objective: source.tasks[0].objective,
+    acceptance_check: 'Retained condition', acceptance_check_truncated: true };
+  const eventMaterial = { id: 'main-a', item_id: 'a', revision: 'main-a1', type: 'round.main.completed', ts: 4,
+    text: 'Retained result excerpt', text_truncated: true, next_action: 'Retained next action' };
+  copy.cards.a.source_snapshot = { version: 1, card_key: 'a', task_id: 'a', captured_at: 6,
+    task: taskMaterial, events: [eventMaterial], source_ids: ['main-a'] };
+  const loaded = currentBriefData(source, props.sid, 'a');
+  loaded.tasks = loaded.tasks.map(task => ({ ...task, acceptance_check: 'Complete condition and excluded cases' }));
+  loaded.events = loaded.events.map(event => event.id === 'main-a' ? { ...event, text: 'Complete result including the final exception' } : event);
+  const liveKey = briefLiveKey(props.sid, briefSelection(props.snapshot, props.view));
+  queryClient.setQueryData(liveKey, loaded);
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US'), copy);
+  const read = vi.spyOn(api, 'liveMap'), generate = vi.spyOn(api, 'generateMapCopy').mockReturnValue(new Promise<MapCopy>(() => {}));
+  await act(async () => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} onAsk={onAsk} /></QueryClientProvider>); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  act(() => renderer!.root.findAllByType('button').find(item => item.children.includes('View evidence'))!.props.onClick());
+  const evidence = () => renderer!.root.findByType(ReaderEvidence);
+  const used = () => evidence().findByProps({ 'data-evidence-group': 'used' });
+  const raw = (node: ReturnType<typeof used>, kind: string) => JSON.parse(node.findByProps({ 'data-evidence-json': kind }).children.join(''));
+  expect(raw(used().findByProps({ 'data-evidence-task': 'used' }), 'task')).toEqual(taskMaterial);
+  expect(raw(used().findByProps({ 'data-evidence-task': 'used' }), 'full-record')).toEqual(loaded.tasks[0]);
+  expect(raw(used().findByProps({ 'data-event-id': 'main-a' }), 'excerpt')).toEqual(eventMaterial);
+  expect(raw(used().findByProps({ 'data-event-id': 'main-a' }), 'full-record')).toEqual(loaded.events.find(event => event.id === 'main-a'));
+  expect(evidence().findAllByProps({ 'data-evidence-full-record': true })).toHaveLength(2);
+  expect(generate).toHaveBeenCalledTimes(1);
+
+  act(() => { queryClient.setQueryData<Dataset>(liveKey, previous => ({ ...previous!,
+    tasks: previous!.tasks.map(task => ({ ...task, revision: 'a2', content_revision: 'new-goal', objective: 'Latest task goal' })),
+    events: [...previous!.events.map(event => event.id === 'main-a' ? { ...event, revision: 'main-a2', text: 'Updated result with a different condition', ts: 8 } : event),
+      { id: 'review-a', item_id: 'a', revision: 'review-a1', type: 'round.review.completed', text: 'New semantic review', ts: 9 }],
+  })); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+  expect(raw(used().findByProps({ 'data-evidence-task': 'used' }), 'task')).toEqual(taskMaterial);
+  expect(raw(used().findByProps({ 'data-event-id': 'main-a' }), 'excerpt')).toEqual(eventMaterial);
+  expect(used().findAllByProps({ 'data-evidence-full-record': true })).toHaveLength(0);
+  const current = evidence().findByProps({ 'data-evidence-group': 'current' });
+  expect(raw(current.findByProps({ 'data-event-id': 'main-a' }), 'event').text).toBe('Updated result with a different condition');
+  expect(raw(current.findByProps({ 'data-event-id': 'review-a' }), 'event').text).toBe('New semantic review');
+  expect(raw(current.findByProps({ 'data-evidence-task': 'current' }), 'task').objective).toBe('Latest task goal');
+  expect(used().findByProps({ 'data-evidence-captured-at': true }).props.dateTime).toBe('1970-01-01T00:00:06.000Z');
+  expect(evidence().findByProps({ 'data-evidence-summary': true }).findAllByProps({ 'data-evidence-captured-at': true })).toHaveLength(0);
+  const ask = renderer!.root.findAllByType('button').find(item => item.children.includes('Ask about latest progress'))!;
+  act(() => ask.props.onClick());
+  expect(splitDraft(onAsk.mock.calls[0][0]).refs[0]).toMatchObject({ task_id: 'a', event_ids: ['start-a', 'main-a', 'review-a'] });
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(read).not.toHaveBeenCalled();
 });

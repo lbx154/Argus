@@ -41,8 +41,8 @@ def capture_generation_sources(monkeypatch, documents):
                 for section in ("reviews", "readings")}
 
     monkeypatch.setattr(map_narrative, "run_map_model", run)
-    map_narrative.generate(documents, [{"id": doc["task_id"]} for doc in documents], "en-US",
-                           config=SimpleNamespace(revision="model-a"), project_root=None, global_root=None)
+    observed["result"] = map_narrative.generate(documents, [{"id": doc["task_id"]} for doc in documents], "en-US",
+                                                config=SimpleNamespace(revision="model-a"), project_root=None, global_root=None)
     assert len(calls) == 2
     return observed
 
@@ -76,6 +76,10 @@ def test_draft_and_checker_share_actual_task_evidence_and_attribution_without_mu
         key = sent["key"]
         original = next(doc for doc in before if doc["key"] == key)
         checked = observed["checker"][key]["context"]
+        snapshot = next(row for row in observed["result"]["cards"] if row["key"] == key)["source_snapshot"]
+        assert snapshot["version"] == 1 and snapshot["card_key"] == key and snapshot["task_id"] == original["task_id"]
+        assert {field: value for field, value in snapshot.items()
+                if field not in {"version", "card_key", "task_id", "captured_at"}} == checked
         assert checked["task"] == sent["task"]
         assert checked["events"] == sent["events"]
         assert checked["source_ids"] == sent["source_ids"] == [event["id"] for event in original["events"]]
@@ -109,6 +113,8 @@ def test_upstream_evidence_truncation_remains_visible_to_both_draft_and_checker(
     observed = capture_generation_sources(monkeypatch, documents)
     draft = observed["draft"]["cards"][0]
     checked = observed["checker"]["a"]["context"]
+    snapshot = observed["result"]["cards"][0]["source_snapshot"]
+    assert snapshot["task"] == checked["task"] and snapshot["events"] == checked["events"]
     assert draft["task"] == checked["task"]
     assert draft["events"] == checked["events"]
     assert checked["task"]["objective_truncated"] is True
@@ -118,6 +124,96 @@ def test_upstream_evidence_truncation_remains_visible_to_both_draft_and_checker(
     assert checked["events"][0]["next_action_truncated"] is True
     assert checked["events"][0]["review_skipped"] is False
     assert dataset == before and documents == document_snapshot
+
+
+def test_source_snapshot_binds_the_pre_generation_material_when_live_task_and_events_change(monkeypatch):
+    source = document()
+    source.update(key="start-a", kind="execution")
+    source["events"][0].update(item_id="a", revision="event-before", type="life.mission.started", ts=900)
+    before = copy.deepcopy(source)
+    now = {"value": 1000.0}
+    observed = {}
+    monkeypatch.setattr(map_narrative.time, "time", lambda: now["value"])
+
+    def run(prompt, schema, _config, **_kwargs):
+        if "cards" in schema["properties"]:
+            observed["draft"] = json.loads(prompt.split("\n研究记录：\n", 1)[1])["cards"][0]
+            assert "source_snapshot" not in schema["properties"]["cards"]["properties"]["start-a"]["properties"]
+            # Simulate progress arriving while the first model call is running.
+            source["task"]["objective"] = "A revised task objective"
+            source["events"][0].update(text="An updated record", revision="event-after")
+            source["events"].append({"id": "completed-a", "item_id": "a", "type": "round.main.completed", "text": "Later progress"})
+            now["value"] = 1100.0
+            return {"cards": {"start-a": copy.deepcopy(card())}, "relations": []}
+        observed["checker"] = json.loads(prompt.split("Teaching passages:\n", 1)[1])["start-a"]["context"]
+        now["value"] = 1200.0
+        verdict = {"status": "accepted", "reason": "Supplied transport-test verdict", "findings": [], "replacement": None}
+        return {"reviews": {"start-a": copy.deepcopy(verdict)}, "readings": {"start-a": copy.deepcopy(verdict)}}
+
+    monkeypatch.setattr(map_narrative, "run_map_model", run)
+    result = map_narrative.generate([source], [{"id": "a"}], "en-US",
+                                   config=SimpleNamespace(revision="model-a"), project_root=None, global_root=None)
+    snapshot = result["cards"][0]["source_snapshot"]
+    assert snapshot["card_key"] == "start-a" and snapshot["task_id"] == "a"
+    assert snapshot["captured_at"] == 1000.0 < now["value"]
+    assert snapshot["task"] == observed["draft"]["task"] == observed["checker"]["task"]
+    assert snapshot["events"] == observed["draft"]["events"] == observed["checker"]["events"]
+    assert snapshot["task"]["objective"] == before["task"]["objective"]
+    assert snapshot["events"][0]["revision"] == "event-before"
+    assert snapshot["source_ids"] == ["start-a"]
+    assert source["events"][-1]["id"] == "completed-a"
+    snapshot["task"]["non_goals"].append("A consumer-local edit")
+    assert source["task"]["non_goals"] == before["task"]["non_goals"]
+
+
+def test_snapshot_persists_with_its_card_and_cached_or_coalesced_reads_never_backfill_it(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(map_narrative, "configured", lambda: True)
+    monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: SimpleNamespace(revision="model-a"))
+    monkeypatch.setattr(map_narrative.time, "time", lambda: 1000.0)
+
+    def run(_prompt, schema, _config, **_kwargs):
+        calls.append(schema)
+        if "cards" in schema["properties"]:
+            return {"cards": {"a": copy.deepcopy(card())}, "relations": []}
+        verdict = {"status": "accepted", "reason": "Supplied transport-test verdict", "findings": [], "replacement": None}
+        return {"reviews": {"a": copy.deepcopy(verdict)}, "readings": {"a": copy.deepcopy(verdict)}}
+
+    monkeypatch.setattr(map_narrative, "run_map_model", run)
+    dataset = {"id": "live:snapshots", "tasks": [{"id": "a", "title": "Task", "objective": "The initial goal",
+                                                  "status": "running", "revision": "task-before", "deps": []}],
+               "events": [{"id": "start-a", "item_id": "a", "type": "life.mission.started", "ts": 900,
+                           "text": "The initial record", "revision": "event-before"}]}
+    before = copy.deepcopy(dataset)
+    request = [{"key": "a", "task_id": "a", "kind": "task", "event_ids": ["start-a"]}]
+    first = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
+    saved = copy.deepcopy(first["cards"]["a"])
+    snapshot = saved["source_snapshot"]
+    assert len(calls) == 2 and snapshot["captured_at"] == 1000.0
+    assert snapshot["task"]["objective"] == "The initial goal" and snapshot["source_ids"] == ["start-a"]
+    assert saved["task_revision"] == "task-before" and saved["event_revisions"] == ["event-before"]
+    cache_source = "live:snapshots:en-US"
+    assert map_narrative.read_cache(tmp_path, cache_source)["cards"]["a"]["source_snapshot"] == snapshot
+    again = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
+    assert again["cached"] is True and again["cards"]["a"] == saved and len(calls) == 2
+
+    later = copy.deepcopy(dataset)
+    later["tasks"][0].update(objective="A changed goal", revision="task-after")
+    later["events"].append({"id": "completed-a", "item_id": "a", "type": "round.main.completed", "ts": 950,
+                            "text": "New progress", "revision": "new-event"})
+    later_request = [{**request[0], "event_ids": ["start-a", "completed-a"]}]
+    coalesced = map_narrative.enrich(tmp_path, later, later_request, "en-US", project_root=tmp_path)
+    assert coalesced["retry_after"] == 25 and coalesced["cards"]["a"] == saved
+    assert len(calls) == 2 and dataset == before
+
+    # An otherwise current pre-snapshot cache remains readable without a new call.
+    legacy = map_narrative.read_cache(tmp_path, cache_source)
+    legacy["cards"]["a"].pop("source_snapshot")
+    map_narrative._write_cache(map_narrative.cache_path(tmp_path, cache_source), legacy)
+    legacy_before = copy.deepcopy(legacy)
+    cached = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
+    assert cached["cached"] is True and "source_snapshot" not in cached["cards"]["a"]
+    assert len(calls) == 2 and map_narrative.read_cache(tmp_path, cache_source) == legacy_before
 
 
 def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(monkeypatch):

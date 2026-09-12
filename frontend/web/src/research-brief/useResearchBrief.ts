@@ -98,7 +98,7 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
     }
   };
   return {
-    task, evidence, card, brief, inputSignature,
+    task, evidence, loadedEvents: live.data?.events, card, brief, inputSignature,
     needsUpdate: needsUpdate && generation.data?.available !== true,
     legacy,
     loading: enabled && (live.isPending || copy.isPending),

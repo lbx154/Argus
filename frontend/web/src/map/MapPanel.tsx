@@ -1533,7 +1533,7 @@ export function MapCanvas({
           <ModalHeader title={zh ? "任务说明" : "Task explanation"} sub={copy?.cards[readingTask.id]?.title || readingTask.title} />
           <div className="px-6 pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
             {focusedNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{focusedNode.data.completionScope}</p> : null}
-            <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} card={copy?.cards[readingTask.id]}
+            <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} card={copy?.cards[readingTask.id]} task={readingTask}
               originalDetail={readingTask.objective || readingTask.summary || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
               selection={{ request: readingRequest, evidence: readingEvidence, pending: readingNeedsUpdate, generating: copyGenerating }}
               artifacts={artifactScope.artifacts} onOpenArtifact={artifactScope.onOpenArtifact} />

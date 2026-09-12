@@ -6,11 +6,11 @@ import { MarkdownContent } from '../components/MarkdownContent';
 import { Modal, ModalHeader } from '../components/Modal';
 import { useI18n } from '../i18n';
 import { dateOf } from '../lib/format';
-import { plainDetail, plainEventName, plainStatus } from '../lib/plainStatus';
-import { readableRecord } from '../map/submap';
 import { questionAboutStep } from './model';
 import { useResearchBrief } from './useResearchBrief';
 import { ReaderExplanation, ReaderExplanationStatus, ShortText, readerExplanationBoundary } from './ReaderExplanation';
+import { ReaderEvidence } from './ReaderEvidence';
+import { selectReaderEvidence } from './evidence';
 
 export interface ResearchBriefProps {
   sid: string;
@@ -39,6 +39,9 @@ export default function ResearchBrief(props: ResearchBriefProps) {
   const { task, evidence, brief, card } = result;
   const title = (brief ? card?.title : undefined) || task?.title || props.view.mission.title || text('当前任务', 'Current task');
   const objective = task?.objective || props.view.mission.objective || props.snapshot.session.objective;
+  const sources = selectReaderEvidence({ cardKey: props.view.mission.id, taskId: props.view.mission.id, card,
+    task: task || { id: props.view.mission.id, title: props.view.mission.title, objective: props.view.mission.objective, status: props.view.mission.status },
+    loadedEvents: result.loadedEvents, currentEvents: evidence });
   const generatedDate = dateOf({ ts: card?.generated_at });
   const generatedAt = generatedDate?.toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) ?? '';
   const unavailable = result.legacy || result.generationUnavailable || (!result.loading && !result.generationAvailable);
@@ -76,7 +79,7 @@ export default function ResearchBrief(props: ResearchBriefProps) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         {compact ? <Button className="inline-flex items-center gap-1 text-xs" onClick={() => setReadingOpen(true)}><BookOpen size={12} />{text('阅读说明', 'Read explanation')}</Button> : null}
         <Button className="inline-flex items-center gap-1 text-xs" onClick={() => setEvidenceOpen(true)}><BookOpen size={12} />{text('查看依据', 'View evidence')}</Button>
-        {props.onAsk && task && !props.readOnly ? <Button className="inline-flex items-center gap-1 text-xs" onClick={() => props.onAsk?.(questionAboutStep(props.sid, task, evidence, zh))}><MessageCircle size={12} />{compact && !zh ? <>Ask<span className="sr-only"> about this step</span></> : text('继续问这一步', 'Ask about this step')}</Button> : null}
+        {props.onAsk && task && !props.readOnly ? <Button className="inline-flex items-center gap-1 text-xs" onClick={() => props.onAsk?.(questionAboutStep(props.sid, task, evidence, zh))}><MessageCircle size={12} />{compact && !zh ? <>Ask<span className="sr-only"> about latest progress</span></> : text('询问最新进展', 'Ask about latest progress')}</Button> : null}
       </div>
       {!compact ? <p className="mt-1 text-[11px] text-ink-faint">{boundary}</p> : null}
     </footer>
@@ -86,22 +89,9 @@ export default function ResearchBrief(props: ResearchBriefProps) {
       <div className="px-6 pb-6" data-testid="research-brief-reading">{explanationStatus}{explanation}<p className="mt-3 border-t border-line/50 pt-2 text-[11px] text-ink-faint">{boundary}</p></div>
     </Modal>
     <Modal open={evidenceOpen} onClose={() => setEvidenceOpen(false)} label={text('这一步的依据', 'Evidence for this step')}>
-      <ModalHeader title={text('这一步的依据', 'Evidence for this step')} sub={task?.title || props.view.mission.title} />
+      <ModalHeader title={text('这一步的依据', 'Evidence for this step')} sub={card?.title || task?.title || props.view.mission.title} />
       <div className="space-y-4 px-6 pb-6 text-[13px] leading-6 text-ink-dim">
-        <section><h3 className="mb-1 text-sm font-medium text-ink">{text('任务目标', 'Task objective')}</h3><MarkdownContent>{objective || title}</MarkdownContent></section>
-        {evidence.map(event => {
-          const kind = event.type === 'life.mission.started' ? 'mission_started' : event.type === 'life.planner.task_added' ? 'task_added' : '';
-          const label = plainEventName(event.type, locale) || plainStatus('', locale, kind) || event.type;
-          const prose = plainDetail(readableRecord(event.text || event.reason), locale).text;
-          const timestamp = Number.isFinite(event.ts) && event.ts > 0 ? new Date(event.ts * 1000) : null;
-          return <section key={event.id} data-event-id={event.id} className="border-t border-line/50 pt-3">
-            <h3 className="text-sm font-medium text-ink">{label}</h3>
-            <div className="mb-2 flex flex-wrap gap-x-2 text-[11px] text-ink-faint"><time dateTime={timestamp?.toISOString()}>{timestamp ? timestamp.toLocaleString(locale) : text('时间未记录', 'Time not recorded')}</time><code>{event.type}</code></div>
-            <MarkdownContent>{prose || text('这条记录没有附加说明。', 'No additional explanation was recorded.')}</MarkdownContent>
-            <RawDisclosure label={text('原始记录（JSON）', 'Original record (JSON)')}><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(event, null, 2)}</pre></RawDisclosure>
-          </section>;
-        })}
-        {!evidence.length ? <p className="text-xs text-ink-faint">{text('当前尚无已加载的任务开始或审阅回执；不据此推断任务结果。', 'No task-start or review records are loaded yet; this does not establish a task outcome.')}</p> : null}
+        <ReaderEvidence selection={sources} />
         <RawDisclosure label={text('任务标识', 'Task identifiers')}><code className="block break-all text-xs">{props.sid} / {props.view.mission.id || text('任务 ID 未记录', 'Task ID not recorded')}</code></RawDisclosure>
       </div>
     </Modal>

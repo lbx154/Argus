@@ -23,7 +23,7 @@ def _capture_prompt(monkeypatch) -> str:
 
     monkeypatch.setattr(map_narrative, "run_map_model", fake_run)
     map_narrative.generate(
-        [{"key": "k"}],
+        [{"key": "k", "task_id": "task"}],
         [{"id": "task"}],
         "zh-CN",
         config=None,

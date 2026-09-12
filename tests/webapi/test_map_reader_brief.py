@@ -99,7 +99,7 @@ def test_generation_rejects_missing_or_malformed_briefs(monkeypatch, invalid):
         "relations": [],
     })
     with pytest.raises(ValueError, match="reader brief"):
-        map_narrative.generate([{"key": "a"}], [{"id": "a"}], "en-US", config=None, project_root=None, global_root=None)
+        map_narrative.generate([{"key": "a", "task_id": "a"}], [{"id": "a"}], "en-US", config=None, project_root=None, global_root=None)
 
 
 def test_brief_is_cached_with_source_revisions_and_does_not_change_research(tmp_path, project, monkeypatch):

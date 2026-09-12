@@ -27,6 +27,18 @@ export interface ReaderBrief {
   next: string;
 }
 
+/** The bounded task/event material actually supplied to the explanation models. */
+export interface CardSourceSnapshot {
+  version: 1;
+  card_key: string;
+  task_id: string;
+  captured_at: number;
+  task: Record<string, unknown>;
+  events: Record<string, unknown>[];
+  source_ids: string[];
+  events_truncated?: boolean;
+}
+
 export interface CardCopy {
   copy_revision?: number;
   version?: number;
@@ -56,6 +68,7 @@ export interface CardCopy {
   event_ids?: string[];
   event_revisions?: string[];
   input_revision?: string;
+  source_snapshot?: CardSourceSnapshot;
 }
 export interface MapRelation {
   source: string;
