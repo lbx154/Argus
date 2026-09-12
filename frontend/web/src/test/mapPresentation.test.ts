@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildMap, connectMap, type MapTask } from "../map/model";
-import { attentionReason, mergeMapCopy, referenceText, requestsFor, splitDraft } from "../map/presentation";
+import { attentionReason, mergeMapCopy, needsCardCopy, referenceText, requestsFor, splitDraft } from "../map/presentation";
 import { buildSubmap } from "../map/submap";
 import type { Dataset, MapEvent } from "../map/model";
 
@@ -24,6 +24,24 @@ it("keeps new model settings when an earlier generation finishes", () => {
   const result = { cards: {}, relations: [], model_revision: "old-model" };
   expect(mergeMapCopy(previous, result, "old-model")).toMatchObject({ model_revision: "new-model", available: false });
   expect(mergeMapCopy(result, previous, "old-model")).toMatchObject({ model_revision: "new-model", available: false });
+});
+
+it('refreshes stable old cards for a newer server version and keeps late responses from downgrading it', () => {
+  const task: MapTask = { id: 'historical', title: 'Historical work', objective: '', status: 'done', revision: 'r1' };
+  const data: Dataset = { id: 'live:project', kind: 'live', title: '', description: '', read_only: false, tasks: [task], events: [] };
+  const request = { key: task.id, task_id: task.id, kind: 'task', event_ids: [] };
+  const card = { title: '旧中文标题', summary: 'Old summary', detail: 'Old details', generated_at: 1,
+    version: 14, copy_revision: 1, task_revision: 'r1', task_status: 'done', event_ids: [] };
+  const known = { version: 15, cards: { [task.id]: card }, relations: [] };
+  expect(needsCardCopy(request, data, known)).toBe(true);
+  const updated = { ...card, version: 15, copy_revision: 2, generated_at: 2, title: '新版中文标题' };
+  // POST results need not repeat the server's top-level version.
+  const current = mergeMapCopy(known, { cards: { [task.id]: updated }, relations: [] });
+  expect(current.version).toBe(15);
+  expect(needsCardCopy(request, data, current)).toBe(false);
+  const late = mergeMapCopy(current, { version: 14, cards: { [task.id]: { ...card, copy_revision: 3, generated_at: 3 } }, relations: [] });
+  expect(late.version).toBe(15);
+  expect(late.cards[task.id].title).toBe(updated.title);
 });
 
 describe("map presentation and references", () => {

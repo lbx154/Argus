@@ -13,9 +13,9 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import { MarkdownContent } from "../components/MarkdownContent";
 import { MarkdownExcerpt } from "../components/MarkdownExcerpt";
-import { cleanDeliverySummary } from "../components/deliveryPresentation";
+import { Button } from "../components/primitives";
+import { MapReaderContent, type MapReaderSelection } from "./MapReaderContent";
 import type { ArtifactInfo } from "../api";
 import type { MapCopy, CardReference } from "./presentation";
 import { ACTIVE, statusKey } from "./model";
@@ -41,7 +41,9 @@ export type MacroData = MapCard & {
   toggleHistory?: (taskId: string) => void;
   focused: boolean;
   detailed: boolean;
-  copy?: Pick<MapCopy, "cards">;
+  copy?: Pick<MapCopy, "cards" | "version">;
+  readCopy?: (nodeId: string, key: string | null) => void;
+  readerCopy?: MapReaderSelection;
   live: boolean;
   paused?: boolean;
   growthDelay?: number;
@@ -187,6 +189,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     if (!detailed) {
       setDetailId(null);
       setReadingLayout(null);
+      data.readCopy?.(id, null);
     }
   }, [detailed]);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -317,6 +320,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const read = (step: SubmapStep) => {
     setReadingLayout(layout);
     setDetailId(step.id);
+    data.readCopy?.(id, step.id);
     data.readStep(id, rectFor(step));
   };
   useEffect(() => {
@@ -519,6 +523,12 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           {(state !== "recorded" || data.completionScope) && (
             <span className="macro-state" title={data.completionScope}>{taskStateLabel}</span>
           )}
+          {detailed && isLastPart ? <Button data-testid="map-task-read" className="nodrag nopan text-xs"
+            onClick={() => {
+              setDetailId(null);
+              setReadingLayout(null);
+              data.readCopy?.(id, task.id);
+            }}>{zh ? "阅读任务说明" : "Read task explanation"}</Button> : null}
         </header>
         <div className="macro-stage-key">
           {STEP_KINDS
@@ -666,17 +676,18 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                 onClick={() => {
                   setDetailId(null);
                   setReadingLayout(null);
+                  data.readCopy?.(id, null);
                   data.open(id);
                 }}
               >
                 <X size={20} />
               </button>
             </header>
-            <h3><MarkdownExcerpt>{detail.title}</MarkdownExcerpt></h3>
+            <h3><MarkdownExcerpt>{stepCopy(detail)?.title || detail.title}</MarkdownExcerpt></h3>
             <div className="macro-reader-body">
-              <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>
-                {cleanDeliverySummary(stepCopy(detail)?.detail || detail.detail || noDetails(zh))}
-              </MarkdownContent>
+              <MapReaderContent cardKey={detail.id} taskId={task.id} card={stepCopy(detail)}
+                originalDetail={detail.detail || noDetails(zh)} selection={data.readerCopy}
+                artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
             </div>
             <footer>
               <span title={sourceLabel(detail, zh)}>

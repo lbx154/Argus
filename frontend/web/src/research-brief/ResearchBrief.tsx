@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, ChevronDown, MessageCircle, RefreshCw } from 'lucide-react';
+import { BookOpen, MessageCircle, RefreshCw } from 'lucide-react';
 import type { MissionView, Snapshot } from '../../../core/src/types';
-import { Button, RawDisclosure, Spinner } from '../components/primitives';
+import { Button, RawDisclosure } from '../components/primitives';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { Modal, ModalHeader } from '../components/Modal';
 import { useI18n } from '../i18n';
@@ -10,7 +10,7 @@ import { plainDetail, plainEventName, plainStatus } from '../lib/plainStatus';
 import { readableRecord } from '../map/submap';
 import { questionAboutStep } from './model';
 import { useResearchBrief } from './useResearchBrief';
-import { DirectionExample, offersDirectionExample } from './DirectionExample';
+import { ReaderExplanation, ReaderExplanationStatus, ShortText, readerExplanationBoundary } from './ReaderExplanation';
 
 export interface ResearchBriefProps {
   sid: string;
@@ -20,28 +20,6 @@ export interface ResearchBriefProps {
   readOnly?: boolean;
   compact?: boolean;
   onAsk?: (draft: string) => void;
-}
-
-function ShortText({ value, expandLabel, clamp = true }: { value: string; expandLabel: string; clamp?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  const [overflow, setOverflow] = useState(false);
-  const content = useRef<HTMLDivElement>(null);
-  const { locale } = useI18n();
-  useEffect(() => {
-    const element = content.current;
-    if (!element || !clamp || expanded) return;
-    const measure = () => setOverflow(element.scrollHeight > element.clientHeight + 1);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [value, clamp, expanded]);
-  return <div>
-    <div ref={content} className={`text-[13px] leading-6 text-ink-dim ${!clamp || expanded ? '' : 'line-clamp-3'}`}><MarkdownContent>{value}</MarkdownContent></div>
-    {clamp && (overflow || expanded) ? <button type="button" className="mt-0.5 text-xs text-blue-sky hover:underline" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
-      {expanded ? locale === 'zh-CN' ? '收起' : 'Show less' : expandLabel}<ChevronDown size={11} className={`ml-1 inline ${expanded ? 'rotate-180' : ''}`} />
-    </button> : null}
-  </div>;
 }
 
 export default function ResearchBrief(props: ResearchBriefProps) {
@@ -65,34 +43,11 @@ export default function ResearchBrief(props: ResearchBriefProps) {
   const generatedAt = generatedDate?.toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) ?? '';
   const unavailable = result.legacy || result.generationUnavailable || (!result.loading && !result.generationAvailable);
   const hasProblem = !!result.readError || !!result.generationError || unavailable;
-  const explanationStatus = (brief && (generatedAt || result.needsUpdate)) || result.generating
-    ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="research-brief-status">
-      {brief && (generatedAt || result.needsUpdate) ? <span className="text-[11px] text-ink-faint">
-        {result.needsUpdate ? text('上次说明 · ', 'Previous explanation · ') : ''}
-        {generatedAt ? <time dateTime={generatedDate?.toISOString()} title={generatedDate?.toLocaleString(locale)}>{generatedAt}</time> : null}
-        {result.needsUpdate ? text(`${generatedAt ? ' · ' : ''}待更新`, `${generatedAt ? ' · ' : ''}update pending`) : ''}
-      </span> : null}
-      {result.generating ? <span role="status" className="inline-flex items-center gap-1.5 text-xs text-ink-faint"><Spinner />{text('正在整理说明', 'Preparing an explanation')}</span> : null}
-    </div> : null;
+  const explanationStatus = <ReaderExplanationStatus generatedAt={card?.generated_at} pending={result.needsUpdate} generating={result.generating} hasExplanation={!!brief} />;
 
-  const boundary = text('背景教学不计作研究进展；子任务完成不表示整个目标已经解决。', 'Background explanations are not research progress; finishing one task does not establish the overall goal.');
+  const boundary = readerExplanationBoundary(zh);
   const explanation = <>
-    {brief ? <div className="mt-3 grid gap-3 sm:grid-cols-2">
-      <div><h3 className="mb-0.5 text-xs font-medium text-ink">{text('这一步为什么有用', 'Why this step helps')}</h3><ShortText key={`why:${task?.id}`} value={brief.why} expandLabel={text('完整说明', 'Full explanation')} /></div>
-      <div><h3 className="mb-0.5 text-xs font-medium text-ink">{text('结论到哪里为止', 'What this does and does not establish')}</h3><ShortText key={`scope:${task?.id}`} value={brief.scope} expandLabel={text('完整适用范围', 'Full scope')} clamp={false} /></div>
-      <div><h3 className="mb-0.5 text-xs font-medium text-ink">{text('记录中的下一步', 'The recorded next step')}</h3><ShortText key={`next:${task?.id}`} value={brief.next} expandLabel={text('完整下一步', 'Full next step')} /></div>
-      {result.readingUnavailable ? <p className="text-xs text-ink-faint sm:col-span-2">{text('阅读说明还需要核对，可以先查看依据或继续问这一步。', 'The reading explanation still needs checking. You can view its evidence or keep asking about this step.')}</p>
-        : result.teachingUnavailable ? <p className="text-xs text-ink-faint sm:col-span-2">{text('这个概念的说明还没核对清楚，可以继续问这一步。', 'The explanation of this concept has not been checked clearly yet. You can keep asking about this step.')}</p> : null}
-      {brief.concept ? <div><h3 className="mb-0.5 text-xs font-medium text-ink">{text('认识一个概念', 'One useful concept')} · {brief.concept.name}</h3>
-        <ShortText key={`concept:${task?.id}:${brief.concept.name}`} value={brief.concept.explanation} expandLabel={text('完整定义', 'Full definition')} />
-        <div className="mt-2 border-l-2 border-line pl-3 text-[13px] leading-6 text-ink-dim" data-testid="concept-example">
-          <p className="mb-0.5 text-xs font-medium text-ink">{text('示意例子', 'Illustrative example')}</p>
-          <MarkdownContent>{brief.concept.example}</MarkdownContent>
-        </div>
-        <RawDisclosure label={text('它与这一步的关系', 'How it connects to this step')}><div className="mt-2 text-[13px] leading-6 text-ink-dim"><MarkdownContent>{brief.concept.connection}</MarkdownContent></div></RawDisclosure>
-        {offersDirectionExample(brief.concept) ? <RawDisclosure label={text('动手看两个方向', 'Try two directions')}><DirectionExample /></RawDisclosure> : null}
-      </div> : null}
-    </div> : <div className="mt-3 text-[13px] leading-6 text-ink-dim">
+    {brief ? <ReaderExplanation brief={brief} identity={task?.id || props.view.mission.id} readingUnavailable={result.readingUnavailable} teachingUnavailable={result.teachingUnavailable} /> : <div className="mt-3 text-[13px] leading-6 text-ink-dim">
       <ShortText value={objective || text('任务目标尚未记录。', 'The task objective has not been recorded yet.')} expandLabel={text('完整任务目标', 'Full task objective')} />
       <p className="mt-1 text-xs text-ink-faint">{result.loading ? text('正在读取任务记录，原始目标会一直保留。', 'Loading the task records; the original objective remains visible.')
         : result.generating ? text('正在根据任务记录整理说明，可以先阅读原始目标。', 'Preparing an explanation from the task records; you can read the original objective meanwhile.')

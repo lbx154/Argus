@@ -80,6 +80,7 @@ export function mergeMapCopy(previous: MapCopy | undefined, result: MapCopy, req
   for (const [key, card] of Object.entries(result.cards)) {
     if (settingsChanged && cards[key]?.model_revision === previous.model_revision) continue;
     const old = cards[key];
+    if (old?.version && (card.version ?? 0) < old.version) continue;
     if (!old || (card.copy_revision ?? 0) > (old.copy_revision ?? 0) ||
       ((card.copy_revision ?? 0) === (old.copy_revision ?? 0) &&
         (card.generated_at > old.generated_at ||
@@ -90,6 +91,8 @@ export function mergeMapCopy(previous: MapCopy | undefined, result: MapCopy, req
     ...previous,
     ...result,
     cards,
+    ...((previous?.version != null || result.version != null)
+      ? { version: Math.max(previous?.version ?? 0, result.version ?? 0) } : {}),
     cache_revision: Math.max(result.cache_revision ?? 0, previous?.cache_revision ?? 0),
     relations: (settingsChanged || older) && previous ? previous.relations : result.relations,
     available: result.available ?? true,
@@ -106,6 +109,7 @@ export function needsCardCopy(
   const saved = copy?.cards[card.key];
   const task = data.tasks.find((t) => t.id === card.task_id);
   if (!saved || !task) return true;
+  if ((saved.version ?? 0) < (copy?.version ?? 0)) return true;
   const dynamic = [task.id, task.id + ":active", task.id + ":outcome"].includes(card.key);
   if (dynamic || !saved.task_content_revision || !task.content_revision) {
     if (task.revision && saved.task_revision !== task.revision) return true;

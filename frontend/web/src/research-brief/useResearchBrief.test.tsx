@@ -38,6 +38,30 @@ afterEach(() => {
 });
 
 describe('semantic generation and shared cache lifecycle', () => {
+  it('retains compatible Chinese copy while a newer server version refreshes the same input', async () => {
+    const previous = completedCopy(source.tasks[0], ['start-a', 'main-a']);
+    previous.cards.a.title = '已有中文说明';
+    const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue(previous);
+    await mount();
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(result.brief).toEqual(previous.cards.a.reader_brief);
+    act(() => { client.setQueryData(briefCopyKey('s-research', 'en-US'), { ...previous, version: 15 }); });
+    await flush(); await flush();
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.card?.title).toBe('已有中文说明');
+    expect(result.brief).toEqual(previous.cards.a.reader_brief);
+    expect(result.needsUpdate).toBe(true);
+    // A coalesced v14 card, even without a top-level version, is not a v15 completion.
+    generate.mockResolvedValue({ cards: previous.cards, relations: [] });
+    await act(async () => { await result.retry(); }); await flush();
+    expect(result.needsUpdate).toBe(true);
+    const next = { ...previous.cards.a, version: 15, copy_revision: 20, generated_at: 20 };
+    generate.mockResolvedValue({ cards: { a: next }, relations: [] });
+    await act(async () => { await result.retry(); }); await flush();
+    expect(result.needsUpdate).toBe(false);
+    expect(client.getQueryData<MapCopy>(briefCopyKey('s-research', 'en-US'))?.version).toBe(15);
+  });
+
   it('upgrades the previous explanation version without presenting it as the current reading card', async () => {
     const old = completedCopy(source.tasks[0], ['start-a', 'main-a']);
     old.cards.a.version = READER_BRIEF_VERSION - 1;
@@ -195,14 +219,16 @@ describe('semantic generation and shared cache lifecycle', () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
-  it('does not loop when a generation response itself contains legacy copy without a brief', async () => {
+  it('retains the known server version without looping when a response contains legacy copy without a brief', async () => {
     const legacy = completedCopy(source.tasks[0], ['start-a', 'main-a']);
     legacy.version = 9; legacy.cards.a.version = 9; delete legacy.cards.a.reader_brief;
     const generate = vi.spyOn(api, 'generateMapCopy').mockResolvedValue(legacy);
     await mount();
     await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
     expect(generate).toHaveBeenCalledTimes(1);
-    expect(result.legacy).toBe(true);
+    expect(result.legacy).toBe(false);
+    expect(result.generationUnavailable).toBe(true);
+    expect(client.getQueryData<MapCopy>(briefCopyKey('s-research', 'en-US'))?.version).toBe(READER_BRIEF_VERSION);
     expect(result.brief).toBeUndefined();
   });
 

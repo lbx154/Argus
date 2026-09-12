@@ -3,9 +3,11 @@ import type { MapSelection } from '../map/incremental';
 import type { Dataset, MapEvent, MapTask } from '../map/model';
 import { needsCardCopy, referenceText, type CardRequest, type MapCopy, type ReaderBrief } from '../map/presentation';
 
+/** Compatible display schema; the server's copy.version controls regeneration. */
 export const READER_BRIEF_VERSION = 14;
 const SEMANTIC_EVENTS = new Set([
   'life.planner.task_added', 'life.mission.started', 'round.main.completed', 'round.review.completed',
+  'turn.asked', 'turn.replied',
 ]);
 
 export function briefCopyKey(sid: string, locale: string) {

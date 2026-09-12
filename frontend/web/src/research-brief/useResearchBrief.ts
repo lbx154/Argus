@@ -58,7 +58,8 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
   const canGenerate = enabled && !readOnly && !!task && copy.data?.available === true
     && !legacy && !live.isError && !copy.isError;
   const generationScope = ['research-brief-generation', sid, taskId, locale, selection.eventSince] as const;
-  const generationKey = [...generationScope, READER_BRIEF_VERSION, inputSignature] as const;
+  const generationVersion = Math.max(READER_BRIEF_VERSION, copy.data?.version ?? 0);
+  const generationKey = [...generationScope, generationVersion, inputSignature] as const;
   // A task can receive its final review/certification while its first explanation
   // is still being written. Finish that request before generating the latest
   // input; intermediate states should not create parallel model calls.
@@ -74,13 +75,10 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
       const result = await api.generateMapCopy('project', sid, { cards: [briefRequest(task, evidence)], locale }, undefined, sid);
       const returned = result.cards?.[task.id];
       const valid = (returned?.version ?? 0) >= READER_BRIEF_VERSION && isReaderBrief(returned?.reader_brief);
-      const oldVersion = result.version ?? returned?.version;
-      const normalized = !valid && typeof oldVersion === 'number' && oldVersion < READER_BRIEF_VERSION
-        ? { ...result, version: oldVersion } : result;
-      client.setQueryData<MapCopy>(copyKey, previous => mergeMapCopy(previous, normalized, requestedRevision));
+      client.setQueryData<MapCopy>(copyKey, previous => mergeMapCopy(previous, result, requestedRevision));
       // Coalescing can return a previous valid brief with retry_after. Its
       // existence alone does not mean the newly requested evidence was read.
-      const current = valid && !!live.data && !needsCardCopy(briefRequest(task, evidence), live.data, result,
+      const current = valid && (returned?.version ?? 0) >= generationVersion && !!live.data && !needsCardCopy(briefRequest(task, evidence), live.data, result,
         new Map(evidence.map(event => [event.id, event])));
       return { available: current, retryAfter: result.retry_after ?? null, inputSignature };
     },

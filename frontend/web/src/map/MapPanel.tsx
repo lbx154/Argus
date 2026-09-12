@@ -2,6 +2,9 @@ import { MapConversation } from './MapConversation';
 import { mapStatusSentence } from './status';
 import { PendingBanner } from '../components/PendingBanner';
 import { ComposerRuntime } from '../components/ComposerRuntime';
+import { Button } from '../components/primitives';
+import { Modal, ModalHeader } from '../components/Modal';
+import { MapReaderContent } from './MapReaderContent';
 import { Activity, PackageCheck, MessageCircle, SlidersHorizontal } from 'lucide-react';
 import { AgentActivity } from '../components/AgentActivity';
 import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
@@ -179,6 +182,14 @@ export function MapCanvas({
   const [pendingCard, setPendingCard] = useState<string | null>(null);
   const [seenCards] = useState(() => new Set(savedView.current?.scene?.cards.map((card) => card.id)));
   const focusedNode = nodes.find((n) => n.id === camera.focusId);
+  const [readingCopy, setReadingCopy] = useState<{ nodeId: string; key: string } | null>(null);
+  const readCopy = useCallback((nodeId: string, key: string | null) => {
+    setReadingCopy(previous => key ? { nodeId, key } : previous?.nodeId === nodeId ? null : previous);
+  }, []);
+  useEffect(() => {
+    setReadingCopy(previous => previous?.nodeId === camera.focusId ? previous : null);
+  }, [camera.focusId]);
+  const readingKey = readingCopy?.nodeId === camera.focusId ? readingCopy.key : null;
   const attention = useMemo(() => attentionTasks(data.tasks), [data.tasks]);
   const attentionIndex = attention.findIndex((task) => task.id === focusedNode?.data.task.id);
   const [traceId, setTraceId] = useState<string | null>(null);
@@ -191,7 +202,7 @@ export function MapCanvas({
     tracedTask.id, ...dependencies.upstream.map((task) => task.id),
     ...dependencies.downstream.map((task) => task.id),
   ]) : null, [tracedTask, dependencies]);
-  const { copy, ready: copyReady } = useMapCopy(
+  const { copy, ready: copyReady, generating: copyGenerating, readingRequest, readingNeedsUpdate } = useMapCopy(
     data,
     focusedNode?.data.task.id || null,
     zh,
@@ -199,7 +210,16 @@ export function MapCanvas({
     focusedNode?.data.layout.steps,
     sessionId,
     paused,
+    false,
+    readingKey,
   );
+  const readingEvidence = useMemo(() => {
+    if (!readingRequest) return [];
+    const ids = new Set([...readingRequest.event_ids, ...(copy?.cards[readingRequest.key]?.event_ids || [])]);
+    return data.events.filter(event => event.item_id === readingRequest.task_id && ids.has(event.id));
+  }, [readingRequest, copy, data.events]);
+  const readingTask = readingRequest && readingRequest.key === readingRequest.task_id
+    ? data.tasks.find(task => task.id === readingRequest?.task_id) : undefined;
   const links = useMemo(
     () => connectMap(graph, copy?.relations || [], zh),
     [graph, copy?.relations, zh],
@@ -570,6 +590,7 @@ export function MapCanvas({
           open: openCard,
           toggleHistory,
           readStep: camera.readStep,
+          readCopy,
           menu: showMenu,
           quote,
           source: data.id,
@@ -596,6 +617,7 @@ export function MapCanvas({
     openCard,
     toggleHistory,
     camera.readStep,
+    readCopy,
     showMenu,
     quote,
     data.id,
@@ -654,10 +676,13 @@ export function MapCanvas({
         hidden: !visibleIds.has(n.id),
         data: {
           ...n.data,
-          copy: copy ? { cards: Object.fromEntries(
+          copy: copy ? { version: copy.version, cards: Object.fromEntries(
             [n.data.task.id, ...n.data.layout.steps.map((s) => s.id)]
               .filter((id) => copy.cards[id]).map((id) => [id, copy.cards[id]]),
           ) } : undefined,
+          readerCopy: readingCopy?.nodeId === n.id && readingRequest ? {
+            request: readingRequest, evidence: readingEvidence, pending: readingNeedsUpdate, generating: copyGenerating,
+          } : undefined,
           focused: n.id === camera.focusId,
           detailed: camera.detailed && n.id === camera.focusId,
           canvasSize: camera.canvasSize,
@@ -700,6 +725,11 @@ export function MapCanvas({
       query,
       cardSearchText,
       copy,
+      readingCopy,
+      readingRequest,
+      readingEvidence,
+      readingNeedsUpdate,
+      copyGenerating,
       zh,
       growth,
       flight,
@@ -946,7 +976,7 @@ export function MapCanvas({
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
       const target = e.target as Element | null;
-      if (target?.closest("input, textarea, select, [contenteditable]")) return;
+      if (target?.closest('input, textarea, select, [contenteditable], [role="dialog"]')) return;
       if (e.key === "/") {
         e.preventDefault();
         canvasRef.current
@@ -1498,6 +1528,21 @@ export function MapCanvas({
         </div>
       </div>
       {data.kind !== "live" && playbackStrip}
+      <Modal open={!!readingTask} onClose={() => setReadingCopy(null)} label={zh ? "任务说明" : "Task explanation"}>
+        {readingTask && readingRequest ? <>
+          <ModalHeader title={zh ? "任务说明" : "Task explanation"} sub={copy?.cards[readingTask.id]?.title || readingTask.title} />
+          <div className="px-6 pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
+            {focusedNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{focusedNode.data.completionScope}</p> : null}
+            <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} card={copy?.cards[readingTask.id]}
+              originalDetail={readingTask.objective || readingTask.summary || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
+              selection={{ request: readingRequest, evidence: readingEvidence, pending: readingNeedsUpdate, generating: copyGenerating }}
+              artifacts={artifactScope.artifacts} onOpenArtifact={artifactScope.onOpenArtifact} />
+            {!readOnly ? <Button className="mt-3 text-xs" onClick={() => quote({ source: data.id, task_id: readingTask.id,
+              task_title: copy?.cards[readingTask.id]?.title || readingTask.title,
+              event_ids: copy?.cards[readingTask.id]?.event_ids || readingRequest.event_ids, lang: zh ? 'zh' : 'en' })}>{zh ? "引用此任务" : "Reference this task"}</Button> : null}
+          </div>
+        </> : null}
+      </Modal>
     </MapArtifactContext.Provider>
     </MapNotesContext.Provider>
   );

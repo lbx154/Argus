@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import type { Dataset } from "./model";
 import { buildSubmap, type SubmapStep } from "./submap";
+import { briefEvidence, briefRequest } from '../research-brief/model';
 import {
   mergeMapCopy,
   needsCardCopy,
@@ -16,11 +17,15 @@ import {
 export const PREWARM_LIMIT = 600;
 
 /** Existing history stays readable; generation follows what the reader opens. */
-export function focusedCopyRequests(data: Dataset, steps: SubmapStep[], focused: string | null): CardRequest[] {
-  const current = focused ? [focused] : data.tasks.filter(task => ['running', 'in_progress', 'claimed', 'active'].includes(task.status)).map(task => task.id);
-  if (!current.length && data.tasks.length) current.push(data.tasks[data.tasks.length - 1].id);
-  const wanted = new Set(current);
-  return requestsFor(data, steps, focused).filter(card => wanted.has(card.task_id));
+export function focusedCopyRequests(data: Dataset, steps: SubmapStep[], focused: string | null, readingKey: string | null = focused): CardRequest[] {
+  if (!focused || !readingKey) return [];
+  const task = data.tasks.find(task => task.id === focused);
+  if (!task) return [];
+  if (readingKey === focused) return [briefRequest(task, briefEvidence(data, task, task.started_ts ?? 0))];
+  const owners = new Map(data.events.map(event => [event.id, event.item_id]));
+  return requestsFor(data, steps, focused).filter(card => card.task_id === focused && card.key === readingKey
+    // A layout retained during a focus change must not lend another task's evidence.
+    && card.event_ids.every(id => !owners.get(id) || owners.get(id) === focused));
 }
 
 /**
@@ -58,6 +63,7 @@ export function useMapCopy(
   sessionId?: string,
   paused = false,
   prewarm = false,
+  readingKey: string | null = focused,
 ) {
   const locale = zh ? "zh-CN" : "en-US";
   const source = data.kind === "live" ? "project" : "dataset";
@@ -94,7 +100,7 @@ export function useMapCopy(
     () => new Map(data.events.map((e) => [e.id, e])),
     [data.events],
   );
-  const foreground = prewarm ? requestsFor(data, steps, focused) : focusedCopyRequests(data, steps, focused);
+  const foreground = prewarm ? requestsFor(data, steps, focused) : focusedCopyRequests(data, steps, focused, readingKey);
   // Background warming only starts once everything on screen has its text.
   const background = useMemo(
     () => (prewarm ? prewarmRequests(data, zh, focused) : []),
@@ -108,6 +114,7 @@ export function useMapCopy(
     cards,
     cards.map((c) => data.tasks.find((t) => t.id === c.task_id)?.revision),
     copy.data?.model_revision,
+    copy.data?.version,
   ]);
   useEffect(() => {
     mounted.current = true;
@@ -117,7 +124,7 @@ export function useMapCopy(
   }, []);
   useEffect(() => {
     retryAt.current = 0;
-  }, [context, paused]);
+  }, [context, paused, readingKey]);
   useEffect(() => {
     if (
       !allowGeneration ||
@@ -168,5 +175,7 @@ export function useMapCopy(
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, pulse, copy.data?.available, allowGeneration, paused]);
-  return { copy: copy.data, generating, ready: copy.isFetched };
+  return { copy: copy.data, generating, ready: copy.isFetched,
+    readingRequest: foreground.find(card => card.key === readingKey),
+    readingNeedsUpdate: cards.some(card => card.key === readingKey) };
 }

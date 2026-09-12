@@ -21,7 +21,7 @@ let client: QueryClient;
 let renderer: ReactTestRenderer | undefined;
 
 function Probe({ paused = false, allowGeneration = true, zh = false }: { paused?: boolean; allowGeneration?: boolean; zh?: boolean }) {
-  useMapCopy(data, null, zh, allowGeneration, undefined, "session", paused);
+  useMapCopy(data, "task", zh, allowGeneration, undefined, "session", paused);
   return null;
 }
 
@@ -59,12 +59,17 @@ it("resumes failed summary generation when a paused session resumes without new 
 });
 
 it("never schedules generation in read-only mode, including across pause changes", async () => {
+  client.setQueryData(key, { ...empty, version: 15, cards: { task: {
+    title: '旧中文标题', summary: 'Old summary', detail: 'Original detail', generated_at: 1, version: 14,
+    task_revision: '1', task_status: 'done',
+  } } });
   const generate = vi.spyOn(api, "generateMapCopy").mockResolvedValue(empty);
   act(() => { renderer = create(tree(true, false)); });
   await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
   act(() => renderer!.update(tree(false, false)));
   await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
   expect(generate).not.toHaveBeenCalled();
+  expect(client.getQueryData<MapCopy>(key)?.cards.task.title).toBe('旧中文标题');
 });
 
 it("starts the new locale after the canvas remounts without losing an earlier in-flight result", async () => {
