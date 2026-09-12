@@ -149,6 +149,31 @@ def test_preview_and_bundle_require_auth_and_an_allowlisted_html_entry(tmp_path)
     assert raw.headers["content-type"].startswith("text/plain")
     assert raw.headers["x-content-type-options"] == "nosniff"
 
+    # The served preview page carries a self-sandboxing policy so the site's own
+    # inline styles and scripts run, reachable by header or, for an iframe that
+    # cannot send one, the same token in the query.
+    page_route = f"{route}/preview/page"
+    assert client.get(page_route, params={"path": "index.html"}).status_code == 401
+    assert (
+        client.get(page_route, params={"path": "index.html", "token": "wrong"}).status_code == 401
+    )
+    for auth in ({"headers": headers}, {"params_token": "test-token"}):
+        params = {"path": "index.html"}
+        if "params_token" in auth:
+            params["token"] = auth["params_token"]
+        page = client.get(page_route, params=params, headers=auth.get("headers"))
+        assert page.status_code == 200
+        assert page.headers["content-type"].startswith("text/html")
+        csp = page.headers["content-security-policy"]
+        assert csp.startswith("sandbox ")
+        assert "script-src 'unsafe-inline'" in csp and "connect-src 'none'" in csp
+        assert page.headers["x-content-type-options"] == "nosniff"
+        assert "<style>" in page.text and "data:text/css" not in page.text
+    # A page path that is not an allowlisted HTML entry is refused.
+    assert (
+        client.get(page_route, params={"path": "app.js"}, headers=headers).status_code == 404
+    )
+
 
 def test_inline_svg_shapes_remain_siblings_after_packaging(tmp_path):
     from xml.etree import ElementTree

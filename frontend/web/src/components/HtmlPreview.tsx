@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../api';
+import { api, previewPageUrl } from '../api';
 import { useI18n } from '../i18n';
 
 export function HtmlPreview({ html, title, className = '', sid, path }: {
@@ -21,8 +21,12 @@ function AuthenticatedHtmlPreview({ html, title, className, sid, path }: { html:
     {zh ? '网页预览加载失败，请重试或下载文件。' : 'Preview could not load. Retry or download the file.'}
     <button type="button" className="ml-3 underline" onClick={() => void preview.refetch()}>{zh ? '重试' : 'Retry'}</button>
   </div>;
+  // The page is loaded by URL, not inlined, so it arrives with its own policy
+  // and its inline styles and scripts run — the delivered website behaves as
+  // built. The initial fetch above confirms the artifact and surfaces any
+  // asset warnings; the srcDoc value is the fallback when a page URL is absent.
   return <div className={`flex min-h-0 w-full flex-1 flex-col ${className}`}>
     {!!preview.data?.warnings.length && <p className="shrink-0 bg-warn/10 px-3 py-2 text-xs text-warn" role="status">{zh ? '部分配套资源无法加载，页面可能不完整。' : 'Some linked assets are unavailable; the preview may be incomplete.'}</p>}
-    <iframe title={title} srcDoc={preview.data?.html ?? html} sandbox="allow-scripts allow-downloads" referrerPolicy="no-referrer" className="min-h-0 w-full flex-1 border-0 bg-white" />
+    <iframe title={title} src={previewPageUrl(sid, path)} sandbox="allow-scripts allow-downloads" referrerPolicy="no-referrer" className="min-h-0 w-full flex-1 border-0 bg-white" />
   </div>;
 }
