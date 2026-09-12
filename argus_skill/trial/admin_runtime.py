@@ -18,7 +18,7 @@ from .secrets import Vault, write_private
 def configure_provider(root: Path, agent_bin: Path, vault: Vault, *, tenant: str | None = None,
                        model_port: int = 18765, training_socket: Path | None = None) -> None:
     from ..core.knob_store import write_persisted_knobs
-    from ..core.knobs import KNOBS
+    from ..core.knobs import KNOBS, resolve_knob
 
     if not agent_bin.is_file() or not os.access(agent_bin, os.X_OK):
         raise ValueError("The configured Argus-Pi executable is unavailable")
@@ -43,6 +43,7 @@ def configure_provider(root: Path, agent_bin: Path, vault: Vault, *, tenant: str
         "ARGUS_SKILL_BACKEND_AUTH_MODE": "subscription_cli",
         "ARGUS_SKILL_PI_PROVIDER": "argus",
         "ARGUS_SKILL_COPILOT_TRIAL": "0",
+        "ARGUS_SKILL_MAP_REASONING_EFFORT": resolve_knob("ARGUS_SKILL_MAP_REASONING_EFFORT", "medium").value,
         **{knob.name: CLIENT_MODEL for knob in KNOBS if knob.name.endswith("_MODEL")},
     }
     for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "SUPERVISOR", "CURATOR"):

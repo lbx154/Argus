@@ -11,6 +11,7 @@ import {
   groupSummary,
   renderFeedRows,
   stepTarget,
+  readableToolProgress,
   type FeedGroup,
   type FeedStep,
 } from '../lib/feedSteps';
@@ -23,6 +24,20 @@ const rows = (events: EventMsg[]) => renderFeedRows(events, { locale: 'en', show
 const fold = (events: EventMsg[]) => foldFeedRows(rows(events), 'en');
 const en = (key: string, variables?: Record<string, string | number>) => translate(key, variables, 'en');
 const zh = (key: string, variables?: Record<string, string | number>) => translate(key, variables, 'zh-CN');
+
+it('describes a file operation without copying its content into the status line', () => {
+  const event = { type: 'engineer.progress', kind: 'tool_use', text: 'write: {"path":"research/notes.md","content":"large private work body"}' };
+  expect(readableToolProgress(event, 'zh-CN')).toEqual({ title: '更新项目文件', detail: 'notes.md' });
+  expect(event.text).toContain('large private work body');
+  expect(readableToolProgress({ type: 'engineer.progress', kind: 'agent_message', text: event.text }, 'zh-CN')).toBeNull();
+});
+
+it('summarizes a multiline command without placing its source in the status line', () => {
+  const event = { type: 'engineer.progress', kind: 'command_execution', text: 'python - <<\'PY\'\nprint("command body")\nPY' };
+  expect(readableToolProgress(event, 'zh-CN')).toEqual({ title: '正在运行命令', detail: '' });
+  expect(readableToolProgress(event, 'en')).toEqual({ title: 'Running a command', detail: '' });
+  expect(event.text).toContain('command body');
+});
 
 let clock = 0;
 const call = (tool: string, args: Record<string, unknown>, extra: Record<string, unknown> = {}): EventMsg => ({

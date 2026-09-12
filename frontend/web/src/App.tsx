@@ -5,6 +5,7 @@ import { api, isConnectionError, type EventMsg, type MessageRouteOverride } from
 import { initialMessageRoute, MESSAGE_ROUTE_KEY } from './lib/messageRoute';
 import { TopBar } from './components/TopBar';
 import { WorkspaceShell } from './components/WorkspaceShell';
+import ResearchBrief from './research-brief';
 import { EventStream, latestConversationDelivery } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
 import { ComposerRuntime } from './components/ComposerRuntime';
@@ -179,8 +180,8 @@ export default function App() {
     if (workspaceView === 'map') return;
     setStandardWorkspaceView(workspaceView);
   }, [workspaceView]);
-  // Publishes --keyboard-inset so the composer clears the software keyboard.
-  useVisualViewport();
+  // Share the visible-height decision with the reading card and composer.
+  const compactViewport = useVisualViewport();
   const [composerFocus, setComposerFocus] = useState(0);
   const [composerDraft, setComposerDraft] = useState('');
   const [composerAttachments, setComposerAttachments] = useState<File[]>([]);
@@ -958,6 +959,7 @@ export default function App() {
           <>
             <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
               {workspaceView !== 'map' && <TopBar
+                events={activityEvents}
                 snap={snap}
                 streamOk={connected}
                 onStart={requestStartDaemon}
@@ -990,8 +992,16 @@ export default function App() {
               /></Suspense>}
               <div className={`${workspaceView === 'workbench' || workspaceView === 'map' ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`}>
                 <GuardianBanner alert={guardianAlert} />
+                {missionView?.mission.id && activeSid ? <div className={`flex min-h-0 flex-col ${compactViewport ? 'shrink-0' : 'shrink'}`}>
+                  <ResearchBrief key={activeSid} sid={activeSid} snapshot={snap} view={missionView}
+                    active={workspaceView === 'mission' || workspaceView === 'activity'} readOnly={kiosk} compact={compactViewport}
+                    onAsk={draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); }} />
+                </div> : null}
+                {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
                 {standardWorkspaceView === 'mission' && missionView ? (
                   <MissionControl
+                    events={activityEvents}
+                    connected={connected && !snapQ.isError}
                     view={missionView}
                     sid={snap.session.id}
                     snapshot={snap}
@@ -1002,9 +1012,12 @@ export default function App() {
                     onNotify={notify}
                   />
                 ) : (
+                  <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>
                   <EventStream
+                    snapshot={snap}
+                    missionView={missionView}
                     events={activityEvents}
-                    connected={connected}
+                    connected={connected && !snapQ.isError}
                     showReasoning={showReasoning}
                     onToggleReasoning={() => setShowReasoning((value) => !value)}
                     embedded
@@ -1015,6 +1028,7 @@ export default function App() {
                     onOpenArtifact={focusDeliveryPath}
                     onOpenDelivery={openDelivery}
                   />
+                  </div>
                 )}
                 {!kiosk ? (
                   <div className="composer-dock shrink-0 px-4 pt-3">
@@ -1076,6 +1090,7 @@ export default function App() {
             }`}>
               <div className="lg:hidden">
                 <TopBar
+                  events={activityEvents}
                   snap={snap}
                   streamOk={connected}
                   onStart={requestStartDaemon}
@@ -1088,6 +1103,8 @@ export default function App() {
                 />
               </div>
               <ResearchCanvas
+                snapshot={snap}
+                connected={connected && !snapQ.isError}
                 sid={loadedSid}
                 artifacts={artifactsQ.data}
                 error={artifactsQ.isError}

@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, ArrowLeft, ArrowRight, Check, Database, Download, ExternalLink, FileJson, History, Menu, Moon, RefreshCw, Search, ShieldCheck, Sun, Users, X } from 'lucide-react';
+import { Activity, ArrowLeft, ArrowRight, Check, Database, Download, ExternalLink, FileJson, History, Menu, RefreshCw, Search, ShieldCheck, Users, X } from 'lucide-react';
 import { WorkspaceHeader, WorkspaceShell, WorkspaceSidePanel } from '../components/WorkspaceShell';
+import { AppearanceControls } from '../components/AppearanceControls';
 import { Wordmark } from '../components/Wordmark';
 import { Button, Chip, RawDisclosure, Spinner, StatusDot } from '../components/primitives';
 import { CopyButton } from '../components/CopyButton';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { Modal } from '../components/Modal';
-import { theme } from '../lib/theme';
+import { AGENT_ROLES, agentRoleColor, agentRoleDescription } from '../lib/agentRoles';
 import { useWorkbenchTheme } from '../useWorkbenchTheme';
+import { downloadBlob as saveDownload } from '../lib/downloadBlob';
 import { adminAPI, AdminAPIError } from './api';
 import { episodeRole, mergeObservationPages, normalizeRole, parseTaskLink, projectKey, projectName, taskName } from './model';
 import type { CollaborationProject, ObservedEpisode, Purpose, RoleSummary } from './types';
@@ -17,16 +19,10 @@ import { adminProjectURL, automaticProjectSelection, openMatchingUserProject } f
 import { dateLabel, roleName, stateLabel, useAdminText } from './copy';
 import './admin-data.css';
 
-const ROLES = ['manager', 'planner', 'engineer', 'reviewer'] as const;
 const TENANTS = Array.from({ length: 11 }, (_, index) => `trial-${String(index + 1).padStart(2, '0')}`);
 const retry = (count: number, error: Error) => count < 1 && !(error instanceof AdminAPIError && [401, 403].includes(error.status));
 
-export function saveDownload(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url; link.download = name; link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-}
+export { downloadBlob as saveDownload } from '../lib/downloadBlob';
 
 function useDebounced(value: string) {
   const [debounced, setDebounced] = useState(value);
@@ -35,7 +31,7 @@ function useDebounced(value: string) {
 }
 
 export default function AdminDataApp() {
-  const { locale, text, t, setLocale } = useAdminText();
+  const { locale, text, t } = useAdminText();
   const { themeMode, cycleTheme } = useWorkbenchTheme();
   const queryClient = useQueryClient();
   const [entry] = useState(() => parseTaskLink(window.location.search));
@@ -170,10 +166,6 @@ export default function AdminDataApp() {
   const errorMessage = (error: unknown) => error instanceof AdminAPIError && error.status === 401
     ? text('数据后台登录已过期，请重新登录。', 'Your administrator session expired. Sign in again.')
     : error instanceof Error ? error.message : text('暂时无法读取数据。', 'Data is temporarily unavailable.');
-  const roleDescription: Record<string, string> = {
-    manager: text('理解目标、协调任务', 'Understands goals and coordinates work'), planner: text('拆解任务、调整计划', 'Breaks down work and revises plans'),
-    engineer: text('调用工具、执行任务', 'Uses tools and carries out tasks'), reviewer: text('检查证据、审查结果', 'Checks evidence and reviews results'),
-  };
 
   return <WorkspaceShell className="admin-data-workspace h-full" style={{ '--sidebar-width': '292px' } as CSSProperties}>
     {sidebarOpen ? <button type="button" className="admin-data-scrim lg:hidden" aria-label={text('关闭项目列表', 'Close projects')} onClick={() => setSidebarOpen(false)} /> : null}
@@ -205,7 +197,7 @@ export default function AdminDataApp() {
       <WorkspaceHeader>
         <button type="button" className="inline-flex admin-data-icon-button lg:hidden" onClick={() => setSidebarOpen(true)} aria-label={text('打开项目列表', 'Open projects')}><Menu size={18} /></button>
         <span className="admin-data-header-title">{text('数据工作台', 'Data workbench')}</span><Chip>{readonly ? text('只读管理员', 'Read-only administrator') : text('管理员', 'Administrator')}</Chip>
-        <div className="ml-auto flex items-center gap-1 sm:gap-2"><button type="button" className="inline-flex admin-data-icon-button" onClick={() => setLocale(locale === 'zh-CN' ? 'en' : 'zh-CN')} aria-label={t('language.switchTo', { language: locale === 'zh-CN' ? 'English' : '中文' })}>{locale === 'zh-CN' ? 'EN' : '中'}</button><button type="button" className="inline-flex admin-data-icon-button" onClick={cycleTheme} aria-label={text('切换深浅色', 'Toggle light and dark theme')}>{themeMode === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button><Button className="inline-flex items-center justify-center gap-2" onClick={refresh} disabled={overview.isFetching || !authenticated} title={text('刷新数据', 'Refresh data')}>{overview.isFetching ? <Spinner /> : <RefreshCw size={14} />}</Button><Button className="inline-flex items-center justify-center gap-2" variant="primary" disabled={readonly || !currentProject?.eligible || exporter.isPending} onClick={() => { setExportNotice(''); setModal('export'); }}><Download size={14} /><span className="hidden sm:inline">{text('导出', 'Export')}</span></Button></div>
+        <div className="ml-auto flex items-center gap-1 sm:gap-2"><AppearanceControls themeMode={themeMode} onCycleTheme={cycleTheme} /><Button className="inline-flex items-center justify-center gap-2" onClick={refresh} disabled={overview.isFetching || !authenticated} title={text('刷新数据', 'Refresh data')}>{overview.isFetching ? <Spinner /> : <RefreshCw size={14} />}</Button><Button className="inline-flex items-center justify-center gap-2" variant="primary" disabled={readonly || !currentProject?.eligible || exporter.isPending} onClick={() => { setExportNotice(''); setModal('export'); }}><Download size={14} /><span className="hidden sm:inline">{text('导出', 'Export')}</span></Button></div>
       </WorkspaceHeader>
       <div className="admin-data-content">
         {!authenticated ? <div className="admin-data-welcome"><Wordmark size={38} /><h1>{text('数据工作台', 'Data workbench')}</h1><p>{identity.error ? errorMessage(identity.error) : text('正在验证管理员身份…', 'Checking administrator access…')}</p>{identity.error ? <a className="brand-button brand-button-primary" href="/admin/login">{text('管理员登录', 'Administrator sign in')}</a> : <Spinner />}</div>
@@ -215,10 +207,10 @@ export default function AdminDataApp() {
             {!currentProject.eligible ? <div className="admin-data-notice" role="status">{text('当前用途下没有可读取的授权记录。请选择其他项目或数据用途。', 'No authorized records are available for this purpose. Choose another project or purpose.')}<RawDisclosure><pre>{currentProject.reason}</pre></RawDisclosure></div> : <>
               {taskId && resolvedTask ? <RawDisclosure label={text('任务目标与来源', 'Task objective and source')}><div className="admin-data-prose"><MarkdownContent>{resolvedTask.objective || resolvedTask.request?.text || resolvedTask.title}</MarkdownContent></div><code>{resolvedTask.task_id}</code></RawDisclosure> : null}
               {scopeReady ? <><div className="admin-data-role-heading"><div><h2><Users size={17} />{text('多 Agent 过程', 'Multi-agent processes')}</h2><p>{text('查看各角色实际留下的记录。角色缺失、中断和质量验收分别标记。', 'Inspect the records each role actually produced. Missing roles, interruptions and review status are shown separately.')}</p></div><button type="button" className={`admin-data-text-button ${activeRole === null ? 'active' : ''}`} onClick={() => { setActiveRole(null); setEpisodeId(null); }}>{text('全部角色', 'All roles')}</button></div>
-              <div className="admin-data-roles">{ROLES.map(role => {
+              <div className="admin-data-roles">{AGENT_ROLES.map(role => {
                 const summary = roleSummaries.get(role), retained = Math.max(summary?.episodes || 0, episodes.filter(episode => episodeRole(episode) === role).length);
                 const loaded = episodes.filter(episode => episodeRole(episode) === role).length;
-                return <button type="button" key={role} data-testid={`role-${role}`} className={`admin-data-role ${activeRole === role ? 'active' : ''}`} style={{ '--role-color': theme.role[role] } as CSSProperties} aria-pressed={activeRole === role} onClick={() => { setActiveRole(role); setEpisodeId(null); }}><span className="admin-data-role-label"><span className="admin-data-role-mark">{roleName(role, locale).slice(0, 1)}</span><strong>{roleName(role, locale)}</strong><span>{role}</span></span><span className="admin-data-role-description">{roleDescription[role]}</span><span className="admin-data-role-count">{retained ? `${retained.toLocaleString(locale)} ${text('段过程', 'processes')}` : summary?.observations ? text('仅有活动记录', 'Activity records only') : text('尚未采到记录', 'No records captured')}</span><span className="admin-data-role-footnote">{loaded ? `${text('正文已加载', 'Content loaded')} ${loaded.toLocaleString(locale)}` : text('按原始记录归属角色', 'Role comes from recorded metadata')}</span></button>;
+                return <button type="button" key={role} data-testid={`role-${role}`} className={`admin-data-role ${activeRole === role ? 'active' : ''}`} style={{ '--role-color': agentRoleColor(role) } as CSSProperties} aria-pressed={activeRole === role} onClick={() => { setActiveRole(role); setEpisodeId(null); }}><span className="admin-data-role-label"><span className="admin-data-role-mark">{roleName(role, locale).slice(0, 1)}</span><strong>{roleName(role, locale)}</strong><span>{role}</span></span><span className="admin-data-role-description">{agentRoleDescription(role, t)}</span><span className="admin-data-role-count">{retained ? `${retained.toLocaleString(locale)} ${text('段过程', 'processes')}` : summary?.observations ? text('仅有活动记录', 'Activity records only') : text('尚未采到记录', 'No records captured')}</span><span className="admin-data-role-footnote">{loaded ? `${text('正文已加载', 'Content loaded')} ${loaded.toLocaleString(locale)}` : text('按原始记录归属角色', 'Role comes from recorded metadata')}</span></button>;
               })}</div>
               {(roleSummaries.get('unknown')?.episodes || episodes.some(episode => episodeRole(episode) === 'unknown')) ? <button type="button" className="admin-data-unknown" onClick={() => { setActiveRole('unknown'); setEpisodeId(null); }}><FileJson size={14} />{text('另有角色未记录的过程，保留原样查看', 'Some processes have no recorded role. View them as captured.')} <ArrowRight size={13} /></button> : null}
               <div className="admin-data-record-heading"><div><h2>{activeRole ? roleName(activeRole, locale) : text('全部保留过程', 'All retained processes')}</h2><p>{episodes.length.toLocaleString(locale)} {text('段已加载', 'processes loaded')} · {loadedEventCount.toLocaleString(locale)} {text('条原始事件', 'raw events')} {observations.hasNextPage ? text('· 还有后续页', '· more pages available') : ''}</p></div>{visibleEpisodes.length ? <select className="admin-data-episode-select" aria-label={text('选择过程记录', 'Select a process')} value={selectedEpisode?.episode_id ?? ''} onChange={event => setEpisodeId(Number(event.target.value))}>{visibleEpisodes.map(episode => <option key={episode.episode_id} data-testid={`episode-${episode.episode_id}`} value={episode.episode_id}>#{episode.episode_id} · {roleName(episode.role, locale)} · {dateLabel(episode.started_at, locale)}</option>)}</select> : null}</div>

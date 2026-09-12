@@ -11,6 +11,7 @@ from ..core.json_codec import loads_finite_json
 from ..core.secret_guard import redact_secrets_text
 from ..core.session import read_session_meta
 from ..life.memory import LifeMemory, _jsonl_history_paths
+from .map_outcomes import project_map_outcomes, public_outcome
 
 TASK_FIELDS = (
     "id",
@@ -33,6 +34,10 @@ TASK_FIELDS = (
     "parallel_safe",
     "owns_paths",
     "acceptance_check",
+    "goal_contribution",
+    "plan_hypothesis",
+    "non_goals",
+    "outcome",
 )
 EVENT_PREFIXES = (
     "life.mission.",
@@ -77,7 +82,9 @@ def text(value, limit=6000):
 
 
 def task_content_revision(task: dict) -> str:
-    return digest({k: task.get(k) for k in ("title", "objective", "acceptance_check")})
+    return digest({k: task.get(k) for k in (
+        "title", "objective", "acceptance_check", "goal_contribution", "plan_hypothesis", "non_goals",
+    )})
 
 
 def with_revisions(value: dict) -> dict:
@@ -242,6 +249,10 @@ def normalize_events(
                     e[key] = row[key]
             if isinstance(row.get("attempt"), int):
                 e["attempt"] = row["attempt"]
+            if isinstance(row.get("review_source"), str):
+                e["review_source"] = text(row["review_source"], 120)
+            if isinstance(row.get("outcome"), dict):
+                e["outcome"] = public_outcome(row["outcome"])
             outcome = row.get("outcome")
             certification = row.get("stage_certification") or (
                 outcome.get("stage_certification") if isinstance(outcome, dict) else None
@@ -409,7 +420,9 @@ def read_map(
         raw = item.to_jsonable()
         task = {k: raw[k] for k in TASK_FIELDS if k in raw}
         for k, v in list(task.items()):
-            if isinstance(v, str):
+            if k == "outcome":
+                task[k] = public_outcome(v)
+            elif isinstance(v, str):
                 task[k] = text(v)
             elif isinstance(v, list):
                 # owns_paths (and deps) are operator-visible strings too.
@@ -525,6 +538,12 @@ def read_map(
         if team_sources is not None and team_sources[0] == bindings else None,
     ) if include_events else ([], False, ())
     state["team_signature"] = team_signature
+    visible_events = [*events[-2000:], *team_events]
+    tasks = project_map_outcomes(tasks, visible_events)
+    for task in tasks:
+        # An outcome binding can change when a lifecycle event arrives even if
+        # the backlog row is unchanged. Its response revision must change too.
+        task["revision"] = digest({key: value for key, value in task.items() if key != "revision"})
     return with_revisions({
         "id": f"live:{sid}",
         "title": meta.display_name if meta else sid,
@@ -532,7 +551,7 @@ def read_map(
         "description": "",
         "read_only": False,
         "tasks": tasks,
-        "events": [*events[-2000:], *team_events],
+        "events": visible_events,
         "coverage": {"truncated": truncated or len(events) > 2000 or team_truncated
                      or bool(state.get("team_bindings_truncated"))},
     })

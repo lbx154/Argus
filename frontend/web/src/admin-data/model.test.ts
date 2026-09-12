@@ -134,7 +134,10 @@ describe('project and task identity', () => {
 });
 
 describe('roles and public event presentation', () => {
-  it('does not guess old unknown roles from prose, translated labels, or another role hint', () => {
+  it('recognizes recorded role IDs without guessing unknown roles from prose, translated labels, or another hint', () => {
+    expect(['manager', 'planner.plan_next', 'engineer-r2', 'reviewer.r3'].map(normalizeRole))
+      .toEqual(['manager', 'planner', 'engineer', 'reviewer']);
+    expect(normalizeRole('operator')).toBe('operator');
     expect(episodeRole({ role: 'unknown', runtime: { run_label: 'engineer' } })).toBe('unknown');
     expect(episodeRole({ runtime: {} })).toBe('unknown');
     expect(normalizeRole('Please act as a reviewer')).toBe('unknown');

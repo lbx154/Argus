@@ -47,7 +47,7 @@ interface ModelOptions {
   reasoning?: boolean;
 }
 
-function redactSecrets(text: string): { text: string; sensitive: boolean } {
+export function redactSecrets(text: string): { text: string; sensitive: boolean } {
   let sanitized = text;
   sanitized = sanitized.replace(
     /^(\s*(?:authorization|proxy-authorization)\s*:).*$/gim,

@@ -1,10 +1,28 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { emptyMissionView, reduceMissionViewEvent } from '../../../core/src/missionView';
 import { compactMissionDag, MissionControl } from '../components/MissionControl';
+import { I18nProvider } from '../i18n';
+import { AGENT_ROLES } from '../lib/agentRoles';
 
 describe('MissionControl', () => {
+  it.each(AGENT_ROLES)('localizes the %s card activity from a Chinese mission view', (name) => {
+    const view = emptyMissionView();
+    view.language = 'zh';
+    const role = view.roles.find((candidate) => candidate.role === name)!;
+    Object.assign(role, { label: 'using a tool', kind: 'live_activity', status: 'active' });
+    vi.stubGlobal('localStorage', { getItem: () => 'zh-CN' });
+    try {
+      const markup = renderToStaticMarkup(<I18nProvider><MissionControl view={view} /></I18nProvider>);
+      const team = markup.match(/<section[^>]*aria-label="团队">([\s\S]*?)<\/section>/)?.[1];
+      expect(team).toContain('正在使用工具');
+      expect(team).not.toContain('using a tool');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('renders real DAG, capability, replay, and git state', () => {
     const view = emptyMissionView();
     view.mission.objective = 'Optimize FlashAttention on B200';

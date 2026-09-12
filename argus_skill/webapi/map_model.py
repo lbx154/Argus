@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shlex
 import shutil
@@ -10,6 +11,8 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+from jsonschema import Draft202012Validator, ValidationError
 
 from ..adapters.agent_cli_backend import AgentCliBackend
 from ..agent_cli.runner_backend import default_runner_bin, normalize_runner_backend
@@ -53,6 +56,72 @@ def resolve_map_model() -> MapModel:
     )
 
 
+def _literal_unknown_escapes(raw: str) -> str:
+    """Preserve literal backslashes that cannot represent a JSON escape."""
+    parts, quoted, index = [], False, 0
+    while index < len(raw):
+        char = raw[index]
+        if char == '"':
+            quoted = not quoted
+        if quoted and char == "\\" and index + 1 < len(raw):
+            if raw[index + 1] not in '\\"/bfnrtu':
+                parts.append("\\")
+            parts.append(raw[index:index + 2])
+            index += 2
+        else:
+            parts.append(char)
+            index += 1
+    return "".join(parts)
+
+
+def _document_value(raw: str):
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as original:
+        # One observed response closed the top-level object after `cards`, then
+        # continued with ,"relations":[...]}. Parse both complete sections;
+        # never strip arbitrary prose, invent fields, or accept a second result.
+        try:
+            cards, end = json.JSONDecoder().raw_decode(raw)
+            tail = raw[end:].lstrip()
+            if not isinstance(cards, dict) or set(cards) != {"cards"} or not isinstance(cards["cards"], dict):
+                raise ValueError
+            if not tail.startswith(","):
+                raise ValueError
+            relations = json.loads("{" + tail[1:])
+            if (not isinstance(relations, dict) or set(relations) != {"relations"}
+                    or not isinstance(relations["relations"], list)):
+                raise ValueError
+            value = {**cards, **relations}
+        except (ValueError, TypeError):
+            raise original from None
+        logging.getLogger(__name__).warning("Recovered premature closure in map presentation object")
+    return value
+
+
+def _parse_document(raw: str, output_schema: dict) -> dict:
+    """Read the shared draft/check format, preserving prose and schema checks."""
+    raw = raw.strip()
+    if raw.startswith("```") and raw.endswith("```"):
+        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    try:
+        value = _document_value(raw)
+    except json.JSONDecodeError:
+        literal = _literal_unknown_escapes(raw)
+        if literal == raw:
+            raise
+        value = _document_value(literal)
+        logging.getLogger(__name__).warning("Preserved literal backslashes in map presentation JSON")
+    if not isinstance(value, dict):
+        raise ValueError("invalid card document")
+    try:
+        Draft202012Validator(output_schema).validate(value)
+    except ValidationError:
+        # Do not include model content in server validation logs.
+        raise ValueError("invalid card document schema") from None
+    return value
+
+
 def run_map_model(
     prompt: str,
     output_schema: dict,
@@ -60,7 +129,11 @@ def run_map_model(
     *,
     project_root: Path,
     global_root: Path,
+    deadline: float | None = None,
 ) -> dict:
+    deadline = deadline if deadline is not None else time.monotonic() + 180
+    if time.monotonic() >= deadline:
+        raise OSError("map text generation timed out")
     backend = AgentCliBackend(
         backend=config.backend, runner_bin=config.runner_bin,
         default_extra_args=list(config.extra_args),
@@ -68,7 +141,6 @@ def run_map_model(
     backend.set_usage_context(project_root=project_root, global_root=global_root)
     scratch = global_root / "map-presentation"
     scratch.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + 180
     try:
         # A separate, read-only turn cannot resume or edit the research conversation.
         with tempfile.TemporaryDirectory(prefix="generation-", dir=scratch) as workdir:
@@ -101,10 +173,4 @@ def run_map_model(
         raise OSError("map text generation did not complete")
     if result.tool_activity_observed:
         raise ValueError("map text generation attempted to use tools")
-    raw = result.last_agent_message.strip()
-    if raw.startswith("```") and raw.endswith("```"):
-        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-    value = json.loads(raw)
-    if not isinstance(value, dict):
-        raise ValueError("invalid card document")
-    return value
+    return _parse_document(result.last_agent_message, output_schema)

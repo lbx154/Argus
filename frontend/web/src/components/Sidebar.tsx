@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProjectRow } from '../api';
 import { PluginLauncher } from './PluginLauncher';
 import { WorkspaceSidePanel } from './WorkspaceShell';
+import { AppearanceControls } from './AppearanceControls';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
 import { ago, uptime } from '../lib/format';
 import { filterProjects, hasHumanProjectLabel } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Moon, Sun } from 'lucide-react';
 import {
   faAnglesLeft,
   faAnglesRight,
@@ -16,7 +16,6 @@ import {
   faEllipsis,
   faFolder,
   faGear,
-  faLanguage,
   faMicrochip,
   faPlay,
 } from '@fortawesome/free-solid-svg-icons';
@@ -85,7 +84,7 @@ export function Sidebar({
   themeMode: ThemeMode;
   onCycleTheme: () => void;
 }) {
-  const { locale, setLocale, t } = useI18n();
+  const { t } = useI18n();
   const [scope, setScope] = useState<Scope>('local');
   const initialScopeResolved = useRef(false);
   const [query, setQuery] = useState('');
@@ -117,8 +116,6 @@ export function Sidebar({
     });
     return [...groups.entries()];
   }, [normalizedLocalCwd, scope, visible]);
-  const ThemeIcon = themeMode === 'light' ? Sun : Moon;
-  const nextTheme = themeMode === 'light' ? 'dark' : 'light';
   const groupIsCollapsed = (path: string) => collapsedGroups.has(path) && !query.trim();
 
   return (
@@ -331,18 +328,7 @@ export function Sidebar({
             <button type="button" onClick={() => onOpenPanel('config')} className="icon-control flex h-8 w-8 items-center justify-center" aria-label={t('sidebar.openSettings')} title={t('common.settings')}>
               <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />
             </button>
-            <button
-              type="button"
-              onClick={() => setLocale(locale === 'zh-CN' ? 'en' : 'zh-CN')}
-              title={t('language.switchTo', { language: locale === 'zh-CN' ? t('language.english') : t('language.chinese') })}
-              aria-label={t('language.switchTo', { language: locale === 'zh-CN' ? t('language.english') : t('language.chinese') })}
-              className="icon-control flex h-8 w-8 items-center justify-center"
-            >
-              <FontAwesomeIcon icon={faLanguage} className="h-3.5 w-3.5" />
-            </button>
-            <button type="button" onClick={onCycleTheme} title={t('sidebar.theme', { current: themeMode, next: nextTheme })} aria-label={t('sidebar.theme', { current: themeMode, next: nextTheme })} className="icon-control flex h-8 w-8 items-center justify-center">
-              <ThemeIcon className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden="true" />
-            </button>
+            <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} />
           </div>
         </>
       ) : null}

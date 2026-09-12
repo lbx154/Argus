@@ -15,6 +15,7 @@ import { useI18n } from '../i18n';
 import { PdfPreview } from './PdfPreview';
 import { setDesktopLargePreview } from '../lib/desktopBridge';
 import { isMarkdownArtifact } from '../lib/artifactPresentation';
+import { downloadBlob } from '../lib/downloadBlob';
 
 /** Authenticated preview/download for one result file the Reviewer has checked. */
 export function ArtifactModal({
@@ -86,14 +87,7 @@ export function ArtifactModal({
     setPreviewError('');
     try {
       const blob = bundle ? await api.artifactBundle(sid, path) : await api.artifactBlob(sid, path, true);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = bundle ? `${info.name.replace(/\.html?$/i, '')}-website.zip` : info.name;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      downloadBlob(blob, bundle ? `${info.name.replace(/\.html?$/i, '')}-website.zip` : info.name);
     } catch (error) {
       setPreviewError((error as Error).message);
     } finally {

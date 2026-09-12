@@ -1,14 +1,11 @@
+import { AGENT_ROLES } from '../lib/agentRoles';
 import type {
   CollaborationProject, CollaborationTask, ObservedEpisode, ObservedEvent, ObservedPage,
   ProjectIdentity, RecordedRole, UnknownRecord,
 } from './types';
 
-const ROLE_LABELS: Record<RecordedRole, string> = {
-  manager: '统筹', planner: '规划', engineer: '执行', reviewer: '审查',
-  operator: '用户', unknown: '角色未记录',
-};
 const PRIVATE_TYPES = new Set(['thinking', 'analysis', 'reasoning', 'redacted_thinking', 'signature']);
-const ROLE_PATTERN = /^(manager|planner|engineer|reviewer)(?:[.-][a-z0-9_.-]+)?$/;
+const ROLE_PATTERN = new RegExp(`^(${AGENT_ROLES.join('|')})(?:[.-][a-z0-9_.-]+)?$`);
 
 function record(value: unknown): UnknownRecord | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -49,12 +46,8 @@ export function taskName(task: Pick<CollaborationTask, 'mission_title' | 'title'
 /** Only producer-recorded role fields are normalized; prompt prose is never used. */
 export function normalizeRole(value: unknown): RecordedRole {
   if (typeof value !== 'string') return 'unknown';
-  if (Object.prototype.hasOwnProperty.call(ROLE_LABELS, value)) return value as RecordedRole;
+  if (value === 'operator' || value === 'unknown') return value;
   return (value.match(ROLE_PATTERN)?.[1] as RecordedRole | undefined) ?? 'unknown';
-}
-
-export function roleLabel(value: unknown): string {
-  return ROLE_LABELS[normalizeRole(value)];
 }
 
 export function episodeRole(episode: { role?: unknown; runtime?: { run_label?: unknown } }): RecordedRole {

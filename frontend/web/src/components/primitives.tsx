@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { useI18n } from '../i18n';
 
 /** A steady status dot. Motion is reserved for real loading operations. */
@@ -40,13 +40,10 @@ export function Button({
   disabled,
   title,
   className = '',
-}: {
+  ...buttonProps
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
   children: ReactNode;
-  onClick?: () => void;
   variant?: 'ghost' | 'primary' | 'danger';
-  disabled?: boolean;
-  title?: string;
-  className?: string;
 }) {
   const styles: Record<string, string> = {
     ghost: 'brand-button-ghost',
@@ -55,6 +52,7 @@ export function Button({
   };
   return (
     <button
+      {...buttonProps}
       type="button"
       title={title}
       disabled={disabled}

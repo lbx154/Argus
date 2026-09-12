@@ -2,6 +2,7 @@ import type { Role } from '../api';
 import { useConfig } from '../hooks';
 import { useI18n } from '../i18n';
 import { backendLabel } from '../lib/backend';
+import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { canOpenDesktopSettings, openDesktopTrialSettings } from '../lib/desktopBridge';
 
 /** Use the live session's resolved role, including per-role backend overrides. */
@@ -18,7 +19,7 @@ export function ComposerRuntime({ sid, roles, running }: { sid: string; roles: R
     <span className="composer-runtime-model">
       {trial ? (zh ? '试用' : 'Trial') : role ? backendLabel(role.backend, t) : (zh ? '模型信息待确认' : 'Model information unavailable')}
       {model ? ` · ${model}` : ''}{effort ? ` · ${effort}` : ''}
-      {!trial && running && role?.active ? ` · ${role.role}` : ''}
+      {!trial && running && role?.active ? ` · ${isAgentRole(role.role) ? agentRoleName(role.role, t) : role.role}` : ''}
     </span>
     {trial && canOpenDesktopSettings() ? <button type="button" onClick={openDesktopTrialSettings}>
       {zh ? '更换 Key' : 'Change Key'}

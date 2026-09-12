@@ -14,6 +14,77 @@ from argus_skill.webapi import map_model
 from argus_skill.webapi.server import create_app
 
 
+def test_map_output_recovers_only_the_observed_premature_cards_root_closure():
+    from argus_skill.webapi.map_narrative import schema
+
+    card = {"title": "Check a boundary", "summary": "The result covers one case", "detail": "A literal } is part of the note.",
+            "reader_brief": {"why": "Check the stated assumption", "concept": None,
+                             "scope": "The general claim has not been established", "next": "No next step is recorded"}}
+    expected = {"cards": {"task-a": card}, "relations": []}
+    # This is the exact structural error observed in the first real Pi output:
+    # the root closes after cards, before its relations property starts.
+    malformed = json.dumps({"cards": expected["cards"]}) + ',"relations":[]}'
+    with pytest.raises(json.JSONDecodeError, match="Extra data"):
+        json.loads(malformed)
+    assert map_model._parse_document(malformed, schema(["task-a"], ["task-a"])) == expected
+    assert map_model._parse_document(json.dumps(expected), schema(["task-a"], ["task-a"])) == expected
+    assert map_model._parse_document('```json\n' + json.dumps(expected) + '\n```', schema(["task-a"], ["task-a"])) == expected
+
+
+@pytest.mark.parametrize("raw", [
+    '{"cards":{}},"relations":[]} trailing explanation',
+    '{"cards":{}},"other":[]}',
+    '{"cards":{}},{"relations":[]}',
+    '{"cards":{}},"relations":[],"extra":"do not accept"}',
+    '{"cards":[]},"relations":[]}',
+    '{"cards":{}},"relations":{}}',
+    'preface {"cards":{},"relations":[]}',
+    '{"cards":{}},"relations":[',
+])
+def test_map_output_recovery_rejects_trailing_prose_other_shapes_and_incomplete_output(raw):
+    with pytest.raises(ValueError):
+        map_model._parse_document(raw, {})
+
+
+def test_recovered_output_still_requires_the_requested_schema_and_card_coverage():
+    from argus_skill.webapi.map_narrative import schema
+
+    with pytest.raises(ValueError, match="schema"):
+        map_model._parse_document('{"cards":{}},"relations":[]}', schema(["required-task"], ["required-task"]))
+    with pytest.raises(ValueError, match="schema"):
+        map_model._parse_document('{"cards":{"a":{"title":"Missing brief"}}},"relations":[]}', schema(["a"], ["a"]))
+
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    (r'{"detail":"\\rho(X) \le 15"}', r'\rho(X) \le 15'),
+    (r'{"detail":"C:\work\project\main.cpp"}', r'C:\work\project\main.cpp'),
+    (r'{"detail":"a \"quote\" then \le; newline \n; pair \\\\"}', 'a "quote" then \\le; newline \n; pair \\\\'),
+    (r'{"detail":"odd \\\le"}', r'odd \\le'),
+])
+def test_map_output_preserves_literal_unknown_escapes(raw, expected):
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(raw)
+    assert map_model._parse_document(raw, {}) == {"detail": expected}
+
+
+def test_map_output_keeps_valid_json_escapes_and_does_not_guess_unicode():
+    raw = r'{"detail":"quote \" slash \\ solidus \/ controls \b\f\n\r\t unicode \u03c1"}'
+    assert map_model._parse_document(raw, {}) == json.loads(raw)
+    # An unknown escape elsewhere must not change already valid escapes.
+    mixed = raw.replace('quote ', r'\le quote ')
+    assert map_model._parse_document(mixed, {})['detail'] == '\\le ' + json.loads(raw)['detail']
+    for malformed in (r'{"detail":"\u12 \le"}', r'{"detail":"\le"', r'{"detail":"\le"} trailing'):
+        with pytest.raises(ValueError):
+            map_model._parse_document(malformed, {})
+
+
+def test_unknown_escape_recovery_reuses_card_boundary_and_schema_validation():
+    raw = r'{"cards":{"a":"literal \le"}},"relations":[]}'
+    assert map_model._parse_document(raw, {}) == {'cards': {'a': r'literal \le'}, 'relations': []}
+    with pytest.raises(ValueError, match='schema'):
+        map_model._parse_document(raw, {'required': ['missing']})
+
+
 def test_map_inherits_research_role_and_persisted_overrides(monkeypatch):
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_BACKEND", "copilot")
     monkeypatch.setenv("ARGUS_SKILL_ENGINEER_MODEL", "gpt-5.4-mini")

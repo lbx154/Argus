@@ -8,10 +8,13 @@ import { roleLabel } from '../research-workbench/enumLabels';
 const ZH: RenderContext = { locale: 'zh-CN', showReasoning: true, unknownEventPolicy: 'hide', density: 'compact' };
 
 describe('web localization', () => {
-  test.each(['Manager', 'Planner', 'Engineer', 'Reviewer'])('keeps the %s role name in both languages', (role) => {
+  test.each([
+    ['Manager', '统筹'], ['Planner', '规划'], ['Engineer', '执行'], ['Reviewer', '复核'],
+  ])('localizes the %s role name across workbench surfaces', (role, chinese) => {
     for (const locale of ['zh-CN', 'en'] as const) {
-      expect(translate(`label.role.${role.toLowerCase()}` as Parameters<typeof translate>[0], {}, locale)).toBe(role);
-      expect(roleLabel(role.toLowerCase(), (zh, en) => locale === 'zh-CN' ? zh : en)).toBe(role);
+      const expected = locale === 'zh-CN' ? chinese : role;
+      expect(translate(`role.${role.toLowerCase()}`, {}, locale)).toBe(expected);
+      expect(roleLabel(role.toLowerCase(), (zh, en) => locale === 'zh-CN' ? zh : en)).toBe(expected);
     }
   });
   test('translates interface messages with interpolation', () => {

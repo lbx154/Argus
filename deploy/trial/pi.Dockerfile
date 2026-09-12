@@ -9,6 +9,7 @@ COPY argus_skill /opt/argus/argus_skill
 COPY frontend/web/dist /opt/argus/frontend/web/dist
 COPY frontend/tui/bundle/argus.mjs /opt/argus/frontend/tui/bundle/argus.mjs
 RUN pip install --no-cache-dir 'psutil>=5.9.8' \
+    && chmod -R a+rX /opt/argus/argus_skill /opt/argus/frontend \
     && ln -s /opt/argus-pi/packages/coding-agent/dist/bundle/cli.js /usr/local/bin/argus-pi \
     && ln -s /usr/local/bin/argus-pi /usr/local/bin/pi \
     && node --version && argus-pi --version
