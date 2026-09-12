@@ -301,3 +301,24 @@ measurement, not a production SLA or proof that every local storage wait is
 interruptible. The 68 focused regressions, lint and same-parameter mypy
 comparison (45 inherited diagnostics, none added) are recorded in
 `embedding-stop-audit-private`. No external provider was used.
+
+
+## Streamed control completion and snapshot freshness
+
+A longer in-flight goal change exposed a separate cache boundary. The HTTP
+middleware invalidated read caches when SSE headers were created. A browser
+poll could then refill the snapshot cache before Manager committed the new
+goal. After commit, the stream completed but its immediate snapshot reads
+still showed the old pending task; the observed UI corrected only at the
+8.238-second poll. The earlier fast-request case refreshed within 0.5 seconds;
+it did not exercise this cache refill sequence. Both original observations
+are retained.
+
+The stream worker now invalidates read caches before queuing either terminal
+`done` or `error`, after its handling and daemon-wake path. Cancelled results
+also use that terminal path. Existing lease/cancellation handling and cache TTL
+are unchanged. Three real-ASGI header/gate/cache regressions first failed on
+the old source for success, cancellation and exception, then passed with the
+fix. The focused message/control/cache set passed 135 checks; the route module
+passed mypy and Ruff. Final frozen/browser receipts qualify this source change
+separately from the complete 10,068-pass/56-skip `9822989ae` baseline.

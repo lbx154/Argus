@@ -337,6 +337,14 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
         def _run() -> None:
             def _on_fragment(kind: str, payload: dict) -> None:
                 q.put({"type": kind, **payload})
+
+            def _on_terminal(payload: dict) -> None:
+                # Middleware invalidated when SSE headers were sent. Polls can
+                # refill the cache while Manager is still working; detach them
+                # again before announcing any terminal result/partial commit.
+                ctx.invalidate_read_caches()
+                q.put(payload)
+
             try:
                 kwargs: dict[str, Any] = {
                     "global_root": project_root,
@@ -356,9 +364,9 @@ def register_manager_routes(app, ctx: ServerContext, server_mod) -> None:
                     sid, result, generation, global_root=project_root, text=body.text, on_fragment=_on_fragment,
                     request_cancelled=lease.cancelled,
                 )
-                q.put({"type": "done", "result": result})
+                _on_terminal({"type": "done", "result": result})
             except Exception as exc:  # noqa: BLE001
-                q.put({
+                _on_terminal({
                     "type": "error",
                     "error": "I couldn't finish handling that request.",
                     "diagnostic": f"{type(exc).__name__}: {exc}",
