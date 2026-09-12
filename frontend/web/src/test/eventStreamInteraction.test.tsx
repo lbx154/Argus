@@ -16,7 +16,7 @@ vi.mock('../components/MarkdownContent', () => ({
 function scrollNode() {
   let top = 0;
   return {
-    clientHeight: 300, scrollHeight: 900,
+    clientHeight: 300, clientWidth: 1000, scrollHeight: 900,
     get scrollTop() { return top; },
     set scrollTop(value: number) { top = Math.max(0, Math.min(value, this.scrollHeight - this.clientHeight)); },
     scrollTo(options: ScrollToOptions) { this.scrollTop = options.top ?? 0; },
@@ -28,6 +28,8 @@ let renderer: ReactTestRenderer | undefined;
 let frames: Map<number, FrameRequestCallback>;
 let inner: ReturnType<typeof scrollNode>;
 let outer: ReturnType<typeof scrollNode>;
+let content: object;
+let observers: { targets: Set<object>; notify: () => void }[];
 let nextFrame: number;
 
 beforeEach(() => {
@@ -35,6 +37,17 @@ beforeEach(() => {
   nextFrame = 0;
   inner = scrollNode();
   outer = scrollNode();
+  content = {};
+  observers = [];
+  vi.stubGlobal('ResizeObserver', class {
+    record: typeof observers[number];
+    constructor(notify: () => void) {
+      this.record = { targets: new Set(), notify };
+      observers.push(this.record);
+    }
+    observe(target: object) { this.record.targets.add(target); }
+    disconnect() { this.record.targets.clear(); }
+  });
   vi.stubGlobal('window', {
     requestAnimationFrame: (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame; },
     cancelAnimationFrame: (id: number) => frames.delete(id),
@@ -48,7 +61,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const nodeMock = (element: { props: { className?: string } }) => {
+const nodeMock = (element: { props: { className?: string; 'data-event-stream-content'?: boolean } }) => {
+  if (element.props['data-event-stream-content']) return content;
   const classes = element.props.className ?? '';
   return classes.includes('max-h-72') ? inner : classes.includes('overflow-y-auto pb-6') ? outer : null;
 };
@@ -80,6 +94,16 @@ function scrollTo(top: number) {
 }
 function jumpButtons() {
   return roleGroup().findAll(node => node.type === 'button' && node.children.includes('Jump to latest'));
+}
+function resize(target: object) {
+  const matching = observers.filter(observer => observer.targets.has(target));
+  expect(matching.length).toBeGreaterThan(0);
+  act(() => matching.forEach(observer => observer.notify()));
+}
+function scrollConversation(top: number) {
+  outer.scrollTop = top;
+  const listener = outer.addEventListener.mock.calls.find(([name]) => name === 'scroll')![1];
+  act(() => listener());
 }
 function visibleText(node: ReactTestInstance): string {
   return node.children.map(child => typeof child === 'string' ? child : visibleText(child)).join('');
@@ -144,6 +168,75 @@ describe('role log scroll following', () => {
     paint();
     expect(inner.scrollTop).toBe(150);
     expect(jumpButtons()).toHaveLength(1);
+  });
+});
+
+describe('conversation scroll following during reflow', () => {
+  const events: EventMsg[] = [{ type: 'ui.argus', text: 'A recorded answer with wrapping text.', ts: 1 }];
+  const resumeButtons = () => renderer!.root.findAllByProps({ 'aria-label': 'Jump to latest' });
+
+  it('stays at the latest answer after viewport and content size changes without new events', () => {
+    mount(events);
+    paint();
+    expect(outer.scrollTop).toBe(600);
+    outer.clientWidth = 390;
+    outer.clientHeight = 168;
+    outer.scrollHeight = 1800;
+    resize(outer);
+    paint();
+    expect(outer.scrollTop).toBe(1632);
+    expect(resumeButtons()).toHaveLength(0);
+
+    // Markdown or a disclosure can grow while the scroll viewport stays fixed.
+    outer.scrollHeight = 2100;
+    resize(content);
+    paint();
+    expect(outer.scrollTop).toBe(1932);
+    expect(resumeButtons()).toHaveLength(0);
+  });
+
+  it('keeps the manual history position through reflow and resumes resize following on request', () => {
+    mount(events);
+    paint();
+    scrollConversation(120);
+    expect(resumeButtons()).toHaveLength(1);
+    outer.clientWidth = 390;
+    outer.clientHeight = 168;
+    outer.scrollHeight = 1800;
+    resize(outer);
+    resize(content);
+    paint();
+    expect(outer.scrollTop).toBe(120);
+    expect(resumeButtons()).toHaveLength(1);
+
+    act(() => resumeButtons()[0].props.onClick());
+    paint();
+    expect(outer.scrollTop).toBe(1632);
+    expect(resumeButtons()).toHaveLength(0);
+    outer.clientHeight = 300;
+    resize(outer);
+    paint();
+    expect(outer.scrollTop).toBe(1500);
+  });
+
+  it('lets a manual scroll cancel a queued resize follow and cleans up on unmount', () => {
+    mount(events);
+    paint();
+    outer.scrollHeight = 1800;
+    resize(content);
+    scrollConversation(80);
+    paint();
+    expect(outer.scrollTop).toBe(80);
+    expect(resumeButtons()).toHaveLength(1);
+
+    act(() => resumeButtons()[0].props.onClick());
+    paint();
+    resize(outer);
+    expect(frames.size).toBeGreaterThan(0);
+    act(() => renderer!.unmount());
+    renderer = undefined;
+    expect(frames.size).toBe(0);
+    expect(observers.every(observer => observer.targets.size === 0)).toBe(true);
   });
 });
 

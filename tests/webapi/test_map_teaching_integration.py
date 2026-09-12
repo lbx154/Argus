@@ -25,6 +25,12 @@ def card():
                                          "connection": "The task asks whether the count is exact"}}}
 
 
+def reading_fields(value):
+    return {field: value[field] for field in ("title", "summary", "detail")} | {
+        field: value["reader_brief"][field] for field in ("why", "scope", "next")
+    }
+
+
 def capture_generation_sources(monkeypatch, documents):
     """Exercise both transports with supplied verdicts, never a model endpoint."""
     observed = {}
@@ -76,6 +82,7 @@ def test_draft_and_checker_share_actual_task_evidence_and_attribution_without_mu
         key = sent["key"]
         original = next(doc for doc in before if doc["key"] == key)
         checked = observed["checker"][key]["context"]
+        assert observed["checker"][key]["reading"] == reading_fields(card())
         snapshot = next(row for row in observed["result"]["cards"] if row["key"] == key)["source_snapshot"]
         assert snapshot["version"] == 1 and snapshot["card_key"] == key and snapshot["task_id"] == original["task_id"]
         assert {field: value for field, value in snapshot.items()
@@ -221,8 +228,10 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
     original = card()
     replacement = {**original["reader_brief"]["concept"],
                    "example": "Two independent directions give a lower bound of two; an exact count needs a spanning argument"}
-    reading = {"title": "Check what the evidence can tell us",
-               **{field: original["reader_brief"][field] for field in map_narrative.BRIEF_LIMITS}}
+    reading = {**reading_fields(original), "title": "Check what the evidence can tell us",
+               "summary": "The reported count remains a lower bound until the spanning condition is checked.",
+               "detail": "Independence gives a lower bound. An exact count also requires spanning the whole space.",
+               "scope": "The reported result is a lower bound, not an exact count."}
 
     def run(prompt, schema, _config, **kwargs):
         observed.append((prompt, kwargs["deadline"]))
@@ -245,16 +254,15 @@ def test_one_draft_and_one_check_share_a_deadline_and_a_cached_check_is_reused(m
     saved = result["cards"][0]
     assert saved["reader_brief"]["concept"] == replacement
     assert saved["teaching_review"]["status"] == "corrected"
-    assert saved["title"] == reading["title"]
+    assert reading_fields(saved) == reading
     assert saved["teaching_review"]["reading_review"]["status"] == "corrected"
     assert "reading_replacement" not in saved["teaching_review"]
-    assert saved["reader_brief"]["scope"] == original["reader_brief"]["scope"]
     assert result["teaching_reviews"]
     again = map_narrative.generate([document()], [{"id": "a"}], "en-US",
                                    cached_reviews=result["teaching_reviews"], **kwargs)
     assert len(observed) == 3  # A new draft, with no repeated concept review.
     assert again["cards"][0]["reader_brief"]["concept"] == replacement
-    assert again["cards"][0]["title"] == reading["title"]
+    assert reading_fields(again["cards"][0]) == reading
 
 
 def test_failed_teaching_check_keeps_task_facts_but_does_not_publish_the_unchecked_example(monkeypatch):
@@ -274,10 +282,150 @@ def test_failed_teaching_check_keeps_task_facts_but_does_not_publish_the_uncheck
     assert calls == 2
     saved = result["cards"][0]
     assert saved["reader_brief"]["concept"] is None
-    assert saved["reader_brief"]["why"] == original["reader_brief"]["why"]
+    assert reading_fields(saved) == reading_fields(original)
     assert saved["teaching_review"]["status"] == "unavailable"
     assert saved["teaching_review"]["reading_review"]["status"] == "unavailable"
     assert result["teaching_reviews"] == {}
+
+
+@pytest.mark.parametrize("defect", ["missing-detail", "redaction-required"])
+def test_unusable_reading_replacement_never_partially_applies_scope_or_card_text(monkeypatch, defect):
+    original = card()
+    replacement = {**reading_fields(original), "title": "Replacement title", "summary": "Replacement summary",
+                   "scope": "Replacement scope", "detail": "Replacement precise conditions"}
+    if defect == "missing-detail":
+        replacement.pop("detail")
+    else:
+        replacement["detail"] = "A generated credential: " + "ghp_" + "A" * 36
+    calls = []
+
+    def run(_prompt, schema, _config, **_kwargs):
+        calls.append(schema)
+        if "cards" in schema["properties"]:
+            return {"cards": {"a": copy.deepcopy(original)}, "relations": []}
+        return {"reviews": {"a": {"status": "accepted", "reason": "Supplied transport verdict",
+                                   "findings": [], "replacement": None}},
+                "readings": {"a": {"status": "corrected", "reason": "Supplied correction",
+                                    "findings": [{"field": "scope", "quote": original["reader_brief"]["scope"],
+                                                  "kind": "changed_meaning", "reason": "Preserve the actual boundary"}],
+                                    "replacement": replacement}}}
+
+    monkeypatch.setattr(map_narrative, "run_map_model", run)
+    result = map_narrative.generate([document()], [{"id": "a"}], "en-US",
+                                   config=SimpleNamespace(revision="model-a"), project_root=None, global_root=None)
+    saved = result["cards"][0]
+    assert len(calls) == 2
+    assert reading_fields(saved) == reading_fields(original)
+    assert saved["teaching_review"]["reading_review"]["status"] == "unavailable"
+    assert "reading_replacement" not in saved["teaching_review"]
+    assert result["teaching_reviews"] == {}
+
+
+def configured_enrichment(monkeypatch):
+    monkeypatch.setattr(map_narrative, "configured", lambda: True)
+    monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: SimpleNamespace(revision="model-a"))
+    dataset = {"id": "live:checked-text", "tasks": [{"id": "a", "title": "Task", "objective": "Original objective",
+                                                   "status": "running", "revision": "task-v1", "deps": []}],
+               "events": []}
+    request = [{"key": "a", "task_id": "a", "kind": "task", "event_ids": []}]
+    return dataset, request
+
+
+def test_corrected_detail_keeps_its_final_condition_in_the_same_persisted_card(tmp_path, monkeypatch):
+    dataset, request = configured_enrichment(monkeypatch)
+    original = card()
+    final_condition = "\nThe conclusion applies only when the selected objects span the whole space."
+    detail = "D" * (4000 - len(final_condition)) + final_condition
+    replacement = {**reading_fields(original), "scope": "The claim is conditional on spanning the whole space.",
+                   "summary": "The record claims an exact count only under the spanning condition.", "detail": detail}
+    calls = []
+
+    def run(prompt, schema, _config, **_kwargs):
+        calls.append(schema)
+        if "cards" in schema["properties"]:
+            return {"cards": {"a": copy.deepcopy(original)}, "relations": []}
+        candidate = json.loads(prompt.split("Teaching passages:\n", 1)[1])["a"]["reading"]
+        assert candidate == reading_fields(original)
+        return {"reviews": {"a": {"status": "accepted", "reason": "Supplied transport verdict",
+                                   "findings": [], "replacement": None}},
+                "readings": {"a": {"status": "corrected", "reason": "Keep the formal condition with the reading",
+                                    "findings": [{"field": "detail", "quote": original["detail"],
+                                                  "kind": "changed_meaning", "reason": "The final condition is decisive"}],
+                                    "replacement": replacement}}}
+
+    monkeypatch.setattr(map_narrative, "run_map_model", run)
+    result = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
+    saved = result["cards"]["a"]
+    persisted = map_narrative.read_cache(tmp_path, "live:checked-text:en-US")["cards"]["a"]
+    assert len(calls) == 2 and reading_fields(saved) == replacement
+    assert persisted == saved and persisted["detail"].endswith(final_condition)
+    assert len(persisted["detail"]) == 4000
+    assert persisted["teaching_review"]["reading_review"]["status"] == "corrected"
+    assert set(persisted["reader_brief"]) == {"why", "scope", "next", "concept"}
+
+
+@pytest.mark.parametrize("field,limit", [("summary", 250), ("detail", 4000)])
+def test_oversize_generated_text_is_rejected_without_replacing_cached_conditions(tmp_path, monkeypatch, field, limit):
+    dataset, request = configured_enrichment(monkeypatch)
+    now = {"value": 1000.0}
+    monkeypatch.setattr(map_narrative.time, "time", lambda: now["value"])
+    generated = card()
+    calls = []
+
+    def run(_prompt, schema, _config, **_kwargs):
+        calls.append(schema)
+        if "cards" in schema["properties"]:
+            return {"cards": {"a": copy.deepcopy(generated)}, "relations": []}
+        verdict = {"status": "accepted", "reason": "Supplied transport verdict", "findings": [], "replacement": None}
+        return {"reviews": {"a": copy.deepcopy(verdict)}, "readings": {"a": copy.deepcopy(verdict)}}
+
+    monkeypatch.setattr(map_narrative, "run_map_model", run)
+    previous = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)["cards"]["a"]
+    generated[field] = "x" * limit + "!"
+    dataset["tasks"][0].update(objective="A later objective", revision="task-v2")
+    now["value"] += 30
+    with pytest.raises(ValueError, match="invalid card copy"):
+        map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
+    assert len(calls) == 3  # The invalid draft never enters a second checking call.
+    cached = map_narrative.read_cache(tmp_path, "live:checked-text:en-US")
+    assert cached["cards"]["a"] == previous
+
+
+def test_secret_redaction_precedes_checking_and_keeps_the_same_conditions_in_storage(tmp_path, monkeypatch):
+    dataset, request = configured_enrichment(monkeypatch)
+    generated = card()
+    fake_token = "ghp_" + "A" * 36
+    generated["detail"] = f"Credential {fake_token}\nThe result requires both stated conditions."
+    expected = "Credential <REDACTED:github-token>\nThe result requires both stated conditions."
+    checked = []
+
+    def run(prompt, schema, _config, **_kwargs):
+        if "cards" in schema["properties"]:
+            return {"cards": {"a": copy.deepcopy(generated)}, "relations": []}
+        candidate = json.loads(prompt.split("Teaching passages:\n", 1)[1])["a"]["reading"]
+        checked.append(candidate)
+        assert candidate["detail"] == expected and fake_token not in prompt
+        verdict = {"status": "accepted", "reason": "Supplied transport verdict", "findings": [], "replacement": None}
+        return {"reviews": {"a": copy.deepcopy(verdict)}, "readings": {"a": copy.deepcopy(verdict)}}
+
+    monkeypatch.setattr(map_narrative, "run_map_model", run)
+    result = map_narrative.enrich(tmp_path, dataset, request, "en-US", project_root=tmp_path)
+    saved = result["cards"]["a"]
+    assert len(checked) == 1 and reading_fields(saved) == checked[0]
+    persisted = map_narrative.read_cache(tmp_path, "live:checked-text:en-US")
+    assert persisted["cards"]["a"]["detail"] == expected
+    assert fake_token not in json.dumps(persisted)
+
+
+def test_redaction_that_expands_scope_past_its_limit_cannot_clip_the_final_condition():
+    original = card()["reader_brief"]
+    prefix, tail = "api_key=12345678; ", "Only if n > 0."
+    original["scope"] = prefix + "x" * (700 - len(prefix) - len(tail)) + tail
+    before = copy.deepcopy(original)
+    assert len(original["scope"]) == 700
+    with pytest.raises(ValueError, match="invalid reader brief text"):
+        map_narrative._reader_brief(original)
+    assert original == before and original["scope"].endswith(tail)
 
 
 def test_narration_context_keeps_current_cards_and_direct_dependencies_without_unrelated_history():

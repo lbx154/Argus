@@ -328,6 +328,8 @@ def reading():
         "why": "The isometry criterion might let the existing method cover a new class.",
         "scope": "Only the task start is recorded; no current proof or independent review is recorded.",
         "next": "The recorded plan is to check the source conditions and write the result or obstruction.",
+        "summary": "Check the isometry criterion for one new object.",
+        "detail": "The task asks whether the criterion extends the earlier construction to pairs of objects, with complete reasoning or an obstruction tied to the source conditions.",
     }
 
 
@@ -337,9 +339,12 @@ def reading_correction():
         "findings": [{"field": "title", "quote": "isometry criterion", "kind": "undefined_term",
                       "reason": "The reader needs to know what is being checked without knowing this term."}],
         "replacement": {
-            **reading(),
             "title": "Check whether the earlier method applies to these new objects",
             "why": "The task asks whether a method already used for one class of objects could work for another. This remains a possibility to check.",
+            "scope": "The assignment concerns pairs of the new objects and requires complete reasoning or a source-based obstruction; no result has yet been recorded.",
+            "next": "The recorded assignment is to check the source conditions and explain why the extension works or what blocks it.",
+            "summary": "Check whether the earlier construction extends to pairs of the new objects.",
+            "detail": "For pairs of the new objects, check every hypothesis of the source criterion. The recorded assignment requires complete reasoning for the extension or an obstruction analysis tied to those source conditions; it does not report a completed extension.",
         },
     }
 
@@ -347,6 +352,21 @@ def reading_correction():
 def unavailable_decision():
     return {"status": "unavailable", "reason": "A faithful explanation cannot be confirmed from these records.",
             "findings": [], "replacement": None}
+
+
+def test_reading_contract_includes_the_first_and_expanded_levels():
+    fields = {"title", "summary", "detail", "why", "scope", "next"}
+    assert set(teaching.CARD_TEXT_LIMITS) == {"title", "summary", "detail"}
+    assert set(teaching.BRIEF_LIMITS) == {"why", "scope", "next"}
+    assert teaching.READING_LIMITS == teaching.CARD_TEXT_LIMITS | teaching.BRIEF_LIMITS
+    schema = teaching.teaching_review_schema(["a"], ["a"])
+    definition = schema["$defs"]["reading"]
+    assert set(definition["required"]) == fields
+    assert set(definition["properties"]) == fields
+    assert definition["additionalProperties"] is False
+    assert {key: value["maxLength"] for key, value in definition["properties"].items()} == teaching.READING_LIMITS
+    finding = schema["$defs"]["reading_decision"]["properties"]["findings"]["items"]
+    assert set(finding["properties"]["field"]["enum"]) == fields
 
 
 def test_supplied_reading_correction_is_atomic_and_separate_from_concept_acceptance():
@@ -360,8 +380,11 @@ def test_supplied_reading_correction_is_atomic_and_separate_from_concept_accepta
     assert receipts["a"]["reading_review"]["status"] == "corrected"
     assert receipts["a"]["reading_review"]["kind"] == "model_readability_review"
     assert receipts["a"]["reading_replacement"] == decision["replacement"]
-    assert receipts["a"]["reading_replacement"]["scope"] == before["scope"]
-    assert receipts["a"]["reading_replacement"]["next"] == before["next"]
+    assert set(receipts["a"]["reading_replacement"]) == set(teaching.READING_LIMITS)
+    assert all(receipts["a"]["reading_replacement"][field] != before[field] for field in before)
+    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])
+    assert sent["a"]["reading"] == before
+    assert next(iter(updates.values()))["reading_decision"]["replacement"] == decision["replacement"]
     assert draft == before and len(updates) == 1
 
 
@@ -378,7 +401,7 @@ def test_null_concept_still_checks_reading_without_inventing_a_concept_verdict()
     assert receipts["a"]["reading_replacement"] == reading() and len(updates) == 1
 
 
-@pytest.mark.parametrize("field", ["title", "why", "scope", "next"])
+@pytest.mark.parametrize("field", ["title", "why", "scope", "next", "summary", "detail"])
 def test_each_actual_reading_field_participates_in_the_review_cache_key(field):
     first = {"a": reading()}
     response = {"reviews": {"a": accepted()}, "readings": {"a": accepted()}}
@@ -390,6 +413,89 @@ def test_each_actual_reading_field_participates_in_the_review_cache_key(field):
     run.assert_called_once()
     assert set(updates).isdisjoint(cache)
     assert receipts["a"]["reading_replacement"][field] == changed["a"][field]
+
+
+@pytest.mark.parametrize("field", ["summary", "detail"])
+def test_expanded_level_findings_apply_a_complete_reading_replacement(field):
+    draft = reading()
+    decision = reading_correction()
+    decision["findings"] = [{
+        "field": field, "quote": draft[field], "kind": "changed_meaning",
+        "reason": "The expanded level needs to state the same target and boundary as the first level.",
+    }]
+    run = Mock(return_value={"reviews": {}, "readings": {"a": decision}})
+    _, receipts, updates = invoke({"a": None}, run, reading={"a": draft})
+    assert receipts["a"]["reading_review"]["status"] == "corrected"
+    assert receipts["a"]["reading_review"]["findings"] == decision["findings"]
+    assert receipts["a"]["reading_replacement"] == decision["replacement"]
+    assert draft == reading() and len(updates) == 1
+
+
+@pytest.mark.parametrize("field", ["title", "why", "scope", "next", "summary", "detail"])
+def test_partial_reading_replacement_is_rejected_without_applying_any_fields(field):
+    draft = reading()
+    before = copy.deepcopy(draft)
+    decision = reading_correction()
+    del decision["replacement"][field]
+    run = Mock(return_value={"reviews": {"a": accepted()}, "readings": {"a": decision}})
+    _, receipts, updates = invoke({"a": concept()}, run, reading={"a": draft})
+    run.assert_called_once()
+    assert receipts["a"]["reading_review"]["status"] == "unavailable"
+    assert receipts["a"]["reading_review"]["error_code"] == "review_failed"
+    assert "reading_replacement" not in receipts["a"]
+    assert draft == before and updates == {}
+
+
+@pytest.mark.parametrize("field", ["title", "why", "scope", "next", "summary", "detail"])
+def test_reading_replacement_needing_redaction_cannot_publish_a_partial_correction(field):
+    draft = reading()
+    before = copy.deepcopy(draft)
+    decision = reading_correction()
+    decision["replacement"][field] = "api_key=synthetic-review-credential-0000"
+    response = {"reviews": {"a": accepted()}, "readings": {"a": decision}}
+    response_before = copy.deepcopy(response)
+    run = Mock(return_value=response)
+    usable, receipts, updates = invoke({"a": concept()}, run, reading={"a": draft})
+    run.assert_called_once()
+    assert usable["a"] == concept() and receipts["a"]["status"] == "accepted"
+    assert receipts["a"]["reading_review"]["status"] == "unavailable"
+    assert receipts["a"]["reading_review"]["error_code"] == "replacement_requires_redaction"
+    assert "reading_replacement" not in receipts["a"] and updates == {}
+    assert draft == before and response == response_before
+
+
+@pytest.mark.parametrize("field", ["title", "why", "scope", "next", "summary", "detail"])
+def test_checked_text_fields_redacts_candidates_without_removing_the_final_condition(field):
+    draft = reading()
+    draft[field] = "  api_key=synthetic-candidate-credential-0000; only when the condition holds.  "
+    before = copy.deepcopy(draft)
+    expected = {**draft, field: "  api_key= <REDACTED:secret>; only when the condition holds.  "}
+    assert teaching.checked_text_fields(draft, teaching.READING_LIMITS, "invalid_reading") == expected
+    run = Mock(return_value={"reviews": {}, "readings": {"a": accepted()}})
+    _, receipts, updates = invoke({"a": None}, run, reading={"a": draft})
+    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])
+    assert sent["a"]["reading"] == expected
+    assert receipts["a"]["reading_review"]["status"] == "accepted"
+    assert receipts["a"]["reading_replacement"] == expected
+    assert draft == before and len(updates) == 1
+
+
+def test_accepted_reading_preserves_every_original_character_including_limit_boundary_and_cache():
+    draft = {key: f"  {value}\n" for key, value in reading().items()}
+    tail = " Only if every stated hypothesis holds.\n"
+    draft["detail"] = "x" * (teaching.READING_LIMITS["detail"] - len(tail)) + tail
+    before = copy.deepcopy(draft)
+    run = Mock(return_value={"reviews": {}, "readings": {"a": accepted()}})
+    _, receipts, cache = invoke({"a": None}, run, reading={"a": draft})
+    sent = json.loads(run.call_args.args[0].split("Teaching passages:\n", 1)[1])
+    assert sent["a"]["reading"] == before
+    assert receipts["a"]["reading_review"]["status"] == "accepted"
+    assert receipts["a"]["reading_replacement"] == before
+    assert draft == before
+    no_call = Mock(side_effect=AssertionError("Accepted text is reusable without rewriting"))
+    _, cached_receipts, updates = invoke({"a": None}, no_call, reading={"a": draft}, cached_reviews=cache)
+    no_call.assert_not_called()
+    assert cached_receipts["a"]["reading_replacement"] == before and updates == {}
 
 
 def test_a_concept_only_acceptance_is_not_reused_as_a_first_screen_check():
@@ -457,14 +563,21 @@ def test_failed_model_call_preserves_original_reading_and_records_no_false_accep
     run.assert_called_once()
 
 
-def test_reading_candidates_are_not_truncated_or_silently_missing_fields():
-    for draft in [{**reading(), "scope": "x" * (teaching.READING_LIMITS["scope"] + 1)},
-                  {key: value for key, value in reading().items() if key != "next"}]:
-        run = Mock(side_effect=AssertionError("Incomplete reading cannot be reviewed"))
-        _, receipts, updates = invoke({"a": None}, run, reading={"a": draft})
-        assert receipts["a"]["reading_review"]["error_code"] == "invalid_reading"
-        assert "reading_replacement" not in receipts["a"] and updates == {}
-        run.assert_not_called()
+@pytest.mark.parametrize("field", ["title", "why", "scope", "next", "summary", "detail"])
+@pytest.mark.parametrize("defect", ["oversized", "missing"])
+def test_reading_candidates_are_not_truncated_or_silently_missing_fields(field, defect):
+    draft = reading()
+    if defect == "oversized":
+        draft[field] = "x" * (teaching.READING_LIMITS[field] + 1)
+    else:
+        del draft[field]
+    before = copy.deepcopy(draft)
+    run = Mock(side_effect=AssertionError("Invalid reading cannot be reviewed"))
+    _, receipts, updates = invoke({"a": None}, run, reading={"a": draft})
+    assert receipts["a"]["reading_review"]["error_code"] == "invalid_reading"
+    assert "reading_replacement" not in receipts["a"] and updates == {}
+    assert draft == before
+    run.assert_not_called()
 
 
 def test_different_first_screens_do_not_alias_just_because_the_concept_matches():

@@ -695,6 +695,7 @@ export function EventStream({
   const followingRef = useRef(true);
   const [activityTick, setActivityTick] = useState(() => Date.now());
   const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   // Rendering a long Markdown/event history is interruptible, so incoming
   // provider fragments never take priority over typing or scrolling.
   const deferredEvents = useDeferredValue(events);
@@ -782,7 +783,24 @@ export function EventStream({
       setFollowing(followingRef.current);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
+    let frame: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (!followingRef.current) return;
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        // Reflow can move the bottom without adding an event. A reader who
+        // scrolled into history while this frame was queued still takes priority.
+        if (followingRef.current) el.scrollTop = el.scrollHeight;
+      });
+    });
+    observer.observe(el);
+    if (content.current) observer.observe(content.current);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      observer.disconnect();
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
   }, []);
 
   const jump = () => {
@@ -835,6 +853,7 @@ export function EventStream({
         </div>
       ) : null}
       <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin">
+        <div ref={content} className="flow-root" data-event-stream-content>
         {rows.list.length === 0 ? (
           <EmptyHint>{t('stream.ready')}</EmptyHint>
         ) : (
@@ -861,6 +880,7 @@ export function EventStream({
             ))}
           </>
         )}
+        </div>
       </div>
       {!following && (
         <button
