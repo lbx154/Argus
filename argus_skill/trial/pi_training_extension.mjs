@@ -3,30 +3,55 @@ import net from "node:net";
 
 const PROFILE = "pi-0.85.1-hosted-workspace-v1";
 const MAX_PAYLOAD = 16 * 1024 * 1024;
+const ERROR_TYPES = new Set(["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "URIError", "EvalError", "AggregateError", "AbortError"]);
+const ERROR_CODES = new Set([
+  "ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "ENOENT", "EACCES",
+  "ERR_SOCKET_CLOSED", "ERR_STREAM_PREMATURE_CLOSE", "ERR_INVALID_ARG_TYPE",
+  "capture_payload_oversized", "capture_transport_timeout", "capture_transport_failed",
+  "training_storage_unavailable", "training_bridge_request_rejected", "training_lease_invalid",
+  "training_episode_closed", "training_episode_not_found", "training_episode_binding_mismatch",
+  "training_capture_consent_changed", "training_peer_parent_mismatch", "training_producer_changed",
+]);
 
 export function trainingExtension(submit) {
   return function (pi) {
     let episode = null, privateBlocks = 0, messageIndex = -1;
 
-    async function warning(reason, kind) {
+    async function warning(reason, kind, diagnostic = {}) {
       if (episode === null) return;
       try {
-        await submit("event", {episode_id: episode, kind: "capture_warning", payload: {reason, kind}});
+        await submit("event", {episode_id: episode, kind: "capture_warning", payload: {reason, kind, ...diagnostic}});
       } catch (_) {}
     }
 
     async function project(kind, makePayload) {
       if (episode === null) return;
+      let stage = "projection", payloadBytes = null;
       try {
-        const encoded = JSON.stringify(makePayload());
-        if (Buffer.byteLength(encoded) > MAX_PAYLOAD) throw Error("capture_payload_oversized");
+        const observed = makePayload();
+        stage = "serialization";
+        const encoded = JSON.stringify(observed);
+        payloadBytes = Buffer.byteLength(encoded);
+        if (payloadBytes > MAX_PAYLOAD) throw Error("capture_payload_oversized");
         const payload = JSON.parse(encoded);
+        stage = "submit";
         const receipt = await submit("event", {episode_id: episode, kind, payload});
+        stage = "receipt";
         if (receipt.state !== "capturing") episode = null;
       } catch (error) {
-        // A malformed/oversized observation must not erase earlier observations
-        // or prevent subsequent calls and final output from being collected.
-        await warning(error?.message === "capture_payload_oversized" ? error.message : "capture_projection_failed", kind);
+        // A lost receipt may follow successful storage. Diagnose without
+        // resending the event or copying arbitrary exception text into the data.
+        const errorCode = ERROR_CODES.has(error?.code) ? error.code
+          : ERROR_CODES.has(error?.message) ? error.message : null;
+        const transport = stage === "submit" || stage === "receipt";
+        const reason = transport
+          ? ["capture_transport_timeout", "ETIMEDOUT"].includes(errorCode) ? "capture_transport_timeout" : "capture_transport_failed"
+          : stage === "serialization" ? errorCode === "capture_payload_oversized" ? errorCode : "capture_serialization_failed"
+          : "capture_projection_failed";
+        await warning(reason, kind, {
+          stage, error_type: ERROR_TYPES.has(error?.name) ? error.name : null, error_code: errorCode,
+          payload_bytes: payloadBytes, delivery_status: transport ? "unknown" : "not_submitted",
+        });
       }
     }
 

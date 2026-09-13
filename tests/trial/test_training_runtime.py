@@ -221,6 +221,95 @@ console.log(JSON.stringify(receipts));
     assert "headers" not in provider and "apiKey" not in provider
 
 
+@pytest.mark.parametrize("failure,stage,reason,error_type,error_code,stored_before_failure", [
+    ("projection", "projection", "capture_projection_failed", "TypeError", None, False),
+    ("bigint", "serialization", "capture_serialization_failed", "TypeError", None, False),
+    ("circular", "serialization", "capture_serialization_failed", "TypeError", None, False),
+    ("oversized", "serialization", "capture_payload_oversized", "Error", "capture_payload_oversized", False),
+    ("timeout", "submit", "capture_transport_timeout", "Error", "capture_transport_timeout", True),
+    ("socket_timeout", "submit", "capture_transport_timeout", "Error", "ETIMEDOUT", True),
+    ("reset", "submit", "capture_transport_failed", "Error", "ECONNRESET", True),
+    ("bridge", "submit", "capture_transport_failed", "Error", "training_storage_unavailable", False),
+    ("reply_json", "submit", "capture_transport_failed", "SyntaxError", None, True),
+    ("reply_null", "receipt", "capture_transport_failed", "TypeError", None, True),
+    ("unknown_error", "submit", "capture_transport_failed", None, None, False),
+])
+def test_extension_failure_stage_preserves_delivery_uncertainty_and_later_events(
+    training, failure, stage, reason, error_type, error_code, stored_before_failure,
+):
+    """Injected failures include storage succeeding before a lost reply; no sockets or model."""
+    script = r'''
+import {trainingExtension} from __EXTENSION__;
+const failure=__FAILURE__, handlers=new Map(), attempts=[], stored=[];
+let failing=true;
+const tools=[{name:'lookup',description:'Read an item',parameters:{type:'object'}}];
+if(failure==='bigint')tools[0].parameters.value=1n;
+if(failure==='circular')tools[0].parameters.self=tools[0].parameters;
+trainingExtension(async(action,value)=>{
+ if(action==='authorize')return {enabled:true};
+ if(action==='begin')return {episode_id:1,profile:'pi-0.85.1-hosted-workspace-v1'};
+ attempts.push(value);
+ if(failing && value.kind==='context'){
+  if(['timeout','socket_timeout','reset','reply_json','reply_null'].includes(failure))stored.push(value);
+  if(failure==='timeout')throw Error('capture_transport_timeout');
+  if(failure==='socket_timeout')throw Object.assign(Error('PRIVATE_EXCEPTION'),{code:'ETIMEDOUT'});
+  if(failure==='reset')throw Object.assign(Error('PRIVATE_EXCEPTION'),{code:'ECONNRESET'});
+  if(failure==='bridge')throw Error('training_storage_unavailable');
+  if(failure==='reply_json')throw new SyntaxError('PRIVATE_REPLY');
+  if(failure==='reply_null')return null;
+  if(failure==='unknown_error')throw {name:'PRIVATE_TYPE',code:'PRIVATE_CODE',message:'PRIVATE_EXCEPTION'};
+ }
+ stored.push(value);
+ return {state:value.kind==='settled'?'complete':'capturing'};
+})({on:(name,handler)=>handlers.set(name,handler),getActiveTools:()=>['lookup'],getAllTools:()=>{
+ if(failing && failure==='projection')throw Object.assign(new TypeError('PRIVATE_EXCEPTION'),{code:'PRIVATE_CODE'});
+ return tools;
+}});
+await handlers.get('agent_start')({}, {sessionManager:{getSessionId:()=> 'synthetic-diagnostic'}});
+await handlers.get('context')({messages:[{role:'user',content:failure==='oversized'?'x'.repeat(16*1024*1024):'First input'}]});
+failing=false;
+tools[0].parameters={type:'object'};
+await handlers.get('context')({messages:[{role:'user',content:'后续输入'}]});
+await handlers.get('message_start')({});
+await handlers.get('message_end')({message:{role:'assistant',content:'Later answer',stopReason:'stop'}});
+await handlers.get('agent_settled')({});
+console.log(JSON.stringify({attempts,stored}));
+'''.replace("__EXTENSION__", json.dumps(Path(runtime.EXTENSION).as_uri())).replace("__FAILURE__", json.dumps(failure))
+    result = subprocess.run(["node", "--input-type=module"], input=script, text=True,
+                            capture_output=True, check=True, timeout=10)
+    assert "PRIVATE_" not in result.stdout + result.stderr
+    observed = json.loads(result.stdout)
+    warning, = [r["payload"] for r in observed["stored"] if r["kind"] == "capture_warning"]
+    transport = stage in {"submit", "receipt"}
+    assert warning == {
+        "reason": reason, "kind": "context", "stage": stage, "error_type": error_type,
+        "error_code": error_code, "payload_bytes": warning["payload_bytes"],
+        "delivery_status": "unknown" if transport else "not_submitted",
+    }
+    attempts = [r for r in observed["attempts"] if r["kind"] == "context"]
+    assert len(attempts) == (2 if transport else 1)  # No automatic resend of the failing input.
+    if transport:
+        assert warning["payload_bytes"] == len(json.dumps(attempts[0]["payload"], ensure_ascii=False, separators=(",", ":")).encode())
+    elif failure == "oversized":
+        assert warning["payload_bytes"] > 16 * 1024 * 1024
+    else:
+        assert warning["payload_bytes"] is None
+    expected_kinds = (["context"] if stored_before_failure else []) + ["capture_warning", "context", "message_end", "settled"]
+    assert [r["kind"] for r in observed["stored"]] == expected_kinds
+    assert observed["stored"][-3]["payload"]["messages"][0]["content"][0]["text"] == "后续输入"
+    episode = training.capture.begin(
+        "tenant-one", "s-project", "synthetic-diagnostic", observer_verified=True, allowed_tools=["lookup"],
+        runtime_profile=HOSTED_PROFILE, runtime_metadata={"capture_policy": "retain-observed-v2"},
+    )["episode_id"]
+    for event in observed["stored"]:
+        training.capture.event("tenant-one", "s-project", episode, event["kind"], event["payload"])
+    with training.analytics._db() as db:
+        retained = training.capture.events(db, episode)
+        assert db.execute("SELECT state FROM training_tool_episodes WHERE id=?", (episode,)).fetchone()[0] == "complete"
+    assert [r["kind"] for r in retained] == expected_kinds
+    assert next(r["payload"] for r in retained if r["kind"] == "capture_warning") == warning
+
+
 def test_extension_keeps_text_only_planning_and_large_failed_custom_tool_results():
     script = r'''
 import {trainingExtension} from __EXTENSION__;
