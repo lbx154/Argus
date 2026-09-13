@@ -53,7 +53,7 @@ Explicit project/role overrides retain precedence; remove them when converting
 an existing project. Trial usage counts tokens but has zero user dollar cost;
 it does not wait for personal Copilot billing reconciliation.
 
-The trial provider is **`gpt-5.5` with default reasoning effort `high`**, exposed as
+The default trial provider is **`gpt-5.5` with default reasoning effort `high`**, exposed as
 `argus-trial`. Clients retain the text/tool Chat Completions contract. The gateway
 translates requests, streamed text and local function/custom calls to Copilot `/responses`
 (the model rejects `/chat/completions`). The server controls model selection;
@@ -63,6 +63,23 @@ omitting it, or sending `null`, uses `high`. The accepted values remain `none`,
 `low`, `medium`, `high`, and `xhigh`. New desktop setup and hosted defaults still
 configure the research roles with high effort. Separately configured map-summary
 calls can use `low` or `medium` without changing those role settings.
+
+The gateway can also expose additional, explicitly enabled model IDs. Set
+`ARGUS_TRIAL_MODELS` to a comma-separated list on the gateway, or pass
+`Settings(models=(...))` when embedding it. `/v1/models` then lists the legacy
+`argus-trial` alias, the default model and those IDs. An explicit listed ID is
+forwarded unchanged; an unlisted ID is rejected before reservation or provider
+dispatch. The legacy alias still selects the server's default model. Streaming
+and non-streaming responses retain the selected model identity and preserve a
+different upstream-reported model when present.
+
+Hosted Pi workspaces must register the same models. Their startup reads the
+same `ARGUS_TRIAL_MODELS` setting, or the `models` array in the private bootstrap
+configuration. Native Pi startup reads the environment setting. Coordinate
+this catalog with the gateway before enabling a project advisor; the advisor
+uses an explicit `provider/model` such as `argus/<enabled-model-id>`. The web
+settings show registered model IDs without exposing provider credentials.
+Catalog entries establish availability, not a model's dollar price or quality.
 Hosted web workspaces default map summaries to `medium` when no environment or
 persisted preference exists. Startup preserves an explicit map setting, so an
 operator's summary preference survives a workspace restart.

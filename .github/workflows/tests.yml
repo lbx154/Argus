@@ -133,6 +133,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -149,6 +151,19 @@ jobs:
           python -m pip install -e '.[dev,qr,trial]'
       - name: Lint
         run: python -m ruff check argus_skill tests
+      - name: Reject new Python type diagnostics
+        env:
+          TYPECHECK_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: >-
+          python -m argus_skill.release_tools.typecheck_gate
+          --base "$TYPECHECK_BASE" --output-dir "$RUNNER_TEMP/typecheck"
+      - name: Preserve Python type diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-typecheck
+          path: ${{ runner.temp }}/typecheck
+          if-no-files-found: ignore
       - name: Test
         run: python -m pytest -q
 

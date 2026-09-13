@@ -234,9 +234,12 @@ export function reduceMissionViewEvent(view: MissionView, event: EventMsg): Miss
     addTimeline(view, event, 'manager', 'Project grounding started', S(event, 'objective'));
     addRoleWork(view, event, 'manager', 'grounding', 'Grounding project', S(event, 'objective'), 'active');
   } else if (type === EVENT_TYPES.LIFE_MANAGER_INTENT_COMPLETED) {
+    // Historical intent events may store model routing context in objective;
+    // execution_task is the Manager's committed handoff for the current goal.
+    const objective = S(event, 'execution_task') || S(event, 'objective');
     view.mission.id = S(event, 'item_id');
-    view.mission.title = S(event, 'objective').slice(0, 240);
-    view.mission.objective = S(event, 'objective');
+    view.mission.title = objective.slice(0, 240);
+    view.mission.objective = objective;
     view.mission.summary = '';
     view.mission.final_output = '';
     view.mission.started_at = null;

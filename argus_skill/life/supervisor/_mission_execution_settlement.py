@@ -15,7 +15,7 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ...core.event_catalog import EventType
 from ...core.runner_errors import is_execution_host_startup_error
@@ -74,6 +74,8 @@ def outcome_manuscript_binding(outcome: object) -> dict[str, str] | None:
 class MissionExecutionSettlementMixin:
     """Repair settlement, stage guard, final status, and journal emission."""
 
+    _confirm_mission_completion_receipt: Callable[[dict[str, Any]], bool]
+
     # ------------------------------------------------------------------
     # Phase: restricted validator-repair capability settlement
     # ------------------------------------------------------------------
@@ -98,6 +100,8 @@ class MissionExecutionSettlementMixin:
                     + (": " + "; ".join(guard_errors) if guard_errors else "")
                 )
         elif state.repair_capability is not None and state.repair_store is not None:
+            repair_identity = state.repair_identity
+            assert repair_identity is not None, "claimed repair requires its campaign identity"
             reviewer_status = str(
                 getattr(outcome, "final_review_status", "") or ""
             ).strip().lower()
@@ -110,7 +114,7 @@ class MissionExecutionSettlementMixin:
                 repair_settlement = state.repair_store.close_repair_capability(
                     capability_id=str(state.repair_capability["capability_id"]),
                     nonce=str(state.repair_capability["nonce"]),
-                    identity=state.repair_identity,
+                    identity=repair_identity,
                     accepted=reviewer_accepted,
                     reason=(
                         str(getattr(outcome, "stop_reason", "") or "")
@@ -189,6 +193,7 @@ class MissionExecutionSettlementMixin:
             from ...skills.stage_machine import current_stage
 
             policy_root = state.vertical_root
+            assert policy_root is not None, "stage settlement requires prepared vertical root"
             live_stage = current_stage(policy_root) or state.pipeline_stage_at_start
             guard_reason = (
                 f"dynamic plan {item.plan_id} still has unfinished current-stage "
@@ -312,6 +317,8 @@ class MissionExecutionSettlementMixin:
             and stage_action in {"advance", "rollback"}
         )
         if staged_item_continues:
+            usage_summary = state.usage_summary
+            assert usage_summary is not None, "stage settlement requires metered outcome"
             self.memory.backlog.update(
                 item.id,
                 status="pending",
@@ -328,7 +335,7 @@ class MissionExecutionSettlementMixin:
                 "stage_transition": stage_transition,
                 "cost_usd": state.usd,
                 "known_cost_usd": state.known_usd,
-                "pricing_status": state.usage_summary.pricing_status,
+                "pricing_status": usage_summary.pricing_status,
             }
 
         bounded_stage_hold = (
@@ -340,6 +347,8 @@ class MissionExecutionSettlementMixin:
             and stage_action == "hold"
         )
         if bounded_stage_hold:
+            usage_summary = state.usage_summary
+            assert usage_summary is not None, "stage settlement requires metered outcome"
             hold_reason = str(
                 stage_transition.get("reason")
                 or "Manager held the current stage"
@@ -373,7 +382,7 @@ class MissionExecutionSettlementMixin:
                 "stage_transition": stage_transition,
                 "cost_usd": state.usd,
                 "known_cost_usd": state.known_usd,
-                "pricing_status": state.usage_summary.pricing_status,
+                "pricing_status": usage_summary.pricing_status,
             }
 
         # Planner-authored bounded DAG nodes are separate acceptance units: once
@@ -427,9 +436,11 @@ class MissionExecutionSettlementMixin:
                 vertical_iteration_assessment,
             )
 
+            vertical_root = state.vertical_root
+            assert vertical_root is not None, "iteration requires prepared vertical root"
             vertical = load_vertical(
-                resolve_vertical(state.vertical_root),
-                project_root=state.vertical_root,
+                resolve_vertical(vertical_root),
+                project_root=vertical_root,
             )
             assessment = vertical_iteration_assessment(
                 vertical,
@@ -438,7 +449,7 @@ class MissionExecutionSettlementMixin:
                 project_root=Path(
                     state.execution_workdir or self._project_workdir()
                 ),
-                state_root=Path(state.vertical_root),
+                state_root=vertical_root,
                 mission=item,
                 outcome=outcome,
             )
@@ -561,6 +572,12 @@ class MissionExecutionSettlementMixin:
         return count
 
     def _finalize_mission_status(self, state: _MissionRunState) -> None:
+        """Resolve final status and persist the backlog outcome/operator question.
+
+        This consumes the already-settled repair, stage, and iteration decisions.
+        The resulting shared fields feed publication; local classification flags
+        do not escape this phase. The mission completion event is emitted later.
+        """
         item = state.item
         outcome = state.outcome
         status = state.status
@@ -628,8 +645,10 @@ class MissionExecutionSettlementMixin:
                         "authority_impact": "technical",
                         "auto_continued": True,
                     })
-                    outcome.final_planner_report = planner_report
-                    outcome.operator_question = ""
+                    # Runner and guard outcomes have different concrete shapes;
+                    # keep policy write-back as explicit duck-typed adaptation.
+                    setattr(outcome, "final_planner_report", planner_report)
+                    setattr(outcome, "operator_question", "")
                     self._emit({
                         "type": EventType.LIFE_MANAGER_PLAN_CHALLENGE_DECIDED,
                         "item_id": item.id,
@@ -783,8 +802,8 @@ class MissionExecutionSettlementMixin:
             )
             if forbid_operator_parking:
                 operator_question = ""
-                outcome.operator_question = ""
-                outcome.operator_options = []
+                setattr(outcome, "operator_question", "")
+                setattr(outcome, "operator_options", [])
 
         maintenance_reviewed = bool(
             "framework_maintenance" in state.item_tags
@@ -817,12 +836,46 @@ class MissionExecutionSettlementMixin:
                     resumable=False,
                 )
 
+        def capture_state() -> None:
+            state.success = success
+            state.status = status
+            state.replan_requested = replan_requested
+            state.intentional_abort = intentional_abort
+            state.err = err
+            state.resumable = resumable
+            state.outcome_dimensions = outcome_dimensions
+            state.iteration = iteration
+            state.iteration_requeued = iteration_requeued
+
+        def commit(**updates: Any) -> None:
+            from ..mission_delivery import prepare_mission_delivery
+
+            capture_state()
+            event, result = self._build_mission_completion(state)
+            try:
+                experience = self._build_settled_experience(state)
+                capsule = experience.to_jsonable() if experience is not None else None
+            except (TypeError, ValueError):
+                log.exception("settled observation could not be frozen; completion remains independent")
+                capsule = {"capture_error": "settled evidence could not be frozen"}
+            record = prepare_mission_delivery(
+                item=item, event=event, result=result,
+                settled_experience=capsule,
+            )
+            settled = self.memory.backlog.update(item.id, _mission_delivery=record, **updates)
+            if settled is None:
+                raise RuntimeError("mission disappeared before completion commit")
+            state.completion_delivery = record
+
+        def fail(*, error: str, outcome: dict[str, Any]) -> None:
+            commit(status="failed", finished_ts=time.time(), last_error=error, outcome=outcome)
+
         # Update backlog row. A bounded research cycle that did not achieve its
         # persisted success target is resumable, not a success or terminal failure.
         if success and iteration_requeued:
             # ``requeue_for_iteration`` already performed the only backlog
             # transition allowed here: running -> pending on the same item.
-            pass
+            commit(outcome=outcome_dimensions)
         elif maintenance_reviewed:
             from ...core.operator_decision import build_operator_decision
 
@@ -882,8 +935,7 @@ class MissionExecutionSettlementMixin:
                 stop_kind=state.stop_kind,
                 resumable=True,
             )
-            self.memory.backlog.update(
-                item.id,
+            commit(
                 status=status,
                 finished_ts=time.time(),
                 last_error="",
@@ -902,7 +954,7 @@ class MissionExecutionSettlementMixin:
                 "agent_layer": "manager",
             })
         elif success:
-            self.memory.backlog.mark_done(item.id, outcome=outcome_dimensions)
+            commit(status="done", finished_ts=time.time(), outcome=outcome_dimensions)
             if "runtime_failure_canary" in state.item_tags:
                 try:
                     from ..runtime_failure_circuit import clear_runtime_failure_circuit
@@ -938,8 +990,7 @@ class MissionExecutionSettlementMixin:
             # reconciliation cannot cascade-skip its downstream plan while the
             # operator is deciding; the answer transaction terminalizes it and
             # rewires those dependencies to the continuation atomically.
-            self.memory.backlog.update(
-                item.id,
+            commit(
                 status="paused_operator",
                 finished_ts=time.time(),
                 last_error=err,
@@ -954,8 +1005,7 @@ class MissionExecutionSettlementMixin:
             item.operator_decision = decision_card
             notify_pending_question(self.memory.root, item)
         elif stage_reconciled_replan:
-            self.memory.backlog.mark_failed(
-                item.id,
+            fail(
                 error=(
                     f"manager {stage_action} to "
                     f"{stage_transition.get('target_stage') or 'another stage'} "
@@ -968,8 +1018,7 @@ class MissionExecutionSettlementMixin:
                 "forward_progress"
             )
         ):
-            self.memory.backlog.mark_failed(
-                item.id,
+            fail(
                 error=state.stop_reason or "completed work requires a replacement plan",
                 outcome=outcome_dimensions,
             )
@@ -1010,14 +1059,12 @@ class MissionExecutionSettlementMixin:
                     stop_kind=state.stop_kind,
                     resumable=resumable,
                 )
-                self.memory.backlog.mark_failed(
-                    item.id,
+                fail(
                     error=err,
                     outcome=outcome_dimensions,
                 )
             else:
-                self.memory.backlog.update(
-                    item.id,
+                commit(
                     status="pending",
                     started_ts=None,
                     finished_ts=None,
@@ -1026,16 +1073,14 @@ class MissionExecutionSettlementMixin:
                     replan_streak_tracked=True,
                 )
         elif research_pause:
-            self.memory.backlog.update(
-                item.id,
+            commit(
                 status=status,
                 finished_ts=time.time(),
                 last_error=state.stop_reason,
                 outcome=outcome_dimensions,
             )
         elif intentional_abort:
-            self.memory.backlog.update(
-                item.id,
+            commit(
                 status="aborted",
                 finished_ts=time.time(),
                 last_error=state.stop_reason,
@@ -1043,8 +1088,7 @@ class MissionExecutionSettlementMixin:
             )
         else:
             if forbid_operator_parking:
-                self.memory.backlog.update(
-                    item.id,
+                commit(
                     status="failed",
                     finished_ts=time.time(),
                     last_error=err,
@@ -1053,8 +1097,7 @@ class MissionExecutionSettlementMixin:
                     operator_decision={},
                 )
             else:
-                self.memory.backlog.mark_failed(
-                    item.id,
+                fail(
                     error=err,
                     outcome=outcome_dimensions,
                 )
@@ -1078,58 +1121,28 @@ class MissionExecutionSettlementMixin:
                 "agent_layer": "manager",
             })
 
-        state.success = success
-        state.status = status
-        state.research_pause = research_pause
-        state.replan_requested = replan_requested
-        state.intentional_abort = intentional_abort
-        state.stage_reconciled_replan = stage_reconciled_replan
-        state.err = err
-        state.resumable = resumable
-        state.outcome_dimensions = outcome_dimensions
-        state.iteration = iteration
-        state.iteration_requeued = iteration_requeued
+        capture_state()
 
     # ------------------------------------------------------------------
     # Phase: journal event + return dict
     # ------------------------------------------------------------------
 
-    def _emit_mission_outcome_and_build_result(
+    def _build_mission_completion(
         self, state: _MissionRunState,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Build the completion event and durable return value before committing.
+
+        This phase only reads evidence and usage. Models, notifications, metric
+        writes, and learning run after the completion envelope is durable.
+        """
         item = state.item
         outcome = state.outcome
+        cost_sink = state.cost_sink
+        assert cost_sink is not None, "outcome publication requires prepared cost sink"
         success = state.success
         status = state.status
 
-        research_result = getattr(outcome, "research_result", None)
-        frontier = getattr(outcome, "final_frontier_report", {}) or {}
-        reviewed_evidence = list(
-            research_result.get("evidence") or []
-            if isinstance(research_result, dict)
-            else []
-        )
-        if isinstance(frontier, dict):
-            reviewed_evidence.extend(frontier.get("artifacts") or [])
-        self._evolve_runtime_skills_after_mission(
-            success=bool(success and not state.iteration_requeued),
-            usage_mission_id=state.usage_attempt_id,
-            mission_objective=str(
-                item.original_objective or item.objective or item.title or ""
-            ),
-            mission_result=(
-                f"status={status}; stop_kind={state.stop_kind or 'none'}; "
-                f"reason={state.stop_reason or 'none'}"
-            ),
-            reviewer_source=str(getattr(outcome, "final_review_source", "") or ""),
-            reviewer_reason=str(getattr(outcome, "final_review_reason", "") or ""),
-            research_result=research_result,
-            evidence_refs=tuple(
-                str(ref).strip() for ref in reviewed_evidence if str(ref).strip()
-            ),
-            source_campaign=str(state.execution_workdir or self._project_workdir()),
-        )
-        state.usage_summary = state.cost_sink.usage_summary()
+        state.usage_summary = cost_sink.usage_summary()
         state.usd = state.usage_summary.cost_usd
         state.known_usd = state.usage_summary.known_cost_usd
 
@@ -1190,11 +1203,6 @@ class MissionExecutionSettlementMixin:
             )
         )
         campaign_continues = bool(success and not overall_complete)
-
-        self._update_no_progress_streak(
-            kind=kind,
-            report=getattr(outcome, "final_planner_report", {}) or {},
-        )
 
         planner_report = dict(
             getattr(outcome, "final_planner_report", {}) or {}
@@ -1285,37 +1293,9 @@ class MissionExecutionSettlementMixin:
                 delivery["manuscript_snapshot"] = final_submission_manuscript_snapshot
         except Exception:  # noqa: BLE001 - delivery presentation never owns settlement
             log.debug("mission delivery receipt could not be built", exc_info=True)
-        try:
-            from ...core.metrics import metrics_root_for_project, record_metric
-
-            forward_progress = planner_report.get("forward_progress")
-            if not isinstance(forward_progress, bool) and success and status == "done":
-                forward_progress = True
-            record_metric(
-                metrics_root_for_project(self.memory.root),
-                "goal.mission",
-                labels={"status": status},
-                fields={
-                    "project_id": self.memory.root.name,
-                    "item_id": item.id,
-                    "accepted": bool(success),
-                    "forward_progress": (
-                        forward_progress
-                        if isinstance(forward_progress, bool)
-                        else None
-                    ),
-                    "replan_requested": bool(state.replan_requested),
-                    "plan_signal": str(planner_report.get("plan_signal") or ""),
-                    "elapsed_seconds": float(state.elapsed or 0.0),
-                },
-            )
-        except Exception:  # noqa: BLE001 - metrics never own settlement
-            log.debug("goal mission metric skipped", exc_info=True)
-        cost_sink = state.cost_sink
         scientist_totals = cost_sink.scientist_totals()
         scientist_usage_by_model = cost_sink.scientist_usage_by_model_snapshot()
-        self._capture_failure_experience(state)
-        self._emit({
+        event = {
             "type": EventType.LIFE_MISSION_COMPLETED,
             "item_id": item.id,
             "title": item.title,
@@ -1346,6 +1326,7 @@ class MissionExecutionSettlementMixin:
             "cost_usd": state.usd,
             "known_cost_usd": state.known_usd,
             "pricing_status": state.usage_summary.pricing_status,
+            "usage_phase": "execution_completed",
             "usage_record_count": state.usage_summary.call_count,
             "partial_usage_records": state.usage_summary.partial_calls,
             "unpriced_usage_records": state.usage_summary.unpriced_calls,
@@ -1431,9 +1412,9 @@ class MissionExecutionSettlementMixin:
                 ),
             } if state.repair_capability is not None else None,
             "iteration": state.iteration,
-        })
+        }
 
-        return {
+        result = {
             "item_id": item.id,
             "title": item.title,
             "tags": list(item.tags),
@@ -1472,48 +1453,167 @@ class MissionExecutionSettlementMixin:
                 else ""
             ),
         }
+        return event, result
+
+    def _emit_mission_outcome_and_build_result(
+        self, state: _MissionRunState,
+    ) -> dict[str, Any]:
+        """Deliver the committed completion before optional post-mission work."""
+        from ..mission_delivery import drain_mission_deliveries
+
+        record = state.completion_delivery
+        assert record is not None, "mission completion must be committed before publication"
+        result = dict(record["result"])
+        if not drain_mission_deliveries(
+            self.memory.backlog, self._emit, self._confirm_mission_completion_receipt,
+        ):
+            return result
+        stop_event = getattr(getattr(self, "config", None), "stop_event", None)
+        if stop_event is not None and stop_event.is_set():
+            return result
+        item = state.item
+        outcome = state.outcome
+        success = state.success
+        status = state.status
+        kind = (
+            "mission_iterated" if state.iteration_requeued
+            else "mission_complete" if success
+            else "mission_replan_requested" if state.replan_requested
+            else "mission_aborted" if state.intentional_abort else "mission_failed"
+        )
+        self._update_no_progress_streak(
+            kind=kind,
+            report=getattr(outcome, "final_planner_report", {}) or {},
+        )
+
+        planner_report = dict(getattr(outcome, "final_planner_report", {}) or {})
+        try:
+            from ...core.metrics import metrics_root_for_project, record_metric
+
+            forward_progress = planner_report.get("forward_progress")
+            if not isinstance(forward_progress, bool) and success and status == "done":
+                forward_progress = True
+            record_metric(
+                metrics_root_for_project(self.memory.root),
+                "goal.mission",
+                labels={"status": status},
+                fields={
+                    "project_id": self.memory.root.name,
+                    "item_id": item.id,
+                    "accepted": bool(success),
+                    "forward_progress": (
+                        forward_progress
+                        if isinstance(forward_progress, bool)
+                        else None
+                    ),
+                    "replan_requested": bool(state.replan_requested),
+                    "plan_signal": str(planner_report.get("plan_signal") or ""),
+                    "elapsed_seconds": float(state.elapsed or 0.0),
+                },
+            )
+        except Exception:  # noqa: BLE001 - metrics never own settlement
+            log.debug("goal mission metric skipped", exc_info=True)
+        try:
+            research_result = getattr(outcome, "research_result", None)
+            frontier = getattr(outcome, "final_frontier_report", {}) or {}
+            reviewed_evidence = list(
+                research_result.get("evidence") or []
+                if isinstance(research_result, dict)
+                else []
+            )
+            if isinstance(frontier, dict):
+                reviewed_evidence.extend(frontier.get("artifacts") or [])
+            self._evolve_runtime_skills_after_mission(
+                success=bool(success and not state.iteration_requeued),
+                usage_mission_id=state.usage_attempt_id,
+                mission_objective=str(
+                    item.original_objective or item.objective or item.title or ""
+                ),
+                mission_result=(
+                    f"status={status}; stop_kind={state.stop_kind or 'none'}; "
+                    f"reason={state.stop_reason or 'none'}"
+                ),
+                reviewer_source=str(getattr(outcome, "final_review_source", "") or ""),
+                reviewer_reason=str(getattr(outcome, "final_review_reason", "") or ""),
+                research_result=research_result,
+                evidence_refs=tuple(
+                    str(ref).strip() for ref in reviewed_evidence if str(ref).strip()
+                ),
+                source_campaign=str(state.execution_workdir or self._project_workdir()),
+            )
+        except Exception:
+            log.exception("post-mission learning failed after durable completion")
+        cost_sink = state.cost_sink
+        assert cost_sink is not None, "mission completion requires a prepared cost sink"
+        usage = cost_sink.usage_summary()
+        result.update(
+            cost_usd=usage.cost_usd, known_cost_usd=usage.known_cost_usd,
+            pricing_status=usage.pricing_status,
+        )
+        # The call ledger remains authoritative for post-completion learning.
+        # Keep the durable return receipt aligned with the caller's final totals.
+        if result != record["result"]:
+            try:
+                self.memory.backlog.update(item.id, mission_result=result)
+            except Exception:
+                log.exception("post-mission usage receipt deferred; call ledger remains authoritative")
+        return result
+
+    def _build_settled_experience(self, state: _MissionRunState) -> Any:
+        """Freeze conservative evidence before the completion commit; no I/O."""
+        if state.intentional_abort:
+            return None
+        from ..failure_experience import experience_from_settled_mission
+
+        item, outcome = state.item, state.outcome
+        refs = [
+            str(ref.get("path") or ref.get("ref") or "").strip()
+            for ref in (getattr(item, "context_refs", []) or [])
+            if isinstance(ref, dict)
+        ]
+        if state.context_packet_path is not None:
+            refs.append(str(state.context_packet_path.parent / "latest.json"))
+        review_status = str(getattr(outcome, "final_review_status", "") or "").strip().lower()
+        status = state.status
+        success = bool(
+            state.success and status in {"done", "success", "completed"}
+            and state.iteration is None and not state.resumable
+            and review_status in {"", "done"}
+        )
+        if state.iteration is not None:
+            status = "iteration_" + str(state.iteration.get("status") or "incomplete")
+        elif not success and status in {"done", "success", "completed"}:
+            status = "review_" + review_status if review_status and review_status != "done" else "not_accepted"
+        final_message = str(getattr(outcome, "final_message", "") or "")
+        review_reason = str(getattr(outcome, "final_review_reason", "") or getattr(outcome, "reason", "") or "")
+        factual_outcome = (
+            state.stop_reason or final_message or review_reason or status
+            if success else str((state.iteration or {}).get("stop_reason") or state.stop_reason or state.err or status)
+        )
+        return experience_from_settled_mission(
+            mission_id=item.id,
+            attempt_id=state.usage_attempt_id or str(getattr(item, "started_ts", None) or item.ts),
+            created_at=float(getattr(item, "started_ts", None) or item.ts),
+            title=item.title, objective=item.objective, status=status, success=success,
+            reviewer_source=str(getattr(outcome, "final_review_source", "") or ""),
+            factual_outcome=factual_outcome, final_message=final_message, review_reason=review_reason,
+            planner_report=getattr(outcome, "final_planner_report", {}) or {},
+            stop_kind=str(state.stop_kind or ""), recoverable=state.resumable,
+            concepts=list(item.tags), artifact_refs=[ref for ref in refs if ref],
+            non_goals=list(getattr(item, "non_goals", []) or []),
+        )
 
     def _capture_failure_experience(self, state: _MissionRunState) -> None:
-        """Persist one compact capsule without reading referenced artifacts."""
-        if state.success or state.intentional_abort:
-            return
+        """Compatibility helper; durable runtime capture uses its committed envelope."""
         store = getattr(self.memory, "failure_experiences", None)
         if store is None:
             return
         try:
-            from ..failure_experience import experience_from_settled_mission
-
-            item = state.item
-            outcome = state.outcome
-            refs = [
-                str(ref.get("path") or ref.get("ref") or "").strip()
-                for ref in (getattr(item, "context_refs", []) or [])
-                if isinstance(ref, dict)
-            ]
-            if state.context_packet_path is not None:
-                refs.append(str(state.context_packet_path.parent / "latest.json"))
-            experience = experience_from_settled_mission(
-                mission_id=item.id,
-                title=item.title,
-                objective=item.objective,
-                status=state.status,
-                factual_outcome=state.stop_reason or state.err or state.status,
-                final_message=str(getattr(outcome, "final_message", "") or ""),
-                review_reason=str(
-                    getattr(outcome, "final_review_reason", "")
-                    or getattr(outcome, "reason", "")
-                    or ""
-                ),
-                planner_report=getattr(outcome, "final_planner_report", {}) or {},
-                stop_kind=str(state.stop_kind or ""),
-                recoverable=state.resumable,
-                concepts=list(item.tags),
-                artifact_refs=[ref for ref in refs if ref],
-                non_goals=list(getattr(item, "non_goals", []) or []),
-            )
-            store.append(experience)
+            experience = MissionExecutionSettlementMixin._build_settled_experience(self, state)
+            if experience is not None:
+                store.record_settled(experience)
         except (OSError, TypeError, ValueError):
-            log.exception("life supervisor: failed to persist failure experience")
+            log.exception("life supervisor: failed to persist settled experience")
 
 
 __all__ = ["MissionExecutionSettlementMixin"]

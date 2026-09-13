@@ -21,7 +21,8 @@ from typing import Any, Callable
 from fastapi import Header, HTTPException
 
 from ...core import paths as core_paths
-from ..index_cache import IndexCache, resolve_snapshot_ttl_seconds
+from ..daemon_services import DaemonServices
+from ..index_cache import IndexCache, QueryExecutor, resolve_snapshot_ttl_seconds
 
 
 class ServerContext:
@@ -38,11 +39,15 @@ class ServerContext:
         list_project_costs: Callable[..., list[dict[str, Any]]],
         list_trashed_projects: Callable[..., list[dict[str, Any]]],
         project_life_dir: Callable[..., Path | None],
+        daemon_services: DaemonServices,
+        query_executor: QueryExecutor,
     ) -> None:
         self.global_root = global_root
         self.token = token
         self.roots = roots
         self.api_meta = api_meta
+        self.daemon_services = daemon_services
+        self.query_executor = query_executor
         self._list_projects = list_projects
         self._list_project_costs = list_project_costs
         self._list_trashed_projects = list_trashed_projects
@@ -132,6 +137,13 @@ class ServerContext:
             lambda: self._machine_projects_uncached(limit=limit, include_empty=include_empty),
         )
 
+    async def machine_projects_async(self, *, limit: int, include_empty: bool) -> list[dict[str, Any]]:
+        return await self.index_cache.get_async(
+            ("machine_projects", limit, include_empty),
+            lambda: self._machine_projects_uncached(limit=limit, include_empty=include_empty),
+            executor=self.query_executor,
+        )
+
     def _machine_projects_uncached(
         self,
         *,
@@ -185,6 +197,13 @@ class ServerContext:
             lambda: self._machine_project_costs_uncached(limit=limit),
         )
 
+    async def machine_project_costs_async(self, *, limit: int) -> list[dict[str, Any]]:
+        return await self.index_cache.get_async(
+            ("machine_project_costs", limit),
+            lambda: self._machine_project_costs_uncached(limit=limit),
+            executor=self.query_executor,
+        )
+
     def _machine_project_costs_uncached(self, *, limit: int) -> list[dict[str, Any]]:
         costs: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -214,6 +233,11 @@ class ServerContext:
         return self.index_cache.get(
             ("machine_trash",),
             self._machine_trash_uncached,
+        )
+
+    async def machine_trash_async(self) -> list[dict[str, Any]]:
+        return await self.index_cache.get_async(
+            ("machine_trash",), self._machine_trash_uncached, executor=self.query_executor,
         )
 
     def _machine_trash_uncached(self) -> list[dict[str, Any]]:

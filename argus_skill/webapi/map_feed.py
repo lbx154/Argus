@@ -7,6 +7,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from ..core.session import read_session_meta
+from ..life.memory import Backlog
 from .map_team import source_snapshot
 from .map_view import digest, read_map
 
@@ -48,9 +49,11 @@ class MapFeed:
             bindings = entry["events"].get("team_bindings", {})
             sources = source_snapshot(sid, root, life_dir, bindings) if include_events else None
             stamp = (
-                *(_stamp(life_dir / name) for name in (
-                    "backlog.jsonl", "backlog.archive.jsonl",
-                    *(("events.jsonl",) if include_events else ()),
+                # Include the storage owner's recovery files: a completion can
+                # commit before either materialized backlog file changes.
+                *(_stamp(path) for path in (
+                    *Backlog(life_dir / "backlog.jsonl").storage_paths,
+                    *((life_dir / "events.jsonl",) if include_events else ()),
                 )),
                 meta.display_name if meta else sid,
                 sources[0] if include_events else (),

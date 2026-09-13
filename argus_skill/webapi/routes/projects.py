@@ -18,37 +18,38 @@ from typing import Any
 from fastapi import Depends, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
+from .. import project_crud
 from .context import ServerContext
 from .models import LaunchCwdIn, ProjectUpdateIn, WorkdirIn
 
 
 def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
     @app.get("/api/projects", dependencies=[Depends(ctx.require_auth)])
-    def _projects(
+    async def _projects(
         limit: int = Query(100, ge=1, le=2000),
         include_empty: bool = Query(False),
     ) -> dict[str, Any]:
         return {
-            "projects": ctx.machine_projects(limit=limit, include_empty=include_empty),
+            "projects": await ctx.machine_projects_async(limit=limit, include_empty=include_empty),
             "local_cwd": "",
         }
 
     @app.get("/api/projects/costs", dependencies=[Depends(ctx.require_auth)])
-    def _project_costs(
+    async def _project_costs(
         limit: int = Query(100, ge=1, le=2000),
     ) -> dict[str, Any]:
         return {
-            "projects": ctx.machine_project_costs(limit=limit),
+            "projects": await ctx.machine_project_costs_async(limit=limit),
             "generated_at": server_mod.time.time(),
         }
 
     @app.get("/api/trash", dependencies=[Depends(ctx.require_auth)])
-    def _trash(
+    async def _trash(
         limit: int = Query(100, ge=1, le=500),
         offset: int = Query(0, ge=0),
         query: str = Query("", max_length=200),
     ) -> dict[str, Any]:
-        entries = ctx.machine_trash()
+        entries = await ctx.machine_trash_async()
         needle = query.strip().casefold()
         if needle:
             entries = [
@@ -85,7 +86,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
         entry = next(
             (
                 item
-                for item in server_mod.list_trashed_projects(global_root=ctx.roots[index])
+                for item in project_crud.list_trashed_projects(global_root=ctx.roots[index])
                 if item["trash_path"] == relative
             ),
             None,
@@ -101,7 +102,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
                 detail="a session with this id already exists",
             )
         result = await run_in_threadpool(
-            server_mod.restore_trashed_project,
+            project_crud.restore_trashed_project,
             relative,
             global_root=ctx.roots[index],
             existing_roots=ctx.roots,
@@ -149,7 +150,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
     async def _update_project(sid: str, body: ProjectUpdateIn) -> dict[str, Any]:
         return ctx.not_found_if_none(
             await run_in_threadpool(
-                server_mod.update_project,
+                project_crud.update_project,
                 sid,
                 name=body.name,
                 global_root=ctx.project_root_or_404(sid),
@@ -161,10 +162,11 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
     async def _delete_project(sid: str) -> dict[str, Any]:
         result = ctx.not_found_if_none(
             await run_in_threadpool(
-                server_mod.delete_project,
+                project_crud.delete_project,
                 sid,
                 global_root=ctx.project_root_or_404(sid),
-                lifecycle_root=server_mod._global_root(ctx.global_root),
+                lifecycle_root=ctx.roots[0],
+                read_status=ctx.daemon_services.read_status,
             ),
             sid,
         )
@@ -176,7 +178,7 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
         "/api/projects/{sid}/snapshot",
         dependencies=[Depends(ctx.require_auth)],
     )
-    def _snapshot(
+    async def _snapshot(
         sid: str,
         events_limit: int = Query(80, ge=1, le=500),
         compact: bool = Query(False),
@@ -200,9 +202,10 @@ def register_project_routes(app, ctx: ServerContext, server_mod) -> None:
             )
 
         return ctx.not_found_if_none(
-            ctx.snapshot_cache.get(
+            await ctx.snapshot_cache.get_async(
                 ("project_snapshot", sid, events_limit, compact),
                 _build_snapshot,
+                executor=ctx.query_executor,
             ),
             sid,
         )

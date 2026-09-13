@@ -102,6 +102,23 @@ export interface ConfigSnapshot {
   operator_knobs: ConfigKnob[];
   how_to_change: string[];
 }
+export interface AdvisorConfig {
+  schema_version: number;
+  enabled: boolean;
+  backend: string;
+  model: string;
+  effort: string;
+  timeout_seconds: number;
+  max_calls_per_turn: number;
+  max_evidence_bytes: number;
+}
+export interface AdvisorSettings {
+  saved: AdvisorConfig;
+  config: AdvisorConfig;
+  overridden_fields: string[];
+  supported_backends: string[];
+  model_options?: Array<{ backend: string; model: string }>;
+}
 export interface Turn {
   ts: number;
   role: string; // "operator" | "argus"
@@ -469,7 +486,9 @@ export function previewPageUrl(sid: string, path: string): string {
   if (t) params.set('token', t);
   return P(sid, `/artifact/preview/page?${params.toString()}`);
 }
-const commandId = (): string => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+export const newRequestId = (): string => globalThis.crypto?.randomUUID?.()
+  ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const commandId = newRequestId;
 let apiMetaPromise: Promise<ApiMeta> | undefined;
 
 function isAbortSignal(value: unknown): value is AbortSignal {
@@ -485,10 +504,12 @@ function messageBody(
   text: string,
   attachments?: MessageAttachmentRef[],
   routeOverride?: MessageRouteOverride,
+  requestId?: string,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = { text };
   if (attachments?.length) body.attachments = attachments;
   if (routeOverride && routeOverride !== 'auto') body.route_override = routeOverride;
+  if (requestId) body.request_id = requestId;
   return body;
 }
 
@@ -642,6 +663,8 @@ async function explanationResponse<T>(path: string, body: unknown, signal?: Abor
 }
 
 export const api = {
+  advisorSettings: (sid: string, signal?: AbortSignal) => getJson<AdvisorSettings>(P(sid, '/advisor/config'), signal),
+  saveAdvisorSettings: (sid: string, config: Partial<Omit<AdvisorConfig, 'schema_version'>>) => postJson<AdvisorSettings>(P(sid, '/advisor/config'), config),
   liveMap: (sid: string, signal?: AbortSignal, after?: string, selection?: import('./map/incremental').MapSelection) => {
     const params = new URLSearchParams();
     if (after) params.set('after', after);
@@ -881,17 +904,27 @@ export const api = {
       signal?: AbortSignal;
       attachments?: MessageAttachmentRef[];
       routeOverride?: MessageRouteOverride;
+      requestId?: string;
     },
   ) => {
     const signal = isAbortSignal(signalOrOptions) ? signalOrOptions : signalOrOptions?.signal;
     const attachments = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.attachments;
     const routeOverride = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.routeOverride;
-    return postJson<{ kind: 'chat' | 'task' | 'pending_question' | 'pending_question_choice' | 'error'; reply: string | null; resolved?: boolean; item?: BacklogItem | null; daemon_alive?: boolean }>(
+    const requestId = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.requestId;
+    return postJson<{ kind: 'chat' | 'task' | 'pending_question' | 'pending_question_choice' | 'error' | 'cancelled'; reply: string | null; resolved?: boolean; item?: BacklogItem | null; daemon_alive?: boolean }>(
       P(sid, '/message'),
-      messageBody(text, attachments, routeOverride),
+      messageBody(text, attachments, routeOverride, requestId),
       signal,
     );
   },
+  cancelMessage: (sid: string, requestId: string) =>
+    requestWithTimeout(P(sid, '/message/cancel'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ request_id: requestId }),
+    }, 5000, async (response) => {
+      await ensureResponseOk(response, 'POST', P(sid, '/message/cancel'));
+      return await response.json() as { requested: boolean; status: string };
+    }),
   /**
    * Streaming Manager front-door (SSE): ``onPhase`` per real step, ``onDelta``
    * per reply block as it's produced, ``onDone`` with the final classification,
@@ -926,12 +959,14 @@ export const api = {
       signal?: AbortSignal;
       attachments?: MessageAttachmentRef[];
       routeOverride?: MessageRouteOverride;
+      requestId?: string;
     },
   ): Promise<void> => {
     const signal = isAbortSignal(signalOrOptions) ? signalOrOptions : signalOrOptions?.signal;
     const attachments = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.attachments;
     const routeOverride = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.routeOverride;
-    const res = await postResponse(P(sid, '/message/stream'), messageBody(text, attachments, routeOverride), signal);
+    const requestId = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.requestId;
+    const res = await postResponse(P(sid, '/message/stream'), messageBody(text, attachments, routeOverride, requestId), signal);
     const dispatch = (f: SSEFrame) => {
       if (signal?.aborted) return;
       if (f.type === 'phase') {

@@ -48,6 +48,45 @@ def test_feed_reuses_unchanged_projection_and_returns_only_new_records(tmp_path,
     assert second["tasks"][0]["deps"] == ["a"]
 
 
+@pytest.mark.parametrize("include_events", [True, False])
+def test_cached_feed_recovers_completion_committed_before_backlog_files_change(
+    tmp_path, monkeypatch, include_events,
+):
+    sid, life, memory = setup_session(tmp_path)
+    feed = MapFeed()
+    first = feed.read(sid, tmp_path, life, include_events=include_events)
+    assert first["tasks"][0]["status"] == "running"
+    before = memory.backlog.path.read_bytes()
+
+    def interrupt_before_archive(self, record):
+        raise OSError("committed but not applied")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(type(memory.backlog), "_apply_commit", interrupt_before_archive)
+        with pytest.raises(OSError, match="committed but not applied"):
+            memory.backlog.mark_done("a")
+    assert memory.backlog.path.read_bytes() == before
+    assert not memory.backlog.archive_path.exists()
+
+    # Use the existing cached feed: a new reader alone would hide stale-cache bugs.
+    recovered = feed.read(
+        sid, tmp_path, life, first["cursor"], include_events=include_events,
+    )
+    if include_events:
+        assert recovered["incremental"]
+    assert [(task["id"], task["status"]) for task in recovered["tasks"]] == [("a", "done")]
+    assert recovered["cursor"] != first["cursor"]
+    assert memory.backlog.claim_next() is None
+    unchanged = feed.read(
+        sid, tmp_path, life, recovered["cursor"], include_events=include_events,
+    )
+    if unchanged["incremental"]:
+        assert unchanged["tasks"] == []
+    else:
+        assert [(task["id"], task["status"]) for task in unchanged["tasks"]] == [("a", "done")]
+    assert unchanged["cursor"] == recovered["cursor"]
+
+
 def test_append_keeps_active_window_and_waits_for_complete_json_line(tmp_path):
     sid, life, _ = setup_session(tmp_path)
     feed = MapFeed()

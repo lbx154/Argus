@@ -418,6 +418,11 @@ class RoundSettlementMixin:
                     "the Reviewer's explicit progress judgment"
                 ),
             })
+        from .round_manager_wait import manager_wait_terminal
+
+        paused = manager_wait_terminal(supervised_config, state)
+        if paused is not None:
+            return control_return(paused)
         terminal_status, reason = self._classify(
             review=review,
             no_progress_streak=state.no_progress_streak,

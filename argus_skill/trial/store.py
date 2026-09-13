@@ -55,6 +55,11 @@ class Store:
                     retain_until REAL
                 );
                 CREATE INDEX IF NOT EXISTS trial_tpm_expiry ON trial_tpm_reservations(retain_until);
+                CREATE TABLE IF NOT EXISTS trial_request_operations (
+                    operation_key TEXT PRIMARY KEY,
+                    request_id INTEGER UNIQUE NOT NULL REFERENCES trial_requests(id),
+                    phase TEXT NOT NULL CHECK (phase IN ('reserved', 'submitted'))
+                );
                 CREATE TABLE IF NOT EXISTS trial_gateway_attempts (
                     id INTEGER PRIMARY KEY,
                     key_id TEXT NOT NULL REFERENCES trial_keys(key_id),
@@ -90,8 +95,8 @@ class Store:
         path.chmod(0o600)
 
     @contextmanager
-    def transaction(self):
-        with closing(sqlite3.connect(self.path, timeout=10)) as db:
+    def transaction(self, *, timeout: float = 10):
+        with closing(sqlite3.connect(self.path, timeout=timeout)) as db:
             db.row_factory = sqlite3.Row
             db.execute("BEGIN IMMEDIATE")
             with db:
@@ -101,6 +106,13 @@ class Store:
         # Only called while holding the process-lifetime exclusive gateway lock.
         # Unknown usage stays charged, so killing the server never refunds work.
         with self.transaction() as db:
+            # A managed reservation cannot reach a provider until its submit
+            # intent has committed. A process lost before that boundary owes
+            # no usage, including a reserve that finished after cancellation.
+            for row in db.execute("""SELECT r.* FROM trial_requests r
+                    JOIN trial_request_operations o ON o.request_id=r.id
+                    WHERE r.state='active' AND o.phase='reserved'""").fetchall():
+                self._settle_row(db, row, 0)
             # Recover interrupted work without refunding unknown usage.
             db.execute("""INSERT OR IGNORE INTO trial_tpm_reservations(request_id, tokens)
                 SELECT id, reserved FROM trial_requests WHERE state='active'""")
@@ -117,7 +129,7 @@ class Store:
             ) WHERE request_id IN (SELECT id FROM trial_requests WHERE state='settled')""")
         # Observation failure cannot roll back the accounting recovery above.
         try:
-            with self.transaction() as db:
+            with self.transaction(timeout=0) as db:
                 # The interruption's actual time remains unknown. Old ledger
                 # rows never acquire invented gateway timestamps.
                 db.execute("""UPDATE trial_gateway_attempts SET outcome='interrupted', recovered_at=?
@@ -125,12 +137,14 @@ class Store:
         except sqlite3.Error:
             log.exception("Could not recover gateway attempt observations")
 
-    def begin_gateway_attempt(self, key_id: str, estimated_tokens: int) -> int:
+    def begin_gateway_attempt(self, key_id: str, estimated_tokens: int, *, started_at: float | None = None) -> int:
         """One validated HTTP attempt, including requests never admitted."""
-        with self.transaction() as db:
+        # Observations are optional, including callers outside the gateway
+        # scheduler. They must never wait for an external SQLite writer.
+        with self.transaction(timeout=0) as db:
             return db.execute("""INSERT INTO trial_gateway_attempts
                 (key_id,started_at,phase,estimated_tokens) VALUES(?,?,'slot',?)""",
-                (key_id, self.clock(), estimated_tokens)).lastrowid
+                (key_id, self.clock() if started_at is None else started_at, estimated_tokens)).lastrowid
 
     def update_gateway_attempt(self, attempt_id: int, **fields):
         """First terminal observation wins, independently of usage settlement."""
@@ -141,7 +155,7 @@ class Store:
         }
         if not fields or not fields.keys() <= allowed:
             raise ValueError("Invalid gateway observation fields")
-        with self.transaction() as db:
+        with self.transaction(timeout=0) as db:
             db.execute("UPDATE trial_gateway_attempts SET " + ",".join(f"{key}=?" for key in fields)
                        + " WHERE id=? AND outcome IS NULL", (*fields.values(), attempt_id))
 
@@ -259,10 +273,20 @@ class Store:
             "tokens_unattributed": max(0, used - sum(charges.values())),
         }
 
-    def reserve(self, key_id: str, amount: int) -> int:
+    def reserve(self, key_id: str, amount: int, *, operation_key: str | None = None) -> int:
         if amount <= 0:
             raise ValueError("Reservation must be positive")
+        if operation_key is not None and (not isinstance(operation_key, str) or not 1 <= len(operation_key) <= 128):
+            raise ValueError("Invalid billing operation key")
         with self.transaction() as db:
+            if operation_key is not None:
+                previous = db.execute("""SELECT r.* FROM trial_requests r
+                    JOIN trial_request_operations o ON o.request_id=r.id
+                    WHERE o.operation_key=?""", (operation_key,)).fetchone()
+                if previous is not None:
+                    if previous["key_id"] != key_id or previous["reserved"] != amount:
+                        raise ValueError("Billing operation key belongs to another reservation")
+                    return previous["id"]
             self._check_access(db, key_id)
             now = self.clock()
             db.execute("DELETE FROM trial_tpm_reservations WHERE retain_until<=?", (now,))
@@ -295,29 +319,55 @@ class Store:
             )
             request_id = cursor.lastrowid
             db.execute("INSERT INTO trial_tpm_reservations(request_id,tokens) VALUES (?,?)", (request_id, amount))
+            if operation_key is not None:
+                db.execute("""INSERT INTO trial_request_operations(operation_key,request_id,phase)
+                    VALUES (?,?,'reserved')""", (operation_key, request_id))
             return request_id
+
+    def submit_operation(self, operation_key: str) -> None:
+        """Commit permission to contact the provider, not a delivery receipt."""
+        with self.transaction() as db:
+            row = db.execute("""SELECT r.* FROM trial_requests r
+                JOIN trial_request_operations o ON o.request_id=r.id
+                WHERE o.operation_key=?""", (operation_key,)).fetchone()
+            if row is None or row["state"] != "active":
+                raise TrialError(409, "billing_operation_closed", "The model request is no longer active.")
+            self._check_access(db, row["key_id"])
+            db.execute("UPDATE trial_request_operations SET phase='submitted' WHERE operation_key=?", (operation_key,))
+
+    def settle_operation(self, operation_key: str, actual: int | None) -> None:
+        """Recover ownership even if reserve committed without returning its ID."""
+        if actual is not None and actual < 0:
+            raise ValueError("Usage cannot be negative")
+        with self.transaction() as db:
+            row = db.execute("""SELECT r.* FROM trial_requests r
+                JOIN trial_request_operations o ON o.request_id=r.id
+                WHERE o.operation_key=?""", (operation_key,)).fetchone()
+            if row is not None:
+                self._settle_row(db, row, actual)
 
     def settle(self, request_id: int, actual: int | None):
         if actual is not None and actual < 0:
             raise ValueError("Usage cannot be negative")
         with self.transaction() as db:
             row = db.execute("SELECT * FROM trial_requests WHERE id=?", (request_id,)).fetchone()
-            if row["state"] != "active":
-                return
-            charge = row["reserved"] if actual is None else actual
-            db.execute(
-                "UPDATE trial_keys SET used=used+? WHERE key_id=?",
-                (charge - row["charged"], row["key_id"]),
-            )
-            db.execute(
-                "UPDATE trial_requests SET charged=?, state=? WHERE id=?",
-                (charge, "unknown" if actual is None else "settled", request_id),
-            )
-            # Active requests reserve an upper estimate. Once authoritative
-            # usage arrives, count those tokens for a full minute after finish.
-            # Unknown/disconnected calls keep their estimate; neither path
-            # clears the rolling window or changes lifetime accounting.
-            db.execute(
-                "UPDATE trial_tpm_reservations SET tokens=?, retain_until=? WHERE request_id=?",
-                (charge, self.clock() + TPM_WINDOW_SECONDS, request_id),
-            )
+            self._settle_row(db, row, actual)
+
+    def _settle_row(self, db, row, actual):
+        if row["state"] != "active":
+            return
+        charge = row["reserved"] if actual is None else actual
+        db.execute(
+            "UPDATE trial_keys SET used=used+? WHERE key_id=?",
+            (charge - row["charged"], row["key_id"]),
+        )
+        db.execute(
+            "UPDATE trial_requests SET charged=?, state=? WHERE id=?",
+            (charge, "unknown" if actual is None else "settled", row["id"]),
+        )
+        # One committed terminal transition fixes both lifetime charge and
+        # rolling-window expiry; repeated cleanup cannot extend that window.
+        db.execute(
+            "UPDATE trial_tpm_reservations SET tokens=?, retain_until=? WHERE request_id=?",
+            (charge, self.clock() + TPM_WINDOW_SECONDS, row["id"]),
+        )

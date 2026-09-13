@@ -11,6 +11,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Mapping
 
+from .json_codec import is_finite_number
+
 EVENT_ENVELOPE_VERSION = 1
 EVENT_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
 _PAYLOAD_SCHEMA_PATH = Path(__file__).with_name("event_payload_schemas.json")
@@ -40,6 +42,16 @@ class EventCategory(StrEnum):
 
 
 class EventType(StrEnum):
+    ADVISOR_CONSULTATION_REQUESTED = "advisor.consultation.requested"
+    ADVISOR_CONSULTATION_COMPLETED = "advisor.consultation.completed"
+    ADVISOR_CONSULTATION_FAILED = "advisor.consultation.failed"
+    ADVISOR_CONSULTATION_CANCELLED = "advisor.consultation.cancelled"
+    ADVISOR_CONSULTATION_TIMED_OUT = "advisor.consultation.timed_out"
+    ADVISOR_CONSULTATION_MODEL_MISMATCH = "advisor.consultation.model_mismatch"
+    LIFE_MANAGER_SUPERVISION_ISSUED = "life.manager.supervision.issued"
+    LIFE_MANAGER_SUPERVISION_APPLIED = "life.manager.supervision.applied"
+    LIFE_MANAGER_SUPERVISION_FAILED = "life.manager.supervision.failed"
+    LIFE_PEER_MESSAGE_PROCESSED = "life.peer.message.processed"
     AGENT_IO_START = "agent.io.start"
     AGENT_IO_STREAM = "agent.io.stream"
     AGENT_IO_COMPLETE = "agent.io.complete"
@@ -229,6 +241,14 @@ LEGACY_EVENT_ALIASES: dict[str, EventType] = {
 }
 
 SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
+    EventType.ADVISOR_CONSULTATION_COMPLETED,
+    EventType.ADVISOR_CONSULTATION_FAILED,
+    EventType.ADVISOR_CONSULTATION_CANCELLED,
+    EventType.ADVISOR_CONSULTATION_TIMED_OUT,
+    EventType.ADVISOR_CONSULTATION_MODEL_MISMATCH,
+    EventType.LIFE_MANAGER_SUPERVISION_APPLIED,
+    EventType.LIFE_MANAGER_SUPERVISION_FAILED,
+    EventType.LIFE_PEER_MESSAGE_PROCESSED,
     # One line per role per boot, and the exact line an operator needs when a
     # role turns out to be running on a backend they did not choose. Cheap
     # enough to keep even in the verdict-only log.
@@ -489,6 +509,9 @@ def _validate_payload(event: Mapping[str, Any], schema: dict[str, Any]) -> list[
         ):
             errors.append(f"field {field} must be {' or '.join(expected_types)}")
             continue
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and not is_finite_number(value):
+            errors.append(f"field {field} must be finite")
+            continue
         if "const" in field_schema and value != field_schema["const"]:
             errors.append(f"field {field} must equal {field_schema['const']!r}")
         allowed = field_schema.get("enum")
@@ -519,7 +542,13 @@ def validate_event_envelope(
     event: Mapping[str, Any],
     *,
     require_known: bool = False,
+    allow_missing_fields: bool = False,
 ) -> EventValidation:
+    """Validate provided fields; legacy replay may omit newer required fields.
+
+    The default remains strict for producers. Compatibility only relaxes absent
+    payload fields, never the event type or the types/values actually supplied.
+    """
     raw_type = str(event.get("type") or "").strip()
     canonical = canonical_event_type(raw_type)
     errors: list[str] = []
@@ -530,7 +559,7 @@ def validate_event_envelope(
     spec = event_spec(raw_type)
     if require_known and spec is None:
         errors.append(f"unknown event type: {raw_type}")
-    if spec is not None:
+    if spec is not None and not allow_missing_fields:
         missing = [
             field
             for field in spec.required_fields
@@ -544,6 +573,8 @@ def validate_event_envelope(
     ts = event.get("ts")
     if ts is not None and (isinstance(ts, bool) or not isinstance(ts, (int, float))):
         errors.append("ts must be numeric")
+    elif ts is not None and not is_finite_number(ts):
+        errors.append("ts must be finite")
     version = event.get("event_schema_version")
     if version is not None and (
         isinstance(version, bool)

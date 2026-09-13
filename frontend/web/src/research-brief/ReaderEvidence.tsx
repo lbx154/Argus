@@ -3,6 +3,7 @@ import { MarkdownContent } from '../components/MarkdownContent';
 import { RawDisclosure } from '../components/primitives';
 import { useI18n } from '../i18n';
 import { plainEventName, plainStatus } from '../lib/plainStatus';
+import { workStatusLabel, type WorkStatus } from '../lib/workStatus';
 import type { CardSourceSnapshot } from '../map/presentation';
 import { completionScope } from '../map/status';
 import { evidenceDates, hasTruncatedFields, type EvidenceState, type EvidenceTask, type ReaderEvidenceSelection, type UsedEvidence } from './evidence';
@@ -45,15 +46,20 @@ function RecordText({ record, ...artifacts }: ReadingArtifacts & { record: Recor
   </>;
 }
 
-function TaskState({ record, current, capturedAt, ...artifacts }: ReadingArtifacts & {
-  record: Record<string, unknown>; current: boolean; capturedAt?: number;
+function TaskState({ record, current, capturedAt, runtimeStatus, ...artifacts }: ReadingArtifacts & {
+  record: Record<string, unknown>; current: boolean; capturedAt?: number; runtimeStatus?: WorkStatus;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN', status = prose(record.status), question = prose(record.pending_question);
+  // A queue claim is not evidence of active execution. Keep newer terminal or
+  // paused task records authoritative even if the runtime snapshot is older.
+  const execution = current && ['pending', 'queued', 'running', 'in_progress', 'claimed', 'active'].includes(status)
+    ? runtimeStatus : undefined;
   return <div data-reader-fact-state={current ? 'current' : 'retained'} className="mt-2">
     <p className="text-xs text-ink-dim">
-      {current ? zh ? '当前已加载的任务状态：' : 'Currently loaded task status: ' : zh ? '说明生成时的任务状态：' : 'Task status retained at generation: '}
-      {status ? plainStatus(status, locale) : zh ? '未记录' : 'Not recorded'}
+      {current ? execution ? zh ? '当前执行：' : 'Current execution: '
+        : zh ? '任务记录：' : 'Task record: ' : zh ? '说明生成时：' : 'At explanation time: '}
+      {execution ? workStatusLabel(execution, locale) : status ? plainStatus(status, locale) : zh ? '未记录' : 'Not recorded'}
       {typeof record.attempt === 'number' ? <span className="ml-2 text-ink-faint">{zh ? `第 ${record.attempt} 次尝试` : `Attempt ${record.attempt}`}</span> : null}
       {typeof capturedAt === 'number' && Number.isFinite(capturedAt) && capturedAt > 0 ? <time className="ml-2 text-ink-faint" dateTime={new Date(capturedAt * 1000).toISOString()}>{new Date(capturedAt * 1000).toLocaleString(locale)}</time> : null}
     </p>
@@ -80,7 +86,9 @@ function FactRecord({ row, current = false, ...artifacts }: ReadingArtifacts & {
 }
 
 /** Recorded state and reports do not depend on generated explanation prose. */
-export function ReaderTaskFacts({ selection, ...artifacts }: ReadingArtifacts & { selection: ReaderEvidenceSelection }) {
+export function ReaderTaskFacts({ selection, runtimeStatus, hideEmptyReports = false, ...artifacts }: ReadingArtifacts & {
+  selection: ReaderEvidenceSelection; runtimeStatus?: WorkStatus; hideEmptyReports?: boolean;
+}) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const retained = selection.mode === 'snapshot' ? selection.usedTask?.record : undefined;
@@ -89,16 +97,19 @@ export function ReaderTaskFacts({ selection, ...artifacts }: ReadingArtifacts & 
     data-reader-task-facts={selection.taskId} data-reader-fact-card={selection.cardKey}>
     <h3 className="text-xs font-medium text-ink">{zh ? '任务状态' : 'Recorded task status'}</h3>
     {retained ? <TaskState record={retained} current={false} capturedAt={selection.snapshot?.captured_at} {...artifacts} /> : null}
-    {current ? <TaskState record={{ ...current }} current {...artifacts} /> : null}
+    {current ? <TaskState record={{ ...current }} current
+      runtimeStatus={runtimeStatus?.taskId === selection.taskId ? runtimeStatus : undefined} {...artifacts} /> : null}
     {!retained && !current ? <p className="mt-1 text-xs text-ink-faint">{zh ? '可核对的任务状态尚未加载。' : 'A verifiable task status has not been loaded.'}</p> : null}
-    <h3 className="mt-3 text-xs font-medium text-ink">{zh ? '记录中的结果与后续' : 'Recorded results and follow-up'}</h3>
+    {selection.used.length || !hideEmptyReports ? <><h3 className="mt-3 text-xs font-medium text-ink">{zh ? '记录中的结果与后续' : 'Recorded results and follow-up'}</h3>
     {selection.used.length ? <div data-reader-fact-group="used">
       <p className="text-xs text-ink-faint">{zh ? '以下是这份说明对应的来源原文，按记录保留各自的时间与归属。' : 'These are the source reports for this explanation, with their recorded dates and attribution.'}</p>
       {selection.snapshot?.events_truncated ? <p className="text-xs text-ink-faint">{zh ? '生成材料只包含部分选中记录。' : 'The generation material contains only part of the selected records.'}</p> : null}
       {selection.used.map((row, index) => <FactRecord key={`${row.id}:${index}`} row={row} {...artifacts} />)}
-    </div> : <p className="text-xs text-ink-faint">{zh ? '这份说明没有可核对的来源事件。' : 'No verifiable source events are retained for this explanation.'}</p>}
+    </div> : <p className="text-xs text-ink-faint">{zh ? '这份说明没有可核对的来源事件。' : 'No verifiable source events are retained for this explanation.'}</p>}</> : null}
     {selection.current.length ? <div className="mt-3" data-reader-fact-group="current">
-      <p className="text-xs font-medium text-ink">{zh ? '另外加载的记录 · 与上方说明原文分开' : 'Additional loaded records · separate from the explanation sources'}</p>
+      <p className="text-xs font-medium text-ink">{selection.mode === 'none'
+        ? zh ? '进展记录' : 'Progress records'
+        : zh ? '其他已加载记录' : 'Other loaded records'}</p>
       {selection.current.map(({ record }, index) => <FactRecord key={`${record.id}:${index}`} current
         row={{ id: record.id, revision: record.revision, state: 'unverified', record: { ...record } }} {...artifacts} />)}
     </div> : null}

@@ -3,7 +3,7 @@ import type { TypedArgusEvent } from '../eventPayloads.generated.js';
 import { canonicalEventType } from '../eventCatalog.js';
 import { isStructuredAgentPayload, visibleAgentText } from '../events.js';
 import { missionOutcomePresentation } from '../missionOutcome.js';
-import { formatMissionRouting } from '../missionView.js';
+import { managerIntentSummary } from '../managerIntent.js';
 
 export type RenderLocale = 'en' | 'zh-CN';
 export type RenderTone = 'bright' | 'dim' | 'accent' | 'ok' | 'warn' | 'err' | 'info';
@@ -95,6 +95,53 @@ function count(value: number, noun: string): string {
 
 function localized(context: RenderContext, english: string, chinese: string): string {
   return context.locale === 'zh-CN' ? chinese : english;
+}
+
+function supervisionFailure(event: TypedArgusEvent, context: RenderContext): { text: string; tone: RenderTone } {
+  const code = stringField(event, 'error_code');
+  const stage = stringField(event, 'failure_stage');
+  const stopKind = stringField(event, 'stop_kind');
+  const controlStop = ['daemon_shutdown', 'operator_pause', 'operator_abort'].includes(stopKind);
+  if (code === 'cancelled' && stage === 'commit' && stringField(event, 'status') === 'issued') {
+    return { text: localized(context, 'Applying the adjustment was interrupted; the saved decision is waiting to be applied.', '应用调整时被中断，已保存的决定等待继续处理。'), tone: 'warn' };
+  }
+  if (code === 'timeout' && stage === 'commit') {
+    return { text: localized(context, 'Manager reached a decision, but applying the adjustment timed out.', 'Manager 已作出判断，但应用调整超时。'), tone: 'warn' };
+  }
+  const reasons: Record<string, [string, string]> = {
+    trial_quota_exceeded: ['The remaining trial quota cannot cover this Manager check.', '剩余试用额度不足以启动这次 Manager 检查。'],
+    observation_incomplete: ['Manager could not fully read the required project evidence; this check has stopped.', 'Manager 未能完整读取所需的项目资料，这次检查已停止。'],
+    timeout: ['The model did not respond before the Manager check timed out.', '模型未在时限内返回，Manager 这次检查已结束。'],
+    cancelled: ['This Manager check was cancelled.', '已取消这次 Manager 检查。'],
+    superseded: ['New input or evidence superseded this Manager check.', '新的操作或证据已取代这次 Manager 检查。'],
+  };
+  if (Object.hasOwn(reasons, code) && !(code === 'cancelled' && controlStop)) {
+    return { text: localized(context, ...reasons[code]), tone: code === 'cancelled' || code === 'superseded' ? 'dim' : 'warn' };
+  }
+  const stopped: Record<string, [string, string]> = {
+    budget_exhausted: ['The project budget limit prevented this Manager check.', '项目预算已达上限，Manager 暂未完成检查。'],
+    provider_cooldown: ['The model service asked Manager to wait before calling again.', '模型服务要求稍后再调用，Manager 暂未完成检查。'],
+    provider_fence: ['The model service is not accepting calls; Manager could not finish this check.', '模型服务当前不接受调用，Manager 未完成这次检查。'],
+    backend_unavailable: ['The model service was unavailable for this Manager check.', '模型服务不可用，Manager 未完成这次检查。'],
+    transient_error: ['A temporary model service error interrupted this Manager check.', '模型服务的临时错误中断了这次 Manager 检查。'],
+    permanent_error: ['The model call failed; Manager could not finish this check.', '模型调用失败，Manager 未完成这次检查。'],
+    daemon_shutdown: ['Argus stopped, ending this Manager check.', 'Argus 已停止，这次 Manager 检查已结束。'],
+    operator_pause: ['This Manager check was paused by your request.', '已按你的要求暂停这次 Manager 检查。'],
+    operator_abort: ['This Manager check was cancelled by your request.', '已按你的要求取消这次 Manager 检查。'],
+  };
+  if (Object.hasOwn(stopped, stopKind)) {
+    return { text: localized(context, ...stopped[stopKind]), tone: controlStop ? 'dim' : 'warn' };
+  }
+  const status = stringField(event, 'status');
+  if (status === 'cancelled' || status === 'superseded') {
+    return { text: localized(context, 'This Manager check was cancelled.', '这次 Manager 检查已取消。'), tone: 'dim' };
+  }
+  const text = stage === 'commit' && ['continue', 'wait', 'steer'].includes(stringField(event, 'action'))
+    ? localized(context, 'Manager reached a decision, but the team adjustment could not be applied.', 'Manager 已作出判断，但团队调整未能生效。')
+    : stage === 'decision'
+      ? localized(context, 'Manager returned a decision that could not be validated.', 'Manager 返回的判断或引用依据未通过核验。')
+      : localized(context, 'Manager could not finish this check.', 'Manager 未能完成这次检查。');
+  return { text, tone: 'warn' };
 }
 
 function model(
@@ -216,18 +263,43 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     return renderEvent({ ...event, type: canonical } as TypedArgusEvent, context);
   }
   switch (event.type) {
+    case 'advisor.consultation.requested':
+    case 'life.manager.supervision.issued':
+      return hidden();
+    case 'advisor.consultation.completed': {
+      const question = stringField(event, 'question').trim();
+      const answer = stringField(event, 'summary').trim();
+      if (!question && !answer) return hidden();
+      return model('advisor', 'role.advisor', '◇', [question, answer].filter(Boolean).join('\n'), 'info', { expandable: true });
+    }
+    case 'advisor.consultation.cancelled': {
+      const question = clean(stringField(event, 'question'), 160);
+      return model('advisor', 'role.advisor', '◇', `${localized(context, 'Consultation cancelled', '已取消咨询')}${question ? ` · ${question}` : ''}`, 'dim');
+    }
+    case 'advisor.consultation.failed':
+    case 'advisor.consultation.timed_out':
+    case 'advisor.consultation.model_mismatch': {
+      const reason = event.type.endsWith('model_mismatch')
+        ? localized(context, 'The provider returned a different model', '接入返回的模型与所选模型不一致')
+        : event.type.endsWith('timed_out') ? localized(context, 'The advisor did not respond in time', '顾问未在时限内返回')
+          : localized(context, 'The consultation did not finish', '顾问咨询未完成');
+      const question = clean(stringField(event, 'question'), 160);
+      return model('advisor', 'role.advisor', '◇', `${reason}${question ? ` · ${question}` : ''}`, 'warn', { expandable: true });
+    }
+    case 'life.manager.supervision.applied':
+      return model('manager', 'role.manager', '🧭', stringField(event, 'summary') || stringField(event, 'reason'), 'info', { expandable: true, rule: true });
+    case 'life.peer.message.processed':
+      return model('manager', 'role.peer', '↔', stringField(event, 'text'), 'info', { expandable: true });
+    case 'life.manager.supervision.failed': {
+      const failure = supervisionFailure(event, context);
+      return model('manager', 'role.manager', '🧭', failure.text, failure.tone, { expandable: true });
+    }
     case 'engineer.progress':
       return progress(event, context);
     case 'life.manager.intent.started':
-      return model('manager', 'role.manager', '🧭', localized(context, 'working out what kind of request this is…', '判断这是什么样的请求…'), 'info');
-    case 'life.manager.intent.completed': {
-      const routing = formatMissionRouting({
-        route: stringField(event, 'route') || 'team', vertical: stringField(event, 'vertical'),
-        workflow_mode: stringField(event, 'workflow_mode'), lifetime: stringField(event, 'lifetime'),
-        continuous: row(event).continuous === true, open_ended: row(event).open_ended === true,
-      });
-      return model('manager', 'role.manager', '🧭', `→ ${routing || stringField(event, 'kind') || localized(context, 'resolved', '已确定')}`, 'info');
-    }
+      return model('manager', 'role.manager', '🧭', localized(context, 'Working out how to handle your request…', '正在安排处理方式…'), 'info');
+    case 'life.manager.intent.completed':
+      return model('manager', 'role.manager', '🧭', managerIntentSummary(row(event), context.locale), 'info', { expandable: true });
     case 'life.manager.intent.failed':
       return model('manager', 'role.manager', '⚠', managerFailure(event, context), 'err', { expandable: context.density === 'full' });
     case 'life.manager.stage_decision': {
@@ -551,6 +623,8 @@ const LABELS: Record<string, [english: string, chinese: string]> = {
   'role.planner': ['Planner', 'Planner'],
   'role.engineer': ['Engineer', 'Engineer'],
   'role.reviewer': ['Reviewer', 'Reviewer'],
+  'role.advisor': ['Advisor', '顾问'],
+  'role.peer': ['Project exchange', '项目交流'],
   'role.critic': ['Critic', 'Critic'],
   'role.system': ['Argus', 'Argus'],
   'role.argus': ['Argus', 'Argus'],

@@ -10,7 +10,8 @@ execution/continuous/bounded handoff entry points.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,7 @@ from .manager_pending_question import (
     _emit_ui_turn,
     _resolve_pending_question_with_manager,
 )
-from .manager_state import _STATES, _chat_state_for, _lock_for, _rotate_after
+from .manager_state import _chat_state_for, _lock_for, _rotate_after, manager_control_generation
 
 _NO_DISPATCH_FALLBACK = (
     "[not dispatched] The Manager kept this request inline as instructed, but "
@@ -47,6 +48,19 @@ def _project_paths_overlap(left: object, right: object) -> bool:
     )
 
 
+@contextmanager
+def _manager_request_scope(sid: str, generation: int | None = None) -> Iterator[Callable[[], bool]]:
+    from ..core.run_gateway import run_interrupt_scope
+    if generation is None:
+        generation = manager_control_generation(sid)
+
+    def cancelled() -> bool:
+        return manager_control_generation(sid) != generation
+
+    with run_interrupt_scope(lambda: "operator interrupted Manager request" if cancelled() else None):
+        yield cancelled
+
+
 def manager_execution_handoff(
     sid: str,
     text: str,
@@ -58,11 +72,16 @@ def manager_execution_handoff(
     from ..life.memory import MemoryBundle
     from ..manager.front_door import manager_execution_task
 
+    generation = manager_control_generation(sid)
     mem = MemoryBundle.for_cwd(
         fingerprint=sid,
         global_root=Path(global_root) if global_root else None,
     )
-    with _lock_for(sid):
+    with _manager_request_scope(sid, generation) as cancelled, _lock_for(sid):
+        if cancelled():
+            from ..manager.front_door import ManagerHandoffSupersededError
+
+            raise ManagerHandoffSupersededError("Manager request was superseded before preparation")
         chat_state = _chat_state_for(sid)
         chat_state["session_id"] = sid
         chat_state["global_root"] = str(mem.global_root)
@@ -80,16 +99,22 @@ def manager_continuous_handoff(
     *,
     global_root: Path | str | None = None,
     name_session: bool = False,
+    control_generation: int | None = None,
 ) -> str:
     """Atomically enable a Manager-authored continuous handoff."""
     from ..life.memory import MemoryBundle
     from ..manager.front_door import manager_continuous_handoff as commit_handoff
 
+    generation = manager_control_generation(sid) if control_generation is None else control_generation
     mem = MemoryBundle.for_cwd(
         fingerprint=sid,
         global_root=Path(global_root) if global_root else None,
     )
-    with _lock_for(sid):
+    with _manager_request_scope(sid, generation) as cancelled, _lock_for(sid):
+        if cancelled():
+            from ..manager.front_door import ManagerHandoffSupersededError
+
+            raise ManagerHandoffSupersededError("Manager request was superseded before preparation")
         chat_state = _chat_state_for(sid)
         chat_state["session_id"] = sid
         chat_state["global_root"] = str(mem.global_root)
@@ -114,9 +139,17 @@ def manager_continuous_handoff(
             chat_state["_continuous_open_ended"] = read_continuous_state(
                 mem.project_root
             ).open_ended
-        execution_objective = commit_handoff(mem, requested_objective, chat_state)
-        chat_state.setdefault("config", {})["continuous"] = True
-        chat_state["continuous_objective"] = execution_objective
+        from ..manager.front_door import ManagerHandoffError, ManagerHandoffSupersededError
+
+        try:
+            execution_objective = commit_handoff(mem, requested_objective, chat_state, cancelled=cancelled)
+        except ManagerHandoffError as exc:
+            if cancelled():
+                raise ManagerHandoffSupersededError("Manager request was superseded before commit") from exc
+            raise
+        from .manager_state import sync_manager_continuous
+
+        sync_manager_continuous(sid, generation, execution_objective)
         return execution_objective
 
 
@@ -125,20 +158,16 @@ def disable_manager_continuous(
     *,
     life_dir: Path,
 ) -> None:
-    """Persist Web stop and synchronize Manager state under one session lock."""
+    """Stop without waiting behind the Manager turn being cancelled."""
     from ..daemon.state import disable_continuous_config
     from ..manager.front_door import ManagerHandoffError
+    from .manager_state import interrupt_manager_turns
 
-    with _lock_for(sid):
-        persisted = disable_continuous_config(life_dir)
-        if persisted.enabled:
-            raise ManagerHandoffError("continuous stop could not be persisted")
-        chat_state = _STATES.get(sid)
-        if chat_state is None:
-            return
-        chat_state.setdefault("config", {})["continuous"] = False
-        chat_state["continuous_objective"] = ""
-        chat_state.pop("_continuous_pending_manager_handoff", None)
+    interrupt_manager_turns(sid, clear_continuous=False)
+    persisted = disable_continuous_config(life_dir)
+    if persisted.enabled:
+        raise ManagerHandoffError("continuous stop could not be persisted")
+    interrupt_manager_turns(sid)
 
 
 def manager_bounded_handoff(
@@ -154,11 +183,16 @@ def manager_bounded_handoff(
     from ..life.memory import MemoryBundle
     from ..manager.front_door import manager_bounded_handoff as commit_handoff
 
+    generation = manager_control_generation(sid)
     mem = MemoryBundle.for_cwd(
         fingerprint=sid,
         global_root=Path(global_root) if global_root else None,
     )
-    with _lock_for(sid):
+    with _manager_request_scope(sid, generation) as cancelled, _lock_for(sid):
+        if cancelled():
+            from ..manager.front_door import ManagerHandoffSupersededError
+
+            raise ManagerHandoffSupersededError("Manager request was superseded before preparation")
         chat_state = _chat_state_for(sid)
         chat_state["session_id"] = sid
         chat_state["global_root"] = str(mem.global_root)
@@ -181,6 +215,7 @@ def manager_bounded_handoff(
             chat_state,
             persist,
             root_task_id=root_task_id,
+            cancelled=cancelled,
         )
 
 
@@ -476,6 +511,10 @@ def _handle_pending_question_turn(
             chat_state,
             root_task_id=BacklogItem.new_id(),
         )
+        if result.get("cancelled"):
+            # Preserve the first observed signal even for a consumptive
+            # callback; never fall through to classification or emit a reply.
+            return _cancelled_result()
         if result.get("answer_intent") is not False:
             reply = str(
                 result.get("reply")
@@ -1154,6 +1193,8 @@ def _run_triage_and_fallbacks(
     frontdoor_failure: str,
     on_fragment: Any,
     emitter: _TurnEmitter,
+    *,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any] | None:
     """Run Manager triage (chat/SELF path) and its three fail-closed
     fallbacks. Returns a terminal chat reply dict, or ``None`` when none of
@@ -1193,6 +1234,11 @@ def _run_triage_and_fallbacks(
         )
     except Exception:  # noqa: BLE001 — triage failure biases to task
         reply = None
+
+    # A provider may return a buffered reply or failure after interruption.
+    # Reject it before durable UI/transcript writes and self-learning hooks.
+    if cancelled is not None and cancelled():
+        return _cancelled_result()
 
     if reply is not None:
         result: dict[str, Any] = {"kind": "chat"}
@@ -1239,6 +1285,7 @@ def _dispatch_team_mission(
     *,
     attachment_context_refs: list[dict[str, str]] | None = None,
     reference_deps: list[str] | None = None,
+    public_objective: str | None = None,
 ) -> tuple[Any, bool, int | None]:
     """Apply the Manager's lifetime decision, resume a done lifecycle, and
     enqueue the operator's TEAM mission. Raises on failure — the caller
@@ -1269,6 +1316,7 @@ def _dispatch_team_mission(
         body,
         chat_state,
         root_task_id=root_task_id,
+        public_objective=public_objective,
     )
     emitter.phase(
         "正在确认这个项目能否恢复…"

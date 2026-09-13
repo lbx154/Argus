@@ -33,6 +33,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 from . import task_board
 
@@ -126,6 +127,9 @@ def _build_runner_ns(
     ns.skills_dir = os.environ.get("ARGUS_SKILL_SKILLS_DIR", str(core_paths.shared_skills_root()))
     ns.workdir = str(cwd)
     ns.project_state_dir = str(project_state_dir or "")
+    # Context reads remain available even though a subordinate deliberately
+    # disables shared checkpoint persistence and inbox consumption.
+    ns.operator_context_dir = os.environ.get("ARGUS_OPERATOR_CONTEXT_DIR", "").strip()
     ns.max_rounds = int(os.environ.get("ARGUS_SKILL_MAX_ROUNDS", str(max_rounds)))
     ns.plan_mode = os.environ.get("ARGUS_SKILL_PLAN_MODE", "auto")
     ns.plan_model = os.environ.get("ARGUS_SKILL_PLAN_MODEL")
@@ -187,6 +191,8 @@ def run_one_engineer_mission(
         watchdog: threading.Timer | None = None
         try:
             from argus_skill.apps._runtime import LifeStderrSink, _SkillLoopRunner
+            from argus_skill.core.file_lock import FileLockCancelled, bounded_file_lock_wait
+            from argus_skill.core.run_gateway import current_run_interrupt_reason
             from argus_skill.life.event_log import JsonlEventSink
 
             life_dir = Path(life_dir)
@@ -207,8 +213,65 @@ def run_one_engineer_mission(
             )
             runner = _SkillLoopRunner(ns)
             sink = JsonlEventSink(LifeStderrSink(quiet=False), life_dir=life_dir)
+            mission_id = os.environ.get("ARGUS_SKILL_TEAM_TASK_ID", "").strip()
+
+            def current_prelude() -> str:
+                from ..core.operator_context import (
+                    OperatorContextUnavailable,
+                    build_operator_context_block,
+                    operator_context_global_root,
+                )
+                from ..life.failure_experience import FailureExperienceStore
+                from ..life.knowledge_recall import render_memory_recall
+
+                source = Path(ns.operator_context_dir) if ns.operator_context_dir else life_dir
+                try:
+                    # Canonical experience reads and optional derived caches
+                    # must also see Stop while preparing this role's prompt.
+                    with bounded_file_lock_wait(
+                        timeout_seconds=float("inf"),
+                        cancelled=lambda: bool(current_run_interrupt_reason()),
+                    ):
+                        scope = SimpleNamespace(
+                            project_root=source, project_worktree=Path(cwd),
+                            global_root=operator_context_global_root(source),
+                            render_failure_experience_context=FailureExperienceStore(
+                                source / "failure_experiences.jsonl",
+                            ).render_context,
+                        )
+                        recalled = render_memory_recall(
+                            scope, objective,
+                            knowledge_index_path=life_dir / "knowledge-recall.sqlite3",
+                        )
+                except Exception:  # noqa: BLE001 — optional recall cannot hide current policy
+                    recalled = "Current recalled knowledge is unavailable."
+                try:
+                    # Cancellation belongs to this prompt read, not later
+                    # settlement writes. Infinity preserves each lock's own
+                    # default timeout rather than timing the whole mission.
+                    with bounded_file_lock_wait(
+                        timeout_seconds=float("inf"),
+                        cancelled=lambda: bool(current_run_interrupt_reason()),
+                    ):
+                        operator, _ = build_operator_context_block(
+                            "teammate", ns.operator_context_dir or None,
+                            mission_id=mission_id, consume_once=True,
+                        )
+                except FileLockCancelled as exc:
+                    if current_run_interrupt_reason():
+                        # The retained interrupt makes the gateway produce its
+                        # normal stopped result without calling the backend;
+                        # round accounting and settlement still run normally.
+                        return ""
+                    raise OperatorContextUnavailable("Current teammate OperatorContext read was cancelled") from exc
+                except Exception as exc:
+                    raise OperatorContextUnavailable("Current teammate OperatorContext is unavailable") from exc
+                return "\n\n".join(part for part in (prelude_context, recalled, operator) if part)
+
             outcome = runner.execute(
                 objective=objective, sink=sink, prelude_context=prelude_context,
+                prelude_context_provider=current_prelude,
+                mission_id=mission_id or None,
                 # A teammate is not the project's stage authority. Left at the
                 # default, ``execute`` runs the Manager's stage-transition pass
                 # and that pass WRITES ``<cwd>/.argus/PIPELINE_STATE.json``
@@ -399,25 +462,9 @@ def main(argv: list[str] | None = None) -> int:
     threading.Thread(target=_heartbeat_loop, args=(root, task_id, stop), daemon=True).start()
 
     life_dir = root / "life" / member_safe
-    operator_context = ""
-    operator_context_root = os.environ.get("ARGUS_OPERATOR_CONTEXT_DIR", "").strip()
-    if operator_context_root:
-        from ..core.operator_context import build_operator_context_block
-
-        operator_context, _ = build_operator_context_block(
-            "teammate",
-            operator_context_root,
-            mission_id=task_id,
-            consume_once=False,
-        )
-    launch_prelude = "\n\n".join(
-        part
-        for part in (
-            _vertical_prelude(task, cwd=cwd, state_root=life_dir),
-            operator_context,
-        )
-        if part
-    )
+    # Mutable user/project knowledge is read by run_one_engineer_mission at
+    # each Engineer boundary; never bake its launch snapshot into the task.
+    launch_prelude = _vertical_prelude(task, cwd=cwd, state_root=life_dir)
     from ..apps._runtime_supervisor import _paper_mission_for_project_root
 
     with _temporary_env("ARGUS_SKILL_TEAM_TASK_ID", task_id):

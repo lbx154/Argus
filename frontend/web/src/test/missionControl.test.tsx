@@ -18,6 +18,27 @@ function missionSnapshot(view: MissionView, status: string, alive = true): Snaps
 }
 
 describe('MissionControl', () => {
+  it('gives an idle project one useful entry while retaining real history and unreadable state', () => {
+    const view = emptyMissionView();
+    const snapshot: Snapshot = {
+      session: { id: 'empty', display_name: 'Project', objective: 'Compare the two measured implementations.', cwd: '/workspace', last_active: 1 },
+      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, global_daily_cap_usd: null },
+      roles: [], backlog: [], recent_events: [],
+    };
+    const initial = renderToStaticMarkup(<MissionControl view={view} snapshot={snapshot} onAsk={() => {}} />);
+    expect(initial).toContain('data-testid="project-ready"');
+    expect(initial).toContain('Compare the two measured implementations.');
+    expect(initial).not.toContain('Task replay');
+    expect(initial).not.toContain('No capabilities');
+    view.timeline = [{ id: 'checked', ts: 100, type: 'round.review.completed', role: 'reviewer', title: 'Measured comparison', detail: 'Both implementations produced the same output on 20 cases.', tone: 'success' }];
+    const history = renderToStaticMarkup(<MissionControl view={view} snapshot={snapshot} />);
+    expect(history).not.toContain('data-testid="project-ready"');
+    expect(history).toContain('Both implementations produced the same output on 20 cases.');
+    view.timeline = [];
+    snapshot.daemon.read_status = 'error';
+    const unreadable = renderToStaticMarkup(<MissionControl view={view} snapshot={snapshot} />);
+    expect(unreadable).not.toContain('data-testid="project-ready"');
+  });
   it.each(AGENT_ROLES)('localizes the %s card activity from a Chinese mission view', (name) => {
     const view = emptyMissionView();
     view.language = 'zh';

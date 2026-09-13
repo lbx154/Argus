@@ -37,6 +37,7 @@ _RUNNER_HARD_IDLE_ENV = "ARGUS_SKILL_RUNNER_HARD_IDLE_SECONDS"
 _RUNNER_DEFAULT_SOFT_IDLE_SECONDS = 10 * 60
 _RUNNER_DEFAULT_STALLED_IDLE_SECONDS = 30 * 60
 _RUNNER_DEFAULT_HARD_IDLE_SECONDS = 0
+_INHERIT_EVENT_CALLBACK = object()
 class _RepeatedToolCallGuard:
     """Interrupt a factually repeating identical tool-call livelock."""
 
@@ -281,8 +282,17 @@ class AgentCliBackend:
         self,
         *,
         interrupt_reason_provider=None,
+        event_callback: Any = _INHERIT_EVENT_CALLBACK,
     ) -> "AgentCliBackend":
-        """Create an independent backend for one concurrent provider call."""
+        """Create an independent backend for one concurrent provider call.
+
+        The callback is inherited by default. Background roles pass None (or
+        their own callback) so they cannot publish into the foreground role's
+        current sink. The durable I/O log and usage context remain independent.
+        """
+        callback = self._io_logger.external_event_callback if event_callback is _INHERIT_EVENT_CALLBACK else event_callback
+        if callback is not None and not callable(callback):
+            raise TypeError("event_callback must be callable or None")
         backend = AgentCliBackend(
             backend=self._backend_name,
             runner_bin=self._runner.agent_bin,
@@ -297,7 +307,7 @@ class AgentCliBackend:
             ),
             default_watchdog_hard_idle_seconds=self._default_watchdog_hard_idle_seconds,
             before_exec=self._runner.before_exec,
-            event_callback=self._io_logger.external_event_callback,
+            event_callback=callback,
             known_secret_values_override=self._known_secret_values_override,
         )
         project_root, mission_id, global_root = self._usage_context_snapshot()

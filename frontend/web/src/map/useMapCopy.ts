@@ -93,6 +93,11 @@ export function useMapCopy(
   const foundationId = preview === 'question-foundation' ? pinnedFoundationId === undefined ? foundationChoice.id : pinnedFoundationId : null;
   const foundationRequired = preview === 'question-foundation' && !foundationId;
   const key = mapCopyKey(source, name, locale, sessionId, preview, foundationId);
+  const context = JSON.stringify(key);
+  const contextRef = useRef(context);
+  contextRef.current = context;
+  const relatedChecks = useRef({ context, cards: new Map<string, string>() });
+  if (relatedChecks.current.context !== context) relatedChecks.current = { context, cards: new Map() };
   const queryClient = useQueryClient();
   const copy = useQuery({
     queryKey: key,
@@ -127,19 +132,36 @@ export function useMapCopy(
     () => (prewarm ? prewarmRequests(data, zh, focused) : []),
     [data, zh, focused, prewarm],
   );
+  const taskIds = useMemo(() => new Set(data.tasks.map(task => Array.from(task.id).slice(0, 160).join(''))), [data.tasks]);
+  // Current-range views omit older neighbors, including later edits/deletions
+  // of those neighbors. The feed cursor covers the full source. Ask the server
+  // once per cursor/card version; enrich checks the saved sources before any
+  // model call. A response only verifies its captured context and card version.
+  const relatedCheckKey = (card: CardRequest, result = copy.data) => {
+    const saved = result?.cards[card.key];
+    return JSON.stringify([data.cursor, saved?.copy_revision, saved?.generated_at, saved?.model_revision]);
+  };
+  const needsRelatedCheck = (card: CardRequest) => {
+    const snapshot = copy.data?.cards[card.key]?.source_snapshot;
+    return Boolean(card.key === readingKey && focused && data.cursor && snapshot?.version === 2 &&
+      snapshot.related_tasks?.some(task => !taskIds.has(task.id)) &&
+      relatedChecks.current.cards.get(card.key) !== relatedCheckKey(card));
+  };
   const cards = [...foreground, ...background]
-    .filter((c) => needsCardCopy(c, data, copy.data, eventIndex))
+    .filter((c) => needsCardCopy(c, data, copy.data, eventIndex) || needsRelatedCheck(c))
     .slice(0, 8);
   const inputSignature = mapCopyInputSignature(data, cards);
   const generationScope = ['map-copy-generation', source, name, locale, sessionId];
   const generationKey = [...generationScope, preview, ...(preview === 'question-foundation' ? [foundationId] : []), copy.data?.version ?? null,
-    copy.data?.model_revision ?? null, inputSignature];
+    copy.data?.model_revision ?? null, inputSignature,
+    cards.map(card => needsRelatedCheck(card) ? relatedCheckKey(card) : null)];
   const signature = JSON.stringify(generationKey);
   const activeGenerations = useIsFetching({ queryKey: generationScope });
   const generationOptions = {
     queryKey: generationKey,
     queryFn: async () => {
       const requestedModelRevision = copy.data?.model_revision;
+      const checkingRelatedSources = cards.some(needsRelatedCheck);
       // Finish and save against this request's source even after its reader unmounts.
       const observed = beginExplanationProgress(queryClient, key, cards.map(card => ({
         key: card.key, startedAt: explanationRunStart(card.key, data.tasks.find(task => task.id === card.task_id)),
@@ -151,8 +173,16 @@ export function useMapCopy(
       } finally {
         observed.finish();
       }
+      // Only this submitted request confirms its captured cards and cursor.
+      // A late response can still populate its own source cache after navigation.
+      if (contextRef.current === context && !result.retry_after && result.available !== false) {
+        for (const card of cards) {
+          if (result.cards[card.key]) relatedChecks.current.cards.set(card.key, relatedCheckKey(card, result));
+        }
+      }
       queryClient.setQueryData<MapCopy>(key, previous => mergeMapCopy(previous, result, requestedModelRevision));
-      return { available: cards.every(card => !needsCardCopy(card, data, result, eventIndex)),
+      return { available: cards.every(card => !needsCardCopy(card, data, result, eventIndex))
+          && (!checkingRelatedSources || (!result.retry_after && result.available !== false)),
         retryAfter: typeof result.retry_after === 'number' && result.retry_after > 0 ? result.retry_after : null };
     },
     staleTime: Infinity, gcTime: 2 * 60 * 60 * 1000,

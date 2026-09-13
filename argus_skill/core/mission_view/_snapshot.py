@@ -1,8 +1,8 @@
-"""Mission-view snapshot assembly: live daemon/session merge and disk bootstrap.
+"""Mission-view snapshot assembly: reconciled view plus live daemon/session state.
 
 ``snapshot_mission_view`` is the read path used by the webapi/cockpit: it
-loads (or bootstraps from the JSONL event tail) the persisted event-sourced
-view, merges in live, non-event-sourced session/daemon/backlog state that
+incrementally reconciles the persisted event-sourced view with its log, merges
+in live, non-event-sourced session/daemon/backlog state that
 does not go through the event log, and enriches learned-skill rows with
 their current file content for display.
 """
@@ -22,11 +22,9 @@ from ._view_state import (
     _ROLE_NAMES,
     MISSION_BOOTSTRAP_MAX_BYTES,
     MISSION_SKILL_CONTENT_MAX_BYTES,
-    _locked,
-    _read_unlocked,
     _tail_jsonl,
-    _write_unlocked,
     empty_mission_view,
+    load_mission_view,
 )
 from ._wording import say, session_is_chinese, stage_label
 
@@ -520,28 +518,30 @@ def snapshot_mission_view(
     **kwargs: Any,
 ) -> dict[str, Any]:
     path = Path(root).expanduser()
-    with _locked(path):
-        view = _read_unlocked(path)
-        if not view.get("bootstrapped"):
-            view = _bootstrap_view(path)
-            _write_unlocked(path, view)
-        # Daemon/role/backlog rows are a live overlay, not event-sourced facts.
-        # Merge them into the response copy only; persisting them corrupts role
-        # handoff state when a temporary Manager activity later goes idle.
-        response = json.loads(json.dumps(view))
+    view = load_mission_view(path)
+    # Daemon/role/backlog rows are a live overlay, not event-sourced facts.
+    # Merge them into the response copy only; persisting them corrupts role
+    # handoff state when a temporary Manager activity later goes idle.
+    response = json.loads(json.dumps(view))
+    response.pop("_event_cursor", None)
+    response.pop("_projection_legacy", None)
+    response.pop("_unlogged_log_cursor", None)
+    if view.get("projection_sync", {}).get("status") == "unlogged":
+        # Compatibility for direct projection-only producers. Canonical views
+        # already reduced these rows and must not scan a review tail each poll.
         _refresh_review_projection(path, response)
-        response = merge_mission_view_snapshot(
+    response = merge_mission_view_snapshot(
+        response,
+        **kwargs,
+    )
+    _apply_manuscript_review_freshness(
+        response,
+        kwargs.get("session") or {},
+    )
+    if enrich_skill_content:
+        _enrich_skill_content(
+            path,
             response,
-            **kwargs,
+            list(kwargs.get("backlog") or []),
         )
-        _apply_manuscript_review_freshness(
-            response,
-            kwargs.get("session") or {},
-        )
-        if enrich_skill_content:
-            _enrich_skill_content(
-                path,
-                response,
-                list(kwargs.get("backlog") or []),
-            )
-        return response
+    return response

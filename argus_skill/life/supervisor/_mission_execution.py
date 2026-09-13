@@ -20,19 +20,38 @@ from typing import Any
 from ..memory import BacklogItem
 from ._mission_execution_runtime import MissionExecutionRuntimeMixin
 from ._mission_execution_settlement import MissionExecutionSettlementMixin
+from .backlog_guard import ensure_manager_decision
 
 log = logging.getLogger(__name__)
 
 __all__ = ["MissionExecutionMixin"]
 
 
-from .backlog_guard import ensure_manager_decision
-
-
 class MissionExecutionMixin(
     MissionExecutionRuntimeMixin, MissionExecutionSettlementMixin,
 ):
     def _run_one(self, item: BacklogItem) -> dict[str, Any]:
+        """Claim -> prepare -> execute -> meter -> settle -> publish one attempt.
+
+        Return paths and the phase that owns their durable effects:
+
+        * Lost claim: no execution; undo an unexpected claim if necessary.
+        * Superseded acceptance: meter the call, preserve the replacement task.
+        * Recoverable stop: pause helper persists the pause and completion event,
+          or requeues external work that changed before it could be parked.
+        * Stage continuation/HOLD: stage helper requeues/fails the bounded item;
+          it does not publish the ordinary mission completion event.
+        * Ordinary settlement (including chartered iteration): finalizer writes
+          backlog outcome, then publisher records learning, usage, and the event.
+
+        Every post-execution branch follows metering. Pause and supersession
+        return before repair/stage settlement; chartered iteration is assessed
+        before a stage HOLD can fail the item. These are deliberate ownership
+        boundaries, so there is no unconditional finalization in a ``finally``.
+        Execution errors become outcomes in the runner phase; exceptions from
+        preparation or settlement propagate to the supervisor's tick guard.
+        """
+        # Claim and prepare: resolve one canonical execution/contract context.
         # Atomic claim: flip pending → running in one rewrite. If the
         # head moved between the budget peek and now (concurrent writer
         # or user `/rm`), bail; the next tick will re-evaluate.
@@ -88,13 +107,14 @@ class MissionExecutionMixin(
             vertical_root=vertical_root,
         )
 
-        prelude = self._build_mission_prelude(item)
+        prelude = self._build_mission_prelude(item, defer_memory=True)
         state = self._prepare_mission_context(
             item,
             prelude,
             resolved_mission_workdir,
             vertical_root,
         )
+        # Execute, then meter before choosing an outcome-dependent settlement branch.
         self._invoke_mission_runner(state)
         self._derive_basic_outcome_fields(state)
 
@@ -112,6 +132,7 @@ class MissionExecutionMixin(
         if paused_result is not None:
             return paused_result
 
+        # Settle authority and iteration before ordinary terminal classification.
         self._settle_repair_capability(state)
         self._apply_dynamic_plan_stage_guard(state)
 
@@ -124,13 +145,11 @@ class MissionExecutionMixin(
             state.iteration and state.iteration.get("requeued")
         )
 
-        transition_result = (
-            None
-            if state.iteration is not None
-            else self._maybe_short_circuit_for_stage_transition(state)
-        )
-        if transition_result is not None:
-            return transition_result
+        if state.iteration is None:
+            transition_result = self._maybe_short_circuit_for_stage_transition(state)
+            if transition_result is not None:
+                return transition_result
 
+        # Finalize the backlog first; only then publish the settled outcome.
         self._finalize_mission_status(state)
         return self._emit_mission_outcome_and_build_result(state)

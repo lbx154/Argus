@@ -213,10 +213,12 @@ def _resolve_run_exec(
         if not callable(run_exec):
             continue
 
-        def _call(prompt: str, _run_exec=run_exec):  # noqa: ANN001
+        def _call(prompt: str, _backend=candidate):  # noqa: ANN001
             from ..core.models import RunnerOptions
+            from ..core.run_gateway import run_exec as gateway_run_exec
 
-            return _run_exec(
+            return gateway_run_exec(
+                _backend,
                 prompt=prompt,
                 options=RunnerOptions(
                     model=model,

@@ -269,6 +269,7 @@ def _front_door_classify(
                     IntakeDecision(**intake_payload),
                     source="manager.front_door",
                     mission_id=intake_mission_id,
+                    global_root=getattr(mem, "global_root", None),
                 )
                 intake_commit_started = False
         return (

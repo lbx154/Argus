@@ -1332,12 +1332,12 @@ class TestManagerMessageLifecycleErrors:
 # ── Dispatch acknowledgement persistence ────────────────────────────────────
 
 _DISPATCH_ACK_CASES = [
-    ({"rc": 0, "pid": 42}, "work has started"),
-    (None, "already running"),
+    ({"rc": 0, "pid": 42}, "Queued; waiting for the executor"),
+    (None, "Queued; waiting for the executor"),
     ({"admission_required": True}, "Waiting for a free executor slot"),
     (
         {"rc": 2, "error": "auth failed"},
-        "The background worker could not start. Check its startup details and try again.",
+        "The task is saved, but the background worker could not start. See startup details.",
     ),
 ]
 
@@ -1447,7 +1447,7 @@ def test_dispatch_ack_distinguishes_durable_campaign_update(tmp_path: Path) -> N
     )
 
     assert "Objective updated" in text
-    assert "after the current work" in text
+    assert "waiting for the Planner" in text
     assert "already running" not in text
 
 
@@ -1455,8 +1455,8 @@ def test_dispatch_ack_distinguishes_durable_campaign_update(tmp_path: Path) -> N
     ("dispatch_state", "expected"),
     [
         ("queued_after_current", "Queued after the current work"),
-        ("queued", "running executor picks it up next"),
-        ("running", "Running now"),
+        ("queued", "waiting for the executor"),
+        ("running", "executor has claimed"),
         ("already_queued", "no duplicate task was created"),
     ],
 )
@@ -1558,9 +1558,24 @@ def test_dispatch_ack_names_the_task_in_the_operator_language(tmp_path: Path) ->
         "item": {"id": "t1", "title": "请做一个 8 页的 PPT，介绍 Argus。", "status": "pending"},
     }
     text = record_task_dispatch_ack("s-ack", result, global_root=tmp_path)
-    assert text == "已交给团队，开始执行：请做一个 8 页的 PPT，介绍 Argus。"
+    assert text == "已加入队列，等待执行者接手：请做一个 8 页的 PPT，介绍 Argus。"
 
     result = {"kind": "task", "daemon_alive": True, "daemon": None,
               "item": {"id": "t2", "title": "Write the release notes", "status": "pending"}}
     text = record_task_dispatch_ack("s-ack", result, global_root=tmp_path)
-    assert text == "The executor is already running and now has this task: Write the release notes"
+    assert text == "Queued; waiting for the executor to pick it up: Write the release notes"
+
+
+@pytest.mark.parametrize("planner_pending", [False, True])
+def test_dispatch_ack_uses_operator_language_when_manager_rewrites_the_title(tmp_path, planner_pending):
+    from argus_skill.webapi.manager_pending_question import record_task_dispatch_ack
+
+    result = {
+        "kind": "task", "daemon_alive": True,
+        "item": None if planner_pending else {"title": "Compare the latency groups", "status": "pending"},
+        "dispatch_state": "planner_pending" if planner_pending else "queued",
+    }
+    reply = record_task_dispatch_ack(
+        "s-operator-language", result, global_root=tmp_path, operator_text="继续比较两组延迟",
+    )
+    assert ("目标已更新" if planner_pending else "已加入队列") in reply

@@ -17,10 +17,10 @@ import logging
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, cast
 
 from ..core.event_catalog import EventType
-from ..core.models import ReviewDecision, RoundRecord
+from ..core.models import LoopStatus, ReviewDecision, RoundRecord
 from ..core.operator_messages import uses_cjk
 from ..core.runner_errors import is_execution_host_startup_error
 from ..core.stop_kinds import (
@@ -73,13 +73,20 @@ def _active_manager_directive_for_reviewer(
 ) -> list[str]:
     """Load the Reviewer-trimmed projection from the one operator store."""
     candidates: list[Path] = []
-    if supervised_config.engineer_log_path:
-        candidates.append(Path(supervised_config.engineer_log_path).expanduser().parent)
-    if supervised_config.context_packet_path:
-        packet = Path(supervised_config.context_packet_path).expanduser()
-        if len(packet.parents) >= 3:
-            candidates.append(packet.parents[2])
-    from ..core.operator_context import build_operator_context_block
+    if supervised_config.operator_question_policy_root is not None:
+        # An explicit source owns even an empty/revoked projection. The log
+        # and packet paths only locate context for older callers without it.
+        candidates.append(Path(supervised_config.operator_question_policy_root))
+    else:
+        if supervised_config.engineer_log_path:
+            candidates.append(Path(supervised_config.engineer_log_path).expanduser().parent)
+        if supervised_config.context_packet_path:
+            packet = Path(supervised_config.context_packet_path).expanduser()
+            if len(packet.parents) >= 3:
+                candidates.append(packet.parents[2])
+    from ..core.file_lock import FileLockCancelled, bounded_file_lock_wait
+    from ..core.operator_context import OperatorContextUnavailable, build_operator_context_block
+    from ..core.run_gateway import current_run_interrupt_reason
 
     seen: set[Path] = set()
     for candidate in candidates:
@@ -90,7 +97,25 @@ def _active_manager_directive_for_reviewer(
         if root in seen:
             continue
         seen.add(root)
-        message, _revision = build_operator_context_block("reviewer", root)
+        try:
+            # Only prompt preparation inherits cancellation. Once acquired,
+            # projection/once consumption remains atomic, and settlement has
+            # no cancelled lock budget to inherit.
+            with bounded_file_lock_wait(
+                timeout_seconds=float("inf"),
+                cancelled=lambda: bool(current_run_interrupt_reason()),
+            ):
+                message, _revision = build_operator_context_block(
+                    "reviewer", root, mission_id=str(supervised_config.session_id or ""),
+                )
+        except FileLockCancelled as exc:
+            if current_run_interrupt_reason():
+                # The enclosing run retains the reason; the gateway produces
+                # its ordinary stopped result before invoking any backend.
+                return []
+            raise OperatorContextUnavailable("Current Reviewer OperatorContext read was cancelled") from exc
+        except Exception as exc:
+            raise OperatorContextUnavailable("Current Reviewer OperatorContext is unavailable") from exc
         if message:
             return [message]
     return []
@@ -98,6 +123,12 @@ def _active_manager_directive_for_reviewer(
 
 class RoundReviewerMixin:
     """Mixin providing ``SupervisedEngineer``'s reviewer-invocation phase."""
+
+    if TYPE_CHECKING:
+        # Supplied by RoundExecutionMixin on the composed SupervisedEngineer.
+        def _hold_before_backend_failure_retry(
+            self, seconds: float, *, retry_runner: object | None = None,
+        ) -> str | None: ...
 
     def _call_reviewer_once(
         self,
@@ -447,6 +478,11 @@ class RoundReviewerMixin:
         # or by failing loud once the reviewer-backend streak hits threshold.
         reviewer_turn_cap_restarts = 0
         while True:
+            from .round_manager_wait import manager_wait_terminal
+
+            paused = manager_wait_terminal(supervised_config, state)
+            if paused is not None:
+                return control_return(paused)
             review = self._call_reviewer_once(
                 objective=objective,
                 original_objective=original_objective,
@@ -731,7 +767,38 @@ class RoundReviewerMixin:
                             f"{backoff_seconds:.1f}s"
                         ),
                     })
-                time.sleep(backoff_seconds)
+                interrupt_reason = self._hold_before_backend_failure_retry(
+                    backoff_seconds, retry_runner=getattr(getattr(self, "reviewer", None), "runner", None),
+                )
+                if interrupt_reason:
+                    interrupt_kind = stop_kind_from_external_interrupt(interrupt_reason) or "operator_pause"
+                    status = cast(LoopStatus, "aborted" if interrupt_kind == "operator_abort"
+                                  else pause_status_for_stop_kind(interrupt_kind) or "paused_operator")
+                    reason_text = (
+                        "The wait after a Reviewer backend failure ended "
+                        f"early: {interrupt_reason}."
+                    )
+                    # The Engineer completed this round, but no Reviewer
+                    # judgment arrived. Preserve both facts without another call.
+                    state.rounds.append(RoundRecord(
+                        round_index=round_index,
+                        engineer_message=engineer_message,
+                        engineer_exit_code=engineer_result.exit_code,
+                        review=review,
+                        fatal_error=f"External interrupt: {interrupt_reason}",
+                        stop_kind=interrupt_kind,
+                    ))
+                    if on_event:
+                        on_event({
+                            "type": "round.backend_failure.hold_interrupted",
+                            "round_index": round_index,
+                            "round_max": supervised_config.max_rounds,
+                            "stop_kind": interrupt_kind,
+                            "text": reason_text,
+                        })
+                    return control_return((
+                        status, state.rounds, state.last_engineer_message, reason_text, None,
+                    ))
             # Retry ONLY the reviewer against the SAME engineer output — do
             # not fall through to a fresh (xhigh) engineer turn.
             continue

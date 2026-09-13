@@ -67,7 +67,7 @@ export function ComposerSurface({
           }} />
         <button type={pending ? 'button' : 'submit'} onClick={pending ? onCancel : undefined}
           disabled={disabled || (!pending && !text.trim())}
-          aria-label={pending ? (zh ? '停止等待' : 'Stop waiting') : (zh ? '发送消息' : 'Send message')}
+          aria-label={pending ? (zh ? '停止回复' : 'Stop reply') : (zh ? '发送消息' : 'Send message')}
           className={`map-send ${pending ? 'is-pending' : ''}`}>
           {pending ? <Square size={15} /> : <ArrowUp size={20} />}
         </button>

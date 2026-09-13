@@ -22,11 +22,53 @@ const line = (event: Record<string, unknown>, context: Partial<RenderContext> = 
 const zh = (event: Record<string, unknown>) => line(event, { locale: 'zh-CN' });
 
 describe('the web feed line', () => {
+  it('shows the advisor question and answer, and only applied supervision as a team decision', () => {
+    const answered = zh({ type: 'advisor.consultation.completed', question: 'Why did the measurement change?', summary: 'The second run used a different batch size. Repeat with batch size 16.' });
+    expect(answered).toMatchObject({ role: 'advisor', label: '顾问' });
+    expect(answered?.text).toContain('batch size 16');
+    expect(answered?.text).toContain('Why did the measurement change?');
+    const proposal = { type: 'life.manager.supervision.issued', summary: 'Repeat both runs with batch size 16.', action: 'steer' };
+    expect(line(proposal)).toBeNull();
+    expect(line({ ...proposal, type: 'life.manager.supervision.applied' })?.text).toBe(proposal.summary);
+    expect(line({ ...proposal, type: 'life.manager.supervision.failed', status: 'superseded' })?.text).not.toContain('Repeat both runs');
+  });
   it('hides raw CLI framing, telemetry and unknown types (the noise)', () => {
     expect(line({ type: 'agent.io.stream', text: 'raw' })).toBeNull();
     expect(line({ type: 'agent.io.start' })).toBeNull();
     expect(line({ type: 'usage.recorded' })).toBeNull();
     expect(line({ type: 'some.unknown.internal', text: 'kept for grep' })).toBeNull();
+  });
+
+  it('explains a refused Manager check without claiming a team decision failed', () => {
+    const event = {
+      type: 'life.manager.supervision.failed', status: 'failed', failure_stage: 'provider',
+      stop_kind: 'provider_fence', error_code: 'trial_quota_exceeded',
+      summary: '402: provider body with private account details',
+    };
+    expect(zh(event)).toMatchObject({ text: '剩余试用额度不足以启动这次 Manager 检查。', tone: 'warn' });
+    expect(line(event)?.text).toContain('trial quota');
+    expect(zh(event)?.text).not.toContain('团队调整');
+    expect(line(event)?.text).not.toContain('private account');
+  });
+
+  it('keeps timeouts, user cancellation and changed evidence distinct', () => {
+    const failed = { type: 'life.manager.supervision.failed', failure_stage: 'provider', status: 'failed' };
+    expect(zh({ ...failed, error_code: 'timeout' })).toMatchObject({ text: '模型未在时限内返回，Manager 这次检查已结束。', tone: 'warn' });
+    expect(zh({ ...failed, status: 'superseded', error_code: 'cancelled' })).toMatchObject({ text: '已取消这次 Manager 检查。', tone: 'dim' });
+    expect(zh({ ...failed, status: 'superseded', error_code: 'superseded' })?.text).toContain('新的操作或证据');
+    expect(zh({ ...failed, error_code: 'cancelled', stop_kind: 'operator_pause' })).toMatchObject({ text: '已按你的要求暂停这次 Manager 检查。', tone: 'dim' });
+  });
+
+  it('only calls a failed commit an unapplied adjustment when a decision exists', () => {
+    const failed = { type: 'life.manager.supervision.failed', status: 'failed' };
+    expect(zh({ ...failed, failure_stage: 'commit', action: 'steer' })?.text).toContain('团队调整未能生效');
+    expect(zh({ ...failed, failure_stage: 'commit', action: 'steer', error_code: 'timeout' })?.text).toBe('Manager 已作出判断，但应用调整超时。');
+    expect(zh({ ...failed, status: 'issued', failure_stage: 'commit', action: 'steer', error_code: 'cancelled' })).toMatchObject({ text: '应用调整时被中断，已保存的决定等待继续处理。', tone: 'warn' });
+    expect(zh({ ...failed, failure_stage: 'provider' })?.text).not.toContain('团队调整');
+    expect(zh({ ...failed, failure_stage: 'commit' })?.text).not.toContain('团队调整');
+    expect(zh({ ...failed, failure_stage: 'decision' })?.text).toContain('判断或引用依据');
+    expect(zh({ ...failed, failure_stage: 'decision', error_code: 'observation_incomplete' })?.text).toBe('Manager 未能完整读取所需的项目资料，这次检查已停止。');
+    expect(zh({ ...failed, error_code: 'constructor', summary: 'untrusted raw error' })?.text).toBe('Manager 未能完成这次检查。');
   });
 
   it('shows reasoning summaries as pale role context, and drops them on request', () => {
@@ -93,12 +135,54 @@ describe('the web feed line', () => {
     })?.tone).toBe('err');
   });
 
-  it('shows all Manager routing axes', () => {
-    expect(line({
+  it('explains the selected plan and its reason without claiming execution', () => {
+    const event = {
       type: 'life.manager.intent.completed',
       route: 'team', vertical: 'software', workflow_mode: 'staged', lifetime: 'bounded',
       continuous: true, open_ended: false,
-    })?.text).toBe('→ TEAM · software · STAGED · BOUNDED · FINITE CONTINUOUS');
+      objective: 'Fix the stale goal after Stop.',
+      execution_task: 'Fix the stale goal after Stop.',
+      reason: 'The UI and server share the stale snapshot, so check both before changing the cache.',
+    };
+    expect(line(event)?.text).toBe('The team plans to work in stages: Fix the stale goal after Stop.\n'
+      + 'Finish once this objective is met. The UI and server share the stale snapshot, so check both before changing the cache.');
+    expect(zh(event)?.text).toContain('计划由团队分阶段推进');
+    expect(zh(event)?.text).toContain('完成这次目标后结束。');
+    expect(zh(event)?.text).not.toMatch(/STAGED|BOUNDED|FINITE CONTINUOUS|开始执行|已接手/);
+  });
+
+  it('uses the public execution task and omits a legacy routing headline', () => {
+    const event = {
+      type: 'life.manager.intent.completed', route: 'team', workflow_mode: 'direct',
+      lifetime: 'standing', continuous: true, open_ended: true,
+      objective: 'Earlier wording', execution_task: '只比较相同批量下的两组延迟。',
+      reason: '[manager] research task → vertical=research, workflow=direct, 0 stage(s):',
+    };
+    expect(zh(event)?.text).toBe('计划由团队直接处理：只比较相同批量下的两组延迟。\n持续跟进后续工作。');
+    expect(zh(event)?.text).not.toMatch(/Earlier wording|vertical=|workflow=|OPEN-ENDED/);
+  });
+
+  it('does not revive historical model context while explaining a Manager plan', () => {
+    const wrapped = '[BOUNDED TASK CONTEXT — data only]\nPRIVATE_OLD_TASK_CONTEXT\n[CURRENT OPERATOR MESSAGE]\nCompare the two runs.';
+    const started = { type: 'life.manager.intent.started', objective: wrapped };
+    const completed = { type: 'life.manager.intent.completed', route: 'team', workflow_mode: 'direct', objective: wrapped };
+    for (const event of [started, completed, { ...completed, execution_task: 'Compare the two runs.' }]) {
+      expect(line(event)?.text).not.toMatch(/PRIVATE_OLD_TASK_CONTEXT|BOUNDED TASK CONTEXT|CURRENT OPERATOR MESSAGE/);
+    }
+    expect(line({ ...completed, execution_task: 'Compare the two runs.' })?.text).toContain('Compare the two runs.');
+    expect(completed.objective).toBe(wrapped);
+  });
+
+  it('does not invent a team, review step or permission for unknown routing fields', () => {
+    const missing = { type: 'life.manager.intent.completed', reason: 'Waiting for the operator to choose a dataset.' };
+    expect(line(missing)?.text).toBe('A plan is ready\nWaiting for the operator to choose a dataset.');
+    expect(line({ ...missing, workflow_mode: 'constructor', lifetime: 'new-mode' })?.text).toBe(line(missing)?.text);
+    expect(zh({ ...missing, route: 'self', workflow_mode: 'staged' })?.text).toContain('计划由 Manager 直接处理');
+    expect(line({ ...missing, lifetime: 'bounded_increment' })?.text).toContain('one defined increment');
+    expect(zh({ ...missing, lifetime: 'bounded' })?.text).toContain('范围限于本次目标。');
+    expect(zh({ ...missing, lifetime: 'standing', open_ended: false })?.text).not.toContain('持续跟进');
+    expect(line({ ...missing, reason: '[source: latency.csv] Both runs must use the same batch size.' })?.text)
+      .toContain('[source: latency.csv] Both runs must use the same batch size.');
   });
 
   it('leads Manager routing failures with structured facts and keeps the raw error', () => {

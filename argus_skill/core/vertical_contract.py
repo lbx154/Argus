@@ -198,6 +198,9 @@ class VerticalContract:
     # explicitly declared empty set ("never search"): the former keeps the
     # framework default, the latter overrides it off.
     engineer_live_search_stages: frozenset[str] | None = None
+    # False keeps repairs in the current stage; replacing the operator's
+    # objective may still reset the pipeline. Existing providers default to True.
+    allow_stage_rollback: bool = True
 
     def banner(self, role: str) -> str:
         if self.role_guidance is None:
@@ -559,6 +562,11 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         raise VerticalContractError(
             f"vertical {name!r} has unsupported workflow mode {mode!r}"
         )
+    allow_stage_rollback = getattr(provider, "ALLOW_STAGE_ROLLBACK", True)
+    if not isinstance(allow_stage_rollback, bool):
+        raise VerticalContractError(
+            f"vertical {name!r} ALLOW_STAGE_ROLLBACK must be a boolean"
+        )
     mission_kind = str(
         getattr(provider, "MISSION_KIND", "custom") or "custom"
     ).strip().lower()
@@ -738,6 +746,7 @@ def vertical_contract(name: str, provider: Any) -> VerticalContract:
         verification_stage_profiles=verification_stage_profiles,
         checklist_optional_stages=optional_stages,
         stage_aliases=aliases,
+        allow_stage_rollback=allow_stage_rollback,
         search_altitude=(
             getattr(provider, "search_altitude_context")
             if callable(getattr(provider, "search_altitude_context", None))

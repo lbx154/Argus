@@ -32,9 +32,24 @@ from argus_skill.webapi import (
     project_state,
     server,
 )
+from argus_skill.webapi.daemon_services import DaemonServices
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
+
+
+def _daemon_services(*, alive: bool = False) -> DaemonServices:
+    return DaemonServices(
+        read_status=lambda path: server.DaemonStatus(
+            alive=alive,
+            pid=123 if alive else None,
+            started_at_iso=None,
+            uptime_seconds=5.0 if alive else None,
+            life_dir=Path(path),
+            pid_path=Path(path) / "daemon.pid",
+        ),
+        start=daemon_lifecycle.start_project_daemon,
+    )
 
 
 def _make_project(root: Path, sid: str = "s-cmd00001") -> Path:
@@ -471,12 +486,88 @@ def test_post_nudge_queues_inbox_and_emits_event(ctx) -> None:
     client = TestClient(server.create_app(global_root=root))
     r = client.post(f"/api/projects/{sid}/nudge", json={"text": "don't nudge, fix the framework"})
     assert r.status_code == 200 and r.json()["ok"] is True
-    # inbox.jsonl got the message
-    inbox = [json.loads(ln) for ln in (life / "inbox.jsonl").read_text().splitlines() if ln.strip()]
-    assert inbox and inbox[0]["text"] == "don't nudge, fix the framework"
+    from argus_skill.apps._inbox import claim_inbox_message, release_inbox_claim
+
+    claim = claim_inbox_message(life)
+    assert claim is not None and claim.text == "don't nudge, fix the framework"
+    release_inbox_claim(life, claim)
     # and a life.inbox.queued event shows on the stream (via /events)
     types = [e["type"] for e in client.get(f"/api/projects/{sid}/events").json()["events"]]
     assert "life.inbox.queued" in types
+
+
+def test_nudge_pressure_rejects_without_a_success_receipt(ctx, monkeypatch):
+    from argus_skill.apps import _inbox_protocol
+    from argus_skill.apps._inbox import count_pending_inbox_messages
+
+    root, sid, life = ctx
+    monkeypatch.setattr(_inbox_protocol, "MAX_PENDING_MESSAGES", 0)
+    client = TestClient(server.create_app(global_root=root))
+    response = client.post(f"/api/projects/{sid}/nudge", json={"text": "Retain this only if accepted."})
+    assert response.status_code == 429
+    assert "未接收" in response.json()["detail"]
+    assert count_pending_inbox_messages(life) == 0
+
+
+def test_nudge_busy_retries_without_duplicate_acceptance(ctx):
+    import sqlite3
+
+    from argus_skill.apps._inbox import count_pending_inbox_messages, queue_inbox_message
+    from argus_skill.apps._inbox_protocol import PROTOCOL_DIR
+
+    root, sid, life = ctx
+    queue_inbox_message(life, "Earlier accepted input", source="test")
+    client = TestClient(server.create_app(global_root=root))
+    with sqlite3.connect(life / PROTOCOL_DIR / "queue.sqlite3") as writer:
+        writer.execute("BEGIN IMMEDIATE")
+        response = client.post(f"/api/projects/{sid}/nudge", json={"text": "A retryable new instruction"})
+        assert response.status_code == 503
+        assert "未接收" in response.json()["detail"]
+        assert count_pending_inbox_messages(life) == 1
+        writer.rollback()
+    response = client.post(f"/api/projects/{sid}/nudge", json={"text": "A retryable new instruction"})
+    assert response.status_code == 200 and response.json() == {"ok": True}
+    assert count_pending_inbox_messages(life) == 2
+
+
+def test_nudge_acknowledgement_does_not_wait_for_advisory_event_writer(ctx):
+    import threading
+    import time
+
+    from argus_skill.apps._inbox import count_pending_inbox_messages
+    from argus_skill.core.mission_view._replay import events_locked
+
+    root, sid, life = ctx
+    client = TestClient(server.create_app(global_root=root))
+    done = threading.Event()
+    observed = {}
+
+    def post():
+        try:
+            observed["response"] = client.post(
+                f"/api/projects/{sid}/nudge", json={"text": "Durable guidance with a busy event log"},
+            )
+        finally:
+            done.set()
+
+    worker = threading.Thread(target=post, daemon=True)
+    try:
+        with events_locked(life):
+            started = time.monotonic()
+            worker.start()
+            acknowledged = done.wait(0.75)
+            elapsed = time.monotonic() - started
+            assert count_pending_inbox_messages(life) == 1
+            assert acknowledged, "Durable input receipt waited for its advisory event"
+            assert observed["response"].status_code == 200
+            assert observed["response"].json() == {"ok": True}
+            (life / "nudge-event-lock-observation.json").write_text(json.dumps({
+                "acknowledged_while_event_lock_held_seconds": elapsed,
+                "durable_pending_count": 1,
+            }))
+    finally:
+        worker.join(3)
+    assert not worker.is_alive()
 
 
 # ── continuous ────────────────────────────────────────────────────────────
@@ -1625,17 +1716,16 @@ def test_daemon_command_idempotency_and_revision_fencing(ctx, monkeypatch) -> No
     root, sid, _life = ctx
     starts = []
     stops = []
-    monkeypatch.setattr(
-        server,
-        "start_project_daemon",
-        lambda project_id, **kwargs: starts.append(project_id) or {"rc": 0, "already_alive": False},
+    services = DaemonServices(
+        read_status=server.read_daemon_status,
+        start=lambda project_id, **kwargs: starts.append(project_id) or {"rc": 0, "already_alive": False},
     )
     monkeypatch.setattr(
         server,
         "stop_project_daemon",
         lambda project_id, **kwargs: stops.append(project_id) or {"rc": 0},
     )
-    client = TestClient(server.create_app(global_root=root))
+    client = TestClient(server.create_app(global_root=root, daemon_services=services))
 
     body = {"command_id": "cmd-start", "expected_revision": 0}
     first = client.post(f"/api/projects/{sid}/daemon/start", json=body).json()
@@ -1698,7 +1788,7 @@ def test_project_update_preserves_legacy_continuous_objective(ctx) -> None:
     assert meta["objective"] == "Keep studying"
 
 
-def test_project_delete_moves_stopped_session_to_trash(ctx, monkeypatch) -> None:
+def test_project_delete_moves_stopped_session_to_trash(ctx) -> None:
     root, sid, life = ctx
     workdir = root / "workspaces" / sid
     workdir.mkdir(parents=True)
@@ -1706,19 +1796,8 @@ def test_project_delete_moves_stopped_session_to_trash(ctx, monkeypatch) -> None
     meta = json.loads((life / "session.json").read_text(encoding="utf-8"))
     meta["workdir"] = str(workdir)
     (life / "session.json").write_text(json.dumps(meta), encoding="utf-8")
-    monkeypatch.setattr(
-        server,
-        "read_daemon_status",
-        lambda path: server.DaemonStatus(
-            alive=False,
-            pid=None,
-            started_at_iso=None,
-            uptime_seconds=None,
-            life_dir=Path(path),
-            pid_path=Path(path) / "daemon.pid",
-        ),
-    )
-    client = TestClient(server.create_app(global_root=root))
+    services = _daemon_services(alive=False)
+    client = TestClient(server.create_app(global_root=root, daemon_services=services))
 
     r = client.delete(f"/api/projects/{sid}")
 
@@ -1732,7 +1811,7 @@ def test_project_delete_moves_stopped_session_to_trash(ctx, monkeypatch) -> None
     assert not life.exists()
 
 
-def test_project_delete_releases_warm_manager_runner(ctx, monkeypatch) -> None:
+def test_project_delete_releases_warm_manager_runner(ctx) -> None:
     root, sid, _life = ctx
     closed: list[str] = []
     state = manager_state._chat_state_for(sid)
@@ -1742,41 +1821,19 @@ def test_project_delete_releases_warm_manager_runner(ctx, monkeypatch) -> None:
         ),
         reset_chat_session=lambda: closed.append("session"),
     )
-    monkeypatch.setattr(
-        server,
-        "read_daemon_status",
-        lambda path: server.DaemonStatus(
-            alive=False,
-            pid=None,
-            started_at_iso=None,
-            uptime_seconds=None,
-            life_dir=Path(path),
-            pid_path=Path(path) / "daemon.pid",
-        ),
-    )
+    services = _daemon_services(alive=False)
 
-    response = TestClient(server.create_app(global_root=root)).delete(f"/api/projects/{sid}")
+    response = TestClient(server.create_app(global_root=root, daemon_services=services)).delete(f"/api/projects/{sid}")
 
     assert response.status_code == 200
     assert closed == ["acp", "session"]
     assert sid not in manager_state._STATES
 
 
-def test_project_trash_can_be_listed_and_restored(ctx, monkeypatch) -> None:
+def test_project_trash_can_be_listed_and_restored(ctx) -> None:
     root, sid, life = ctx
-    monkeypatch.setattr(
-        server,
-        "read_daemon_status",
-        lambda path: server.DaemonStatus(
-            alive=False,
-            pid=None,
-            started_at_iso=None,
-            uptime_seconds=None,
-            life_dir=Path(path),
-            pid_path=Path(path) / "daemon.pid",
-        ),
-    )
-    client = TestClient(server.create_app(global_root=root))
+    services = _daemon_services(alive=False)
+    client = TestClient(server.create_app(global_root=root, daemon_services=services))
     deleted = client.delete(f"/api/projects/{sid}").json()
 
     entries = client.get("/api/trash").json()["entries"]
@@ -1790,21 +1847,10 @@ def test_project_trash_can_be_listed_and_restored(ctx, monkeypatch) -> None:
     assert client.get("/api/trash").json()["entries"] == []
 
 
-def test_trash_restore_rejects_date_bucket(ctx, monkeypatch) -> None:
+def test_trash_restore_rejects_date_bucket(ctx) -> None:
     root, sid, _life = ctx
-    monkeypatch.setattr(
-        server,
-        "read_daemon_status",
-        lambda path: server.DaemonStatus(
-            alive=False,
-            pid=None,
-            started_at_iso=None,
-            uptime_seconds=None,
-            life_dir=Path(path),
-            pid_path=Path(path) / "daemon.pid",
-        ),
-    )
-    client = TestClient(server.create_app(global_root=root))
+    services = _daemon_services(alive=False)
+    client = TestClient(server.create_app(global_root=root, daemon_services=services))
     deleted = client.delete(f"/api/projects/{sid}").json()
     bucket = str(Path(deleted["trash_path"]).parent)
 
@@ -1813,27 +1859,15 @@ def test_trash_restore_rejects_date_bucket(ctx, monkeypatch) -> None:
 
 def test_trash_restore_rejects_duplicate_sid_in_another_root(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     primary = tmp_path / "primary"
     secondary = tmp_path / "secondary"
     sid = "s-duplicate"
     _make_project(primary, sid)
     _make_project(secondary, sid)
-    monkeypatch.setattr(
-        server,
-        "read_daemon_status",
-        lambda path: server.DaemonStatus(
-            alive=False,
-            pid=None,
-            started_at_iso=None,
-            uptime_seconds=None,
-            life_dir=Path(path),
-            pid_path=Path(path) / "daemon.pid",
-        ),
-    )
-    assert server.delete_project(sid, global_root=secondary)["ok"] is True
-    client = TestClient(server.create_app(global_root=primary, session_roots=[secondary]))
+    services = _daemon_services(alive=False)
+    assert server.delete_project(sid, global_root=secondary, read_status=services.read_status)["ok"] is True
+    client = TestClient(server.create_app(global_root=primary, session_roots=[secondary], daemon_services=services))
     entry = client.get("/api/trash").json()["entries"][0]
 
     response = client.post(f"/api/trash/{quote(entry['trash_id'], safe='')}/restore")
@@ -1844,19 +1878,8 @@ def test_trash_restore_rejects_duplicate_sid_in_another_root(
 
 def test_project_delete_refuses_live_daemon(ctx, monkeypatch) -> None:
     root, sid, life = ctx
-    monkeypatch.setattr(
-        server,
-        "read_daemon_status",
-        lambda path: server.DaemonStatus(
-            alive=True,
-            pid=123,
-            started_at_iso=None,
-            uptime_seconds=5.0,
-            life_dir=Path(path),
-            pid_path=Path(path) / "daemon.pid",
-        ),
-    )
-    client = TestClient(server.create_app(global_root=root))
+    services = _daemon_services(alive=True)
+    client = TestClient(server.create_app(global_root=root, daemon_services=services))
 
     r = client.delete(f"/api/projects/{sid}")
 

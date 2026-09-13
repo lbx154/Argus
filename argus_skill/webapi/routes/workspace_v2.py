@@ -25,6 +25,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from .. import mission_items
 from ..attachments import _windows_guard_directory_chain, _windows_guard_path
 from .context import ServerContext
 
@@ -925,12 +926,13 @@ def register_workspace_v2_routes(app, ctx: ServerContext, server_mod) -> None:
         project_root = ctx.project_root_or_404(sid)
         try:
             dispatch = await run_in_threadpool(
-                server_mod.enqueue_task_command,
+                mission_items.enqueue_task_command,
                 sid,
                 task_text,
                 autostart_daemon=True,
                 global_root=project_root,
-                lifecycle_root=server_mod._global_root(ctx.global_root),
+                lifecycle_root=ctx.roots[0],
+                start_daemon=ctx.daemon_services.start,
             )
         except Exception:
             manifest["status"] = "dispatch_failed"

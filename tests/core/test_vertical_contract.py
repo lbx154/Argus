@@ -32,6 +32,7 @@ def test_minimal_non_research_vertical_implements_only_documented_contract() -> 
     assert contract.completion_gate == "none"
     assert contract.mission_kind == "custom"
     assert contract.ground_before_handoff is False
+    assert contract.allow_stage_rollback is True
     assert contract.banner("engineer") == ""
     assert contract.role_prompt_context is None
     assert contract.evidence_schema is None
@@ -42,6 +43,19 @@ def test_minimal_non_research_vertical_implements_only_documented_contract() -> 
         semantic_duplicate=None,
         stage_reviewed_at=None,
     ) is None
+
+
+@pytest.mark.parametrize("value", [None, "false", "true", 0, 1, [], {}])
+def test_stage_rollback_policy_rejects_non_boolean_values(value: object) -> None:
+    provider = SimpleNamespace(
+        CHECKLIST_STAGE_ORDER=("build",),
+        CHECKLIST_ITEMS={"build": (_item("build.output"),)},
+        completion_gate="none",
+        ALLOW_STAGE_ROLLBACK=value,
+    )
+
+    with pytest.raises(VerticalContractError, match="ALLOW_STAGE_ROLLBACK must be a boolean"):
+        vertical_contract("external_lab", provider)
 
 
 def test_provider_declares_routing_metadata_without_manager_name_tables() -> None:

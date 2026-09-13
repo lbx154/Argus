@@ -38,6 +38,7 @@ from .round_config import (
     parse_continue_work_request,
 )
 from .round_execution import RoundExecutionMixin
+from .round_manager_wait import manager_wait_terminal
 from .round_prompt import RoundPromptMixin
 from .round_reviewer import RoundReviewerMixin
 from .round_self_review import RoundSelfReviewMixin
@@ -237,6 +238,9 @@ class SupervisedEngineer(
             else range(1, supervised_config.max_rounds + 1)
         )
         for round_index in round_indices:
+            paused = manager_wait_terminal(supervised_config, state)
+            if paused is not None:
+                return paused
             engineer_resume_id = state.engineer_session.prepare(
                 max_turns=supervised_config.role_session_max_turns,
                 max_input_tokens=supervised_config.role_session_max_input_tokens,
@@ -281,6 +285,9 @@ class SupervisedEngineer(
             if control.action == "continue_loop":
                 continue
 
+            paused = manager_wait_terminal(supervised_config, state)
+            if paused is not None:
+                return paused
             control = self._handle_agent_driven_wait(
                 round_index=round_index,
                 supervised_config=supervised_config,

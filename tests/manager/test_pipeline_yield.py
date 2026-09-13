@@ -24,10 +24,10 @@ def test_pipeline_yield_marker_tracks_live_request(tmp_path) -> None:
 def test_pipeline_yield_marker_clears_dead_request(tmp_path, monkeypatch) -> None:
     request_manager_pipeline_yield(tmp_path)
 
-    def dead_process(_pid, _signal):
-        raise ProcessLookupError
+    def dead_process(_pid):
+        return False
 
-    monkeypatch.setattr("argus_skill.manager._session_ops.os.kill", dead_process)
+    monkeypatch.setattr("argus_skill.manager._session_ops.is_pid_running", dead_process)
 
     assert manager_pipeline_yield_requested(tmp_path) is False
     assert not (tmp_path / ".manager_pipeline_yield.json").exists()

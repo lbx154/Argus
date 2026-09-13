@@ -31,6 +31,63 @@ function cachedClient() {
   return client;
 }
 
+it('shows an identical task title and objective once when explanation generation is unavailable', () => {
+  const props = inputs(), queryClient = cachedClient();
+  const goal = 'Compare latency for the same batch size.';
+  const task = { ...source.tasks[0], title: goal, objective: goal };
+  props.view.mission = { ...props.view.mission, title: goal, objective: goal };
+  props.snapshot.backlog = [{ ...props.snapshot.backlog[0], title: goal, objective: goal }];
+  queryClient.setQueryData(briefLiveKey(props.sid, briefSelection(props.snapshot, props.view)),
+    currentBriefData({ ...source, tasks: [task], events: [] }, props.sid, task.id));
+  queryClient.setQueryData(briefCopyKey(props.sid, 'en-US'), { cards: {}, relations: [], available: false, version: 10 });
+  const markup = renderToStaticMarkup(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} /></QueryClientProvider>);
+  expect(markup.split(goal)).toHaveLength(2);
+  expect(markup).not.toContain('No verifiable source events are retained for this explanation.');
+  expect((markup.match(/role="status"/g) || [])).toHaveLength(1);
+  expect(markup).toContain('View evidence');
+});
+
+it('shows actual runtime state without rewriting the claimed task record', () => {
+  const props = inputs(), queryClient = cachedClient();
+  props.snapshot.daemon = { ...props.snapshot.daemon, alive: false, pid: null };
+  act(() => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} readOnly /></QueryClientProvider>); });
+  const facts = renderer!.root.findByProps({ 'data-reader-task-facts': 'a' });
+  const state = facts.findByProps({ 'data-reader-fact-state': 'current' });
+  expect(state.findByType('p').children).toContain('The current task is not running');
+  expect(state.findByType('p').children).not.toContain('In progress');
+  act(() => renderer!.root.findAllByType('button').find(node => node.children.includes('View evidence'))!.props.onClick());
+  const selection = renderer!.root.findByType(ReaderEvidence).props.selection;
+  expect((selection.currentTask ?? selection.usedTask?.fullRecord).status).toBe('running');
+});
+
+it('retains a newer finished task record while the runtime snapshot still reports work', () => {
+  const props = inputs(), queryClient = cachedClient();
+  props.snapshot.roles = [{ role: 'engineer', active: true, status: 'running', backend: 'test',
+    backend_label: 'Test', model: 'offline', effort: null, label: 'working', age_s: 1 }];
+  const task = { ...source.tasks[0], status: 'done', revision: 'a2' };
+  queryClient.setQueryData(briefLiveKey(props.sid, briefSelection(props.snapshot, props.view)),
+    currentBriefData({ ...source, tasks: [task] }, props.sid, task.id));
+  act(() => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} readOnly /></QueryClientProvider>); });
+  const state = renderer!.root.findByProps({ 'data-reader-fact-state': 'current' });
+  expect(state.findByType('p').children).toContain('Done');
+});
+
+it.each([{ status: 'done', started_ts: 2 }, { status: 'running', started_ts: 1 }])(
+  'does not borrow runtime state from an older task attempt ($status)', older => {
+    const props = inputs(), queryClient = cachedClient();
+    props.snapshot.backlog = [{ ...props.snapshot.backlog[0], ...older }];
+    props.snapshot.roles = [{ role: 'engineer', active: true, status: 'running', backend: 'test',
+      backend_label: 'Test', model: 'offline', effort: null, label: 'working', age_s: 1 }];
+    act(() => { renderer = create(<QueryClientProvider client={queryClient}><ResearchBrief {...props} active={false} readOnly /></QueryClientProvider>); });
+    const state = renderer!.root.findByProps({ 'data-reader-fact-state': 'current' });
+    const words = state.findByType('p').children.filter(child => typeof child === 'string');
+    expect(words).toContain('Task record: ');
+    expect(words).toContain('In progress');
+    expect(words).not.toContain('This step has ended');
+    expect(words).not.toContain('Working on this step');
+  },
+);
+
 it('keeps MissionView fallback status out of both current and selected-reader facts when the actual task is not loaded', () => {
   const props = inputs(), queryClient = cachedClient();
   props.view.mission.status = 'complete';
@@ -60,7 +117,7 @@ it('reads from the full problem through definition, example and connection befor
   expect(markup).not.toContain('line-clamp-3');
   expect(markup).toContain('Counterexample');
   expect(markup).toContain('the general problem remains open');
-  expect(markup).toContain('Background explanations are not research progress');
+  expect(markup).not.toContain('Background explanations are not research progress');
   const readingOrder = ['Why this step helps', 'Definition', 'Example', 'Connection to this step', 'What this does and does not establish', 'How the explanation interprets the follow-up', 'Detailed explanation and conditions', 'Recorded task status', 'Recorded results and follow-up'];
   for (const [index, heading] of readingOrder.entries()) {
     expect(markup).toContain(heading);
@@ -440,7 +497,7 @@ it('contains a record-read failure inside the card and leaves the original goal 
   const rendered = JSON.stringify(renderer!.toJSON());
   expect(rendered).toContain('Other page content');
   expect(rendered).toContain(source.tasks[0].objective);
-  expect(rendered).toContain('Records could not be refreshed');
+  expect(rendered).toContain('Task records could not be refreshed');
   expect(generate).not.toHaveBeenCalled();
 });
 

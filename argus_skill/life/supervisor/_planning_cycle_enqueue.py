@@ -164,34 +164,15 @@ def _apply_planner_stage_request(
 ) -> None:
     """Apply a Manager-owned Planner stage request."""
     from ...skills.stage_machine import (
+        StageRollbackError,
         advance_stage,
         current_stage,
         rollback_stage,
-    )
-    from ...skills.vertical_select import resolve_vertical
-    from ...verticals._base import (
-        load_vertical,
-        vertical_checklist_stage_order,
     )
 
     current = current_stage(state_root)
     if requested_stage == current:
         return
-    if resolve_vertical(state_root) == "research":
-        order = tuple(
-            vertical_checklist_stage_order(
-                load_vertical("research", project_root=state_root)
-            )
-        )
-        if (
-            current in order
-            and requested_stage in order
-            and order.index(requested_stage) < order.index(current)
-        ):
-            raise ValueError(
-                "research stages are forward-only; schedule the repair in the "
-                "current stage"
-            )
     try:
         advance_stage(
             state_root,
@@ -209,6 +190,8 @@ def _apply_planner_stage_request(
                 rolled_back_by="manager:planner_request",
                 evidence_root=evidence_root,
             )
+        except StageRollbackError:
+            raise
         except ValueError:
             raise advance_error
 

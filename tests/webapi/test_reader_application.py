@@ -157,6 +157,46 @@ def test_failed_application_keeps_prior_copy_and_its_actual_source_snapshot(tmp_
     assert retained["cards"]["a"]["source_snapshot"]["events"][0]["text"] == "Recorded work"
 
 
+@pytest.mark.parametrize("neighbor_id", ["b", "🧪" * 161], ids=["ordinary-id", "bounded-id"])
+def test_application_refreshes_changed_neighbor_without_replacing_the_foundation(
+    tmp_path, monkeypatch, neighbor_id,
+):
+    now, calls = [1000.0], []
+    monkeypatch.setattr(map_narrative, "resolve_map_model", model)
+    monkeypatch.setattr(map_narrative, "configured", lambda: True)
+    monkeypatch.setattr(map_narrative.time, "time", lambda: now[0])
+    monkeypatch.setattr(reader_application, "run_map_model", run_stub(calls))
+    data = dataset()
+    data["tasks"][0]["deps"] = [neighbor_id]
+    data["tasks"].append({"id": neighbor_id, "title": "Neighbor", "objective": "Old neighboring goal",
+                          "status": "pending", "revision": "b1"})
+    own_task = copy.deepcopy(data["tasks"][0])
+    requests = [{"key": "a", "task_id": "a", "kind": "task", "event_ids": ["e"]}]
+
+    def generate():
+        return map_narrative.enrich(tmp_path, data, requests, "en-US", project_root=tmp_path,
+                                    preview="question-foundation", foundation=foundation())
+
+    saved = copy.deepcopy(generate()["cards"]["a"])
+    assert saved["source_snapshot"]["related_tasks"][0]["id"] == neighbor_id[:160]
+    assert generate()["cached"] is True and len(calls) == 1
+    data["tasks"][1]["objective"] = "A corrected neighboring goal"
+    coalesced = generate()
+    assert coalesced["retry_after"] == 25 and coalesced["cards"]["a"] == saved
+    assert len(calls) == 1
+
+    now[0] += 26
+    refreshed = generate()
+    assert refreshed["cached"] is False and len(calls) == 2
+    current = refreshed["cards"]["a"]
+    assert current["source_snapshot"]["related_tasks"][0]["objective"] == "A corrected neighboring goal"
+    assert current["foundation_ref"] == saved["foundation_ref"]
+    assert current["source_snapshot"]["foundation"] == saved["source_snapshot"]["foundation"]
+    assert current["copy_revision"] > saved["copy_revision"]
+    assert data["tasks"][0] == own_task
+    assert generate()["cached"] is True and len(calls) == 2
+
+
 @pytest.mark.parametrize("saved", [None, foundation(state="generating"), foundation(state="failed"), foundation(markdown="")])
 def test_application_cannot_fall_back_to_a_teacher_without_a_complete_foundation(tmp_path, monkeypatch, saved):
     monkeypatch.setattr(map_narrative, "resolve_map_model", lambda: pytest.fail("An invalid foundation reached model setup"))

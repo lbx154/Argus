@@ -1,8 +1,72 @@
 import { describe, it, expect } from "vitest";
 import { buildMap, connectMap, type MapTask } from "../map/model";
-import { attentionReason, mergeMapCopy, needsCardCopy, referenceText, requestsFor, splitDraft } from "../map/presentation";
+import { attentionReason, mergeMapCopy, needsCardCopy, referenceText, requestsFor, splitDraft, type MapCopy } from "../map/presentation";
 import { buildSubmap } from "../map/submap";
 import type { Dataset, MapEvent } from "../map/model";
+
+describe('saved related-task source dependencies', () => {
+  const task: MapTask = { id: 'a', title: 'Current task', objective: 'Assess the result', status: 'running', revision: 'a-v1', deps: ['b'] };
+  const neighbor: MapTask = { id: 'b', title: 'Neighbor', objective: 'Old neighboring goal', status: 'pending', deps: [] };
+  const data: Dataset = { id: 'live:related', kind: 'live', title: '', description: '', read_only: false,
+    tasks: [task, neighbor, { ...neighbor, id: 'c', objective: 'An unrelated goal' }], events: [], tasks_complete: true };
+  const request = { key: 'a', task_id: 'a', kind: 'task', event_ids: [] };
+  const copy: MapCopy = { cards: { a: {
+    title: 'Retained explanation', summary: 'Retained summary', detail: 'Retained detail', generated_at: 1,
+    task_revision: task.revision, task_status: task.status,
+    source_snapshot: { version: 2, card_key: 'a', task_id: 'a', captured_at: 1,
+      task: {}, events: [], source_ids: [], related_tasks: [{ ...neighbor }] },
+  } }, relations: [] };
+
+  it.each([
+    { objective: 'New neighboring goal' }, { title: 'Revised neighbor' },
+    { status: 'cancelled' }, { deps: ['c'] },
+  ])('requests an update for supplied neighboring fields: %j', change => {
+    const before = structuredClone({ data, copy });
+    expect(needsCardCopy(request, data, copy)).toBe(false);
+    expect(needsCardCopy(request, { ...data, tasks: [task, { ...neighbor, ...change }] }, copy)).toBe(true);
+    expect({ data, copy }).toEqual(before);
+  });
+
+  it('refreshes after deletion in complete history, and respects explicit removal in a partial view', () => {
+    expect(needsCardCopy(request, { ...data, tasks: [task] }, copy)).toBe(true);
+    expect(needsCardCopy(request, { ...data, tasks: [task], tasks_complete: false, history_cursor: 'history-page' }, copy)).toBe(true);
+    expect(needsCardCopy(request, { ...data, tasks: [task], tasks_complete: false, removed_task_ids: ['b'] }, copy)).toBe(true);
+    expect(needsCardCopy(request, { ...data, tasks: [task], tasks_complete: false }, copy)).toBe(false);
+  });
+
+  it('ignores other tasks, progress, and fields absent from related model context', () => {
+    expect(needsCardCopy(request, { ...data, tasks: [task,
+      { ...neighbor, revision: 'b-v2', summary: 'Later progress', acceptance_check: 'A later acceptance edit' },
+      { ...data.tasks[2], objective: 'Changed unrelated goal', status: 'cancelled' },
+    ] }, copy)).toBe(false);
+    const legacy = structuredClone(copy);
+    legacy.cards.a.source_snapshot!.version = 1;
+    delete legacy.cards.a.source_snapshot!.related_tasks;
+    expect(needsCardCopy(request, { ...data, tasks: [task] }, legacy)).toBe(false);
+    delete legacy.cards.a.source_snapshot;
+    expect(needsCardCopy(request, { ...data, tasks: [task] }, legacy)).toBe(false);
+  });
+
+  it('matches bounded Unicode text, dependency order, and source truncation markers', () => {
+    const bounded = structuredClone(copy);
+    const source = { ...neighbor, objective: '🧪'.repeat(500), objective_truncated: true,
+      deps: Array.from({ length: 24 }, (_, index) => `dep-${index}`), deps_truncated: true };
+    bounded.cards.a.source_snapshot!.related_tasks = [source];
+    const current = { ...data, tasks: [task, { ...neighbor, objective: source.objective + 'a new unseen suffix', deps: [...source.deps, 'another tail'] }] };
+    expect(needsCardCopy(request, current, bounded)).toBe(false);
+    expect(needsCardCopy(request, { ...current, tasks: [task, { ...current.tasks[1], objective: source.objective }] }, bounded)).toBe(true);
+    expect(needsCardCopy(request, { ...current, tasks: [task, { ...current.tasks[1], deps: [...source.deps].reverse() }] }, bounded)).toBe(true);
+  });
+
+  it('compares a truncated source identity without repeatedly mistaking its unchanged task for deletion', () => {
+    const bounded = structuredClone(copy);
+    bounded.cards.a.source_snapshot!.related_tasks = [{ ...neighbor, id: '🧪'.repeat(160), id_truncated: true }];
+    const longNeighbor = { ...neighbor, id: '🧪'.repeat(161) };
+    const current = { ...data, tasks: [task, longNeighbor] };
+    expect(needsCardCopy(request, current, bounded)).toBe(false);
+    expect(needsCardCopy(request, { ...current, tasks: [task, { ...longNeighbor, status: 'cancelled' }] }, bounded)).toBe(true);
+  });
+});
 
 it("shows the recorded question or most recent explicit failure, never an unrelated summary", () => {
   const task: MapTask = { id: "a", title: "Routing", objective: "", status: "failed", deps: [] };

@@ -53,6 +53,7 @@ import sqlite3
 import time
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from email.utils import format_datetime, parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 
@@ -130,11 +131,17 @@ BLOCKED = re.compile(
     r"^/api/projects/[^/]+/daemon/(?:upgrade|upgrade-schedule|replace)(?:/|$)"
 )
 PROJECT_WRITES = re.compile(
-    r"^/api/projects/[^/]+/(?:attachments|message(?:/stream)?|tasks|nudge|note|"
+    r"^/api/projects/[^/]+/(?:attachments|message(?:/stream|/cancel)?|advisor/config|tasks|nudge|note|"
     r"plan|prompt/rewrite|reset|continuous|daemon/(?:start|stop)|mission/abort|"
     r"backlog/[^/]+/(?:answer|dispose|stop)|decisions/[^/]+/resolve|"
     r"reviews/final|map-notes|reader-foundation(?:/[^/]+/question)?)$"
 )
+# These operations must remain reachable while ordinary reads or message
+# streams occupy every workspace connection. Keep model-backed routes out.
+CONTROL_ROUTES = re.compile(
+    r"^/api/projects/[^/]+/(?:daemon/stop|mission/abort|message/cancel|backlog/[^/]+/stop)$"
+)
+OBJECTIVE_ROUTES = re.compile(r"^/api/projects/[^/]+/continuous$")
 PLUGIN_WRITES = re.compile(
     r"^/api/plugins/crystalpilot/(?:launch|preferences|config|"
     r"manage/(?:health|repair|shelx)|"
@@ -330,12 +337,47 @@ class BackendTransport(httpx.AsyncBaseTransport):
             )
             for name, backend in endpoints.items()
         }
+        self.control_transports = {
+            name: httpx.AsyncHTTPTransport(
+                uds=backend.uds, trust_env=False,
+                limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+            )
+            for name, backend in settings.tenants.items()
+        }
+        # Changing a goal can itself wait for a model or pipeline boundary.
+        # Give those requests capacity without consuming emergency-stop slots.
+        self.objective_transports = {
+            name: httpx.AsyncHTTPTransport(
+                uds=backend.uds, trust_env=False,
+                limits=httpx.Limits(max_connections=2, max_keepalive_connections=2),
+            )
+            for name, backend in settings.tenants.items()
+        }
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        return await self.transports[request.extensions["argus_backend"]].handle_async_request(request)
+        name = request.extensions["argus_backend"]
+        transport = self.transports[name]
+        if name in self.control_transports and request.method == "POST" and CONTROL_ROUTES.fullmatch(request.url.path):
+            transport = self.control_transports[name]
+        elif name in self.objective_transports and request.method == "POST" and OBJECTIVE_ROUTES.fullmatch(request.url.path):
+            transport = (
+                self.control_transports[name]
+                if request.extensions.get("argus_continuous_pause") is True
+                else self.objective_transports[name]
+            )
+        if transport is not self.transports[name]:
+            # Retain the client's read/write/connect deadlines, but fail promptly
+            # if the small reserved pool is itself saturated.
+            request.extensions["timeout"] = {**request.extensions.get("timeout", {}), "pool": 1.0}
+        return await transport.handle_async_request(request)
 
     async def aclose(self):
-        await asyncio.gather(*(transport.aclose() for transport in self.transports.values()))
+        await asyncio.gather(*(
+            transport.aclose()
+            for transport in (
+                *self.transports.values(), *self.control_transports.values(), *self.objective_transports.values(),
+            )
+        ))
 
 
 class SecurityHeaders:
@@ -469,6 +511,22 @@ def filtered_headers(headers: httpx.Headers, allowed: set[str]) -> dict[str, str
         key: value for key, value in headers.items()
         if key.lower() in allowed - HOP_HEADERS - nominated
     }
+
+
+def retry_after_headers(headers: httpx.Headers, credential: str) -> dict[str, str]:
+    """Keep a bounded, standard retry hint without exposing backend error text."""
+    value = filtered_headers(headers, {"retry-after"}).get("retry-after", "")
+    if not value or credential in value:
+        return {}
+    if re.fullmatch(r"[0-9]{1,5}", value) and int(value) <= 86400:
+        return {"Retry-After": value}
+    if len(value) == 29:
+        try:
+            if format_datetime(parsedate_to_datetime(value), usegmt=True) == value:
+                return {"Retry-After": value}
+        except (ValueError, TypeError, OverflowError):
+            pass
+    return {}
 
 
 async def read_body(request: Request, limit: int = MAX_BODY_BYTES) -> bytes:
@@ -668,6 +726,9 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
 
     @asynccontextmanager
     async def lifespan(app):
+        # Authorization must not queue behind analytics/file work in Starlette's
+        # shared worker limiter, nor execute SQLite calls on the event loop.
+        app.state.session_limiter = anyio.CapacityLimiter(16)
         vault = Vault(settings.key_file, settings.state_dir / "github-token.enc")
         store = Store(settings.state_dir / "usage.sqlite3", token_limit=settings.token_limit,
                       key_limit=len(settings.tenants))
@@ -789,6 +850,8 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             return None
 
     def session(request: Request | WebSocket) -> dict | None:
+        if "argus.portal_session" in request.scope:
+            return request.scope["argus.portal_session"]
         path = request.url.path
         return read_session(request, admin=path == "/admin" or path.startswith("/admin/"))
 
@@ -1094,11 +1157,16 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         headers["authorization"] = "Bearer " + credential
         if route_key == "compute":
             headers["x-argus-readonly"] = str(identity["readonly"]).lower()
+        backend_extensions: dict[str, str | bool] = {"argus_backend": route_key}
+        if request.method == "POST" and OBJECTIVE_ROUTES.fullmatch(path):
+            # Only the explicit stop form bypasses potentially slow goal changes.
+            # This marker is derived from the validated body, never browser headers.
+            backend_extensions["argus_continuous_pause"] = json_body(body).get("enabled") is False
         # Construct directly rather than build_request: the shared client's
         # cookie jar must never send an upstream cookie to a different tenant.
         upstream_request = httpx.Request(
             request.method, url, headers=headers, content=body,
-            extensions={"argus_backend": route_key},
+            extensions=backend_extensions,
         )
         capture = None
         interaction = re.fullmatch(r"/api/projects/([^/]+)/(?:message(?:/stream)?|tasks|reader-foundation(?:/[^/]+/question)?)", path)
@@ -1116,6 +1184,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
             await finish_capture(capture, 502, False, "application/json")
             raise HTTPException(502, "Workspace unavailable") from None
         if upstream.status_code >= 400:
+            retry_headers = retry_after_headers(upstream.headers, credential) if upstream.status_code == 503 else {}
             await finish_capture(capture, upstream.status_code, True, "application/json")
             if route_key == "compute" and upstream.status_code < 500:
                 error_body = bytearray()
@@ -1133,7 +1202,7 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
                             and all(isinstance(value, str) for value in error.values())):
                         return JSONResponse({"error": error}, status_code=upstream.status_code)
             await upstream.aclose()
-            raise HTTPException(upstream.status_code, "Workspace request failed")
+            raise HTTPException(upstream.status_code, "Workspace request failed", headers=retry_headers)
         if 300 <= upstream.status_code < 400 and upstream.status_code != 304:
             location = urlsplit(upstream.headers.get("location", ""))
             await upstream.aclose()
@@ -1170,7 +1239,11 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
 
     @app.websocket("/{path:path}")
     async def websocket_proxy(ws: WebSocket, path: str):
-        identity = session(ws)
+        try:
+            identity = await anyio.to_thread.run_sync(session, ws, limiter=app.state.session_limiter)
+        except (sqlite3.Error, OSError):
+            await ws.close(code=1011)
+            return
         if identity is None:
             await ws.close(code=4401)
             return
@@ -1246,6 +1319,22 @@ def create_app(config: dict | str | Path | Settings | None = None, *,
         else:
             if ws.client_state.name != "DISCONNECTED" and ws.application_state.name != "DISCONNECTED":
                 await ws.close(code=1000)
+
+    @app.middleware("http")
+    async def authenticate_session(request: Request, call_next):
+        # Registered last so every existing middleware and route sees the same
+        # request-scoped authorization result. Revocation is rechecked on each
+        # request; the synchronous callback remains usable by registered routes.
+        try:
+            request.scope["argus.portal_session"] = await anyio.to_thread.run_sync(
+                session, request, limiter=app.state.session_limiter,
+            )
+        except (sqlite3.Error, OSError):
+            return JSONResponse(
+                {"detail": "Workspace authorization unavailable"}, status_code=503,
+                headers={**SECURITY_HEADERS, "Retry-After": "1"},
+            )
+        return await call_next(request)
 
     if analytics is not None:
         from .analytics_routes import HttpResponseObservation

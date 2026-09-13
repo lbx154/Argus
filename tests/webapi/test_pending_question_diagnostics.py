@@ -9,6 +9,7 @@ import pytest
 from argus_skill.adapters.agent_cli_backend import AgentCliBackend
 from argus_skill.agent_cli.models import AgentRunResult
 from argus_skill.core.models import RunnerOptions
+from argus_skill.core.operator_context import OperatorContextStore
 from argus_skill.life.memory import BacklogItem, LifeMemory
 from argus_skill.manager._session_ops import _ManagerSession
 from argus_skill.webapi.manager_pending_question import (
@@ -125,11 +126,8 @@ def test_pending_question_401_replay_settles_answer_after_persistence(
     blocked = next(row for row in rows if row.id == item.id)
     assert blocked.pending_question == ""
     assert len([row for row in rows if row.id != item.id]) == 1
-    ledger = [
-        json.loads(line)
-        for line in (tmp_path / "operator_context.jsonl").read_text().splitlines()
-    ]
-    assert [row["text"] for row in ledger] == [
+    ledger = OperatorContextStore(tmp_path).records()
+    assert [row.text for row in ledger] == [
         "Yes, authorize the requested repair."
     ]
     projection = json.loads((tmp_path / "operator_context.json").read_text())
@@ -234,10 +232,10 @@ def test_answer_directive_is_written_only_after_positive_classification(tmp_path
 
     assert result["answer_intent"] is is_answer and result["resolved"] is False
     if is_answer:
-        ledger = [json.loads(line) for line in (tmp_path / "operator_context.jsonl").read_text().splitlines()]
-        assert len(ledger) == 1 and ledger[0]["text"] == answer
-        assert ledger[0]["source"] == "operator.pending_answer"
-        assert ledger[0]["scope"] == "mission"
-        assert ledger[0]["lifetime"] == "once"
+        ledger = OperatorContextStore(tmp_path).records()
+        assert len(ledger) == 1 and ledger[0].text == answer
+        assert ledger[0].source == "operator.pending_answer"
+        assert ledger[0].scope == "mission"
+        assert ledger[0].lifetime == "once"
     else:
         assert not (tmp_path / "operator_context.jsonl").exists()

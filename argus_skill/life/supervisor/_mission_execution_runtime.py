@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...agent_cli._process_control import windows_hidden_subprocess_kwargs
 from ...core.event_catalog import EventType
@@ -28,6 +28,9 @@ from ..memory import BacklogItem
 from ..mission_outcome import mission_outcome_class, mission_outcome_dimensions
 from ._cost import _CostTrackingSink
 from ._mission_execution_helpers import _MissionRunState
+
+if TYPE_CHECKING:
+    from ._config import _MemoryView
 
 log = logging.getLogger(__name__)
 
@@ -98,7 +101,46 @@ def dispose_maintenance_worktree(
         sidecar.unlink(missing_ok=True)
 
 
+def _refreshes_mission_prelude(runner: Any) -> bool:
+    """Only an explicit runner capability may replace snapshot context."""
+    from inspect import signature
+
+    try:
+        return "prelude_context_provider" in signature(runner.execute).parameters
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _mission_memory_prelude(memory: Any, item: BacklogItem, *, stop_event: Any = None) -> str:
+    from ...core.file_lock import FileLockCancelled, bounded_file_lock_wait
+    from ...core.run_gateway import current_run_interrupt_reason, run_interrupt_scope
+
+    # The existing scope preserves request cancellation; this child scope also
+    # lets both Engineer and Planner memory preparation observe daemon stop.
+    with run_interrupt_scope(
+        lambda: "daemon stop requested" if stop_event is not None and stop_event.is_set() else None,
+        retain_first_reason=True,
+    ), bounded_file_lock_wait(
+        timeout_seconds=float("inf"), cancelled=lambda: bool(current_run_interrupt_reason()),
+    ):
+        try:
+            try:
+                return memory.render_prelude(objective=item.objective)
+            except TypeError:
+                # Compatibility with narrow host-provided memory views.
+                return memory.render_prelude()
+        except FileLockCancelled:
+            # Recall is optional. Retain a one-shot interrupt until this check,
+            # including when the narrow-interface fallback was cancelled.
+            if current_run_interrupt_reason():
+                return ""
+            raise
+
+
 class MissionExecutionRuntimeMixin:
+    if TYPE_CHECKING:
+        memory: _MemoryView
+
     """Claim/context setup and runner invocation for one mission."""
 
     # ------------------------------------------------------------------
@@ -106,22 +148,29 @@ class MissionExecutionRuntimeMixin:
     # ------------------------------------------------------------------
 
     def _build_mission_prelude(
-        self, item: BacklogItem, *, for_planner: bool = False,
+        self, item: BacklogItem, *, for_planner: bool = False, defer_memory: bool = False,
     ) -> str:
-        try:
-            prelude = self.memory.render_prelude(objective=item.objective)
-        except TypeError:
-            # Compatibility with narrow host-provided memory views.
-            prelude = self.memory.render_prelude()
-        from ...core.operator_context import build_operator_context_block
+        refresh_per_round = not for_planner and (
+            defer_memory or _refreshes_mission_prelude(getattr(self, "runner", None))
+        )
+        # Mutable recall and operator projections must not become immutable
+        # mission text. Capable runners read recall at each Engineer boundary;
+        # their existing live-guidance hook reads OperatorContext separately.
+        prelude = "" if refresh_per_round else _mission_memory_prelude(
+            self.memory, item, stop_event=getattr(getattr(self, "config", None), "stop_event", None),
+        )
+        from ...core.operator_context import (
+            build_operator_context_block,
+            operator_context_state_root,
+        )
 
         # Bounded Planner projects its own current OperatorContext immediately
         # before drafting. Never mix in this Engineer-role snapshot.
         operator_context = ""
-        if not for_planner:
+        if not for_planner and not refresh_per_round:
             operator_context, _revision = build_operator_context_block(
                 "engineer",
-                self.memory.root,
+                operator_context_state_root(self.memory),
                 mission_id=item.id,
                 consume_once=False,
             )
@@ -279,7 +328,9 @@ class MissionExecutionRuntimeMixin:
         metadata = json.loads(sidecar.read_text(encoding="utf-8"))
         repository = Path(metadata["repository"]).expanduser().resolve(strict=True)
         worktree = Path(metadata["worktree"]).expanduser().resolve(strict=True)
-        if worktree != Path(state.execution_workdir).resolve(strict=True):
+        execution_workdir = state.execution_workdir
+        assert execution_workdir is not None, "maintenance settlement requires prepared workdir"
+        if worktree != execution_workdir.resolve(strict=True):
             raise ValueError("maintenance worktree does not match its runtime record")
 
         runtime_dir = worktree / ".argus-self-maintenance-runtime"
@@ -688,7 +739,8 @@ class MissionExecutionRuntimeMixin:
                     materialize_learned_data_domain,
                 )
 
-                vertical_root = Path(state.vertical_root)
+                vertical_root = state.vertical_root
+                assert vertical_root is not None, "execution requires prepared vertical root"
                 materialize_learned_data_domain(
                     self._budget_global_root(),
                     vertical_root,
@@ -713,7 +765,27 @@ class MissionExecutionRuntimeMixin:
                     execute_kwargs["original_objective"] = original_objective
                 if "review_objective" in params or _accepts_kw:
                     execute_kwargs["review_objective"] = review_objective
-                if "planner_context" in params or _accepts_kw:
+                if "prelude_context_provider" in params:
+                    static_prelude = str(execute_kwargs["prelude_context"])
+
+                    def current_prelude() -> str:
+                        try:
+                            recalled = _mission_memory_prelude(
+                                self.memory, item, stop_event=getattr(getattr(self, "config", None), "stop_event", None),
+                            )
+                        except Exception:  # noqa: BLE001 — keep execution context if recall fails
+                            log.warning("current mission memory unavailable", exc_info=True)
+                            recalled = "Current recalled memory is unavailable."
+                        return "\n\n".join(block for block in (
+                            static_prelude, recalled,
+                        ) if block)
+
+                    execute_kwargs["prelude_context_provider"] = current_prelude
+                if "planner_context_provider" in params:
+                    execute_kwargs["planner_context_provider"] = (
+                        lambda: self._build_planner_continuation_context(item)
+                    )
+                elif "planner_context" in params or _accepts_kw:
                     execute_kwargs["planner_context"] = (
                         self._build_planner_continuation_context(item)
                     )
@@ -835,8 +907,30 @@ class MissionExecutionRuntimeMixin:
                     None,
                 )
                 if overrides_runner_policy_root:
-                    self.runner._artifact_root = Path(state.vertical_root)
+                    assert state.vertical_root is not None, "execution requires prepared vertical root"
+                    self.runner._artifact_root = state.vertical_root
                 try:
+                    if "prelude_context_provider" not in execute_kwargs:
+                        # An opaque legacy runner exposes only this boundary.
+                        # Project mutable memory now, after mission preparation;
+                        # its internal calls require explicit callback support.
+                        from ...core.operator_context import (
+                            build_operator_context_block,
+                            operator_context_state_root,
+                        )
+
+                        recalled = _mission_memory_prelude(
+                            self.memory, item,
+                            stop_event=getattr(getattr(self, "config", None), "stop_event", None),
+                        )
+                        operator, _ = build_operator_context_block(
+                            "engineer", operator_context_state_root(self.memory),
+                            mission_id=item.id, consume_once=True,
+                        )
+                        execute_kwargs["prelude_context"] = "\n\n".join(
+                            block for block in (execute_kwargs["prelude_context"], recalled, operator)
+                            if block
+                        )
                     state.outcome = self.runner.execute(**execute_kwargs)
                 finally:
                     if overrides_runner_policy_root:
@@ -897,7 +991,9 @@ class MissionExecutionRuntimeMixin:
                 # after Engineer has returned. There is no interrupted backend
                 # call to attach a stop kind; the typed pause remains resumable.
                 state.stop_kind = "daemon_shutdown"
-        usage_summary = state.cost_sink.usage_summary()
+        cost_sink = state.cost_sink
+        assert cost_sink is not None, "outcome derivation requires prepared cost sink"
+        usage_summary = cost_sink.usage_summary()
         state.usage_summary = usage_summary
         state.usd = usage_summary.cost_usd
         state.known_usd = usage_summary.known_cost_usd
@@ -905,10 +1001,12 @@ class MissionExecutionRuntimeMixin:
             # Deterministic/memory runners used by tests do not own real
             # ``run_exec`` calls. Persist their aggregate once so subsequent
             # budget checks still exercise the same ledger-only read path.
-            UsageLedger(state.usage_root, migrate_legacy=False).append(
+            usage_root = state.usage_root
+            assert usage_root is not None, "aggregate metering requires prepared usage root"
+            UsageLedger(usage_root, migrate_legacy=False).append(
                 UsageRecord(
                     call_id=f"memory-mission:{item.id}:{int(state.t0 * 1_000_000)}",
-                    project_id=state.usage_root.name,
+                    project_id=usage_root.name,
                     mission_id=state.usage_attempt_id,
                     provider="memory",
                     model="",
@@ -956,7 +1054,14 @@ class MissionExecutionRuntimeMixin:
     def _maybe_pause_for_recoverable_stop(
         self, state: _MissionRunState,
     ) -> dict[str, Any] | None:
-        """Return a pause result dict, or ``None`` to continue the lifecycle."""
+        """Persist a recoverable stop and return its public result, if handled.
+
+        A valid pause owns its backlog write and completion event. External
+        work that already changed is requeued without a completion event;
+        repeated permanent provider failures are parked for an operator answer.
+        An invalid external wait becomes an error for ordinary settlement.
+        ``None`` means the caller must continue through repair/stage settlement.
+        """
         outcome = state.outcome
         item = state.item
         if state.status == "paused_external_work":
@@ -977,7 +1082,8 @@ class MissionExecutionRuntimeMixin:
                 state.stop_reason = "external-work pause lacks a structured wait request"
                 return None
             wait_kind, work_id = wait_request
-            workdir = Path(state.execution_workdir)
+            workdir = state.execution_workdir
+            assert workdir is not None, "external-work pause requires prepared workdir"
             external_work = inspect_external_work(workdir, work_id)
             if external_work is None or not external_work.waitable:
                 self.memory.backlog.update(
@@ -997,6 +1103,8 @@ class MissionExecutionRuntimeMixin:
                         "workdir": str(workdir),
                     },
                 }
+            usage_summary = state.usage_summary
+            assert usage_summary is not None, "pause settlement requires metered outcome"
             pause_outcome = mission_outcome_dimensions(
                 status=state.status,
                 success=False,
@@ -1034,7 +1142,7 @@ class MissionExecutionRuntimeMixin:
                 "external_wait": pause_outcome["external_wait"],
                 "cost_usd": state.usd,
                 "known_cost_usd": state.known_usd,
-                "pricing_status": state.usage_summary.pricing_status,
+                "pricing_status": usage_summary.pricing_status,
                 "spent_usd": state.known_usd,
             })
             return {
@@ -1045,9 +1153,14 @@ class MissionExecutionRuntimeMixin:
                 "external_wait": pause_outcome["external_wait"],
                 "cost_usd": state.usd,
                 "known_cost_usd": state.known_usd,
-                "pricing_status": state.usage_summary.pricing_status,
+                "pricing_status": usage_summary.pricing_status,
             }
         pause_status = pause_status_for_stop_kind(state.stop_kind)
+        manager_wait = state.status == "paused_operator" and state.stop_kind is None
+        if manager_wait:
+            # A task-scoped Manager WAIT is observed at a safe role boundary;
+            # it has no provider interruption and preserves the existing question.
+            pause_status = "paused_operator"
         if state.status == "budget_exhausted":
             state.status = "paused_budget"
             pause_status = state.status
@@ -1057,6 +1170,8 @@ class MissionExecutionRuntimeMixin:
             parked = self._maybe_park_permanent_provider_failure(state)
             if parked is not None:
                 return parked
+        usage_summary = state.usage_summary
+        assert usage_summary is not None, "pause settlement requires metered outcome"
         pause_outcome = mission_outcome_dimensions(
             status=pause_status,
             success=False,
@@ -1066,13 +1181,33 @@ class MissionExecutionRuntimeMixin:
             stop_kind=state.stop_kind,
             resumable=True,
         )
-        self.memory.backlog.update(
-            item.id,
-            status=pause_status,
-            finished_ts=time.time(),
-            last_error=state.stop_reason,
-            outcome=pause_outcome,
-        )
+        if manager_wait:
+            from ...core.operator_context import operator_context_state_root
+            from ...manager.supervision import waiting_for_evidence
+
+            current = next((row for row in self.memory.backlog.active() if row.id == item.id), None)
+            settled = self.memory.backlog.park_after_manager_wait(
+                item.id,
+                expected_question=current.pending_question if current is not None else "",
+                reason=state.stop_reason,
+                outcome=pause_outcome,
+                wait_current=waiting_for_evidence(operator_context_state_root(self.memory), item.id),
+            )
+            if settled is None or settled.status != "paused_operator":
+                return {
+                    "status": settled.status if settled is not None else "superseded",
+                    "item_id": item.id, "success": False, "recoverable": True,
+                    "cost_usd": state.usd, "known_cost_usd": state.known_usd,
+                    "pricing_status": usage_summary.pricing_status,
+                }
+        else:
+            self.memory.backlog.update(
+                item.id,
+                status=pause_status,
+                finished_ts=time.time(),
+                last_error=state.stop_reason,
+                outcome=pause_outcome,
+            )
         from ...engineer.round_stop_signals import backend_failure_cause
 
         # When the pause is the model service being out of reach, the record
@@ -1095,7 +1230,7 @@ class MissionExecutionRuntimeMixin:
             "recoverable": True,
             "cost_usd": state.usd,
             "known_cost_usd": state.known_usd,
-            "pricing_status": state.usage_summary.pricing_status,
+            "pricing_status": usage_summary.pricing_status,
             "spent_usd": state.known_usd,
             "context_packet": (
                 str(state.context_packet_path.parent / "latest.json")
@@ -1111,7 +1246,7 @@ class MissionExecutionRuntimeMixin:
             "recoverable": True,
             "cost_usd": state.usd,
             "known_cost_usd": state.known_usd,
-            "pricing_status": state.usage_summary.pricing_status,
+            "pricing_status": usage_summary.pricing_status,
             "context_packet": (
                 str(state.context_packet_path.parent / "latest.json")
                 if state.context_packet_path is not None
@@ -1168,6 +1303,8 @@ class MissionExecutionRuntimeMixin:
         from ...core.operator_decision import build_operator_decision
         from .pending_notify import notify_pending_question
 
+        usage_summary = state.usage_summary
+        assert usage_summary is not None, "provider parking requires metered outcome"
         question = (
             "The model configuration for this task has failed the same way "
             f"{streak} times in a row: {state.stop_reason} "
@@ -1256,7 +1393,7 @@ class MissionExecutionRuntimeMixin:
             "recoverable": True,
             "cost_usd": state.usd,
             "known_cost_usd": state.known_usd,
-            "pricing_status": state.usage_summary.pricing_status,
+            "pricing_status": usage_summary.pricing_status,
             "spent_usd": state.known_usd,
         })
         return {
@@ -1267,7 +1404,7 @@ class MissionExecutionRuntimeMixin:
             "recoverable": True,
             "cost_usd": state.usd,
             "known_cost_usd": state.known_usd,
-            "pricing_status": state.usage_summary.pricing_status,
+            "pricing_status": usage_summary.pricing_status,
         }
 
 

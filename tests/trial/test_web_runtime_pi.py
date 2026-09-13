@@ -5,7 +5,20 @@ from unittest.mock import patch
 import pytest
 
 from argus_skill.core.knob_store import read_persisted_knobs, write_persisted_knobs
+from argus_skill.trial import CLIENT_MODEL
 from argus_skill.trial.web_runtime import configure_provider
+
+
+def test_pi_registers_the_same_explicit_models_used_by_the_trial_gateway(tmp_path, monkeypatch):
+    from argus_skill.trial.model_catalog import configured_model_ids
+
+    monkeypatch.setenv("ARGUS_TRIAL_HARNESS", "argus-pi")
+    monkeypatch.setenv("ARGUS_TRIAL_MODELS", "expert-model,fast-model,expert-model")
+    with patch.dict(os.environ):
+        configure_provider(tmp_path, {"api_key": "test-key"})
+    provider = json.loads((tmp_path / "argus-pi/models.json").read_text())["providers"]["argus"]
+    assert tuple(row["id"] for row in provider["models"]) == configured_model_ids()
+    assert tuple(row["id"] for row in provider["models"]) == (CLIENT_MODEL, "expert-model", "fast-model")
 
 
 def test_pi_profile_selects_all_roles_and_own_provider(tmp_path, monkeypatch):

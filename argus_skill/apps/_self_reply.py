@@ -8,7 +8,7 @@ import threading
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..core.knobs import (
     resolve_manager_classify_model,
@@ -27,6 +27,9 @@ from ..core.secret_guard import known_secret_values, redact_secrets_record
 from ..engineer.runner import should_clear_thread_id_after_outcome
 from ._env import env_flag, env_int
 from ._runtime_backends import _Outcome
+
+if TYPE_CHECKING:
+    from ..manager import Manager
 
 _SELF_RETRYABLE_TRANSPORT_ERRORS = (
     "acp restart requested",
@@ -320,6 +323,8 @@ def build_status_snapshot_reply(root: Path | str, objective: str) -> str:
 class SelfReplyMixin:
     """Operator-facing Manager front door mixed into ``_SkillLoopRunner``."""
 
+    manager: Manager
+
     def _maybe_chat_outcome(
         self,
         *,
@@ -599,7 +604,10 @@ class SelfReplyMixin:
                     "Never say you are read-only or unable to direct the team.",
                 ])
                 mission = "\n".join(lines)
-            return "\n\n".join(block for block in (daemon_block, mission) if block)
+            from ..manager.observation import observe_project
+
+            evidence = observe_project(root).render()
+            return "\n\n".join(block for block in (daemon_block, mission, evidence) if block)
         except Exception:  # noqa: BLE001 - status context is optional
             return ""
 
@@ -701,6 +709,10 @@ class SelfReplyMixin:
         )
         if lean:
             prompt = build_quick_reply_prompt(objective=objective)
+            from ..manager.observation import observe_project
+
+            state_root = getattr(self, "_manager_session_root", None) or self.manager.manager_session_root
+            prompt += "\n\n" + observe_project(state_root).render()
             read_dirs = None
             native_skill_paths: list[str] = []
         elif execution_contract is not None:
@@ -780,8 +792,6 @@ class SelfReplyMixin:
         reply_model = (
             str(getattr(args, "engineer_model", "") or "")
             if executing
-            else resolve_manager_classify_model(backend=effective_backend)
-            if lean
             else resolve_manager_reply_model(backend=effective_backend)
         )
         reply_effort = (
@@ -821,7 +831,9 @@ class SelfReplyMixin:
             full_auto=False,
             skip_git_repo_check=True,
             dangerous_yolo=not lean,
-            sandbox_mode=None,
+            sandbox_mode="read-only" if lean else None,
+            force_safe_mode=lean,
+            disable_tools=lean,
             working_dir=str(workdir),
             add_dirs=read_dirs,
             skill_paths=native_skill_paths,
@@ -836,9 +848,12 @@ class SelfReplyMixin:
             on_agent_message=_emit_block,
         )
         attempt_results: list[Any] = []
+        from ..manager.session_context import conversation_backend
+
+        backend = self._backend if executing else conversation_backend(self)
         try:
             result = gateway_run_exec(
-                self._backend,
+                backend,
                 prompt=prompt,
                 options=options,
                 run_label=run_label,
@@ -856,7 +871,7 @@ class SelfReplyMixin:
                     ),
                 })
                 result = gateway_run_exec(
-                    self._backend,
+                    backend,
                     prompt=prompt,
                     options=options,
                     run_label=run_label,
@@ -879,7 +894,7 @@ class SelfReplyMixin:
             self.last_thread_id = None
             self._next_seed_thread_id = None
             new_thread_id = None
-        elif new_thread_id and not lean and not executing:
+        elif new_thread_id and not executing:
             self.last_thread_id = new_thread_id
             self._next_seed_thread_id = new_thread_id
         elif executing:

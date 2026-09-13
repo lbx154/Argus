@@ -9,7 +9,9 @@ then sat in `time.sleep` until it was killed.
 from __future__ import annotations
 
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -83,6 +85,36 @@ def test_daemon_stop_request_sets_the_process_flag() -> None:
     marker = "process_stop.request_stop()"
     assert marker in text
     assert text.index(marker) < text.index("self._stop.set()")
+
+
+def test_real_stop_wakes_default_external_wait_without_poll_delay(tmp_path, monkeypatch) -> None:
+    registry = tmp_path / ".argus_external_work"
+    registry.mkdir()
+    (registry / "job.json").write_text(json.dumps({
+        "version": EXTERNAL_WORK_PROTOCOL_VERSION, "work_id": "job",
+        "state": "running_healthy", "heartbeat_at": 100,
+        "stale_after_seconds": 60, "poll_after_seconds": 30,
+    }), encoding="utf-8")
+    entered = threading.Event()
+    real_wait = process_stop.wait_for_stop
+
+    def wait(timeout):
+        entered.set()
+        return real_wait(timeout)
+
+    monkeypatch.setattr(process_stop, "wait_for_stop", wait)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(wait_for_external_work_cadence, tmp_path, "job", now=lambda: 100)
+        try:
+            assert entered.wait(2)
+            started = time.monotonic()
+            process_stop.request_stop()
+            reason, waited = future.result(timeout=2)
+            assert reason == "stop_requested"
+            assert waited < 2
+            assert time.monotonic() - started < 2
+        finally:
+            process_stop.request_stop()
 
 
 def test_round_wait_loop_cannot_spin_past_a_stop(tmp_path, monkeypatch) -> None:

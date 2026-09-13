@@ -199,6 +199,7 @@ class SkillLoop(
         skill_store: Any | None = None,
         on_event: Callable[[dict], None] | None = None,
         extra_guidance_provider: Callable[[], list[str]] | None = None,
+        prelude_context_provider: Callable[[], str] | None = None,
     ) -> None:
         self.config = config or SkillLoopConfig()
         self.skills_dir = Path(skills_dir)
@@ -212,6 +213,8 @@ class SkillLoop(
         # Returns a list of additional guidance strings to append to the
         # prompt (used by the daemon to honour /inject between rounds).
         self.extra_guidance_provider = extra_guidance_provider
+        # Host-owned recall is a current projection, not a frozen part of task.
+        self.prelude_context_provider = prelude_context_provider
 
         self.skill_store = skill_store or SkillStore(self.skills_dir)
         self.engineer_mission = EngineerMission(

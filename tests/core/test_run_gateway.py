@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from argus_skill.core.models import RunnerOptions, RunnerResult
-from argus_skill.core.run_gateway import RunExecGateway, RunExecRequest, run_exec
+from argus_skill.core.run_gateway import (
+    RunExecGateway,
+    RunExecRequest,
+    run_exec,
+    run_interrupt_scope,
+)
 
 
 class _Backend:
@@ -99,6 +104,76 @@ def test_gateway_does_not_hide_backend_exceptions() -> None:
             options=RunnerOptions(),
             run_label="test",
         )
+
+
+def test_scoped_interrupt_preserves_options_and_existing_provider():
+    backend = _Backend()
+    original = lambda: "budget stop"
+    options = RunnerOptions(external_interrupt_reason_provider=original)
+    stopped = []
+    with run_interrupt_scope(lambda: "operator stop" if stopped else None):
+        run_exec(backend, prompt="scoped", options=options, run_label="manager")
+        scoped = backend.calls[-1]["options"]
+        assert scoped is not options
+        assert scoped.external_interrupt_reason_provider() == "budget stop"
+        stopped.append(True)
+        assert scoped.external_interrupt_reason_provider() == "operator stop"
+    assert options.external_interrupt_reason_provider is original
+    run_exec(backend, prompt="unrelated", options=None, run_label="engineer")
+    assert backend.calls[-1]["options"] is None
+
+
+def test_opt_in_reason_retention_survives_preparation_and_resets_after_scope():
+    from argus_skill.core.run_gateway import current_run_interrupt_reason
+
+    backend = _Backend()
+    reasons = ["operator abort requested: original one-shot reason"]
+    with run_interrupt_scope(lambda: reasons.pop() if reasons else None):
+        with run_interrupt_scope(lambda: None, retain_first_reason=True):
+            # A preparatory state read polls first, before the provider call.
+            assert current_run_interrupt_reason() == "operator abort requested: original one-shot reason"
+            stopped = run_exec(backend, prompt="must not run", run_label="engineer")
+            assert stopped.exit_code == 130
+            assert "original one-shot reason" in stopped.fatal_error
+            assert backend.calls == []
+        assert current_run_interrupt_reason() is None
+    run_exec(backend, prompt="unrelated later call", run_label="engineer")
+    assert len(backend.calls) == 1 and backend.calls[0]["options"] is None
+
+
+@pytest.mark.parametrize("late_reason", ["late operator abort", None])
+def test_retained_reason_survives_concurrent_slow_poll(late_reason):
+    from contextvars import copy_context
+    from threading import Event, Thread, current_thread
+
+    from argus_skill.core.run_gateway import current_run_interrupt_reason
+
+    main_thread = current_thread()
+    entered, release = Event(), Event()
+    observed = []
+
+    def provider():
+        if current_thread() is main_thread:
+            return "first stop"
+        entered.set()
+        assert release.wait(3)
+        return late_reason
+
+    with run_interrupt_scope(provider, retain_first_reason=True):
+        context = copy_context()
+        worker = Thread(target=lambda: observed.append(context.run(current_run_interrupt_reason)), daemon=True)
+        worker.start()
+        try:
+            assert entered.wait(3)
+            # The slow poll must not block the current caller's stop, nor
+            # overwrite or ignore it when the earlier poll eventually returns.
+            assert current_run_interrupt_reason() == "first stop"
+        finally:
+            release.set()
+            worker.join(3)
+        assert not worker.is_alive()
+        assert observed == ["first stop"]
+        assert current_run_interrupt_reason() == "first stop"
 
 
 def test_application_code_has_no_direct_backend_run_exec_bypass() -> None:

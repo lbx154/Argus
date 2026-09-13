@@ -12,20 +12,23 @@ write contract that the session/pipeline commits rely on.
 """
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import replace
+from inspect import Parameter, signature
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import portalocker
 
+from ..core.daemon_lock import is_pid_running
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.runner_errors import result_has_unrecoverable_resume_state
 from ..provider_integrations.authorization_retry import BackendLoginRequired
@@ -38,12 +41,50 @@ _SESSION_FILE = ".manager_session.json"
 _SESSION_LOCK = ".manager_session.lock"
 _PIPELINE_LOCK = ".manager_pipeline.lock"
 _PIPELINE_YIELD_FILE = ".manager_pipeline_yield.json"
+_PIPELINE_YIELD_DIR = ".manager_pipeline_yields"
+_LOCK_POLL_SECONDS = 0.2
 
 
-def _acquire_session_lock(fh: Any, *, timeout: float | None = None) -> bool:
+class ManagerLockCancelled(RuntimeError):
+    """A caller cancelled its wait before entering the protected boundary."""
+
+
+def _lock_is_contended(exc: BaseException) -> bool:
+    """Recognize contention without retrying bad descriptors or broken locking.
+
+    Portalocker 3/4 may wrap the OS exception in args or in __cause__.
+    AlreadyLocked is the portable indication, including Windows lock violation.
+    """
+    pending = [exc]
+    seen: set[int] = set()
+    while pending:
+        error = pending.pop()
+        if id(error) in seen:
+            continue
+        seen.add(id(error))
+        if isinstance(error, portalocker.exceptions.AlreadyLocked):
+            return True
+        if isinstance(error, OSError) and error.errno in {errno.EACCES, errno.EAGAIN}:
+            return True
+        pending.extend(arg for arg in error.args if isinstance(arg, BaseException))
+        if error.__cause__ is not None:
+            pending.append(error.__cause__)
+    return False
+
+
+def _check_lock_cancelled(cancelled: Callable[[], bool] | None) -> None:
+    if cancelled is not None and cancelled():
+        raise ManagerLockCancelled("Manager pipeline lock wait cancelled")
+
+
+def _acquire_session_lock(
+    fh: Any, *, timeout: float | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> bool:
     """Acquire ``LOCK_EX``, optionally bounded for explicit diagnostic callers.
 
-    Production Manager locks wait until the OS releases the peer's lock.
+    Production waits for real contention, but cancellation and locking failures
+    propagate. ``False`` is reserved for an explicit diagnostic timeout.
     """
     deadline = (
         time.monotonic() + max(0.0, timeout)
@@ -51,16 +92,19 @@ def _acquire_session_lock(fh: Any, *, timeout: float | None = None) -> bool:
         else None
     )
     while True:
+        _check_lock_cancelled(cancelled)
         try:
             portalocker.lock(
                 fh,
                 portalocker.LOCK_EX | portalocker.LOCK_NB,
             )
             return True
-        except (OSError, portalocker.exceptions.LockException):
+        except (OSError, portalocker.exceptions.LockException) as exc:
+            if not _lock_is_contended(exc):
+                raise
             if deadline is not None and time.monotonic() >= deadline:
                 return False
-            time.sleep(0.2)
+            time.sleep(_LOCK_POLL_SECONDS)
 
 
 class _PipelineLockState:
@@ -96,7 +140,9 @@ _pipeline_lock_delegation: ContextVar[frozenset[str]] = ContextVar(
 
 
 @contextmanager
-def manager_pipeline_lock(root: Path | str):
+def manager_pipeline_lock(
+    root: Path | str, *, cancelled: Callable[[], bool] | None = None,
+):
     """Serialize Manager pipeline commits with daemon mission execution.
 
     Cross-process: an exclusive advisory flock on ``<root>/.manager_pipeline.lock``
@@ -137,6 +183,9 @@ def manager_pipeline_lock(root: Path | str):
       before — no overlap with the in-flight pass;
     * same-thread nesting is re-entrant (the context flows into nested
       ``with`` blocks natively; the gate is an RLock).
+
+    Cancellation only abandons acquisition; it never revokes an acquired lock
+    or interrupts a mission already inside this boundary.
     """
     path = Path(root)
     path.mkdir(parents=True, exist_ok=True)
@@ -148,12 +197,23 @@ def manager_pipeline_lock(root: Path | str):
         # Our delegation chain already holds the on-disk flock: don't touch
         # it (a second file handle would deadlock — see docstring); serialise
         # against sibling delegated workers on the gate instead.
-        with state.gate:
+        if cancelled is None:
+            state.gate.acquire()
+        else:
+            while True:
+                _check_lock_cancelled(cancelled)
+                if state.gate.acquire(timeout=_LOCK_POLL_SECONDS):
+                    break
+        try:
+            _check_lock_cancelled(cancelled)
             yield
+        finally:
+            state.gate.release()
         return
     with lock_path.open("a+b") as handle:
-        _acquire_session_lock(handle)
+        _acquire_session_lock(handle, cancelled=cancelled)
         try:
+            _check_lock_cancelled(cancelled)
             # Grant the entitlement only after the flock is ours, inside the
             # try: if anything below raises, reset() runs before unlock and
             # no context is left with an orphaned entitlement.
@@ -168,63 +228,130 @@ def manager_pipeline_lock(root: Path | str):
             portalocker.unlock(handle)
 
 
-def request_manager_pipeline_yield(root: Path | str) -> str:
-    """Ask the daemon to leave the next mission boundary open for Manager."""
-    path = Path(root) / _PIPELINE_YIELD_FILE
-    path.parent.mkdir(parents=True, exist_ok=True)
+@contextmanager
+def manager_pipeline_boundary(
+    manager: Any, *, cancelled: Callable[[], bool] | None = None,
+):
+    """Enter a Manager's boundary, adapting legacy no-argument lock factories.
+
+    Production Manager forwards cancellation into lock acquisition. Structural
+    substitutes may only implement ``pipeline_lock()``; inspect that capability
+    before calling, rather than mistaking an internal TypeError for a mismatch.
+    Legacy factories still get cancellation checks before and after acquisition.
+    """
+    _check_lock_cancelled(cancelled)
+    factory = getattr(manager, "pipeline_lock", None)
+    kwargs: dict[str, Any] = {}
+    if callable(factory) and cancelled is not None:
+        try:
+            parameters = tuple(signature(factory).parameters.values())
+        except (TypeError, ValueError):
+            parameters = ()
+        if any(
+            parameter.kind == Parameter.VAR_KEYWORD
+            or (parameter.name == "cancelled" and parameter.kind != Parameter.POSITIONAL_ONLY)
+            for parameter in parameters
+        ):
+            kwargs["cancelled"] = cancelled
+    with factory(**kwargs) if callable(factory) else nullcontext():
+        _check_lock_cancelled(cancelled)
+        yield
+
+
+def _read_pipeline_yield(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _write_pipeline_yield(path: Path, payload: dict[str, Any]) -> None:
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def request_manager_pipeline_yield(
+    root: Path | str, *, cancelled: Callable[[], bool] | None = None,
+) -> str:
+    """Publish one caller-owned request for the next mission boundary.
+
+    Each request has its own atomic marker. There is no shared read/modify/write
+    lock on the daemon stop path, and one caller cannot erase another's waiter.
+    """
+    _check_lock_cancelled(cancelled)
+    directory = Path(root) / _PIPELINE_YIELD_DIR
+    directory.mkdir(parents=True, exist_ok=True)
     token = uuid.uuid4().hex
-    payload = {
+    _write_pipeline_yield(directory / f"{token}.json", {
         "schema_version": 1,
         "token": token,
         "pid": os.getpid(),
         "requested_at": time.time(),
-    }
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{token}.tmp")
-    tmp.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+        "state": "waiting",
+    })
     return token
 
 
 def _clear_pipeline_yield_if_token(path: Path, token: str) -> bool:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    payload = _read_pipeline_yield(path)
+    if payload is None or str(payload.get("token") or "") != token:
         return False
-    if not isinstance(payload, dict) or str(payload.get("token") or "") != token:
-        return False
+    # Publish release before garbage collection. A failed unlink must not leave
+    # a live server pid holding the daemon at the boundary forever.
+    if payload.get("state") != "released":
+        try:
+            _write_pipeline_yield(path, {**payload, "state": "released"})
+        except OSError:
+            try:
+                path.unlink(missing_ok=True)
+                return True
+            except OSError:
+                log.warning("could not release Manager boundary yield request", exc_info=True)
+                return False
     try:
         path.unlink(missing_ok=True)
     except OSError:
-        return False
+        log.debug("retaining released Manager boundary marker for later cleanup", exc_info=True)
     return True
 
 
 def clear_manager_pipeline_yield(root: Path | str, token: str) -> bool:
-    return _clear_pipeline_yield_if_token(
-        Path(root) / _PIPELINE_YIELD_FILE,
-        token,
-    )
+    # Generated tokens are hex UUIDs. Legacy marker tokens remain readable but
+    # must never become arbitrary child paths.
+    if len(token) == 32 and all(char in "0123456789abcdef" for char in token):
+        path = Path(root) / _PIPELINE_YIELD_DIR / f"{token}.json"
+        if _clear_pipeline_yield_if_token(path, token):
+            return True
+    return _clear_pipeline_yield_if_token(Path(root) / _PIPELINE_YIELD_FILE, token)
 
 
 def manager_pipeline_yield_requested(root: Path | str) -> bool:
-    """Return whether a live Manager request is waiting for the boundary."""
-    path = Path(root) / _PIPELINE_YIELD_FILE
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        token = str(payload.get("token") or "")
-        pid = int(payload.get("pid") or 0)
-    except (OSError, TypeError, ValueError):
-        return False
-    if not token or pid <= 0:
-        _clear_pipeline_yield_if_token(path, token)
-        return False
-    try:
-        os.kill(pid, 0)
-    except (ProcessLookupError, PermissionError):
-        _clear_pipeline_yield_if_token(path, token)
-        return False
-    return True
+    """Inspect atomic markers without acquiring another control-plane lock."""
+    root = Path(root)
+    legacy = root / _PIPELINE_YIELD_FILE
+    paths = [legacy, *(root / _PIPELINE_YIELD_DIR).glob("*.json")]
+    waiting = False
+    for path in paths:
+        payload = _read_pipeline_yield(path)
+        if payload is None or not payload.get("token"):
+            continue
+        live = False
+        if payload.get("state") != "released":
+            try:
+                live = is_pid_running(int(payload.get("pid") or 0))
+            except (TypeError, ValueError, OverflowError):
+                pass
+        if live:
+            waiting = True
+        else:
+            _clear_pipeline_yield_if_token(path, str(payload["token"]))
+    return waiting
 
 
 @contextmanager
@@ -271,7 +398,8 @@ class _ManagerSession:
     sibling ``.manager_session.lock`` serializes cross-process use so the cockpit
     front-end and the daemon never interleave a turn. Fail-open: any lock/IO
     error degrades to a plain no-session call — the Manager's decision must never
-    be blocked by this.
+    be blocked by this. Once a provider call starts, unexpected failures are
+    propagated; repeating an uncertain call could repeat tool effects.
 
     This is a "runner-like" wrapper: it exposes ``run_exec(prompt=, options=,
     run_label=)`` so it can be passed anywhere a runner is expected
@@ -287,27 +415,38 @@ class _ManagerSession:
         self.skill_paths: list[str] = []
 
     # --- persistent thread_id IO (corrupt/missing → None, never raises) ---
-    def _read_tid(self) -> str | None:
+    def _read_state(self) -> dict[str, Any]:
         try:
-            data = json.loads(self._session_path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
-                return None
-            tid = data.get("thread_id")
-            if not isinstance(tid, str):
-                return None
-            tid = tid.strip()
-            return tid or None
+            with self._session_path.open("rb") as handle:
+                raw = handle.read(128 * 1024 + 1)
+            if len(raw) > 128 * 1024:
+                return {}
+            value = json.loads(raw)
+            return value if isinstance(value, dict) else {}
         except Exception:  # noqa: BLE001 — missing/corrupt/unreadable → no session
-            return None
+            return {}
 
-    def _write_tid(self, tid: str) -> None:
+    def _read_tid(self) -> str | None:
+        tid = self._read_state().get("thread_id")
+        return tid.strip() or None if isinstance(tid, str) else None
+
+    def _write_tid(self, tid: str, *, state: dict[str, Any] | None = None) -> None:
         # Atomic replace so a concurrent reader never sees a half-written file.
         self.project_root.mkdir(parents=True, exist_ok=True)
         tmp = self._session_path.with_suffix(
             self._session_path.suffix + f".tmp.{os.getpid()}"
         )
-        tmp.write_text(json.dumps({"thread_id": tid}), encoding="utf-8")
-        os.replace(tmp, self._session_path)
+        try:
+            with tmp.open("w", encoding="utf-8") as handle:
+                json.dump({**(state or {}), "thread_id": tid}, handle, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, self._session_path)
+            from ..daemon.state import _fsync_directory
+
+            _fsync_directory(self.project_root)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     @property
     def thread_id(self) -> str | None:
@@ -317,6 +456,19 @@ class _ManagerSession:
 
     # --- the runner-like surface ---
     def run_exec(
+        self, *, prompt: str, options: Any, run_label: str,
+        resume_thread_id: str | None = None,
+    ) -> Any:
+        from .session_context import manager_interaction_priority
+
+        foreground = run_label in {"manager-quick-reply", "manager-ask", "simple-1"}
+        with manager_interaction_priority(self.project_root) if foreground else nullcontext():
+            return self._run_exec(
+                prompt=prompt, options=options, run_label=run_label,
+                resume_thread_id=resume_thread_id,
+            )
+
+    def _run_exec(
         self,
         *,
         prompt: str,
@@ -329,31 +481,45 @@ class _ManagerSession:
         The session lock serializes the cockpit and daemon's shared Manager
         thread. It is released by the OS if its owner exits.
 
-        Fail-open recovery: if anything in the session-mode path fails (lock setup,
-        a corrupt resume tid, a runner that does not accept ``resume_thread_id``),
-        we fall back to ONE plain no-session call — a deliberate recovery + runner
-        compatibility shim. The fallback runs AFTER the lock is released, never
-        nested under it.
+        Session setup failures can fall back to one plain call. Unexpected
+        errors after provider dispatch are never replayed. A specifically
+        rejected resume target can still rotate through the explicit branch
+        below, which carries the bounded saved conversation handoff.
         """
+        from ..core.file_lock import FileLockCancelled, bounded_file_lock_wait
         from ..core.operator_context import build_operator_context_block
+        from ..core.run_gateway import current_run_interrupt_reason
+        from .session_continuity import ManagerSessionContinuityUnavailable
 
-        try:
-            operator_context, _operator_context_revision = build_operator_context_block(
-                "manager", self.project_root, consume_once=False
-            )
-        except OSError:
-            operator_context = ""
-        if operator_context:
-            from ..core.operator_context import append_operator_context
+        original_prompt = prompt
+        interruption = getattr(options, "external_interrupt_reason_provider", None)
 
-            prompt = append_operator_context(prompt, operator_context)
+        def _cancelled() -> bool:
+            return bool((callable(interruption) and interruption()) or current_run_interrupt_reason())
+
+        def _current_prompt() -> str:
+            try:
+                with bounded_file_lock_wait(timeout_seconds=0.25, cancelled=_cancelled):
+                    operator_context, _revision = build_operator_context_block(
+                        "manager", self.project_root, consume_once=False
+                    )
+            except (OSError, FileLockCancelled) as exc:
+                _check_lock_cancelled(_cancelled)
+                raise ManagerSessionContinuityUnavailable(
+                    "Current Manager permissions could not be read; provider was not started"
+                ) from exc
+            if operator_context:
+                from ..core.operator_context import append_operator_context
+
+                return append_operator_context(original_prompt, operator_context)
+            return original_prompt
         if self.skill_paths:
             options = replace(options, skill_paths=list(self.skill_paths))
 
         def _no_session() -> Any:
             return gateway_run_exec(
                 self.runner,
-                prompt=prompt, options=options, run_label=run_label
+                prompt=_current_prompt(), options=options, run_label=run_label
             )
 
         try:
@@ -362,13 +528,43 @@ class _ManagerSession:
         except Exception:  # noqa: BLE001 — lock setup failed → no-session fail-open
             return _no_session()
 
+        provider_attempted = False
         try:
-            _acquire_session_lock(fh)
+            _acquire_session_lock(fh, cancelled=_cancelled)
             try:
+                from .session_capacity import capacity_rotation_reason, remember_capacity
+                from .session_context import remember_turn, session_handoff, session_identity
+
+                prior = self._read_state()
                 tid = self._read_tid()
+                prior_tid = tid
+                # Permission may have changed while this turn waited for the
+                # shared provider session. Project it immediately before use.
+                prompt = _current_prompt()
+                if options is not None and not getattr(options, "model", ""):
+                    prior_model = (prior.get("identity") or {}).get("model", "")
+                    if prior_model:
+                        options = replace(options, model=prior_model)
+                identity = session_identity(self.runner, options)
+                call_prompt = prompt
+                rotation_reason = ""
+                if tid and prior.get("identity") not in (None, identity):
+                    rotation_reason = "the configured model or backend changed"
+                elif tid:
+                    rotation_reason = capacity_rotation_reason(
+                        prior, prompt=prompt, runner=self.runner, options=options,
+                    )
+                if rotation_reason:
+                    call_prompt = session_handoff(
+                        prior, prompt, rotation_reason, project_root=self.project_root, run_label=run_label,
+                        cancelled=_cancelled,
+                    )
+                    tid = None
+                continued = bool(tid)
+                provider_attempted = True
                 result = gateway_run_exec(
                     self.runner,
-                    prompt=prompt,
+                    prompt=call_prompt,
                     options=options,
                     run_label=run_label,
                     resume_thread_id=tid,
@@ -380,20 +576,44 @@ class _ManagerSession:
                         "rotating to a fresh thread",
                         tid,
                     )
-                    try:
-                        self._session_path.unlink(missing_ok=True)
-                    except OSError:
-                        pass
+                    _check_lock_cancelled(_cancelled)
+                    rotation_reason = "the previous provider thread is no longer resumable"
+                    prompt = _current_prompt()
+                    call_prompt = session_handoff(
+                        prior, prompt, rotation_reason, project_root=self.project_root, run_label=run_label,
+                        cancelled=_cancelled,
+                    )
+                    continued = False
                     result = gateway_run_exec(
                         self.runner,
-                        prompt=prompt,
+                        prompt=call_prompt,
                         options=options,
                         run_label=run_label,
                     )
                 new = getattr(result, "thread_id", None)
-                if new:
+                if new and not _cancelled():
                     try:
-                        self._write_tid(str(new))
+                        logical_id = prior.get("logical_manager_id")
+                        if not isinstance(logical_id, str) or not 0 < len(logical_id) <= 128:
+                            logical_id = "manager-" + uuid.uuid4().hex
+                        generation = prior.get("provider_generation", 1 if prior_tid else 0)
+                        if type(generation) is not int or generation < 0:
+                            generation = 0
+                        generation += not continued
+                        last_rotation = prior.get("last_rotation")
+                        if rotation_reason:
+                            last_rotation = {"reason": rotation_reason, "from_thread_id": prior_tid,
+                                             "to_thread_id": str(new), "provider_generation": generation}
+                        self._write_tid(str(new), state={
+                            "version": 3, "identity": identity,
+                            "logical_manager_id": logical_id,
+                            "provider_generation": generation,
+                            "capacity": remember_capacity(prior, call_prompt, result, continued=continued,
+                                                          runner=self.runner, options=options),
+                            "recent_turns": remember_turn(prior, prompt, result, run_label),
+                            "rotation_reason": rotation_reason,
+                            "last_rotation": last_rotation,
+                        })
                     except Exception:  # noqa: BLE001 — persist is best-effort
                         pass
                 return result
@@ -402,9 +622,14 @@ class _ManagerSession:
                     portalocker.unlock(fh)
                 except Exception:  # noqa: BLE001
                     pass
-        except BackendLoginRequired:
+        except ManagerSessionContinuityUnavailable:
+            _check_lock_cancelled(_cancelled)
             raise
-        except Exception:  # noqa: BLE001 — session-mode failed (lock released) → no-session
+        except (BackendLoginRequired, ManagerLockCancelled):
+            raise
+        except Exception:  # noqa: BLE001 — only pre-dispatch session setup may degrade
+            if provider_attempted:
+                raise
             return _no_session()
         finally:
             try:
@@ -416,19 +641,11 @@ class _ManagerSession:
 def reset_manager_session(project_root: Path | str) -> bool:
     """Drop the Manager's persistent codex session pointer at ``project_root``.
 
-    EN: A new daemon is a fresh isolation generation — it must NOT resume the
-    prior daemon's Manager conversation, which otherwise grows unbounded across
-    generations until codex auto-compaction. Stage truth lives in
-    ``.argus/PIPELINE_STATE.json``, so dropping the thread_id pointer loses
-    nothing load-bearing; the on-disk codex transcript stays auditable.
-    中文：新 daemon 是全新的隔离代际，绝不能 resume 上一个 daemon 的 Manager
-    会话（它会跨代际无界增长，直到 codex 有损压缩）。stage 真相在
-    ``.argus/PIPELINE_STATE.json`` 里，清掉 thread_id 指针不丢任何承重信息；
-    盘上的 codex transcript 不动，仍可审计。
+    This is an explicit conversation reset. Ordinary daemon/frontend restarts
+    preserve the identity and resume it. Stage authority remains in the durable
+    pipeline state; resetting this pointer does not change team controls.
 
-    Best-effort, never raises (boot must not be blocked). Returns True if a
-    session pointer existed. / 尽力而为、绝不抛异常（不能阻塞 daemon 启动）；
-    原本存在会话指针时返回 True。
+    Best-effort, never raises. Returns True if a session pointer existed.
     """
     session_path = Path(project_root) / _SESSION_FILE
     try:

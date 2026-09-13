@@ -201,7 +201,10 @@ def test_message_route_resolves_attachment_metadata(
         *,
         global_root=None,
         attachments=None,
+        cancelled=None,
+        defer_dispatch_ack=False,
     ):
+        assert defer_dispatch_ack is True
         seen["sid"] = sid
         seen["text"] = text
         seen["attachments"] = attachments
@@ -274,7 +277,9 @@ def test_message_stream_route_resolves_attachment_metadata(
         attachments=None,
         on_fragment=None,
         cancelled=None,
+        defer_dispatch_ack=False,
     ):
+        assert defer_dispatch_ack is True
         _ = (global_root, cancelled)
         seen["sid"] = sid
         seen["text"] = text

@@ -287,10 +287,10 @@ def test_execute_dispatches_to_manager_self_path_on_greeting(monkeypatch) -> Non
     assert backend.calls[0]["options"].model == "best-manager"
 
 
-def test_message_only_self_reply_uses_lean_low_cost_route(monkeypatch) -> None:
+def test_message_only_self_reply_uses_manager_model_with_low_effort(monkeypatch) -> None:
     monkeypatch.setattr(
-        "argus_skill.apps._self_reply.resolve_manager_classify_model",
-        lambda **_kwargs: "cheap-manager",
+        "argus_skill.apps._self_reply.resolve_manager_reply_model",
+        lambda **_kwargs: "persistent-manager-model",
     )
     backend = _FakeBackend(response_message="exact reply")
     runner = _make_runner(backend)
@@ -303,11 +303,12 @@ def test_message_only_self_reply_uses_lean_low_cost_route(monkeypatch) -> None:
 
     call = backend.calls[-1]
     assert call["run_label"] == "manager-quick-reply"
-    assert call["options"].model == "cheap-manager"
+    assert call["options"].model == "persistent-manager-model"
     assert call["options"].reasoning_effort == "low"
     assert call["options"].dangerous_yolo is False
     assert "reply exactly hello" in call["prompt"]
     assert "Grounding workspace" not in call["prompt"]
+    assert "Current project evidence" in call["prompt"]
 
 
 def test_local_microtask_uses_compact_isolated_execution(monkeypatch) -> None:

@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import time
-from contextlib import nullcontext
 from dataclasses import dataclass
 from inspect import Parameter, signature
 from pathlib import Path
@@ -651,6 +650,9 @@ class PreparedManagerHandoff:
     lifetime: str = "bounded"
     continuous: bool | None = None
     open_ended: bool | None = None
+    # The model may need bounded conversation/attachment context in body. That
+    # input is not the public operator objective carried by lifecycle events.
+    public_objective: str | None = None
 
     @property
     def execution_task(self) -> str:
@@ -680,6 +682,7 @@ class PreparedManagerHandoff:
         *,
         continuous_generation: int | None = None,
     ) -> None:
+        execution_task = require_manager_execution_task(division)
         workflow_mode = str(
             getattr(division, "workflow_mode", "staged") or "staged"
         ).strip().lower()
@@ -703,8 +706,8 @@ class PreparedManagerHandoff:
             "intent_id": self.intent_id,
             "item_id": self.root_task_id,
             "source": "user",
-            "objective": self.body,
-            "execution_task": self.execution_task,
+            "objective": execution_task,
+            "execution_task": execution_task,
             "vertical": getattr(division, "vertical", ""),
             "domain": getattr(division, "domain", ""),
             "route": "team",
@@ -758,7 +761,7 @@ class PreparedManagerHandoff:
             "intent_id": self.intent_id,
             "item_id": self.root_task_id,
             "source": "user",
-            "objective": self.body,
+            "objective": self.body if self.public_objective is None else self.public_objective,
             "error": f"{type(exc).__name__}: {exc}",
             "phase": phase,
             "cause": raw_cause,
@@ -792,7 +795,9 @@ def prepare_manager_execution_task(
     *,
     root_task_id: str | None = None,
     ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
+    public_objective: str | None = None,
 ) -> PreparedManagerHandoff:
+    public_objective = body if public_objective is None else public_objective.strip()
     intent_id = f"intent-{time.time_ns()}"
     lifetime = str(
         chat_state.get("_frontdoor_lifetime", "bounded") or "bounded"
@@ -809,7 +814,7 @@ def prepare_manager_execution_task(
         "intent_id": intent_id,
         "item_id": root_task_id,
         "source": "user",
-        "objective": body,
+        "objective": public_objective,
         "text": "manager interpreting user task",
     })
     try:
@@ -845,6 +850,7 @@ def prepare_manager_execution_task(
             lifetime=lifetime,
             continuous=configured_continuous,
             open_ended=configured_open_ended,
+            public_objective=public_objective,
         )
     except Exception as exc:
         prepared = PreparedManagerHandoff(
@@ -857,6 +863,7 @@ def prepare_manager_execution_task(
             lifetime=lifetime,
             continuous=configured_continuous,
             open_ended=configured_open_ended,
+            public_objective=public_objective,
         )
         prepared.failed(exc)
         from .classification_contract import MANAGER_CONTRACT_MISMATCH_THRESHOLD
@@ -948,6 +955,7 @@ def manager_bounded_handoff(
     prepare_persist: Callable[[str], None] | None = None,
     validate_persist: Callable[[str], None] | None = None,
     prepared_handoff: PreparedManagerHandoff | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> Any:
     """Commit Manager state and durable task enqueue under one pipeline lock.
 
@@ -973,12 +981,19 @@ def manager_bounded_handoff(
         raise ManagerHandoffError(
             "prepared Manager handoff does not match the bounded dispatch"
         )
-    lock_factory = getattr(prepared.manager, "pipeline_lock", None)
-    pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
+    from ._session_ops import (
+        clear_manager_pipeline_yield,
+        manager_pipeline_boundary,
+        request_manager_pipeline_yield,
+    )
+
+    life_dir = _life_dir_for(mem)
+    yield_token = ""
     try:
+        yield_token = request_manager_pipeline_yield(life_dir, cancelled=cancelled)
         if prepare_persist is not None:
             prepare_persist(prepared.execution_task)
-        with pipeline_lock:
+        with manager_pipeline_boundary(prepared.manager, cancelled=cancelled):
             if validate_persist is not None:
                 validate_persist(prepared.execution_task)
             division = _bounded_handoff_division(
@@ -995,6 +1010,9 @@ def manager_bounded_handoff(
         if isinstance(exc, ManagerHandoffError):
             raise
         raise ManagerHandoffError(f"Manager bounded handoff failed: {exc}") from exc
+    finally:
+        if yield_token:
+            clear_manager_pipeline_yield(life_dir, yield_token)
 
 
 def _bounded_handoff_division(
@@ -1120,16 +1138,16 @@ def manager_continuous_handoff(
 
     from ._session_ops import (
         clear_manager_pipeline_yield,
+        manager_pipeline_boundary,
         request_manager_pipeline_yield,
     )
 
-    yield_token = request_manager_pipeline_yield(life_dir)
+    yield_token = ""
     try:
+        yield_token = request_manager_pipeline_yield(life_dir, cancelled=cancelled)
         if prepare_persist is not None:
             prepare_persist(prepared.execution_task)
-        lock_factory = getattr(prepared.manager, "pipeline_lock", None)
-        pipeline_lock = lock_factory() if callable(lock_factory) else nullcontext()
-        with pipeline_lock:
+        with manager_pipeline_boundary(prepared.manager, cancelled=cancelled):
             resolved_open_ended = bool(
                 chat_state.get("_continuous_open_ended", expected.open_ended)
             )
@@ -1147,7 +1165,8 @@ def manager_continuous_handoff(
             raise
         raise ManagerHandoffError(f"Manager handoff commit failed: {exc}") from exc
     finally:
-        clear_manager_pipeline_yield(life_dir, yield_token)
+        if yield_token:
+            clear_manager_pipeline_yield(life_dir, yield_token)
     if not swapped:
         prepared.superseded()
         current = read_continuous_state(life_dir)

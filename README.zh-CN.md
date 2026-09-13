@@ -507,6 +507,8 @@ export ARGUS_SKILL_AUTONOMY_MODE=autonomous
 
 后续的 **[架构精简规划](docs/architecture-simplification-plan.md)** 把普通工程短链与完整研究团队分开，设计由 Host 生成的单一任务上下文，并规划兼容优先的 Vertical 拆库路径。
 
+维护者可从 **[Runtime 维护地图与重构任务](docs/runtime-maintainability.md)** 查找代码入口、状态所有权、恢复边界和当前分批任务。
+
 由那份审计推出的是 **[精简计划](docs/simplification-plan.zh-CN.md)**：一组排好序的删除、一条用来机械分拣 2,277 个异常处理器的判据、一份明确的"不能删"清单，以及要避开的陷阱——把删掉的机械换成一个"统一系统"，那会变成同一个错误。
 
 ### 创建自己的 Vertical

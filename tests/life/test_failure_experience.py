@@ -126,6 +126,45 @@ def test_render_context_does_not_repeat_outcome_as_lesson(tmp_path: Path) -> Non
     assert rendered.count("one concrete failure") == 1
 
 
+def test_render_context_preserves_canonical_narrative_and_shows_distinct_revision(
+    tmp_path: Path,
+) -> None:
+    store = FailureExperienceStore(tmp_path / "failure_experiences.jsonl")
+    original = "One bounded result was accepted."
+    experience = replace(
+        _experience("Successful observation", objective="retry", narrative=original),
+        status="done",
+        factual_outcome=original,
+    )
+    store.append(experience)
+    before = store.path.read_bytes()
+
+    rendered = store.render_context("retry")
+
+    assert rendered.count(original) == 1
+    assert "- Narrative:" not in rendered
+    assert store.path.read_bytes() == before
+    loaded = store.get(experience.id)
+    assert loaded is not None
+    assert loaded.factual_outcome == loaded.research_narrative == original
+
+    revised = "The observation has a narrower interpretation."
+    store.revise(
+        experience.id,
+        expected_revision=1,
+        evidence_refs=["review:correction"],
+        research_narrative=revised,
+    )
+    before = store.path.read_bytes()
+
+    rendered = store.render_context("retry")
+
+    assert f"- Outcome: {original}" in rendered
+    assert f"- Narrative: {revised}" in rendered
+    assert rendered.count(original) == rendered.count(revised) == 1
+    assert store.path.read_bytes() == before
+
+
 def test_retrieval_never_opens_lazy_artifact_references(
     tmp_path: Path,
     monkeypatch,
