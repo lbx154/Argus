@@ -124,6 +124,10 @@ def _parse_document(raw: str, output_schema: dict) -> dict:
             raise
         value = _document_value(literal)
         logging.getLogger(__name__).warning("Preserved literal backslashes in map presentation JSON")
+    return _checked_document(value, output_schema)
+
+
+def _checked_document(value: object, output_schema: dict) -> dict:
     if not isinstance(value, dict):
         raise ValueError("invalid card document")
     try:
@@ -134,9 +138,21 @@ def _parse_document(raw: str, output_schema: dict) -> dict:
     return value
 
 
-def run_map_model(
+def _parse_markdown_document(raw: str, output_schema: dict) -> dict:
+    """Extract only the first H1 title; never JSON-decode or repair the body."""
+    markdown = raw.strip()
+    heading, separator, body = markdown.partition("\n")
+    if not heading.startswith("# ") or not separator or not body.strip():
+        raise ValueError("reading Markdown requires a first H1 title and a nonempty body")
+    title = heading[2:].strip()
+    if not title:
+        raise ValueError("reading Markdown title is empty")
+    return _checked_document({"title": title, "markdown": markdown}, output_schema)
+
+
+def _run_map_turn(
     prompt: str,
-    output_schema: dict,
+    output_schema: dict | None,
     config: MapModel,
     *,
     project_root: Path,
@@ -146,7 +162,8 @@ def run_map_model(
     phase: MapCopyPhase = "writing",
     run_label: str = "map-summary",
     on_result: Callable[[RunnerResult], None] | None = None,
-) -> dict:
+) -> RunnerResult:
+    """Execute once and retain the real receipt before any format parsing."""
     deadline = deadline if deadline is not None else time.monotonic() + 180
     if time.monotonic() >= deadline:
         raise OSError("map text generation timed out")
@@ -189,4 +206,30 @@ def run_map_model(
         raise OSError("map text generation did not complete")
     if result.tool_activity_observed:
         raise ValueError("map text generation attempted to use tools")
-    return _parse_document(result.last_agent_message, output_schema)
+    return result
+
+
+def run_map_model(
+    prompt: str,
+    output_schema: dict,
+    config: MapModel,
+    *,
+    project_root: Path,
+    global_root: Path,
+    deadline: float | None = None,
+    on_progress: MapProgress | None = None,
+    phase: MapCopyPhase = "writing",
+    run_label: str = "map-summary",
+    on_result: Callable[[RunnerResult], None] | None = None,
+    output_format: Literal["json", "markdown"] = "json",
+) -> dict:
+    """Share execution; Markdown uses its schema only for local field limits."""
+    if output_format not in {"json", "markdown"}:
+        raise ValueError("unsupported map output format")
+    result = _run_map_turn(
+        prompt, output_schema if output_format == "json" else None, config,
+        project_root=project_root, global_root=global_root, deadline=deadline,
+        on_progress=on_progress, phase=phase, run_label=run_label, on_result=on_result,
+    )
+    parse = _parse_document if output_format == "json" else _parse_markdown_document
+    return parse(result.last_agent_message, output_schema)

@@ -1,8 +1,6 @@
 import { Children, isValidElement, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math-extended';
-import rehypeKatex from 'rehype-katex';
+import { markdownRemarkPlugins, markdownRehypePlugins } from './markdownMath';
 import { CopyButton } from './CopyButton';
 import { useI18n } from '../i18n';
 import type { ArtifactInfo } from '../api';
@@ -93,14 +91,11 @@ export function MarkdownContent({
   artifacts?: ArtifactReference[];
   onOpenArtifact?: (path: string) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   return (
     <ReactMarkdown
-      remarkPlugins={[
-        remarkGfm,
-        [remarkMath, { backslashDelimiters: true, singleDollarTextMath: false }],
-      ]}
-      rehypePlugins={[rehypeKatex]}
+      remarkPlugins={markdownRemarkPlugins}
+      rehypePlugins={markdownRehypePlugins(locale === 'zh-CN')}
       components={{
         h1: ({ children: value }) => <h1 className="mb-2 mt-3 text-base font-semibold text-ink first:mt-0">{value}</h1>,
         h2: ({ children: value }) => <h2 className="mb-1.5 mt-3 text-sm font-semibold text-ink first:mt-0">{value}</h2>,

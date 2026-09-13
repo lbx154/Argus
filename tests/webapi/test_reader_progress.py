@@ -86,6 +86,7 @@ def retain(tmp_path, sid, card, **kwargs):
 
 def fake_runner(calls, *, fail=False):
     def run(prompt, schema, config, **kwargs):
+        assert kwargs["output_format"] == "markdown"
         calls.append((prompt, schema, kwargs))
         if kwargs.get("on_progress"):
             kwargs["on_progress"]("writing")
@@ -95,7 +96,7 @@ def fake_runner(calls, *, fail=False):
         if fail:
             raise ValueError("invalid generated schema")
         return {"title": f"Offline answer {len(calls)}",
-                "markdown": f"Unique body of offline answer number {len(calls)}."}
+                "markdown": f"# Offline answer {len(calls)}\n\nUnique body of offline answer number {len(calls)}."}
     return run
 
 
@@ -336,6 +337,8 @@ def test_first_progress_question_uses_exact_source_and_shared_artifact_request_l
     raw = client.get(f"/api/projects/{sid}/artifact/raw", params={"path": artifact["path"]})
     assert raw.text == (workspace / artifact["path"]).read_text() == saved["markdown"]
     assert ref["path"] in raw.text
+    assert raw.text.startswith("# Offline answer 1\n\nUnique body of offline answer number 1.\n\n---\n\n")
+    assert raw.text.index(body["question"]) > raw.text.index("---")
     assert response_artifact(client.post(url, json=body)) == artifact
     assert client.post(url, json={**body, "question": "Changed question"}).status_code == 409
     newer = copy.deepcopy(card)
@@ -420,9 +423,10 @@ def test_new_progress_question_rejects_unavailable_or_client_supplied_sources_wi
 
 
 @pytest.mark.parametrize("failed", [False, True])
-def test_existing_progress_answer_replays_and_selected_parent_keeps_its_source_after_source_file_loss(project, tmp_path, monkeypatch, failed):
+@pytest.mark.parametrize("legacy_version", [1, 2])
+def test_existing_progress_answer_replays_and_selected_parent_keeps_its_source_after_source_file_loss(project, tmp_path, monkeypatch, failed, legacy_version):
     sid, life, workspace = project
-    assert reader_foundation.FOUNDATION_VERSION == 2
+    assert reader_foundation.FOUNDATION_VERSION == 3
     ref = retain(tmp_path, sid, selected_card())
     calls = []
     monkeypatch.setattr(reader_foundation, "run_map_model", fake_runner(calls))
@@ -430,13 +434,13 @@ def test_existing_progress_answer_replays_and_selected_parent_keeps_its_source_a
     url = f"/api/projects/{sid}/reader-foundation"
     first_body = question(ref["source_id"])
     with monkeypatch.context() as legacy:
-        legacy.setattr(reader_foundation, "FOUNDATION_VERSION", 1)
+        legacy.setattr(reader_foundation, "FOUNDATION_VERSION", legacy_version)
         legacy.setattr(reader_foundation, "run_map_model", fake_runner(calls, fail=failed))
         initial = client.post(url, json=first_body)
     assert initial.status_code == (422 if failed else 200)
     old = reader_foundation.read_foundation(tmp_path, sid, first_body["request_id"])
     first = reader_foundation.foundation_artifact(old)
-    assert old["version"] == 1 and old["state"] == ("failed" if failed else "complete")
+    assert old["version"] == legacy_version and old["state"] == ("failed" if failed else "complete")
     bound = copy.deepcopy(old["source_snapshot"]["progress_source"])
     manifest = life / reader_foundation.MANIFEST_DIRECTORY / (first_body["request_id"] + ".json")
     before = manifest.read_bytes()
@@ -458,10 +462,10 @@ def test_existing_progress_answer_replays_and_selected_parent_keeps_its_source_a
     followup_url = f"{url}/{first_body['request_id']}/question"
     response_artifact(client.post(followup_url, json=followup_body))
     saved = reader_foundation.read_foundation(tmp_path, sid, followup_body["request_id"])
-    assert saved["version"] == 2
+    assert saved["version"] == 3
     assert saved["source_snapshot"]["progress_source"] == bound
     assert [source["id"] for source in saved["source_snapshot"]["sources"]] == [first_body["request_id"]]
-    assert saved["source_snapshot"]["sources"][0]["version"] == 1
+    assert saved["source_snapshot"]["sources"][0]["version"] == legacy_version
     assert saved["source_snapshot"]["sources"][0]["markdown"] == old["markdown"]
     assert manifest.read_bytes() == before
     assert len(calls) == 2

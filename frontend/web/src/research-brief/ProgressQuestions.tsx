@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { BookOpen, MessageCircle } from 'lucide-react';
 import type { ProgressSourceRef } from '../../../core/src/types';
 import { api, type ArtifactInfo } from '../api';
-import { Button } from '../components/primitives';
+import { Button, RawDisclosure } from '../components/primitives';
 import { Modal, ModalHeader } from '../components/Modal';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { useI18n } from '../i18n';
@@ -112,6 +112,7 @@ export function ProgressQuestionsProvider({ sid, readOnly = false, children }: {
   };
   const notes = source ? progressNotes.filter(item => item.reader_foundation!.progress_source!.source_id === source.source_id) : [];
   const answer = notes.find(item => item.reader_foundation?.id === answerId);
+  const answerComplete = answer?.exists && answer.reader_foundation?.state === 'complete';
   const pendingHere = pending?.draft.progressSource?.source_id === source?.source_id ? pending : null;
   const confirmed = pendingHere ? notes.find(item => item.reader_foundation?.id === pendingHere.id) : undefined;
   const rejectedHere = !!pendingHere && pendingHere.rejected === 'reader_source_unavailable';
@@ -170,12 +171,16 @@ export function ProgressQuestionsProvider({ sid, readOnly = false, children }: {
             <select className="mt-1 block w-full rounded border border-line bg-bg px-2 py-2 text-xs" value={answerId ?? ''}
               onChange={event => { setAnswerId(event.target.value || null); setLinkedPath(null); }}>
               <option value="">{zh ? '选择一个问题' : 'Choose a question'}</option>
-              {notes.map(item => <option key={item.path} value={item.reader_foundation!.id}>{item.reader_foundation!.question}</option>)}
+              {notes.map(item => <option key={item.path} value={item.reader_foundation!.id} title={item.reader_foundation!.question}>
+                {readerFoundationTitle(item.reader_foundation!)}
+              </option>)}
             </select>
           </label> : null}
           {answer ? <section className="space-y-3 text-[13px] leading-6" data-reading-question-id={answer.reader_foundation!.id}>
-            <p className="whitespace-pre-wrap break-words font-medium">{answer.reader_foundation!.question}</p>
-            {answer.exists && answer.reader_foundation!.state === 'complete'
+            {answerComplete ? <RawDisclosure key={answer.reader_foundation!.id} label={zh ? '查看这次问题' : 'View this question'}>
+              <p className="mt-2 whitespace-pre-wrap break-words text-ink-dim">{answer.reader_foundation!.question}</p>
+            </RawDisclosure> : <p className="whitespace-pre-wrap break-words font-medium">{answer.reader_foundation!.question}</p>}
+            {answerComplete
               ? <SavedReading sid={current.sid} path={answer.path} artifacts={artifactReferences} onOpenArtifact={openArtifact} />
               : <p role="status" className="text-xs text-ink-faint">{answer.reader_foundation!.state === 'generating'
                 ? zh ? '回答仍在整理，尚未确认结束。' : 'The answer is still being prepared; completion is unconfirmed.'

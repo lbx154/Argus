@@ -40,6 +40,7 @@ def project(tmp_path, monkeypatch):
 
 def fake_run(calls, **options):
     def run(prompt, schema, config, **kwargs):
+        assert kwargs["output_format"] == "markdown"
         calls.append((prompt, schema, kwargs))
         if kwargs.get("on_progress"):
             kwargs["on_progress"]("writing")
@@ -76,6 +77,7 @@ def test_explicit_request_reuses_artifacts_and_native_capture_receipt(project, t
     assert metadata["provenance"]["call_id"] == "native-runtime-call"
     assert metadata["provenance"]["call_id_log_correlated"] is True
     assert metadata["provenance"]["origin"] == "explicit_user_request"
+    assert metadata["version"] == 3
     prompt, _, options = calls[0]
     assert body["question"] in prompt
     assert "task-one" not in prompt
@@ -92,6 +94,9 @@ def test_explicit_request_reuses_artifacts_and_native_capture_receipt(project, t
     assert body["request_id"] not in detail.json()["preview"]
     assert client.get(f"/api/projects/{sid}/artifact/raw", params={"path": artifact["path"]}).text == detail.json()["preview"]
     assert (workspace / artifact["path"]).read_text() == detail.json()["preview"]
+    native = "# Feasible bounds\n\nA lower bound and a feasible upper bound can meet."
+    assert detail.json()["preview"].startswith(native + "\n\n---\n\n")
+    assert detail.json()["preview"].index(body["question"]) > len(native)
     assert client.post(url, json=body).json() == artifact
     assert client.post(url, json={**body, "question": "A different question"}).status_code == 409
     assert len(calls) == 1
@@ -145,21 +150,22 @@ def test_failed_parse_keeps_real_call_and_never_retries_on_read_or_repost(projec
 
 
 @pytest.mark.parametrize("failed", [False, True])
-def test_version_upgrade_preserves_terminal_request_and_only_versions_new_ids(project, tmp_path, monkeypatch, failed):
+@pytest.mark.parametrize("legacy_version", [1, 2])
+def test_version_upgrade_preserves_terminal_request_and_only_versions_new_ids(project, tmp_path, monkeypatch, failed, legacy_version):
     sid, life, _, body = project
-    assert foundation.FOUNDATION_VERSION == 2
+    assert foundation.FOUNDATION_VERSION == 3
     calls = []
     monkeypatch.setattr(foundation, "run_map_model", fake_run(calls))
     client = TestClient(create_app(global_root=tmp_path))
     url = f"/api/projects/{sid}/reader-foundation"
     with monkeypatch.context() as legacy:
-        legacy.setattr(foundation, "FOUNDATION_VERSION", 1)
+        legacy.setattr(foundation, "FOUNDATION_VERSION", legacy_version)
         legacy.setattr(foundation, "run_map_model", fake_run(calls, fail=failed))
         initial = client.post(url, json=body)
     assert initial.status_code == (422 if failed else 200)
     saved = foundation.read_foundation(tmp_path, sid, body["request_id"])
     retained = foundation.foundation_artifact(saved)
-    assert saved["version"] == 1 and saved["state"] == ("failed" if failed else "complete")
+    assert saved["version"] == legacy_version and saved["state"] == ("failed" if failed else "complete")
     manifest = life / foundation.MANIFEST_DIRECTORY / (body["request_id"] + ".json")
     before = manifest.read_bytes()
     with monkeypatch.context() as replay:
@@ -171,7 +177,7 @@ def test_version_upgrade_preserves_terminal_request_and_only_versions_new_ids(pr
     new_body = {**body, "request_id": str(uuid4())}
     new = client.post(url, json=new_body)
     assert new.status_code == 200
-    assert new.json()["reader_foundation"]["version"] == 2
+    assert new.json()["reader_foundation"]["version"] == 3
     assert len(calls) == 2 and manifest.read_bytes() == before
 
 
@@ -325,11 +331,11 @@ def test_clarification_is_one_bound_artifact_without_manager_or_research_writes(
     calls = []
     monkeypatch.setattr(foundation, "run_map_model", fake_run(calls))
     client = TestClient(create_app(global_root=tmp_path))
-    assert foundation.FOUNDATION_VERSION == 2
+    assert foundation.FOUNDATION_VERSION == 3
     with monkeypatch.context() as legacy:
-        legacy.setattr(foundation, "FOUNDATION_VERSION", 1)
+        legacy.setattr(foundation, "FOUNDATION_VERSION", 2)
         root = completed_reading(client, sid, root_body)
-    assert root["reader_foundation"]["version"] == 1
+    assert root["reader_foundation"]["version"] == 2
     root_manifest = life / foundation.MANIFEST_DIRECTORY / (root_body["request_id"] + ".json")
     manifest_before = root_manifest.read_bytes()
     root_path = workspace / root["path"]
@@ -357,7 +363,7 @@ def test_clarification_is_one_bound_artifact_without_manager_or_research_writes(
     assert root["reader_foundation"]["parent_id"] is None
     assert root["reader_foundation"]["root_id"] == root_body["request_id"]
     assert meta["question"] == request["question"] and meta["state"] == "complete"
-    assert meta["version"] == 2
+    assert meta["version"] == 3
     assert meta["provenance"]["run_label"] == "reader-clarification"
     assert meta["provenance"]["call_id"] == "native-runtime-call"
     assert meta["sources"] == [{"id": root_body["request_id"], "path": root["path"], "title": "Feasible bounds"}]
@@ -366,7 +372,7 @@ def test_clarification_is_one_bound_artifact_without_manager_or_research_writes(
     snapshot = json.loads(prompt.split(SOURCES_MARKER, 1)[1].split(QUESTION_MARKER, 1)[0])
     assert len(snapshot["sources"]) == 1
     assert snapshot["sources"][0]["markdown"].encode() == original
-    assert snapshot["sources"][0]["version"] == 1
+    assert snapshot["sources"][0]["version"] == 2
     assert json.loads(prompt.split(QUESTION_MARKER, 1)[1]) == request["question"]
     assert options["run_label"] == "reader-clarification" and "mission_id" not in options
     saved = foundation.read_foundation(tmp_path, sid, request["request_id"])
@@ -475,12 +481,13 @@ def test_clarification_rejects_unavailable_parent_or_root_without_model_or_reser
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("failed", [False, True])
-def test_existing_clarification_replays_terminal_after_source_loss_without_readmission(project, tmp_path, monkeypatch, stream, failed):
+@pytest.mark.parametrize("legacy_version", [1, 2])
+def test_existing_clarification_replays_terminal_after_source_loss_without_readmission(project, tmp_path, monkeypatch, stream, failed, legacy_version):
     sid, life, workspace, root_body = project
     calls = []
     current_version = foundation.FOUNDATION_VERSION
-    assert current_version == 2
-    monkeypatch.setattr(foundation, "FOUNDATION_VERSION", 1)
+    assert current_version == 3
+    monkeypatch.setattr(foundation, "FOUNDATION_VERSION", legacy_version)
     monkeypatch.setattr(foundation, "run_map_model", fake_run(calls))
     client = TestClient(create_app(global_root=tmp_path))
     root = completed_reading(client, sid, root_body)
@@ -498,7 +505,7 @@ def test_existing_clarification_replays_terminal_after_source_loss_without_readm
         assert initial.status_code == 200
     assert (life / foundation.MANIFEST_DIRECTORY / (request["request_id"] + ".json")).is_file()
     retained = foundation.foundation_artifact(foundation.read_foundation(tmp_path, sid, request["request_id"]))
-    assert retained["reader_foundation"]["version"] == 1
+    assert retained["reader_foundation"]["version"] == legacy_version
     manifest = life / foundation.MANIFEST_DIRECTORY / (request["request_id"] + ".json")
     before = manifest.read_bytes()
     monkeypatch.setattr(foundation, "FOUNDATION_VERSION", current_version)

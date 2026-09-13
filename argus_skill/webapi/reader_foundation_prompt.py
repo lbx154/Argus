@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import json
 
-from .map_teaching_review import TEACHING_CORE, _object, _string
+from .map_teaching_review import MARKDOWN_TEACHING_CORE, _object, _string
 
 QUESTION_MARKER = "\nReader's actual question (JSON):\n"
 MARKDOWN_LIMIT = 32_000
+MARKDOWN_OUTPUT_CONTRACT = f"""Return only the complete Markdown document. Its first line must be a single H1 heading written as '# Title', with a plain-text title of at most 160 characters. Follow it with a blank line and a nonempty answer. The complete document, including the heading, may contain at most {MARKDOWN_LIMIT} characters. Do not wrap the document in a code fence or a JSON object. Write mathematical backslashes literally in the Markdown; there is no JSON-string escaping layer."""
 
 
 def foundation_request(question: str, locale: str) -> tuple[str, dict]:
@@ -20,7 +21,7 @@ def foundation_request(question: str, locale: str) -> tuple[str, dict]:
     language = "简体中文" if locale == "zh-CN" else "English"
     prompt = f"""Write a durable foundation explanation answering this reader's actual question, in {language}. The result is a standalone document the reader can return to as research progresses. It is not a summary of a current task, a proof attempt, or a report of work performed. Use no tools.
 
-{TEACHING_CORE}
+{MARKDOWN_TEACHING_CORE}
 
 Start with what the reader wants to understand. If the question names a conjecture, criterion or technical claim, explain the relation it asserts; the name itself is not an explanation. Keep distinct the meaning of a claim and a method that could prove it.
 
@@ -34,7 +35,6 @@ Read the complete explanation as a beginner would: every essential object, opera
 
 Return a title and the complete document as ordinary Markdown. Use paragraphs and helpful headings. Do not use HTML or <details> blocks. A practice question may be followed by a plainly labeled worked answer; do not add scores, mastery labels, a course plan, implementation details, or progress/status narration. The length limit is room for necessary explanation, not a target to fill.
 
-Return only JSON matching this schema:
-{json.dumps(schema, ensure_ascii=False, separators=(',', ':'))}"""
+{MARKDOWN_OUTPUT_CONTRACT}"""
     prompt += QUESTION_MARKER + json.dumps(question, ensure_ascii=False)
     return prompt, schema

@@ -19,7 +19,7 @@ from ..life.memory import Backlog
 from .map_model import MapProgress, resolve_map_model, run_map_model
 from .project_state import project_life_dir
 
-FOUNDATION_VERSION = 2
+FOUNDATION_VERSION = 3
 GENERATION_SECONDS = 180
 MANIFEST_DIRECTORY = "reader-foundations"
 ARTIFACT_DIRECTORY = "reader-notes"
@@ -324,13 +324,13 @@ def generate_foundation(
             deadline=time.monotonic() + max(0, record["deadline_at"] - time.time()),
             on_progress=on_progress,
             run_label=record["provenance"]["run_label"], on_result=receipt,
+            output_format="markdown",
         )
         if time.time() > record["deadline_at"]:
             raise TimeoutError("question foundation generation deadline exceeded")
         markdown = result["markdown"].strip()
         if not markdown:
             raise ValueError("question foundation is empty")
-        title = " ".join(result["title"].splitlines()).strip()
         introduction, question_heading = (
             ("这是一份用于理解原问题的背景说明。研究进展与复核结论请查看对应任务记录。", "原问题")
             if record["locale"] == "zh-CN" else
@@ -360,7 +360,7 @@ def generate_foundation(
                 links.append(f"- [{label}]({source['path']})")
             sources_heading = "参考来源" if record["locale"] == "zh-CN" else "Reading sources"
             references = f"\n\n## {sources_heading}\n\n" + "\n".join(links)
-        document = f"# {title}\n\n{introduction}\n\n## {question_heading}\n\n{record['question']}{references}\n\n---\n\n{markdown}\n"
+        document = f"{markdown}\n\n---\n\n{introduction}\n\n## {question_heading}\n\n{record['question']}{references}\n"
         _atomic_write_confined(
             Path(record["workspace"]), f"{ARTIFACT_DIRECTORY}/{life_dir.name}",
             record["id"] + ".md", document.encode("utf-8"),

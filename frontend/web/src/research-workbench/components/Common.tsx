@@ -11,9 +11,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math-extended';
-import rehypeKatex from 'rehype-katex';
+import { markdownRemarkPlugins, markdownRehypePlugins } from '../../components/markdownMath';
 import { PdfPreview } from '../../components/PdfPreview';
 import { isMarkdownArtifact } from '../../lib/artifactPresentation';
 import { downloadBlob } from '../../lib/downloadBlob';
@@ -116,14 +114,12 @@ export function Spinner({ label }: { label?: string }) {
 }
 
 export function Markdown({ children, className }: { children: string; className?: string }) {
+  const { locale } = useWorkbenchText();
   return (
     <div className={cx('markdown', className)}>
       <ReactMarkdown
-        remarkPlugins={[
-          remarkGfm,
-          [remarkMath, { backslashDelimiters: true, singleDollarTextMath: false }],
-        ]}
-        rehypePlugins={[rehypeKatex]}
+        remarkPlugins={markdownRemarkPlugins}
+        rehypePlugins={markdownRehypePlugins(locale === 'zh-CN')}
         components={{
           a: ({ href, title, children: label }) => (
             <a href={href} title={title} target="_blank" rel="noreferrer">{label}<ExternalLink size={11} /></a>

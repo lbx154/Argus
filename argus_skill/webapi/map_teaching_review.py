@@ -41,7 +41,7 @@ _FINDING_KINDS = (
 
 
 # Shared by reading answers, map drafts and their existing teaching checks.
-TEACHING_CORE = r"""Teach for a reader who knows everyday language and basic arithmetic; technical words in the question or source do not imply prior knowledge. Give necessary meanings before names and notation, within the requested output's scope.
+MARKDOWN_TEACHING_CORE = r"""Teach for a reader who knows everyday language and basic arithmetic; technical words in the question or source do not imply prior knowledge. Give necessary meanings before names and notation, within the requested output's scope.
 
 Supplied records are evidence of this run's choices, work and reported results. Accurate standard definitions, relations and conventions may go beyond those records; label them as background. Missing run details do not prevent teaching that background, and background does not establish what this run did or proved. Keep teaching examples separate from recorded data.
 
@@ -49,7 +49,10 @@ Before teaching a comparison, define both actual objects or quantities, what the
 
 Preserve quantifiers, assumptions and implication directions. Distinguish inclusion from equality and an unproved converse from a refutation. 'Not all' does not mean 'none'; an unproved claim is not thereby false. A counterexample meets the hypotheses and violates the conclusion; failure of a sufficient condition alone is not a refutation.
 
-Use readable words for titles, labels and summary fields. In mathematical Markdown bodies use \(...\) for inline and \[...\] for display math, never backticks or code blocks around formulas. Escape backslashes correctly in JSON."""
+Use readable words for titles, labels and summary fields. In mathematical Markdown bodies use \(...\) for inline and \[...\] for display math, never backticks or code blocks around formulas."""
+
+# Keep every existing JSON map prompt byte-for-byte unchanged.
+TEACHING_CORE = MARKDOWN_TEACHING_CORE + " Escape backslashes correctly in JSON."
 
 
 # Field-specific rules remain shared by the map draft and checker.

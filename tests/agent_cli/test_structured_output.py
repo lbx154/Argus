@@ -91,6 +91,23 @@ def test_pi_schema_is_child_only_and_loaded_before_the_existing_capture_extensio
         runner._build_command(resume_thread_id=None, options=first)
 
 
+@pytest.mark.parametrize("backend", ["pi", "codex"])
+def test_tools_disabled_plain_text_call_omits_native_schema_transport(tmp_path, monkeypatch, backend):
+    monkeypatch.setenv(transport.PI_OUTPUT_SCHEMA_ENV, "ambient-schema-must-not-apply")
+    runner = AgentCliRunner(backend=backend, agent_bin=backend)
+    call_options = RunnerOptions(disable_tools=True, output_schema=None, working_dir=str(tmp_path),
+                                 _training_extension=training_runtime.EXTENSION)
+    with transport.structured_output_call(backend, call_options) as prepared:
+        assert prepared is call_options
+        command = runner._build_command(resume_thread_id=None, options=prepared)
+        assert "--output-schema" not in command
+        assert str(transport.PI_OUTPUT_SCHEMA_EXTENSION) not in command
+        if backend == "pi":
+            assert "--no-tools" in command and training_runtime.EXTENSION in command
+            assert transport.PI_OUTPUT_SCHEMA_ENV not in runner._child_env(prepared)
+    assert not list(tmp_path.glob("argus-output-schema-*"))
+
+
 @pytest.mark.parametrize("raises", [False, True])
 def test_codex_schema_file_lives_for_the_call_and_is_cleaned_on_every_exit(tmp_path, monkeypatch, raises):
     runner = AgentCliRunner(backend="codex", agent_bin="codex")
@@ -206,6 +223,7 @@ PI_CLI = os.environ.get("ARGUS_PI_TEST_CLI") or shutil.which("pi")
 def test_real_pi_bundle_sends_native_schema_and_capture_observes_it_with_no_provider_network(tmp_path, monkeypatch):
     """Actual Pi CLI + real training extension; only local HTTP/IPC fixtures."""
     requests, receipts, failures = [], [], []
+    response_text = ['{"answer":"offline fixture"}']
 
     class HTTP(BaseHTTPRequestHandler):
         def log_message(self, *_args):
@@ -230,7 +248,7 @@ def test_real_pi_bundle_sends_native_schema_and_capture_observes_it_with_no_prov
             self.end_headers()
             chunks = [
                 {"id": "offline", "model": "offline-model", "choices": [{"index": 0, "delta": {
-                    "role": "assistant", "content": '{"answer":"offline fixture"}'}, "finish_reason": None}]},
+                    "role": "assistant", "content": response_text[0]}, "finish_reason": None}]},
                 {"id": "offline", "model": "offline-model", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                  "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}},
             ]
@@ -288,6 +306,33 @@ def test_real_pi_bundle_sends_native_schema_and_capture_observes_it_with_no_prov
             assert captured[-1]["response_format"] == requests[-1]["response_format"]
             assert captured[-1]["messages"] == requests[-1]["messages"]
         assert len(requests) == 2
+
+        native_markdown = "# Literal mathematics\n\n" + r"\[\frac{10}{7}=\lambda.\] Literal \u0005 stays literal."
+        response_text[0] = native_markdown
+        receipt_start = len(receipts)
+        before = len(requests)
+        markdown_options = dataclasses.replace(call_options, output_schema=None, disable_tools=True)
+        result = runner.run_exec(prompt="Return the complete offline Markdown document with literal backslashes.",
+                                 resume_thread_id=None, options=markdown_options)
+        assert result.exit_code == 0 and result.turn_completed and not result.fatal_error, result.stderr_lines
+        assert result.last_agent_message.encode() == native_markdown.encode()
+        assert "\f" not in result.last_agent_message and "\x05" not in result.last_agent_message
+        assert len(requests) == before + 1
+        assert "response_format" not in requests[-1] and not requests[-1].get("tools")
+        assert "--no-tools" in result.command and training_runtime.EXTENSION in result.command
+        assert str(transport.PI_OUTPUT_SCHEMA_EXTENSION) not in result.command
+        captured = [row["value"]["payload"] for row in receipts[receipt_start:]
+                    if row["action"] == "event" and row["value"]["kind"] == "provider_request"]
+        # Existing providerProjection represents omitted tools as an empty list.
+        # All other provider fields, including exact messages, must match.
+        assert captured == [{**requests[-1], "tools": requests[-1].get("tools") or []}]
+        assistants = [message for row in receipts[receipt_start:]
+                      if row["action"] == "event" and row["value"]["kind"] == "message_end"
+                      for message in row["value"]["payload"]["messages"] if message.get("role") == "assistant"]
+        assert len(assistants) == 1
+        captured_text = "\n".join(part["text"] for part in assistants[0]["content"] if part.get("type") == "text")
+        assert captured_text.encode() == result.last_agent_message.encode() == native_markdown.encode()
+        response_text[0] = '{"answer":"offline fixture"}'
 
         ordinary = dataclasses.replace(call_options, output_schema=None, disable_tools=False)
         result = runner.run_exec(prompt="Return the offline fixture without tools.", resume_thread_id=None, options=ordinary)

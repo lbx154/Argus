@@ -6,8 +6,12 @@ import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
 from argus_skill.webapi import reader_clarification
-from argus_skill.webapi.map_teaching_review import TEACHING_CORE
-from argus_skill.webapi.reader_foundation_prompt import QUESTION_MARKER, foundation_request
+from argus_skill.webapi.map_teaching_review import MARKDOWN_TEACHING_CORE
+from argus_skill.webapi.reader_foundation_prompt import (
+    MARKDOWN_OUTPUT_CONTRACT,
+    QUESTION_MARKER,
+    foundation_request,
+)
 
 
 @pytest.mark.parametrize("locale,language", [("zh-CN", "简体中文"), ("en-US", "English")])
@@ -18,7 +22,10 @@ def test_preserves_the_actual_submitted_question_without_task_context(locale, la
     instructions, supplied = prompt.rsplit(QUESTION_MARKER, 1)
     assert json.loads(supplied) == question
     assert language in instructions
-    assert instructions.count(TEACHING_CORE) == 1
+    assert instructions.count(MARKDOWN_TEACHING_CORE) == 1
+    assert instructions.count(MARKDOWN_OUTPUT_CONTRACT) == 1
+    assert "Return only JSON" not in instructions
+    assert "Escape backslashes correctly in JSON" not in instructions
     assert set(schema["properties"]) == {"title", "markdown"}
     assert "Retained sources:" not in prompt
     assert "source_task_id" not in prompt
@@ -39,7 +46,10 @@ def test_clarification_reuses_the_teaching_contract_without_changing_saved_sourc
     instructions, payload = prompt.split(reader_clarification.SOURCES_MARKER, 1)
     sources, submitted = payload.split(reader_clarification.QUESTION_MARKER, 1)
 
-    assert instructions.count(TEACHING_CORE) == 1
+    assert instructions.count(MARKDOWN_TEACHING_CORE) == 1
+    assert instructions.count(MARKDOWN_OUTPUT_CONTRACT) == 1
+    assert "Return only JSON" not in instructions
+    assert "Escape backslashes correctly in JSON" not in instructions
     assert json.loads(sources) == snapshot
     assert json.loads(submitted) == question
     assert json.dumps(snapshot, ensure_ascii=False) == before

@@ -159,6 +159,13 @@ it('reopens saved questions by source and follows only the explicitly selected a
   vi.mocked(crypto.randomUUID).mockReset().mockReturnValue(secondId);
   await mount(); act(() => button('Reading questions').props.onClick()); await flush();
   expect(dialog().props['data-progress-source-id']).toBe(sourceA.source_id);
+  const choice = renderer!.root.findAllByType('option').find(node => node.props.value === firstId)!;
+  expect(choice.children).toEqual(['A saved answer']);
+  expect(choice.props.title).toBe(first.reader_foundation!.question);
+  const question = renderer!.root.findAllByType('details').find(node => node.findByType('summary').children.includes('View this question'))!;
+  expect(question.props.open).toBeUndefined();
+  expect(question.findByType('p').children).toEqual([first.reader_foundation!.question]);
+  expect(renderer!.root.findAllByType(MarkdownContent).map(node => node.props.children)).toContain(first.preview);
   act(() => button('Read the original explanation').props.onClick()); await flush();
   expect(api.artifact).toHaveBeenCalledWith('project-a', sourceA.path, expect.any(AbortSignal));
   act(() => button('Ask a follow-up to this answer').props.onClick()); edit('My explicit follow-up'); submit(); await flush();
