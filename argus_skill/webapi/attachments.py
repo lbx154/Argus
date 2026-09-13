@@ -309,7 +309,12 @@ def _sanitize_storage_name(original_name: str) -> str:
         stem = "attachment"
     suffix = path.suffix.lower()
     budget = max(1, 120 - len(suffix))
-    return stem[:budget] + suffix
+    stored_name = stem[:budget] + suffix
+    # The sidecar shares this directory with the payload. Windows compares
+    # these names without case, and sanitization can also produce this name.
+    if stored_name.casefold() == "metadata.json":
+        return "uploaded-" + stored_name
+    return stored_name
 
 
 def _validate_attachment_payload(

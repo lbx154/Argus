@@ -111,6 +111,48 @@ def test_pi_runner_uses_pi_binary(tmp_path: Path, monkeypatch) -> None:
     _assert_same_path(AgentCliRunner(backend=BACKEND_PI).agent_bin, executable)
 
 
+@pytest.mark.parametrize("suffix", [".CMD", ".EXE"])
+def test_windows_runner_fallback_resolves_quoted_path_directory(
+    tmp_path: Path, monkeypatch, suffix: str,
+) -> None:
+    bindir = tmp_path / "研发 tools%ARGUS_LOOKUP_LITERAL%"
+    bindir.mkdir()
+    executable = bindir / f"pi{suffix}"
+    executable.write_text("local lookup fixture", encoding="utf-8")
+    monkeypatch.setattr(runner_backend, "os", SimpleNamespace(
+        name="nt", environ={
+            "PATH": f'"{bindir}"',
+            "PATHEXT": os.pathsep.join([".EXE", ".CMD"]),
+            "ARGUS_LOOKUP_LITERAL": "must-not-expand",
+        }, pathsep=os.pathsep,
+    ))
+    # Python's which() does not strip quotes from PATH entries. Exercise the
+    # existing fallback on every host, including mixed-case Windows suffixes.
+    monkeypatch.setattr(runner_backend.shutil, "which", lambda *_args: None)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+
+    _assert_same_path(resolve_runner_bin(BACKEND_PI), executable)
+
+
+def test_posix_runner_fallback_keeps_literal_path_quotes(tmp_path: Path, monkeypatch) -> None:
+    directory = f'"{tmp_path / "literal-directory"}"'
+    expected = Path(directory) / "pi"
+    inspected: list[Path] = []
+
+    def resolve_candidate(path: Path) -> str | None:
+        inspected.append(path)
+        return str(path) if path == expected else None
+
+    monkeypatch.setattr(runner_backend, "os", SimpleNamespace(
+        name="posix", environ={"PATH": directory}, pathsep=os.pathsep,
+    ))
+    monkeypatch.setattr(runner_backend.shutil, "which", lambda *_args: None)
+    monkeypatch.setattr(runner_backend, "_resolve_explicit_candidate", resolve_candidate)
+
+    assert resolve_runner_bin(BACKEND_PI) == str(expected)
+    assert inspected == [expected]
+
+
 def test_grok_runner_uses_grok_binary(tmp_path: Path, monkeypatch) -> None:
     executable = _write_runner_executable(tmp_path / "grok")
     monkeypatch.setenv("PATH", str(tmp_path))

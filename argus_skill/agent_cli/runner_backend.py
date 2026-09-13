@@ -338,6 +338,8 @@ def resolve_runner_bin(
     if Path(expanded).parent != Path("."):
         return None
     for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if os.name == "nt" and entry.startswith('"') and entry.endswith('"'):
+            entry = entry[1:-1]
         if not entry:
             continue
         resolved = _resolve_explicit_candidate(Path(entry) / expanded)

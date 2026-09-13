@@ -64,6 +64,23 @@ def test_git_remote_drives_fingerprint(tmp_path: Path) -> None:
     assert identity.cwd == str(repo.resolve())
 
 
+@pytest.mark.parametrize("remote_name", ["demo", "论文进度", "中"])
+def test_git_remote_uses_utf8_under_legacy_windows_locale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, remote_name: str,
+) -> None:
+    repo = tmp_path / "研究 工作区"
+    _git_init(repo)
+    _git(repo, "remote", "add", "origin", f"https://example.invalid/{remote_name}.git")
+    # Use real Git output while emulating the default encoding of a Chinese
+    # Windows host, including on UTF-8-mode and non-Windows test runners.
+    monkeypatch.setattr(subprocess, "_text_encoding", lambda: "cp936")
+
+    identity = project.project_fingerprint(repo)
+
+    assert identity.source == "git-remote"
+    assert identity.label == f"example.invalid/{remote_name}"
+
+
 def test_git_remote_drives_fingerprint_with_broken_git_config_env(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

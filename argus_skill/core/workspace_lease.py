@@ -138,18 +138,27 @@ def acquire_workspace_lease(
         raise WorkspaceLeaseBusy(
             _busy_message(canonical, detail)
         ) from exc
-    payload = {
-        "workdir": str(canonical),
-        "pid": os.getpid(),
-        **(owner or {}),
-    }
-    encoded = (json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode()
-    os.ftruncate(fd, 0)
-    os.lseek(fd, 0, os.SEEK_SET)
-    os.write(fd, encoded)
-    os.fsync(fd)
-    if os.name == "nt":
-        _write_windows_owner(path, encoded)
+    try:
+        payload = {
+            "workdir": str(canonical),
+            "pid": os.getpid(),
+            **(owner or {}),
+        }
+        encoded = (json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode()
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, encoded)
+        os.fsync(fd)
+        if os.name == "nt":
+            _write_windows_owner(path, encoded)
+    except BaseException:
+        # Ownership is transferred to the caller only after initialization.
+        # Closing releases the OS lock even when the Windows sidecar is busy.
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
     return fd
 
 

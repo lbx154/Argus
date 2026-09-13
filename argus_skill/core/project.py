@@ -145,6 +145,8 @@ def _git_remote_origin(cwd: Path) -> str | None:
             env=_git_env(),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
     except (FileNotFoundError, OSError):
