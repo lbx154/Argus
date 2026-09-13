@@ -126,7 +126,9 @@ export function ArtifactModal({
             {foundation ? readerFoundationTitle(foundation) : info?.name ?? path ?? t('artifact.title')}
           </h2>
           <p className="mt-0.5 truncate text-[11px] text-ink-faint">
-            {foundation ? (zh ? '背景说明 · 不计作研究进展' : 'Background explanation · separate from research progress')
+            {foundation ? foundation.kind === 'clarification'
+              ? (zh ? '阅读问答' : 'Reading question and answer')
+              : (zh ? '背景说明 · 不计作研究进展' : 'Background explanation · separate from research progress')
               : info ? `${info.kind} · ${formatBytes(info.size)} · ${info.mime}` : zh ? '正在读取文件' : 'Loading file'}
           </p>
         </div>
@@ -180,7 +182,7 @@ export function ArtifactModal({
                   : (zh ? '这是最近保存的审稿意见，文件更新后会自动刷新。' : 'This is the latest saved review. Changes to this file appear automatically.')}
               {info.mtime != null && <div>{zh ? '最近更新：' : 'Last updated: '}{new Date(info.mtime * 1000).toLocaleString(locale)}</div>}
             </div>}
-            <MarkdownContent artifacts={files.map((file) => ({ path: file.path }))} onOpenArtifact={onSelectPath}>{info.preview || t('artifact.empty')}</MarkdownContent>
+            <MarkdownContent artifacts={[...files.map((file) => ({ path: file.path })), ...(foundation?.sources ?? [])]} onOpenArtifact={onSelectPath}>{info.preview || t('artifact.empty')}</MarkdownContent>
             {info.truncated ? <p role="status" className="mt-3 border-t border-line pt-2 text-xs text-ink-faint">
               {t('artifact.truncated')} · {t('artifact.downloadHint')}
             </p> : null}

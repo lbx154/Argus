@@ -280,3 +280,247 @@ def test_failed_worker_dispatch_cannot_leave_a_live_owner_reservation(project, t
     response = client.post(f"/api/projects/{sid}/reader-foundation?stream=true", json=body)
     assert response.status_code == 503
     assert not list((life / foundation.MANIFEST_DIRECTORY).glob("*.json"))
+
+
+def completed_reading(client, sid, body):
+    return client.post(f"/api/projects/{sid}/reader-foundation", json=body).json()
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_clarification_is_one_bound_artifact_without_manager_or_research_writes(project, tmp_path, monkeypatch, stream):
+    from argus_skill.webapi.reader_clarification import QUESTION_MARKER, SOURCES_MARKER
+
+    sid, life, workspace, root_body = project
+    calls = []
+    monkeypatch.setattr(foundation, "run_map_model", fake_run(calls))
+    client = TestClient(create_app(global_root=tmp_path))
+    root = completed_reading(client, sid, root_body)
+    root_path = workspace / root["path"]
+    original = root_path.read_bytes()
+    backlog_before = (life / "backlog.jsonl").read_bytes()
+    for target in (
+        "argus_skill.webapi.manager_bridge.manager_message",
+        "argus_skill.apps._inbox.queue_inbox_message",
+        "argus_skill.core.transcript.append_turn",
+    ):
+        monkeypatch.setattr(target, lambda *a, **k: pytest.fail("Reading entered the research message pipeline"))
+    request = {"request_id": str(uuid4()), "question": "Why must the two bounds be for the same objective?", "locale": "en-US"}
+    url = f"/api/projects/{sid}/reader-foundation/{root_body['request_id']}/question"
+    response = client.post(url, params={"stream": stream}, json=request)
+    assert response.status_code == 200
+    if stream:
+        frames = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+        assert [row["type"] for row in frames] == ["heartbeat", "progress", "done"]
+        child = frames[-1]["result"]
+    else:
+        child = response.json()
+    meta = child["reader_foundation"]
+    assert (meta["kind"], meta["parent_id"], meta["root_id"]) == ("clarification", root_body["request_id"], root_body["request_id"])
+    assert root["reader_foundation"]["kind"] == "foundation"
+    assert root["reader_foundation"]["parent_id"] is None
+    assert root["reader_foundation"]["root_id"] == root_body["request_id"]
+    assert meta["question"] == request["question"] and meta["state"] == "complete"
+    assert meta["provenance"]["run_label"] == "reader-clarification"
+    assert meta["provenance"]["call_id"] == "native-runtime-call"
+    assert meta["sources"] == [{"id": root_body["request_id"], "path": root["path"], "title": "Feasible bounds"}]
+    assert "sources" not in root["reader_foundation"]
+    prompt, _, options = calls[-1]
+    snapshot = json.loads(prompt.split(SOURCES_MARKER, 1)[1].split(QUESTION_MARKER, 1)[0])
+    assert len(snapshot["sources"]) == 1
+    assert snapshot["sources"][0]["markdown"].encode() == original
+    assert json.loads(prompt.split(QUESTION_MARKER, 1)[1]) == request["question"]
+    assert options["run_label"] == "reader-clarification" and "mission_id" not in options
+    saved = foundation.read_foundation(tmp_path, sid, request["request_id"])
+    assert saved["source_snapshot"] == snapshot
+    assert request["question"] in saved["markdown"] and "original documents are unchanged" in saved["markdown"]
+    assert f"[Feasible bounds]({root['path']})" in saved["markdown"]
+    assert client.post(url, json=request).json() == child and len(calls) == 2
+    assert client.post(url, json={**request, "question": "Different"}).status_code == 409
+    assert client.post(f"/api/projects/{sid}/reader-foundation", json=request).status_code == 409
+    listed = client.get(f"/api/projects/{sid}/artifacts?include_reading=true").json()["artifacts"]
+    assert [row["reader_foundation"]["id"] for row in listed] == [root_body["request_id"], request["request_id"]]
+    assert client.get(f"/api/projects/{sid}/artifacts").json()["artifacts"] == []
+    assert root_path.read_bytes() == original and (life / "backlog.jsonl").read_bytes() == backlog_before
+    assert all(not (life / name).exists() for name in ("transcript.jsonl", "inbox.jsonl", "events.jsonl"))
+
+
+def test_deeper_clarification_uses_only_root_and_selected_parent_and_snapshot_survives_source_change(project, tmp_path, monkeypatch):
+    sid, life, workspace, root_body = project
+    calls = []
+    monkeypatch.setattr(foundation, "run_map_model", fake_run(calls))
+    client = TestClient(create_app(global_root=tmp_path))
+    root = completed_reading(client, sid, root_body)
+    first_body = {"request_id": str(uuid4()), "question": "First doubt", "locale": "en-US"}
+    first_url = f"/api/projects/{sid}/reader-foundation/{root_body['request_id']}/question"
+    first = client.post(first_url, json=first_body).json()
+    second_body = {"request_id": str(uuid4()), "question": "Second doubt", "locale": "en-US"}
+    second_url = f"/api/projects/{sid}/reader-foundation/{first_body['request_id']}/question"
+    second = client.post(second_url, json=second_body).json()
+    request_id = str(uuid4())
+    reserved, created = foundation.reserve_foundation(tmp_path, sid, request_id=request_id,
+        question="Third doubt", locale="en-US", parent_id=second_body["request_id"])
+    assert created and reserved["root_id"] == root_body["request_id"]
+    sources = reserved["source_snapshot"]["sources"]
+    assert [row["id"] for row in sources] == [root_body["request_id"], second_body["request_id"]]
+    assert first_body["request_id"] not in [row["id"] for row in sources]
+    (workspace / second["path"]).write_text("Changed after the request was reserved")
+    (workspace / root["path"]).unlink()
+    result = foundation.generate_foundation(tmp_path, sid, reserved)
+    assert result["reader_foundation"]["state"] == "complete"
+    assert [source["id"] for source in result["reader_foundation"]["sources"]] == [root_body["request_id"], second_body["request_id"]]
+    assert "Changed after the request was reserved" not in calls[-1][0]
+    sent = json.loads(calls[-1][0].split("Saved reading sources (JSON):\n")[1].split("\nReader's actual follow-up question")[0])
+    assert sent == reserved["source_snapshot"]
+    assert foundation.reserve_foundation(tmp_path, sid, request_id=request_id, question="Third doubt",
+        locale="en-US", parent_id=second_body["request_id"])[1] is False
+    assert client.post(first_url, json=second_body).status_code == 409
+    assert len(calls) == 4
+    assert first["reader_foundation"]["root_id"] == second["reader_foundation"]["root_id"]
+
+
+@pytest.mark.parametrize("case", ["missing", "foreign", "generating", "failed", "unreadable", "stale_manifest_text", "empty", "missing_metadata", "missing_root", "invalid_parent_snapshot"])
+@pytest.mark.parametrize("stream", [False, True])
+def test_clarification_rejects_unavailable_parent_or_root_without_model_or_reservation(project, tmp_path, monkeypatch, case, stream):
+    sid, life, workspace, root_body = project
+    calls = []
+    monkeypatch.setattr(foundation, "run_map_model", fake_run(calls))
+    client = TestClient(create_app(global_root=tmp_path))
+    root = completed_reading(client, sid, root_body)
+    parent_id = root_body["request_id"]
+    if case == "missing":
+        parent_id = str(uuid4())
+    elif case == "foreign":
+        other = "s-other"
+        write_session_meta(tmp_path, SessionMeta(id=other, workdir=str(workspace)))
+        foreign = completed_reading(client, other, {**root_body, "request_id": str(uuid4()), "source_task_id": None})
+        parent_id = foreign["reader_foundation"]["id"]
+    elif case in {"generating", "failed"}:
+        record = foundation.read_foundation(tmp_path, sid, parent_id)
+        record["state"] = case
+        foundation._save_record(life, record)
+    elif case in {"unreadable", "stale_manifest_text"}:
+        if case == "stale_manifest_text":
+            stale = foundation.read_foundation(tmp_path, sid, parent_id)
+            foundation._save_record(life, stale)
+        (workspace / root["path"]).unlink()
+    elif case == "empty":
+        (workspace / root["path"]).write_text(" \n")
+    elif case == "missing_metadata":
+        invalid = foundation.read_foundation(tmp_path, sid, parent_id)
+        invalid.pop("version")
+        foundation._save_record(life, invalid)
+    elif case in {"missing_root", "invalid_parent_snapshot"}:
+        child_body = {"request_id": str(uuid4()), "question": "A doubt", "locale": "en-US"}
+        child = client.post(f"/api/projects/{sid}/reader-foundation/{parent_id}/question", json=child_body).json()
+        parent_id = child["reader_foundation"]["id"]
+        if case == "missing_root":
+            (life / foundation.MANIFEST_DIRECTORY / (root_body["request_id"] + ".json")).unlink()
+        else:
+            invalid = foundation.read_foundation(tmp_path, sid, parent_id)
+            invalid["source_snapshot"]["sources"] = []
+            foundation._save_record(life, invalid)
+    monkeypatch.setattr(foundation, "run_map_model", lambda *a, **k: pytest.fail("Invalid source reached a model"))
+    request = {"request_id": str(uuid4()), "question": "Explain this", "locale": "en-US"}
+    response = client.post(f"/api/projects/{sid}/reader-foundation/{parent_id}/question", params={"stream": stream}, json=request)
+    expected = {"code": "reader_source_unavailable", "message": "The selected reading source is unavailable or incomplete."}
+    if stream:
+        assert response.status_code == 200
+        frames = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+        assert frames[-1] == {"type": "error", "error": expected, "status": 422}
+        assert not any(row["type"] == "done" for row in frames)
+    else:
+        assert response.status_code == 422 and response.json()["detail"] == expected
+    assert not (life / foundation.MANIFEST_DIRECTORY / (request["request_id"] + ".json")).exists()
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+def test_existing_clarification_replays_terminal_after_source_loss_without_readmission(project, tmp_path, monkeypatch, stream, failed):
+    sid, life, workspace, root_body = project
+    calls = []
+    monkeypatch.setattr(foundation, "run_map_model", fake_run(calls))
+    client = TestClient(create_app(global_root=tmp_path))
+    root = completed_reading(client, sid, root_body)
+    request = {"request_id": str(uuid4()), "question": "Explain the actual doubt", "locale": "en-US"}
+    url = f"/api/projects/{sid}/reader-foundation/{root_body['request_id']}/question"
+    monkeypatch.setattr(foundation, "run_map_model", fake_run(calls, fail=failed))
+    initial = client.post(url, params={"stream": stream}, json=request)
+    if failed:
+        if stream:
+            frames = [json.loads(line[6:]) for line in initial.text.splitlines() if line.startswith("data: ")]
+            assert frames[-1] == {"type": "error", "error": "question foundation request or content is invalid", "status": 422}
+        else:
+            assert initial.status_code == 422 and initial.json()["detail"] == "question foundation request or content is invalid"
+    else:
+        assert initial.status_code == 200
+    assert (life / foundation.MANIFEST_DIRECTORY / (request["request_id"] + ".json")).is_file()
+    retained = foundation.foundation_artifact(foundation.read_foundation(tmp_path, sid, request["request_id"]))
+    (workspace / root["path"]).unlink()
+    monkeypatch.setattr(foundation, "run_map_model", lambda *a, **k: pytest.fail("Terminal clarification regenerated"))
+    replay = client.post(url, params={"stream": stream}, json=request)
+    assert replay.status_code == 200
+    if stream:
+        frames = [json.loads(line[6:]) for line in replay.text.splitlines() if line.startswith("data: ")]
+        assert frames[-1] == {"type": "done", "result": retained}
+        assert not any(row["type"] == "error" for row in frames)
+    else:
+        assert replay.json() == retained
+    assert retained["reader_foundation"]["state"] == ("failed" if failed else "complete")
+    assert len(calls) == 2
+
+
+def test_clarification_failed_and_dead_owner_reposts_do_not_regenerate(project, tmp_path, monkeypatch):
+    sid, life, workspace, root_body = project
+    calls = []
+    monkeypatch.setattr(foundation, "run_map_model", fake_run(calls))
+    client = TestClient(create_app(global_root=tmp_path))
+    completed_reading(client, sid, root_body)
+    request = {"request_id": str(uuid4()), "question": "Actual clarification", "locale": "en-US"}
+    url = f"/api/projects/{sid}/reader-foundation/{root_body['request_id']}/question"
+    monkeypatch.setattr(foundation, "run_map_model", fake_run(calls, fail=True))
+    assert client.post(url, json=request).status_code == 422
+    failed = client.post(url, json=request).json()
+    assert failed["reader_foundation"]["state"] == "failed"
+    assert failed["reader_foundation"]["provenance"]["call_id"] == "native-runtime-call"
+    assert len(calls) == 2
+    record, _ = foundation.reserve_foundation(tmp_path, sid, request_id=str(uuid4()), question="Interrupted question",
+        locale="en-US", parent_id=root_body["request_id"])
+    record["owner"] = {"pid": 0}
+    foundation._save_record(life, record)
+    monkeypatch.setattr(foundation, "run_map_model", lambda *a, **k: pytest.fail("Interrupted request regenerated"))
+    dead = client.post(url, json={"request_id": record["id"], "question": record["question"], "locale": record["locale"]}).json()
+    assert dead["reader_foundation"]["state"] == "failed"
+    assert dead["reader_foundation"]["error"] == "generation_owner_terminated"
+
+
+def test_clarification_request_contract_rejects_untrusted_fields_and_shares_one_worker(project, tmp_path, monkeypatch):
+    sid, _, _, root_body = project
+    calls = []
+    monkeypatch.setattr(foundation, "run_map_model", fake_run(calls))
+    client = TestClient(create_app(global_root=tmp_path, auth_token="test-only"))
+    headers = {"Authorization": "Bearer test-only"}
+    root = client.post(f"/api/projects/{sid}/reader-foundation", json=root_body, headers=headers).json()
+    request = {"request_id": str(uuid4()), "question": "Explain this step", "locale": "en-US"}
+    url = f"/api/projects/{sid}/reader-foundation/{root_body['request_id']}/question"
+    assert client.post(url, json=request).status_code == 401
+    for field, value in (("source_task_id", "task-one"), ("source_snapshot", {}), ("parent_id", str(uuid4()))):
+        assert client.post(url, json={**request, field: value}, headers=headers).status_code == 422
+    started, release = threading.Event(), threading.Event()
+    runner = fake_run(calls)
+
+    def blocked(*args, **kwargs):
+        started.set()
+        assert release.wait(5)
+        return runner(*args, **kwargs)
+
+    monkeypatch.setattr(foundation, "run_map_model", blocked)
+    with ThreadPoolExecutor() as executor:
+        first = executor.submit(client.post, url, json=request, headers=headers)
+        try:
+            assert started.wait(5)
+            duplicate = client.post(url, json=request, headers=headers).json()
+            assert duplicate["reader_foundation"]["state"] == "generating"
+        finally:
+            release.set()
+        assert first.result().json()["reader_foundation"]["state"] == "complete"
+    assert len(calls) == 2 and root["reader_foundation"]["id"] == root_body["request_id"]

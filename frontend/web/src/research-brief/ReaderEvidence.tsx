@@ -2,13 +2,108 @@ import type { ArtifactInfo } from '../api';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { RawDisclosure } from '../components/primitives';
 import { useI18n } from '../i18n';
-import { plainDetail, plainEventName, plainStatus } from '../lib/plainStatus';
+import { plainEventName, plainStatus } from '../lib/plainStatus';
 import type { CardSourceSnapshot } from '../map/presentation';
-import { readableRecord } from '../map/submap';
+import { completionScope } from '../map/status';
 import { evidenceDates, hasTruncatedFields, type EvidenceState, type EvidenceTask, type ReaderEvidenceSelection, type UsedEvidence } from './evidence';
 
 type ReadingArtifacts = { artifacts?: ArtifactInfo[]; onOpenArtifact?: (path: string) => void };
 const prose = (value: unknown) => typeof value === 'string' ? value : '';
+
+function RecordHeading({ record }: { record: Record<string, unknown> }) {
+  const { locale, t } = useI18n();
+  const zh = locale === 'zh-CN', kind = prose(record.type), role = prose(record.role);
+  const name = plainEventName(kind, locale);
+  const ts = typeof record.ts === 'number' && Number.isFinite(record.ts) && record.ts > 0 ? record.ts : undefined;
+  return <>
+    <h4 className="text-xs font-medium text-ink">{name && name !== kind ? name : zh ? '来源记录' : 'Source record'}</h4>
+    <div className="mb-2 flex flex-wrap gap-x-2 text-[11px] text-ink-faint">
+      {role ? <span>{['manager', 'planner', 'engineer', 'reviewer'].includes(role) ? t(`role.${role}`) : role}</span> : null}
+      {ts ? <time dateTime={new Date(ts * 1000).toISOString()}>{new Date(ts * 1000).toLocaleString(locale)}</time> : null}
+      {typeof record.attempt === 'number' ? <span>{zh ? `第 ${record.attempt} 次尝试` : `Attempt ${record.attempt}`}</span> : null}
+      {typeof record.round_index === 'number' ? <span>{zh ? `第 ${record.round_index} 轮` : `Round ${record.round_index}`}</span> : null}
+    </div>
+  </>;
+}
+
+/** Source prose stays intact, including recorded handoffs and actions in the body. */
+function RecordText({ record, ...artifacts }: ReadingArtifacts & { record: Record<string, unknown> }) {
+  const { locale } = useI18n();
+  const zh = locale === 'zh-CN', text = prose(record.text) || prose(record.reason);
+  const scope = completionScope({ id: prose(record.id), item_id: prose(record.item_id), type: prose(record.type),
+    ts: typeof record.ts === 'number' ? record.ts : 0, text,
+    ...(typeof record.overall_complete === 'boolean' ? { overall_complete: record.overall_complete } : {}),
+    ...(typeof record.campaign_continues === 'boolean' ? { campaign_continues: record.campaign_continues } : {}),
+  }, zh);
+  return <>
+    {scope ? <p className="mb-1 text-xs text-ink-faint">{scope}</p> : null}
+    {record.review_skipped === true ? <p className="mb-1 text-xs text-ink-faint">{zh ? '这条记录标记为本轮未审阅。' : 'This record marks the round as not reviewed.'}</p>
+      : record.review_source === 'engineer_self_review' ? <p className="mb-1 text-xs text-ink-faint">{zh ? '这条记录来自执行者自检。' : 'This record is the executor’s self-check.'}</p> : null}
+    {text ? <MarkdownContent {...artifacts}>{text}</MarkdownContent> : null}
+    {prose(record.next_action) ? <><p className="mt-2 text-xs font-medium text-ink">{zh ? '记录中的下一步' : 'Recorded next action'}</p><MarkdownContent {...artifacts}>{prose(record.next_action)}</MarkdownContent></> : null}
+    {hasTruncatedFields(record) ? <p className="text-xs text-ink-faint">{zh ? '保留的是材料节选，部分内容已截短。' : 'This retained excerpt includes shortened content.'}</p> : null}
+  </>;
+}
+
+function TaskState({ record, current, capturedAt, ...artifacts }: ReadingArtifacts & {
+  record: Record<string, unknown>; current: boolean; capturedAt?: number;
+}) {
+  const { locale } = useI18n();
+  const zh = locale === 'zh-CN', status = prose(record.status), question = prose(record.pending_question);
+  return <div data-reader-fact-state={current ? 'current' : 'retained'} className="mt-2">
+    <p className="text-xs text-ink-dim">
+      {current ? zh ? '当前已加载的任务状态：' : 'Currently loaded task status: ' : zh ? '说明生成时的任务状态：' : 'Task status retained at generation: '}
+      {status ? plainStatus(status, locale) : zh ? '未记录' : 'Not recorded'}
+      {typeof record.attempt === 'number' ? <span className="ml-2 text-ink-faint">{zh ? `第 ${record.attempt} 次尝试` : `Attempt ${record.attempt}`}</span> : null}
+      {typeof capturedAt === 'number' && Number.isFinite(capturedAt) && capturedAt > 0 ? <time className="ml-2 text-ink-faint" dateTime={new Date(capturedAt * 1000).toISOString()}>{new Date(capturedAt * 1000).toLocaleString(locale)}</time> : null}
+    </p>
+    {question ? <div className="mt-1"><p className="text-xs font-medium text-ink">{current ? zh ? '任务记录中待你补充的问题' : 'Question awaiting your input in the task record' : zh ? '当时记录的待补充问题' : 'Question retained from that time'}</p><MarkdownContent {...artifacts}>{question}</MarkdownContent>
+      {record.pending_question_truncated === true ? <p className="text-xs text-ink-faint">{zh ? '这里保留的是问题节选。' : 'Only an excerpt of the question is retained here.'}</p> : null}</div> : null}
+  </div>;
+}
+
+function FactRecord({ row, current = false, ...artifacts }: ReadingArtifacts & { row: UsedEvidence; current?: boolean }) {
+  const { locale } = useI18n();
+  const zh = locale === 'zh-CN';
+  // The evidence selector supplies a full record only after matching task, id and revision.
+  const record: Record<string, unknown> | undefined = row.fullRecord ? { ...row.fullRecord } : row.record;
+  const expandedSource = row.fullRecord && row.record && (hasTruncatedFields(row.record)
+    || prose(row.record.text) !== row.fullRecord.text || prose(row.record.next_action) !== prose(row.fullRecord.next_action));
+  return <div className="mt-3 min-w-0 border-l-2 border-line pl-3" data-reader-fact-event={row.id}
+    data-reader-fact-source={current ? 'current' : row.state} data-reader-fact-revision={row.revision || ''}>
+    {record ? <>
+      <RecordHeading record={record} />
+      {expandedSource ? <p className="mb-1 text-xs text-ink-faint">{zh ? '这里展示已核对的同版本完整记录；说明生成时只使用了节选。' : 'This is the verified complete record from the same version; generation used only an excerpt.'}</p> : null}
+      <RecordText record={record} {...artifacts} />
+    </> : <p className="text-xs text-ink-faint">{unavailable(row.state, zh)}</p>}
+  </div>;
+}
+
+/** Recorded state and reports do not depend on generated explanation prose. */
+export function ReaderTaskFacts({ selection, ...artifacts }: ReadingArtifacts & { selection: ReaderEvidenceSelection }) {
+  const { locale } = useI18n();
+  const zh = locale === 'zh-CN';
+  const retained = selection.mode === 'snapshot' ? selection.usedTask?.record : undefined;
+  const current = selection.currentTask ?? selection.usedTask?.fullRecord;
+  return <section className="mt-4 min-w-0 border-t border-line/60 pt-3 text-[13px] leading-6 text-ink-dim"
+    data-reader-task-facts={selection.taskId} data-reader-fact-card={selection.cardKey}>
+    <h3 className="text-xs font-medium text-ink">{zh ? '任务状态' : 'Recorded task status'}</h3>
+    {retained ? <TaskState record={retained} current={false} capturedAt={selection.snapshot?.captured_at} {...artifacts} /> : null}
+    {current ? <TaskState record={{ ...current }} current {...artifacts} /> : null}
+    {!retained && !current ? <p className="mt-1 text-xs text-ink-faint">{zh ? '可核对的任务状态尚未加载。' : 'A verifiable task status has not been loaded.'}</p> : null}
+    <h3 className="mt-3 text-xs font-medium text-ink">{zh ? '记录中的结果与后续' : 'Recorded results and follow-up'}</h3>
+    {selection.used.length ? <div data-reader-fact-group="used">
+      <p className="text-xs text-ink-faint">{zh ? '以下是这份说明对应的来源原文，按记录保留各自的时间与归属。' : 'These are the source reports for this explanation, with their recorded dates and attribution.'}</p>
+      {selection.snapshot?.events_truncated ? <p className="text-xs text-ink-faint">{zh ? '生成材料只包含部分选中记录。' : 'The generation material contains only part of the selected records.'}</p> : null}
+      {selection.used.map((row, index) => <FactRecord key={`${row.id}:${index}`} row={row} {...artifacts} />)}
+    </div> : <p className="text-xs text-ink-faint">{zh ? '这份说明没有可核对的来源事件。' : 'No verifiable source events are retained for this explanation.'}</p>}
+    {selection.current.length ? <div className="mt-3" data-reader-fact-group="current">
+      <p className="text-xs font-medium text-ink">{zh ? '另外加载的记录 · 与上方说明原文分开' : 'Additional loaded records · separate from the explanation sources'}</p>
+      {selection.current.map(({ record }, index) => <FactRecord key={`${record.id}:${index}`} current
+        row={{ id: record.id, revision: record.revision, state: 'unverified', record: { ...record } }} {...artifacts} />)}
+    </div> : null}
+  </section>;
+}
 
 function SourceJson({ record, kind = 'event' }: { record: Record<string, unknown>; kind?: 'task' | 'related-task' | 'excerpt' | 'event' | 'full-record' }) {
   const { locale } = useI18n();
@@ -68,21 +163,14 @@ function EventMaterial({ row, currentReason, ...artifacts }: ReadingArtifacts & 
   const { locale } = useI18n();
   const zh = locale === 'zh-CN', record = row.record;
   const kind = prose(record?.type);
-  const ts = typeof record?.ts === 'number' && Number.isFinite(record.ts) && record.ts > 0 ? record.ts : undefined;
-  const text = plainDetail(readableRecord(prose(record?.text) || prose(record?.reason)), locale).text;
   return <section className="mt-3 border-t border-line/50 pt-3" data-event-id={row.id} data-event-revision={row.revision || ''}
     data-evidence-state={currentReason ? 'current' : row.state} data-evidence-reason={currentReason}>
-    <h3 className="text-xs font-medium text-ink">{plainEventName(kind, locale) || kind || (zh ? '来源记录' : 'Source record')}</h3>
     {record ? <>
-      <div className="mb-2 flex flex-wrap gap-x-2 text-[11px] text-ink-faint">
-        {ts ? <time dateTime={new Date(ts * 1000).toISOString()}>{new Date(ts * 1000).toLocaleString(locale)}</time> : null}
-        {kind ? <code>{kind}</code> : null}
-      </div>
+      <RecordHeading record={record} />
+      {kind ? <code className="text-[11px] text-ink-faint">{kind}</code> : null}
       {currentReason === 'changed' ? <p className="text-xs text-ink-faint">{zh ? '这条记录的内容已有更新，下方另列供参考。' : 'This record has been updated and is listed separately for reference.'}</p> : null}
       {currentReason === 'unverified' ? <p className="text-xs text-ink-faint">{zh ? '无法确认下方内容是否与当时材料一致。' : 'The text below cannot be confirmed as matching the material used at the time.'}</p> : null}
-      {text ? <MarkdownContent {...artifacts}>{text}</MarkdownContent> : null}
-      {prose(record.next_action) ? <><p className="mt-2 text-xs font-medium text-ink">{zh ? '记录中的下一步' : 'Recorded next action'}</p><MarkdownContent {...artifacts}>{prose(record.next_action)}</MarkdownContent></> : null}
-      {hasTruncatedFields(record) ? <p className="text-xs text-ink-faint">{zh ? '保留的是材料节选，部分内容已截短。' : 'This retained excerpt includes shortened content.'}</p> : null}
+      <RecordText record={record} {...artifacts} />
       <SourceJson record={record} kind={row.state === 'snapshot' ? 'excerpt' : 'event'} />
       {row.state === 'snapshot' ? row.fullRecord ? <SourceJson record={{ ...row.fullRecord }} kind="full-record" />
         : <p className="text-xs text-ink-faint">{zh ? '当前无法核对同版本的完整来源记录。' : 'A complete source record from the same version cannot currently be verified.'}</p> : null}

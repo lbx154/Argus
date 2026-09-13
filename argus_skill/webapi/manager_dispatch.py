@@ -511,6 +511,10 @@ def _handle_pending_question_turn(
             chat_state,
             root_task_id=BacklogItem.new_id(),
         )
+        if result.get("cancelled"):
+            # Preserve the first observed signal even for a consumptive
+            # callback; never fall through to classification or emit a reply.
+            return _cancelled_result()
         if result.get("answer_intent") is not False:
             reply = str(
                 result.get("reply")

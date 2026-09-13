@@ -16,7 +16,7 @@ import type {
   Role,
   Snapshot,
 } from '../../core/src/types';
-import { ensureResponseOk } from '../../core/src/http';
+import { ApiError, ensureResponseOk } from '../../core/src/http';
 import { readerPreview, type ReaderPreview } from './map/copyMode';
 import {
   requireCompatibleApiMeta,
@@ -652,7 +652,12 @@ async function explanationResponse<T>(path: string, body: unknown, signal?: Abor
     if (!receivedTerminal && frame.type === 'progress' && EXPLANATION_PHASES.has(frame.phase))
       onProgress?.(frame.phase as ExplanationPhase);
   }, signal);
-  if (terminal.type === 'error') throw new Error(String(terminal.error ?? 'Explanation failed'));
+  if (terminal.type === 'error') {
+    const detail = terminal.error && typeof terminal.error === 'object' ? terminal.error as Record<string, unknown> : undefined;
+    throw new ApiError(String(detail?.message ?? terminal.error ?? 'Explanation failed'),
+      typeof terminal.status === 'number' ? terminal.status : 0, 'POST', path,
+      typeof detail?.code === 'string' ? detail.code : '');
+  }
   return terminal.result as T;
 }
 
@@ -681,6 +686,8 @@ export const api = {
     explanationResponse(mapCopyPath(source, name, { stream: 'true' }, sessionId, preview, body.foundation_id), body, signal, onProgress),
   generateReaderFoundation: (sid: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US'; source_task_id?: string }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
     explanationResponse(P(sid, '/reader-foundation?stream=true'), body, undefined, onProgress),
+  askReaderFoundation: (sid: string, parentId: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US' }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
+    explanationResponse(P(sid, `/reader-foundation/${encodeURIComponent(parentId)}/question?stream=true`), body, undefined, onProgress),
   mapDatasets: (signal?: AbortSignal) => getJson<{ datasets: import('./map/model').DatasetSummary[] }>('/api/map-datasets', signal),
   mapDataset: (id: string, signal?: AbortSignal) => getJson<import('./map/model').Dataset>(`/api/map-datasets/${encodeURIComponent(id)}`, signal),
   meta: compatibleApiMeta,

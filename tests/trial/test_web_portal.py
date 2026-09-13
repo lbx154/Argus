@@ -497,7 +497,8 @@ def test_analytics_requires_explicit_versioned_notice_and_guards_old_sessions(pr
         assert error.value.code == 4401
 
 
-def test_foundation_post_uses_normal_tenant_origin_readonly_and_capture_rules(provisioned, tmp_path):
+@pytest.mark.parametrize("clarification", [False, True])
+def test_foundation_post_uses_normal_tenant_origin_readonly_and_capture_rules(provisioned, tmp_path, clarification):
     from argus_skill.trial.analytics import Analytics
     from argus_skill.trial.interaction_capture import get_interaction, list_interactions
 
@@ -519,6 +520,10 @@ def test_foundation_post_uses_normal_tenant_origin_readonly_and_capture_rules(pr
     body = {"request_id": "48f5757f-cab6-4ef8-8024-b9fcd0a7899f", "question": "Explain feasible bounds.",
             "locale": "en-US", "source_task_id": "task-context"}
     path = "/api/projects/s-question/reader-foundation"
+    parent_id = "42f7f0de-1286-4529-88fc-1f6dc735ea73"
+    if clarification:
+        path += f"/{parent_id}/question"
+        body.pop("source_task_id")
     with TestClient(app, base_url=ORIGIN) as client:
         assert client.post(path, json=body, headers={"Origin": ORIGIN}).status_code == 401
         assert client.post("/invite/login", json=login, headers={"Origin": ORIGIN}).status_code == 200
@@ -529,7 +534,7 @@ def test_foundation_post_uses_normal_tenant_origin_readonly_and_capture_rules(pr
         entries = list_interactions(analytics, "trial-01")["interactions"]
         assert len(entries) == 1
         captured = get_interaction(analytics, "trial-01", entries[0]["id"], include_trace=False)
-        assert captured["input"] == body
+        assert captured["input"] == {**body, **({"parent_id": parent_id} if clarification else {})}
         assert captured["task_id"] is None and captured["task_accepted"] is False
         assert client.post("/invite/login", json={**login, "readonly": True}, headers={"Origin": ORIGIN}).status_code == 200
         assert client.post(path, json=body, headers={"Origin": ORIGIN}).status_code == 403

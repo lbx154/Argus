@@ -24,16 +24,16 @@ MAX_BYTES = 1024 * 1024
 MAX_FRAMES = 2000
 _INPUT_FIELDS = frozenset(
     ("text", "attachments", "route_override", "command", "name", "resources",
-     "request_id", "question", "locale", "source_task_id")
+     "request_id", "question", "locale", "source_task_id", "parent_id")
 )
 _PUBLIC_FIELDS = frozenset("""
-    kind reply text role type label phase fragment_mode message_id error detail code
+    kind reply text role type label phase fragment_mode message_id error detail code message
     result item items id sid task_id task_ids item_id item_ids backlog_id backlog_ids
     root_task_id dep_task_ids tasks status title objective summary success resolved
     dispatch_state duplicate continuous daemon_alive daemon_control_available
     delivery delivery_id targets path filename mime size size_bytes artifacts
     created ts timestamp started_ts finished_ts
-    reader_foundation question locale request_id source_task_id created_at version
+    reader_foundation question locale request_id source_task_id parent_id root_id sources created_at version
     state source exists name mtime provenance origin run_label call_id call_id_log_correlated exit_code quiet_s deadline_exceeded
 """.split())
 _SID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}\Z")
@@ -347,8 +347,14 @@ class Capture:
         match = re.fullmatch(
             r"/api/projects/[^/]+/(message(?:/stream)?|tasks|nudge|note|plan|reader-foundation)", self.path,
         )
+        clarification = re.fullmatch(
+            r"/api/projects/[^/]+/reader-foundation/"
+            r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/question",
+            self.path,
+        )
         self.path = (
-            "/api/projects/:sid/" + match[1] if match
+            "/api/projects/:sid/reader-foundation/:parent_id/question" if clarification
+            else "/api/projects/:sid/" + match[1] if match
             else self.path if self.path in {"/api/projects", "/compute/jobs", "/compute/api/jobs"}
             else "/:other"
         )
@@ -357,6 +363,9 @@ class Capture:
         self._finished = False
         self._truncated = False
         clean, truncated = _bounded_input(input_data)
+        if clarification:
+            # The binding is an actual URL input, not a guessed parent or model output.
+            clean["parent_id"] = clarification[1]
         _schema(analytics)
         with analytics._db() as db:
             cursor = db.execute(
@@ -384,7 +393,9 @@ class Capture:
             if self.analytics.notice_version != self.notice_version:
                 raise AnalyticsError(403, "consent_required")
             media = content_type.split(";", 1)[0].strip().lower()
-            is_sse = media == "text/event-stream" and self.path.endswith(("/message/stream", "/reader-foundation"))
+            is_sse = media == "text/event-stream" and self.path.endswith((
+                "/message/stream", "/reader-foundation", "/reader-foundation/:parent_id/question",
+            ))
             if is_sse or media == "application/json" or media.endswith("+json"):
                 frames, result, error, suppressed = _response(
                     bytes(self._buffer), is_sse, self._truncated,

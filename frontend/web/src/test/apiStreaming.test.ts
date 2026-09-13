@@ -118,9 +118,11 @@ it('uses one selected foundation for both the retained application and its real 
   expect(requests[1].body).toEqual({ ...requestBody, foundation_id: foundation });
 });
 
-it('submits the actual reading question once and reads its saved file without another generation', async () => {
-  const question = { request_id: 'dc4487b5-61c0-47c3-bcc6-884a32e84bcb', question: '这两个量究竟怎样比较？', locale: 'zh-CN' as const, source_task_id: 'task' };
-  const artifact = { path: `reader-notes/${question.request_id}.md`, source: 'reader_foundation', preview: '一份已保存的背景说明。' };
+it.each(['foundation', 'clarification'] as const)('submits the actual %s question once and reads its saved file without another generation', async kind => {
+  const question = { request_id: 'dc4487b5-61c0-47c3-bcc6-884a32e84bcb', question: '这两个量究竟怎样比较？', locale: 'zh-CN' as const,
+    ...(kind === 'foundation' ? { source_task_id: 'task' } : {}) };
+  const parentId = '45fbf041-201d-446a-a103-7156ee233b80';
+  const artifact = { path: `reader-notes/research/${question.request_id}.md`, source: 'reader_foundation', preview: '一份已保存的背景说明。' };
   await serve((response, request) => {
     if (request.method === 'POST') {
       response.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -132,14 +134,30 @@ it('submits the actual reading question once and reads its saved file without an
     }
   });
   const phases: ExplanationPhase[] = [];
-  await expect(api.generateReaderFoundation('research', question, phase => phases.push(phase))).resolves.toEqual(artifact);
+  await expect(kind === 'clarification'
+    ? api.askReaderFoundation('research', parentId, question, phase => phases.push(phase))
+    : api.generateReaderFoundation('research', question, phase => phases.push(phase))).resolves.toEqual(artifact);
   await api.artifacts('research', undefined, true);
   await api.artifact('research', artifact.path);
   expect(phases).toEqual(['writing']);
   expect(requests.map(request => request.method)).toEqual(['POST', 'GET', 'GET']);
-  expect(requests[0]).toMatchObject({ path: '/api/projects/research/reader-foundation?stream=true', body: question });
+  expect(requests[0]).toMatchObject({ path: kind === 'clarification'
+    ? `/api/projects/research/reader-foundation/${parentId}/question?stream=true`
+    : '/api/projects/research/reader-foundation?stream=true', body: question });
   expect(requests[1].path).toBe('/api/projects/research/artifacts?include_reading=true');
   expect(new URL(requests[2].path, 'http://argus.test').searchParams.get('path')).toBe(artifact.path);
+});
+
+it('preserves a definite source rejection from the original completed SSE response', async () => {
+  await serve(response => {
+    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    response.end(frame({ type: 'heartbeat', quiet_s: 0 }) + frame({ type: 'error', status: 422,
+      error: { code: 'reader_source_unavailable', message: 'The selected reading source is unavailable or incomplete.' } }));
+  });
+  await expect(api.askReaderFoundation('research', 'parent', {
+    request_id: 'dc4487b5-61c0-47c3-bcc6-884a32e84bcb', question: 'Explain this part.', locale: 'en-US',
+  })).rejects.toMatchObject({ status: 422, code: 'reader_source_unavailable', message: 'The selected reading source is unavailable or incomplete.' });
+  expect(requests).toHaveLength(1);
 });
 
 it('waits through 125 seconds of HTTP heartbeats and returns only the complete explanation at 130 seconds', async () => {

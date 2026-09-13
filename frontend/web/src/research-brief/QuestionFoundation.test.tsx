@@ -2,8 +2,10 @@ import { useState, type ComponentProps, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { ApiError } from '../../../core/src/http';
 import { api, type ArtifactInfo } from '../api';
 import { ArtifactModal } from '../components/ArtifactModal';
+import { Modal } from '../components/Modal';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { I18nProvider, useI18n } from '../i18n';
 import { QuestionFoundation } from './QuestionFoundation';
@@ -23,24 +25,29 @@ function note(id: string, question: string, locale: 'en-US' | 'zh-CN' = 'en-US',
     reader_foundation: { id, question, locale, state, version: 1, created_at: 100, source_task_id: 'aaaaaaaaaaaa' } };
 }
 
-type Props = Omit<ComponentProps<typeof QuestionFoundation>, 'onAsk' | 'onOpenArtifact'>;
+function answer(id: string, question: string, parentId: string, rootId = parentId, state: 'complete' | 'failed' | 'generating' = 'complete'): ArtifactInfo {
+  const value = note(id, question, 'en-US', state);
+  return { ...value, reader_foundation: { ...value.reader_foundation!, kind: 'clarification', parent_id: parentId, root_id: rootId } };
+}
+
+type Props = Omit<ComponentProps<typeof QuestionFoundation>, 'onOpenArtifact'>;
 let props: Props;
 let renderer: ReactTestRenderer | undefined;
 let client: QueryClient;
 let rows: Record<string, ArtifactInfo[]>;
 let localeControl: ReturnType<typeof useI18n>;
-const ask = vi.fn(), opened = vi.fn();
+const opened = vi.fn();
 function LocaleControl() { localeControl = useI18n(); return null; }
 function Surface({ value, readArtifact = false }: { value: Props; readArtifact?: boolean }) {
   const [path, setPath] = useState<string | null>(null);
-  return <><QuestionFoundation {...value} onAsk={ask} onOpenArtifact={file => { opened(file); setPath(file); }} />
-    {readArtifact ? <ArtifactModal sid={value.sid} path={path} onClose={() => setPath(null)} /> : null}</>;
+  return <><QuestionFoundation {...value} onOpenArtifact={file => { opened(file); setPath(file); }} />
+    {readArtifact ? <ArtifactModal sid={value.sid} path={path} onSelectPath={file => { opened(file); setPath(file); }} onClose={() => setPath(null)} /> : null}</>;
 }
 const tree = (readArtifact = false) => <QueryClientProvider client={client}><I18nProvider>
   <LocaleControl /><Surface value={props} readArtifact={readArtifact} />
 </I18nProvider></QueryClientProvider>;
 const button = (label: string) => renderer!.root.findAllByType('button').find(node => node.children.includes(label))!;
-const select = () => renderer!.root.findByType('select');
+const select = () => renderer!.root.findAllByType('select').find(node => ['Choose a foundation explanation', '选择基础说明'].includes(node.props['aria-label']))!;
 const pageText = () => JSON.stringify(renderer!.toJSON());
 function deferred<T>() {
   let resolve!: (value: T) => void, reject!: (error: Error) => void;
@@ -67,7 +74,8 @@ beforeEach(() => {
   rows = { 'project-a': [], 'project-b': [] };
   vi.spyOn(api, 'artifacts').mockImplementation(async sid => rows[sid] ?? []);
   vi.spyOn(api, 'generateMapCopy').mockRejectedValue(new Error('Reading foundations must not invoke map generation'));
-  ask.mockReset(); opened.mockReset();
+  vi.spyOn(api, 'messageStream').mockRejectedValue(new Error('Reading questions must not enter research dispatch'));
+  opened.mockReset();
 });
 afterEach(() => {
   act(() => renderer?.unmount()); renderer = undefined;
@@ -78,6 +86,7 @@ it.each([false, true])('opening a saved artifact reads it without generating or 
   const saved = note('saved', 'What does this comparison mean?');
   rows['project-a'] = [saved]; props = { ...props, readOnly };
   const generate = vi.spyOn(api, 'generateReaderFoundation');
+  const clarify = vi.spyOn(api, 'askReaderFoundation');
   const read = vi.spyOn(api, 'artifact').mockResolvedValue(saved);
   await mount(true);
   act(() => select().props.onChange({ target: { value: 'saved' } }));
@@ -90,16 +99,237 @@ it.each([false, true])('opening a saved artifact reads it without generating or 
   expect(renderer!.root.findAllByType(MarkdownContent).map(node => node.props.children)).toContain(saved.preview);
   if (readOnly) {
     expect(button('Understand the foundations')).toBeUndefined();
-    expect(button('Draft a question')).toBeUndefined();
+    expect(button('Ask about these foundations')).toBeUndefined();
   } else {
-    act(() => button('Draft a question').props.onClick());
-    expect(ask).toHaveBeenCalledTimes(1);
-    expect(ask.mock.calls[0][0]).toContain(saved.reader_foundation!.question);
-    expect(ask.mock.calls[0][0]).toContain(saved.path);
+    act(() => button('Ask about these foundations').props.onClick());
+    expect(renderer!.root.findByType('textarea').props.value).toBe('');
+    expect(pageText()).toContain(saved.reader_foundation!.question);
+    expect(button('Ask question').props.disabled).toBe(true);
   }
   expect(generate).not.toHaveBeenCalled();
+  expect(clarify).not.toHaveBeenCalled();
+  expect(api.messageStream).not.toHaveBeenCalled();
   expect(api.generateMapCopy).not.toHaveBeenCalled();
   expect(crypto.randomUUID).not.toHaveBeenCalled();
+});
+
+it('asks about the pinned document, retains a later root choice, and reads the answer without research dispatch', async () => {
+  const a = note('root-a', 'First saved question'), b = note('root-b', 'Another saved question');
+  rows['project-a'] = [a, b];
+  const pending = deferred<ArtifactInfo>();
+  const clarify = vi.spyOn(api, 'askReaderFoundation').mockReturnValue(pending.promise);
+  const generate = vi.spyOn(api, 'generateReaderFoundation');
+  await mount();
+  act(() => select().props.onChange({ target: { value: 'root-a' } })); await flush();
+  act(() => button('Ask about these foundations').props.onClick());
+  act(() => renderer!.root.findByType('textarea').props.onChange({ target: { value: '  How does the changed example use this rule?  ' } }));
+  act(() => select().props.onChange({ target: { value: 'root-b' } })); await flush();
+  expect(pageText()).toContain('First saved question');
+  act(() => button('Ask question').props.onClick()); await flush();
+  expect(clarify.mock.calls[0].slice(0, 3)).toEqual(['project-a', 'root-a', {
+    request_id: firstId, question: 'How does the changed example use this rule?', locale: 'en-US',
+  }]);
+  const saved = answer(firstId, 'How does the changed example use this rule?', 'root-a');
+  rows['project-a'] = [a, b, saved];
+  await act(async () => { pending.resolve(saved); await vi.advanceTimersByTimeAsync(25); });
+  expect(select().props.value).toBe('root-b');
+  expect(renderer!.root.findAllByType('option').map(node => node.props.value)).toEqual(['', 'root-a', 'root-b']);
+  expect(button('Read answer')).toBeUndefined();
+  act(() => select().props.onChange({ target: { value: 'root-a' } })); await flush();
+  act(() => button('Read answer').props.onClick());
+  expect(opened).toHaveBeenLastCalledWith(saved.path);
+  expect(clarify).toHaveBeenCalledTimes(1);
+  expect(generate).not.toHaveBeenCalled();
+  expect(api.messageStream).not.toHaveBeenCalled();
+  expect(api.generateMapCopy).not.toHaveBeenCalled();
+});
+
+it('retains a follow-up parent and question across an unknown result and a fresh query client', async () => {
+  const root = note('root', 'Root question');
+  const previous = answer('previous-answer', 'Earlier question', 'root');
+  rows['project-a'] = [root, previous];
+  const first = deferred<ArtifactInfo>(), retry = deferred<ArtifactInfo>();
+  const clarify = vi.spyOn(api, 'askReaderFoundation').mockReturnValueOnce(first.promise).mockReturnValueOnce(retry.promise);
+  const generate = vi.spyOn(api, 'generateReaderFoundation');
+  await mount();
+  act(() => select().props.onChange({ target: { value: 'root' } })); await flush();
+  act(() => button('Ask a follow-up').props.onClick());
+  act(() => renderer!.root.findByType('textarea').props.onChange({ target: { value: 'Why can this operation be repeated?' } }));
+  act(() => button('Ask question').props.onClick()); await flush();
+  await act(async () => { first.reject(new TypeError('Failed to fetch')); await vi.advanceTimersByTimeAsync(25); });
+  expect(pageText()).toContain('The result of this request is unconfirmed.');
+  act(() => renderer!.unmount()); client.clear();
+  client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } } });
+  await mount();
+  expect(clarify).toHaveBeenCalledTimes(1);
+  expect(button('Ask about these foundations').props.disabled).toBe(true);
+  act(() => button('Retry this same request').props.onClick()); await flush();
+  expect(clarify.mock.calls[1].slice(0, 3)).toEqual(clarify.mock.calls[0].slice(0, 3));
+  expect(clarify.mock.calls[1][1]).toBe('previous-answer');
+  const saved = answer(firstId, 'Why can this operation be repeated?', 'previous-answer', 'root');
+  rows['project-a'] = [root, previous, saved];
+  await act(async () => { retry.resolve(saved); await vi.advanceTimersByTimeAsync(25); });
+  expect(select().props.value).toBe('root');
+  expect(renderer!.root.findAllByProps({ 'data-reading-question-id': firstId })).toHaveLength(1);
+  expect(crypto.randomUUID).toHaveBeenCalledTimes(1);
+  expect(generate).not.toHaveBeenCalled();
+  expect(api.messageStream).not.toHaveBeenCalled();
+});
+
+it('edits a confirmed failed clarification without turning it into another root foundation', async () => {
+  const root = note('root', 'Root question');
+  const failed = answer('failed-answer', 'Please explain the missing operation.', 'root', 'root', 'failed');
+  rows['project-a'] = [root, failed];
+  const pending = deferred<ArtifactInfo>();
+  const clarify = vi.spyOn(api, 'askReaderFoundation').mockReturnValue(pending.promise);
+  const generate = vi.spyOn(api, 'generateReaderFoundation');
+  await mount();
+  act(() => select().props.onChange({ target: { value: 'root' } })); await flush();
+  act(() => button('Edit this question').props.onClick());
+  expect(renderer!.root.findByType('textarea').props.value).toBe(failed.reader_foundation!.question);
+  act(() => button('Ask question').props.onClick()); await flush();
+  expect(clarify.mock.calls[0].slice(0, 3)).toEqual(['project-a', 'root', {
+    request_id: firstId, question: failed.reader_foundation!.question, locale: 'en-US',
+  }]);
+  const saved = answer(firstId, failed.reader_foundation!.question, 'root'); rows['project-a'] = [root, failed, saved];
+  await act(async () => { pending.resolve(saved); await vi.advanceTimersByTimeAsync(25); });
+  expect(select().props.value).toBe('root');
+  expect(generate).not.toHaveBeenCalled();
+  expect(api.messageStream).not.toHaveBeenCalled();
+});
+
+it('opens the saved source of an answer through the existing authenticated artifact reader', async () => {
+  const root = note('root', 'Root question');
+  const saved = answer('answer', 'What did the source mean?', 'root');
+  saved.reader_foundation!.sources = [{ id: 'root', path: root.path, title: 'Root question' }];
+  saved.preview = `# A saved answer\n\nThe explanation refers to [the saved source](${root.path}).`;
+  rows['project-a'] = [root, saved];
+  const read = vi.spyOn(api, 'artifact').mockImplementation(async (_sid, path) => path === root.path ? root : saved);
+  const clarify = vi.spyOn(api, 'askReaderFoundation');
+  const generate = vi.spyOn(api, 'generateReaderFoundation');
+  await mount(true);
+  act(() => select().props.onChange({ target: { value: 'root' } })); await flush();
+  act(() => button('Read answer').props.onClick()); await flush();
+  const sourceLink = renderer!.root.findByProps({ 'data-artifact-path': root.path });
+  const preventDefault = vi.fn();
+  act(() => sourceLink.props.onClick({ preventDefault })); await flush();
+  expect(preventDefault).toHaveBeenCalledTimes(1);
+  expect(read.mock.calls.map(call => call.slice(0, 2))).toEqual([['project-a', saved.path], ['project-a', root.path]]);
+  expect(renderer!.root.findAllByType(MarkdownContent).map(node => node.props.children)).toContain(root.preview);
+  expect(clarify).not.toHaveBeenCalled();
+  expect(generate).not.toHaveBeenCalled();
+  expect(api.messageStream).not.toHaveBeenCalled();
+});
+
+it('recovers a confirmed unaccepted source rejection after reload and explicitly chooses a new source', async () => {
+  const lost = note('lost', 'Previously available source'), other = note('other', 'Available source');
+  rows['project-a'] = [lost, other];
+  const initial = deferred<ArtifactInfo>(), later = deferred<ArtifactInfo>();
+  const clarify = vi.spyOn(api, 'askReaderFoundation').mockReturnValueOnce(initial.promise).mockReturnValueOnce(later.promise);
+  const generate = vi.spyOn(api, 'generateReaderFoundation');
+  await mount();
+  act(() => select().props.onChange({ target: { value: 'lost' } })); await flush();
+  act(() => button('Ask about these foundations').props.onClick());
+  act(() => renderer!.root.findByType('textarea').props.onChange({ target: { value: 'Explain the operation used in this reading.' } }));
+  act(() => button('Ask question').props.onClick()); await flush();
+  rows['project-a'] = [{ ...lost, exists: false }, other];
+  await act(async () => { initial.reject(new ApiError('Source unavailable', 422, 'POST', '/reading/question', 'reader_source_unavailable')); await vi.advanceTimersByTimeAsync(25); });
+  expect(pageText()).toContain('this question was not started');
+  expect(pageText()).not.toContain('The result of this request is unconfirmed.');
+  expect(button('Retry this same request')).toBeUndefined();
+  act(() => renderer!.unmount()); client.clear();
+  client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } } });
+  await mount();
+  expect(pageText()).toContain('this question was not started');
+  expect(clarify).toHaveBeenCalledTimes(1);
+  act(() => button('Edit question and source').props.onClick()); await flush();
+  expect(renderer!.root.findByType('textarea').props.value).toBe('Explain the operation used in this reading.');
+  expect(button('Ask question').props.disabled).toBe(true);
+  act(() => renderer!.root.findByProps({ 'aria-label': 'Reading source' }).props.onChange({ target: { value: 'other' } }));
+  await flush();
+  expect(select().props.value).toBe('other');
+  act(() => button('Ask question').props.onClick()); await flush();
+  expect(clarify.mock.calls[1].slice(0, 3)).toEqual(['project-a', 'other', {
+    request_id: nextId, question: 'Explain the operation used in this reading.', locale: 'en-US',
+  }]);
+  const saved = answer(nextId, 'Explain the operation used in this reading.', 'other');
+  rows['project-a'] = [{ ...lost, exists: false }, other, saved];
+  await act(async () => { later.resolve(saved); await vi.advanceTimersByTimeAsync(25); });
+  expect(button('Read answer')).toBeDefined();
+  expect(generate).not.toHaveBeenCalled();
+  expect(api.messageStream).not.toHaveBeenCalled();
+});
+
+it('does not treat an ordinary 422 generation error without a rejection code as an unaccepted request', async () => {
+  rows['project-a'] = [note('root', 'Root question')];
+  vi.spyOn(api, 'askReaderFoundation').mockRejectedValue(new ApiError('Generation content invalid', 422, 'POST', '/reading/question'));
+  await mount();
+  act(() => select().props.onChange({ target: { value: 'root' } })); await flush();
+  act(() => button('Ask about these foundations').props.onClick());
+  act(() => renderer!.root.findByType('textarea').props.onChange({ target: { value: 'Explain the operation.' } }));
+  act(() => button('Ask question').props.onClick()); await flush();
+  expect(pageText()).toContain('The result of this request is unconfirmed.');
+  expect(button('Retry this same request')).toBeDefined();
+  expect(button('Edit question and source')).toBeUndefined();
+});
+
+it('retains the original rejected question when editing is cancelled or refreshed before another explicit submission', async () => {
+  rows['project-a'] = [note('root', 'Root question')];
+  const clarify = vi.spyOn(api, 'askReaderFoundation').mockRejectedValue(new ApiError('Source unavailable', 422, 'POST', '/reading/question', 'reader_source_unavailable'));
+  await mount();
+  act(() => select().props.onChange({ target: { value: 'root' } })); await flush();
+  act(() => button('Ask about these foundations').props.onClick());
+  act(() => renderer!.root.findByType('textarea').props.onChange({ target: { value: 'Keep my submitted question about the operation.' } }));
+  act(() => button('Ask question').props.onClick()); await flush();
+  act(() => button('Edit question and source').props.onClick()); await flush();
+  act(() => renderer!.root.findByType(Modal).props.onClose()); await flush();
+  expect(client.getQueryData(['reader-foundation-request', 'project-a', 'en-US'])).toMatchObject({
+    id: firstId, rejected: 'reader_source_unavailable', draft: { parentId: 'root', question: 'Keep my submitted question about the operation.' },
+  });
+  act(() => button('Edit question and source').props.onClick()); await flush();
+  act(() => renderer!.unmount()); client.clear();
+  client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } } });
+  await mount();
+  act(() => button('Edit question and source').props.onClick()); await flush();
+  expect(renderer!.root.findByType('textarea').props.value).toBe('Keep my submitted question about the operation.');
+  expect(renderer!.root.findByProps({ 'aria-label': 'Reading source' }).props.value).toBe('root');
+  expect(clarify).toHaveBeenCalledTimes(1);
+  expect(crypto.randomUUID).toHaveBeenCalledTimes(1);
+});
+
+it.each(['project', 'locale'] as const)('keeps a late source rejection in its original %s request scope', async dimension => {
+  rows['project-a'] = [note('root', 'Root question')];
+  const pending = deferred<ArtifactInfo>();
+  vi.spyOn(api, 'askReaderFoundation').mockReturnValue(pending.promise);
+  await mount();
+  act(() => select().props.onChange({ target: { value: 'root' } })); await flush();
+  act(() => button('Ask about these foundations').props.onClick());
+  act(() => renderer!.root.findByType('textarea').props.onChange({ target: { value: 'Explain the operation.' } }));
+  act(() => button('Ask question').props.onClick()); await flush();
+  const destinationSid = dimension === 'project' ? 'project-b' : 'project-a';
+  const destinationLanguage = dimension === 'locale' ? 'zh-CN' : 'en-US';
+  if (dimension === 'project') { props = { ...props, sid: 'project-b' }; act(() => renderer!.update(tree())); }
+  else act(() => localeControl.setLocale('zh-CN'));
+  await flush();
+  await act(async () => { pending.reject(new ApiError('Source unavailable', 422, 'POST', '/reading/question', 'reader_source_unavailable')); await vi.advanceTimersByTimeAsync(25); });
+  expect(client.getQueryData(['reader-foundation-request', 'project-a', 'en-US'])).toMatchObject({ id: firstId, rejected: 'reader_source_unavailable' });
+  expect(client.getQueryData(['reader-foundation-request', destinationSid, destinationLanguage])).toBeNull();
+  expect(pageText()).not.toContain('this question was not started');
+  expect(pageText()).not.toContain('这次追问未发起');
+});
+
+it.each(['project', 'locale'] as const)('closes an unsent reading question when its %s changes', async dimension => {
+  rows['project-a'] = [note('root', 'Root question')];
+  const clarify = vi.spyOn(api, 'askReaderFoundation');
+  await mount();
+  act(() => select().props.onChange({ target: { value: 'root' } })); await flush();
+  act(() => button('Ask about these foundations').props.onClick());
+  if (dimension === 'project') { props = { ...props, sid: 'project-b' }; act(() => renderer!.update(tree())); }
+  else act(() => localeControl.setLocale('zh-CN'));
+  await flush();
+  expect(renderer!.root.findAllByType('textarea')).toHaveLength(0);
+  expect(clarify).not.toHaveBeenCalled();
+  expect(api.messageStream).not.toHaveBeenCalled();
 });
 
 it('generates only on submit, retains draft source through task changes, and shares pending/completed work across remounts', async () => {

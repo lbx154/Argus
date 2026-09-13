@@ -4,10 +4,18 @@ import { readerPreview } from '../map/copyMode';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 
 interface FoundationChoice { id: string | null; choice: number }
+export interface FoundationDraft {
+  question: string;
+  sourceTaskId?: string;
+  sourceTitle?: string;
+  parentId?: string;
+  parentTitle?: string;
+}
 export interface FoundationRequest {
   id: string;
-  draft: { question: string; sourceTaskId?: string; sourceTitle?: string };
+  draft: FoundationDraft;
   beforeChoice: number;
+  rejected?: 'reader_source_unavailable';
 }
 const choiceKey = (sid: string, locale: string) => ['reader-foundation-choice', sid, locale];
 const storageKey = (sid: string, locale: string) => `argus:reader-foundation:${sid}:${locale}`;
@@ -79,10 +87,4 @@ export function useFoundationList(sid: string) {
     refetchInterval: query => query.state.data?.some(item => item.reader_foundation?.state === 'generating') ? 5_000 : false,
     retry: false, refetchOnWindowFocus: false,
   });
-}
-
-export function foundationQuestionDraft(question: string, path: string, zh: boolean) {
-  return zh
-    ? `我正在阅读这个问题的基础说明：${question}\n说明文件：${path}\n我还不理解的地方：\n`
-    : `I am reading the foundation for this question: ${question}\nExplanation file: ${path}\nWhat I still do not understand:\n`;
 }

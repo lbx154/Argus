@@ -636,9 +636,16 @@ def _resolve_pending_question_with_manager(
         import_deterministic_credential,
         persist_once_answer,
     )
+    from ..core.run_gateway import current_run_interrupt_reason
     from ..manager.front_door import manager_triage
     from ..roles.prompts.manager import build_pending_question_prompt
 
+    cancelled_result = {
+        "answered_item_id": item.id, "answer_intent": False,
+        "resolved": False, "cancelled": True, "reply": "",
+    }
+    if current_run_interrupt_reason():
+        return cancelled_result
     root = Path(mem.project_root)
     answer, _credential = import_deterministic_credential(
         root,
@@ -646,12 +653,6 @@ def _resolve_pending_question_with_manager(
         global_root=(
             root.parent.parent if root.parent.name == "projects" else None
         ),
-    )
-    answer_record = persist_once_answer(
-        mem.project_root,
-        answer,
-        source="operator.pending_answer",
-        mission_id=str(item.id),
     )
     prompt = build_pending_question_prompt(item, answer)
     try:
@@ -664,6 +665,8 @@ def _resolve_pending_question_with_manager(
             on_fragment=None,
         )
     except Exception as exc:  # noqa: BLE001
+        if current_run_interrupt_reason():
+            return cancelled_result
         facts = _manager_failure_facts(exc)
         raw_error = f"{type(exc).__name__}: {facts['cause']}"
         failure_kind = (
@@ -674,22 +677,26 @@ def _resolve_pending_question_with_manager(
         message = (
             "Manager pending-question interpretation failed "
             f"[{failure_kind}]: {facts['cause']}. "
-            "Your answer is preserved in the inbox/steering record and Manager "
-            "interpretation will be retried; the answer was not rejected."
+            "This message has not been classified as an answer; the pending "
+            "question is unchanged. Retry after the interpretation problem is resolved."
         )
         _emit_pending_question_failure(
             mem,
             item,
             facts,
             error=raw_error,
-            answer_preserved=True,
+            answer_preserved=False,
         )
         return {
             "error": message,
             "answered_item_id": item.id,
-            "answer_preserved": True,
+            "answer_preserved": False,
             **facts,
         }
+    # A provider can finish with buffered output after cancellation. The
+    # caller's later reply fence cannot undo an answer promoted to authority.
+    if current_run_interrupt_reason():
+        return cancelled_result
     parsed = _parse_pending_question_decision(manager_reply or "")
     if parsed is None:
         from ..manager.domain_author import sanitize_model_reply_snippet
@@ -718,12 +725,12 @@ def _resolve_pending_question_with_manager(
             item,
             facts,
             error=raw_error,
-            answer_preserved=True,
+            answer_preserved=False,
         )
         return {
             "error": f"Manager pending-question interpretation failed [{phase}]: {cause}",
             "answered_item_id": item.id,
-            "answer_preserved": True,
+            "answer_preserved": False,
             **facts,
         }
     if not parsed["is_answer"]:
@@ -733,6 +740,18 @@ def _resolve_pending_question_with_manager(
             "resolved": False,
             "reply": "",
         }
+    # The caller already journals the real conversation turn. Only a positive
+    # answer classification may promote it into research-role instructions.
+    if current_run_interrupt_reason():
+        return cancelled_result
+    answer_record = persist_once_answer(
+        mem.project_root,
+        answer,
+        source="operator.pending_answer",
+        mission_id=str(item.id),
+    )
+    if current_run_interrupt_reason():
+        return cancelled_result
     if not parsed["resolved"]:
         return {
             "answered_item_id": item.id,

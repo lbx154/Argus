@@ -483,7 +483,13 @@ export interface ArtifactInfo {
   /** An explicit reading request, separate from a research result or review. */
   reader_foundation?: {
     id: string;
+    /** Missing on earlier records; those records are root foundations. */
+    kind?: 'foundation' | 'clarification';
+    parent_id?: string | null;
+    root_id?: string;
+    sources?: Array<{ id: string; path: string; title: string }>;
     question: string;
+    title?: string;
     locale: 'zh-CN' | 'en-US';
     source_task_id?: string | null;
     created_at: number;

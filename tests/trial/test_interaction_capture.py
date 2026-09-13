@@ -111,13 +111,18 @@ def test_json_chat_result_matches_its_input_and_finish_is_idempotent(analytics):
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_question_foundation_preserves_request_and_call_reference_without_accepting_a_task(analytics, stream):
+@pytest.mark.parametrize("clarification", [False, True])
+def test_question_foundation_preserves_request_and_call_reference_without_accepting_a_task(analytics, stream, clarification):
     body = {
         "request_id": "48f5757f-cab6-4ef8-8024-b9fcd0a7899f",
         "question": "Explain how a feasible bound proves optimality.",
         "locale": "en-US", "source_task_id": "task-context",
     }
-    item = Capture(analytics, "tenant-a", "s-one", "/api/projects/s-one/reader-foundation", body)
+    parent_id = "42f7f0de-1286-4529-88fc-1f6dc735ea73"
+    path = "/api/projects/s-one/reader-foundation" + (f"/{parent_id}/question" if clarification else "")
+    if clarification:
+        body.pop("source_task_id")
+    item = Capture(analytics, "tenant-a", "s-one", path, body)
     result = {
         "path": "reader-notes/s-one/48f5757f-cab6-4ef8-8024-b9fcd0a7899f.md",
         "source": "reader_foundation", "exists": True,
@@ -130,18 +135,41 @@ def test_question_foundation_preserves_request_and_call_reference_without_accept
                            "call_id": "native-call", "call_id_log_correlated": True},
         },
     }
+    if clarification:
+        result["reader_foundation"].update(kind="clarification", parent_id=parent_id, root_id=parent_id)
+        result["reader_foundation"]["sources"] = [{"id": parent_id, "path": f"reader-notes/s-one/{parent_id}.md", "title": "Original explanation"}]
+        result["reader_foundation"]["provenance"]["run_label"] = "reader-clarification"
     if stream:
         item.feed(frame({"type": "heartbeat", "quiet_s": 0}))
         item.feed(frame({"type": "progress", "phase": "writing"}))
     item.feed(frame({"type": "done", "result": result}) if stream else json.dumps(result).encode())
     item.finish(200, True, "text/event-stream" if stream else "application/json")
     found = record(analytics, item)
-    assert found["input"] == body
+    assert found["input"] == {**body, **({"parent_id": parent_id} if clarification else {})}
     assert found["result"] == result
-    assert found["path"] == "/api/projects/:sid/reader-foundation"
+    assert found["path"] == "/api/projects/:sid/reader-foundation" + ("/:parent_id/question" if clarification else "")
     if stream:
         assert [item["type"] for item in found["frames"]] == ["heartbeat", "progress", "done"]
     assert found["task_id"] is None and found["task_accepted"] is False
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_reader_source_rejection_preserves_public_code_and_message(analytics, stream):
+    parent = "42f7f0de-1286-4529-88fc-1f6dc735ea73"
+    body = {"request_id": "48f5757f-cab6-4ef8-8024-b9fcd0a7899f", "question": "Why this step?", "locale": "en-US"}
+    item = Capture(analytics, "tenant-a", "s-one", f"/api/projects/s-one/reader-foundation/{parent}/question", body)
+    detail = {"code": "reader_source_unavailable", "message": "The selected reading source is unavailable or incomplete."}
+    error = {"type": "error", "error": detail, "status": 422}
+    item.feed(frame(error) if stream else json.dumps({"detail": detail}).encode())
+    item.finish(200 if stream else 422, True, "text/event-stream" if stream else "application/json")
+    saved = record(analytics, item)
+    assert saved["outcome"] == "response_error"
+    if stream:
+        assert saved["frames"] == [error]
+    else:
+        assert saved["result"] == {"detail": detail}
+    assert saved["input"] == {**body, "parent_id": parent}
+    assert saved["task_id"] is None and saved["task_accepted"] is False
 
 
 def test_sse_public_frames_and_real_declared_task_ids_not_mission_completion(analytics):

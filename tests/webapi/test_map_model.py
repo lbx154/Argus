@@ -149,7 +149,7 @@ def test_map_settings_use_existing_config_endpoint(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("runner", ["codex", "pi"])
-@pytest.mark.parametrize("run_label", [None, "reader-foundation"])
+@pytest.mark.parametrize("run_label", [None, "reader-foundation", "reader-clarification"])
 def test_map_runner_uses_shared_usage_ledger_and_read_only_turn(tmp_path, monkeypatch, runner, run_label):
     observed = []
     phases = []

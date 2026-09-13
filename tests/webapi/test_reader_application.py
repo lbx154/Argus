@@ -302,3 +302,24 @@ def test_application_rejects_mismatched_owner_ids_and_dataset_sources(project, t
     assert client.post(path, params=params, json={**body, "foundation_id": str(uuid4())}).status_code == 422
     assert client.get("/api/map-copy/dataset/history", params={**params, "session_id": sid}).status_code == 422
     assert client.post("/api/map-copy/dataset/history", params={**params, "session_id": sid}, json=body).status_code == 422
+
+
+def test_application_cannot_select_a_clarification_as_the_root_foundation(project, tmp_path, monkeypatch):
+    sid, life, workspace = project
+    root = save_foundation(tmp_path, sid)
+    child, _ = reader_foundation.reserve_foundation(tmp_path, sid, request_id=str(uuid4()),
+        question="A follow-up doubt", locale="en-US", parent_id=root["id"])
+    child["state"] = "complete"
+    reader_foundation._save_record(life, child)
+    (workspace / child["path"]).write_text("# Answer\nA saved clarification.")
+    monkeypatch.setattr(map_narrative, "enrich", lambda *a, **k: pytest.fail("Clarification used as root for generation"))
+    monkeypatch.setattr(map_narrative, "read_cache", lambda *a, **k: pytest.fail("Clarification borrowed a root cache"))
+    client = TestClient(create_app(global_root=tmp_path))
+    path = f"/api/map-copy/project/{sid}"
+    params = {"preview": "question-foundation", "foundation_id": child["id"]}
+    result = client.get(path, params=params).json()
+    assert result["available"] is False and result["cards"] == {}
+    response = client.post(path, params=params, json={"cards": [{"key": "a", "task_id": "a", "kind": "task"}]})
+    assert response.status_code == 422
+    with pytest.raises(ValueError, match="root foundation"):
+        reader_application.foundation_reference(foundation(kind="clarification", parent_id="root", root_id="root"))

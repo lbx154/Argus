@@ -1008,8 +1008,7 @@ export default function App() {
               </div>
               {readerPreview() === 'question-foundation' && loadedSid ? <QuestionFoundation key={loadedSid} sid={loadedSid}
                 objective={snap.session.objective} readOnly={kiosk}
-                onOpenArtifact={setArtifactPath}
-                onAsk={draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); }} /> : null}
+                onOpenArtifact={setArtifactPath} /> : null}
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
@@ -1229,6 +1228,7 @@ export default function App() {
       ) : null}
       <ArtifactModal sid={activeSid} path={artifactPath}
         reviewActivity={activeSid === loadedSid ? reviewActivity : undefined}
+        onSelectPath={setArtifactPath}
         onClose={() => setArtifactPath(null)} />
       <TaskDetailModal
         sid={activeSid}
