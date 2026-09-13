@@ -41,6 +41,7 @@ env:
     tests/core/test_cost_control.py
     tests/core/test_usage.py
     tests/core/test_project_contract.py
+    tests/core/test_project.py
     tests/core/test_contract_authority.py
     tests/core/test_copilot_parser_refusal.py
     tests/skills/test_builtins_seeding.py
@@ -53,7 +54,9 @@ env:
     tests/core/test_file_lock.py
     tests/core/test_daemon_lock.py
     tests/core/test_session_lock_portable.py
+    tests/core/test_workspace_lease.py
     tests/daemon/test_state_portable.py
+    tests/daemon/test_per_boot_log.py
     tests/test_idle_watchdog.py
     tests/test_run_exec_stream_callback.py
     tests/test_stop_kind_lifecycle.py
@@ -74,6 +77,8 @@ env:
     tests/webapi/test_manager_rotation.py
     tests/webapi/test_pairing.py
     tests/webapi/test_source_update.py
+    tests/webapi/test_attachment_metadata_filename.py
+    tests/webapi/test_git_diff_encoding.py
 
   # Product paths whose Windows behavior is exercised by the Desktop host.
   WINDOWS_CORE_TESTS: >-

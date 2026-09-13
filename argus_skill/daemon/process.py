@@ -535,7 +535,13 @@ def run_foreground_process(
     )
     if saved_console is not None:
         try:
-            _console = os.fdopen(saved_console, "w", buffering=1)
+            # Reopening a descriptor otherwise resets the stream to the locale
+            # encoding, undoing the Windows entrypoint's Unicode-safe console.
+            _console = os.fdopen(
+                saved_console, "w", buffering=1,
+                encoding=getattr(sys.stderr, "encoding", None),
+                errors=getattr(sys.stderr, "errors", None),
+            )
             _handler = logging.StreamHandler(_console)
             _handler.setFormatter(
                 logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
