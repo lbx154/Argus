@@ -1,13 +1,14 @@
-export type ReaderPreview = 'source-first' | 'learning-path' | null;
+export type ReaderPreview = 'source-first' | 'learning-path' | 'question-foundation' | null;
 
 /** Keep HTTP selection and both readers' browser caches in the same mode. */
 export function readerPreview(): ReaderPreview {
   const page = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
   const preview = page.get('reader_preview');
-  return preview === 'source-first' || preview === 'learning-path' ? preview : null;
+  return preview === 'source-first' || preview === 'learning-path' || preview === 'question-foundation' ? preview : null;
 }
 
-export function mapCopyKey(source: string, name: string, locale: string, sessionId?: string, preview = readerPreview()) {
+export function mapCopyKey(source: string, name: string, locale: string, sessionId?: string, preview = readerPreview(), foundationId?: string | null) {
   const key = ['map-copy', source, name, locale, sessionId];
+  if (preview === 'question-foundation') return [...key, preview, foundationId ?? null];
   return preview ? [...key, preview] : key;
 }

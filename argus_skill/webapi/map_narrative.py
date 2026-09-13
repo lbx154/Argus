@@ -29,18 +29,26 @@ from .map_view import digest, task_content_revision, text
 
 PROMPT_VERSION = 23
 SOURCE_SNAPSHOT_VERSION = 2
-Preview = bool | Literal["learning-path"]
+Preview = bool | Literal["learning-path", "question-foundation"]
 _LOCK = threading.Lock()
 _SOURCES: WeakValueDictionary = WeakValueDictionary()
 
 
-def copy_source(dataset_id: str, locale: str, *, preview: Preview = False) -> str:
+def copy_source(dataset_id: str, locale: str, *, preview: Preview = False, foundation_id: str | None = None) -> str:
     """A preview never replaces the normal reader's retained explanation."""
+    if preview == "question-foundation":
+        if not foundation_id:
+            raise ValueError("select a question foundation")
+        return dataset_id + ":" + locale + ":question-foundation:" + foundation_id
     suffix = ":learning-path" if preview == "learning-path" else ":source-first" if preview else ""
     return dataset_id + ":" + locale + suffix
 
 
 def copy_version(*, preview: Preview = False) -> int:
+    if preview == "question-foundation":
+        from .reader_application import PREVIEW_VERSION
+
+        return PREVIEW_VERSION
     if preview == "learning-path":
         from .map_learning import PREVIEW_VERSION
 
@@ -333,11 +341,19 @@ def enrich(
     project_root: Path | None = None,
     preview: Preview = False,
     on_progress: MapProgress | None = None,
+    foundation: dict | None = None,
 ) -> dict:
     documents = card_evidence(dataset, cards)
-    source = copy_source(dataset["id"], locale, preview=preview)
+    foundation_ref = None
+    if preview == "question-foundation":
+        from .reader_application import PROCESS_VERSION, foundation_reference, generate_application
+
+        foundation_ref = foundation_reference(foundation)
+        review_version = PROCESS_VERSION
+    source = copy_source(dataset["id"], locale, preview=preview,
+                         **({"foundation_id": foundation_ref["id"]} if foundation_ref else {}))
     version = copy_version(preview=preview)
-    if preview:
+    if preview and preview != "question-foundation":
         from .map_lesson import PROCESS_VERSION, generate_source_first
 
         if preview == "learning-path":
@@ -346,14 +362,18 @@ def enrich(
             review_version = LEARNING_PROCESS_VERSION
         else:
             review_version = PROCESS_VERSION
-    else:
+    elif not preview:
         review_version = TEACHING_REVIEW_VERSION
     config = resolve_map_model()
     metadata = {"model_revision": config.revision, "version": version}
+    process_field = "application_process" if foundation_ref else "teaching_process" if preview else "teaching_review"
+    process_version_field = "version" if preview else "review_version"
+    if foundation_ref:
+        metadata.update(foundation_ref=foundation_ref, process_version=review_version)
     fingerprints = {
         d["key"]: digest([version, review_version, config.revision, locale, {
             k: v for k, v in d.items() if k != "task_revision" or d["dynamic"]
-        }]) for d in documents
+        }, *([{**foundation_ref, "markdown": foundation["markdown"]}] if foundation_ref else [])]) for d in documents
     }
     if on_progress is not None:
         on_progress("waiting_for_source")
@@ -377,8 +397,7 @@ def enrich(
             all(
                 existing.get(d["key"], {}).get("version") == version
                 and existing[d["key"]].get("model_revision") == config.revision
-                and (existing[d["key"]].get("teaching_process", {}).get("version") == review_version if preview
-                     else existing[d["key"]].get("teaching_review", {}).get("review_version") == review_version)
+                and existing[d["key"]].get(process_field, {}).get(process_version_field) == review_version
                 for d in todo
             )
             and time.time() - cache.get("attempt_at", 0) < 25
@@ -395,7 +414,13 @@ def enrich(
         prior_relation_tasks = cache.get("relation_tasks", {}) if cache.get("relation_context_version") == 2 else {}
         tasks = generation_context_tasks(all_tasks, todo[:8], prior_relation_tasks)
         relation_tasks = {t["id"]: digest(t) for t in tasks}
-        if preview:
+        if foundation_ref:
+            value = generate_application(
+                todo[:8], tasks, locale, foundation=foundation, config=config,
+                project_root=project_root, global_root=root,
+                **({"on_progress": on_progress} if on_progress is not None else {}),
+            )
+        elif preview:
             value = generate_source_first(
                 todo[:8], tasks, locale, config=config, project_root=project_root, global_root=root,
                 **({"learning_path": True} if preview == "learning-path" else {}),
@@ -438,6 +463,10 @@ def enrich(
                 existing[card["key"]]["teaching_process"] = copy.deepcopy(card["teaching_process"])
             if "source_snapshot" in card:
                 existing[card["key"]]["source_snapshot"] = copy.deepcopy(card["source_snapshot"])
+            if "foundation_ref" in card:
+                existing[card["key"]]["foundation_ref"] = copy.deepcopy(card["foundation_ref"])
+            if "application_process" in card:
+                existing[card["key"]]["application_process"] = copy.deepcopy(card["application_process"])
             document = next(d for d in documents if d["key"] == card["key"])
             existing[card["key"]].update(
                 copy_revision=cache.get("cache_revision", 0) + 1,

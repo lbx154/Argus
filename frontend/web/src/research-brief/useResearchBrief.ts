@@ -11,6 +11,7 @@ import {
   currentBriefData, isReaderBrief, needsBrief, oldBriefService, READER_BRIEF_VERSION,
 } from './model';
 import { beginExplanationProgress, explanationRunStart, useExplanationProgress } from './progress';
+import { useSelectedFoundation } from './foundation';
 
 export interface ResearchBriefOptions {
   sid: string;
@@ -21,14 +22,18 @@ export interface ResearchBriefOptions {
   locale: string;
   /** A reader opened earlier keeps the cache mode selected at that time. */
   preview?: ReaderPreview;
+  foundationId?: string | null;
 }
 
-export function useResearchBrief({ sid, snapshot, view, active, readOnly = false, locale, preview = readerPreview() }: ResearchBriefOptions) {
+export function useResearchBrief({ sid, snapshot, view, active, readOnly = false, locale, preview = readerPreview(), foundationId: pinnedFoundationId }: ResearchBriefOptions) {
   const client = useQueryClient();
   const taskId = view.mission.id;
   const selection = briefSelection(snapshot, view);
   const liveKey = briefLiveKey(sid, selection);
-  const copyKey = briefCopyKey(sid, locale, preview);
+  const foundationChoice = useSelectedFoundation(sid, locale);
+  const foundationId = preview === 'question-foundation' ? pinnedFoundationId === undefined ? foundationChoice.id : pinnedFoundationId : null;
+  const foundationRequired = preview === 'question-foundation' && !foundationId;
+  const copyKey = briefCopyKey(sid, locale, preview, foundationId);
   const enabled = active && !!sid && !!taskId && snapshot.session.id === sid;
   const live = useQuery({
     queryKey: liveKey,
@@ -44,7 +49,9 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
   const copy = useQuery({
     queryKey: copyKey,
     queryFn: async ({ signal }) => {
-      const result = await api.mapCopy('project', sid, locale, signal, sid, preview);
+      const result = preview === 'question-foundation'
+        ? await api.mapCopy('project', sid, locale, signal, sid, preview, foundationId)
+        : await api.mapCopy('project', sid, locale, signal, sid, preview);
       const previous = client.getQueryData<MapCopy>(copyKey);
       return mergeMapCopy(previous, result, previous?.model_revision);
     },
@@ -61,9 +68,9 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
     ? card!.reader_brief : undefined;
   const needsUpdate = needsBrief(live.data, task, evidence, copy.data);
   const legacy = oldBriefService(copy.data);
-  const canGenerate = enabled && !readOnly && !!task && copy.data?.available === true
+  const canGenerate = enabled && !readOnly && !foundationRequired && !!task && copy.data?.available === true
     && !legacy && !live.isError && !copy.isError;
-  const generationScope = ['research-brief-generation', sid, taskId, locale, selection.eventSince, ...(preview ? [preview] : [])] as const;
+  const generationScope = ['research-brief-generation', sid, taskId, locale, selection.eventSince, ...(preview ? [preview] : []), ...(preview === 'question-foundation' ? [foundationId] : [])] as const;
   const generationVersion = Math.max(READER_BRIEF_VERSION, copy.data?.version ?? 0);
   // An earlier success or failure only applies to the draft/review settings used for that attempt.
   const generationKey = [...generationScope, generationVersion, copy.data?.model_revision ?? null, inputSignature] as const;
@@ -82,7 +89,8 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
       const observed = beginExplanationProgress(client, copyKey, [{ key: task.id, startedAt: progressStart }]);
       let result: MapCopy;
       try {
-        result = await api.generateMapCopy('project', sid, { cards: [briefRequest(task, evidence)], locale }, undefined, sid, preview, observed.update);
+        result = await api.generateMapCopy('project', sid, { cards: [briefRequest(task, evidence)], locale,
+          ...(foundationId ? { foundation_id: foundationId } : {}) }, undefined, sid, preview, observed.update);
       } finally {
         observed.finish();
       }
@@ -124,6 +132,7 @@ export function useResearchBrief({ sid, snapshot, view, active, readOnly = false
     }
   };
   return {
+    foundationId, foundationRequired,
     task, evidence, loadedEvents: live.data?.events, card, brief, inputSignature,
     needsUpdate: needsUpdate && generation.data?.available !== true,
     legacy,

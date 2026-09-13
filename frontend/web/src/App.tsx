@@ -18,6 +18,8 @@ import { PendingReplyDialog } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
 import { rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
+import { QuestionFoundation } from './research-brief/QuestionFoundation';
+import { readerPreview } from './map/copyMode';
 import {
   missionIsComplete,
   ResearchCanvas,
@@ -988,6 +990,10 @@ export default function App() {
                 <span className="ml-auto" />
                 {!kiosk && workspaceView !== 'map' ? <button type="button" onClick={() => setOverlay('operations')} className="rounded border border-line/60 px-2 py-1 text-xs text-ink-faint hover:border-blue/50 hover:text-blue">{t('mission.operations')}</button> : null}
               </div>
+              {readerPreview() === 'question-foundation' && loadedSid ? <QuestionFoundation key={loadedSid} sid={loadedSid}
+                objective={snap.session.objective} readOnly={kiosk}
+                onOpenArtifact={setArtifactPath}
+                onAsk={draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); }} /> : null}
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendMessage} pending={chatPending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={() => setOverlay('config')}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
@@ -1002,7 +1008,7 @@ export default function App() {
                 <GuardianBanner alert={guardianAlert} />
                 {missionView?.mission.id && activeSid ? <div className={`flex min-h-0 flex-col ${compactViewport ? 'shrink-0' : 'shrink'}`}>
                   <ResearchBrief key={activeSid} sid={activeSid} snapshot={snap} view={missionView}
-                    active={workspaceView === 'mission' || workspaceView === 'activity'} readOnly={kiosk} compact={compactViewport}
+                    active={workspaceView === 'mission' || workspaceView === 'activity'} readOnly={kiosk} compact={compactViewport} onOpenArtifact={setArtifactPath}
                     onAsk={draft => { setComposerDraft(previous => previous.trim() ? `${previous}\n\n${draft}` : draft); setComposerFocus(value => value + 1); }} />
                 </div> : null}
                 {/* The mobile activity minimum includes its header/status and 120px of conversation. */}

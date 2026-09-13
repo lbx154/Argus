@@ -466,7 +466,7 @@ export type ArtifactKind =
   | 'video'
   | 'binary';
 
-/** Reviewer-approved result file exposed by the protected artifact API. */
+/** A registered project file exposed by the protected artifact API. */
 export interface ArtifactInfo {
   path: string;
   name: string;
@@ -478,8 +478,19 @@ export interface ArtifactInfo {
   mtime: number | null;
   /** Absolute local location shown on hover; reads still use the protected path. */
   storage_path?: string;
-  source?: 'manager_live' | 'reviewer_evidence' | 'research_registered' | 'delivery';
+  source?: 'manager_live' | 'reviewer_evidence' | 'research_registered' | 'delivery' | 'reader_foundation';
   group_title?: string;
+  /** An explicit reading request, separate from a research result or review. */
+  reader_foundation?: {
+    id: string;
+    question: string;
+    locale: 'zh-CN' | 'en-US';
+    source_task_id?: string | null;
+    created_at: number;
+    version: number;
+    state: 'generating' | 'complete' | 'failed';
+    deadline_exceeded?: boolean;
+  };
   /** Included by the single-artifact endpoint for text/HTML files only. */
   preview?: string;
   truncated?: boolean;

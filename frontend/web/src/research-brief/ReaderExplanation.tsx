@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, RefreshCw } from 'lucide-react';
 import type { ArtifactInfo } from '../api';
-import type { ReaderBrief, ReaderLearningPath } from '../map/presentation';
+import type { CardCopy, ReaderBrief, ReaderLearningPath } from '../map/presentation';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { Button, RawDisclosure, Spinner } from '../components/primitives';
 import { useI18n } from '../i18n';
@@ -65,15 +65,20 @@ export function readerExplanationBoundary(zh: boolean) {
 }
 
 /** Pure presentation shared by current research and an explicitly selected historical card. */
-export function ReaderExplanation({ brief, identity, detail, learningPath, readingUnavailable = false, teachingUnavailable = false, artifacts, onOpenArtifact }: {
+export function ReaderExplanation({ brief, identity, detail, learningPath, foundation, readingUnavailable = false, teachingUnavailable = false, artifacts, onOpenArtifact }: {
   brief: ReaderBrief; identity: string; detail?: string; readingUnavailable?: boolean; teachingUnavailable?: boolean;
   learningPath?: ReaderLearningPath | null;
+  foundation?: CardCopy['foundation_ref'];
   artifacts?: ArtifactInfo[]; onOpenArtifact?: (path: string) => void;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const text = (chinese: string, english: string) => zh ? chinese : english;
   return <div className="mt-3 grid min-w-0 gap-4" data-reader-explanation={identity}>
+    {foundation ? <div className="rounded border border-line/60 p-2 text-xs text-ink-dim" data-foundation-id={foundation.id}>
+      <p>{text('这次进展参考的基础说明：', 'Foundations used to explain this progress: ')}{foundation.question}</p>
+      {onOpenArtifact ? <Button className="mt-1 text-xs" onClick={() => onOpenArtifact(foundation.path)}>{text('阅读这份基础说明', 'Read these foundations')}</Button> : null}
+    </div> : null}
     {readingUnavailable ? <p className="text-xs text-ink-faint">{text('阅读说明还需要核对，可以先查看依据或继续问这一步。', 'The reading explanation still needs checking. You can view its evidence or keep asking about this step.')}</p>
       : teachingUnavailable ? <p className="text-xs text-ink-faint">{text('这个概念的说明还没核对清楚，可以继续问这一步。', 'The explanation of this concept has not been checked clearly yet. You can keep asking about this step.')}</p> : null}
     {learningPath ? <LearningPath key={identity} path={learningPath} identity={identity} artifacts={artifacts} onOpenArtifact={onOpenArtifact} /> : <><section className="min-w-0" data-reader-why={identity}>

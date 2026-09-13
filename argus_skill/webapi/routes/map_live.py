@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import queue
-import threading
 from typing import Literal
 
 from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import StreamingResponse
 
 from .. import map_narrative
 from ..map_feed import MapFeed
 from ..map_history import history_info, history_page, indexed_evidence
 from ..map_view import read_map, with_revisions
+from ..reader_application import PROCESS_VERSION as APPLICATION_PROCESS_VERSION
+from ..reader_application import foundation_reference
 
 
 class MapCardIn(BaseModel):
@@ -29,6 +27,7 @@ class MapCardIn(BaseModel):
 class MapCopyIn(BaseModel):
     cards: list[MapCardIn] = Field(min_length=1, max_length=16)
     locale: Literal["zh-CN", "en-US"] = "zh-CN"
+    foundation_id: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 def _copy_error(exc: Exception) -> HTTPException:
@@ -116,6 +115,28 @@ def register_map_live_routes(app, ctx, read_dataset):
             return ctx.project_root_or_404(session_id), ctx.resolve_or_404(session_id)
         return ctx.roots[0], None
 
+    def load_foundation(source, name, root, foundation_id, *, required):
+        if source != "project":
+            raise HTTPException(422, "question foundations require a project map")
+        if not foundation_id:
+            if required:
+                raise HTTPException(422, "select a completed question foundation")
+            return None
+        from ..reader_foundation import read_foundation
+
+        foundation = read_foundation(root, name, foundation_id)
+        if foundation is None:
+            if required:
+                raise HTTPException(404, "question foundation not found in this project")
+            return None
+        try:
+            foundation_reference(foundation)
+        except ValueError as exc:
+            if required:
+                raise HTTPException(422, "question foundation is not complete or readable") from exc
+            return None
+        return foundation
+
     @app.get("/api/map-copy/{source}/{name}", dependencies=[Depends(ctx.require_auth)])
     def cached_copy(
         source: Literal["project", "dataset"],
@@ -123,10 +144,16 @@ def register_map_live_routes(app, ctx, read_dataset):
         locale: Literal["zh-CN", "en-US"] = "zh-CN",
         session_id: str | None = None,
         preview: map_narrative.Preview = False,
+        foundation_id: str | None = Query(default=None, min_length=1, max_length=80),
     ):
         value = load(source, name)
         root, project_root = owner(source, name, session_id)
-        cache = map_narrative.read_cache(root, map_narrative.copy_source(value["id"], locale, preview=preview))
+        foundation = (load_foundation(source, name, root, foundation_id, required=False)
+                      if preview == "question-foundation" else None)
+        cache = ({"cards": {}, "relations": [], "cache_revision": 0}
+                 if preview == "question-foundation" and foundation is None else map_narrative.read_cache(
+                     root, map_narrative.copy_source(value["id"], locale, preview=preview,
+                                                    **({"foundation_id": foundation["id"]} if foundation else {}))))
         try:
             model_revision = map_narrative.resolve_map_model().revision
         except (OSError, ValueError, RuntimeError):
@@ -134,10 +161,13 @@ def register_map_live_routes(app, ctx, read_dataset):
         return {
             "cards": cache.get("cards", {}),
             "relations": cache.get("relations", []),
-            "available": project_root is not None and map_narrative.configured(),
+            "available": project_root is not None and (preview != "question-foundation" or foundation is not None)
+                         and map_narrative.configured(),
             "version": map_narrative.copy_version(preview=preview),
             "model_revision": model_revision,
             "cache_revision": cache.get("cache_revision", 0),
+            **({"foundation_ref": foundation_reference(foundation),
+                "process_version": APPLICATION_PROCESS_VERSION} if foundation else {}),
         }
 
     @app.post("/api/map-copy/{source}/{name}", dependencies=[Depends(ctx.require_auth)])
@@ -146,11 +176,19 @@ def register_map_live_routes(app, ctx, read_dataset):
         session_id: str | None = None,
         stream: bool = False,
         preview: map_narrative.Preview = False,
+        foundation_id: str | None = Query(default=None, min_length=1, max_length=80),
     ):
         value = await run_in_threadpool(load, source, name, body.cards)
         root, project_root = owner(source, name, session_id)
         if project_root is None:
             raise HTTPException(422, "select a session for map summaries")
+        foundation = None
+        if preview == "question-foundation":
+            if foundation_id and body.foundation_id and foundation_id != body.foundation_id:
+                raise HTTPException(422, "question foundation references do not match")
+            foundation = await run_in_threadpool(
+                load_foundation, source, name, root, foundation_id or body.foundation_id, required=True,
+            )
         cards = [c.model_dump() for c in body.cards]
 
         def generate(on_progress=None):
@@ -159,6 +197,7 @@ def register_map_live_routes(app, ctx, read_dataset):
                     root, value, cards, body.locale, project_root=project_root,
                     **({"preview": preview} if preview else {}),
                     **({"on_progress": on_progress} if on_progress is not None else {}),
+                    **({"foundation": foundation} if foundation is not None else {}),
                 )
             except (ValueError, OSError, TimeoutError, RuntimeError) as exc:
                 raise _copy_error(exc) from exc
@@ -173,37 +212,8 @@ def register_map_live_routes(app, ctx, read_dataset):
         except ValueError as exc:
             raise _copy_error(exc) from exc
 
-        from .. import server
+        from .model_stream import model_stream_response
 
-        items: queue.Queue[dict | None] = queue.Queue()
-        items.put({"type": "heartbeat", "quiet_s": 0})
-
-        def run():
-            try:
-                items.put({"type": "done", "result": generate(
-                    lambda phase: items.put({"type": "progress", "phase": phase}),
-                )})
-            except HTTPException as exc:
-                items.put({"type": "error", "error": exc.detail, "status": exc.status_code})
-            except Exception:  # noqa: BLE001 — report a terminal frame after headers were sent
-                logging.getLogger(__name__).exception("Map copy stream failed")
-                items.put({"type": "error", "error": "card text is temporarily unavailable", "status": 500})
-            finally:
-                items.put(None)
-
-        # Like Manager streaming, the worker outlives a disconnected browser.
-        # A completed generation remains available through the existing cache.
-        threading.Thread(target=run, name="map-copy-stream", daemon=True).start()
-
-        def frames():
-            for item in server._iter_manager_stream_items(
-                items, heartbeat_s=server._manager_stream_heartbeat_seconds() or 5.0,
-            ):
-                if item.get("heartbeat"):
-                    item = {"type": "heartbeat", "quiet_s": item["quiet_s"]}
-                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
-
-        return StreamingResponse(
-            frames(), media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        return model_stream_response(
+            generate, thread_name="map-copy-stream", unavailable_message="card text is temporarily unavailable",
         )

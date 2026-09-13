@@ -110,6 +110,40 @@ def test_json_chat_result_matches_its_input_and_finish_is_idempotent(analytics):
     assert len(item._buffer) == 0
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_question_foundation_preserves_request_and_call_reference_without_accepting_a_task(analytics, stream):
+    body = {
+        "request_id": "48f5757f-cab6-4ef8-8024-b9fcd0a7899f",
+        "question": "Explain how a feasible bound proves optimality.",
+        "locale": "en-US", "source_task_id": "task-context",
+    }
+    item = Capture(analytics, "tenant-a", "s-one", "/api/projects/s-one/reader-foundation", body)
+    result = {
+        "path": "reader-notes/s-one/48f5757f-cab6-4ef8-8024-b9fcd0a7899f.md",
+        "source": "reader_foundation", "exists": True,
+        "reader_foundation": {
+            "id": body["request_id"], "question": body["question"], "locale": "en-US",
+            "source_task_id": "task-context", "created_at": 2_000_000_000,
+            "version": 1, "state": "complete",
+            "provenance": {"origin": "explicit_user_request", "run_label": "reader-foundation",
+                           "request_id": body["request_id"], "sid": "s-one",
+                           "call_id": "native-call", "call_id_log_correlated": True},
+        },
+    }
+    if stream:
+        item.feed(frame({"type": "heartbeat", "quiet_s": 0}))
+        item.feed(frame({"type": "progress", "phase": "writing"}))
+    item.feed(frame({"type": "done", "result": result}) if stream else json.dumps(result).encode())
+    item.finish(200, True, "text/event-stream" if stream else "application/json")
+    found = record(analytics, item)
+    assert found["input"] == body
+    assert found["result"] == result
+    assert found["path"] == "/api/projects/:sid/reader-foundation"
+    if stream:
+        assert [item["type"] for item in found["frames"]] == ["heartbeat", "progress", "done"]
+    assert found["task_id"] is None and found["task_accepted"] is False
+
+
 def test_sse_public_frames_and_real_declared_task_ids_not_mission_completion(analytics):
     item = capture(analytics)
     values = [

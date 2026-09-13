@@ -19,7 +19,7 @@ from jsonschema import Draft202012Validator, ValidationError
 from ..adapters.agent_cli_backend import AgentCliBackend
 from ..agent_cli.runner_backend import default_runner_bin, normalize_runner_backend
 from ..core.knobs import resolve_knob, resolve_runner_bin_setting
-from ..core.models import RunnerOptions
+from ..core.models import RunnerOptions, RunnerResult
 from ..core.role_config import resolve_role_config
 from ..core.run_gateway import run_exec
 from .map_view import digest
@@ -144,6 +144,8 @@ def run_map_model(
     deadline: float | None = None,
     on_progress: MapProgress | None = None,
     phase: MapCopyPhase = "writing",
+    run_label: str = "map-summary",
+    on_result: Callable[[RunnerResult], None] | None = None,
 ) -> dict:
     deadline = deadline if deadline is not None else time.monotonic() + 180
     if time.monotonic() >= deadline:
@@ -176,8 +178,11 @@ def run_map_model(
                         "Map text generation timed out" if time.monotonic() >= deadline else None
                     ),
                 ),
-                run_label="map-summary",
+                run_label=run_label,
             )
+            if on_result is not None:
+                # Preserve the real call receipt even when execution or output validation fails.
+                on_result(result)
     finally:
         backend.close_acp_clients()
     if result.exit_code or result.fatal_error:

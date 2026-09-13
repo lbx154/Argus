@@ -55,6 +55,7 @@ afterEach(async () => {
 it.each([
   ['', null], ['?reader_preview=other', null], ['?project=research&reader_preview=source-first', 'true'],
   ['?project=research&reader_preview=learning-path', 'learning-path'],
+  ['?project=research&reader_preview=question-foundation', 'question-foundation'],
 ])('selects the same map-copy cache and generation mode from %s', async (search, preview) => {
   vi.stubGlobal('window', { location: { search } });
   const fetch = await serve((response, request) => {
@@ -82,7 +83,7 @@ it.each([
   });
 });
 
-it.each<ReaderPreview>([null, 'source-first', 'learning-path'])('keeps scheduled GET and POST requests in captured mode %s after the page URL changes', async preview => {
+it.each<ReaderPreview>([null, 'source-first', 'learning-path', 'question-foundation'])('keeps scheduled GET and POST requests in captured mode %s after the page URL changes', async preview => {
   vi.stubGlobal('window', { location: { search: preview === 'learning-path' ? '?reader_preview=source-first' : '?reader_preview=learning-path' } });
   await serve((response, request) => {
     if (request.method === 'GET') {
@@ -98,6 +99,47 @@ it.each<ReaderPreview>([null, 'source-first', 'learning-path'])('keeps scheduled
   expect(requests.map(request => request.method)).toEqual(['GET', 'POST']);
   for (const request of requests) expect(new URL(request.path, 'http://argus.test').searchParams.get('preview'))
     .toBe(preview === 'source-first' ? 'true' : preview);
+});
+
+it('uses one selected foundation for both the retained application and its real request', async () => {
+  await serve((response, request) => {
+    response.writeHead(200, { 'Content-Type': request.method === 'GET' ? 'application/json' : 'text/event-stream' });
+    response.end(request.method === 'GET' ? JSON.stringify(complete) : frame({ type: 'done', result: complete }));
+  });
+  const foundation = 'dc4487b5-61c0-47c3-bcc6-884a32e84bcb';
+  await api.mapCopy('project', 'research', 'zh-CN', undefined, 'research', 'question-foundation', foundation);
+  await api.generateMapCopy('project', 'research', { ...requestBody, foundation_id: foundation }, undefined, 'research', 'question-foundation');
+  expect(requests).toHaveLength(2);
+  for (const request of requests) {
+    const url = new URL(request.path, 'http://argus.test');
+    expect(url.searchParams.get('preview')).toBe('question-foundation');
+    expect(url.searchParams.get('foundation_id')).toBe(foundation);
+  }
+  expect(requests[1].body).toEqual({ ...requestBody, foundation_id: foundation });
+});
+
+it('submits the actual reading question once and reads its saved file without another generation', async () => {
+  const question = { request_id: 'dc4487b5-61c0-47c3-bcc6-884a32e84bcb', question: '这两个量究竟怎样比较？', locale: 'zh-CN' as const, source_task_id: 'task' };
+  const artifact = { path: `reader-notes/${question.request_id}.md`, source: 'reader_foundation', preview: '一份已保存的背景说明。' };
+  await serve((response, request) => {
+    if (request.method === 'POST') {
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      response.end(frame({ type: 'progress', phase: 'writing' }) + frame({ type: 'done', result: artifact })
+        + frame({ type: 'progress', phase: 'reviewing' }));
+    } else {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify(request.path.includes('/artifacts') ? { artifacts: [artifact] } : artifact));
+    }
+  });
+  const phases: ExplanationPhase[] = [];
+  await expect(api.generateReaderFoundation('research', question, phase => phases.push(phase))).resolves.toEqual(artifact);
+  await api.artifacts('research', undefined, true);
+  await api.artifact('research', artifact.path);
+  expect(phases).toEqual(['writing']);
+  expect(requests.map(request => request.method)).toEqual(['POST', 'GET', 'GET']);
+  expect(requests[0]).toMatchObject({ path: '/api/projects/research/reader-foundation?stream=true', body: question });
+  expect(requests[1].path).toBe('/api/projects/research/artifacts?include_reading=true');
+  expect(new URL(requests[2].path, 'http://argus.test').searchParams.get('path')).toBe(artifact.path);
 });
 
 it('waits through 125 seconds of HTTP heartbeats and returns only the complete explanation at 130 seconds', async () => {

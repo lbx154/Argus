@@ -153,6 +153,31 @@ def test_raw_observation_pages_keep_four_roles_and_unassigned_runs_visible(train
     assert all(episode["quality"]["state"] == "not_evaluated" for episode in task["episodes"])
 
 
+@pytest.mark.parametrize("purpose", ["reader-foundation", "reader-application"])
+def test_reader_purpose_survives_observation_and_export_without_a_research_role(training, purpose):
+    data, _, _ = training
+    episode = begin(training, role=purpose, task=None)
+    context = {"messages": [{"role": "user", "content": "Explain the actual question."}], "tools": []}
+    send(data, episode, "context", context)
+    send(data, episode, "provider_request", {**context, "model": "synthetic-observer"})
+    send(data, episode, "agent_end", {"messages": [{"role": "assistant", "content": "An explicit reading explanation."}]})
+    assert send(data, episode, "settled", {})["state"] == "complete"
+    page = data.observations("internal_training", "tenant-one", "s-project")
+    saved = page["episodes"][0]
+    assert saved["role"] == "unknown"
+    assert saved["runtime"]["run_label"] == purpose
+    assert saved["runtime"]["mission_id"] is None
+    assert saved["quality"]["state"] == "not_evaluated"
+    assert [event["kind"] for event in saved["events"]] == ["context", "provider_request", "agent_end", "settled"]
+    chunks, _ = data.export_observations("internal_training", [{"tenant_id": "tenant-one", "sid": "s-project"}])
+    with zipfile.ZipFile(io.BytesIO(b"".join(chunks))) as archive:
+        records = [json.loads(line) for line in archive.read("observations.jsonl").splitlines()]
+    header = next(record for record in records if record["kind"] == "episode")
+    assert header["runtime"]["run_label"] == purpose and header["runtime"]["mission_id"] is None
+    assert header["role"] == "unknown"
+    assert len([record for record in records if record["kind"] == "observation"]) == 4
+
+
 def test_raw_export_needs_no_review_and_keeps_unsettled_and_failed_tool_records(training):
     data, _, _ = training
     first = begin(training, role="manager-stage", task=None)

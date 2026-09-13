@@ -23,7 +23,8 @@ from argus_skill.trial.analytics import AnalyticsError, _safe_row, _sanitize
 MAX_BYTES = 1024 * 1024
 MAX_FRAMES = 2000
 _INPUT_FIELDS = frozenset(
-    ("text", "attachments", "route_override", "command", "name", "resources")
+    ("text", "attachments", "route_override", "command", "name", "resources",
+     "request_id", "question", "locale", "source_task_id")
 )
 _PUBLIC_FIELDS = frozenset("""
     kind reply text role type label phase fragment_mode message_id error detail code
@@ -32,6 +33,8 @@ _PUBLIC_FIELDS = frozenset("""
     dispatch_state duplicate continuous daemon_alive daemon_control_available
     delivery delivery_id targets path filename mime size size_bytes artifacts
     created ts timestamp started_ts finished_ts
+    reader_foundation question locale request_id source_task_id created_at version
+    state source exists name mtime provenance origin run_label call_id call_id_log_correlated exit_code quiet_s deadline_exceeded
 """.split())
 _SID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}\Z")
 _TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}\Z")
@@ -300,7 +303,7 @@ def _response(raw, is_sse, truncated):
         try:
             value = _decode(b"\n".join(data))
             if not isinstance(value, dict) or value.get("type") not in {
-                "phase", "delta", "done", "error",
+                "phase", "delta", "done", "error", "heartbeat", "progress",
             }:
                 suppressed += 1
                 continue
@@ -342,7 +345,7 @@ class Capture:
         self.path = path.split("?", 1)[0].split("#", 1)[0][:8192]
         # Store only known route names, never arbitrary path/query content.
         match = re.fullmatch(
-            r"/api/projects/[^/]+/(message(?:/stream)?|tasks|nudge|note|plan)", self.path,
+            r"/api/projects/[^/]+/(message(?:/stream)?|tasks|nudge|note|plan|reader-foundation)", self.path,
         )
         self.path = (
             "/api/projects/:sid/" + match[1] if match
@@ -381,7 +384,7 @@ class Capture:
             if self.analytics.notice_version != self.notice_version:
                 raise AnalyticsError(403, "consent_required")
             media = content_type.split(";", 1)[0].strip().lower()
-            is_sse = media == "text/event-stream" and self.path.endswith("/message/stream")
+            is_sse = media == "text/event-stream" and self.path.endswith(("/message/stream", "/reader-foundation"))
             if is_sse or media == "application/json" or media.endswith("+json"):
                 frames, result, error, suppressed = _response(
                     bytes(self._buffer), is_sse, self._truncated,

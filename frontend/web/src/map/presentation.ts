@@ -62,6 +62,7 @@ export interface CardCopy {
   /** Optional for existing cached cards created before presentation schema 10. */
   reader_brief?: ReaderBrief;
   learning_path?: ReaderLearningPath | null;
+  foundation_ref?: { id: string; path: string; question: string; version: number };
   /** A teaching-text check is separate from the research task's review. */
   teaching_review?: {
     status?: 'accepted' | 'corrected' | 'unavailable';

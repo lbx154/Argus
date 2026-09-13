@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from argus_skill.agent_cli.agent_cli_runner import AgentCliRunner
 from argus_skill.agent_cli.models import AgentRunResult
 from argus_skill.core.knob_store import write_persisted_knobs
+from argus_skill.core.models import RunnerResult
 from argus_skill.core.session import SessionMeta, write_session_meta
 from argus_skill.core.usage import UsageLedger, UsageRecord
 from argus_skill.webapi import map_model
@@ -148,9 +149,11 @@ def test_map_settings_use_existing_config_endpoint(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("runner", ["codex", "pi"])
-def test_map_runner_uses_shared_usage_ledger_and_read_only_turn(tmp_path, monkeypatch, runner):
+@pytest.mark.parametrize("run_label", [None, "reader-foundation"])
+def test_map_runner_uses_shared_usage_ledger_and_read_only_turn(tmp_path, monkeypatch, runner, run_label):
     observed = []
     phases = []
+    receipts = []
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
     monkeypatch.setenv("ARGUS_SKILL_GLOBAL_DAILY_CAP_USD", "100")
     monkeypatch.setenv("ARGUS_SKILL_CODEX_DAILY_CALL_CAP", "100")
@@ -174,28 +177,69 @@ def test_map_runner_uses_shared_usage_ledger_and_read_only_turn(tmp_path, monkey
     project = tmp_path / "projects/s-map"
     config = map_model.MapModel(runner, "gpt-5.4-mini", "low", sys.executable)
     result = map_model.run_map_model("Summarize these records", {}, config, project_root=project, global_root=tmp_path,
-                                     on_progress=phases.append, phase="planning")
+                                     on_progress=phases.append, phase="planning", on_result=receipts.append,
+                                     **({"run_label": run_label} if run_label is not None else {}))
     assert result == {"cards": {}, "relations": []} and len(observed) == 1
     assert phases == ["planning"]
     rows = UsageLedger(project).records()
     assert len(rows) == 1
     row = rows[0].to_jsonable()
-    assert row["run_label"] == "map-summary"
+    assert row["run_label"] == (run_label or "map-summary")
+    assert row["mission_id"] is None
+    assert len(receipts) == 1
+    assert receipts[0].call_id == row["call_id"]
+    assert receipts[0].call_id_log_correlated is True
     assert row["model"] == "gpt-5.4-mini" and row["input_tokens"] == 100
     assert row["cost_usd"] is not None
     assert not list((tmp_path / "map-presentation").glob("generation-*"))
 
 
+@pytest.mark.parametrize(("result_options", "raw", "error"), [
+    ({}, '{"markdown":"A saved explanation"}', None),
+    ({"exit_code": 1}, '{"markdown":"Unfinished"}', OSError),
+    ({"fatal_error": "runner failed"}, '{"markdown":"Unfinished"}', OSError),
+    ({"tool_activity_observed": True}, '{"markdown":"Unexpected tool use"}', ValueError),
+    ({}, 'not JSON', ValueError),
+    ({}, '{}', ValueError),
+])
+def test_map_result_receipt_survives_execution_and_output_failures(tmp_path, monkeypatch, result_options, raw, error):
+    receipt = RunnerResult(
+        **{"exit_code": 0, **result_options}, agent_messages=[raw],
+        call_id="actual-runtime-call", call_id_log_correlated=True,
+    )
+    received = []
+    monkeypatch.setattr(map_model, "run_exec", lambda *args, **kwargs: receipt)
+    schema = {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]}
+
+    def generate():
+        return map_model.run_map_model(
+            "Explain the selected question", schema,
+            map_model.MapModel("pi", "gpt-5.4-mini", "low", sys.executable),
+            project_root=tmp_path / "projects/s-foundation", global_root=tmp_path,
+            run_label="reader-foundation", on_result=received.append,
+        )
+
+    if error is None:
+        assert generate() == {"markdown": "A saved explanation"}
+    else:
+        with pytest.raises(error):
+            generate()
+    assert len(received) == 1 and received[0] is receipt
+    assert not list((tmp_path / "map-presentation").glob("generation-*"))
+
+
 def test_expired_map_deadline_does_not_report_a_model_phase(tmp_path, monkeypatch):
     phases = []
+    receipts = []
     monkeypatch.setattr(map_model, "run_exec", lambda *args, **kwargs: pytest.fail("Expired request ran a model"))
     with pytest.raises(OSError, match="timed out"):
         map_model.run_map_model(
             "Expired request", {}, map_model.MapModel("pi", "gpt-5.5", "medium", sys.executable),
             project_root=tmp_path, global_root=tmp_path, deadline=time.monotonic() - 1,
-            on_progress=phases.append, phase="writing",
+            on_progress=phases.append, phase="writing", on_result=receipts.append,
         )
     assert phases == []
+    assert receipts == []
     assert not (tmp_path / "map-presentation").exists()
 
 

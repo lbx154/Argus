@@ -497,6 +497,46 @@ def test_analytics_requires_explicit_versioned_notice_and_guards_old_sessions(pr
         assert error.value.code == 4401
 
 
+def test_foundation_post_uses_normal_tenant_origin_readonly_and_capture_rules(provisioned, tmp_path):
+    from argus_skill.trial.analytics import Analytics
+    from argus_skill.trial.interaction_capture import get_interaction, list_interactions
+
+    config, vault, _ = provisioned
+    analytics = Analytics(
+        tmp_path / "research", {"trial-01": {"data_dir": tmp_path / "tenant", "internal_test": True}},
+        tmp_path / "unused-meter.sqlite3", tmp_path / "unused-compute.sqlite3",
+    )
+    seen = []
+
+    def upstream(request):
+        seen.append(request)
+        return httpx.Response(200, stream=Chunks([b'{"source":"reader_foundation","exists":false}']),
+                              headers={"content-type": "application/json"})
+
+    app = portal.create_app(config, analytics=analytics, transport=httpx.MockTransport(upstream))
+    login = {"code": vault.credential("trial-01"), "data_notice_accepted": True,
+             "notice_version": COMBINED_NOTICE_VERSION}
+    body = {"request_id": "48f5757f-cab6-4ef8-8024-b9fcd0a7899f", "question": "Explain feasible bounds.",
+            "locale": "en-US", "source_task_id": "task-context"}
+    path = "/api/projects/s-question/reader-foundation"
+    with TestClient(app, base_url=ORIGIN) as client:
+        assert client.post(path, json=body, headers={"Origin": ORIGIN}).status_code == 401
+        assert client.post("/invite/login", json=login, headers={"Origin": ORIGIN}).status_code == 200
+        assert client.post(path, json=body, headers={"Origin": "https://other.test"}).status_code == 403
+        assert client.post(path, json=body, headers={"Origin": ORIGIN}).status_code == 200
+        assert seen[-1].url.host == "trial-01"
+        assert json.loads(seen[-1].content) == body
+        entries = list_interactions(analytics, "trial-01")["interactions"]
+        assert len(entries) == 1
+        captured = get_interaction(analytics, "trial-01", entries[0]["id"], include_trace=False)
+        assert captured["input"] == body
+        assert captured["task_id"] is None and captured["task_accepted"] is False
+        assert client.post("/invite/login", json={**login, "readonly": True}, headers={"Origin": ORIGIN}).status_code == 200
+        assert client.post(path, json=body, headers={"Origin": ORIGIN}).status_code == 403
+        assert len(seen) == 1
+    assert not portal.permitted(path, "PUT")
+
+
 def test_research_lifespan_replay_feedback_export_deletion_and_restart(provisioned, tmp_path, monkeypatch):
     from argus_skill.trial.analytics import Analytics
 
