@@ -14,6 +14,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix="argus-layout-") as temporary:
         root = Path(temporary)
         os.environ["ARGUS_SKILL_HOME"] = str(root)
+        # Layout tests use real project APIs without depending on installed CLIs.
+        os.environ["ARGUS_SKILL_RUNNER_BACKEND"] = "memory"
         from argus_skill.core.session import SessionMeta, write_session_meta
         from argus_skill.core.transcript import append_turn
         from argus_skill.life.memory import BacklogItem, LifeMemory

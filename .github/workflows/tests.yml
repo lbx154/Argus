@@ -46,6 +46,7 @@ env:
     tests/skills/test_builtins_seeding.py
     tests/skills/test_builtin_line_endings.py
     tests/skills/test_builtin_windows_atomic.py
+    tests/test_runner_binary_resolution.py
     tests/apps/test_bounded_planner_continuation.py
     tests/life/test_self_referential_acceptance.py
     tests/core/test_operator_messages.py

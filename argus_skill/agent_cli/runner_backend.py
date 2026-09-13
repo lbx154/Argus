@@ -314,7 +314,7 @@ def _resolve_explicit_candidate(candidate: Path) -> str | None:
     wanted = {f"{candidate.name}{extension}".casefold() for extension in extensions if extension}
     try:
         for entry in candidate.parent.iterdir():
-            if entry.is_file() and entry.name.casefold() in wanted:
+            if entry.name.casefold() in wanted and entry.is_file():
                 return str(entry)
     except OSError:
         return None
