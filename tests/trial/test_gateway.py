@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
@@ -11,6 +12,7 @@ import portalocker
 import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect
 
 from argus_skill.trial import store as store_module
 from argus_skill.trial.gateway import Settings, create_app, prepare, usage_total
@@ -60,6 +62,12 @@ def issued_auth(client, key_id=KEY_ID):
     return {"Authorization": "Bearer " + credential}
 
 
+def gateway_attempts(store, key_id=KEY_ID):
+    with store.transaction() as db:
+        return [dict(row) for row in db.execute(
+            "SELECT * FROM trial_gateway_attempts WHERE key_id=? ORDER BY id", (key_id,))]
+
+
 def test_model_burst_waits_for_slots_without_failing_tasks(settings):
     active = peak = 0
 
@@ -84,6 +92,10 @@ def test_model_burst_waits_for_slots_without_failing_tasks(settings):
         assert app.state.store.status(KEY_ID)["active_requests"] == 0
         assert app.state.store.status(KEY_ID)["tokens_used"] == 14 * 15
         assert app.state.request_slots._value == 10
+        observed = gateway_attempts(app.state.store)
+        assert len(observed) == 14
+        assert all(row["outcome"] == "completed" and row["upstream_status"] == 200
+                   and row["selected_response_status"] == 200 for row in observed)
 
 
 def test_cancelled_queued_request_does_not_spend_or_leak_slot(settings):
@@ -102,6 +114,9 @@ def test_cancelled_queued_request_does_not_spend_or_leak_slot(settings):
                 waiting.cancel()
                 with pytest.raises(asyncio.CancelledError):
                     await waiting
+                observed, = gateway_attempts(app.state.store)
+                assert observed["outcome"] == "cancelled" and observed["queue_reason"] == "slot"
+                assert observed["reservation_id"] is None and observed["selected_response_status"] is None
                 assert app.state.store.status(KEY_ID)["tokens_used"] == 0
                 app.state.request_slots.release()
                 assert (await client.post("/v1/chat/completions", json=PAYLOAD)).status_code == 200
@@ -144,6 +159,7 @@ def test_rejects_budget_bypasses(settings, mutation):
         result = client.post("/v1/chat/completions", headers=auth, json={**PAYLOAD, **mutation})
         assert result.status_code == 400
         assert client.get("/trial/status", headers=auth).json()["tokens_used"] == 0
+        assert gateway_attempts(client.app.state.store) == []
 
 
 def test_auth_and_model_routes(settings):
@@ -154,6 +170,7 @@ def test_auth_and_model_routes(settings):
         assert client.post("/v1/chat/completions", json=PAYLOAD).status_code == 401
         assert client.get("/v1/models", headers=issued_auth(client)).json()["data"][0]["id"] == "argus-trial"
         assert client.get("/admin/token").status_code == 404
+        assert gateway_attempts(client.app.state.store) == []
 
 
 def test_global_tpm_timeout_is_exposed_without_spending_key_allowance(settings, monkeypatch):
@@ -185,6 +202,11 @@ def test_global_tpm_timeout_is_exposed_without_spending_key_allowance(settings, 
         assert status["tokens_used"] == 0 and status["global_tpm_remaining"] == 0
         assert status["active_requests"] == 0
         assert app.state.request_slots._value == 10
+        observed, = gateway_attempts(store)
+        assert observed["outcome"] == "rejected" and observed["client_error_code"] == "trial_tpm_exceeded"
+        assert observed["selected_response_status"] == 429 and observed["retry_after"] == 17
+        assert observed["reservation_id"] is None and observed["admitted_at"] is None and observed["upstream_status"] is None
+        assert observed["queue_reason"] == "tpm" and observed["tpm_wait_ms"] > 0
 
 
 @pytest.mark.parametrize("release_capacity", ["settle", "expire"])
@@ -235,6 +257,11 @@ def test_global_tpm_wait_succeeds_when_capacity_returns(settings, monkeypatch, r
                 with store.transaction() as db:
                     assert db.execute("SELECT COUNT(*) FROM trial_requests WHERE key_id=?", (KEY_ID,)).fetchone()[0] == 1
                 assert app.state.request_slots._value == 10
+
+                observed, = gateway_attempts(store)
+                assert observed["outcome"] == "completed" and observed["selected_response_status"] == 200
+                assert observed["queue_reason"] == "tpm" and observed["tpm_wait_ms"] > 0
+                assert observed["reservation_id"] is not None and observed["client_error_code"] is None
 
     asyncio.run(run())
 
@@ -292,6 +319,10 @@ def test_aborted_tpm_wait_does_not_spend_or_leak_slot(settings, monkeypatch, end
                     assert db.execute("SELECT COUNT(*) FROM trial_requests WHERE key_id=?", (KEY_ID,)).fetchone()[0] == 0
                 assert app.state.request_slots._value == 10
                 assert upstream_calls == 0
+                observed, = gateway_attempts(store)
+                assert observed["outcome"] == ("cancelled" if end_wait == "cancel" else "rejected")
+                assert observed["selected_response_status"] == (None if end_wait == "cancel" else 403)
+                assert observed["reservation_id"] is None and observed["queue_reason"] == "tpm"
                 store.set_access(KEY_ID, enabled=True)
                 store.settle(blocker, 1)
                 assert (await client.post("/v1/chat/completions", json=PAYLOAD)).status_code == 200
@@ -368,6 +399,10 @@ def test_disconnected_admission_wait_does_not_spend_or_leak_slot(settings, monke
             with store.transaction() as db:
                 assert db.execute("SELECT COUNT(*) FROM trial_requests WHERE key_id=?", (KEY_ID,)).fetchone()[0] == 0
             assert app.state.request_slots._value == (0 if waiting_for == "slot" else 10)
+            observed, = gateway_attempts(store)
+            assert observed["outcome"] == "disconnected" and observed["selected_response_status"] == 499
+            assert observed["client_error_code"] == "client_disconnected"
+            assert observed["reservation_id"] is None and observed["phase"] == waiting_for
 
     asyncio.run(run())
 
@@ -397,6 +432,10 @@ def test_slot_and_tpm_wait_share_one_admission_deadline(settings, monkeypatch):
                 assert response.json()["error"]["code"] == "trial_tpm_exceeded"
                 assert store.status(KEY_ID)["tokens_used"] == 0
                 assert app.state.request_slots._value == 1
+                observed, = gateway_attempts(store)
+                assert observed["queue_reason"] == "slot,tpm"
+                assert observed["slot_wait_ms"] > 0 and observed["tpm_wait_ms"] > 0
+                assert observed["selected_response_status"] == 429 and observed["client_error_code"] == "trial_tpm_exceeded"
 
     asyncio.run(run())
 
@@ -408,6 +447,33 @@ def test_no_login_fails_closed_without_charging(settings):
         assert client.get("/healthz").status_code == 503
         assert client.post("/v1/chat/completions", headers=auth, json=PAYLOAD).status_code == 503
         assert client.get("/trial/status", headers=auth).json()["tokens_used"] == 0
+
+
+def test_slot_timeout_is_distinct_from_tpm_timeout(settings):
+    async def run():
+        app = create_app(replace(settings, timeout=0.05), transport=httpx.MockTransport(upstream))
+        async with app.router.lifespan_context(app):
+            store = app.state.store
+            credential = app.state.vault.credential(KEY_ID)
+            store.issue(KEY_ID, credential)
+            app.state.request_slots = asyncio.Semaphore(0)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url="http://test",
+                headers={"Authorization": "Bearer " + credential},
+            ) as client:
+                response = await client.post("/v1/chat/completions", json=PAYLOAD)
+            assert response.status_code == 429 and response.headers["retry-after"] == "5"
+            assert response.json()["error"]["code"] == "trial_busy"
+            observed, = gateway_attempts(store)
+            assert observed["outcome"] == "rejected" and observed["phase"] == "slot"
+            assert observed["queue_reason"] == "slot" and observed["slot_wait_ms"] > 0
+            assert observed["selected_response_status"] == 429 and observed["client_error_code"] == "trial_busy"
+            assert observed["tpm_wait_ms"] == 0 and observed["reservation_id"] is None
+            assert observed["upstream_status"] is None and observed["retry_after"] == 5
+            assert store.status(KEY_ID)["tokens_used"] == 0
+            assert app.state.request_slots._value == 0
+
+    asyncio.run(run())
 
 
 def test_ledger_atomic_quota_and_recovery(tmp_path):
@@ -515,7 +581,133 @@ def test_disconnect_keeps_charge_and_releases_slot(settings):
             status = app.state.store.status(KEY_ID)
             assert status["active_requests"] == 0
             assert status["tokens_used"] == prepare(payload, settings.model)[1]
+            observed, = gateway_attempts(app.state.store)
+            # Cancellation may occur in ASGI send while the generator is
+            # suspended; in that case only background interruption is observed.
+            assert observed["outcome"] in {"cancelled", "interrupted"} and observed["phase"] == "stream"
+            assert observed["upstream_status"] == observed["selected_response_status"] == 200
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("disconnect_at,error_type", [
+    ("start", OSError), ("start", asyncio.CancelledError), ("usage", OSError), ("done", OSError),
+])
+def test_asgi24_send_failure_always_cleans_up_without_changing_settlement(settings, disconnect_at, error_type):
+    async def run():
+        closed = 0
+        iterated = False
+
+        class TrackedStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                nonlocal iterated
+                iterated = True
+                yield b'data: {"type":"response.output_text.delta","delta":"hello"}\n\n'
+                yield ("data: " + json.dumps({"type": "response.completed", "response": response_data()}) + "\n\n").encode()
+
+            async def aclose(self):
+                nonlocal closed
+                closed += 1
+
+        def handler(request):
+            return httpx.Response(200, stream=TrackedStream())
+
+        app = create_app(settings, transport=httpx.MockTransport(handler))
+        async with app.router.lifespan_context(app):
+            store = app.state.store
+            now = [100.0]
+            store.clock = lambda: now[0]
+            credential = app.state.vault.credential(KEY_ID)
+            store.issue(KEY_ID, credential)
+            payload = {**PAYLOAD, "stream": True}
+            sent_body = False
+
+            async def receive():
+                nonlocal sent_body
+                if not sent_body:
+                    sent_body = True
+                    return {"type": "http.request", "body": json.dumps(payload).encode()}
+                await asyncio.Event().wait()
+
+            async def send(message):
+                body = message.get("body", b"")
+                if (disconnect_at == "start" and message["type"] == "http.response.start"
+                        or disconnect_at == "usage" and b'"usage":' in body
+                        or disconnect_at == "done" and b"[DONE]" in body):
+                    now[0] = 101.0
+                    raise error_type()
+
+            scope = {
+                "type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"},
+                "http_version": "1.1", "method": "POST", "scheme": "http",
+                "path": "/v1/chat/completions", "raw_path": b"/v1/chat/completions",
+                "query_string": b"", "root_path": "", "server": ("test", 80),
+                "client": ("127.0.0.1", 1),
+                "headers": [(b"authorization", ("Bearer " + credential).encode()), (b"content-type", b"application/json")],
+            }
+            with pytest.raises(ClientDisconnect if error_type is OSError else asyncio.CancelledError):
+                await asyncio.wait_for(app(scope, receive, send), 1)
+            assert closed == 1 and iterated == (disconnect_at != "start")
+            assert app.state.request_slots._value == 10
+            status = store.status(KEY_ID)
+            assert status["active_requests"] == 0
+            assert status["tokens_used"] == (15 if disconnect_at == "done" else prepare(payload, settings.model)[1])
+            with store.transaction() as db:
+                retention = db.execute("SELECT retain_until FROM trial_tpm_reservations").fetchone()[0]
+            assert retention == (160.0 if disconnect_at == "done" else 161.0)
+            observed, = gateway_attempts(store)
+            assert observed["outcome"] == ("completed" if disconnect_at == "done" else "interrupted")
+            assert observed["upstream_status"] == observed["selected_response_status"] == 200
+            assert observed["client_error_code"] is None
+            assert observed["finished_at"] == (100.0 if disconnect_at == "done" else 101.0)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure_step", ["begin", "update", "finish"])
+@pytest.mark.parametrize("mode", ["json", "stream", "rejected"])
+def test_observation_storage_failure_does_not_change_response_or_cleanup(settings, monkeypatch, failure_step, mode):
+    closed = []
+    content = json.dumps(response_data()).encode()
+    if mode == "stream":
+        content = ("data: " + json.dumps({"type": "response.completed", "response": response_data()}) + "\n\n").encode()
+
+    class TrackedStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield content
+
+        async def aclose(self):
+            closed.append(True)
+
+    def handler(request):
+        return httpx.Response(429 if mode == "rejected" else 200, stream=TrackedStream())
+
+    with TestClient(create_app(settings, transport=httpx.MockTransport(handler))) as client:
+        auth = issued_auth(client)
+        store = client.app.state.store
+        method = "begin_gateway_attempt" if failure_step == "begin" else "update_gateway_attempt"
+        original = getattr(store, method)
+
+        def failed_write(*args, **kwargs):
+            if failure_step != "finish" or "outcome" in kwargs:
+                raise sqlite3.OperationalError("synthetic observation storage failure")
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(store, method, failed_write)
+        result = client.post("/v1/chat/completions", headers=auth, json={**PAYLOAD, "stream": mode == "stream"})
+        assert result.status_code == (503 if mode == "rejected" else 200)
+        if mode == "stream":
+            assert "[DONE]" in result.text
+        elif mode == "rejected":
+            assert result.json()["error"]["code"] == "provider_unavailable"
+        else:
+            assert result.json()["usage"]["total_tokens"] == 15
+        assert closed == [True] and client.app.state.request_slots._value == 10
+        status = store.status(KEY_ID)
+        assert status["active_requests"] == 0 and status["tokens_used"] == (0 if mode == "rejected" else 15)
+        rows = gateway_attempts(store)
+        assert len(rows) == (0 if failure_step == "begin" else 1)
+        if rows:
+            assert rows[0]["outcome"] is None and rows[0]["finished_at"] is None
 
 
 def test_provider_timeout_cannot_hold_slot_or_refund_unknown_work(settings):
@@ -559,6 +751,47 @@ def test_stream_usage_and_incomplete_streams(settings, usage, done, charge):
         assert status["tokens_used"] == expected and status["active_requests"] == 0
         assert ("[DONE]" in result.text) == (charge is not None)
         assert ("error" in result.text) == (charge is None)
+        observed, = gateway_attempts(client.app.state.store)
+        assert observed["outcome"] == ("completed" if charge is not None else "stream_error")
+        assert observed["phase"] == "stream" and observed["upstream_status"] == observed["selected_response_status"] == 200
+        assert observed["client_error_code"] == (None if charge is not None else "provider_usage_missing" if done else "provider_stream_incomplete")
+        assert observed["started_at"] <= observed["admitted_at"] <= observed["finished_at"]
+
+
+def test_sse_failure_preserves_raw_http200_without_inventing_upstream429(settings):
+    def handler(request):
+        event = {"type": "response.failed", "response": {"error": {"code": "rate_limit_exceeded"}}}
+        return httpx.Response(200, text="data: " + json.dumps(event) + "\n\n")
+
+    with TestClient(create_app(settings, transport=httpx.MockTransport(handler))) as client:
+        auth = issued_auth(client)
+        payload = {**PAYLOAD, "stream": True}
+        result = client.post("/v1/chat/completions", headers=auth, json=payload)
+        assert result.status_code == 200 and "[DONE]" not in result.text
+        assert json.loads(result.text.splitlines()[0][6:])["error"]["code"] == "provider_stream_failed"
+        store = client.app.state.store
+        observed, = gateway_attempts(store)
+        assert observed["outcome"] == "stream_error" and observed["client_error_code"] == "provider_stream_failed"
+        assert observed["upstream_status"] == observed["selected_response_status"] == 200
+        assert observed["retry_after"] is None
+        assert store.status(KEY_ID)["tokens_used"] == prepare(payload, settings.model)[1]
+
+
+def test_nonstream_render_failure_records_actual_selected_error(settings):
+    def handler(request):
+        data = {**response_data(), "created_at": float("nan")}
+        return httpx.Response(200, text=json.dumps(data))
+
+    with TestClient(create_app(settings, transport=httpx.MockTransport(handler))) as client:
+        auth = issued_auth(client)
+        result = client.post("/v1/chat/completions", headers=auth, json=PAYLOAD)
+        assert result.status_code == 502 and result.json()["error"]["code"] == "provider_protocol_error"
+        store = client.app.state.store
+        observed, = gateway_attempts(store)
+        assert observed["upstream_status"] == 200 and observed["selected_response_status"] == 502
+        assert observed["outcome"] == "error" and observed["client_error_code"] == "provider_protocol_error"
+        assert store.status(KEY_ID)["tokens_used"] == 15 and store.status(KEY_ID)["active_requests"] == 0
+        assert client.app.state.request_slots._value == 10
 
 
 @pytest.mark.parametrize("status,charged", [(400, False), (401, False), (422, False), (429, False), (500, True), (302, True)])
@@ -569,6 +802,10 @@ def test_upstream_errors_do_not_leak_credentials_or_follow_redirects(settings, s
         auth = issued_auth(client)
         result = client.post("/v1/chat/completions", headers=auth, json=PAYLOAD)
         assert result.status_code == (400 if status in (400, 422) else 503 if status == 429 else 502)
+        observed, = gateway_attempts(client.app.state.store)
+        assert observed["upstream_status"] == status and observed["selected_response_status"] == result.status_code
+        assert observed["client_error_code"] == result.json()["error"]["code"]
+        assert observed["outcome"] == "error" and observed["reservation_id"] is not None
         if status in (400, 422):
             assert result.json()["error"]["code"] == "provider_rejected_request"
         assert GITHUB_SECRET not in result.text and ACCESS_SECRET not in result.text

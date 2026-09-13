@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import secrets
 import sqlite3
@@ -10,6 +11,8 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 
 from . import GLOBAL_TPM, MAX_CONCURRENCY, TOKEN_LIMIT, TPM_WINDOW_SECONDS, TRIAL_KEY_COUNT
+
+log = logging.getLogger(__name__)
 
 
 class TrialError(Exception):
@@ -52,6 +55,27 @@ class Store:
                     retain_until REAL
                 );
                 CREATE INDEX IF NOT EXISTS trial_tpm_expiry ON trial_tpm_reservations(retain_until);
+                CREATE TABLE IF NOT EXISTS trial_gateway_attempts (
+                    id INTEGER PRIMARY KEY,
+                    key_id TEXT NOT NULL REFERENCES trial_keys(key_id),
+                    started_at REAL NOT NULL,
+                    slot_acquired_at REAL,
+                    admitted_at REAL,
+                    finished_at REAL,
+                    recovered_at REAL,
+                    phase TEXT NOT NULL,
+                    outcome TEXT,
+                    queue_reason TEXT,
+                    slot_wait_ms REAL NOT NULL DEFAULT 0,
+                    tpm_wait_ms REAL NOT NULL DEFAULT 0,
+                    upstream_status INTEGER,
+                    selected_response_status INTEGER,
+                    client_error_code TEXT,
+                    retry_after INTEGER,
+                    reservation_id INTEGER REFERENCES trial_requests(id),
+                    estimated_tokens INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS trial_gateway_finished ON trial_gateway_attempts(finished_at, key_id);
                 CREATE TABLE IF NOT EXISTS trial_access (
                     key_id TEXT PRIMARY KEY REFERENCES trial_keys(key_id),
                     enabled INTEGER NOT NULL DEFAULT 1,
@@ -91,6 +115,35 @@ class Store:
             db.execute("""UPDATE trial_tpm_reservations SET tokens=(
                 SELECT charged FROM trial_requests WHERE id=request_id
             ) WHERE request_id IN (SELECT id FROM trial_requests WHERE state='settled')""")
+        # Observation failure cannot roll back the accounting recovery above.
+        try:
+            with self.transaction() as db:
+                # The interruption's actual time remains unknown. Old ledger
+                # rows never acquire invented gateway timestamps.
+                db.execute("""UPDATE trial_gateway_attempts SET outcome='interrupted', recovered_at=?
+                    WHERE outcome IS NULL""", (self.clock(),))
+        except sqlite3.Error:
+            log.exception("Could not recover gateway attempt observations")
+
+    def begin_gateway_attempt(self, key_id: str, estimated_tokens: int) -> int:
+        """One validated HTTP attempt, including requests never admitted."""
+        with self.transaction() as db:
+            return db.execute("""INSERT INTO trial_gateway_attempts
+                (key_id,started_at,phase,estimated_tokens) VALUES(?,?,'slot',?)""",
+                (key_id, self.clock(), estimated_tokens)).lastrowid
+
+    def update_gateway_attempt(self, attempt_id: int, **fields):
+        """First terminal observation wins, independently of usage settlement."""
+        allowed = {
+            "slot_acquired_at", "admitted_at", "finished_at", "phase", "outcome", "queue_reason",
+            "slot_wait_ms", "tpm_wait_ms", "upstream_status", "selected_response_status",
+            "client_error_code", "retry_after", "reservation_id",
+        }
+        if not fields or not fields.keys() <= allowed:
+            raise ValueError("Invalid gateway observation fields")
+        with self.transaction() as db:
+            db.execute("UPDATE trial_gateway_attempts SET " + ",".join(f"{key}=?" for key in fields)
+                       + " WHERE id=? AND outcome IS NULL", (*fields.values(), attempt_id))
 
     def issue(self, key_id: str, credential: str):
         digest = hashlib.sha256(credential.encode()).hexdigest()
