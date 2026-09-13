@@ -28,6 +28,8 @@ class PromptContextMixin:
     """Prompt-assembly phase methods for ``SkillLoop``."""
 
     def _build_round_prompt(self, mission: MissionContext, state: SkillLibraryState, next_action: str | None, include_static: bool = True) -> str:
+        from ..core.operator_context import OperatorContextUnavailable
+
         compact_team = (
             str(getattr(self.config, "workflow_mode", "") or "") == "direct"
         )
@@ -50,7 +52,9 @@ class PromptContextMixin:
                     for item in self.extra_guidance_provider()
                     if str(item).strip()
                 ]
-            except Exception:  # noqa: BLE001 — steering must fail soft
+            except OperatorContextUnavailable:
+                raise
+            except Exception:  # noqa: BLE001 — optional steering must fail soft
                 log.exception("live Manager guidance provider failed")
         if guidance:
             self._emit({
@@ -78,6 +82,9 @@ class PromptContextMixin:
 
             try:
                 current = str(prelude_provider() or "").strip()
+            except OperatorContextUnavailable:
+                # Required current policy cannot degrade to optional recall.
+                raise
             except Exception:  # noqa: BLE001 — unavailable recall must fail closed
                 log.warning("current mission memory unavailable", exc_info=True)
                 current = "Current recalled memory is unavailable."

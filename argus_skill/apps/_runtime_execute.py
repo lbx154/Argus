@@ -53,7 +53,11 @@ def _engineer_guidance(
     """Project the typed operator context after persisting fresh inbox input."""
     if state_root is None:
         return []
-    from ..core.operator_context import build_operator_context_block
+    from ..core.operator_context import (
+        OperatorContextStore,
+        OperatorContextUnavailable,
+        build_operator_context_block,
+    )
     from ..skills.stage_machine import current_stage
     from ._inbox import drain_inbox_messages
 
@@ -63,12 +67,19 @@ def _engineer_guidance(
     )
     from ..manager.directive import record_operator_messages
 
-    record_operator_messages(state_root, transient, manager=manager)
-    block, _revision = build_operator_context_block(
-        "engineer",
-        state_root,
-        live_turn="\n".join(transient),
-    )
+    try:
+        # Persisting a fresh directive also reads the required canonical
+        # ledger. A failure here must not bypass the protected projection.
+        if transient:
+            # Intake can call the Manager before its eventual append; validate
+            # the required source before that call without consuming once.
+            _ = OperatorContextStore(state_root).revision
+        record_operator_messages(state_root, transient, manager=manager)
+        block, _revision = build_operator_context_block(
+            "engineer", state_root, live_turn="\n".join(transient),
+        )
+    except Exception as exc:
+        raise OperatorContextUnavailable("Current Engineer OperatorContext is unavailable") from exc
     return [block] if block else []
 
 
@@ -693,10 +704,14 @@ class SkillLoopExecuteMixin:
         )
         from ..manager.directive import active_operator_question_policy
 
-        config_kwargs["operator_questions_allowed"] = (
-            active_operator_question_policy(_project_state_dir) != "forbid"
+        explicit_operator_root = str(getattr(args, "operator_context_dir", "") or "").strip()
+        operator_policy_root = (
+            Path(explicit_operator_root).expanduser() if explicit_operator_root else _project_state_dir
         )
-        config_kwargs["operator_question_policy_root"] = _project_state_dir
+        config_kwargs["operator_questions_allowed"] = (
+            active_operator_question_policy(operator_policy_root) != "forbid"
+        )
+        config_kwargs["operator_question_policy_root"] = operator_policy_root
         # Campaign lifetime metadata forwarded from the daemon namespace so the
         # Manager stage hook receives open_ended=True for daemon-created open-ended
         # campaigns, preventing final_stage_completion_decision from overwriting a
@@ -774,8 +789,12 @@ class SkillLoopExecuteMixin:
         inbox_life_dir = operator_state_dir
 
         def _inbox_guidance_provider() -> list[str]:
+            from ..core.operator_context import OperatorContextUnavailable
+
             try:
                 return _engineer_guidance(inbox_life_dir, workdir, self.manager)
+            except OperatorContextUnavailable:
+                raise
             except Exception:  # noqa: BLE001 — never break a mission
                 return []
 

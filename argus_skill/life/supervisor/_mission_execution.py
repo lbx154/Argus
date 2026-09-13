@@ -107,7 +107,7 @@ class MissionExecutionMixin(
             vertical_root=vertical_root,
         )
 
-        prelude = self._build_mission_prelude(item)
+        prelude = self._build_mission_prelude(item, defer_memory=True)
         state = self._prepare_mission_context(
             item,
             prelude,

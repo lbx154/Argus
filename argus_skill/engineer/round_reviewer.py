@@ -73,12 +73,17 @@ def _active_manager_directive_for_reviewer(
 ) -> list[str]:
     """Load the Reviewer-trimmed projection from the one operator store."""
     candidates: list[Path] = []
-    if supervised_config.engineer_log_path:
-        candidates.append(Path(supervised_config.engineer_log_path).expanduser().parent)
-    if supervised_config.context_packet_path:
-        packet = Path(supervised_config.context_packet_path).expanduser()
-        if len(packet.parents) >= 3:
-            candidates.append(packet.parents[2])
+    if supervised_config.operator_question_policy_root is not None:
+        # An explicit source owns even an empty/revoked projection. The log
+        # and packet paths only locate context for older callers without it.
+        candidates.append(Path(supervised_config.operator_question_policy_root))
+    else:
+        if supervised_config.engineer_log_path:
+            candidates.append(Path(supervised_config.engineer_log_path).expanduser().parent)
+        if supervised_config.context_packet_path:
+            packet = Path(supervised_config.context_packet_path).expanduser()
+            if len(packet.parents) >= 3:
+                candidates.append(packet.parents[2])
     from ..core.operator_context import build_operator_context_block
 
     seen: set[Path] = set()
@@ -90,7 +95,9 @@ def _active_manager_directive_for_reviewer(
         if root in seen:
             continue
         seen.add(root)
-        message, _revision = build_operator_context_block("reviewer", root)
+        message, _revision = build_operator_context_block(
+            "reviewer", root, mission_id=str(supervised_config.session_id or ""),
+        )
         if message:
             return [message]
     return []

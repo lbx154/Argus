@@ -50,6 +50,10 @@ _PREFERENCE_KINDS = frozenset({"autonomy", "interaction", "workflow"})
 _SCOPE_ORDER = {"global": 0, "project": 1, "mission": 2}
 _NO_MISSION = "__no_mission__"
 
+
+class OperatorContextUnavailable(RuntimeError):
+    """Required current role policy could not be projected before a model call."""
+
 JUDGMENT_INSTRUCTION = (
     "Before asking the operator, judge the objective together with OperatorContext. "
     "Ask only when no authorized role can decide: unavailable credentials, new "
@@ -1141,6 +1145,7 @@ __all__ = [
     "OperatorContextProjection",
     "OperatorContextCapacityError",
     "OperatorContextStore",
+    "OperatorContextUnavailable",
     "PreferenceRecord",
     "PROJECTION_FILENAME",
     "RevokeRecord",

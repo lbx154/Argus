@@ -258,7 +258,8 @@ class MarkdownKnowledgeRecall:
 
 
 def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
-                                skill_store: Any = None) -> MarkdownKnowledgeRecall:
+                                skill_store: Any = None,
+                                index_path: Path | None = None) -> MarkdownKnowledgeRecall:
     state = getattr(memory, "project_root", None)
     if state is None:
         state = getattr(memory, "root", None)
@@ -288,16 +289,24 @@ def knowledge_recall_for_memory(memory: Any, *, worktree: Path | None = None,
                 scope = shared_skill_scope_dir(global_root / "skills", resolve_skill_scope(workspace))
                 if scope is not None:
                     roots.append(KnowledgeRoot("scoped shared Skill", scope, global_root))
-    return MarkdownKnowledgeRecall(state / "knowledge-recall.sqlite3", roots)
+    # A subordinate can keep its derived index isolated while using the same
+    # explicit canonical source and embedding policy/budget as its parent.
+    from .recall_embedding import configured_embedder
+
+    return MarkdownKnowledgeRecall(
+        index_path if index_path is not None else state / "knowledge-recall.sqlite3", roots,
+        embedder=configured_embedder(state),
+    )
 
 
 def render_memory_recall(memory: Any, objective: str, *, max_entries: int = 4,
-                         max_chars: int = 6000) -> str:
+                         max_chars: int = 6000,
+                         knowledge_index_path: Path | None = None) -> str:
     if max_entries <= 0 or max_chars <= 0:
         return ""
     knowledge = ""
     try:
-        knowledge = knowledge_recall_for_memory(memory).render_context(
+        knowledge = knowledge_recall_for_memory(memory, index_path=knowledge_index_path).render_context(
             objective, max_entries=max_entries, max_chars=min(2000, max_chars // 3),
         )
     except Exception:  # noqa: BLE001 - optional recall must not own mission execution

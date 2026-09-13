@@ -137,10 +137,10 @@ class MissionExecutionRuntimeMixin:
     # ------------------------------------------------------------------
 
     def _build_mission_prelude(
-        self, item: BacklogItem, *, for_planner: bool = False,
+        self, item: BacklogItem, *, for_planner: bool = False, defer_memory: bool = False,
     ) -> str:
-        refresh_per_round = not for_planner and _refreshes_mission_prelude(
-            getattr(self, "runner", None)
+        refresh_per_round = not for_planner and (
+            defer_memory or _refreshes_mission_prelude(getattr(self, "runner", None))
         )
         # Mutable recall and operator projections must not become immutable
         # mission text. Capable runners read recall at each Engineer boundary;
@@ -899,6 +899,27 @@ class MissionExecutionRuntimeMixin:
                     assert state.vertical_root is not None, "execution requires prepared vertical root"
                     self.runner._artifact_root = state.vertical_root
                 try:
+                    if "prelude_context_provider" not in execute_kwargs:
+                        # An opaque legacy runner exposes only this boundary.
+                        # Project mutable memory now, after mission preparation;
+                        # its internal calls require explicit callback support.
+                        from ...core.operator_context import (
+                            build_operator_context_block,
+                            operator_context_state_root,
+                        )
+
+                        recalled = _mission_memory_prelude(
+                            self.memory, item,
+                            stop_event=getattr(getattr(self, "config", None), "stop_event", None),
+                        )
+                        operator, _ = build_operator_context_block(
+                            "engineer", operator_context_state_root(self.memory),
+                            mission_id=item.id, consume_once=True,
+                        )
+                        execute_kwargs["prelude_context"] = "\n\n".join(
+                            block for block in (execute_kwargs["prelude_context"], recalled, operator)
+                            if block
+                        )
                     state.outcome = self.runner.execute(**execute_kwargs)
                 finally:
                     if overrides_runner_policy_root:
