@@ -13,6 +13,7 @@ import { MapReaderContent } from '../map/MapReaderContent';
 import { ReaderExplanation, ReaderExplanationStatus, ShortText } from './ReaderExplanation';
 import { ReaderEvidence, ReaderTaskFacts } from './ReaderEvidence';
 import { selectReaderEvidence } from './evidence';
+import { currentWorkStatus } from '../lib/workStatus';
 
 export interface ResearchBriefProps {
   sid: string;
@@ -78,22 +79,33 @@ export default function ResearchBrief(props: ResearchBriefProps) {
   const unavailable = !result.foundationRequired && (result.legacy || result.generationUnavailable || (!result.loading && !result.generationAvailable));
   const hasProblem = !!result.readError || !!result.generationError || unavailable;
   const explanationStatus = <ReaderExplanationStatus generatedAt={card?.generated_at} pending={result.needsUpdate} generating={result.generating} phase={result.generationPhase} hasExplanation={!!brief} />;
+  const snapshotTask = props.snapshot.backlog.find(item => item.id === task?.id);
+  const sameAttempt = task && snapshotTask?.status === task.status
+    && (snapshotTask.started_ts ?? null) === (task.started_ts ?? null);
+  // Map records and runtime snapshots refresh independently. A previous
+  // attempt's status must not stand in for the task currently being read.
+  const runtimeStatus = sameAttempt ? currentWorkStatus(props.snapshot, props.view, props.snapshot.recent_events ?? []) : undefined;
+  const sameGoal = (value: string | undefined) => (value || '').trim();
+  const problem = result.readError ? text('任务记录暂时无法更新。', 'Task records could not be refreshed.')
+    : result.generationError ? text('说明生成失败。', 'The explanation could not be prepared.')
+      : unavailable ? text('说明暂不可用。', 'Explanations are temporarily unavailable.') : '';
+  const notice = problem || (result.loading ? text('正在读取任务记录。', 'Loading task records.')
+    : result.generating ? text('正在根据任务记录整理说明。', 'Preparing an explanation from the task records.')
+      : result.foundationRequired ? text('先在“问题基础”选择说明。', 'Choose a saved foundation for this explanation.')
+        : text('尚未生成说明。', 'No explanation has been saved yet.'));
+  const noticeRow = <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-faint" role={hasProblem ? 'status' : undefined}>
+    <span>{notice}</span>
+    {hasProblem && props.active && (!props.readOnly || result.readError) ? <Button className="inline-flex items-center gap-1 text-xs" disabled={result.generating || result.loading} onClick={() => void result.retry()}><RefreshCw size={12} />{text('重试', 'Retry')}</Button> : null}
+  </div>;
 
   const explanation = <>
     {brief ? <ReaderExplanation brief={brief} identity={task?.id || props.view.mission.id} detail={card?.detail} learningPath={card?.learning_path} foundation={card?.foundation_ref} onOpenArtifact={props.onOpenArtifact} readingUnavailable={result.readingUnavailable} teachingUnavailable={result.teachingUnavailable} /> : <div className="mt-3 text-[13px] leading-6 text-ink-dim">
-      <ShortText value={objective || text('任务目标尚未记录。', 'The task objective has not been recorded yet.')} expandLabel={text('完整任务目标', 'Full task objective')} />
-      <p className="mt-1 text-xs text-ink-faint">{result.loading ? text('正在读取任务记录。', 'Loading task records.')
-        : result.generating ? text('正在根据任务记录整理说明，可以先阅读原始目标。', 'Preparing an explanation from the task records; you can read the original objective meanwhile.')
-        : result.foundationRequired ? text('先在“问题基础”里选择一份说明，再阅读本次进展的解释。', 'Choose a saved foundation to explain this progress.')
-        : props.readOnly ? text('还没有生成说明，可以查看任务目标与依据。', 'No explanation has been saved yet. View the task objective and evidence below.')
-        : text('解说暂不可用，可以先查看任务目标与依据。', 'An explanation is not available yet. You can still view the task objective and evidence.')}</p>
+      {sameGoal(objective) !== sameGoal(title) ? <ShortText value={objective || text('任务目标尚未记录。', 'The task objective has not been recorded yet.')} expandLabel={text('完整任务目标', 'Full task objective')} /> : null}
+      {noticeRow}
     </div>}
     {result.generating && brief ? <p className="mt-2 text-[11px] text-ink-faint">{text('正在依据新记录更新；上方暂时保留之前的说明。', 'Updating from new records; the previous explanation remains visible above.')}{generatedAt ? ` ${generatedAt}` : ''}</p> : null}
-    <ReaderTaskFacts selection={sources} onOpenArtifact={props.onOpenArtifact} />
-    {hasProblem ? <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-faint" role="status"><span>{result.readError ? text('暂时无法刷新说明。', 'Could not refresh the explanation.')
-      : result.generationError ? text('这次说明没有生成成功。', 'The explanation could not be prepared.')
-        : text('说明服务暂不可用。', 'Explanations are temporarily unavailable.')}</span>
-      {props.active && (!props.readOnly || result.readError) ? <Button className="inline-flex items-center gap-1 text-xs" disabled={result.generating || result.loading} onClick={() => void result.retry()}><RefreshCw size={12} />{text('重试', 'Retry')}</Button> : null}</div> : null}
+    <ReaderTaskFacts selection={sources} runtimeStatus={runtimeStatus} hideEmptyReports={!brief} onOpenArtifact={props.onOpenArtifact} />
+    {brief && hasProblem ? noticeRow : null}
   </>;
 
   return <><section className={`mx-4 flex min-h-0 flex-col overflow-hidden rounded-lg border border-line/70 bg-panel ${compact ? 'my-2 px-3 py-2' : 'my-3 max-h-[50vh] px-4 py-3'}`} aria-label={text('读懂这一步', 'Understand this step')} data-testid="research-brief" data-project-id={props.sid} data-task-id={props.view.mission.id} data-compact={compact}>
