@@ -238,6 +238,26 @@ def test_seeding_retires_existing_obsolete_skill(
     assert not obsolete.exists()
 
 
+def test_atomic_write_accepts_concurrent_identical_winner(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import argus_skill.skills.builtins as builtins
+
+    destination = tmp_path / "shared.md"
+    destination.write_text("same runtime seed\n", encoding="utf-8")
+    monkeypatch.setattr(
+        builtins.os,
+        "replace",
+        lambda *_args: (_ for _ in ()).throw(PermissionError("target busy")),
+    )
+
+    builtins._atomic_write_text(destination, "same runtime seed\n")
+
+    assert destination.read_text(encoding="utf-8") == "same runtime seed\n"
+    assert list(tmp_path.glob("shared.md.tmp.*")) == []
+
+
 def test_seeding_refreshes_a_known_unmodified_legacy_builtin(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

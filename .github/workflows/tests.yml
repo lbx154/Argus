@@ -43,6 +43,9 @@ env:
     tests/core/test_project_contract.py
     tests/core/test_contract_authority.py
     tests/core/test_copilot_parser_refusal.py
+    tests/skills/test_builtins_seeding.py
+    tests/skills/test_builtin_line_endings.py
+    tests/skills/test_builtin_windows_atomic.py
     tests/apps/test_bounded_planner_continuation.py
     tests/life/test_self_referential_acceptance.py
     tests/core/test_operator_messages.py

@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import threading
+import time
 import uuid
 from importlib import resources
 from importlib.resources.abc import Traversable
@@ -278,6 +279,21 @@ def _moved_global_skill_names() -> set[str]:
     return moved
 
 
+def _seed_content_digests(body: bytes) -> set[str]:
+    """Recognize factory copies across LF/CRLF conversion, preserving other bytes.
+
+    Older Windows seeds were written as CRLF while their manifests hashed the
+    LF source text. Keep raw hashes compatible with existing manifests too.
+    Whitespace, a missing final newline, and all content changes still count
+    as operator edits; only line-ending representation is interchangeable.
+    """
+    lf_body = body.replace(b"\r\n", b"\n")
+    return {
+        hashlib.sha256(candidate).hexdigest()
+        for candidate in (body, lf_body, lf_body.replace(b"\n", b"\r\n"))
+    }
+
+
 def retire_orphaned_builtin_seeds(skills_dir: Path) -> list[str]:
     """Remove retired seeds from matching, archiving any operator-edited copy."""
     skills_dir = Path(skills_dir)
@@ -298,7 +314,7 @@ def retire_orphaned_builtin_seeds(skills_dir: Path) -> list[str]:
             body = path.read_bytes()
         except (FileNotFoundError, IsADirectoryError, OSError):
             continue
-        if expected_digest and hashlib.sha256(body).hexdigest() == expected_digest:
+        if expected_digest and expected_digest in _seed_content_digests(body):
             try:
                 path.unlink()
             except OSError:
@@ -355,23 +371,27 @@ def _seed_texts(
     state = _seed_state(skills_dir)
     created: dict[str, bool] = {}
     for filename, text in texts:
+        text = text.replace("\r\n", "\n")
         if filename.endswith(".md"):
             _validate_builtin(filename, text)
         dest = skills_dir / filename
         source_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
         try:
-            installed_digest = hashlib.sha256(dest.read_bytes()).hexdigest()
+            installed_body = dest.read_bytes()
+            installed_digest = hashlib.sha256(installed_body).hexdigest()
+            installed_digests = _seed_content_digests(installed_body)
         except (FileNotFoundError, IsADirectoryError):
             installed_digest = ""
+            installed_digests = set()
         except OSError:
             created[filename] = False
             continue
         prior_digest = state.get(filename, "")
         factory_owned = (
             not installed_digest
-            or installed_digest == source_digest
-            or (prior_digest and installed_digest == prior_digest)
-            or installed_digest == _LEGACY_BUILTIN_SEED_HASHES.get(filename)
+            or source_digest in installed_digests
+            or prior_digest in installed_digests
+            or _LEGACY_BUILTIN_SEED_HASHES.get(filename) in installed_digests
         )
         if not overwrite and not factory_owned:
             created[filename] = False
@@ -614,12 +634,25 @@ def _validate_builtin(filename: str, text: str) -> None:
 
 
 def _atomic_write_text(path: Path, text: str) -> None:
+    text = text.replace("\r\n", "\n")
     tmp = path.with_name(
         f"{path.name}.tmp.{os.getpid()}.{threading.get_ident():x}.{uuid.uuid4().hex[:8]}"
     )
     try:
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
+        tmp.write_text(text, encoding="utf-8", newline="\n")
+        for attempt in range(8):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                try:
+                    if path.read_bytes().replace(b"\r\n", b"\n") == text.encode("utf-8"):
+                        return
+                except OSError:
+                    pass
+                if attempt == 7:
+                    raise
+                time.sleep(min(0.02 * (2**attempt), 0.25))
     finally:
         if tmp.exists():
             try:
