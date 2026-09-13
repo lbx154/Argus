@@ -73,6 +73,30 @@ def test_corrupt_index_rebuild_does_not_resurrect_removed_markdown(tmp_path):
     assert not recall.render_context("quartz")
 
 
+def test_busy_cancellable_recall_uses_current_markdown_without_rebuilding_held_cache(tmp_path):
+    from argus_skill.core.file_lock import bounded_file_lock_wait
+
+    root = tmp_path / "skills"
+    page = write(root / "current.md", "quartz old boundary")
+    recall = MarkdownKnowledgeRecall(tmp_path / "index.sqlite3", [KnowledgeRoot("Skill", root, root)])
+    recall.sync()
+    inode = recall.index.path.stat().st_ino
+    before = recall.index.path.read_bytes()
+    write(page, "sapphire corrected boundary")
+    with closing(sqlite3.connect(recall.index.path)) as holder:
+        holder.execute("BEGIN EXCLUSIVE")
+        with bounded_file_lock_wait(timeout_seconds=float("inf"), cancelled=lambda: False):
+            context = recall.render_context("sapphire")
+            assert str(page) in context
+            assert hashlib.sha256(page.read_bytes()).hexdigest()[:12] in context
+        assert recall.index.path.stat().st_ino == inode
+        assert recall.index.path.read_bytes() == before
+        holder.rollback()
+    # The same cache remains usable and can catch up after the contention ends.
+    assert str(page) in recall.render_context("sapphire")
+    assert "sapphire" in rows(recall)[0][3]
+
+
 def test_bounds_and_scope_exclude_symlinked_hidden_retired_or_oversized_files(tmp_path):
     root = tmp_path / "scope"
     valid = write(root / "valid.md", "bounded quartz")

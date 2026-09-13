@@ -12,10 +12,12 @@ import math
 import re
 import sqlite3
 import stat
-from contextlib import closing, nullcontext
+from contextlib import closing, contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import Any, Iterator, Protocol, Sequence
+
+from ..core.file_lock import current_file_lock_wait_budget
 
 _TOKEN_RE = re.compile(r"[\w-]{2,}", re.UNICODE)
 _CJK_RE = re.compile(r"[\u3400-\u9fff]+")
@@ -141,10 +143,16 @@ class FailureExperienceIndex:
             )
 
     def _open(self) -> sqlite3.Connection:
+        budget = current_file_lock_wait_budget()
+        if budget is not None and budget[1] is not None and budget[1]():
+            raise EmbeddingUnavailable("recall index read cancelled")
         _guard_recall_database(self.path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         _guard_recall_database(self.path)
-        db = sqlite3.connect(self.path, timeout=5)
+        # SQLite's built-in busy wait cannot poll the role's Stop callback.
+        # A disposable cache can fall back to current lexical facts promptly;
+        # callers outside an explicitly cancellable read keep their timeout.
+        db = sqlite3.connect(self.path, timeout=0.05 if budget is not None else 5)
         try:
             db.execute("PRAGMA auto_vacuum=FULL")
             db.execute("PRAGMA journal_mode=DELETE")
@@ -163,9 +171,24 @@ class FailureExperienceIndex:
             db.close()
             raise
 
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        try:
+            with closing(self._open()) as db:
+                yield db
+        except sqlite3.OperationalError as exc:
+            code = getattr(exc, "sqlite_errorcode", 0) & 0xFF
+            if current_file_lock_wait_budget() is not None and code in {
+                sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED,
+            }:
+                # Contention is not corruption: do not unlink/rebuild a cache
+                # still used by another connection, or enter a second wait.
+                raise EmbeddingUnavailable("recall index busy; use current lexical recall") from exc
+            raise
+
     def sync(self, documents: Sequence[RecallDocument], source_digest: str) -> None:
         """Replace stale revisions and delete removed identities in one transaction."""
-        with closing(self._open()) as db, db:
+        with self._connection() as db, db:
             db.execute("BEGIN")
             metadata = dict(db.execute("SELECT key, value FROM metadata"))
             existing = {
@@ -194,7 +217,7 @@ class FailureExperienceIndex:
                 )
                 prepared.append((item.id, item.revision, item.digest, json.dumps(sorted(tokens(direct))),
                                  json.dumps(sorted(tokens(transfer))), json.dumps(vector)))
-        with closing(self._open()) as db, db:
+        with self._connection() as db, db:
             db.execute("BEGIN IMMEDIATE")
             latest = dict(db.execute("SELECT key, value FROM metadata"))
             latest_rows = {identity: (revision, digest) for identity, revision, digest in db.execute(
@@ -225,7 +248,7 @@ class FailureExperienceIndex:
         query_terms = tokens(query)
         with _embedding_batch(self.embedder):
             query_vector = _normalized(self.embedder.embed(query), self.embedder.dimensions)
-        with closing(self._open()) as db, db:
+        with self._connection() as db, db:
             db.execute("BEGIN")
             metadata = dict(db.execute("SELECT key, value FROM metadata"))
             if (metadata.get("source_digest") != source_digest
@@ -255,5 +278,5 @@ class FailureExperienceIndex:
 
     def compact(self) -> None:
         if self.path.exists():
-            with closing(self._open()) as db:
+            with self._connection() as db:
                 db.execute("VACUUM")

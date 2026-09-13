@@ -192,10 +192,7 @@ def run_one_engineer_mission(
         try:
             from argus_skill.apps._runtime import LifeStderrSink, _SkillLoopRunner
             from argus_skill.core.file_lock import FileLockCancelled, bounded_file_lock_wait
-            from argus_skill.core.run_gateway import (
-                current_run_interrupt_reason,
-                run_interrupt_scope,
-            )
+            from argus_skill.core.run_gateway import current_run_interrupt_reason
             from argus_skill.life.event_log import JsonlEventSink
 
             life_dir = Path(life_dir)
@@ -229,17 +226,23 @@ def run_one_engineer_mission(
 
                 source = Path(ns.operator_context_dir) if ns.operator_context_dir else life_dir
                 try:
-                    scope = SimpleNamespace(
-                        project_root=source, project_worktree=Path(cwd),
-                        global_root=operator_context_global_root(source),
-                        render_failure_experience_context=FailureExperienceStore(
-                            source / "failure_experiences.jsonl",
-                        ).render_context,
-                    )
-                    recalled = render_memory_recall(
-                        scope, objective,
-                        knowledge_index_path=life_dir / "knowledge-recall.sqlite3",
-                    )
+                    # Canonical experience reads and optional derived caches
+                    # must also see Stop while preparing this role's prompt.
+                    with bounded_file_lock_wait(
+                        timeout_seconds=float("inf"),
+                        cancelled=lambda: bool(current_run_interrupt_reason()),
+                    ):
+                        scope = SimpleNamespace(
+                            project_root=source, project_worktree=Path(cwd),
+                            global_root=operator_context_global_root(source),
+                            render_failure_experience_context=FailureExperienceStore(
+                                source / "failure_experiences.jsonl",
+                            ).render_context,
+                        )
+                        recalled = render_memory_recall(
+                            scope, objective,
+                            knowledge_index_path=life_dir / "knowledge-recall.sqlite3",
+                        )
                 except Exception:  # noqa: BLE001 — optional recall cannot hide current policy
                     recalled = "Current recalled knowledge is unavailable."
                 try:
@@ -265,41 +268,35 @@ def run_one_engineer_mission(
                     raise OperatorContextUnavailable("Current teammate OperatorContext is unavailable") from exc
                 return "\n\n".join(part for part in (prelude_context, recalled, operator) if part)
 
-            with run_interrupt_scope(
-                lambda: "daemon stop requested" if stop_event.is_set() else None,
-                # Preparing recall may read a one-shot inherited abort. Retain
-                # it until execute settles and every provider has observed it.
-                retain_first_reason=True,
-            ):
-                outcome = runner.execute(
-                    objective=objective, sink=sink, prelude_context=prelude_context,
-                    prelude_context_provider=current_prelude,
-                    mission_id=mission_id or None,
-                    # A teammate is not the project's stage authority. Left at the
-                    # default, ``execute`` runs the Manager's stage-transition pass
-                    # and that pass WRITES ``<cwd>/.argus/PIPELINE_STATE.json``
-                    # — and a teammate's ``cwd`` is the project root, because that
-                    # is what keeps it reading the one shared ledger instead of a
-                    # private one nobody reads. So the two facts compose into N
-                    # concurrent workers with write authority over the campaign's
-                    # stage, each judging the pipeline from the single task it was
-                    # handed and none of them holding the campaign's own review.
-                    #
-                    # Stage authority belongs to the Manager running the mission
-                    # that dispatched this pool, which decides once against the
-                    # whole round rather than once per teammate. What is dropped
-                    # here is only that write: the mission still runs, still
-                    # reviews, and still reports its verdict back through the board
-                    # and its result shard, which is what the dispatching Engineer
-                    # consumes.
-                    #
-                    # Not ``skip_stage_transition``: that flag is half of the
-                    # Planner's review-only node contract and is only honored
-                    # alongside ``require_independent_review`` on a bounded scope,
-                    # neither of which a teammate has — so setting it here reads as
-                    # a fix and silently does nothing.
-                    holds_stage_authority=False,
-                )
+            outcome = runner.execute(
+                objective=objective, sink=sink, prelude_context=prelude_context,
+                prelude_context_provider=current_prelude,
+                mission_id=mission_id or None,
+                # A teammate is not the project's stage authority. Left at the
+                # default, ``execute`` runs the Manager's stage-transition pass
+                # and that pass WRITES ``<cwd>/.argus/PIPELINE_STATE.json``
+                # — and a teammate's ``cwd`` is the project root, because that
+                # is what keeps it reading the one shared ledger instead of a
+                # private one nobody reads. So the two facts compose into N
+                # concurrent workers with write authority over the campaign's
+                # stage, each judging the pipeline from the single task it was
+                # handed and none of them holding the campaign's own review.
+                #
+                # Stage authority belongs to the Manager running the mission
+                # that dispatched this pool, which decides once against the
+                # whole round rather than once per teammate. What is dropped
+                # here is only that write: the mission still runs, still
+                # reviews, and still reports its verdict back through the board
+                # and its result shard, which is what the dispatching Engineer
+                # consumes.
+                #
+                # Not ``skip_stage_transition``: that flag is half of the
+                # Planner's review-only node contract and is only honored
+                # alongside ``require_independent_review`` on a bounded scope,
+                # neither of which a teammate has — so setting it here reads as
+                # a fix and silently does nothing.
+                holds_stage_authority=False,
+            )
         except SystemExit as exc:  # codex extra missing, etc.
             sys.stderr.write(f"teammate_entry: runner unavailable: {exc}\n")
             return TeammateMissionResult(False, "error", str(exc))

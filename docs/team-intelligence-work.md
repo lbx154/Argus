@@ -23,6 +23,31 @@ Current implementation work must receive new evidence before replacing that vali
 - Reduce duplicate Reader goals, repeated unavailable messages and empty sections. Runtime execution and stored queue claims need distinct, evidence-based treatment; original task/source records must remain accessible. Retain the full objective and actual new results when their text differs, and do not overwrite newer terminal records with an older runtime snapshot.
 - Broader mobile, complete Reader narration, autonomous task decisions, Manager's full four-phase judgment and Planner/Reviewer complete real-model turns remain unproven. No new paid run is justified merely to turn historical partial results green.
 
+The Reader cleanup was committed in `562b538e53`: identical inline goals and
+unavailable notices appear once, empty unused source sections are omitted, and
+runtime status is used only when its task status and attempt start agree with
+the current record. Five regressions cover these boundaries; the final frontend
+run at that checkpoint passed 1,015 tests. The ordinary browser/Pi functional
+comparison reduced the fallback card from 324.625 px to 231.5 px without removing
+the retained evidence or the single durable acknowledgement. These measurements
+cover the inline card, not the full reading dialog.
+
+A fresh read-only observation at 2026-09-13 03:03:08 UTC found live
+`317f4ff5c6b55a7d06b2a2c3947389fed37e41c6`, with matching metadata, clean source,
+stable identities and 11 ready APIs. The old 8f8 gate correctly rejected this
+change; its result remains preserved. Source checkpoint `1f9395b874` incorporates
+the new saved-progress questions and modal focus behavior. Its complete frontend
+suite passed 1,049 tests, 205 relevant backend tests passed, and the combined
+changed-module mypy diagnostics introduced no additions beyond the two parents.
+This source checkpoint does not advance the private validated candidate.
+
+The current cancellation work also identified a remaining durability dependency:
+nonempty operator-message intake advances its inbox cursor before persisting the
+instruction. Its existing complete write boundary can still wait up to 30 seconds
+for a lock. Cancelling that write without a reliable replay or claim/commit
+protocol can lose the instruction. This boundary needs separate work and must
+not be included in prompt-read Stop timing claims.
+
 ## Required outcomes
 
 | Requirement | Evidence required for completion | Current state |

@@ -58,6 +58,11 @@ def current_run_interrupt_reason() -> str | None:
     return provider() if provider is not None else None
 
 
+def current_run_interrupt_provider() -> Callable[[], str | None] | None:
+    """Capture this scope's provider without polling or losing its identity."""
+    return _INTERRUPT.get()
+
+
 @dataclass(frozen=True)
 class RunExecRequest:
     prompt: str
@@ -140,4 +145,4 @@ def run_exec(
     )
 
 
-__all__ = ["RunExecGateway", "RunExecRequest", "run_exec", "run_interrupt_scope", "current_run_interrupt_reason"]
+__all__ = ["RunExecGateway", "RunExecRequest", "run_exec", "run_interrupt_scope", "current_run_interrupt_reason", "current_run_interrupt_provider"]

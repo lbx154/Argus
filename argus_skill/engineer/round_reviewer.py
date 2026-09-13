@@ -84,7 +84,9 @@ def _active_manager_directive_for_reviewer(
             packet = Path(supervised_config.context_packet_path).expanduser()
             if len(packet.parents) >= 3:
                 candidates.append(packet.parents[2])
-    from ..core.operator_context import build_operator_context_block
+    from ..core.file_lock import FileLockCancelled, bounded_file_lock_wait
+    from ..core.operator_context import OperatorContextUnavailable, build_operator_context_block
+    from ..core.run_gateway import current_run_interrupt_reason
 
     seen: set[Path] = set()
     for candidate in candidates:
@@ -95,9 +97,25 @@ def _active_manager_directive_for_reviewer(
         if root in seen:
             continue
         seen.add(root)
-        message, _revision = build_operator_context_block(
-            "reviewer", root, mission_id=str(supervised_config.session_id or ""),
-        )
+        try:
+            # Only prompt preparation inherits cancellation. Once acquired,
+            # projection/once consumption remains atomic, and settlement has
+            # no cancelled lock budget to inherit.
+            with bounded_file_lock_wait(
+                timeout_seconds=float("inf"),
+                cancelled=lambda: bool(current_run_interrupt_reason()),
+            ):
+                message, _revision = build_operator_context_block(
+                    "reviewer", root, mission_id=str(supervised_config.session_id or ""),
+                )
+        except FileLockCancelled as exc:
+            if current_run_interrupt_reason():
+                # The enclosing run retains the reason; the gateway produces
+                # its ordinary stopped result before invoking any backend.
+                return []
+            raise OperatorContextUnavailable("Current Reviewer OperatorContext read was cancelled") from exc
+        except Exception as exc:
+            raise OperatorContextUnavailable("Current Reviewer OperatorContext is unavailable") from exc
         if message:
             return [message]
     return []

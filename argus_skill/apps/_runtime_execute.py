@@ -65,7 +65,12 @@ def _engineer_guidance(
         state_root,
         current_stage=current_stage(workdir),
     )
+    from ..core.file_lock import FileLockCancelled, bounded_file_lock_wait
+    from ..core.run_gateway import current_run_interrupt_reason
     from ..manager.directive import record_operator_messages
+
+    def cancelled() -> bool:
+        return bool(current_run_interrupt_reason())
 
     try:
         # Persisting a fresh directive also reads the required canonical
@@ -73,11 +78,19 @@ def _engineer_guidance(
         if transient:
             # Intake can call the Manager before its eventual append; validate
             # the required source before that call without consuming once.
+            # The inbox cursor has already advanced. Finish this durable
+            # handoff before cancellation can skip prompt preparation; making
+            # this write path cancellable requires a claim/commit protocol.
             _ = OperatorContextStore(state_root).revision
         record_operator_messages(state_root, transient, manager=manager)
-        block, _revision = build_operator_context_block(
-            "engineer", state_root, live_turn="\n".join(transient),
-        )
+        with bounded_file_lock_wait(timeout_seconds=float("inf"), cancelled=cancelled):
+            block, _revision = build_operator_context_block(
+                "engineer", state_root, live_turn="\n".join(transient),
+            )
+    except FileLockCancelled as exc:
+        if current_run_interrupt_reason():
+            return []
+        raise OperatorContextUnavailable("Current Engineer OperatorContext read was cancelled") from exc
     except Exception as exc:
         raise OperatorContextUnavailable("Current Engineer OperatorContext is unavailable") from exc
     return [block] if block else []
@@ -450,69 +463,77 @@ class SkillLoopExecuteMixin:
         allow_skill_changes: bool = False,
         vertical_override: str = "",
     ) -> _Outcome:
-        # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
-        # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
-        # only gate it so the 7×24 daemon (``_allow_chat_fast_path=False``) does
-        # not classify arbitrary autonomous work — agent-produced backlog work
-        # must not be second-guessed.
-        chat_outcome = self._execute_chat_fast_path(
-            objective=objective,
-            sink=sink,
-            seed_thread_id=seed_thread_id,
-            mission_id=mission_id,
-            usage_mission_id=usage_mission_id,
-        )
-        if chat_outcome is not None:
-            return chat_outcome
+        from ._runtime_interrupt import execution_interrupt_scope
 
-        ex_state = _ExecuteState()
-        ex_state.prelude_context_provider = prelude_context_provider
-        # This is an explicitly shared projection. Engineer prelude_context may
-        # contain role-exclusive runtime instructions and must never be reused.
-        ex_state.planner_context = planner_context
-        ex_state.planner_context_provider = planner_context_provider
-        self._build_execute_config(
-            ex_state,
-            working_dir_override=working_dir_override,
-            maintenance_mission=maintenance_mission,
-            vertical_override=vertical_override,
-            require_independent_review=require_independent_review,
-            max_rounds_override=max_rounds_override,
-            context_packet_path=context_packet_path,
-            mission_id=mission_id,
-            workflow_mode_override=workflow_mode_override,
-        )
-        self._build_execute_skill_store_and_loop(ex_state, sink=sink)
-        self._prepare_execute_mission_context(
-            ex_state,
-            objective=objective,
-            review_objective=review_objective,
-            prelude_context=prelude_context,
-            seed_thread_id=seed_thread_id,
-            scope=scope,
-        )
-        self._invoke_execute_loop(
-            ex_state,
-            sink=sink,
-            objective=objective,
-            original_objective=original_objective,
-            preplanned=preplanned,
-            mission_id=mission_id,
-            usage_mission_id=usage_mission_id,
-        )
-        self._extract_execute_outcome_fields(ex_state)
-        self._maybe_decide_stage_transition(
-            ex_state,
-            sink=sink,
-            mission_id=mission_id,
-            usage_mission_id=usage_mission_id,
-            maintenance_mission=maintenance_mission,
-            skip_stage_transition=skip_stage_transition,
-            preplanned=preplanned,
-            stage_closing=stage_closing,
-            holds_stage_authority=holds_stage_authority,
-        )
-        return self._build_execute_outcome(ex_state)
+        with execution_interrupt_scope(
+            stop_event=getattr(self, "_execution_stop_event", None),
+            state_root=getattr(self, "_manager_session_root", None),
+            mission_id=str(mission_id or getattr(self, "_active_mission_id", "") or ""),
+            enable_abort=bool(getattr(self, "_enable_mission_abort_signal", False)),
+        ):
+            # Chat fast-path (operator-front-door-only; gated by _allow_chat_fast_path).
+            # The classifier + reply logic lives in ``_maybe_chat_outcome``; here we
+            # only gate it so the 7×24 daemon (``_allow_chat_fast_path=False``) does
+            # not classify arbitrary autonomous work — agent-produced backlog work
+            # must not be second-guessed.
+            chat_outcome = self._execute_chat_fast_path(
+                objective=objective,
+                sink=sink,
+                seed_thread_id=seed_thread_id,
+                mission_id=mission_id,
+                usage_mission_id=usage_mission_id,
+            )
+            if chat_outcome is not None:
+                return chat_outcome
+
+            ex_state = _ExecuteState()
+            ex_state.prelude_context_provider = prelude_context_provider
+            # This is an explicitly shared projection. Engineer prelude_context may
+            # contain role-exclusive runtime instructions and must never be reused.
+            ex_state.planner_context = planner_context
+            ex_state.planner_context_provider = planner_context_provider
+            self._build_execute_config(
+                ex_state,
+                working_dir_override=working_dir_override,
+                maintenance_mission=maintenance_mission,
+                vertical_override=vertical_override,
+                require_independent_review=require_independent_review,
+                max_rounds_override=max_rounds_override,
+                context_packet_path=context_packet_path,
+                mission_id=mission_id,
+                workflow_mode_override=workflow_mode_override,
+            )
+            self._build_execute_skill_store_and_loop(ex_state, sink=sink)
+            self._prepare_execute_mission_context(
+                ex_state,
+                objective=objective,
+                review_objective=review_objective,
+                prelude_context=prelude_context,
+                seed_thread_id=seed_thread_id,
+                scope=scope,
+            )
+            self._invoke_execute_loop(
+                ex_state,
+                sink=sink,
+                objective=objective,
+                original_objective=original_objective,
+                preplanned=preplanned,
+                mission_id=mission_id,
+                usage_mission_id=usage_mission_id,
+            )
+            self._extract_execute_outcome_fields(ex_state)
+            self._maybe_decide_stage_transition(
+                ex_state,
+                sink=sink,
+                mission_id=mission_id,
+                usage_mission_id=usage_mission_id,
+                maintenance_mission=maintenance_mission,
+                skip_stage_transition=skip_stage_transition,
+                preplanned=preplanned,
+                stage_closing=stage_closing,
+                holds_stage_authority=holds_stage_authority,
+            )
+            return self._build_execute_outcome(ex_state)
 
     def _execute_chat_fast_path(
         self,

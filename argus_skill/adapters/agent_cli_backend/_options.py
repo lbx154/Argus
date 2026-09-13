@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+from contextvars import copy_context
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -195,14 +196,20 @@ def _compose_interrupt_providers(*providers):
     active = [provider for provider in providers if provider is not None]
     if not active:
         return None
-    if len(active) == 1:
-        return active[0]
+    context = copy_context()
 
-    def _provider() -> str | None:
+    def _poll() -> str | None:
         for provider in active:
             reason = provider()
             if reason:
                 return str(reason)
         return None
+
+    def _provider() -> str | None:
+        # Watchdogs can run in plain threads. Their default callback must see
+        # the invocation's frozen execution identity and retained first reason,
+        # even after that scope exits. Each poll gets its own Context so two
+        # simultaneous watchdog polls cannot enter one Context concurrently.
+        return context.copy().run(_poll)
 
     return _provider

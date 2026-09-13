@@ -180,6 +180,7 @@ class _RunnerConstructionMixin:
         ):
             extra = [*(extra or []), "--bare"]
         stop_event = getattr(args, "stop_event", None)
+        self._execution_stop_event = stop_event
         # Set ONLY by the real 7×24 daemon's own namespace builder (see
         # ``daemon/life_worker.py:_runner_namespace``) — never by the
         # front-door quick-reply runner
@@ -200,6 +201,11 @@ class _RunnerConstructionMixin:
         )
 
         def _stop_reason() -> str | None:
+            from ._runtime_interrupt import current_execution_interrupt_provider
+
+            scoped = current_execution_interrupt_provider()
+            if scoped is not None:
+                return scoped()
             if stop_event is not None and stop_event.is_set():
                 return "daemon stop requested"
             if self._enable_mission_abort_signal:

@@ -72,6 +72,74 @@ without another model call. A hold without cancellation retains its full retry
 delay and retries only the failed role. Tests use both a controlled sleep entry
 and real short sleeps through the complete SkillLoop path.
 
+## Ownership boundaries
+
+The accounting worker and role prompt reads have separate lifetimes. Their
+ownership rules are documented below so cancellation changes can be reviewed
+without treating the whole runner as a single black box.
+
+### Gateway accounting ownership
+
+`trial/gateway.py` owns HTTP admission, provider dispatch and response selection.
+`trial/gateway_accounting.py` owns bounded billing leases and a single SQLite
+worker. A cancelled HTTP request releases its HTTP slot promptly; its billing
+lease remains owned until any late reservation, settlement and upstream response
+close finish. Repeated cancellation therefore cannot create an unlimited worker
+queue. `trial/gateway_observation_queue.py` coalesces optional status snapshots
+with a separate bound and never makes HTTP wait for those snapshots.
+
+`trial/store.py` remains the accounting authority. A durable operation key makes
+reservation replay idempotent and links cleanup to a reservation even when its
+ID never reached the HTTP caller. The provider may be called only after a
+`submitted` intent commits. On restart, an active managed `reserved` operation
+can be refunded; `submitted` and legacy interrupted work remain conservatively
+charged. Submission intent alone does not prove a provider received the call.
+Terminal settlement fixes the charge and TPM expiry once.
+
+Each lease freezes its selected usage before asynchronous cleanup starts.
+Cancellation or a later fallback cannot replace known usage with an unknown
+estimate. Successful JSON/SSE completion waits for settlement within its
+deadline. Cancelled, timed out or failed streams detach from cleanup while the
+gateway keeps ownership. A durable settlement failure makes health report
+`billing_recovery_required` and blocks new model admissions until recovery.
+
+Lifespan shutdown rejects new request owners and drains requests, leases,
+response closes and observations before releasing `gateway.lock`. Tests and
+operators use `accounting.wait_idle()` to establish quiescence; observing zero
+active rows before a blocked reservation commits is insufficient. The worker's
+SQLite transaction timeout still applies: cancelling HTTP does not kill a
+transaction already running in its worker.
+
+### Role prompt reads
+
+Each ordinary `SkillLoop.execute` receives a retained interrupt provider with
+the mission identity and Manager root fixed at entry. Prompt preparation and
+the backend share its first observed reason, including one-shot mission aborts.
+The provider expires when that execution exits. Backend callback translation
+must preserve this context for watchdog threads, including threads that do not
+inherit Python context variables; an old callback must never consume the next
+mission's mailbox.
+
+Engineer/Reviewer required OperatorContext projection reads and optional
+experience recall use cancellation-aware lock acquisition only around prompt preparation. Once
+acquired, one-time instruction consumption remains atomic. Required context
+failures retain their typed error unless an actual interrupt is available to
+the gateway. Settlement does not inherit a cancelled file-lock budget.
+
+A knowledge-cache read under a prompt lock budget uses a short SQLite busy wait.
+BUSY/LOCKED means another writer owns the database, not that the cache is
+corrupt: recall can fall back to current canonical Markdown without deleting or
+rebuilding that writer's cache. These boundaries do not make every filesystem
+operation or non-cooperating custom backend interruptible.
+
+Nonempty transient operator-message intake is a separate durability boundary.
+Its inbox cursor has already advanced before classification and directive
+persistence. Cancelling that append could lose the operator's instruction, so
+this path retains its existing complete write boundary and up to 30-second
+lock wait. Prompt-read timing acceptance excludes this boundary. Removing that
+remaining Stop delay requires an acknowledged inbox claim or durable replay
+protocol before making intake cancellation-aware.
+
 ## Verification
 
 `tests/webapi/test_message_requests.py` checks identity, capacity and ordering.

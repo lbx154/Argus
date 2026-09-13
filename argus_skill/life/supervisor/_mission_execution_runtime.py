@@ -112,12 +112,15 @@ def _refreshes_mission_prelude(runner: Any) -> bool:
 
 
 def _mission_memory_prelude(memory: Any, item: BacklogItem, *, stop_event: Any = None) -> str:
-    from ...core.run_gateway import run_interrupt_scope
+    from ...core.file_lock import bounded_file_lock_wait
+    from ...core.run_gateway import current_run_interrupt_reason, run_interrupt_scope
 
     # The existing scope preserves request cancellation; this child scope also
     # lets both Engineer and Planner memory preparation observe daemon stop.
     with run_interrupt_scope(
         lambda: "daemon stop requested" if stop_event is not None and stop_event.is_set() else None
+    ), bounded_file_lock_wait(
+        timeout_seconds=float("inf"), cancelled=lambda: bool(current_run_interrupt_reason()),
     ):
         try:
             return memory.render_prelude(objective=item.objective)
