@@ -48,6 +48,31 @@ for a lock. Cancelling that write without a reliable replay or claim/commit
 protocol can lose the instruction. This boundary needs separate work and must
 not be included in prompt-read Stop timing claims.
 
+The exact `ffc9a212b6` full backend run completed all 10,475 collected tests:
+10,416 passed, 56 skipped and three failed. Two failures were obsolete callback
+object-identity assertions after context-preserving wrapping; their replacements
+exercise real threads and the captured request identity. The third exposed
+Planner optional-memory cancellation escaping as a task exception. Its narrow
+helper correction preserves genuine required-context errors and handles both
+current and legacy memory interfaces; 122 related tests and 14 independent
+checks passed. The failed full run, its image and its state-copy receipts remain
+on `ffc9a212b6`, which was never promoted.
+
+A private fault injection separately confirmed the inbox durability defect:
+after the offset advanced, canonical intake failed; restoring storage and
+retrying completed the task without applying the instruction to its ledger or
+prompts. The raw inbox message remained on disk. A claim/application/acknowledgement
+design is recorded privately, including cross-scope idempotence and retention;
+it is not implemented or included in Stop acceptance.
+
+The read-only observation at 2026-09-13 03:26:54 UTC found clean live
+`6f7e2bbb29f0df4b28a68da5dfc62ea75f35f9a7`, matching metadata and 11 ready APIs.
+It adds only two CSS changes to 317; the complete backend tree is identical.
+Merge checkpoint `5d78ef198a` preserves its shared display-math scrolling. The
+frontend build and all 116 files / 1,049 tests passed at that checkpoint. New
+candidate evidence must retain the exact 6f origin instead of relabeling a 317
+or 8f8 state copy. The retained TUI is still the same bytes declared from 47c.
+
 ## Required outcomes
 
 | Requirement | Evidence required for completion | Current state |

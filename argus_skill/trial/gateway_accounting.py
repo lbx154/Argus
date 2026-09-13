@@ -25,12 +25,69 @@ class RequestMonitor:
         self.task = asyncio.current_task()
         self.initial_cancelling = self.task.cancelling() if self.task else 0
         self.interrupted = False
+        self.disconnect_seen = False
+        self._watch_stop = False
+        self._watcher = None
+        self._watcher_done = None
         accounting._requests.add(self)
         accounting._idle.clear()
 
     def done(self):
+        self.stop_disconnect_watch()
         self.accounting._requests.discard(self)
         self.accounting._signal_idle()
+
+    def start_disconnect_watch(self):
+        """Only an admitted lease may own this upstream-wait monitor."""
+        self.check_cancelled()
+        if self._watcher is not None:
+            raise RuntimeError("The request already owns a disconnect watcher")
+        self._watcher_done = asyncio.get_running_loop().create_future()
+        self._watcher = asyncio.create_task(self._watch_disconnect(), name="argus-upstream-disconnect")
+
+        def watched(done):
+            if not done.cancelled() and done.exception() is not None:
+                log.error("Gateway disconnect watcher failed", exc_info=done.exception())
+                self.interrupted = True
+                if self.task is not None and not self.task.done():
+                    self.task.cancel()
+            self._watcher_done.set_result(None)
+
+        self._watcher.add_done_callback(watched)
+
+    def stop_disconnect_watch(self):
+        # Request.is_disconnected may consume a cancellation in its AnyIO
+        # scope. The flag and the watcher's own cancelling count still stop it.
+        self._watch_stop = True
+        if self._watcher is not None and not self._watcher.done():
+            self._watcher.cancel()
+
+    async def _watch_disconnect(self):
+        watcher = asyncio.current_task()
+        initial_cancelling = watcher.cancelling() if watcher else 0
+
+        def stopped():
+            return self._watch_stop or self.accounting.closing or (
+                watcher is not None and watcher.cancelling() > initial_cancelling
+            ) or self.task is None or self.task.done() or self.task.cancelling() > self.initial_cancelling
+
+        while not stopped():
+            disconnected = await self.request.is_disconnected()
+            if stopped():
+                return
+            if disconnected:
+                self.disconnect_seen = True
+                self.interrupted = True
+                self.task.cancel()
+                return
+            await asyncio.sleep(0.05)
+
+    async def wait_watch_stopped(self):
+        if self._watcher_done is not None:
+            # The callback resolves this signal even if the watcher task was
+            # cancelled before it started. Expected watcher cancellation must
+            # never cancel accounting cleanup or bypass lease release.
+            await _finish_owned(self._watcher_done)
 
     def check_cancelled(self):
         if self.accounting.closing or (
@@ -237,6 +294,7 @@ class AccountingLease:
         return self.inflight
 
     def finish(self):
+        self.monitor.stop_disconnect_watch()
         if self.response is not None and self.response_close is None:
             self.response_close = asyncio.create_task(self.response.aclose())
             self.accounting.own_response_close(self.response_close)
@@ -283,4 +341,5 @@ class AccountingLease:
                     await _finish_owned(self.response_close)
                 except Exception:
                     pass  # Already reported by the response-close registry.
+            await self.monitor.wait_watch_stopped()
             self.accounting.release(self)

@@ -24,6 +24,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -2026,11 +2027,14 @@ def test_run_exec_forwards_watchdog_hooks(
 
     monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
-    interrupt_calls: list[None] = []
+    request_identity = ContextVar("watchdog_request", default="outside")
+    stopped = threading.Event()
+    interrupt_calls: list[str] = []
 
     def interrupt_provider() -> str | None:
-        interrupt_calls.append(None)
-        return None
+        identity = request_identity.get()
+        interrupt_calls.append(identity)
+        return f"stop {identity}" if stopped.is_set() else None
 
     def inactivity_callback(snapshot: Any) -> str | None:  # noqa: ARG001
         return None
@@ -2043,10 +2047,23 @@ def test_run_exec_forwards_watchdog_hooks(
         watchdog_stalled_idle_seconds=300,
         watchdog_hard_idle_seconds=600,
     )
-    backend.run_exec(prompt="x", options=options, run_label="main")
+    token = request_identity.set("current-request")
+    try:
+        backend.run_exec(prompt="x", options=options, run_label="main")
+    finally:
+        request_identity.reset(token)
 
     forwarded = captured["options"]
-    assert forwarded.external_interrupt_reason_provider is interrupt_provider
+    callback = forwarded.external_interrupt_reason_provider
+    assert callable(callback)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        assert pool.submit(request_identity.get).result(timeout=1) == "outside"
+        assert pool.submit(callback).result(timeout=1) is None
+        stopped.set()
+        assert pool.submit(callback).result(timeout=1) == "stop current-request"
+        assert pool.submit(request_identity.get).result(timeout=1) == "outside"
+    assert interrupt_calls and set(interrupt_calls) == {"current-request"}
+    assert request_identity.get() == "outside"
     assert forwarded.inactivity_callback is inactivity_callback
     assert forwarded.watchdog_soft_idle_seconds == 120
     assert forwarded.watchdog_stalled_idle_seconds == 300
@@ -2092,7 +2109,15 @@ def test_consumed_interrupt_returns_canonical_result_without_starting_provider(
 def test_run_exec_applies_default_watchdog_hooks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    default_interrupt = lambda: None
+    request_identity = ContextVar("default_watchdog_request", default="outside")
+    stopped = threading.Event()
+    interrupt_calls: list[str] = []
+
+    def default_interrupt() -> str | None:
+        identity = request_identity.get()
+        interrupt_calls.append(identity)
+        return f"stop {identity}" if stopped.is_set() else None
+
     backend = AgentCliBackend(
         backend="codex",
         default_interrupt_reason_provider=default_interrupt,
@@ -2115,14 +2140,27 @@ def test_run_exec_applies_default_watchdog_hooks(
 
     monkeypatch.setattr(backend._runner.__class__, "run_exec", fake_run_exec, raising=True)
 
-    backend.run_exec(
-        prompt="x",
-        options=RunnerOptions(model="gpt-5.4-mini"),
-        run_label="main",
-    )
+    token = request_identity.set("default-request")
+    try:
+        backend.run_exec(
+            prompt="x",
+            options=RunnerOptions(model="gpt-5.4-mini"),
+            run_label="main",
+        )
+    finally:
+        request_identity.reset(token)
 
     forwarded = captured["options"]
-    assert forwarded.external_interrupt_reason_provider is default_interrupt
+    callback = forwarded.external_interrupt_reason_provider
+    assert callable(callback)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        assert pool.submit(request_identity.get).result(timeout=1) == "outside"
+        assert pool.submit(callback).result(timeout=1) is None
+        stopped.set()
+        assert pool.submit(callback).result(timeout=1) == "stop default-request"
+        assert pool.submit(request_identity.get).result(timeout=1) == "outside"
+    assert interrupt_calls and set(interrupt_calls) == {"default-request"}
+    assert request_identity.get() == "outside"
     assert forwarded.watchdog_soft_idle_seconds == 300
     assert forwarded.watchdog_stalled_idle_seconds == 900
     assert forwarded.watchdog_hard_idle_seconds == 1800

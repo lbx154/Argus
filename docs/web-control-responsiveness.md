@@ -103,6 +103,23 @@ deadline. Cancelled, timed out or failed streams detach from cleanup while the
 gateway keeps ownership. A durable settlement failure makes health report
 `billing_recovery_required` and blocks new model admissions until recovery.
 
+An admitted lease also owns one disconnect watcher during upstream preparation,
+response headers and JSON body reads. A real `http.disconnect` cancels the
+current request task while it awaits upstream I/O. The watcher stops
+synchronously before SSE handoff, where StreamingResponse takes over disconnect
+listening. No new await splits response ownership from handoff. Cleanup collects
+the watcher before returning billing capacity, including cancellation consumed
+by AnyIO or cancellation before the watcher started.
+
+The request still owns a transport that consumes cancellation and returns late:
+its response is closed without reading a late body, and shutdown retains the
+process lock until cleanup ends. This is cooperative cancellation, not forced
+termination of arbitrary transport code. Once valid JSON usage has been read,
+it is captured before the final disconnect check so a late disconnect cannot
+replace known usage with the reservation estimate. The current authorization
+method reads its vault synchronously; a synthetic awaited-authorization barrier
+does not prove that vault I/O itself became interruptible.
+
 Lifespan shutdown rejects new request owners and drains requests, leases,
 response closes and observations before releasing `gateway.lock`. Tests and
 operators use `accounting.wait_idle()` to establish quiescence; observing zero

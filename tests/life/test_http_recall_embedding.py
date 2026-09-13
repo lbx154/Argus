@@ -441,6 +441,7 @@ def test_supervisor_stop_event_interrupts_both_current_memory_providers(tmp_path
     from types import SimpleNamespace
 
     from argus_skill.apps._runtime_backends import _Outcome
+    from argus_skill.core.file_lock import current_file_lock_wait_budget
     from argus_skill.core.run_gateway import current_run_interrupt_reason
     from argus_skill.life.memory import BacklogItem
     from argus_skill.life.supervisor import LifeSupervisor, LifeSupervisorConfig
@@ -458,6 +459,7 @@ def test_supervisor_stop_event_interrupts_both_current_memory_providers(tmp_path
             observed.append(provider())
             # The temporary stop scope must not leak into an unrelated call.
             assert current_run_interrupt_reason() is None
+            assert current_file_lock_wait_budget() is None
             return _Outcome(success=False, status="aborted")
 
     supervisor = LifeSupervisor(memory=memory, runner=Runner(),
@@ -491,6 +493,83 @@ def test_supervisor_stop_event_interrupts_both_current_memory_providers(tmp_path
     assert memory.failure_experiences.get(entry.id).state == "active"
     with closing(sqlite3.connect(memory.project_root / "embedding/usage.sqlite3")) as db:
         assert db.execute("SELECT SUM(requests) FROM budget").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("retain_parent", [False, True])
+def test_mission_memory_prelude_recognizes_one_shot_lock_cancellation(tmp_path, legacy, retain_parent):
+    from types import SimpleNamespace
+
+    from argus_skill.core.file_lock import current_file_lock_wait_budget, exclusive_file_lock
+    from argus_skill.core.run_gateway import current_run_interrupt_reason, run_interrupt_scope
+    from argus_skill.life.memory import BacklogItem
+    from argus_skill.life.supervisor._mission_execution_runtime import _mission_memory_prelude
+
+    calls = 0
+    reason = "operator abort requested: one-shot memory stop"
+
+    def interrupt():
+        nonlocal calls
+        calls += 1
+        return reason if calls == 1 else None
+
+    def read_memory():
+        with (tmp_path / "recall.lock").open("a+b") as handle:
+            with exclusive_file_lock(handle, lock_name="optional memory read"):
+                pytest.fail("cancelled memory must not acquire the read lock")
+
+    def render_current(*, objective):
+        assert objective == "database cache"
+        return read_memory()
+
+    memory = SimpleNamespace(render_prelude=read_memory if legacy else render_current)
+    item = BacklogItem.new(title="next", objective="database cache")
+    with run_interrupt_scope(interrupt, retain_first_reason=retain_parent):
+        assert _mission_memory_prelude(memory, item) == ""
+        assert calls == 1
+        assert current_file_lock_wait_budget() is None
+        # A helper's retained reason ends with the helper. Continued retention
+        # belongs to the surrounding execution scope, when explicitly enabled.
+        assert current_run_interrupt_reason() == (reason if retain_parent else None)
+        assert calls == (1 if retain_parent else 2)
+    assert current_run_interrupt_reason() is None
+    assert current_file_lock_wait_budget() is None
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("failure", ["unknown-cancellation", "mandatory-context", "unrelated"])
+def test_mission_memory_prelude_preserves_unclassified_and_mandatory_failures(legacy, failure):
+    from types import SimpleNamespace
+
+    from argus_skill.core.file_lock import FileLockCancelled, current_file_lock_wait_budget
+    from argus_skill.core.operator_context import OperatorContextUnavailable
+    from argus_skill.core.run_gateway import current_run_interrupt_reason, run_interrupt_scope
+    from argus_skill.life.memory import BacklogItem
+    from argus_skill.life.supervisor._mission_execution_runtime import _mission_memory_prelude
+
+    error = {
+        "unknown-cancellation": FileLockCancelled("unattributed cancellation"),
+        "mandatory-context": OperatorContextUnavailable("required context cannot be read"),
+        "unrelated": ValueError("invalid memory state"),
+    }[failure]
+
+    def read_memory():
+        raise error
+
+    def render_current(*, objective):
+        assert objective == "database cache"
+        return read_memory()
+
+    memory = SimpleNamespace(render_prelude=read_memory if legacy else render_current)
+    item = BacklogItem.new(title="next", objective="database cache")
+    reason = None if failure == "unknown-cancellation" else "daemon stop requested"
+    with run_interrupt_scope(lambda: reason):
+        with pytest.raises(type(error)) as raised:
+            _mission_memory_prelude(memory, item)
+        assert raised.value is error
+        assert current_file_lock_wait_budget() is None
+    assert current_run_interrupt_reason() is None
+    assert current_file_lock_wait_budget() is None
 
 
 def test_batch_budget_preserves_successful_work_for_incremental_reindex(tmp_path, embedding_server):

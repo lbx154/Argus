@@ -334,6 +334,7 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
             async with asyncio.timeout(settings.timeout) as provider_timeout:
                 billing_deadline = provider_timeout.when()
                 await monitor.check()
+                monitor.start_disconnect_watch()
                 base_url, headers = await copilot.authorization()
                 await monitor.check()
                 await monitor.wait(lease.submit())
@@ -355,6 +356,10 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                         raise TrialError(400, "provider_rejected_request", "Trial provider rejected the request format; retrying unchanged will not help.")
                     raise TrialError(503 if response.status_code == 429 else 502, "provider_unavailable", "Trial provider could not complete the request.")
                 if payload["stream"]:
+                    # StreamingResponse owns downstream disconnect handling
+                    # after handoff. Stop our upstream-header watcher synchronously;
+                    # no await may split handed_off from response ownership.
+                    monitor.stop_disconnect_watch()
                     handed_off = True
                     attempt.streaming()
                     return GatewayStreamingResponse(
@@ -369,6 +374,9 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
                 lease.actual = actual
                 if actual is None:
                     raise TrialError(502, "provider_usage_missing", "Provider did not report token usage; reservation retained.")
+                # Preserve authoritative usage already in the completed body
+                # before observing a cancellation swallowed by its transport.
+                await monitor.check()
                 result_response = JSONResponse(result, headers={"Cache-Control": "no-store"})
                 successful_result = True
                 return result_response
@@ -387,6 +395,9 @@ def create_app(settings: Settings, *, transport: httpx.AsyncBaseTransport | None
             raise TrialError(502, "provider_protocol_error", "Invalid provider completion response.") from None
         except asyncio.CancelledError:
             detached = True
+            if monitor.disconnect_seen:
+                select_outcome("disconnected", selected_status=499, error_code="client_disconnected")
+                raise TrialError(499, "client_disconnected", "Client disconnected during model request.") from None
             select_outcome("cancelled")
             raise
         except sqlite3.Error:
