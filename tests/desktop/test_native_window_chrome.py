@@ -129,7 +129,8 @@ def test_embedded_cockpit_avoids_duplicate_splash_and_heavy_offscreen_paint() ->
 def test_cockpit_theme_can_update_native_chrome_without_overlay_controls() -> None:
     host = (TAURI_ROOT / "src-tauri" / "src" / "lib.rs").read_text(encoding="utf-8")
     shell = (TAURI_ROOT / "src" / "main.ts").read_text(encoding="utf-8")
-    cockpit = (ROOT / "frontend" / "web" / "src" / "useWorkbenchLayout.ts").read_text(encoding="utf-8")
+    layout = (ROOT / "frontend" / "web" / "src" / "useWorkbenchLayout.ts").read_text(encoding="utf-8")
+    cockpit = (ROOT / "frontend" / "web" / "src" / "useWorkbenchTheme.ts").read_text(encoding="utf-8")
 
     assert "apply_window_appearance" in host
     assert "set_window_theme" in host
@@ -142,6 +143,8 @@ def test_cockpit_theme_can_update_native_chrome_without_overlay_controls() -> No
     assert "DwmSetWindowAttribute" in host
     assert "DWMWA_CAPTION_COLOR" in host
     assert "DWMWA_TEXT_COLOR" in host
+    assert "import { useWorkbenchTheme } from './useWorkbenchTheme'" in layout
+    assert "const { themeMode, themeStyle, cycleTheme } = useWorkbenchTheme()" in layout
     assert "argus:theme-changed" in cockpit
 
 
