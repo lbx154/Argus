@@ -5,6 +5,7 @@ import { api, type ArtifactInfo } from '../api';
 import { Button, RawDisclosure } from '../components/primitives';
 import { Modal, ModalHeader } from '../components/Modal';
 import { useI18n } from '../i18n';
+import { readerFoundationTitle } from '../lib/artifactPresentation';
 import { ReaderExplanationStatus } from './ReaderExplanation';
 import { beginExplanationProgress, useExplanationProgress } from './progress';
 import { foundationChoice, foundationListKey, foundationQuestionDraft, saveFoundationRequest, selectFoundation, useFoundationList, useFoundationRequest, useSelectedFoundation, type FoundationRequest } from './foundation';
@@ -104,9 +105,9 @@ export function QuestionFoundation({ sid, objective, taskId, taskTitle, readOnly
           aria-label={text('选择基础说明', 'Choose a foundation explanation')} value={selected.id ?? ''}
           onChange={event => selectFoundation(client, sid, language, event.target.value || null)}>
           <option value="">{text('选择你正在理解的问题', 'Choose the question you are studying')}</option>
-          {notes.map(item => <option key={item.path} value={item.reader_foundation!.id}
+          {notes.map(item => <option key={item.path} value={item.reader_foundation!.id} title={item.reader_foundation!.question}
             disabled={!item.exists || item.reader_foundation!.state !== 'complete'}>
-            {item.reader_foundation!.question}{item.reader_foundation!.state === 'generating' ? text(' · 正在整理', ' · preparing')
+            {readerFoundationTitle(item.reader_foundation!)}{item.reader_foundation!.state === 'generating' ? text(' · 正在整理', ' · preparing')
               : !item.exists ? text(' · 尚未完成', ' · not completed') : ''}
           </option>)}
         </select>

@@ -14,7 +14,7 @@ import { Spinner } from './primitives';
 import { useI18n } from '../i18n';
 import { PdfPreview } from './PdfPreview';
 import { setDesktopLargePreview } from '../lib/desktopBridge';
-import { isMarkdownArtifact } from '../lib/artifactPresentation';
+import { isMarkdownArtifact, readerFoundationTitle } from '../lib/artifactPresentation';
 import { downloadBlob } from '../lib/downloadBlob';
 
 /** Authenticated preview/download for one registered project file. */
@@ -123,7 +123,7 @@ export function ArtifactModal({
       <div className={`flex shrink-0 items-start gap-2 border-b border-line px-4 py-3 sm:px-5 ${!path ? "hidden" : ""}`}>
         <div className="min-w-0 flex-1">
           <h2 className={`truncate text-sm font-semibold text-ink ${foundation ? '' : 'font-mono'}`} title={foundation?.question ?? info?.storage_path ?? info?.path ?? path ?? ''}>
-            {foundation?.question ?? info?.name ?? path ?? t('artifact.title')}
+            {foundation ? readerFoundationTitle(foundation) : info?.name ?? path ?? t('artifact.title')}
           </h2>
           <p className="mt-0.5 truncate text-[11px] text-ink-faint">
             {foundation ? (zh ? '背景说明 · 不计作研究进展' : 'Background explanation · separate from research progress')

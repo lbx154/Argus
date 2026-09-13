@@ -10,3 +10,7 @@ export function isMarkdownArtifact(artifact: ArtifactPresentation): boolean {
   if (artifact.mime?.split(';', 1)[0].trim().toLowerCase() === 'text/markdown') return true;
   return /\.(?:md|markdown)$/i.test(artifact.name || artifact.path || '');
 }
+
+export function readerFoundationTitle(foundation: { question: string; title?: string }): string {
+  return foundation.title?.trim() || foundation.question;
+}
